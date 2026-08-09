@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from ..runtime import FunctionNode
+from ..core.runtime import FunctionNode
 
 
 @dataclass(frozen=True)
@@ -34,9 +34,7 @@ class _ResumableCFG:
     node_points: dict[int, int]
 
     @classmethod
-    def from_function(
-        cls, function: FunctionNode | ast.GeneratorExp
-    ) -> "_ResumableCFG":
+    def from_function(cls, function: FunctionNode | ast.GeneratorExp) -> "_ResumableCFG":
         return _ResumableCFGBuilder().build(function)
 
     def point_for(self, node: ast.AST) -> int | None:
@@ -167,9 +165,7 @@ class _SuspensionFinder(ast.NodeVisitor):
 
 
 def _contains_suspension(node: ast.AST) -> bool:
-    if isinstance(
-        node, (ast.Yield, ast.YieldFrom, ast.Await, ast.AsyncFor, ast.AsyncWith)
-    ):
+    if isinstance(node, (ast.Yield, ast.YieldFrom, ast.Await, ast.AsyncFor, ast.AsyncWith)):
         return True
     if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
         if any(generator.is_async for generator in node.generators):

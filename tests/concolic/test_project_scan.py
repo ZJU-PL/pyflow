@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pyflow.concolic.catalog import discover_targets
-from pyflow.concolic.inputgen import InputSynthesizer
-from pyflow.concolic.project_scan import ScanStatus, scan_project
+from pyflow.concolic.project import (
+    InputSynthesizer,
+    ScanStatus,
+    discover_targets,
+    scan_project,
+)
 
 
 def test_catalog_discovers_functions_without_importing_module(tmp_path):

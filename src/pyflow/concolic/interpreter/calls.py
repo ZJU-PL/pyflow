@@ -16,7 +16,7 @@ from pathlib import Path
 
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     FunctionNode,
     UnsupportedSyntaxError,
@@ -63,8 +63,8 @@ from ..runtime import (
     _URLParseValue,
 )
 
-from ..module_loader import _contains_yield, _import_local_module
-from ..support import _concrete
+from ..core.modules import _contains_yield, _import_local_module
+from ..core.support import _concrete
 
 
 class _CallMixin:
@@ -111,9 +111,7 @@ class _CallMixin:
         current_instance: _InstanceValue | None = None,
     ) -> Any:
         if module is None:
-            return self._call_function(
-                function, args, keywords, current_class, current_instance
-            )
+            return self._call_function(function, args, keywords, current_class, current_instance)
         previous_functions = self._functions
         previous_classes = self._classes
         previous_globals = self._globals
@@ -123,9 +121,7 @@ class _CallMixin:
         self._globals = module.globals
         self._current_module = module
         try:
-            return self._call_function(
-                function, args, keywords, current_class, current_instance
-            )
+            return self._call_function(function, args, keywords, current_class, current_instance)
         finally:
             self._functions = previous_functions
             self._classes = previous_classes
@@ -136,9 +132,7 @@ class _CallMixin:
         self, value: _FunctionValue, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
         if value.module is not None:
-            return self._call_scoped_function(
-                value.definition, args, keywords, value.module
-            )
+            return self._call_scoped_function(value.definition, args, keywords, value.module)
         if isinstance(value.definition, ast.Lambda):
             bound = self._bind_arguments(value.definition, args, keywords)
             previous_env = self.env
@@ -158,9 +152,7 @@ class _CallMixin:
                 self._closure_env = previous_closure_env
         bound = self._bind_arguments(value.definition, args, keywords)
         environment = {**value.closure, **bound}
-        if _contains_yield(value.definition) or isinstance(
-            value.definition, ast.AsyncFunctionDef
-        ):
+        if _contains_yield(value.definition) or isinstance(value.definition, ast.AsyncFunctionDef):
             return self._make_resumable_frame(
                 value.definition,
                 environment,
@@ -243,12 +235,8 @@ class _CallMixin:
         extra_keywords: dict[str, Any] = {}
         for name, value in keywords.items():
             if name in positional_only:
-                raise ConcolicError(
-                    f"positional-only argument passed as keyword: {name!r}"
-                )
-            if name in regular or name in {
-                parameter.arg for parameter in signature.kwonlyargs
-            }:
+                raise ConcolicError(f"positional-only argument passed as keyword: {name!r}")
+            if name in regular or name in {parameter.arg for parameter in signature.kwonlyargs}:
                 if name in bound:
                     raise ConcolicError(f"multiple values for argument {name!r}")
                 bound[name] = value
@@ -259,9 +247,7 @@ class _CallMixin:
             if parameter.arg not in bound:
                 if index < default_offset:
                     raise ConcolicError(f"missing required argument {parameter.arg!r}")
-                bound[parameter.arg] = self._evaluate(
-                    signature.defaults[index - default_offset]
-                )
+                bound[parameter.arg] = self._evaluate(signature.defaults[index - default_offset])
         if signature.vararg is not None:
             bound[signature.vararg.arg] = _TupleValue(tuple(args[len(positional) :]))
         if signature.kwarg is not None:
@@ -272,9 +258,7 @@ class _CallMixin:
         for parameter, default in zip(signature.kwonlyargs, signature.kw_defaults):
             if parameter.arg not in bound:
                 if default is None:
-                    raise ConcolicError(
-                        f"missing required keyword-only argument {parameter.arg!r}"
-                    )
+                    raise ConcolicError(f"missing required keyword-only argument {parameter.arg!r}")
                 bound[parameter.arg] = self._evaluate(default)
         return bound
 
@@ -285,13 +269,9 @@ class _CallMixin:
             if name == "__aiter__" and not args and not keywords:
                 return value
             if name == "__anext__" and not args and not keywords:
-                return _AsyncGeneratorOperation(
-                    value, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                return _AsyncGeneratorOperation(value, _ResumeOperation(_ResumeKind.NEXT))
             if name == "asend" and len(args) == 1 and not keywords:
-                return _AsyncGeneratorOperation(
-                    value, _ResumeOperation(_ResumeKind.SEND, args[0])
-                )
+                return _AsyncGeneratorOperation(value, _ResumeOperation(_ResumeKind.SEND, args[0]))
             if name == "athrow" and 1 <= len(args) <= 3 and not keywords:
                 exception = args[0]
                 if isinstance(exception, _ExceptionType):
@@ -305,9 +285,7 @@ class _CallMixin:
             if name == "aclose" and not args and not keywords:
                 return _AsyncGeneratorOperation(
                     value,
-                    _ResumeOperation(
-                        _ResumeKind.THROW, _TargetException("GeneratorExit")
-                    ),
+                    _ResumeOperation(_ResumeKind.THROW, _TargetException("GeneratorExit")),
                     closing=True,
                 )
         if isinstance(value, _IteratorValue):
@@ -315,16 +293,12 @@ class _CallMixin:
                 return value
             if (
                 name == "__next__"
-                and not (
-                    isinstance(value, _ResumableFrame) and value.is_async_generator
-                )
+                and not (isinstance(value, _ResumableFrame) and value.is_async_generator)
                 and not keywords
             ):
                 if args:
                     raise ConcolicError("iterator.__next__() takes no arguments")
-                resumed = self._resume_iterator(
-                    value, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                resumed = self._resume_iterator(value, _ResumeOperation(_ResumeKind.NEXT))
                 if isinstance(resumed, _Returned):
                     raise _TargetException("StopIteration", str(resumed.value or ""))
                 return resumed.value
@@ -336,9 +310,7 @@ class _CallMixin:
             ):
                 if len(args) != 1:
                     raise ConcolicError("generator.send() takes one argument")
-                resumed = self._resume_iterator(
-                    value, _ResumeOperation(_ResumeKind.SEND, args[0])
-                )
+                resumed = self._resume_iterator(value, _ResumeOperation(_ResumeKind.SEND, args[0]))
                 if isinstance(resumed, _Returned):
                     raise _TargetException("StopIteration", str(resumed.value or ""))
                 return resumed.value
@@ -374,23 +346,21 @@ class _CallMixin:
             if name == "done" and not args and not keywords:
                 return _BoolValue(value.done, self._z3.BoolVal(value.done))
             if name == "cancelled" and not args and not keywords:
-                cancelled = value.done and isinstance(
-                    value.exception, _TargetException
-                ) and value.exception.name == "CancelledError"
+                cancelled = (
+                    value.done
+                    and isinstance(value.exception, _TargetException)
+                    and value.exception.name == "CancelledError"
+                )
                 return _BoolValue(cancelled, self._z3.BoolVal(cancelled))
             if name == "result" and not args and not keywords:
                 if not value.done:
-                    raise _TargetException(
-                        "InvalidStateError", "result is not ready"
-                    )
+                    raise _TargetException("InvalidStateError", "result is not ready")
                 if value.exception is not None:
                     raise value.exception
                 return value.result
             if name == "exception" and not args and not keywords:
                 if not value.done:
-                    raise _TargetException(
-                        "InvalidStateError", "exception is not set"
-                    )
+                    raise _TargetException("InvalidStateError", "exception is not set")
                 if isinstance(value.exception, _TargetException) and (
                     value.exception.name == "CancelledError"
                 ):
@@ -415,13 +385,9 @@ class _CallMixin:
                         "RuntimeError", "generator context manager cannot be re-entered"
                     )
                 value.entered = True
-                resumed = self._resume_iterator(
-                    value.iterator, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                resumed = self._resume_iterator(value.iterator, _ResumeOperation(_ResumeKind.NEXT))
                 if isinstance(resumed, _Returned):
-                    raise _TargetException(
-                        "RuntimeError", "contextmanager generator did not yield"
-                    )
+                    raise _TargetException("RuntimeError", "contextmanager generator did not yield")
                 return resumed.value
             if name in {"__exit__", "__aexit__"} and len(args) == 3 and not keywords:
                 if value.exited:
@@ -450,9 +416,7 @@ class _CallMixin:
                         return _BoolValue(False, self._z3.BoolVal(False))
                     raise
                 if not isinstance(resumed, _Returned):
-                    raise _TargetException(
-                        "RuntimeError", "contextmanager generator did not stop"
-                    )
+                    raise _TargetException("RuntimeError", "contextmanager generator did not stop")
                 return _BoolValue(True, self._z3.BoolVal(True))
         if isinstance(value, _URLParseValue) and name == "geturl" and not args:
             if keywords:
@@ -489,13 +453,9 @@ class _CallMixin:
                 return _BoolValue(False, self._z3.BoolVal(False))
         if isinstance(value, _NamedTupleValue):
             if name == "_asdict" and not args and not keywords:
-                return _DictValue(
-                    dict(zip(value.class_value.fields, value.values, strict=True))
-                )
+                return _DictValue(dict(zip(value.class_value.fields, value.values, strict=True)))
             if name == "_replace" and not args:
-                replacements = dict(
-                    zip(value.class_value.fields, value.values, strict=True)
-                )
+                replacements = dict(zip(value.class_value.fields, value.values, strict=True))
                 if set(keywords) - set(replacements):
                     unknown = next(iter(set(keywords) - set(replacements)))
                     raise ConcolicError(f"unknown namedtuple field {unknown!r}")
@@ -516,34 +476,24 @@ class _CallMixin:
                     raise ConcolicError("namedtuple.index(x): x not in tuple")
                 return _IntValue(matches[0], self._z3.IntVal(matches[0]))
         if isinstance(value, _SummaryFunction):
-            return self._call_summary(
-                value.module, f"{value.name}.{name}", args, keywords
-            )
+            return self._call_summary(value.module, f"{value.name}.{name}", args, keywords)
         if isinstance(value, _DateTimeValue):
             if keywords:
-                raise UnsupportedSyntaxError(
-                    "datetime methods do not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError("datetime methods do not support keyword arguments")
             if name == "isoformat" and not args:
                 concrete = value.concrete.isoformat()
                 return _StringValue(concrete, self._z3.StringVal(concrete))
             if name == "strftime" and len(args) == 1:
                 concrete = value.concrete.strftime(self._to_string(args[0]).concrete)
                 return _StringValue(concrete, self._z3.StringVal(concrete))
-            if (
-                name == "date"
-                and not args
-                and isinstance(value.concrete, datetime.datetime)
-            ):
+            if name == "date" and not args and isinstance(value.concrete, datetime.datetime):
                 return _DateTimeValue(value.concrete.date())
             if name in {"weekday", "isoweekday"} and not args:
                 concrete = getattr(value.concrete, name)()
                 return _IntValue(concrete, self._z3.IntVal(concrete))
         if isinstance(value, _TimedeltaValue):
             if keywords:
-                raise UnsupportedSyntaxError(
-                    "timedelta methods do not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError("timedelta methods do not support keyword arguments")
             if name == "total_seconds" and not args:
                 concrete = value.concrete.total_seconds()
                 return _FloatValue(concrete, self._z3.RealVal(str(concrete)))
@@ -604,9 +554,7 @@ class _CallMixin:
             return self._list_method(value, name, args, keywords)
         if isinstance(value, _SetValue):
             if keywords:
-                raise UnsupportedSyntaxError(
-                    "set methods do not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError("set methods do not support keyword arguments")
             return self._set_method(value, name, args)
         if isinstance(value, _DictValue):
             return self._dict_method(value, name, args, keywords)
@@ -640,9 +588,7 @@ class _CallMixin:
                 return self._call_method(method, owner, value.instance, args, keywords)
         if isinstance(value, _ModuleValue):
             if name in value.functions:
-                return self._call_scoped_function(
-                    value.functions[name], args, keywords, value
-                )
+                return self._call_scoped_function(value.functions[name], args, keywords, value)
             if name in value.classes:
                 class_value = self._class_value(value.classes[name])
                 if isinstance(class_value, _ClassValue):
@@ -657,9 +603,7 @@ class _CallMixin:
         if isinstance(value, _RegexModule):
             if name == "compile" and 1 <= len(args) <= 2 and not keywords:
                 flags = self._as_int(args[1]).concrete if len(args) == 2 else 0
-                return _RegexPattern(
-                    re.compile(self._to_string(args[0]).concrete, flags)
-                )
+                return _RegexPattern(re.compile(self._to_string(args[0]).concrete, flags))
             if name == "escape" and len(args) == 1 and not keywords:
                 concrete = re.escape(self._to_string(args[0]).concrete)
                 return _StringValue(concrete, self._z3.StringVal(concrete))
@@ -667,9 +611,7 @@ class _CallMixin:
                 if not 2 <= len(args) <= 3:
                     raise UnsupportedSyntaxError(f"re.{name} requires a pattern")
                 flags = self._as_int(args[2]).concrete if len(args) == 3 else 0
-                pattern = _RegexPattern(
-                    re.compile(self._to_string(args[0]).concrete, flags)
-                )
+                pattern = _RegexPattern(re.compile(self._to_string(args[0]).concrete, flags))
                 return self._call_attribute(pattern, name, [args[1]], keywords)
             if name == "sub":
                 if not 3 <= len(args) <= 4:
@@ -679,12 +621,8 @@ class _CallMixin:
             if name == "split" and 2 <= len(args) <= 4 and not keywords:
                 maxsplit = self._as_int(args[2]).concrete if len(args) >= 3 else 0
                 flags = self._as_int(args[3]).concrete if len(args) == 4 else 0
-                pattern = _RegexPattern(
-                    re.compile(self._to_string(args[0]).concrete, flags)
-                )
-                return self._call_attribute(
-                    pattern, name, [args[1], self._literal(maxsplit)], {}
-                )
+                pattern = _RegexPattern(re.compile(self._to_string(args[0]).concrete, flags))
+                return self._call_attribute(pattern, name, [args[1], self._literal(maxsplit)], {})
         if (
             isinstance(value, _RegexPattern)
             and name in {"match", "search", "fullmatch"}
@@ -706,17 +644,12 @@ class _CallMixin:
                 return _ListValue(
                     [
                         _TupleValue(
-                            tuple(
-                                _StringValue(item, self._z3.StringVal(item))
-                                for item in match
-                            )
+                            tuple(_StringValue(item, self._z3.StringVal(item)) for item in match)
                         )
                         for match in matches
                     ]
                 )
-            return _ListValue(
-                [_StringValue(match, self._z3.StringVal(match)) for match in matches]
-            )
+            return _ListValue([_StringValue(match, self._z3.StringVal(match)) for match in matches])
         if isinstance(value, _RegexPattern) and name == "sub" and 2 <= len(args) <= 3:
             if keywords:
                 raise UnsupportedSyntaxError(
@@ -751,9 +684,7 @@ class _CallMixin:
             index = (
                 self._as_int(args[0]).concrete
                 if args and isinstance(args[0], _IntValue)
-                else self._to_string(args[0]).concrete
-                if args
-                else 0
+                else self._to_string(args[0]).concrete if args else 0
             )
             concrete = value.match.group(index)
             if concrete is None:
@@ -766,9 +697,7 @@ class _CallMixin:
                 )
             return _TupleValue(
                 tuple(
-                    None
-                    if item is None
-                    else _StringValue(item, self._z3.StringVal(item))
+                    None if item is None else _StringValue(item, self._z3.StringVal(item))
                     for item in value.match.groups()
                 )
             )
@@ -779,9 +708,7 @@ class _CallMixin:
                 )
             return _DictValue(
                 {
-                    key: None
-                    if item is None
-                    else _StringValue(item, self._z3.StringVal(item))
+                    key: None if item is None else _StringValue(item, self._z3.StringVal(item))
                     for key, item in value.match.groupdict().items()
                 }
             )
@@ -795,9 +722,7 @@ class _CallMixin:
         keywords: dict[str, Any],
     ) -> _ModuleValue:
         if keywords or not 1 <= len(args) <= 2:
-            raise UnsupportedSyntaxError(
-                "importlib.import_module() expects one module name"
-            )
+            raise UnsupportedSyntaxError("importlib.import_module() expects one module name")
         module_name = self._to_string(args[0]).concrete
         level = len(module_name) - len(module_name.lstrip("."))
         resolved = _import_local_module(path, module_name[level:], cache, level)

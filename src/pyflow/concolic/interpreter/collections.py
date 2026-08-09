@@ -6,7 +6,7 @@ import ast
 
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _BoolValue,
@@ -21,7 +21,7 @@ from ..runtime import (
     _TupleValue,
 )
 
-from ..support import _concrete
+from ..core.support import _concrete
 
 
 class _CollectionMethodMixin:
@@ -38,11 +38,7 @@ class _CollectionMethodMixin:
                 self._z3.SuffixOf(strings[0].symbolic, value.symbolic),
             )
         if name in {"find", "rfind", "index", "rindex"} and 1 <= len(strings) <= 3:
-            start = (
-                self._as_int(args[1])
-                if len(args) > 1
-                else _IntValue(0, self._z3.IntVal(0))
-            )
+            start = self._as_int(args[1]) if len(args) > 1 else _IntValue(0, self._z3.IntVal(0))
             end = self._as_int(args[2]).concrete if len(args) > 2 else None
             concrete = getattr(value.concrete, name.replace("index", "find"))(
                 strings[0].concrete, start.concrete, *(() if end is None else (end,))
@@ -50,9 +46,7 @@ class _CollectionMethodMixin:
             if name in {"index", "rindex"} and concrete == -1:
                 raise ConcolicError("substring not found")
             if name == "find":
-                symbolic = self._z3.IndexOf(
-                    value.symbolic, strings[0].symbolic, start.symbolic
-                )
+                symbolic = self._z3.IndexOf(value.symbolic, strings[0].symbolic, start.symbolic)
             else:
                 symbolic = self._z3.IntVal(concrete)
             return _IntValue(concrete, symbolic)
@@ -61,21 +55,29 @@ class _CollectionMethodMixin:
                 value.concrete.count(strings[0].concrete),
                 self._z3.IntVal(value.concrete.count(strings[0].concrete)),
             )
-        if name in {
-            "capitalize",
-            "casefold",
-            "lower",
-            "swapcase",
-            "title",
-            "upper",
-        } and not args:
+        if (
+            name
+            in {
+                "capitalize",
+                "casefold",
+                "lower",
+                "swapcase",
+                "title",
+                "upper",
+            }
+            and not args
+        ):
             concrete = getattr(value.concrete, name)()
             return _StringValue(concrete, self._z3.StringVal(concrete))
-        if name in {
-            "strip",
-            "lstrip",
-            "rstrip",
-        } and len(args) <= 1:
+        if (
+            name
+            in {
+                "strip",
+                "lstrip",
+                "rstrip",
+            }
+            and len(args) <= 1
+        ):
             argument = strings[0].concrete if strings else None
             concrete = (
                 getattr(value.concrete, name)(argument)
@@ -102,9 +104,7 @@ class _CollectionMethodMixin:
             return _StringValue(concrete, self._z3.StringVal(concrete))
         if name == "replace" and 2 <= len(args) <= 3:
             count = self._as_int(args[2]).concrete if len(args) == 3 else -1
-            concrete = value.concrete.replace(
-                strings[0].concrete, strings[1].concrete, count
-            )
+            concrete = value.concrete.replace(strings[0].concrete, strings[1].concrete, count)
             return _StringValue(concrete, self._z3.StringVal(concrete))
         if name in {"split", "splitlines"}:
             if name == "splitlines":
@@ -113,18 +113,14 @@ class _CollectionMethodMixin:
                 separator = strings[0].concrete if strings else None
                 count = self._as_int(args[1]).concrete if len(args) > 1 else -1
                 concrete = value.concrete.split(separator, count)
-            return _ListValue(
-                [_StringValue(item, self._z3.StringVal(item)) for item in concrete]
-            )
+            return _ListValue([_StringValue(item, self._z3.StringVal(item)) for item in concrete])
         if name == "join" and len(args) == 1:
             items = [self._to_string(item) for item in self._iter_values(args[0])]
             concrete = value.concrete.join(item.concrete for item in items)
             symbolic = self._z3.StringVal("")
             for index, item in enumerate(items):
                 symbolic = (
-                    symbolic
-                    + (value.symbolic if index else self._z3.StringVal(""))
-                    + item.symbolic
+                    symbolic + (value.symbolic if index else self._z3.StringVal("")) + item.symbolic
                 )
             return _StringValue(concrete, symbolic)
         if name == "encode" and len(args) <= 1:
@@ -133,14 +129,18 @@ class _CollectionMethodMixin:
                 return _BytesValue(value.concrete.encode(encoding))
             except UnicodeEncodeError as error:
                 raise ConcolicError(str(error)) from error
-        if name in {
-            "isalnum",
-            "isalpha",
-            "isdigit",
-            "islower",
-            "isspace",
-            "isupper",
-        } and not args:
+        if (
+            name
+            in {
+                "isalnum",
+                "isalpha",
+                "isdigit",
+                "islower",
+                "isspace",
+                "isupper",
+            }
+            and not args
+        ):
             return _BoolValue(
                 getattr(value.concrete, name)(),
                 self._z3.BoolVal(getattr(value.concrete, name)()),
@@ -205,9 +205,7 @@ class _CollectionMethodMixin:
         keywords: dict[str, Any],
     ) -> Any:
         if keywords and name != "sort":
-            raise UnsupportedSyntaxError(
-                "keyword arguments are only supported for list.sort()"
-            )
+            raise UnsupportedSyntaxError("keyword arguments are only supported for list.sort()")
         if name == "append" and len(args) == 1:
             value.values.append(args[0])
             return None
@@ -238,18 +236,12 @@ class _CollectionMethodMixin:
             if set(keywords) - {"key", "reverse"}:
                 raise UnsupportedSyntaxError("unsupported list.sort() keyword")
             key_function = keywords.get("key")
-            reverse = (
-                self._truthy(keywords["reverse"]).concrete
-                if "reverse" in keywords
-                else False
-            )
+            reverse = self._truthy(keywords["reverse"]).concrete if "reverse" in keywords else False
             value.values.sort(
                 key=(
                     _concrete
                     if key_function is None
-                    else lambda item: _concrete(
-                        self._call_value(key_function, [item], {})
-                    )
+                    else lambda item: _concrete(self._call_value(key_function, [item], {}))
                 ),
                 reverse=reverse,
             )
@@ -275,9 +267,7 @@ class _CollectionMethodMixin:
         keywords: dict[str, Any],
     ) -> Any:
         if keywords:
-            raise UnsupportedSyntaxError(
-                "deque methods do not support keyword arguments"
-            )
+            raise UnsupportedSyntaxError("deque methods do not support keyword arguments")
         if name == "appendleft" and len(args) == 1:
             value.values.insert(0, args[0])
             return None
@@ -301,10 +291,7 @@ class _CollectionMethodMixin:
         if name == "update" and args:
             for argument in args:
                 for item in self._iter_values(argument):
-                    if not any(
-                        self._equals(existing, item).concrete
-                        for existing in value.values
-                    ):
+                    if not any(self._equals(existing, item).concrete for existing in value.values):
                         value.values.append(item)
             return None
         if name in {"discard", "remove"} and len(args) == 1:
@@ -326,9 +313,7 @@ class _CollectionMethodMixin:
         self, value: _DictValue, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
         if keywords and name != "update":
-            raise UnsupportedSyntaxError(
-                "only dict.update() supports keyword arguments"
-            )
+            raise UnsupportedSyntaxError("only dict.update() supports keyword arguments")
         if isinstance(value, _CounterValue) and name == "update" and len(args) == 1:
             source = args[0]
             items = (
@@ -341,16 +326,8 @@ class _CollectionMethodMixin:
                 previous = value.values.get(key, self._literal(0))
                 value.values[key] = self._binary(previous, ast.Add(), count)
             return None
-        if (
-            isinstance(value, _CounterValue)
-            and name == "most_common"
-            and len(args) <= 1
-        ):
-            size = (
-                self._as_int(args[0]).concrete
-                if args and args[0] is not None
-                else None
-            )
+        if isinstance(value, _CounterValue) and name == "most_common" and len(args) <= 1:
+            size = self._as_int(args[0]).concrete if args and args[0] is not None else None
             entries = sorted(
                 value.values.items(),
                 key=lambda item: self._as_int(item[1]).concrete,
@@ -358,12 +335,7 @@ class _CollectionMethodMixin:
             )
             if size is not None:
                 entries = entries[:size]
-            return _ListValue(
-                [
-                    _TupleValue((self._literal(key), count))
-                    for key, count in entries
-                ]
-            )
+            return _ListValue([_TupleValue((self._literal(key), count)) for key, count in entries])
         if isinstance(value, _CounterValue) and name == "elements" and not args:
             return _ListValue(
                 [
@@ -373,19 +345,14 @@ class _CollectionMethodMixin:
                 ]
             )
         if name == "get" and 1 <= len(args) <= 2:
-            return value.values.get(
-                self._key(args[0]), args[1] if len(args) == 2 else None
-            )
+            return value.values.get(self._key(args[0]), args[1] if len(args) == 2 else None)
         if name == "keys" and not args:
             return _ListValue([self._literal(key) for key in value.values])
         if name == "values" and not args:
             return _ListValue(list(value.values.values()))
         if name == "items" and not args:
             return _ListValue(
-                [
-                    _TupleValue((self._literal(key), item))
-                    for key, item in value.values.items()
-                ]
+                [_TupleValue((self._literal(key), item)) for key, item in value.values.items()]
             )
         if name == "pop" and len(args) <= 2:
             key = self._key(args[0])
@@ -409,9 +376,7 @@ class _CollectionMethodMixin:
                     value.values.update(source.values)
                 else:
                     for pair in self._iter_values(source):
-                        if not isinstance(pair, (_ListValue, _TupleValue)) or len(
-                            pair.values
-                        ) != 2:
+                        if not isinstance(pair, (_ListValue, _TupleValue)) or len(pair.values) != 2:
                             raise UnsupportedSyntaxError(
                                 "dict.update() iterable items must have two values"
                             )

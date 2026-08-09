@@ -1,6 +1,6 @@
 """Coverage, outcomes, statistics, and search-policy regression tests."""
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -8,10 +8,7 @@ from .helpers import target_file as _target
 def test_exploration_reports_ast_node_and_branch_coverage(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    if value > 0:\n"
-        "        return 1\n"
-        "    return 0\n",
+        "def main(value):\n" "    if value > 0:\n" "        return 1\n" "    return 0\n",
     )
 
     result = explore_file(target, initial_inputs=[0])
@@ -63,10 +60,7 @@ def test_statistics_report_solver_and_search_activity(tmp_path):
     result = explore_file(
         _target(
             tmp_path,
-            "def main(value):\n"
-            "    if value == 4:\n"
-            "        return 1\n"
-            "    return 0\n",
+            "def main(value):\n" "    if value == 4:\n" "        return 1\n" "    return 0\n",
         ),
         initial_inputs=[0],
     )

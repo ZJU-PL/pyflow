@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -407,7 +407,5 @@ def test_generator_and_context_semantics_match_cpython(
         ),
     ],
 )
-def test_async_semantics_match_cpython(
-    tmp_path, source: str, inputs: tuple[Any, ...]
-):
+def test_async_semantics_match_cpython(tmp_path, source: str, inputs: tuple[Any, ...]):
     _assert_matches_cpython(tmp_path, source, inputs)

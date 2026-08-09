@@ -105,7 +105,5 @@ from .test_engine_differential import _assert_matches_cpython
         ),
     ],
 )
-def test_advanced_async_protocols_match_cpython(
-    tmp_path, source: str, inputs: tuple[Any, ...]
-):
+def test_advanced_async_protocols_match_cpython(tmp_path, source: str, inputs: tuple[Any, ...]):
     _assert_matches_cpython(tmp_path, source, inputs)

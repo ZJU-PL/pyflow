@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -57,10 +57,7 @@ def test_explorer_supports_variadic_entry_parameters(tmp_path):
 def test_explorer_generates_string_membership_input(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    if 'abc' in value:\n"
-        "        return 1\n"
-        "    return 0\n",
+        "def main(value):\n" "    if 'abc' in value:\n" "        return 1\n" "    return 0\n",
     )
 
     result = explore_file(target, initial_inputs=["x"])
@@ -111,8 +108,7 @@ def test_explorer_supports_conditional_expressions_and_range_loops(tmp_path):
 def test_explorer_preserves_python_and_or_operand_values(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    return (value and value + 1) or 9\n",
+        "def main(value):\n" "    return (value and value + 1) or 9\n",
     )
 
     result = explore_file(target, initial_inputs=[0])
@@ -180,10 +176,7 @@ def test_explorer_supports_computed_module_constants(tmp_path):
 def test_explorer_ignores_uninitialized_local_annotations(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    result: int\n"
-        "    label: str\n"
-        "    return value + 1\n",
+        "def main(value):\n" "    result: int\n" "    label: str\n" "    return value + 1\n",
     )
 
     result = explore_file(target, initial_inputs=[4])
@@ -570,10 +563,7 @@ def test_explorer_preserves_the_defining_module_scope_for_imported_methods(tmp_p
     )
     target = _target(
         tmp_path,
-        "import helper\n"
-        "\n"
-        "def main(value):\n"
-        "    return helper.Box(value).value\n",
+        "import helper\n" "\n" "def main(value):\n" "    return helper.Box(value).value\n",
     )
 
     result = explore_file(target, initial_inputs=[2])

@@ -217,9 +217,7 @@ class _ResumeExecutor(Protocol):
 class _IteratorValue:
     """Runtime iterator protocol advanced one operation at a time."""
 
-    def resume(
-        self, executor: _ResumeExecutor, operation: _ResumeOperation
-    ) -> _ResumeOutcome:
+    def resume(self, executor: _ResumeExecutor, operation: _ResumeOperation) -> _ResumeOutcome:
         raise NotImplementedError
 
 
@@ -228,9 +226,7 @@ class _SequenceIteratorValue(_IteratorValue):
     values: tuple[Any, ...]
     position: int = 0
 
-    def resume(
-        self, executor: _ResumeExecutor, operation: _ResumeOperation
-    ) -> _ResumeOutcome:
+    def resume(self, executor: _ResumeExecutor, operation: _ResumeOperation) -> _ResumeOutcome:
         del executor
         if operation.kind is _ResumeKind.CLOSE:
             self.position = len(self.values)
@@ -244,9 +240,7 @@ class _SequenceIteratorValue(_IteratorValue):
             return _Raised(exception)
         if operation.kind is _ResumeKind.SEND and operation.value is not None:
             return _Raised(
-                _TargetException(
-                    "AttributeError", "sequence iterators do not support send()"
-                )
+                _TargetException("AttributeError", "sequence iterators do not support send()")
             )
         if self.position >= len(self.values):
             return _Returned()
@@ -302,9 +296,7 @@ class _FilterIteratorValue(_IteratorValue):
         if operation.kind is _ResumeKind.SEND and operation.value is not None:
             return _Raised(_TargetException("AttributeError", "filter has no send()"))
         while True:
-            outcome = self.iterator.resume(
-                executor, _ResumeOperation(_ResumeKind.NEXT)
-            )
+            outcome = self.iterator.resume(executor, _ResumeOperation(_ResumeKind.NEXT))
             if isinstance(outcome, (_Returned, _Raised)):
                 return outcome
             try:
@@ -368,9 +360,7 @@ class _EnumerateIteratorValue(_IteratorValue):
         if operation.kind is _ResumeKind.THROW:
             return _Raised(operation.value)
         if operation.kind is _ResumeKind.SEND and operation.value is not None:
-            return _Raised(
-                _TargetException("AttributeError", "enumerate has no send()")
-            )
+            return _Raised(_TargetException("AttributeError", "enumerate has no send()"))
         outcome = self.iterator.resume(executor, _ResumeOperation(_ResumeKind.NEXT))
         if isinstance(outcome, (_Returned, _Raised)):
             return outcome
@@ -425,9 +415,7 @@ class _ISliceIteratorValue(_IteratorValue):
         if self.stop is not None and self.next_index >= self.stop:
             return _Returned()
         while self.source_index <= self.next_index:
-            outcome = self.iterator.resume(
-                executor, _ResumeOperation(_ResumeKind.NEXT)
-            )
+            outcome = self.iterator.resume(executor, _ResumeOperation(_ResumeKind.NEXT))
             if isinstance(outcome, (_Returned, _Raised)):
                 return outcome
             current = self.source_index
@@ -473,32 +461,24 @@ class _AccumulateIteratorValue(_IteratorValue):
         if operation.kind is _ResumeKind.THROW:
             return _Raised(operation.value)
         if operation.kind is _ResumeKind.SEND and operation.value is not None:
-            return _Raised(
-                _TargetException("AttributeError", "accumulate has no send()")
-            )
+            return _Raised(_TargetException("AttributeError", "accumulate has no send()"))
         try:
             if not self.initialized:
                 self.initialized = True
                 if self.has_initial:
                     return _Yielded(self.accumulator)
-                outcome = self.iterator.resume(
-                    executor, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                outcome = self.iterator.resume(executor, _ResumeOperation(_ResumeKind.NEXT))
                 if isinstance(outcome, (_Returned, _Raised)):
                     return outcome
                 self.accumulator = outcome.value
                 return outcome
-            outcome = self.iterator.resume(
-                executor, _ResumeOperation(_ResumeKind.NEXT)
-            )
+            outcome = self.iterator.resume(executor, _ResumeOperation(_ResumeKind.NEXT))
             if isinstance(outcome, (_Returned, _Raised)):
                 return outcome
             self.accumulator = (
                 executor._binary(self.accumulator, ast.Add(), outcome.value)
                 if self.function is None
-                else executor._call_value(
-                    self.function, [self.accumulator, outcome.value], {}
-                )
+                else executor._call_value(self.function, [self.accumulator, outcome.value], {})
             )
             return _Yielded(self.accumulator)
         except BaseException as error:
@@ -548,9 +528,7 @@ class _ZipLongestIteratorValue(_IteratorValue):
         if operation.kind is _ResumeKind.THROW:
             return _Raised(operation.value)
         if operation.kind is _ResumeKind.SEND and operation.value is not None:
-            return _Raised(
-                _TargetException("AttributeError", "zip_longest has no send()")
-            )
+            return _Raised(_TargetException("AttributeError", "zip_longest has no send()"))
         if not self.iterators or all(self.exhausted):
             return _Returned()
         row: list[Any] = []
@@ -594,9 +572,7 @@ class _ResumableFrame(_IteratorValue):
     cfg: Any = None
     program_counter: int | None = None
 
-    def resume(
-        self, executor: _ResumeExecutor, operation: _ResumeOperation
-    ) -> _ResumeOutcome:
+    def resume(self, executor: _ResumeExecutor, operation: _ResumeOperation) -> _ResumeOutcome:
         return executor._resume_frame(self, operation)
 
 
@@ -920,9 +896,7 @@ class RunRecord:
             "schedule": list(self.schedule),
             "outcome": self.outcome.to_dict(),
             "coverage": self.coverage.to_dict(),
-            "post_inputs": (
-                list(self.post_inputs) if self.post_inputs is not None else None
-            ),
+            "post_inputs": (list(self.post_inputs) if self.post_inputs is not None else None),
         }
 
 

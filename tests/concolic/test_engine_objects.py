@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -339,7 +339,7 @@ def test_explorer_uses_structured_json_library_summaries(tmp_path):
         "import json\n"
         "\n"
         "def main(value):\n"
-        "    payload = json.loads('{\"offset\": 2, \"items\": [3]}')\n"
+        '    payload = json.loads(\'{"offset": 2, "items": [3]}\')\n'
         "    encoded = dumps({'value': value, 'offset': payload['offset']})\n"
         "    if 'offset' in encoded:\n"
         "        return payload['items'][0] + payload['offset']\n"

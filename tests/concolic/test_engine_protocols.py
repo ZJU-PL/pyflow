@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -114,10 +114,7 @@ def test_explorer_retains_globals_of_top_level_imported_helpers(tmp_path):
     )
     target = _target(
         tmp_path,
-        "from helper import increment\n"
-        "\n"
-        "def main(value):\n"
-        "    return increment(value)\n",
+        "from helper import increment\n" "\n" "def main(value):\n" "    return increment(value)\n",
     )
 
     result = explore_file(target, initial_inputs=[5])
@@ -184,9 +181,7 @@ def test_explorer_supports_sequence_mapping_and_guarded_match_cases(tmp_path):
     )
 
     sequence_result = explore_file(target, initial_inputs=[[0, 3, 4]])
-    mapping_result = explore_file(
-        target, initial_inputs=[{"kind": "point", "x": 5, "y": 9}]
-    )
+    mapping_result = explore_file(target, initial_inputs=[{"kind": "point", "x": 5, "y": 9}])
 
     assert sequence_result.runs[0].result == 7
     assert mapping_result.runs[0].result == 6
@@ -504,8 +499,7 @@ def test_explorer_supports_bare_reraise_in_exception_handlers(tmp_path):
 
 def test_explorer_resolves_local_importlib_import_module_calls(tmp_path):
     (tmp_path / "helper.py").write_text(
-        "def offset(value):\n"
-        "    return value + 5\n",
+        "def offset(value):\n" "    return value + 5\n",
         encoding="utf-8",
     )
     target = _target(
@@ -524,8 +518,7 @@ def test_explorer_resolves_local_importlib_import_module_calls(tmp_path):
 
 def test_explorer_resolves_direct_importlib_import_module_calls(tmp_path):
     (tmp_path / "helper.py").write_text(
-        "def offset(value):\n"
-        "    return value + 6\n",
+        "def offset(value):\n" "    return value + 6\n",
         encoding="utf-8",
     )
     target = _target(

@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .engine import explore_file
-from .replay import replay_runs
+from ..artifacts.replay import replay_runs
+from ..exploration.engine import explore_file
 
 
 def run_request(request: dict[str, Any]) -> dict[str, Any]:

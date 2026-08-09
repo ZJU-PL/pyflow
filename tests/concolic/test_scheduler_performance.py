@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 

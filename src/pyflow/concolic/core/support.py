@@ -62,13 +62,15 @@ def _handler_matches(node: ast.expr | None, error_name: str) -> bool:
 
 
 def _valid_input(value: Any) -> bool:
-    return isinstance(value, (int, float, str, bool)) or (
-        isinstance(value, list) and all(_valid_input(item) for item in value)
-    ) or (
-        isinstance(value, dict)
-        and all(
-            isinstance(key, (int, str, bool)) and _valid_input(item)
-            for key, item in value.items()
+    return (
+        isinstance(value, (int, float, str, bool))
+        or (isinstance(value, list) and all(_valid_input(item) for item in value))
+        or (
+            isinstance(value, dict)
+            and all(
+                isinstance(key, (int, str, bool)) and _valid_input(item)
+                for key, item in value.items()
+            )
         )
     )
 
@@ -79,7 +81,5 @@ def _input_key(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_input_key(item) for item in value)
     if isinstance(value, dict):
-        return tuple(
-            sorted((key, _input_key(item)) for key, item in value.items())
-        )
+        return tuple(sorted((key, _input_key(item)) for key, item in value.items()))
     return value

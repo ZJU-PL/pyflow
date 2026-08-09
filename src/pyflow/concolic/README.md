@@ -109,23 +109,29 @@ for filesystem, process, or network activity are skipped unless
 
 ## Architecture
 
-The implementation is organized around three dependency layers:
+The package root only defines the public API. Implementation modules are grouped
+by responsibility:
 
-- The package root exposes the API in `__init__.py`; `engine.py` owns path and
-  schedule exploration, while the other root modules provide shared runtime
-  values, module loading, contracts, and small utilities.
-- `interpreter/` contains the ordinary AST semantics. Its executor composes focused
+- `core/` contains the shared runtime model, local-module loader, and low-level
+  value/input helpers.
+- `exploration/` owns the public exploration workflow, resource budgets,
+  contracts, path solving, and pending-state search policies.
+- `interpreter/` contains ordinary AST semantics. Its executor composes focused
   mixins for statements, values, calls, objects, collections, language
-  semantics, and standard-library summaries.
-- `resumable/` contains suspension-aware execution: CFG discovery, resumable
-  frames, the generator/coroutine machine, async protocols, and task
+  semantics, coverage, and standard-library summaries.
+- `resumable/` is the interpreter's suspension subsystem: CFG discovery,
+  resumable frames, generator/coroutine execution, async protocols, and task
   scheduling.
+- `project/` contains static target discovery, annotation-guided input
+  synthesis, isolated workers, and project support measurement.
+- `artifacts/` turns exploration results into minimized corpora, CPython replay
+  results, and generated pytest modules.
 
-Dependencies point inward toward the shared package-root model. The
-`interpreter` layer composes `resumable`; `resumable` is its suspension
-subsystem and does not import the ordinary interpreter mixins. New syntax
-behavior should generally live in the corresponding `interpreter` module;
-behavior that crosses a suspension point belongs in `resumable`.
+Dependencies point toward `core/`. `exploration/` composes `interpreter/`, and
+`interpreter/` composes `resumable/`; neither project scanning nor artifact
+generation is part of execution semantics. New ordinary Python behavior belongs
+in the corresponding `interpreter` module, while behavior that crosses a
+suspension point belongs in `resumable`.
 
 ## Contracts
 

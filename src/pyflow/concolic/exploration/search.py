@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .runtime import BranchCoverage
+from ..core.runtime import BranchCoverage
 
 
 @dataclass(frozen=True)

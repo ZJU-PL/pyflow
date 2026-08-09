@@ -6,7 +6,7 @@ import ast
 
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _BoolValue,
@@ -47,20 +47,16 @@ from ..runtime import (
     _URLParseValue,
 )
 
-from ..support import _concrete
+from ..core.support import _concrete
 
 
 class _SemanticMixin:
     def _contains(self, container: Any, needle: Any) -> _BoolValue:
         if isinstance(container, _InstanceValue):
-            method_with_owner = self._method_with_owner(
-                container.class_value, "__contains__"
-            )
+            method_with_owner = self._method_with_owner(container.class_value, "__contains__")
             if method_with_owner is not None:
                 method, owner = method_with_owner
-                return self._truthy(
-                    self._call_method(method, owner, container, [needle], {})
-                )
+                return self._truthy(self._call_method(method, owner, container, [needle], {}))
         if isinstance(container, _StringValue):
             item = self._to_string(needle)
             return _BoolValue(
@@ -96,13 +92,9 @@ class _SemanticMixin:
             method_with_owner = self._method_with_owner(left.class_value, "__eq__")
             if method_with_owner is not None:
                 method, owner = method_with_owner
-                return self._truthy(
-                    self._call_method(method, owner, left, [right], {})
-                )
+                return self._truthy(self._call_method(method, owner, left, [right], {}))
         if isinstance(left, _IntValue) and isinstance(right, _IntValue):
-            return _BoolValue(
-                left.concrete == right.concrete, left.symbolic == right.symbolic
-            )
+            return _BoolValue(left.concrete == right.concrete, left.symbolic == right.symbolic)
         if isinstance(left, (_IntValue, _FloatValue)) and isinstance(
             right, (_IntValue, _FloatValue)
         ):
@@ -110,13 +102,9 @@ class _SemanticMixin:
             rhs = self._as_real(right)
             return _BoolValue(lhs[0] == rhs[0], lhs[1] == rhs[1])
         if isinstance(left, _StringValue) and isinstance(right, _StringValue):
-            return _BoolValue(
-                left.concrete == right.concrete, left.symbolic == right.symbolic
-            )
+            return _BoolValue(left.concrete == right.concrete, left.symbolic == right.symbolic)
         if isinstance(left, _BoolValue) and isinstance(right, _BoolValue):
-            return _BoolValue(
-                left.concrete == right.concrete, left.symbolic == right.symbolic
-            )
+            return _BoolValue(left.concrete == right.concrete, left.symbolic == right.symbolic)
         return _BoolValue(
             _concrete(left) == _concrete(right),
             self._z3.BoolVal(_concrete(left) == _concrete(right)),
@@ -134,27 +122,21 @@ class _SemanticMixin:
         for kind, result in comparisons.items():
             if isinstance(operator, kind):
                 return result, self._z3.BoolVal(result)
-        raise UnsupportedSyntaxError(
-            f"unsupported comparison {type(operator).__name__}"
-        )
+        raise UnsupportedSyntaxError(f"unsupported comparison {type(operator).__name__}")
 
     def _python_floor_div(self, numerator: Any, denominator: Any) -> Any:
         positive = numerator / denominator
         denominator_magnitude = -denominator
         negative_division = numerator / denominator_magnitude
         negative_remainder = numerator % denominator_magnitude
-        negative = self._z3.If(
-            negative_remainder == 0, -negative_division, -negative_division - 1
-        )
+        negative = self._z3.If(negative_remainder == 0, -negative_division, -negative_division - 1)
         return self._z3.If(denominator > 0, positive, negative)
 
     def _key(self, value: Any) -> int | str | bool:
         concrete = _concrete(value)
         if isinstance(concrete, (int, str, bool)):
             return concrete
-        raise UnsupportedSyntaxError(
-            "dictionary keys must be integer, string, or Boolean"
-        )
+        raise UnsupportedSyntaxError("dictionary keys must be integer, string, or Boolean")
 
     @staticmethod
     def _numeric_concrete(value: Any) -> int | float:
@@ -177,9 +159,7 @@ class _SemanticMixin:
             if method_with_owner is not None:
                 method, owner = method_with_owner
                 return self._as_int(self._call_method(method, owner, value, [], {}))
-        raise UnsupportedSyntaxError(
-            "hash() requires an integer, Boolean, or custom __hash__"
-        )
+        raise UnsupportedSyntaxError("hash() requires an integer, Boolean, or custom __hash__")
 
     def _literal(self, value: int | str | bool) -> Any:
         if isinstance(value, bool):
@@ -273,9 +253,7 @@ class _SemanticMixin:
         if isinstance(value, set):
             return _SetValue([self._constant_value(item) for item in value])
         if isinstance(value, dict):
-            return _DictValue(
-                {key: self._constant_value(item) for key, item in value.items()}
-            )
+            return _DictValue({key: self._constant_value(item) for key, item in value.items()})
         if value is None:
             return None
         raise UnsupportedSyntaxError(f"unsupported global value {value!r}")
@@ -301,13 +279,9 @@ class _SemanticMixin:
         if isinstance(value, _FloatValue):
             return _BoolValue(value.concrete != 0, value.symbolic != 0)
         if isinstance(value, _BytesValue):
-            return _BoolValue(
-                bool(value.concrete), self._z3.BoolVal(bool(value.concrete))
-            )
+            return _BoolValue(bool(value.concrete), self._z3.BoolVal(bool(value.concrete)))
         if isinstance(value, _StringValue):
-            return _BoolValue(
-                value.concrete != "", value.symbolic != self._z3.StringVal("")
-            )
+            return _BoolValue(value.concrete != "", value.symbolic != self._z3.StringVal(""))
         if isinstance(value, (_ListValue, _TupleValue, _SetValue, _RangeValue)):
             return _BoolValue(bool(value.values), self._z3.BoolVal(bool(value.values)))
         if isinstance(value, _DictValue):

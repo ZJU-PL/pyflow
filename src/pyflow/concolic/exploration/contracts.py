@@ -6,7 +6,7 @@ import ast
 import re
 from dataclasses import dataclass
 
-from .runtime import ConcolicError, FunctionNode
+from ..core.runtime import ConcolicError, FunctionNode
 
 
 _POSTCONDITION = re.compile(r"^\s*post(?:\[[^\]]*\])?\s*:\s*(.+?)\s*$")
@@ -41,8 +41,6 @@ def parse_postconditions(function: FunctionNode) -> tuple[Postcondition, ...]:
         try:
             expression = ast.parse(source, mode="eval").body
         except SyntaxError as error:
-            raise ConcolicError(
-                f"invalid postcondition on {function.name}: {source!r}"
-            ) from error
+            raise ConcolicError(f"invalid postcondition on {function.name}: {source!r}") from error
         clauses.append(Postcondition(source, expression))
     return tuple(clauses)

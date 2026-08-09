@@ -12,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Iterable
 
-from .runtime import ExecutionOutcome, OutcomeKind, RunRecord
+from ..core.runtime import ExecutionOutcome, OutcomeKind, RunRecord
 
 
 class ReplayStatus(str, Enum):

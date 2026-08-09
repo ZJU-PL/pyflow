@@ -6,7 +6,7 @@ import ast
 from time import monotonic
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     BranchCoverage,
     CoverageSnapshot,
     ExecutionTimeoutError,

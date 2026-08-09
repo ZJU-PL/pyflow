@@ -2,7 +2,7 @@
 
 import z3
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -89,10 +89,7 @@ def test_solver_timeout_is_reported_separately(monkeypatch, tmp_path):
     result = explore_file(
         _target(
             tmp_path,
-            "def main(value):\n"
-            "    if value:\n"
-            "        return 1\n"
-            "    return 0\n",
+            "def main(value):\n" "    if value:\n" "        return 1\n" "    return 0\n",
         ),
         initial_inputs=[0],
         solver_timeout=0.1,
@@ -106,10 +103,7 @@ def test_timing_statistics_are_json_serializable(tmp_path):
     result = explore_file(
         _target(
             tmp_path,
-            "def main(value):\n"
-            "    if value == 1:\n"
-            "        return 1\n"
-            "    return 0\n",
+            "def main(value):\n" "    if value == 1:\n" "        return 1\n" "    return 0\n",
         ),
         initial_inputs=[0],
     )

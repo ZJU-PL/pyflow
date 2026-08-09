@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
 
@@ -174,8 +174,7 @@ def test_explorer_uses_map_filter_and_keyed_sorted(tmp_path):
 def test_explorer_supports_fstring_format_specs_and_conversions(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    return f'{value:03d}|{value / 2:.1f}|{\"x\"!r}|{\"é\"!a}'\n",
+        "def main(value):\n" '    return f\'{value:03d}|{value / 2:.1f}|{"x"!r}|{"é"!a}\'\n',
     )
 
     result = explore_file(target, initial_inputs=[4])
@@ -186,8 +185,7 @@ def test_explorer_supports_fstring_format_specs_and_conversions(tmp_path):
 def test_explorer_supports_str_format_with_positional_and_named_fields(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    return '{name}:{0:02d}'.format(value, name='item')\n",
+        "def main(value):\n" "    return '{name}:{0:02d}'.format(value, name='item')\n",
     )
 
     result = explore_file(target, initial_inputs=[4])
@@ -324,8 +322,7 @@ def test_explorer_supports_extended_string_processing_methods(tmp_path):
 def test_explorer_supports_percent_string_formatting(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    return 'item-%04d:%s' % (value, 'ready')\n",
+        "def main(value):\n" "    return 'item-%04d:%s' % (value, 'ready')\n",
     )
 
     result = explore_file(target, initial_inputs=[6])
@@ -363,8 +360,7 @@ def test_explorer_supports_common_representation_builtins(tmp_path):
 def test_explorer_supports_floating_point_abs_and_round(tmp_path):
     target = _target(
         tmp_path,
-        "def main(value):\n"
-        "    return round(abs(float(value) - 2.5), 1)\n",
+        "def main(value):\n" "    return round(abs(float(value) - 2.5), 1)\n",
     )
 
     result = explore_file(target, initial_inputs=[1])

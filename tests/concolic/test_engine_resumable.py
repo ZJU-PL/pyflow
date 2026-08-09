@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import ast
 
-from pyflow.concolic.engine import explore_file
+from pyflow.concolic import explore_file
 from pyflow.concolic.resumable import _ResumableCFG
-from pyflow.concolic.runtime import (
+from pyflow.concolic.core.runtime import (
     _ResumeKind,
     _ResumeOperation,
     _Returned,
@@ -30,10 +30,7 @@ def test_sequence_iterator_implements_incremental_resume_protocol():
 
 def test_resumable_cfg_records_suspension_and_resume_edges():
     function = ast.parse(
-        "def values(value):\n"
-        "    if value:\n"
-        "        yield value\n"
-        "    return value + 1\n"
+        "def values(value):\n" "    if value:\n" "        yield value\n" "    return value + 1\n"
     ).body[0]
     cfg = _ResumableCFG.from_function(function)
 

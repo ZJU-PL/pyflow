@@ -26,7 +26,7 @@ from urllib import parse as urlparse
 
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _AccumulateIteratorValue,
@@ -66,7 +66,7 @@ from ..runtime import (
     _ZipLongestIteratorValue,
 )
 
-from ..support import _concrete
+from ..core.support import _concrete
 
 
 class _SummaryMixin:
@@ -75,39 +75,29 @@ class _SummaryMixin:
     ) -> Any:
         if module == "asyncio" and name == "sleep" and 1 <= len(args) <= 2:
             if set(keywords) - {"result"}:
-                raise UnsupportedSyntaxError(
-                    "asyncio.sleep() supports only the result keyword"
-                )
+                raise UnsupportedSyntaxError("asyncio.sleep() supports only the result keyword")
             result = keywords.get("result", args[1] if len(args) == 2 else None)
             return _SchedulerYield(result)
         if module == "asyncio" and name == "create_task" and len(args) == 1:
             if set(keywords) - {"name", "context"}:
-                raise UnsupportedSyntaxError(
-                    "asyncio.create_task() supports name and context"
-                )
+                raise UnsupportedSyntaxError("asyncio.create_task() supports name and context")
             name_value = keywords.get("name")
-            task_name = (
-                self._to_string(name_value).concrete
-                if name_value is not None
-                else None
-            )
+            task_name = self._to_string(name_value).concrete if name_value is not None else None
             return self._create_task(args[0], task_name)
         if module == "asyncio" and name == "gather":
             if set(keywords) - {"return_exceptions"}:
-                raise UnsupportedSyntaxError(
-                    "asyncio.gather() supports only return_exceptions"
-                )
+                raise UnsupportedSyntaxError("asyncio.gather() supports only return_exceptions")
             return self._create_gather(
                 args,
-                self._truthy(keywords["return_exceptions"]).concrete
-                if "return_exceptions" in keywords
-                else False,
+                (
+                    self._truthy(keywords["return_exceptions"]).concrete
+                    if "return_exceptions" in keywords
+                    else False
+                ),
             )
         if module == "contextlib" and name == "suppress" and args and not keywords:
             if not all(isinstance(value, _ExceptionType) for value in args):
-                raise UnsupportedSyntaxError(
-                    "contextlib.suppress() requires exception classes"
-                )
+                raise UnsupportedSyntaxError("contextlib.suppress() requires exception classes")
             return _SuppressContext(tuple(value.name for value in args))
         if module == "contextlib" and name == "nullcontext" and len(args) <= 1:
             if keywords:
@@ -124,9 +114,7 @@ class _SummaryMixin:
             return _ContextManagerFactory(args[0])
         if module == "copy" and name in {"copy", "deepcopy"} and len(args) == 1:
             if keywords:
-                raise UnsupportedSyntaxError(
-                    f"copy.{name}() does not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError(f"copy.{name}() does not support keyword arguments")
             return self._copy_value(args[0], deep=name == "deepcopy")
         if module == "functools" and name == "partial" and args:
             return _PartialValue(args[0], tuple(args[1:]), dict(keywords))
@@ -168,24 +156,16 @@ class _SummaryMixin:
             if name == "contains" and len(args) == 2 and not keywords:
                 return self._contains(args[0], args[1])
             if name == "getitem" and len(args) == 2 and not keywords:
-                return self._subscript(
-                    args[0], ast.Constant(value=_concrete(args[1]))
-                )
+                return self._subscript(args[0], ast.Constant(value=_concrete(args[1])))
         if module == "bisect":
             if keywords:
-                raise UnsupportedSyntaxError(
-                    "bisect summaries do not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError("bisect summaries do not support keyword arguments")
             search_names = {"bisect", "bisect_left", "bisect_right"}
             insert_names = {"insort", "insort_left", "insort_right"}
             if name in search_names and 2 <= len(args) <= 4:
                 values = self._iter_values(args[0])
                 lo = self._as_int(args[2]).concrete if len(args) >= 3 else 0
-                hi = (
-                    self._as_int(args[3]).concrete
-                    if len(args) == 4
-                    else len(values)
-                )
+                hi = self._as_int(args[3]).concrete if len(args) == 4 else len(values)
                 try:
                     concrete = getattr(bisect, name)(
                         [_concrete(value) for value in values],
@@ -201,14 +181,8 @@ class _SummaryMixin:
                     raise UnsupportedSyntaxError("bisect.insort() requires a list")
                 values = args[0].values
                 lo = self._as_int(args[2]).concrete if len(args) >= 3 else 0
-                hi = (
-                    self._as_int(args[3]).concrete
-                    if len(args) == 4
-                    else len(values)
-                )
-                search_name = (
-                    "bisect_left" if name == "insort_left" else "bisect_right"
-                )
+                hi = self._as_int(args[3]).concrete if len(args) == 4 else len(values)
+                search_name = "bisect_left" if name == "insort_left" else "bisect_right"
                 try:
                     position = getattr(bisect, search_name)(
                         [_concrete(value) for value in values],
@@ -222,15 +196,11 @@ class _SummaryMixin:
                 return None
         if module == "heapq":
             if keywords:
-                raise UnsupportedSyntaxError(
-                    "heapq summaries do not support keyword arguments"
-                )
+                raise UnsupportedSyntaxError("heapq summaries do not support keyword arguments")
             if name == "heapify" and len(args) == 1:
                 if not isinstance(args[0], _ListValue):
                     raise UnsupportedSyntaxError("heapq.heapify() requires a list")
-                args[0].values[:] = [
-                    entry[2] for entry in self._heap_entries(args[0].values)
-                ]
+                args[0].values[:] = [entry[2] for entry in self._heap_entries(args[0].values)]
                 return None
             if name == "heappush" and len(args) == 2:
                 if not isinstance(args[0], _ListValue):
@@ -274,15 +244,11 @@ class _SummaryMixin:
                 return _ListValue([entry[2] for entry in selected])
         if module == "dataclasses" and name == "replace" and len(args) == 1:
             value = args[0]
-            if not isinstance(value, _InstanceValue) or not self._is_dataclass(
-                value.class_value
-            ):
+            if not isinstance(value, _InstanceValue) or not self._is_dataclass(value.class_value):
                 raise UnsupportedSyntaxError(
                     "dataclasses.replace() requires a local dataclass instance"
                 )
-            fields = {
-                field.target.id for field in self._dataclass_fields(value.class_value)
-            }
+            fields = {field.target.id for field in self._dataclass_fields(value.class_value)}
             if set(keywords) - fields:
                 unknown = next(iter(set(keywords) - fields))
                 raise ConcolicError(f"unexpected dataclass field {unknown!r}")
@@ -303,10 +269,7 @@ class _SummaryMixin:
                 )
             return _TimedeltaValue(
                 datetime.timedelta(
-                    **{
-                        key: self._numeric_concrete(value)
-                        for key, value in keywords.items()
-                    }
+                    **{key: self._numeric_concrete(value) for key, value in keywords.items()}
                 )
             )
         if module == "json":
@@ -320,14 +283,11 @@ class _SummaryMixin:
                 allowed = {"ensure_ascii", "indent", "separators", "sort_keys"}
                 if set(keywords) - allowed:
                     raise UnsupportedSyntaxError(
-                        "json.dumps() supports ensure_ascii, indent, separators, "
-                        "and sort_keys"
+                        "json.dumps() supports ensure_ascii, indent, separators, " "and sort_keys"
                     )
                 options: dict[str, Any] = {}
                 if "ensure_ascii" in keywords:
-                    options["ensure_ascii"] = self._truthy(
-                        keywords["ensure_ascii"]
-                    ).concrete
+                    options["ensure_ascii"] = self._truthy(keywords["ensure_ascii"]).concrete
                 if "sort_keys" in keywords:
                     options["sort_keys"] = self._truthy(keywords["sort_keys"]).concrete
                 if "indent" in keywords:
@@ -360,17 +320,13 @@ class _SummaryMixin:
             )
         if module == "itertools" and name == "zip_longest":
             if set(keywords) - {"fillvalue"}:
-                raise UnsupportedSyntaxError(
-                    "itertools.zip_longest() supports only fillvalue"
-                )
+                raise UnsupportedSyntaxError("itertools.zip_longest() supports only fillvalue")
             fillvalue = keywords.get("fillvalue", None)
             return _ZipLongestIteratorValue(
                 tuple(self._as_iterator(argument) for argument in args), fillvalue
             )
         if keywords:
-            raise UnsupportedSyntaxError(
-                f"{module}.{name} does not support keyword arguments"
-            )
+            raise UnsupportedSyntaxError(f"{module}.{name} does not support keyword arguments")
         if module == "math":
             if name == "sqrt" and len(args) == 1:
                 value = self._numeric_concrete(args[0])
@@ -396,9 +352,7 @@ class _SummaryMixin:
                 )
                 return _BoolValue(concrete, self._z3.BoolVal(concrete))
             if name == "gcd" and len(args) == 2:
-                concrete = math.gcd(
-                    self._as_int(args[0]).concrete, self._as_int(args[1]).concrete
-                )
+                concrete = math.gcd(self._as_int(args[0]).concrete, self._as_int(args[1]).concrete)
                 return _IntValue(concrete, self._z3.IntVal(concrete))
             if name == "factorial" and len(args) == 1:
                 concrete = math.factorial(self._as_int(args[0]).concrete)
@@ -415,17 +369,13 @@ class _SummaryMixin:
                 return _FloatValue(concrete, self._z3.RealVal(str(concrete)))
             if name == "log" and 1 <= len(args) <= 2:
                 try:
-                    concrete = math.log(
-                        *(self._numeric_concrete(argument) for argument in args)
-                    )
+                    concrete = math.log(*(self._numeric_concrete(argument) for argument in args))
                 except (OverflowError, ValueError) as error:
                     raise ConcolicError(str(error)) from error
                 return _FloatValue(concrete, self._z3.RealVal(str(concrete)))
         if module == "dataclasses" and name in {"asdict", "astuple"} and len(args) == 1:
             value = args[0]
-            if not isinstance(value, _InstanceValue) or not self._is_dataclass(
-                value.class_value
-            ):
+            if not isinstance(value, _InstanceValue) or not self._is_dataclass(value.class_value):
                 raise UnsupportedSyntaxError(
                     f"dataclasses.{name}() requires a local dataclass instance"
                 )
@@ -459,34 +409,28 @@ class _SummaryMixin:
                 return _DateTimeValue(
                     datetime.datetime(*(self._as_int(value).concrete for value in args))
                 )
-            if (
-                name in {"date.fromisoformat", "datetime.fromisoformat"}
-                and len(args) == 1
-            ):
-                factory = (
-                    datetime.datetime if name.startswith("datetime") else datetime.date
-                )
-                return _DateTimeValue(
-                    factory.fromisoformat(self._to_string(args[0]).concrete)
-                )
-        if module == "hashlib" and name in {
-            "md5",
-            "sha1",
-            "sha224",
-            "sha256",
-            "sha384",
-            "sha512",
-        } and len(args) <= 1:
-            return _HashValue(
-                name, b"" if not args else self._to_bytes(args[0]).concrete
-            )
+            if name in {"date.fromisoformat", "datetime.fromisoformat"} and len(args) == 1:
+                factory = datetime.datetime if name.startswith("datetime") else datetime.date
+                return _DateTimeValue(factory.fromisoformat(self._to_string(args[0]).concrete))
+        if (
+            module == "hashlib"
+            and name
+            in {
+                "md5",
+                "sha1",
+                "sha224",
+                "sha256",
+                "sha384",
+                "sha512",
+            }
+            and len(args) <= 1
+        ):
+            return _HashValue(name, b"" if not args else self._to_bytes(args[0]).concrete)
         if module == "pathlib" and name == "Path":
             if not args:
                 return _PathValue(".")
             return _PathValue(
-                posixpath.join(
-                    *(self._to_string(argument).concrete for argument in args)
-                )
+                posixpath.join(*(self._to_string(argument).concrete for argument in args))
             )
         if module == "urllib.parse":
             if name in {"quote", "unquote"} and len(args) == 1:
@@ -502,35 +446,24 @@ class _SummaryMixin:
                 concrete = urlparse.urlencode(_concrete(args[0]), doseq=True)
                 return _StringValue(concrete, self._z3.StringVal(concrete))
             if name == "parse_qs" and len(args) == 1:
-                return self._constant_value(
-                    urlparse.parse_qs(self._to_string(args[0]).concrete)
-                )
+                return self._constant_value(urlparse.parse_qs(self._to_string(args[0]).concrete))
             if name == "parse_qsl" and len(args) == 1:
                 return _ListValue(
                     [
                         _TupleValue(
-                            tuple(
-                                _StringValue(item, self._z3.StringVal(item))
-                                for item in pair
-                            )
+                            tuple(_StringValue(item, self._z3.StringVal(item)) for item in pair)
                         )
-                        for pair in urlparse.parse_qsl(
-                            self._to_string(args[0]).concrete
-                        )
+                        for pair in urlparse.parse_qsl(self._to_string(args[0]).concrete)
                     ]
                 )
             if name in {"urlparse", "urlsplit"} and len(args) == 1:
-                return _URLParseValue(
-                    getattr(urlparse, name)(self._to_string(args[0]).concrete)
-                )
+                return _URLParseValue(getattr(urlparse, name)(self._to_string(args[0]).concrete))
         if (
             module == "statistics"
             and name in {"fmean", "mean", "median", "pvariance", "pstdev"}
             and len(args) == 1
         ):
-            values = [
-                self._numeric_concrete(value) for value in self._iter_values(args[0])
-            ]
+            values = [self._numeric_concrete(value) for value in self._iter_values(args[0])]
             try:
                 concrete = getattr(statistics, name)(values)
             except statistics.StatisticsError as error:
@@ -538,9 +471,7 @@ class _SummaryMixin:
             return _FloatValue(float(concrete), self._z3.RealVal(str(concrete)))
         if module == "itertools":
             if name == "chain":
-                return _ChainIteratorValue(
-                    tuple(self._as_iterator(argument) for argument in args)
-                )
+                return _ChainIteratorValue(tuple(self._as_iterator(argument) for argument in args))
             if name == "islice" and 2 <= len(args) <= 4:
                 offsets = [
                     None if argument is None else self._as_int(argument).concrete
@@ -561,29 +492,20 @@ class _SummaryMixin:
                     step = 1
                 if start < 0 or (stop is not None and stop < 0) or step <= 0:
                     raise ConcolicError("islice indices must be non-negative")
-                return _ISliceIteratorValue(
-                    self._as_iterator(args[0]), start, stop, step
-                )
+                return _ISliceIteratorValue(self._as_iterator(args[0]), start, stop, step)
             if name == "repeat" and 1 <= len(args) <= 2:
                 times = self._as_int(args[1]).concrete if len(args) == 2 else None
                 return _RepeatIteratorValue(args[0], times)
             if name == "product" and args:
                 rows: list[tuple[Any, ...]] = [()]
                 for argument in args:
-                    rows = [
-                        (*row, item)
-                        for row in rows
-                        for item in self._iter_values(argument)
-                    ]
+                    rows = [(*row, item) for row in rows for item in self._iter_values(argument)]
                 return _ListValue([_TupleValue(row) for row in rows])
             if name in {"combinations", "permutations"} and 1 <= len(args) <= 2:
                 values = self._iter_values(args[0])
                 size = self._as_int(args[1]).concrete if len(args) == 2 else len(values)
                 return _ListValue(
-                    [
-                        _TupleValue(tuple(row))
-                        for row in getattr(itertools, name)(values, size)
-                    ]
+                    [_TupleValue(tuple(row)) for row in getattr(itertools, name)(values, size)]
                 )
             if name == "pairwise" and len(args) == 1:
                 return _PairwiseIteratorValue(self._as_iterator(args[0]))
@@ -627,25 +549,25 @@ class _SummaryMixin:
             for item in values:
                 accumulator = self._call_value(args[0], [accumulator, item], {})
             return accumulator
-        if module == "os.path" and name in {
-            "basename",
-            "dirname",
-            "normpath",
-            "splitext",
-        } and len(args) == 1:
+        if (
+            module == "os.path"
+            and name
+            in {
+                "basename",
+                "dirname",
+                "normpath",
+                "splitext",
+            }
+            and len(args) == 1
+        ):
             path = self._to_string(args[0]).concrete
             result = getattr(posixpath, name)(path)
             if name == "splitext":
                 return _TupleValue(
-                    tuple(
-                        _StringValue(item, self._z3.StringVal(item))
-                        for item in result
-                    )
+                    tuple(_StringValue(item, self._z3.StringVal(item)) for item in result)
                 )
             return _StringValue(result, self._z3.StringVal(result))
         if module == "os.path" and name == "join" and args:
-            result = posixpath.join(
-                *(self._to_string(argument).concrete for argument in args)
-            )
+            result = posixpath.join(*(self._to_string(argument).concrete for argument in args))
             return _StringValue(result, self._z3.StringVal(result))
         raise UnsupportedSyntaxError(f"unsupported library summary {module}.{name}")

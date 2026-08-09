@@ -6,7 +6,7 @@ import ast
 from typing import Any, Generator, Iterable
 
 from .cfg import _SuspensionPoint, _contains_suspension
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     FunctionNode,
     UnsupportedSyntaxError,
@@ -27,9 +27,7 @@ from ..runtime import (
 
 
 class _ResumableMachineMixin:
-    def _resumable_function(
-        self, function: FunctionNode
-    ) -> Generator[_SuspensionPoint, Any, Any]:
+    def _resumable_function(self, function: FunctionNode) -> Generator[_SuspensionPoint, Any, Any]:
         outcome = yield from self._resumable_block(function.body)
         return outcome.value if isinstance(outcome, _Return) else None
 
@@ -73,9 +71,7 @@ class _ResumableMachineMixin:
                 value = yield from self._resumable_evaluate(statement.value)
             return _Return(value)
         if isinstance(statement, ast.If):
-            condition = self._truthy(
-                (yield from self._resumable_evaluate(statement.test))
-            )
+            condition = self._truthy((yield from self._resumable_evaluate(statement.test)))
             self._record_branch(condition.symbolic, condition.concrete, statement.test, "if")
             return (
                 yield from self._resumable_block(
@@ -87,15 +83,10 @@ class _ResumableMachineMixin:
             while True:
                 if count >= self._max_loop_iterations:
                     raise ConcolicError(
-                        "loop exceeded --max-loop-iterations "
-                        f"({self._max_loop_iterations})"
+                        "loop exceeded --max-loop-iterations " f"({self._max_loop_iterations})"
                     )
-                condition = self._truthy(
-                    (yield from self._resumable_evaluate(statement.test))
-                )
-                self._record_branch(
-                    condition.symbolic, condition.concrete, statement.test, "while"
-                )
+                condition = self._truthy((yield from self._resumable_evaluate(statement.test)))
+                self._record_branch(condition.symbolic, condition.concrete, statement.test, "while")
                 if not condition.concrete:
                     if statement.orelse:
                         return (yield from self._resumable_block(statement.orelse))
@@ -117,9 +108,7 @@ class _ResumableMachineMixin:
                 resumed = (
                     (yield from self._resume_async_next(iterator, statement))
                     if isinstance(statement, ast.AsyncFor)
-                    else self._resume_iterator(
-                        iterator, _ResumeOperation(_ResumeKind.NEXT)
-                    )
+                    else self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
                 )
                 if isinstance(resumed, _Returned):
                     if statement.orelse:
@@ -216,15 +205,11 @@ class _ResumableMachineMixin:
             bindings = {}
             if not self._match_pattern(subject, case.pattern, bindings):
                 continue
-            previous_values = {
-                name: self.env[name] for name in bindings if name in self.env
-            }
+            previous_values = {name: self.env[name] for name in bindings if name in self.env}
             missing = set(bindings) - set(previous_values)
             self.env.update(bindings)
             if case.guard is not None:
-                condition = self._truthy(
-                    (yield from self._resumable_evaluate(case.guard))
-                )
+                condition = self._truthy((yield from self._resumable_evaluate(case.guard)))
                 self._record_branch(
                     condition.symbolic, condition.concrete, case.guard, "match_guard"
                 )
@@ -236,9 +221,7 @@ class _ResumableMachineMixin:
             return (yield from self._resumable_block(case.body))
         return None
 
-    def _resumable_evaluate(
-        self, expression: ast.expr
-    ) -> Generator[_SuspensionPoint, Any, Any]:
+    def _resumable_evaluate(self, expression: ast.expr) -> Generator[_SuspensionPoint, Any, Any]:
         self._cover_node(expression)
         if not _contains_suspension(expression):
             return self._evaluate(expression)
@@ -258,9 +241,7 @@ class _ResumableMachineMixin:
                 try:
                     sent = yield _SuspensionPoint(resumed.value, expression)
                 except GeneratorExit:
-                    self._resume_iterator(
-                        iterator, _ResumeOperation(_ResumeKind.CLOSE)
-                    )
+                    self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.CLOSE))
                     raise
                 except BaseException as error:
                     operation = _ResumeOperation(_ResumeKind.THROW, error)
@@ -288,7 +269,7 @@ class _ResumableMachineMixin:
                 return _ListValue(values)
             if isinstance(expression, ast.Tuple):
                 return _TupleValue(tuple(values))
-            from ..support import _unique_values
+            from ..core.support import _unique_values
 
             return _SetValue(_unique_values(values))
         if isinstance(expression, ast.Dict):
@@ -297,9 +278,7 @@ class _ResumableMachineMixin:
                 value = yield from self._resumable_evaluate(value_node)
                 if key_node is None:
                     if not isinstance(value, _DictValue):
-                        raise UnsupportedSyntaxError(
-                            "dictionary unpacking requires a dictionary"
-                        )
+                        raise UnsupportedSyntaxError("dictionary unpacking requires a dictionary")
                     values.update(value.values)
                 else:
                     key = yield from self._resumable_evaluate(key_node)
@@ -318,7 +297,7 @@ class _ResumableMachineMixin:
             if isinstance(expression, ast.ListComp):
                 return _ListValue(result)
             if isinstance(expression, ast.SetComp):
-                from ..support import _unique_values
+                from ..core.support import _unique_values
 
                 return _SetValue(_unique_values(result))
             return _DictValue({self._key(key): value for key, value in result})
@@ -331,9 +310,7 @@ class _ResumableMachineMixin:
                 raise UnsupportedSyntaxError("suspending subscript indices are unsupported")
             return self._subscript(value, expression.slice)
         if isinstance(expression, ast.IfExp):
-            condition = self._truthy(
-                (yield from self._resumable_evaluate(expression.test))
-            )
+            condition = self._truthy((yield from self._resumable_evaluate(expression.test)))
             self._record_branch(
                 condition.symbolic, condition.concrete, expression.test, "if_expression"
             )
@@ -359,15 +336,11 @@ class _ResumableMachineMixin:
                 return self._as_int(operand)
             if isinstance(expression.op, ast.Not):
                 boolean = self._truthy(operand)
-                return _BoolValue(
-                    not boolean.concrete, self._z3.Not(boolean.symbolic)
-                )
+                return _BoolValue(not boolean.concrete, self._z3.Not(boolean.symbolic))
         if isinstance(expression, ast.Compare):
             left = yield from self._resumable_evaluate(expression.left)
             pairs = []
-            for operator, comparator in zip(
-                expression.ops, expression.comparators
-            ):
+            for operator, comparator in zip(expression.ops, expression.comparators):
                 right = yield from self._resumable_evaluate(comparator)
                 pairs.append((operator, right))
             return self._compare_values(left, pairs)
@@ -385,9 +358,7 @@ class _ResumableMachineMixin:
                 if keyword.arg is None:
                     if not isinstance(value, _DictValue):
                         raise UnsupportedSyntaxError("**kwargs requires a dictionary")
-                    keywords.update(
-                        {str(key): item for key, item in value.values.items()}
-                    )
+                    keywords.update({str(key): item for key, item in value.values.items()})
                 else:
                     keywords[keyword.arg] = value
             return self._call_prepared(expression, args, keywords)
@@ -398,9 +369,7 @@ class _ResumableMachineMixin:
                 if index == last_index:
                     return value
                 condition = self._truthy(value)
-                self._record_branch(
-                    condition.symbolic, condition.concrete, node, "boolean_operand"
-                )
+                self._record_branch(condition.symbolic, condition.concrete, node, "boolean_operand")
                 if isinstance(expression.op, ast.And) and not condition.concrete:
                     return value
                 if isinstance(expression.op, ast.Or) and condition.concrete:
@@ -425,9 +394,7 @@ class _ResumableMachineMixin:
             resumed = (
                 (yield from self._resume_async_next(iterator, owner))
                 if generator.is_async
-                else self._resume_iterator(
-                    iterator, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                else self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
             )
             if isinstance(resumed, _Returned):
                 return
@@ -447,15 +414,11 @@ class _ResumableMachineMixin:
             if not accepted:
                 continue
             if index + 1 < len(generators):
-                yield from self._comprehension_level(
-                    generators, expression, owner, index + 1
-                )
+                yield from self._comprehension_level(generators, expression, owner, index + 1)
             else:
                 yield _SuspensionPoint(self._evaluate(expression), owner)
 
-    def _resumable_comprehension_collect(
-        self, generators, expression, index, output
-    ):
+    def _resumable_comprehension_collect(self, generators, expression, index, output):
         generator = generators[index]
         source = yield from self._resumable_evaluate(generator.iter)
         iterator = (
@@ -467,18 +430,14 @@ class _ResumableMachineMixin:
             resumed = (
                 (yield from self._resume_async_next(iterator, generator))
                 if generator.is_async
-                else self._resume_iterator(
-                    iterator, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                else self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
             )
             if isinstance(resumed, _Returned):
                 return
             self._assign(generator.target, resumed.value)
             accepted = True
             for condition_node in generator.ifs:
-                condition = self._truthy(
-                    (yield from self._resumable_evaluate(condition_node))
-                )
+                condition = self._truthy((yield from self._resumable_evaluate(condition_node)))
                 self._record_branch(
                     condition.symbolic,
                     condition.concrete,

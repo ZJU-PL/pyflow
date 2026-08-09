@@ -6,7 +6,7 @@ import ast
 from typing import Any, Generator, Protocol
 
 from .cfg import _SuspensionPoint
-from ..runtime import (
+from ..core.runtime import (
     FunctionNode,
     _BoolValue,
     _ClassValue,
@@ -49,9 +49,7 @@ class _ResumableExecutorProtocol(Protocol):
         self, function: FunctionNode
     ) -> Generator[_SuspensionPoint, Any, Any]: ...
 
-    def _resume_iterator(
-        self, iterator: _IteratorValue, operation: _ResumeOperation
-    ) -> Any: ...
+    def _resume_iterator(self, iterator: _IteratorValue, operation: _ResumeOperation) -> Any: ...
 
     def _call_attribute(
         self, value: Any, name: str, args: list[Any], keywords: dict[str, Any]
@@ -87,9 +85,7 @@ class _ResumableExecutorProtocol(Protocol):
         self, awaitable: Any, node: ast.AST
     ) -> Generator[_SuspensionPoint, Any, Any]: ...
 
-    def _resume_frame(
-        self, frame: _ResumableFrame, operation: _ResumeOperation
-    ) -> Any: ...
+    def _resume_frame(self, frame: _ResumableFrame, operation: _ResumeOperation) -> Any: ...
 
     def _resume_async_context_operation(
         self, operation: Any, node: ast.AST

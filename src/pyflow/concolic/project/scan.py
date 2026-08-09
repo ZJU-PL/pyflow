@@ -177,7 +177,7 @@ def _run_worker(
     started = monotonic()
     try:
         process = subprocess.run(
-            [sys.executable, "-m", "pyflow.concolic.worker"],
+            [sys.executable, "-m", "pyflow.concolic.project.worker"],
             input=json.dumps(request),
             text=True,
             capture_output=True,

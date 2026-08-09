@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..module_loader import _parameter_nodes, _required_positional_count
+from ..core.modules import _parameter_nodes, _required_positional_count
 from ..resumable import _ResumableMixin
-from ..runtime import (
+from ..core.runtime import (
     BranchCoverage,
     FunctionNode,
     SourceLocation,
@@ -99,7 +99,6 @@ class _Executor(
                 f"received {len(inputs)}"
             )
         initial_args = [
-            self._input_value(parameter.arg, value)
-            for parameter, value in zip(parameters, inputs)
+            self._input_value(parameter.arg, value) for parameter, value in zip(parameters, inputs)
         ]
         self.env = self._bind_arguments(function, initial_args, {})

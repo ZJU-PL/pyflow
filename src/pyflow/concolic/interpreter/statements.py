@@ -6,7 +6,7 @@ import ast
 
 from typing import Any, Iterable
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _Break,
@@ -54,9 +54,9 @@ from ..runtime import (
     _ZipIteratorValue,
 )
 
-from ..support import _concrete, _exception_name, _handler_matches, _unique_values
+from ..core.support import _concrete, _exception_name, _handler_matches, _unique_values
 
-from ..module_loader import (
+from ..core.modules import (
     _SUMMARY_MODULES,
     _import_local_module,
     _parameter_nodes,
@@ -76,18 +76,14 @@ class _StatementMixin:
         self._last_result = result
         return _concrete(result), tuple(self.path)
 
-    def _execute_block(
-        self, statements: Iterable[ast.stmt]
-    ) -> _Return | _Break | _Continue | None:
+    def _execute_block(self, statements: Iterable[ast.stmt]) -> _Return | _Break | _Continue | None:
         for statement in statements:
             outcome = self._execute_statement(statement)
             if outcome is not None:
                 return outcome
         return None
 
-    def _execute_statement(
-        self, statement: ast.stmt
-    ) -> _Return | _Break | _Continue | None:
+    def _execute_statement(self, statement: ast.stmt) -> _Return | _Break | _Continue | None:
         self._cover_node(statement)
         if isinstance(statement, ast.Import):
             self._execute_import(statement)
@@ -96,9 +92,7 @@ class _StatementMixin:
             self._execute_import_from(statement)
             return None
         if isinstance(statement, ast.ClassDef):
-            class_value = _ClassValue(
-                statement, self._current_module, dict(self.env)
-            )
+            class_value = _ClassValue(statement, self._current_module, dict(self.env))
             self._assign_name(
                 statement.name,
                 self._class_value(class_value),
@@ -138,9 +132,11 @@ class _StatementMixin:
             ):
                 previous.values.update(value.values)
                 return None
-            if isinstance(previous, _SetValue) and isinstance(
-                statement.op, (ast.BitOr, ast.BitAnd, ast.Sub)
-            ) and isinstance(value, _SetValue):
+            if (
+                isinstance(previous, _SetValue)
+                and isinstance(statement.op, (ast.BitOr, ast.BitAnd, ast.Sub))
+                and isinstance(value, _SetValue)
+            ):
                 previous.values[:] = self._binary(previous, statement.op, value).values
                 return None
             self._assign(statement.target, self._binary(previous, statement.op, value))
@@ -148,21 +144,16 @@ class _StatementMixin:
         if isinstance(statement, ast.If):
             condition = self._truthy(self._evaluate(statement.test))
             self._record_branch(condition.symbolic, condition.concrete, statement.test, "if")
-            return self._execute_block(
-                statement.body if condition.concrete else statement.orelse
-            )
+            return self._execute_block(statement.body if condition.concrete else statement.orelse)
         if isinstance(statement, ast.While):
             count = 0
             while True:
                 if count >= self._max_loop_iterations:
                     raise ConcolicError(
-                        "loop exceeded --max-loop-iterations "
-                        f"({self._max_loop_iterations})"
+                        "loop exceeded --max-loop-iterations " f"({self._max_loop_iterations})"
                     )
                 condition = self._truthy(self._evaluate(statement.test))
-                self._record_branch(
-                    condition.symbolic, condition.concrete, statement.test, "while"
-                )
+                self._record_branch(condition.symbolic, condition.concrete, statement.test, "while")
                 if not condition.concrete:
                     break
                 outcome = self._execute_block(statement.body)
@@ -177,9 +168,7 @@ class _StatementMixin:
         if isinstance(statement, (ast.For, ast.AsyncFor)):
             iterator = self._as_iterator(self._evaluate(statement.iter))
             while True:
-                resumed = self._resume_iterator(
-                    iterator, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                resumed = self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
                 if isinstance(resumed, _Returned):
                     if statement.orelse:
                         return self._execute_block(statement.orelse)
@@ -205,9 +194,7 @@ class _StatementMixin:
         if isinstance(statement, ast.Raise):
             if statement.exc is None:
                 if self._active_exception is None:
-                    raise _TargetException(
-                        "RuntimeError", "No active exception to reraise"
-                    )
+                    raise _TargetException("RuntimeError", "No active exception to reraise")
                 raise self._active_exception
             if statement.cause is not None:
                 self._evaluate(statement.cause)
@@ -225,9 +212,7 @@ class _StatementMixin:
             return None
         if isinstance(statement, ast.Assert):
             condition = self._truthy(self._evaluate(statement.test))
-            self._record_branch(
-                condition.symbolic, condition.concrete, statement.test, "assert"
-            )
+            self._record_branch(condition.symbolic, condition.concrete, statement.test, "assert")
             if not condition.concrete:
                 message = (
                     str(_concrete(self._evaluate(statement.msg)))
@@ -241,8 +226,7 @@ class _StatementMixin:
                 self._delete(target)
             return None
         raise UnsupportedSyntaxError(
-            "unsupported statement "
-            f"{type(statement).__name__} at line {statement.lineno}"
+            "unsupported statement " f"{type(statement).__name__} at line {statement.lineno}"
         )
 
     def _execute_import(self, statement: ast.Import) -> None:
@@ -262,9 +246,7 @@ class _StatementMixin:
                 self._assign_name(bound_name, _SummaryModule(summary_name))
                 continue
             if alias.name in _SUMMARY_MODULES:
-                self._assign_name(
-                    alias.asname or alias.name, _SummaryModule(alias.name)
-                )
+                self._assign_name(alias.asname or alias.name, _SummaryModule(alias.name))
                 continue
             resolved = _import_local_module(
                 self._current_module.path, alias.name, self._module_cache
@@ -284,14 +266,10 @@ class _StatementMixin:
                 if alias.name == "import_module":
                     self._assign_name(
                         alias.asname or alias.name,
-                        _ImportlibFunction(
-                            self._current_module.path, self._module_cache
-                        ),
+                        _ImportlibFunction(self._current_module.path, self._module_cache),
                     )
                 else:
-                    raise UnsupportedSyntaxError(
-                        f"unsupported importlib member {alias.name!r}"
-                    )
+                    raise UnsupportedSyntaxError(f"unsupported importlib member {alias.name!r}")
             return
         if statement.level == 0 and module_name in _SUMMARY_MODULES:
             for alias in statement.names:
@@ -305,20 +283,14 @@ class _StatementMixin:
         if statement.level == 0 and module_name == "os":
             for alias in statement.names:
                 if alias.name != "path":
-                    raise UnsupportedSyntaxError(
-                        f"unsupported os member {alias.name!r}"
-                    )
+                    raise UnsupportedSyntaxError(f"unsupported os member {alias.name!r}")
                 self._assign_name(alias.asname or alias.name, _SummaryModule("os.path"))
             return
         if statement.level == 0 and module_name == "urllib":
             for alias in statement.names:
                 if alias.name != "parse":
-                    raise UnsupportedSyntaxError(
-                        f"unsupported urllib member {alias.name!r}"
-                    )
-                self._assign_name(
-                    alias.asname or alias.name, _SummaryModule("urllib.parse")
-                )
+                    raise UnsupportedSyntaxError(f"unsupported urllib member {alias.name!r}")
+                self._assign_name(alias.asname or alias.name, _SummaryModule("urllib.parse"))
             return
         if module_name is not None:
             imported = _resolve_local_module(
@@ -328,15 +300,11 @@ class _StatementMixin:
                 statement.level,
             )
             if imported is None:
-                raise UnsupportedSyntaxError(
-                    f"unsupported import from {module_name!r}"
-                )
+                raise UnsupportedSyntaxError(f"unsupported import from {module_name!r}")
             for alias in statement.names:
                 if alias.name == "*":
                     for name, function in imported.functions.items():
-                        self._assign_name(
-                            name, _FunctionValue(function, {}, imported)
-                        )
+                        self._assign_name(name, _FunctionValue(function, {}, imported))
                     self._classes.update(imported.classes)
                     self._globals.update(imported.globals)
                 elif alias.name in imported.functions:
@@ -345,22 +313,16 @@ class _StatementMixin:
                         _FunctionValue(imported.functions[alias.name], {}, imported),
                     )
                 elif alias.name in imported.classes:
-                    self._classes[alias.asname or alias.name] = imported.classes[
-                        alias.name
-                    ]
+                    self._classes[alias.asname or alias.name] = imported.classes[alias.name]
                 elif alias.name in imported.globals:
                     self._assign_name(
                         alias.asname or alias.name,
                         self._constant_value(imported.globals[alias.name]),
                     )
                 else:
-                    resolved = _import_local_module(
-                        imported.path, alias.name, self._module_cache
-                    )
+                    resolved = _import_local_module(imported.path, alias.name, self._module_cache)
                     if resolved is None:
-                        raise UnsupportedSyntaxError(
-                            f"unknown local import {alias.name!r}"
-                        )
+                        raise UnsupportedSyntaxError(f"unknown local import {alias.name!r}")
                     self._assign_name(alias.asname or alias.name, resolved[1])
             return
         if not statement.level:
@@ -376,17 +338,13 @@ class _StatementMixin:
                 raise UnsupportedSyntaxError(f"unknown local import {alias.name!r}")
             self._assign_name(alias.asname or alias.name, imported)
 
-    def _execute_match(
-        self, statement: ast.Match
-    ) -> _Return | _Break | _Continue | None:
+    def _execute_match(self, statement: ast.Match) -> _Return | _Break | _Continue | None:
         subject = self._evaluate(statement.subject)
         for case in statement.cases:
             bindings: dict[str, Any] = {}
             if not self._match_pattern(subject, case.pattern, bindings):
                 continue
-            previous_values = {
-                name: self.env[name] for name in bindings if name in self.env
-            }
+            previous_values = {name: self.env[name] for name in bindings if name in self.env}
             missing = set(bindings) - set(previous_values)
             self.env.update(bindings)
             if case.guard is not None:
@@ -402,9 +360,7 @@ class _StatementMixin:
             return self._execute_block(case.body)
         return None
 
-    def _match_pattern(
-        self, value: Any, pattern: ast.pattern, bindings: dict[str, Any]
-    ) -> bool:
+    def _match_pattern(self, value: Any, pattern: ast.pattern, bindings: dict[str, Any]) -> bool:
         if isinstance(pattern, ast.MatchAs):
             if pattern.pattern is not None and not self._match_pattern(
                 value, pattern.pattern, bindings
@@ -417,15 +373,11 @@ class _StatementMixin:
             if pattern.value is None:
                 return value is None
             equality = self._equals(value, self._literal(pattern.value))
-            self._record_branch(
-                equality.symbolic, equality.concrete, pattern, "match_singleton"
-            )
+            self._record_branch(equality.symbolic, equality.concrete, pattern, "match_singleton")
             return equality.concrete
         if isinstance(pattern, ast.MatchValue):
             equality = self._equals(value, self._evaluate(pattern.value))
-            self._record_branch(
-                equality.symbolic, equality.concrete, pattern, "match_value"
-            )
+            self._record_branch(equality.symbolic, equality.concrete, pattern, "match_value")
             return equality.concrete
         if isinstance(pattern, ast.MatchOr):
             for alternative in pattern.patterns:
@@ -481,9 +433,7 @@ class _StatementMixin:
             return True
         if isinstance(pattern, ast.MatchClass):
             class_value = self._evaluate(pattern.cls)
-            if not isinstance(value, _InstanceValue) or not isinstance(
-                class_value, _ClassValue
-            ):
+            if not isinstance(value, _InstanceValue) or not isinstance(class_value, _ClassValue):
                 return False
             if class_value not in self._mro(value.class_value):
                 return False
@@ -495,9 +445,7 @@ class _StatementMixin:
                 )
             names = (*positional_names[: len(pattern.patterns)], *pattern.kwd_attrs)
             if len(set(names)) != len(names):
-                raise ConcolicError(
-                    "match pattern specifies an attribute more than once"
-                )
+                raise ConcolicError("match pattern specifies an attribute more than once")
             children = (*pattern.patterns, *pattern.kwd_patterns)
             for name, child in zip(names, children):
                 try:
@@ -507,9 +455,7 @@ class _StatementMixin:
                 if not self._match_pattern(attribute, child, bindings):
                     return False
             return True
-        raise UnsupportedSyntaxError(
-            f"unsupported match pattern {type(pattern).__name__}"
-        )
+        raise UnsupportedSyntaxError(f"unsupported match pattern {type(pattern).__name__}")
 
     def _execute_try(self, statement: ast.Try) -> _Return | _Break | _Continue | None:
         outcome: _Return | _Break | _Continue | None = None
@@ -548,9 +494,7 @@ class _StatementMixin:
         self, statement: ast.With | ast.AsyncWith
     ) -> _Return | _Break | _Continue | None:
         contexts: list[Any] = []
-        enter_name = (
-            "__aenter__" if isinstance(statement, ast.AsyncWith) else "__enter__"
-        )
+        enter_name = "__aenter__" if isinstance(statement, ast.AsyncWith) else "__enter__"
         exit_name = "__aexit__" if isinstance(statement, ast.AsyncWith) else "__exit__"
         try:
             for item in statement.items:
@@ -600,9 +544,7 @@ class _StatementMixin:
     def _raised_exception(self, statement: ast.Raise) -> _TargetException:
         if isinstance(statement.exc, ast.Name):
             return _TargetException(statement.exc.id)
-        if isinstance(statement.exc, ast.Call) and isinstance(
-            statement.exc.func, ast.Name
-        ):
+        if isinstance(statement.exc, ast.Call) and isinstance(statement.exc.func, ast.Name):
             message = ""
             if statement.exc.args:
                 message = str(_concrete(self._evaluate(statement.exc.args[0])))
@@ -617,13 +559,9 @@ class _StatementMixin:
             if isinstance(expression.value, int):
                 return _IntValue(expression.value, self._z3.IntVal(expression.value))
             if isinstance(expression.value, float):
-                return _FloatValue(
-                    expression.value, self._z3.RealVal(str(expression.value))
-                )
+                return _FloatValue(expression.value, self._z3.RealVal(str(expression.value)))
             if isinstance(expression.value, str):
-                return _StringValue(
-                    expression.value, self._z3.StringVal(expression.value)
-                )
+                return _StringValue(expression.value, self._z3.StringVal(expression.value))
             if isinstance(expression.value, bytes):
                 return _BytesValue(expression.value)
             if expression.value is None:
@@ -643,66 +581,50 @@ class _StatementMixin:
             symbolic = (
                 self._z3.StringVal("")
                 if not values
-                else values[0].symbolic
-                if len(values) == 1
-                else self._z3.Concat(*(value.symbolic for value in values))
+                else (
+                    values[0].symbolic
+                    if len(values) == 1
+                    else self._z3.Concat(*(value.symbolic for value in values))
+                )
             )
-            return _StringValue(
-                concrete, symbolic
-            )
+            return _StringValue(concrete, symbolic)
         if isinstance(expression, ast.Await):
             return self._evaluate(expression.value)
         if isinstance(expression, ast.Yield):
             if self._yielded_values is None:
-                raise UnsupportedSyntaxError(
-                    "yield is only valid in generator functions"
-                )
+                raise UnsupportedSyntaxError("yield is only valid in generator functions")
             value = self._evaluate(expression.value) if expression.value else None
             self._yielded_values.append(value)
             return None
         if isinstance(expression, ast.YieldFrom):
             if self._yielded_values is None:
-                raise UnsupportedSyntaxError(
-                    "yield from is only valid in generators"
-                )
-            self._yielded_values.extend(
-                self._iter_values(self._evaluate(expression.value))
-            )
+                raise UnsupportedSyntaxError("yield from is only valid in generators")
+            self._yielded_values.extend(self._iter_values(self._evaluate(expression.value)))
             return None
         if isinstance(expression, ast.Lambda):
             return _FunctionValue(expression, self.env)
         if isinstance(expression, ast.List):
             return _ListValue(self._evaluate_unpacked_elements(expression.elts))
         if isinstance(expression, ast.Tuple):
-            return _TupleValue(
-                tuple(self._evaluate_unpacked_elements(expression.elts))
-            )
+            return _TupleValue(tuple(self._evaluate_unpacked_elements(expression.elts)))
         if isinstance(expression, ast.Set):
-            return _SetValue(
-                _unique_values(self._evaluate_unpacked_elements(expression.elts))
-            )
+            return _SetValue(_unique_values(self._evaluate_unpacked_elements(expression.elts)))
         if isinstance(expression, ast.Dict):
             values: dict[int | str | bool, Any] = {}
             for key, value in zip(expression.keys, expression.values):
                 if key is None:
                     unpacked = self._evaluate(value)
                     if not isinstance(unpacked, _DictValue):
-                        raise UnsupportedSyntaxError(
-                            "dictionary unpacking requires a dictionary"
-                        )
+                        raise UnsupportedSyntaxError("dictionary unpacking requires a dictionary")
                     values.update(unpacked.values)
                 else:
                     values[self._key(self._evaluate(key))] = self._evaluate(value)
             return _DictValue(values)
         if isinstance(expression, ast.ListComp):
-            return _ListValue(
-                self._evaluate_comprehension(expression.generators, expression.elt)
-            )
+            return _ListValue(self._evaluate_comprehension(expression.generators, expression.elt))
         if isinstance(expression, ast.SetComp):
             return _SetValue(
-                _unique_values(
-                    self._evaluate_comprehension(expression.generators, expression.elt)
-                )
+                _unique_values(self._evaluate_comprehension(expression.generators, expression.elt))
             )
         if isinstance(expression, ast.DictComp):
             pairs = self._evaluate_comprehension(
@@ -720,9 +642,7 @@ class _StatementMixin:
             self._record_branch(
                 condition.symbolic, condition.concrete, expression.test, "if_expression"
             )
-            return self._evaluate(
-                expression.body if condition.concrete else expression.orelse
-            )
+            return self._evaluate(expression.body if condition.concrete else expression.orelse)
         if isinstance(expression, ast.BinOp):
             return self._binary(
                 self._evaluate(expression.left),
@@ -741,9 +661,7 @@ class _StatementMixin:
             if isinstance(expression.op, ast.Not):
                 boolean = self._truthy(operand)
                 return _BoolValue(not boolean.concrete, self._z3.Not(boolean.symbolic))
-            raise UnsupportedSyntaxError(
-                f"unsupported unary operator at line {expression.lineno}"
-            )
+            raise UnsupportedSyntaxError(f"unsupported unary operator at line {expression.lineno}")
         if isinstance(expression, ast.Compare):
             return self._compare(expression)
         if isinstance(expression, ast.BoolOp):
@@ -753,9 +671,7 @@ class _StatementMixin:
                 if index == last_index:
                     return value
                 condition = self._truthy(value)
-                self._record_branch(
-                    condition.symbolic, condition.concrete, node, "boolean_operand"
-                )
+                self._record_branch(condition.symbolic, condition.concrete, node, "boolean_operand")
                 if isinstance(expression.op, ast.And) and not condition.concrete:
                     return value
                 if isinstance(expression.op, ast.Or) and condition.concrete:
@@ -763,8 +679,7 @@ class _StatementMixin:
         if isinstance(expression, ast.Call):
             return self._call(expression)
         raise UnsupportedSyntaxError(
-            "unsupported expression "
-            f"{type(expression).__name__} at line {expression.lineno}"
+            "unsupported expression " f"{type(expression).__name__} at line {expression.lineno}"
         )
 
     def _evaluate_unpacked_elements(self, elements: list[ast.expr]) -> list[Any]:
@@ -784,20 +699,14 @@ class _StatementMixin:
                 raise UnsupportedSyntaxError("unsupported f-string conversion")
             value = self._evaluate(node.value)
             if node.format_spec is not None:
-                specification = self._to_string(
-                    self._evaluate(node.format_spec)
-                ).concrete
+                specification = self._to_string(self._evaluate(node.format_spec)).concrete
                 return self._format_value(value, specification)
             if node.conversion == ord("r"):
                 if isinstance(value, _InstanceValue):
-                    method_with_owner = self._method_with_owner(
-                        value.class_value, "__repr__"
-                    )
+                    method_with_owner = self._method_with_owner(value.class_value, "__repr__")
                     if method_with_owner is not None:
                         method, owner = method_with_owner
-                        return self._to_string(
-                            self._call_method(method, owner, value, [], {})
-                        )
+                        return self._to_string(self._call_method(method, owner, value, [], {}))
                 concrete = repr(_concrete(value))
                 return _StringValue(concrete, self._z3.StringVal(concrete))
             if node.conversion == ord("a"):
@@ -824,9 +733,7 @@ class _StatementMixin:
                 keywords[keyword.arg] = value
         return self._call_prepared(call, args, keywords)
 
-    def _call_prepared(
-        self, call: ast.Call, args: list[Any], keywords: dict[str, Any]
-    ) -> Any:
+    def _call_prepared(self, call: ast.Call, args: list[Any], keywords: dict[str, Any]) -> Any:
         if isinstance(call.func, ast.Name):
             name = call.func.id
             if name == "abs" and len(args) == 1:
@@ -834,9 +741,7 @@ class _StatementMixin:
                     value = args[0]
                     return _FloatValue(
                         abs(value.concrete),
-                        self._z3.If(
-                            value.symbolic >= 0, value.symbolic, -value.symbolic
-                        ),
+                        self._z3.If(value.symbolic >= 0, value.symbolic, -value.symbolic),
                     )
                 value = self._as_int(args[0])
                 return _IntValue(
@@ -851,9 +756,7 @@ class _StatementMixin:
                 return self._as_iterator(args[0])
             if name == "next" and 1 <= len(args) <= 2:
                 iterator = self._as_iterator(args[0])
-                resumed = self._resume_iterator(
-                    iterator, _ResumeOperation(_ResumeKind.NEXT)
-                )
+                resumed = self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
                 if not isinstance(resumed, _Returned):
                     return resumed.value
                 if len(args) == 2:
@@ -869,28 +772,18 @@ class _StatementMixin:
                 return self._to_string(args[0])
             if name in {"repr", "ascii"} and len(args) == 1:
                 if isinstance(args[0], _InstanceValue):
-                    method_with_owner = self._method_with_owner(
-                        args[0].class_value, "__repr__"
-                    )
+                    method_with_owner = self._method_with_owner(args[0].class_value, "__repr__")
                     if method_with_owner is not None:
                         method, owner = method_with_owner
-                        result = self._to_string(
-                            self._call_method(method, owner, args[0], [], {})
-                        )
+                        result = self._to_string(self._call_method(method, owner, args[0], [], {}))
                         if name == "repr":
                             return result
                         concrete = ascii(result.concrete)
                         return _StringValue(concrete, self._z3.StringVal(concrete))
-                concrete = (
-                    repr(_concrete(args[0]))
-                    if name == "repr"
-                    else ascii(_concrete(args[0]))
-                )
+                concrete = repr(_concrete(args[0])) if name == "repr" else ascii(_concrete(args[0]))
                 return _StringValue(concrete, self._z3.StringVal(concrete))
             if name == "format" and 1 <= len(args) <= 2:
-                specification = (
-                    self._to_string(args[1]).concrete if len(args) == 2 else ""
-                )
+                specification = self._to_string(args[1]).concrete if len(args) == 2 else ""
                 return self._format_value(args[0], specification)
             if name == "bytes" and len(args) == 1:
                 return self._to_bytes(args[0])
@@ -923,9 +816,7 @@ class _StatementMixin:
             if name == "round" and 1 <= len(args) <= 2:
                 number = self._numeric_concrete(args[0])
                 digits = self._as_int(args[1]).concrete if len(args) == 2 else None
-                concrete = (
-                    round(number, digits) if digits is not None else round(number)
-                )
+                concrete = round(number, digits) if digits is not None else round(number)
                 return self._constant_value(concrete)
             if name == "type" and len(args) == 1:
                 if isinstance(args[0], _InstanceValue):
@@ -955,9 +846,7 @@ class _StatementMixin:
             if name == "isinstance" and len(args) == 2:
                 return self._isinstance(args[0], args[1])
             if name == "getattr" and 2 <= len(args) <= 3:
-                return self._getattr(
-                    args[0], args[1], args[2] if len(args) == 3 else None
-                )
+                return self._getattr(args[0], args[1], args[2] if len(args) == 3 else None)
             if name == "hasattr" and len(args) == 2:
                 try:
                     self._getattr(args[0], args[1])
@@ -973,13 +862,9 @@ class _StatementMixin:
             if name == "list" and len(args) <= 1:
                 return _ListValue([] if not args else list(self._iter_values(args[0])))
             if name == "tuple" and len(args) <= 1:
-                return _TupleValue(
-                    () if not args else tuple(self._iter_values(args[0]))
-                )
+                return _TupleValue(() if not args else tuple(self._iter_values(args[0])))
             if name == "set" and len(args) <= 1:
-                return _SetValue(
-                    [] if not args else _unique_values(self._iter_values(args[0]))
-                )
+                return _SetValue([] if not args else _unique_values(self._iter_values(args[0])))
             if name == "dict" and len(args) <= 1:
                 values: dict[int | str | bool, Any] = {}
                 if args:
@@ -987,9 +872,10 @@ class _StatementMixin:
                         values.update(args[0].values)
                     else:
                         for pair in self._iter_values(args[0]):
-                            if not isinstance(pair, (_ListValue, _TupleValue)) or len(
-                                pair.values
-                            ) != 2:
+                            if (
+                                not isinstance(pair, (_ListValue, _TupleValue))
+                                or len(pair.values) != 2
+                            ):
                                 raise UnsupportedSyntaxError(
                                     "dict() iterable items must have two values"
                                 )
@@ -1006,9 +892,7 @@ class _StatementMixin:
                     raise UnsupportedSyntaxError("unsupported sorted() keyword")
                 key_function = keywords.get("key")
                 reverse = (
-                    self._truthy(keywords["reverse"]).concrete
-                    if "reverse" in keywords
-                    else False
+                    self._truthy(keywords["reverse"]).concrete if "reverse" in keywords else False
                 )
                 return _ListValue(
                     sorted(
@@ -1045,9 +929,7 @@ class _StatementMixin:
                 iterator = self._as_iterator(args[0])
                 tested = []
                 while True:
-                    resumed = self._resume_iterator(
-                        iterator, _ResumeOperation(_ResumeKind.NEXT)
-                    )
+                    resumed = self._resume_iterator(iterator, _ResumeOperation(_ResumeKind.NEXT))
                     if isinstance(resumed, _Returned):
                         concrete = name == "all"
                         symbolic = (
@@ -1058,9 +940,7 @@ class _StatementMixin:
                         return _BoolValue(concrete, symbolic)
                     condition = self._truthy(resumed.value)
                     tested.append(condition)
-                    self._record_branch(
-                        condition.symbolic, condition.concrete, None, name
-                    )
+                    self._record_branch(condition.symbolic, condition.concrete, None, name)
                     if name == "any" and condition.concrete:
                         return _BoolValue(
                             True,
@@ -1078,9 +958,7 @@ class _StatementMixin:
                     raise ConcolicError("super() requires an instance method context")
                 return _SuperValue(self._current_instance, self._current_class)
             if name in self._functions:
-                return self._call_value(
-                    self._function_value(self._functions[name]), args, keywords
-                )
+                return self._call_value(self._function_value(self._functions[name]), args, keywords)
             if name in self._classes:
                 class_value = self._class_value(self._classes[name])
                 if isinstance(class_value, _ClassValue):
@@ -1100,9 +978,7 @@ class _StatementMixin:
             if isinstance(callee, _SummaryFunction):
                 return self._call_summary(callee.module, callee.name, args, keywords)
             if isinstance(callee, _ImportlibFunction):
-                return self._import_local_by_name(
-                    callee.path, callee.cache, args, keywords
-                )
+                return self._import_local_by_name(callee.path, callee.cache, args, keywords)
             if isinstance(callee, _ContextManagerFactory):
                 return self._call_value(callee, args, keywords)
             if isinstance(callee, _ExceptionType):
@@ -1131,18 +1007,12 @@ class _StatementMixin:
             return self._call_value(callee, args, keywords)
         if isinstance(callee, _ExceptionType):
             return self._call_value(callee, args, keywords)
-        if isinstance(
-            callee, (_OperatorItemGetter, _OperatorAttrGetter, _OperatorMethodCaller)
-        ):
+        if isinstance(callee, (_OperatorItemGetter, _OperatorAttrGetter, _OperatorMethodCaller)):
             return self._call_value(callee, args, keywords)
         raise UnsupportedSyntaxError(f"unsupported call at line {call.lineno}")
 
     def _isinstance(self, value: Any, expected: Any) -> _BoolValue:
-        classes = (
-            expected.values
-            if isinstance(expected, _TupleValue)
-            else (expected,)
-        )
+        classes = expected.values if isinstance(expected, _TupleValue) else (expected,)
         concrete = any(
             (
                 isinstance(class_value, _ClassValue)
@@ -1186,9 +1056,7 @@ class _StatementMixin:
     def _setattr(self, value: Any, name: Any, attribute: Any) -> None:
         if isinstance(value, _InstanceValue):
             attribute_name = self._to_string(name).concrete
-            setter = self._property_setter_with_owner(
-                value.class_value, attribute_name
-            )
+            setter = self._property_setter_with_owner(value.class_value, attribute_name)
             if setter is not None:
                 method, owner = setter
                 self._call_method(method, owner, value, [attribute], {})
@@ -1196,9 +1064,7 @@ class _StatementMixin:
             value.fields[attribute_name] = attribute
             return
         if isinstance(value, _ClassValue):
-            self._materialize_class_attributes(value)[
-                self._to_string(name).concrete
-            ] = attribute
+            self._materialize_class_attributes(value)[self._to_string(name).concrete] = attribute
             return
         raise UnsupportedSyntaxError("setattr() requires a supported object")
 

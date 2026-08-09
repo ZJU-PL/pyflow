@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .runtime import ContractCounterexample, OutcomeKind, RunRecord
-from .support import _input_key
+from ..core.runtime import ContractCounterexample, OutcomeKind, RunRecord
+from ..core.support import _input_key
 
 
 def minimize_runs(
@@ -43,12 +43,8 @@ def minimize_runs(
 
     all_branches = set().union(*(run.coverage.branches for run in candidates))
     all_nodes = set().union(*(run.coverage.nodes for run in candidates))
-    covered_branches = set().union(
-        *(candidates[index].coverage.branches for index in selected)
-    )
-    covered_nodes = set().union(
-        *(candidates[index].coverage.nodes for index in selected)
-    )
+    covered_branches = set().union(*(candidates[index].coverage.branches for index in selected))
+    covered_nodes = set().union(*(candidates[index].coverage.nodes for index in selected))
 
     while covered_branches != all_branches or covered_nodes != all_nodes:
         remaining = [index for index in range(len(candidates)) if index not in selected]
@@ -61,10 +57,7 @@ def minimize_runs(
             ),
         )
         run = candidates[best]
-        if not (
-            run.coverage.branches - covered_branches
-            or run.coverage.nodes - covered_nodes
-        ):
+        if not (run.coverage.branches - covered_branches or run.coverage.nodes - covered_nodes):
             break
         selected.add(best)
         covered_branches.update(run.coverage.branches)
@@ -95,9 +88,7 @@ def _value_size(value: Any) -> int:
     if isinstance(value, (list, tuple, set, frozenset)):
         return 1 + sum(_value_size(item) for item in value)
     if isinstance(value, dict):
-        return 1 + sum(
-            _value_size(key) + _value_size(item) for key, item in value.items()
-        )
+        return 1 + sum(_value_size(key) + _value_size(item) for key, item in value.items())
     if isinstance(value, (str, bytes)):
         return 1 + len(value)
     return 1

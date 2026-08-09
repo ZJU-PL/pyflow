@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .protocol import _ResumableExecutorProtocol
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     _GatherValue,
     _ResumeKind,
@@ -19,9 +19,7 @@ from ..runtime import (
 
 
 class _ResumableSchedulerMixin:
-    def _drive_coroutine(
-        self: _ResumableExecutorProtocol, frame: _ResumableFrame
-    ) -> Any:
+    def _drive_coroutine(self: _ResumableExecutorProtocol, frame: _ResumableFrame) -> Any:
         main_task = _TaskValue(frame, "<entry>")
         self._mark_task_ready(main_task)
         self._tasks.insert(0, main_task)
@@ -32,16 +30,10 @@ class _ResumableSchedulerMixin:
                     task
                     for task in self._tasks
                     if not task.done
-                    and (
-                        task.cancel_requested
-                        or task.blocked_on is None
-                        or task.blocked_on.done
-                    )
+                    and (task.cancel_requested or task.blocked_on is None or task.blocked_on.done)
                 ]
                 if not candidates:
-                    raise _TargetException(
-                        "RuntimeError", "async task scheduler deadlocked"
-                    )
+                    raise _TargetException("RuntimeError", "async task scheduler deadlocked")
                 task = candidates[self._choose_task_index(candidates)]
                 self._step_task(task)
                 if not task.done and task.blocked_on is None:
@@ -58,14 +50,10 @@ class _ResumableSchedulerMixin:
         finally:
             for task in self._tasks:
                 if not task.done:
-                    task.frame.resume(
-                        self, _ResumeOperation(_ResumeKind.CLOSE)
-                    )
+                    task.frame.resume(self, _ResumeOperation(_ResumeKind.CLOSE))
             self._tasks.clear()
 
-    def _choose_task_index(
-        self: _ResumableExecutorProtocol, candidates: list[_TaskValue]
-    ) -> int:
+    def _choose_task_index(self: _ResumableExecutorProtocol, candidates: list[_TaskValue]) -> int:
         count = len(candidates)
         if self._scheduler_mode == "nondeterministic":
             if count <= 1:
@@ -88,22 +76,16 @@ class _ResumableSchedulerMixin:
         self._schedule_choices.append((count, chosen))
         return chosen
 
-    def _mark_task_ready(
-        self: _ResumableExecutorProtocol, task: _TaskValue
-    ) -> None:
+    def _mark_task_ready(self: _ResumableExecutorProtocol, task: _TaskValue) -> None:
         task.ready_order = self._scheduler_clock
         self._scheduler_clock += 1
 
-    def _step_task(
-        self: _ResumableExecutorProtocol, task: _TaskValue
-    ) -> None:
+    def _step_task(self: _ResumableExecutorProtocol, task: _TaskValue) -> None:
         task.blocked_on = None
         operation = _ResumeOperation(_ResumeKind.NEXT)
         if task.cancel_requested:
             task.cancel_requested = False
-            operation = _ResumeOperation(
-                _ResumeKind.THROW, _TargetException("CancelledError")
-            )
+            operation = _ResumeOperation(_ResumeKind.THROW, _TargetException("CancelledError"))
         try:
             resumed = self._resume_iterator(task.frame, operation)
         except BaseException as error:
@@ -136,6 +118,4 @@ class _ResumableSchedulerMixin:
         values,
         return_exceptions: bool,
     ) -> _GatherValue:
-        return _GatherValue(
-            tuple(self._create_task(value) for value in values), return_exceptions
-        )
+        return _GatherValue(tuple(self._create_task(value) for value in values), return_exceptions)

@@ -12,7 +12,7 @@ import re
 
 from typing import Any
 
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     FunctionNode,
     UnsupportedSyntaxError,
@@ -51,7 +51,7 @@ from ..runtime import (
     _URLParseValue,
 )
 
-from ..support import _concrete
+from ..core.support import _concrete
 
 
 class _ObjectMixin:
@@ -69,9 +69,7 @@ class _ObjectMixin:
         if isinstance(value, _ContextManagerFactory):
             iterator = self._call_value(value.function, args, keywords)
             if not isinstance(iterator, _IteratorValue):
-                raise UnsupportedSyntaxError(
-                    "contextmanager function must yield a value"
-                )
+                raise UnsupportedSyntaxError("contextmanager function must yield a value")
             return _GeneratorContext(iterator)
         if isinstance(value, _OperatorItemGetter):
             if len(args) != 1 or keywords:
@@ -94,9 +92,7 @@ class _ObjectMixin:
         if isinstance(value, _OperatorMethodCaller):
             if len(args) != 1 or keywords:
                 raise ConcolicError("operator.methodcaller() expects one argument")
-            return self._call_attribute(
-                args[0], value.name, list(value.args), value.keywords
-            )
+            return self._call_attribute(args[0], value.name, list(value.args), value.keywords)
         if isinstance(value, _PartialValue):
             overlapping = set(value.keywords) & set(keywords)
             if overlapping:
@@ -162,10 +158,7 @@ class _ObjectMixin:
                 pass
         if isinstance(value, _NamedTupleClass) and name == "_fields":
             return _TupleValue(
-                tuple(
-                    _StringValue(field, self._z3.StringVal(field))
-                    for field in value.fields
-                )
+                tuple(_StringValue(field, self._z3.StringVal(field)) for field in value.fields)
             )
         if isinstance(value, _DateTimeValue):
             attributes = {
@@ -210,23 +203,17 @@ class _ObjectMixin:
                 if value.concrete.startswith("/"):
                     parts = ("/", *parts)
                 return _TupleValue(
-                    tuple(
-                        _StringValue(part, self._z3.StringVal(part)) for part in parts
-                    )
+                    tuple(_StringValue(part, self._z3.StringVal(part)) for part in parts)
                 )
         if isinstance(value, _InstanceValue):
             if name in value.fields:
                 return value.fields[name]
-            found, class_attribute = self._class_attribute_value(
-                value.class_value, name
-            )
+            found, class_attribute = self._class_attribute_value(value.class_value, name)
             if found:
                 return class_attribute
             method_with_owner = self._method_with_owner(value.class_value, name)
             method_kind = (
-                self._method_kind(method_with_owner[0])
-                if method_with_owner is not None
-                else None
+                self._method_kind(method_with_owner[0]) if method_with_owner is not None else None
             )
             if method_with_owner is not None and method_kind in {
                 "property",
@@ -264,18 +251,19 @@ class _ObjectMixin:
                 return value
         if isinstance(value, _SummaryModule) and value.name == "os" and name == "path":
             return _SummaryModule("os.path")
-        if isinstance(value, _SummaryModule) and value.name == "math" and name in {
-            "e",
-            "pi",
-            "tau",
-        }:
-            concrete = getattr(math, name)
-            return _FloatValue(concrete, self._z3.RealVal(str(concrete)))
         if (
             isinstance(value, _SummaryModule)
-            and value.name == "urllib"
-            and name == "parse"
+            and value.name == "math"
+            and name
+            in {
+                "e",
+                "pi",
+                "tau",
+            }
         ):
+            concrete = getattr(math, name)
+            return _FloatValue(concrete, self._z3.RealVal(str(concrete)))
+        if isinstance(value, _SummaryModule) and value.name == "urllib" and name == "parse":
             return _SummaryModule("urllib.parse")
         if isinstance(value, _RegexModule) and name in {
             "I",
@@ -299,8 +287,7 @@ class _ObjectMixin:
                 return self._class_value(value.classes[name])
             if value.loading:
                 raise ConcolicError(
-                    "circular import accessed unavailable attribute "
-                    f"{name!r} in {value.path}"
+                    "circular import accessed unavailable attribute " f"{name!r} in {value.path}"
                 )
         raise UnsupportedSyntaxError(f"unsupported attribute {name!r}")
 
@@ -358,17 +345,13 @@ class _ObjectMixin:
     ) -> Any:
         kind = self._method_kind(method)
         if kind == "staticmethod":
-            return self._call_scoped_function(
-                method, args, keywords, owner.module, owner, instance
-            )
+            return self._call_scoped_function(method, args, keywords, owner.module, owner, instance)
         if kind == "classmethod":
             return self._call_scoped_function(
                 method, [owner, *args], keywords, owner.module, owner, instance
             )
         if instance is None:
-            raise ConcolicError(
-                f"{owner.definition.name}.{method.name} requires an instance"
-            )
+            raise ConcolicError(f"{owner.definition.name}.{method.name} requires an instance")
         return self._call_scoped_function(
             method, [instance, *args], keywords, owner.module, owner, instance
         )
@@ -385,9 +368,7 @@ class _ObjectMixin:
                     return statement, candidate
         return None
 
-    def _class_attribute_value(
-        self, class_value: _ClassValue, name: str
-    ) -> tuple[bool, Any]:
+    def _class_attribute_value(self, class_value: _ClassValue, name: str) -> tuple[bool, Any]:
         """Return an inherited class variable declared with a simple assignment."""
         for candidate in self._mro(class_value):
             attributes = self._materialize_class_attributes(candidate)
@@ -395,9 +376,7 @@ class _ObjectMixin:
                 return True, attributes[name]
         return False, None
 
-    def _materialize_class_attributes(
-        self, class_value: _ClassValue
-    ) -> dict[str, Any]:
+    def _materialize_class_attributes(self, class_value: _ClassValue) -> dict[str, Any]:
         """Lazily execute simple class-variable declarations in class-body order."""
         key = id(class_value)
         if key in self._class_attributes:
@@ -450,9 +429,7 @@ class _ObjectMixin:
         try:
             start = mro.index(start_class) + 1
         except ValueError as error:
-            raise ConcolicError(
-                "super() start class is not in the instance MRO"
-            ) from error
+            raise ConcolicError("super() start class is not in the instance MRO") from error
         for candidate in mro[start:]:
             for statement in candidate.definition.body:
                 if (
@@ -492,15 +469,13 @@ class _ObjectMixin:
                 (
                     sequence[0]
                     for sequence in sequences
-                    if sequence
-                    and not any(sequence[0] in other[1:] for other in sequences)
+                    if sequence and not any(sequence[0] in other[1:] for other in sequences)
                 ),
                 None,
             )
             if candidate is None:
                 raise ConcolicError(
-                    "inconsistent inheritance hierarchy for "
-                    f"{class_value.definition.name}"
+                    "inconsistent inheritance hierarchy for " f"{class_value.definition.name}"
                 )
             merged.append(candidate)
             for sequence in sequences:
@@ -520,9 +495,7 @@ class _ObjectMixin:
     @staticmethod
     def _method_kind(method: FunctionNode) -> str:
         names = {
-            decorator.id
-            for decorator in method.decorator_list
-            if isinstance(decorator, ast.Name)
+            decorator.id for decorator in method.decorator_list if isinstance(decorator, ast.Name)
         }
         attribute_names = {
             decorator.attr
@@ -549,17 +522,18 @@ class _ObjectMixin:
     @staticmethod
     def _is_dataclass_decorator(decorator: ast.expr) -> bool:
         return (
-            isinstance(decorator, ast.Name) and decorator.id == "dataclass"
-        ) or (
-            isinstance(decorator, ast.Attribute) and decorator.attr == "dataclass"
-        ) or (
-            isinstance(decorator, ast.Call)
-            and isinstance(decorator.func, ast.Name)
-            and decorator.func.id == "dataclass"
-        ) or (
-            isinstance(decorator, ast.Call)
-            and isinstance(decorator.func, ast.Attribute)
-            and decorator.func.attr == "dataclass"
+            (isinstance(decorator, ast.Name) and decorator.id == "dataclass")
+            or (isinstance(decorator, ast.Attribute) and decorator.attr == "dataclass")
+            or (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Name)
+                and decorator.func.id == "dataclass"
+            )
+            or (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "dataclass"
+            )
         )
 
     def _construct_dataclass(
@@ -596,8 +570,7 @@ class _ObjectMixin:
             fields.extend(
                 statement
                 for statement in candidate.definition.body
-                if isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
+                if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
             )
         return fields
 
@@ -631,18 +604,12 @@ class _ObjectMixin:
                         )
                     names = []
                     for node in value.elts:
-                        if not isinstance(node, ast.Constant) or not isinstance(
-                            node.value, str
-                        ):
-                            raise UnsupportedSyntaxError(
-                                "__match_args__ must contain only strings"
-                            )
+                        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                            raise UnsupportedSyntaxError("__match_args__ must contain only strings")
                         names.append(node.value)
                     return tuple(names)
         if self._is_dataclass(class_value):
-            return tuple(
-                field.target.id for field in self._dataclass_fields(class_value)
-            )
+            return tuple(field.target.id for field in self._dataclass_fields(class_value))
         return ()
 
     def _dataclass_default(self, node: ast.expr) -> Any:
@@ -663,9 +630,7 @@ class _ObjectMixin:
                 }:
                     return self._call(ast.Call(factory, [], []))
                 if isinstance(factory, ast.Lambda):
-                    return self._call_function_value(
-                        _FunctionValue(factory, self.env), [], {}
-                    )
+                    return self._call_function_value(_FunctionValue(factory, self.env), [], {})
                 raise UnsupportedSyntaxError("unsupported dataclass default factory")
             raise UnsupportedSyntaxError("dataclasses.field() needs a default")
         return self._evaluate(node)
@@ -674,25 +639,16 @@ class _ObjectMixin:
         if isinstance(value, _InstanceValue) and self._is_dataclass(value.class_value):
             return _DictValue(
                 {
-                    field.target.id: self._dataclass_serialized(
-                        value.fields[field.target.id]
-                    )
+                    field.target.id: self._dataclass_serialized(value.fields[field.target.id])
                     for field in self._dataclass_fields(value.class_value)
                 }
             )
         if isinstance(value, _ListValue):
-            return _ListValue(
-                [self._dataclass_serialized(item) for item in value.values]
-            )
+            return _ListValue([self._dataclass_serialized(item) for item in value.values])
         if isinstance(value, _TupleValue):
-            return _TupleValue(
-                tuple(self._dataclass_serialized(item) for item in value.values)
-            )
+            return _TupleValue(tuple(self._dataclass_serialized(item) for item in value.values))
         if isinstance(value, _DictValue):
             return _DictValue(
-                {
-                    key: self._dataclass_serialized(item)
-                    for key, item in value.values.items()
-                }
+                {key: self._dataclass_serialized(item) for key, item in value.values.items()}
             )
         return value

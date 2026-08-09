@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .cfg import _SuspensionPoint
 from .protocol import _ResumableExecutorProtocol
-from ..runtime import (
+from ..core.runtime import (
     UnsupportedSyntaxError,
     _AsyncContextOperation,
     _AsyncGeneratorOperation,
@@ -26,17 +26,11 @@ from ..runtime import (
 
 
 class _ResumableCoroutineMixin:
-    def _await_runtime_value(
-        self: _ResumableExecutorProtocol, awaitable, node
-    ):
+    def _await_runtime_value(self: _ResumableExecutorProtocol, awaitable, node):
         if isinstance(awaitable, _AsyncContextOperation):
-            return (
-                yield from self._resume_async_context_operation(awaitable, node)
-            )
+            return (yield from self._resume_async_context_operation(awaitable, node))
         if isinstance(awaitable, _AsyncGeneratorOperation):
-            return (
-                yield from self._resume_async_generator_operation(awaitable, node)
-            )
+            return (yield from self._resume_async_generator_operation(awaitable, node))
         if isinstance(awaitable, _SchedulerYield):
             yield _SuspensionPoint(awaitable, node, "await")
             return awaitable.result
@@ -45,9 +39,7 @@ class _ResumableCoroutineMixin:
                 try:
                     yield _SuspensionPoint(_TaskWait(awaitable), node, "await")
                 except BaseException as error:
-                    if isinstance(error, _TargetException) and (
-                        error.name == "CancelledError"
-                    ):
+                    if isinstance(error, _TargetException) and (error.name == "CancelledError"):
                         awaitable.cancel_requested = True
                         continue
                     raise
@@ -73,9 +65,7 @@ class _ResumableCoroutineMixin:
                 try:
                     sent = yield _SuspensionPoint(resumed.value, node, "await")
                 except GeneratorExit:
-                    self._resume_iterator(
-                        awaitable, _ResumeOperation(_ResumeKind.CLOSE)
-                    )
+                    self._resume_iterator(awaitable, _ResumeOperation(_ResumeKind.CLOSE))
                     raise
                 except BaseException as error:
                     operation = _ResumeOperation(_ResumeKind.THROW, error)
@@ -136,14 +126,10 @@ class _ResumableCoroutineMixin:
                     return None
                 raise _TargetException("StopAsyncIteration")
             if operation.closing:
-                raise _TargetException(
-                    "RuntimeError", "async generator ignored GeneratorExit"
-                )
+                raise _TargetException("RuntimeError", "async generator ignored GeneratorExit")
             return resumed.value
 
-    def _drive_await_iterator(
-        self: _ResumableExecutorProtocol, iterator, node
-    ):
+    def _drive_await_iterator(self: _ResumableExecutorProtocol, iterator, node):
         iterator = self._as_iterator(iterator)
         resume_operation = _ResumeOperation(_ResumeKind.NEXT)
         while True:
@@ -163,9 +149,7 @@ class _ResumableCoroutineMixin:
                     sent,
                 )
 
-    def _resume_async_context_operation(
-        self: _ResumableExecutorProtocol, operation, node
-    ):
+    def _resume_async_context_operation(self: _ResumableExecutorProtocol, operation, node):
         context = operation.context
         if operation.entering:
             if context.entered:
@@ -181,9 +165,7 @@ class _ResumableCoroutineMixin:
                     yield _SuspensionPoint(resumed.value, node, "await")
                     continue
                 if isinstance(resumed, _Returned):
-                    raise _TargetException(
-                        "RuntimeError", "contextmanager generator did not yield"
-                    )
+                    raise _TargetException("RuntimeError", "contextmanager generator did not yield")
                 return resumed.value
         if context.exited:
             return _BoolValue(False, self._z3.BoolVal(False))
@@ -212,15 +194,11 @@ class _ResumableCoroutineMixin:
                 resume_operation = _ResumeOperation(_ResumeKind.NEXT)
                 continue
             if not isinstance(resumed, _Returned):
-                raise _TargetException(
-                    "RuntimeError", "contextmanager generator did not stop"
-                )
+                raise _TargetException("RuntimeError", "contextmanager generator did not stop")
             suppressed = args[0] is not None
             return _BoolValue(suppressed, self._z3.BoolVal(suppressed))
 
-    def _prepare_async_iterator(
-        self: _ResumableExecutorProtocol, value, node
-    ):
+    def _prepare_async_iterator(self: _ResumableExecutorProtocol, value, node):
         if isinstance(value, _ResumableFrame) and value.is_async_generator:
             return value
         try:
@@ -231,9 +209,7 @@ class _ResumableCoroutineMixin:
             iterator = yield from self._await_runtime_value(iterator, node)
         return iterator
 
-    def _resume_async_next(
-        self: _ResumableExecutorProtocol, iterator, node
-    ):
+    def _resume_async_next(self: _ResumableExecutorProtocol, iterator, node):
         if isinstance(iterator, _IteratorValue):
             sent = None
             while True:

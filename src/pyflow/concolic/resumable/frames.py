@@ -7,7 +7,7 @@ from typing import Any
 
 from .cfg import _ResumableCFG, _SuspensionPoint, _has_yield
 from .protocol import _ResumableExecutorProtocol
-from ..runtime import (
+from ..core.runtime import (
     ConcolicError,
     FunctionNode,
     _Awaiting,
@@ -25,14 +25,10 @@ from ..runtime import (
 
 
 class _ResumableFrameMixin:
-    def _make_generator_expression(
-        self: _ResumableExecutorProtocol, expression: ast.GeneratorExp
-    ):
+    def _make_generator_expression(self: _ResumableExecutorProtocol, expression: ast.GeneratorExp):
         environment = dict(self.env)
         frame = _GeneratorFrame(
-            machine=self._comprehension_machine(
-                expression.generators, expression.elt, expression
-            ),
+            machine=self._comprehension_machine(expression.generators, expression.elt, expression),
             environment=environment,
             function=expression,
             module=self._current_module,
@@ -57,12 +53,12 @@ class _ResumableFrameMixin:
         current_instance=None,
     ) -> _ResumableFrame:
         machine = self._resumable_function(function)
-        async_generator = isinstance(function, ast.AsyncFunctionDef) and _has_yield(
-            function
+        async_generator = isinstance(function, ast.AsyncFunctionDef) and _has_yield(function)
+        frame_type = (
+            _CoroutineFrame
+            if isinstance(function, ast.AsyncFunctionDef) and not async_generator
+            else _GeneratorFrame
         )
-        frame_type = _CoroutineFrame if isinstance(
-            function, ast.AsyncFunctionDef
-        ) and not async_generator else _GeneratorFrame
         frame = frame_type(
             machine=machine,
             environment=environment,
@@ -74,8 +70,7 @@ class _ResumableFrameMixin:
             closure=closure,
             current_class=current_class,
             current_instance=current_instance,
-            is_coroutine=isinstance(function, ast.AsyncFunctionDef)
-            and not async_generator,
+            is_coroutine=isinstance(function, ast.AsyncFunctionDef) and not async_generator,
             is_async_generator=async_generator,
         )
         frame.cfg = _ResumableCFG.from_function(function)
