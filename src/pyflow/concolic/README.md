@@ -42,6 +42,45 @@ Resource controls include `--max-loop-iterations`, `--max-resume-steps`, and
 are `max_loop_iterations`, `max_resume_steps`, `max_task_switches`, and
 `max_schedule_states`.
 
+## Coverage and Search
+
+Every execution records the AST source spans it evaluated and the concrete
+outcomes of symbolic branch edges. The aggregate `ExplorationResult.coverage`
+contains their union; each `RunRecord.coverage` retains the contribution from
+one input and schedule. Run outcomes distinguish normal returns, unhandled
+target exceptions, unsupported syntax, resource limits, and engine errors.
+
+Coverage-guided search is the default. It dynamically prioritizes pending
+inputs that target branch edges not covered by previous executions. Select
+FIFO behavior with `--search-strategy fifo` or
+`search_strategy="fifo"`. Use `--max-uninteresting-iterations N` to stop after
+N executions without new node or branch coverage.
+
+Exploration statistics report execution outcomes, solver SAT/UNSAT counts,
+queue size and enqueue counts, coverage discoveries, plateau length, and the
+final stop reason. `--json` serializes coverage, outcomes, and statistics along
+with generated inputs and contract counterexamples.
+
+## Architecture
+
+The implementation is organized around three dependency layers:
+
+- The package root exposes the API in `__init__.py`; `engine.py` owns path and
+  schedule exploration, while the other root modules provide shared runtime
+  values, module loading, contracts, and small utilities.
+- `interpreter/` contains the ordinary AST semantics. Its executor composes focused
+  mixins for statements, values, calls, objects, collections, language
+  semantics, and standard-library summaries.
+- `resumable/` contains suspension-aware execution: CFG discovery, resumable
+  frames, the generator/coroutine machine, async protocols, and task
+  scheduling.
+
+Dependencies point inward toward the shared package-root model. The
+`interpreter` layer composes `resumable`; `resumable` is its suspension
+subsystem and does not import the ordinary interpreter mixins. New syntax
+behavior should generally live in the corresponding `interpreter` module;
+behavior that crosses a suspension point belongs in `resumable`.
+
 ## Contracts
 
 Pass `--check-contracts` (or `check_contracts=True` through `explore_file`) to

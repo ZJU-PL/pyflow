@@ -5,6 +5,28 @@ concrete and symbolic executions together, so each newly solved path is
 replayed as an ordinary set of Python values.
 """
 
-from .engine import ContractCounterexample, ExplorationResult, RunRecord, explore_file
+from .engine import explore_file
+from .runtime import (
+    BranchCoverage,
+    ContractCounterexample,
+    CoverageSnapshot,
+    ExecutionOutcome,
+    ExplorationResult,
+    ExplorationStatistics,
+    OutcomeKind,
+    RunRecord,
+    SourceLocation,
+)
 
-__all__ = ["ContractCounterexample", "ExplorationResult", "RunRecord", "explore_file"]
+__all__ = [
+    "BranchCoverage",
+    "ContractCounterexample",
+    "CoverageSnapshot",
+    "ExecutionOutcome",
+    "ExplorationResult",
+    "ExplorationStatistics",
+    "OutcomeKind",
+    "RunRecord",
+    "SourceLocation",
+    "explore_file",
+]

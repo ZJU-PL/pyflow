@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 
 from pyflow.cli import concolic
@@ -11,6 +12,26 @@ class _Args:
     max_iterations = 10
     max_loop_iterations = 20
     json = True
+
+
+def test_concolic_parser_exposes_coverage_search_controls():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    concolic.add_concolic_parser(subparsers)
+
+    args = parser.parse_args(
+        [
+            "concolic",
+            "target.py",
+            "--search-strategy",
+            "fifo",
+            "--max-uninteresting-iterations",
+            "7",
+        ]
+    )
+
+    assert args.search_strategy == "fifo"
+    assert args.max_uninteresting_iterations == 7
 
 
 def test_concolic_cli_emits_generated_inputs(tmp_path, capsys):
@@ -28,6 +49,11 @@ def test_concolic_cli_emits_generated_inputs(tmp_path, capsys):
     assert concolic.run_concolic(args) == 0
     output = json.loads(capsys.readouterr().out)
     assert [3] in output["generated_inputs"]
+    assert output["coverage"]["node_count"] > 0
+    assert output["coverage"]["branch_count"] == 2
+    assert output["statistics"]["solver"]["calls"] >= 1
+    assert output["statistics"]["search"]["stop_reason"] == "exhausted"
+    assert all("outcome" in run and "coverage" in run for run in output["runs"])
 
 
 def test_concolic_cli_rejects_non_array_inputs(tmp_path, capsys):

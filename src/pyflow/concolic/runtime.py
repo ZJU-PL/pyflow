@@ -780,9 +780,111 @@ class _RegexMatch:
 
 
 @dataclass(frozen=True)
+class SourceLocation:
+    """A stable source span for an interpreted AST node."""
+
+    path: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    node_kind: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "line": self.line,
+            "column": self.column,
+            "end_line": self.end_line,
+            "end_column": self.end_column,
+            "node_kind": self.node_kind,
+        }
+
+
+@dataclass(frozen=True)
+class BranchCoverage:
+    """One concrete outcome of a source-level symbolic decision."""
+
+    location: SourceLocation | None
+    kind: str
+    taken: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "location": self.location.to_dict() if self.location else None,
+            "kind": self.kind,
+            "taken": self.taken,
+        }
+
+
+def _location_sort_key(location: SourceLocation) -> tuple[Any, ...]:
+    return (
+        location.path,
+        location.line,
+        location.column,
+        location.end_line,
+        location.end_column,
+        location.node_kind,
+    )
+
+
+def _branch_sort_key(branch: BranchCoverage) -> tuple[Any, ...]:
+    location = branch.location
+    return (
+        *(_location_sort_key(location) if location else ("", 0, 0, 0, 0, "")),
+        branch.kind,
+        branch.taken,
+    )
+
+
+@dataclass(frozen=True)
+class CoverageSnapshot:
+    """Source nodes and branch edges covered by one or more executions."""
+
+    nodes: frozenset[SourceLocation] = frozenset()
+    branches: frozenset[BranchCoverage] = frozenset()
+
+    def to_dict(self) -> dict[str, Any]:
+        nodes = sorted(self.nodes, key=_location_sort_key)
+        branches = sorted(self.branches, key=_branch_sort_key)
+        return {
+            "node_count": len(nodes),
+            "branch_count": len(branches),
+            "nodes": [location.to_dict() for location in nodes],
+            "branches": [branch.to_dict() for branch in branches],
+        }
+
+
+class OutcomeKind(str, Enum):
+    RETURNED = "returned"
+    TARGET_EXCEPTION = "target_exception"
+    UNSUPPORTED = "unsupported"
+    RESOURCE_LIMIT = "resource_limit"
+    ENGINE_ERROR = "engine_error"
+
+
+@dataclass(frozen=True)
+class ExecutionOutcome:
+    """Structured completion state for a concrete replay."""
+
+    kind: OutcomeKind
+    exception_type: str | None = None
+    message: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind.value,
+            "exception_type": self.exception_type,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True)
 class _Branch:
     expression: Any
     taken: bool
+    location: SourceLocation | None = None
+    kind: str = "condition"
 
     def key(self) -> tuple[str, bool]:
         return (self.expression.sexpr(), self.taken)
@@ -792,10 +894,14 @@ class _Branch:
 class RunRecord:
     """One concrete replay performed during exploration."""
 
-    inputs: tuple[int, ...]
+    inputs: tuple[Any, ...]
     result: Any
     path_length: int
     schedule: tuple[int, ...] = ()
+    outcome: ExecutionOutcome = dataclass_field(
+        default_factory=lambda: ExecutionOutcome(OutcomeKind.RETURNED)
+    )
+    coverage: CoverageSnapshot = dataclass_field(default_factory=CoverageSnapshot)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -803,6 +909,52 @@ class RunRecord:
             "result": self.result,
             "path_length": self.path_length,
             "schedule": list(self.schedule),
+            "outcome": self.outcome.to_dict(),
+            "coverage": self.coverage.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class ExplorationStatistics:
+    """Search and solver counters accumulated during exploration."""
+
+    executions: int
+    returned: int
+    target_exceptions: int
+    unsupported: int
+    resource_limits: int
+    engine_errors: int
+    solver_calls: int
+    satisfiable_queries: int
+    unsatisfiable_queries: int
+    states_enqueued: int
+    maximum_queue_size: int
+    coverage_discoveries: int
+    iterations_without_discovery: int
+    stop_reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "executions": self.executions,
+            "outcomes": {
+                "returned": self.returned,
+                "target_exception": self.target_exceptions,
+                "unsupported": self.unsupported,
+                "resource_limit": self.resource_limits,
+                "engine_error": self.engine_errors,
+            },
+            "solver": {
+                "calls": self.solver_calls,
+                "satisfiable": self.satisfiable_queries,
+                "unsatisfiable": self.unsatisfiable_queries,
+            },
+            "search": {
+                "states_enqueued": self.states_enqueued,
+                "maximum_queue_size": self.maximum_queue_size,
+                "coverage_discoveries": self.coverage_discoveries,
+                "iterations_without_discovery": self.iterations_without_discovery,
+                "stop_reason": self.stop_reason,
+            },
         }
 
 
@@ -833,6 +985,8 @@ class ExplorationResult:
     runs: tuple[RunRecord, ...]
     unsatisfiable_paths: int
     counterexamples: tuple[ContractCounterexample, ...] = ()
+    coverage: CoverageSnapshot = dataclass_field(default_factory=CoverageSnapshot)
+    statistics: ExplorationStatistics | None = None
 
     @property
     def generated_inputs(self) -> tuple[tuple[int, ...], ...]:
@@ -845,6 +999,8 @@ class ExplorationResult:
             "generated_inputs": [list(inputs) for inputs in self.generated_inputs],
             "runs": [run.to_dict() for run in self.runs],
             "unsatisfiable_paths": self.unsatisfiable_paths,
+            "coverage": self.coverage.to_dict(),
+            "statistics": self.statistics.to_dict() if self.statistics else None,
             "counterexamples": [
                 counterexample.to_dict() for counterexample in self.counterexamples
             ],

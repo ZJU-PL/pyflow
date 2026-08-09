@@ -5,13 +5,12 @@ from __future__ import annotations
 import ast
 from typing import Any, Generator, Iterable
 
-from .resumable_cfg import _SuspensionPoint, _contains_suspension
-from .runtime import (
+from .cfg import _SuspensionPoint, _contains_suspension
+from ..runtime import (
     ConcolicError,
     FunctionNode,
     UnsupportedSyntaxError,
     _BoolValue,
-    _Branch,
     _Break,
     _Continue,
     _ResumeKind,
@@ -46,6 +45,7 @@ class _ResumableMachineMixin:
     def _resumable_statement(
         self, statement: ast.stmt
     ) -> Generator[_SuspensionPoint, Any, _Return | _Break | _Continue | None]:
+        self._cover_node(statement)
         if not _contains_suspension(statement):
             return self._execute_statement(statement)
         if isinstance(statement, ast.Expr):
@@ -76,7 +76,7 @@ class _ResumableMachineMixin:
             condition = self._truthy(
                 (yield from self._resumable_evaluate(statement.test))
             )
-            self.path.append(_Branch(condition.symbolic, condition.concrete))
+            self._record_branch(condition.symbolic, condition.concrete, statement.test, "if")
             return (
                 yield from self._resumable_block(
                     statement.body if condition.concrete else statement.orelse
@@ -93,7 +93,9 @@ class _ResumableMachineMixin:
                 condition = self._truthy(
                     (yield from self._resumable_evaluate(statement.test))
                 )
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, statement.test, "while"
+                )
                 if not condition.concrete:
                     if statement.orelse:
                         return (yield from self._resumable_block(statement.orelse))
@@ -223,7 +225,9 @@ class _ResumableMachineMixin:
                 condition = self._truthy(
                     (yield from self._resumable_evaluate(case.guard))
                 )
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, case.guard, "match_guard"
+                )
                 if not condition.concrete:
                     for name in missing:
                         self.env.pop(name, None)
@@ -235,6 +239,7 @@ class _ResumableMachineMixin:
     def _resumable_evaluate(
         self, expression: ast.expr
     ) -> Generator[_SuspensionPoint, Any, Any]:
+        self._cover_node(expression)
         if not _contains_suspension(expression):
             return self._evaluate(expression)
         if isinstance(expression, ast.Yield):
@@ -283,7 +288,7 @@ class _ResumableMachineMixin:
                 return _ListValue(values)
             if isinstance(expression, ast.Tuple):
                 return _TupleValue(tuple(values))
-            from .support import _unique_values
+            from ..support import _unique_values
 
             return _SetValue(_unique_values(values))
         if isinstance(expression, ast.Dict):
@@ -313,7 +318,7 @@ class _ResumableMachineMixin:
             if isinstance(expression, ast.ListComp):
                 return _ListValue(result)
             if isinstance(expression, ast.SetComp):
-                from .support import _unique_values
+                from ..support import _unique_values
 
                 return _SetValue(_unique_values(result))
             return _DictValue({self._key(key): value for key, value in result})
@@ -329,7 +334,9 @@ class _ResumableMachineMixin:
             condition = self._truthy(
                 (yield from self._resumable_evaluate(expression.test))
             )
-            self.path.append(_Branch(condition.symbolic, condition.concrete))
+            self._record_branch(
+                condition.symbolic, condition.concrete, expression.test, "if_expression"
+            )
             return (
                 yield from self._resumable_evaluate(
                     expression.body if condition.concrete else expression.orelse
@@ -391,7 +398,9 @@ class _ResumableMachineMixin:
                 if index == last_index:
                     return value
                 condition = self._truthy(value)
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, node, "boolean_operand"
+                )
                 if isinstance(expression.op, ast.And) and not condition.concrete:
                     return value
                 if isinstance(expression.op, ast.Or) and condition.concrete:
@@ -426,7 +435,12 @@ class _ResumableMachineMixin:
             accepted = True
             for condition_node in generator.ifs:
                 condition = self._truthy(self._evaluate(condition_node))
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic,
+                    condition.concrete,
+                    condition_node,
+                    "comprehension_filter",
+                )
                 if not condition.concrete:
                     accepted = False
                     break
@@ -465,7 +479,12 @@ class _ResumableMachineMixin:
                 condition = self._truthy(
                     (yield from self._resumable_evaluate(condition_node))
                 )
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic,
+                    condition.concrete,
+                    condition_node,
+                    "comprehension_filter",
+                )
                 if not condition.concrete:
                     accepted = False
                     break

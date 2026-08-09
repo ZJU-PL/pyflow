@@ -13,7 +13,7 @@ def add_concolic_parser(subparsers):
     """Register the ``concolic`` command."""
     parser = subparsers.add_parser(
         "concolic",
-        help="Generate integer test inputs by concolically exploring a function",
+        help="Generate test inputs by concolically exploring a function",
     )
     parser.add_argument("input_path", help="Python file containing the target function")
     parser.add_argument(
@@ -63,6 +63,17 @@ def add_concolic_parser(subparsers):
         help="Maximum nondeterministic schedule prefixes per input (default: 1000)",
     )
     parser.add_argument(
+        "--search-strategy",
+        choices=("fifo", "coverage"),
+        default="coverage",
+        help="Pending-state selection strategy (default: coverage)",
+    )
+    parser.add_argument(
+        "--max-uninteresting-iterations",
+        type=int,
+        help="Stop after this many executions without new AST coverage",
+    )
+    parser.add_argument(
         "--check-contracts",
         action="store_true",
         help="Check supported PEP 316 postconditions and report counterexamples",
@@ -97,6 +108,10 @@ def run_concolic(args) -> int:
             scheduler=getattr(args, "scheduler", "fifo"),
             max_task_switches=getattr(args, "max_task_switches", 1000),
             max_schedule_states=getattr(args, "max_schedule_states", 1000),
+            search_strategy=getattr(args, "search_strategy", "coverage"),
+            max_uninteresting_iterations=getattr(
+                args, "max_uninteresting_iterations", None
+            ),
             check_contracts=getattr(args, "check_contracts", False),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:
@@ -113,7 +128,23 @@ def run_concolic(args) -> int:
         print("Generated inputs:")
         for run in result.runs:
             schedule = f" schedule={list(run.schedule)}" if run.schedule else ""
-            print(f"  {list(run.inputs)} -> {run.result!r}{schedule}")
+            outcome = run.outcome.kind.value
+            print(
+                f"  {list(run.inputs)} -> {run.result!r} "
+                f"outcome={outcome}{schedule}"
+            )
+        print(
+            "Coverage: "
+            f"{len(result.coverage.nodes)} AST node(s), "
+            f"{len(result.coverage.branches)} branch edge(s)"
+        )
+        if result.statistics is not None:
+            print(
+                "Search: "
+                f"{result.statistics.executions} execution(s), "
+                f"{result.statistics.solver_calls} solver call(s), "
+                f"stop={result.statistics.stop_reason}"
+            )
         if result.unsatisfiable_paths:
             print(f"Unsatisfiable path flips: {result.unsatisfiable_paths}")
         if result.counterexamples:

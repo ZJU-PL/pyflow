@@ -5,9 +5,9 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from .resumable_cfg import _ResumableCFG, _SuspensionPoint, _has_yield
-from .resumable_protocol import _ResumableExecutorProtocol
-from .runtime import (
+from .cfg import _ResumableCFG, _SuspensionPoint, _has_yield
+from .protocol import _ResumableExecutorProtocol
+from ..runtime import (
     ConcolicError,
     FunctionNode,
     _Awaiting,

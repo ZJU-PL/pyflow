@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .resumable_cfg import _SuspensionPoint
-from .resumable_protocol import _ResumableExecutorProtocol
-from .runtime import (
+from .cfg import _SuspensionPoint
+from .protocol import _ResumableExecutorProtocol
+from ..runtime import (
     UnsupportedSyntaxError,
     _AsyncContextOperation,
     _AsyncGeneratorOperation,

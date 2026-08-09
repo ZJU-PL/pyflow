@@ -26,7 +26,7 @@ from urllib import parse as urlparse
 
 from typing import Any
 
-from .runtime import (
+from ..runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _AccumulateIteratorValue,
@@ -66,7 +66,7 @@ from .runtime import (
     _ZipLongestIteratorValue,
 )
 
-from .support import _concrete
+from ..support import _concrete
 
 
 class _SummaryMixin:

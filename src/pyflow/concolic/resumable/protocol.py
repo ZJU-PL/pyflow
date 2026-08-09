@@ -5,8 +5,8 @@ from __future__ import annotations
 import ast
 from typing import Any, Generator, Protocol
 
-from .resumable_cfg import _SuspensionPoint
-from .runtime import (
+from .cfg import _SuspensionPoint
+from ..runtime import (
     FunctionNode,
     _BoolValue,
     _ClassValue,
@@ -62,6 +62,16 @@ class _ResumableExecutorProtocol(Protocol):
     def _to_string(self, value: Any) -> Any: ...
 
     def _truthy(self, value: Any) -> _BoolValue: ...
+
+    def _cover_node(self, node: ast.AST) -> None: ...
+
+    def _record_branch(
+        self,
+        expression: Any,
+        taken: bool,
+        node: ast.AST | None,
+        kind: str = "condition",
+    ) -> None: ...
 
     def _create_task(self, value: Any, name: str | None = None) -> _TaskValue: ...
 

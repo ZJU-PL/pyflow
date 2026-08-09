@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from .runtime import FunctionNode
+from ..runtime import FunctionNode
 
 
 @dataclass(frozen=True)

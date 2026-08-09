@@ -12,12 +12,11 @@ import posixpath
 
 from typing import Any
 
-from .runtime import (
+from ..runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _BoolValue,
     _Awaiting,
-    _Branch,
     _BuiltinFunction,
     _BytesValue,
     _ClassValue,
@@ -48,7 +47,7 @@ from .runtime import (
     _Yielded,
 )
 
-from .support import _concrete, _unique_values
+from ..support import _concrete, _unique_values
 
 
 class _ValueMixin:
@@ -796,7 +795,12 @@ class _ValueMixin:
                 include = True
                 for condition_node in generator.ifs:
                     condition = self._truthy(self._evaluate(condition_node))
-                    self.path.append(_Branch(condition.symbolic, condition.concrete))
+                    self._record_branch(
+                        condition.symbolic,
+                        condition.concrete,
+                        condition_node,
+                        "comprehension_filter",
+                    )
                     if not condition.concrete:
                         include = False
                         break

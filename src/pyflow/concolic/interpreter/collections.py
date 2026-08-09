@@ -6,7 +6,7 @@ import ast
 
 from typing import Any
 
-from .runtime import (
+from ..runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _BoolValue,
@@ -21,7 +21,7 @@ from .runtime import (
     _TupleValue,
 )
 
-from .support import _concrete
+from ..support import _concrete
 
 
 class _CollectionMethodMixin:

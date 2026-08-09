@@ -1,6 +1,6 @@
 """Composed resumable execution support for the concolic interpreter."""
 
-from .resumable_cfg import (
+from .cfg import (
     _ResumableCFG,
     _ResumableCFGBuilder,
     _ResumableCFGPoint,
@@ -8,10 +8,10 @@ from .resumable_cfg import (
     _contains_suspension,
     _has_yield,
 )
-from .resumable_coroutines import _ResumableCoroutineMixin
-from .resumable_frames import _ResumableFrameMixin
-from .resumable_machine import _ResumableMachineMixin
-from .resumable_scheduler import _ResumableSchedulerMixin
+from .coroutines import _ResumableCoroutineMixin
+from .frames import _ResumableFrameMixin
+from .machine import _ResumableMachineMixin
+from .scheduler import _ResumableSchedulerMixin
 
 
 class _ResumableMixin(

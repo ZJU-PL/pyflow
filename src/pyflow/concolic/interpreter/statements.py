@@ -6,7 +6,7 @@ import ast
 
 from typing import Any, Iterable
 
-from .runtime import (
+from ..runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _Break,
@@ -54,9 +54,9 @@ from .runtime import (
     _ZipIteratorValue,
 )
 
-from .support import _concrete, _exception_name, _handler_matches, _unique_values
+from ..support import _concrete, _exception_name, _handler_matches, _unique_values
 
-from .module_loader import (
+from ..module_loader import (
     _SUMMARY_MODULES,
     _import_local_module,
     _parameter_nodes,
@@ -88,6 +88,7 @@ class _StatementMixin:
     def _execute_statement(
         self, statement: ast.stmt
     ) -> _Return | _Break | _Continue | None:
+        self._cover_node(statement)
         if isinstance(statement, ast.Import):
             self._execute_import(statement)
             return None
@@ -146,7 +147,7 @@ class _StatementMixin:
             return None
         if isinstance(statement, ast.If):
             condition = self._truthy(self._evaluate(statement.test))
-            self.path.append(_Branch(condition.symbolic, condition.concrete))
+            self._record_branch(condition.symbolic, condition.concrete, statement.test, "if")
             return self._execute_block(
                 statement.body if condition.concrete else statement.orelse
             )
@@ -159,7 +160,9 @@ class _StatementMixin:
                         f"({self._max_loop_iterations})"
                     )
                 condition = self._truthy(self._evaluate(statement.test))
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, statement.test, "while"
+                )
                 if not condition.concrete:
                     break
                 outcome = self._execute_block(statement.body)
@@ -222,7 +225,9 @@ class _StatementMixin:
             return None
         if isinstance(statement, ast.Assert):
             condition = self._truthy(self._evaluate(statement.test))
-            self.path.append(_Branch(condition.symbolic, condition.concrete))
+            self._record_branch(
+                condition.symbolic, condition.concrete, statement.test, "assert"
+            )
             if not condition.concrete:
                 message = (
                     str(_concrete(self._evaluate(statement.msg)))
@@ -386,7 +391,9 @@ class _StatementMixin:
             self.env.update(bindings)
             if case.guard is not None:
                 condition = self._truthy(self._evaluate(case.guard))
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, case.guard, "match_guard"
+                )
                 if not condition.concrete:
                     for name in missing:
                         self.env.pop(name, None)
@@ -410,11 +417,15 @@ class _StatementMixin:
             if pattern.value is None:
                 return value is None
             equality = self._equals(value, self._literal(pattern.value))
-            self.path.append(_Branch(equality.symbolic, equality.concrete))
+            self._record_branch(
+                equality.symbolic, equality.concrete, pattern, "match_singleton"
+            )
             return equality.concrete
         if isinstance(pattern, ast.MatchValue):
             equality = self._equals(value, self._evaluate(pattern.value))
-            self.path.append(_Branch(equality.symbolic, equality.concrete))
+            self._record_branch(
+                equality.symbolic, equality.concrete, pattern, "match_value"
+            )
             return equality.concrete
         if isinstance(pattern, ast.MatchOr):
             for alternative in pattern.patterns:
@@ -599,6 +610,7 @@ class _StatementMixin:
         return _TargetException("RuntimeError", "unsupported raised expression")
 
     def _evaluate(self, expression: ast.expr) -> Any:
+        self._cover_node(expression)
         if isinstance(expression, ast.Constant):
             if isinstance(expression.value, bool):
                 return _BoolValue(expression.value, self._z3.BoolVal(expression.value))
@@ -705,7 +717,9 @@ class _StatementMixin:
             return self._attribute(self._evaluate(expression.value), expression.attr)
         if isinstance(expression, ast.IfExp):
             condition = self._truthy(self._evaluate(expression.test))
-            self.path.append(_Branch(condition.symbolic, condition.concrete))
+            self._record_branch(
+                condition.symbolic, condition.concrete, expression.test, "if_expression"
+            )
             return self._evaluate(
                 expression.body if condition.concrete else expression.orelse
             )
@@ -739,7 +753,9 @@ class _StatementMixin:
                 if index == last_index:
                     return value
                 condition = self._truthy(value)
-                self.path.append(_Branch(condition.symbolic, condition.concrete))
+                self._record_branch(
+                    condition.symbolic, condition.concrete, node, "boolean_operand"
+                )
                 if isinstance(expression.op, ast.And) and not condition.concrete:
                     return value
                 if isinstance(expression.op, ast.Or) and condition.concrete:
@@ -1042,7 +1058,9 @@ class _StatementMixin:
                         return _BoolValue(concrete, symbolic)
                     condition = self._truthy(resumed.value)
                     tested.append(condition)
-                    self.path.append(_Branch(condition.symbolic, condition.concrete))
+                    self._record_branch(
+                        condition.symbolic, condition.concrete, None, name
+                    )
                     if name == "any" and condition.concrete:
                         return _BoolValue(
                             True,

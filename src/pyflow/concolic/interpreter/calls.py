@@ -16,7 +16,7 @@ from pathlib import Path
 
 from typing import Any
 
-from .runtime import (
+from ..runtime import (
     ConcolicError,
     FunctionNode,
     UnsupportedSyntaxError,
@@ -63,8 +63,8 @@ from .runtime import (
     _URLParseValue,
 )
 
-from .module_loader import _contains_yield, _import_local_module
-from .support import _concrete
+from ..module_loader import _contains_yield, _import_local_module
+from ..support import _concrete
 
 
 class _CallMixin:
