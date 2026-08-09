@@ -133,9 +133,7 @@ raise SystemExit(0)
     findings = PyFlowAdapter("pyflow-ast-scanner", "ast-scanner").run(
         _context(tmp_path, "pyflow-ast-scanner", script)
     )
-    partial = PyFlowAdapter("pyflow-cpg", "cpg").run(
-        _context(tmp_path, "pyflow-cpg", script)
-    )
+    partial = PyFlowAdapter("pyflow-cpg", "cpg").run(_context(tmp_path, "pyflow-cpg", script))
 
     assert findings.status == "complete"
     assert findings.finding_count == 1

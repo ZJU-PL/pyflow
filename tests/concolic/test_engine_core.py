@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
+
+import pytest
 
 from pyflow.concolic import explore_file
 
@@ -329,6 +332,7 @@ def test_explorer_applies_supported_class_decorators(tmp_path):
     assert result.runs[0].result == 8
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="except* requires Python 3.11+")
 def test_explorer_supports_exception_chaining_and_simple_except_star(tmp_path):
     target = _target(
         tmp_path,
