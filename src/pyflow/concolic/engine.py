@@ -29,7 +29,7 @@ from .runtime import (
     _TargetException,
 )
 from .search import _ExplorationQueue, _ExplorationState
-from .support import _input_key, _valid_input
+from .support import _concrete, _input_key, _valid_input
 
 
 @dataclass
@@ -285,6 +285,9 @@ def explore_file(
             counters.iterations_without_discovery += 1
 
         schedule = tuple(chosen for _, chosen in executor._schedule_choices)
+        post_inputs = tuple(
+            _concrete(executor.env[name]) for name in parameter_names
+        )
         schedule_key = (_input_key(inputs), schedule)
         if schedule_key not in observed_schedules:
             observed_schedules.add(schedule_key)
@@ -296,6 +299,7 @@ def explore_file(
                     schedule,
                     outcome,
                     coverage,
+                    post_inputs,
                 )
             )
         observed_path_prefixes.update(

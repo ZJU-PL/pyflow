@@ -71,6 +71,42 @@ coverage discoveries, plateau length, and the final stop reason. `--json`
 serializes coverage, outcomes, timings, and statistics along with generated
 inputs and contract counterexamples.
 
+## Corpus Reduction and Pytest Generation
+
+`minimize_runs` greedily selects a deterministic small corpus that preserves
+the observed branch and AST-node coverage. Distinct non-returning outcomes and
+contract-counterexample inputs are retained, while ties prefer smaller inputs,
+shorter schedules, and shorter paths.
+
+Before a run can become a generated test, `replay_runs` executes it against a
+fresh CPython module and compares the return value or exception type/message
+plus the arguments after execution. Replay mismatches are reported and are not
+emitted as tests.
+
+Use `--emit-pytest PATH` to write the minimized, replay-validated corpus as a
+pytest module. Generated tests support synchronous and asynchronous entrypoints,
+expected target exceptions, and mutated scalar/list/dictionary inputs. When
+combined with `--json`, the result includes replay statuses, skipped cases, and
+the generated-test count.
+
+## Project Support Scanning
+
+Use `--scan-project` with a source tree to discover functions statically,
+synthesize deterministic annotation-guided inputs, explore them in isolated
+workers, and validate supported runs against CPython:
+
+```bash
+pyflow concolic ./src --scan-project --json --json-output concolic-report.json
+```
+
+The shared function catalog records source identity, signatures, eligibility,
+and side-effect hazards without importing the project. Input tiers cover
+primitive values, `Literal`, unions, and annotated lists and dictionaries.
+Reports classify unsupported operations, replay mismatches, exhausted budgets,
+timeouts, input-generation failures, and side-effect hazards. Functions flagged
+for filesystem, process, or network activity are skipped unless
+`--allow-side-effects` is supplied.
+
 ## Architecture
 
 The implementation is organized around three dependency layers:

@@ -910,6 +910,7 @@ class RunRecord:
         default_factory=lambda: ExecutionOutcome(OutcomeKind.RETURNED)
     )
     coverage: CoverageSnapshot = dataclass_field(default_factory=CoverageSnapshot)
+    post_inputs: tuple[Any, ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -919,6 +920,9 @@ class RunRecord:
             "schedule": list(self.schedule),
             "outcome": self.outcome.to_dict(),
             "coverage": self.coverage.to_dict(),
+            "post_inputs": (
+                list(self.post_inputs) if self.post_inputs is not None else None
+            ),
         }
 
 
