@@ -50,6 +50,7 @@ Shape and Object Analysis
 Specialized Analysis
 --------------------
 
+* :doc:`capability` - Defensive capability analysis with k-CFA and runtime guards
 * :doc:`numbering` - Program point numbering
 * :doc:`dump` - Analysis result dumping and visualization
 * :doc:`stats` - Statistics collection and LaTeX report generation
@@ -170,6 +171,7 @@ Standard SARIF format for CI/CD integration:
     shape
     lifetimeanalysis
     ifds
+    capability
     typeinfo
     numbering
     dump

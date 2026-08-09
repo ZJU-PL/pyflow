@@ -1,0 +1,345 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Defensive Capability Analysis &mdash; pyflow 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Type Information System" href="typeinfo.html" />
+    <link rel="prev" title="IFDS/IDE Data Flow Engine" href="ifds.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lsp.html">Editor and Agent Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cfl.html">Context-Free-Language Reachability</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Defensive Capability Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#capability-reports">Capability Reports</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-architecture">Analysis Architecture</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#command-line-usage">Command-Line Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#programmatic-api">Programmatic API</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#capability-configuration">Capability Configuration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#protected-runtime">Protected Runtime</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#output-contract">Output Contract</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#soundness-boundary">Soundness Boundary</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
+      <li class="breadcrumb-item active">Defensive Capability Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/capability.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="defensive-capability-analysis">
+<h1>Defensive Capability Analysis<a class="headerlink" href="#defensive-capability-analysis" title="Link to this heading"></a></h1>
+<p>PyFlow’s defensive capability analysis identifies the security-relevant
+authority exercised or exposed by Python applications and libraries. It is
+built on the context-sensitive k-CFA pointer analysis, so capabilities retain
+their identity through aliases, imports, calls, heap fields, containers,
+closures, returns, yields, and external-library boundaries.</p>
+<p>The analysis is intended for library review, dependency auditing, policy
+generation, and research on open-world Python programs. It reports authority
+flow rather than treating sensitive API names as isolated syntactic matches.</p>
+<section id="capability-reports">
+<h2>Capability Reports<a class="headerlink" href="#capability-reports" title="Link to this heading"></a></h2>
+<p>Findings use four report kinds:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">direct</span></code></dt><dd><p>An analyzed operation calls, reads, or writes a modeled capability.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">indirect</span></code></dt><dd><p>A capability-bearing object crosses a boundary through an argument, public
+export, field store, return, yield, exception, closure, callback, spawned
+task or process, or serialization operation.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">runtime_guarded</span></code></dt><dd><p>Static analysis found an operation such as dynamic code execution or import
+whose deployment guarantee also depends on the protected CPython runtime.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">unsupported</span></code></dt><dd><p>The operation is deliberately rejected rather than silently approximated.</p>
+</dd>
+</dl>
+<p>An empty result is authoritative only when its status is <code class="docutils literal notranslate"><span class="pre">complete</span></code>.
+Unresolved callees, translation failures, and exhausted fixpoint budgets make
+the result <code class="docutils literal notranslate"><span class="pre">partial</span></code> and produce diagnostics.</p>
+</section>
+<section id="analysis-architecture">
+<h2>Analysis Architecture<a class="headerlink" href="#analysis-architecture" title="Link to this heading"></a></h2>
+<p>The analysis has four cooperating layers:</p>
+<ol class="arabic simple">
+<li><p>The k-CFA solver constructs context-qualified points-to and call-graph
+information, including canonical access paths for unanalyzed modules.</p></li>
+<li><p>Capability patterns classify sensitive calls, reads, and writes.</p></li>
+<li><p>Carrier closure follows capabilities transitively through object fields,
+containers, closures, generators, and coroutines.</p></li>
+<li><p>External-effect summaries describe callback invocation, retention,
+serialization, spawning, and argument or receiver return flow.</p></li>
+</ol>
+<p>Argument-to-return and receiver-to-return summaries add pointer-flow edges to
+the k-CFA solution. This preserves capability identity through wrappers and
+fluent APIs instead of replacing it with an opaque external return object.</p>
+</section>
+<section id="command-line-usage">
+<h2>Command-Line Usage<a class="headerlink" href="#command-line-usage" title="Link to this heading"></a></h2>
+<p>Analyze a file or project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>capabilities<span class="w"> </span>app.py
+pyflow<span class="w"> </span>capabilities<span class="w"> </span>project/<span class="w"> </span>--entry<span class="w"> </span>app.py<span class="w"> </span>--format<span class="w"> </span>json
+pyflow<span class="w"> </span>capabilities<span class="w"> </span>project/<span class="w"> </span>--entry<span class="w"> </span>app.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>capabilities.sarif
+</pre></div>
+</div>
+<p>Context sensitivity can be selected directly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>capabilities<span class="w"> </span>app.py<span class="w"> </span>--context-depth<span class="w"> </span><span class="m">2</span>
+pyflow<span class="w"> </span>capabilities<span class="w"> </span>app.py<span class="w"> </span>--context-policy<span class="w"> </span>1c1o
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-public-exports</span></code> when only capability exercise is relevant and
+library export exposure should not be reported.</p>
+</section>
+<section id="programmatic-api">
+<h2>Programmatic API<a class="headerlink" href="#programmatic-api" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefensiveCapabilityAnalysis</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">DefensiveCapabilityAnalysis</span><span class="p">(</span>
+    <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">report_public_exports</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span><span class="o">.</span><span class="n">analyze_project</span><span class="p">(</span>
+    <span class="s2">&quot;src/package/__main__.py&quot;</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="o">=</span><span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">status</span> <span class="o">!=</span> <span class="s2">&quot;complete&quot;</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">diagnostic</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">diagnostics</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">diagnostic</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">diagnostic</span><span class="o">.</span><span class="n">message</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">findings</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="n">finding</span><span class="o">.</span><span class="n">capability</span><span class="p">,</span>
+        <span class="n">finding</span><span class="o">.</span><span class="n">report_kind</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">finding</span><span class="o">.</span><span class="n">escape_kind</span><span class="p">,</span>
+        <span class="n">finding</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="capability-configuration">
+<h2>Capability Configuration<a class="headerlink" href="#capability-configuration" title="Link to this heading"></a></h2>
+<p>The packaged model is stored at
+<code class="docutils literal notranslate"><span class="pre">src/pyflow/config/capability/stdlib.json</span></code>. The top-level
+<code class="docutils literal notranslate"><span class="pre">schema_version</span></code> is currently <code class="docutils literal notranslate"><span class="pre">1</span></code>. <code class="docutils literal notranslate"><span class="pre">patterns</span></code> classify operations by
+access path, while <code class="docutils literal notranslate"><span class="pre">effects</span></code> describe open-world library behavior.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;patterns&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;capability&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;company.secrets.read&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;category&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;information&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;call&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;access_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;company.vault.read_secret&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;effects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;invoke_callback&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;arguments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;access_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;company.plugins.register&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Project-specific models can be appended without replacing the packaged model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>capabilities<span class="w"> </span>app.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--capability-model<span class="w"> </span>company-capabilities.json
+</pre></div>
+</div>
+<p>Supported effect kinds are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">return_argument</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">return_receiver</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">retain_argument</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">invoke_callback</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">spawn_callback</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">serialize_argument</span></code></p></li>
+</ul>
+<p>Each argument selector may be a zero-based positional index, a keyword name,
+or <code class="docutils literal notranslate"><span class="pre">&quot;*&quot;</span></code> for every argument.</p>
+</section>
+<section id="protected-runtime">
+<h2>Protected Runtime<a class="headerlink" href="#protected-runtime" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">capability-run</span></code> executes a script under a fail-closed CPython audit-hook
+allow list:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>capability-run<span class="w"> </span>app.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--allow<span class="w"> </span>file.read<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--allow<span class="w"> </span><span class="s1">&#39;network.*&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--audit-log<span class="w"> </span>observed-capabilities.json
+</pre></div>
+</div>
+<p>Known denied operations terminate with exit status <code class="docutils literal notranslate"><span class="pre">126</span></code>. Audit hooks are
+process-global and cannot be removed, so protected code should run in a fresh
+process. The runtime guard is not an operating-system sandbox: hostile native
+extensions require process isolation, restricted credentials, and an OS-level
+sandbox.</p>
+</section>
+<section id="output-contract">
+<h2>Output Contract<a class="headerlink" href="#output-contract" title="Link to this heading"></a></h2>
+<p>JSON findings include the capability, category, operation, access path, source
+location, report kind, context, trace, <code class="docutils literal notranslate"><span class="pre">escape_kind</span></code>, and <code class="docutils literal notranslate"><span class="pre">boundary</span></code>.
+SARIF output includes the same analysis-specific fields under result
+properties. CLI exit status is <code class="docutils literal notranslate"><span class="pre">0</span></code> for a complete clean result, <code class="docutils literal notranslate"><span class="pre">1</span></code> when
+findings exist or analysis is partial, and <code class="docutils literal notranslate"><span class="pre">2</span></code> for invalid input or model
+configuration.</p>
+</section>
+<section id="soundness-boundary">
+<h2>Soundness Boundary<a class="headerlink" href="#soundness-boundary" title="Link to this heading"></a></h2>
+<p>The static guarantee assumes that all relevant source modules are reachable
+from the configured entry point, every authority-bearing host API is modeled,
+and native or generated behavior is either rejected or covered by protected
+execution. Unmodeled external calls conservatively expose their arguments;
+they are never treated as silently safe.</p>
+<p>For the detailed deployment assumptions, see
+<code class="docutils literal notranslate"><span class="pre">src/pyflow/analysis/capability/SOUNDNESS.md</span></code>.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ifds.html" class="btn btn-neutral float-left" title="IFDS/IDE Data Flow Engine" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="typeinfo.html" class="btn btn-neutral float-right" title="Type Information System" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
