@@ -148,7 +148,8 @@ selects;</p></li>
 <li><p>flow-sensitive heap locations and attribute/item access paths;</p></li>
 <li><p>interprocedural call/return propagation, including recursive helpers;</p></li>
 <li><p>bounded self-recursion summaries for recursive dictionary/object merge
-functions even when Python call-graph construction misses the self edge;</p></li>
+functions even when Python call-graph construction misses the self edge,
+with cycle-aware canonical widening of repeated dynamic traversal paths;</p></li>
 <li><p>inferred parameter roles, separating controlled structured input from root
 objects used by reflective reads and writes;</p></li>
 <li><p>a finite-height key-language domain with unknown, finite-set, and proven-safe
