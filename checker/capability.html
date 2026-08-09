@@ -19,8 +19,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Type Information System" href="typeinfo.html" />
-    <link rel="prev" title="IFDS/IDE Data Flow Engine" href="ifds.html" /> 
+    <link rel="prev" title="Class Pollution Analysis" href="class-pollution.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -68,53 +67,36 @@
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
-<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
-<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cfl.html">Context-Free-Language Reachability</a></li>
-<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">Defensive Capability Analysis</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#capability-reports">Capability Reports</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#analysis-architecture">Analysis Architecture</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#command-line-usage">Command-Line Usage</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#programmatic-api">Programmatic API</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#capability-configuration">Capability Configuration</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#protected-runtime">Protected Runtime</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#output-contract">Output Contract</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#soundness-boundary">Soundness Boundary</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
-<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
-<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
-</ul>
-</li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sec.html#usage">Usage</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="sec.html#checker-reference">Checker Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html">Class Pollution Analysis</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Defensive Capability Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#capability-reports">Capability Reports</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-architecture">Analysis Architecture</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#command-line-usage">Command-Line Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#programmatic-api">Programmatic API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#capability-configuration">Capability Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#protected-runtime">Protected Runtime</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output-contract">Output Contract</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#soundness-boundary">Soundness Boundary</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 
         </div>
@@ -131,10 +113,10 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
+          <li class="breadcrumb-item"><a href="sec.html">Security Analysis and Checking</a></li>
       <li class="breadcrumb-item active">Defensive Capability Analysis</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/analysis/capability.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/checker/capability.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -207,7 +189,7 @@ library export exposure should not be reported.</p>
 </section>
 <section id="programmatic-api">
 <h2>Programmatic API<a class="headerlink" href="#programmatic-api" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefensiveCapabilityAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.checker.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefensiveCapabilityAnalysis</span>
 
 <span class="n">result</span> <span class="o">=</span> <span class="n">DefensiveCapabilityAnalysis</span><span class="p">(</span>
     <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -307,7 +289,7 @@ and native or generated behavior is either rejected or covered by protected
 execution. Unmodeled external calls conservatively expose their arguments;
 they are never treated as silently safe.</p>
 <p>For the detailed deployment assumptions, see
-<code class="docutils literal notranslate"><span class="pre">src/pyflow/analysis/capability/SOUNDNESS.md</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">src/pyflow/checker/capability/SOUNDNESS.md</span></code>.</p>
 </section>
 </section>
 
@@ -315,8 +297,7 @@ they are never treated as silently safe.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="ifds.html" class="btn btn-neutral float-left" title="IFDS/IDE Data Flow Engine" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="typeinfo.html" class="btn btn-neutral float-right" title="Type Information System" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="class-pollution.html" class="btn btn-neutral float-left" title="Class Pollution Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
     </div>
 
   <hr/>

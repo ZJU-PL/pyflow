@@ -79,7 +79,7 @@ Programmatic API
 
 .. code-block:: python
 
-   from pyflow.analysis.capability import DefensiveCapabilityAnalysis
+   from pyflow.checker.capability import DefensiveCapabilityAnalysis
 
    result = DefensiveCapabilityAnalysis(
        k=1,
@@ -188,4 +188,4 @@ execution. Unmodeled external calls conservatively expose their arguments;
 they are never treated as silently safe.
 
 For the detailed deployment assumptions, see
-``src/pyflow/analysis/capability/SOUNDNESS.md``.
+``src/pyflow/checker/capability/SOUNDNESS.md``.

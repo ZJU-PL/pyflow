@@ -16,6 +16,14 @@ PyFlow provides two distinct checker engines:
   summaries, explicit uncertainty diagnostics, and bounded source-to-sink
   witnesses. More thorough but slower than pattern matching.
 
+**Class-pollution checker** (``pyflow.checker.class_pollution``)
+  An independent relational IFDS checker for attacker-controlled reflective
+  object traversal and writes into class or namespace state.
+
+**Capability checker** (``pyflow.checker.capability``)
+  A context-sensitive pointer-based checker for security-sensitive authority,
+  capability escape, external effects, and runtime enforcement policy.
+
 Checker Categories
 ==================
 
@@ -326,3 +334,12 @@ Security checkers can be configured via YAML/JSON configuration files to customi
 - Severity thresholds
 - Custom rules
 - Output preferences
+
+Checker Reference
+=================
+
+.. toctree::
+   :maxdepth: 2
+
+   class-pollution
+   capability

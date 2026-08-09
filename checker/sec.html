@@ -19,6 +19,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Class Pollution Analysis" href="class-pollution.html" />
     <link rel="prev" title="Language API" href="../lang/api.html" /> 
 </head>
 
@@ -104,6 +105,11 @@
 <li class="toctree-l2"><a class="reference internal" href="#configuration-file">Configuration File</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="#checker-reference">Checker Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html">Class Pollution Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a></li>
+</ul>
+</li>
 </ul>
 
         </div>
@@ -143,6 +149,12 @@ Fast and suitable for quick scans.</p>
 heap access paths, strong/weak updates, outcome-sensitive relational
 summaries, explicit uncertainty diagnostics, and bounded source-to-sink
 witnesses. More thorough but slower than pattern matching.</p>
+</dd>
+<dt><strong>Class-pollution checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.class_pollution</span></code>)</dt><dd><p>An independent relational IFDS checker for attacker-controlled reflective
+object traversal and writes into class or namespace state.</p>
+</dd>
+<dt><strong>Capability checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.capability</span></code>)</dt><dd><p>A context-sensitive pointer-based checker for security-sensitive authority,
+capability escape, external effects, and runtime enforcement policy.</p>
 </dd>
 </dl>
 </section>
@@ -432,12 +444,38 @@ claims until the exact attestation has passed Sigstore identity verification.</p
 </ul>
 </section>
 </section>
+<section id="checker-reference">
+<h1>Checker Reference<a class="headerlink" href="#checker-reference" title="Link to this heading"></a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="class-pollution.html">Class Pollution Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html#architecture">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html#programmatic-use">Programmatic use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html#command-line">Command line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="class-pollution.html#evaluation-plan">Evaluation plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#capability-reports">Capability Reports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#analysis-architecture">Analysis Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#command-line-usage">Command-Line Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#programmatic-api">Programmatic API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#capability-configuration">Capability Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#protected-runtime">Protected Runtime</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#output-contract">Output Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#soundness-boundary">Soundness Boundary</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="../lang/api.html" class="btn btn-neutral float-left" title="Language API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="class-pollution.html" class="btn btn-neutral float-right" title="Class Pollution Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
