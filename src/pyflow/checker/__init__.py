@@ -1,5 +1,10 @@
-# Security checker for pyflow
-# NOTE: Current, the security checker does not use the facilities in pyflow.
+"""Security checkers built on PyFlow's syntax and semantic engines.
+
+Specialized semantic checkers are exposed from ``checker.class_pollution``
+and ``checker.capability``; the top-level package keeps its lightweight legacy
+exports for pattern and AST-dataflow clients.
+"""
+
 from .pattern.core.manager import SecurityManager
 from .pattern.core.config import SecurityConfig
 from .pattern.core.issue import Issue, Cwe
@@ -13,10 +18,3 @@ __all__ = [
     "StaticBugFinder",
     "BugFinderConfig",
 ]
-
-"""
-Security checker and analysis-backed bug finder for PyFlow.
-
-- pattern: Pattern-based AST matching for security checks (Bandit-style)
-- ast_dataflow: Interprocedural taint dataflow over the Python AST.
-"""

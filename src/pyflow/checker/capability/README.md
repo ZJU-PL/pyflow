@@ -27,7 +27,7 @@ result `partial` and are emitted as diagnostics.
 ## API
 
 ```python
-from pyflow.analysis.capability import DefensiveCapabilityAnalysis
+from pyflow.checker.capability import DefensiveCapabilityAnalysis
 
 result = DefensiveCapabilityAnalysis(k=1).analyze_project(
     "src/package/__main__.py",

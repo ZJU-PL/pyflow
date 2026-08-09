@@ -28,6 +28,8 @@ from .reporting import (
     _ifds_result_to_dict,
     _nullness_result_to_dict,
     _output_results,
+    _result_status,
+    _statistics_to_dict,
     _typestate_result_to_dict,
 )
 
@@ -220,6 +222,76 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     if entry_file not in files:
         files.append(entry_file)
     entry_label = _entry_label(entry_file, targets)
+
+    if getattr(args, "analysis", "taint") == "class-pollution":
+        from pyflow.checker.class_pollution import ClassPollutionConfiguration
+        from pyflow.checker.class_pollution.api import run_class_pollution_analysis
+
+        try:
+            _session, pollution_result = run_class_pollution_analysis(
+                files,
+                entry_file=entry_file,
+                configuration=ClassPollutionConfiguration(
+                    source_names=frozenset(getattr(args, "sources", ()) or {"input"}),
+                    sanitizer_names=frozenset(
+                        getattr(args, "sanitizers", ()) or ()
+                    ),
+                    preserve_unknown_call_results=(
+                        getattr(args, "ifds_unknown_call_policy", "preserve")
+                        != "drop"
+                    ),
+                ),
+                dependency_strategy=getattr(args, "dependency_strategy", "auto"),
+                verbose=getattr(args, "verbose", False),
+                solver_options=solver_options,
+                callgraph_max_iterations=getattr(
+                    args, "ifds_callgraph_max_iterations", 256
+                ),
+            )
+        except Exception as e:
+            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            return {
+                "entry": entry_label,
+                "analysis": "class-pollution",
+                "findings": [],
+                "diagnostics": [str(e)],
+                "status": "failed",
+                "termination_reason": str(e),
+            }
+        status, termination_reason = _result_status(pollution_result)
+        result = {
+            "entry": entry_label,
+            "analysis": "class-pollution",
+            "findings": [
+                {
+                    "sink_name": finding.sink_name,
+                    "mutation_kind": finding.mutation_kind,
+                    "proof_level": finding.proof_level,
+                    "key_origin": finding.key_origin.label,
+                    "target_origin": finding.target_origin.label,
+                    "key_language": finding.key_language.describe(),
+                    "object_path": [
+                        {
+                            "kind": step.kind,
+                            "name": step.static_name,
+                            "key_language": step.key_language.describe(),
+                        }
+                        for step in finding.object_path
+                    ],
+                    "dangerous_components": list(finding.dangerous_components),
+                    "value_controlled": finding.value_controlled,
+                    "severity": finding.severity,
+                    "confidence": finding.confidence,
+                    "cwe": finding.cwe,
+                }
+                for finding in pollution_result.findings
+            ],
+            "diagnostics": list(pollution_result.diagnostics),
+            "statistics": _statistics_to_dict(pollution_result.statistics),
+            "status": status,
+            "termination_reason": termination_reason,
+        }
+        return _apply_session_diagnostics(result, _session)
 
     if getattr(args, "analysis", "taint") == "typestate":
         try:

@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from pyflow.analysis.capability import (
+from pyflow.checker.capability import (
     CapabilityRegistry,
     DefensiveCapabilityAnalysis,
     default_capability_registry,

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pyflow.analysis.capability import (
+from pyflow.checker.capability import (
     CapabilityOperation,
     CapabilityRegistry,
     RuntimeCapabilityPolicy,

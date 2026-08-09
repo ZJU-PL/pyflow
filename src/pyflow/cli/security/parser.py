@@ -37,7 +37,7 @@ def add_security_parser(subparsers):
     )
     p.add_argument(
         "--analysis",
-        choices=["taint", "nullness", "typestate"],
+        choices=["taint", "nullness", "typestate", "class-pollution"],
         default=argparse.SUPPRESS,
         help="IFDS analysis to run when --engine ifds is selected",
     )

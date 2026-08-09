@@ -16,6 +16,7 @@ from pyflow.analysis.ifds.api import (
     run_taint_analysis,
     run_typestate_analysis,
 )
+from pyflow.checker.class_pollution.api import run_class_pollution_analysis
 from pyflow.cli.security import run_security
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.ifds.modeling.calls import TaintModelPort, TaintPropagation
@@ -102,6 +103,23 @@ def test_run_taint_analysis_api_on_source_file(tmp_path):
     assert len(result.findings) == 1
     assert result.findings[0].sink_name == "sink"
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
+
+
+def test_run_class_pollution_analysis_api_on_source_file(tmp_path):
+    target = tmp_path / "pollution.py"
+    target.write_text(
+        "def merge(obj, key, value):\n"
+        "    target = getattr(obj, key)\n"
+        "    setattr(target, key, value)\n",
+        encoding="utf-8",
+    )
+
+    session, result = run_class_pollution_analysis([target], function="merge")
+
+    assert {code.codeName() for code in session.program.liveCode} >= {"merge"}
+    assert len(result.findings) == 1
+    assert result.findings[0].proof_level == "pollutable-object"
+    assert result.findings[0].cwe == "CWE-915"
 
 
 def test_run_taint_analysis_api_models_source_level_subscript_helpers(tmp_path):
@@ -1298,6 +1316,38 @@ def test_security_cli_emits_json_report(tmp_path, capsys):
     assert payload["entry"] == str(target)
     assert len(payload["findings"]) == 1
     assert payload["findings"][0]["tainted_arguments"] == ["b"]
+
+
+def test_security_cli_emits_class_pollution_proof_level(tmp_path, capsys):
+    target = tmp_path / "pollution.py"
+    target.write_text(
+        "def merge(obj, key, value):\n"
+        "    target = getattr(obj, key)\n"
+        "    setattr(target, key, value)\n"
+        "\n"
+        "merge(object(), input(), 1)\n",
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(
+        entry=None,
+        analysis="class-pollution",
+        engine="ifds",
+        targets=[target],
+        sources=["input"],
+        sanitizers=[],
+        format="json",
+        recursive=False,
+        dependency_strategy="auto",
+        verbose=False,
+    )
+
+    exit_code = run_security(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["analysis"] == "class-pollution"
+    assert payload["findings"][0]["proof_level"] == "pollutable-object"
+    assert payload["findings"][0]["mutation_kind"] == "attribute"
 
 
 def test_security_cli_reports_expression_only_taint_findings(tmp_path, capsys):

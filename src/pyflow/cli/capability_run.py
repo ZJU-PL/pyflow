@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from pyflow.analysis.capability import (
+from pyflow.checker.capability import (
     CapabilityViolation,
     RuntimeCapabilityPolicy,
     install_runtime_guard,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.analysis.capability import (
+from pyflow.checker.capability import (
     CapabilityRegistry,
     CapabilityOperation,
     CapabilityPattern,
