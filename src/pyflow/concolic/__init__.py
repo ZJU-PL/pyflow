@@ -6,9 +6,12 @@ replayed as an ordinary set of Python values.
 """
 
 from .artifacts import (
+    BehaviorObservation,
     PytestGenerationResult,
     ReplayResult,
     ReplayStatus,
+    behavior_equal,
+    compare_observations,
     generate_pytest,
     minimize_runs,
     replay_runs,
@@ -21,26 +24,32 @@ from .core.runtime import (
     ExecutionOutcome,
     ExplorationResult,
     ExplorationStatistics,
+    IdentityToken,
     OutcomeKind,
     RunRecord,
     SourceLocation,
 )
-from .exploration import explore_file
+from .exploration import clear_registered_contracts, explore_file, register_contract
 from .project import (
     FunctionScanResult,
     FunctionTarget,
     InputSynthesisResult,
     InputSynthesizer,
+    OperationCatalog,
+    OperationSupport,
+    OperationUse,
     ParameterTarget,
     ProjectScanResult,
     ScanAttempt,
     ScanStatus,
     discover_targets,
+    discover_operations,
     scan_project,
 )
 
 __all__ = [
     "BranchCoverage",
+    "BehaviorObservation",
     "ConcolicError",
     "ContractCounterexample",
     "CoverageSnapshot",
@@ -51,7 +60,11 @@ __all__ = [
     "FunctionTarget",
     "InputSynthesisResult",
     "InputSynthesizer",
+    "IdentityToken",
     "OutcomeKind",
+    "OperationCatalog",
+    "OperationSupport",
+    "OperationUse",
     "ParameterTarget",
     "ProjectScanResult",
     "PytestGenerationResult",
@@ -61,10 +74,15 @@ __all__ = [
     "ScanAttempt",
     "ScanStatus",
     "SourceLocation",
+    "behavior_equal",
+    "compare_observations",
+    "clear_registered_contracts",
     "discover_targets",
+    "discover_operations",
     "explore_file",
     "generate_pytest",
     "minimize_runs",
     "replay_runs",
+    "register_contract",
     "scan_project",
 ]

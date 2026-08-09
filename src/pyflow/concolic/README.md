@@ -22,7 +22,8 @@ package-relative imports, safe computed module constants, and the common `re.com
 workflow, plus structured `base64`, `bisect`, `collections.Counter`/`namedtuple`, `copy`,
 `dataclasses`, deterministic `datetime`, `functools.partial`, `hashlib`,
 `heapq`, `itertools`, `json`, `math`, `operator`, `os.path`, lexical
-`pathlib.Path`, basic `enum.Enum`/`IntEnum`/`StrEnum`, `statistics`, and `urllib.parse`
+`pathlib.Path`, basic `enum.Enum`/`IntEnum`/`StrEnum`, `statistics`, `struct`,
+`binascii`, `codecs`, `html`, `unicodedata`, `zlib`, and `urllib.parse`
 summaries, plus `contextlib.suppress`, `nullcontext`, and supported
 `contextmanager`/`asynccontextmanager` decorators. It also models context
 managers and `try`/`except`/`finally`, simple `except*`, exception chaining,
@@ -40,16 +41,18 @@ Resource controls include:
 
 - `--total-timeout`, `--per-run-timeout`, and `--solver-timeout` for
   wall-clock budgets in seconds;
+- `--solver-rlimit` for deterministic per-query Z3 work limits;
 - `--max-solver-calls` and `--max-pending-states` for global search bounds;
 - `--max-loop-iterations`, `--max-resume-steps`, and `--max-task-switches` for
   one concrete execution; and
 - `--max-schedule-states` for nondeterministic scheduling prefixes per input.
+- `--max-symbolic-container-size` for bounded input-list shape exploration.
 
 The `explore_file` keyword arguments use the corresponding underscore names.
-Budget termination is explicit in `ExplorationStatistics.stop_reason`, with
-values such as `total_timeout`, `solver_timeout`, `max_solver_calls`, and
-`max_pending_states`. A per-run timeout is recorded as a structured resource
-outcome and exploration continues with other pending states.
+Budget termination is explicit in `ExplorationStatistics.stop_reason`. A
+per-run timeout is recorded as a structured resource outcome. Inconclusive
+solver queries are counted and diagnosed without aborting unrelated pending
+states; only an exhausted total budget stops the complete exploration.
 
 ## Coverage and Search
 
@@ -59,11 +62,16 @@ contains their union; each `RunRecord.coverage` retains the contribution from
 one input and schedule. Run outcomes distinguish normal returns, unhandled
 target exceptions, unsupported syntax, resource limits, and engine errors.
 
-Coverage-guided search is the default. It dynamically prioritizes pending
-inputs that target branch edges not covered by previous executions. Select
-FIFO behavior with `--search-strategy fifo` or
-`search_strategy="fifo"`. Use `--max-uninteresting-iterations N` to stop after
+Exploration retains a persistent path trie containing observed, reserved, and
+exhausted branch alternatives. Coverage-guided search is the default. Select
+shallow-first exploration with `--search-strategy breadth_first`, or FIFO with
+`--search-strategy fifo`. Use `--max-uninteresting-iterations N` to stop after
 N executions without new node or branch coverage.
+
+Input lists and sets have bounded symbolic shape, so an empty seed can discover
+nonempty paths. Input dictionaries track symbolic presence for keys observed
+by membership tests. Aliased mutable parameters retain shared heap
+identity through execution, model generation, and replay.
 
 Exploration statistics report execution outcomes, solver SAT/UNSAT/timeout
 counts, solver and execution time, queue size, dropped and enqueued states,
@@ -79,9 +87,9 @@ contract-counterexample inputs are retained, while ties prefer smaller inputs,
 shorter schedules, and shorter paths.
 
 Before a run can become a generated test, `replay_runs` executes it against a
-fresh CPython module and compares the return value or exception type/message
-plus the arguments after execution. Replay mismatches are reported and are not
-emitted as tests.
+fresh CPython module. A shared behavioral observation layer compares return
+values, exception type/message, nested values, NaNs, iterators, and arguments
+after execution. The standard-library model suite uses the same oracle.
 
 Use `--emit-pytest PATH` to write the minimized, replay-validated corpus as a
 pytest module. Generated tests support synchronous and asynchronous entrypoints,
@@ -101,11 +109,19 @@ pyflow concolic ./src --scan-project --json --json-output concolic-report.json
 
 The shared function catalog records source identity, signatures, eligibility,
 and side-effect hazards without importing the project. Input tiers cover
-primitive values, `Literal`, unions, and annotated lists and dictionaries.
+primitive values, bytes, `Literal`, optional and union values, `Annotated`,
+tuples, and annotated lists, dictionaries, sets, and frozen sets. The worker
+audit wall blocks indirect filesystem/process/network mutation at runtime, in
+addition to the static hazard scan.
 Reports classify unsupported operations, replay mismatches, exhausted budgets,
 timeouts, input-generation failures, and side-effect hazards. Functions flagged
 for filesystem, process, or network activity are skipped unless
 `--allow-side-effects` is supplied.
+
+`discover_operations(path)` builds a frequency-ranked call corpus from `.py`
+and `.pyi` trees without importing them. Import aliases are resolved and each
+operation is classified as built-in, locally defined, modelled, or unknown, so
+typeshed and application stubs can directly prioritize the next model work.
 
 ## Architecture
 
@@ -118,7 +134,7 @@ by responsibility:
   contracts, path solving, and pending-state search policies.
 - `interpreter/` contains ordinary AST semantics. Its executor composes focused
   mixins for statements, values, calls, objects, collections, language
-  semantics, coverage, and standard-library summaries.
+  semantics, coverage, and registry-backed standard-library models.
 - `resumable/` is the interpreter's suspension subsystem: CFG discovery,
   resumable frames, generator/coroutine execution, async protocols, and task
   scheduling.
@@ -136,8 +152,11 @@ suspension point belongs in `resumable`.
 ## Contracts
 
 Pass `--check-contracts` (or `check_contracts=True` through `explore_file`) to
-check single-line PEP 316 postconditions in an entry function's docstring. A
-supported clause has the form `post: expression`; it may reference parameters
-and `__return__`. PyFlow adds the negation of each passing clause to the path
-solver and reports any discovered violation as a structured counterexample.
-Snapshot values such as `__old__` are not supported yet.
+check composite PEP 316 and decorator contracts. `pre:` clauses constrain entry, `raises:`
+declares expected exception types, and `post:` clauses may reference parameters
+and `__return__`. A clause such as `post[values]: len(values) ==
+len(__old__.values) + 1` compares the post-state with a deep pre-state snapshot.
+Passing postconditions are negated in the solver to search for structured
+counterexamples. Multiline sections, inherited class invariants, common
+`require`/`ensure` decorators, and programmatic `register_contract` overlays
+are supported.

@@ -99,7 +99,7 @@ def add_concolic_parser(subparsers):
     )
     parser.add_argument(
         "--search-strategy",
-        choices=("fifo", "coverage"),
+        choices=("fifo", "breadth_first", "coverage"),
         default="coverage",
         help="Pending-state selection strategy (default: coverage)",
     )
@@ -124,6 +124,11 @@ def add_concolic_parser(subparsers):
         help="Maximum wall-clock seconds for one solver query",
     )
     parser.add_argument(
+        "--solver-rlimit",
+        type=int,
+        help="Maximum deterministic Z3 resource units for one solver query",
+    )
+    parser.add_argument(
         "--max-solver-calls",
         type=int,
         help="Maximum number of solver queries",
@@ -133,6 +138,12 @@ def add_concolic_parser(subparsers):
         type=int,
         default=10000,
         help="Maximum queued exploration states (default: 10000)",
+    )
+    parser.add_argument(
+        "--max-symbolic-container-size",
+        type=int,
+        default=3,
+        help="Maximum synthesized length for symbolic input containers (default: 3)",
     )
     parser.add_argument(
         "--check-contracts",
@@ -180,8 +191,10 @@ def run_concolic(args) -> int:
             total_timeout=getattr(args, "total_timeout", None),
             per_run_timeout=getattr(args, "per_run_timeout", None),
             solver_timeout=getattr(args, "solver_timeout", None),
+            solver_rlimit=getattr(args, "solver_rlimit", None),
             max_solver_calls=getattr(args, "max_solver_calls", None),
             max_pending_states=getattr(args, "max_pending_states", 10000),
+            max_symbolic_container_size=getattr(args, "max_symbolic_container_size", 3),
             check_contracts=getattr(args, "check_contracts", False),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:

@@ -12,7 +12,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Iterable
 
-from ..core.runtime import ExecutionOutcome, OutcomeKind, RunRecord
+from ..core.runtime import IdentityToken, ExecutionOutcome, OutcomeKind, RunRecord
+from .behavior import BehaviorObservation, compare_observations
 
 
 class ReplayStatus(str, Enum):
@@ -90,15 +91,41 @@ def _replay_run(path: Path, entry: str, run: RunRecord, index: int) -> ReplayRes
             str(error) or None,
         )
     actual_post_inputs = copy.deepcopy(arguments)
-    differences = _compare_replay(run, actual_outcome, actual_result, actual_post_inputs)
+    identity_is_opaque = _contains_identity_token(run.result)
+    expected = BehaviorObservation.from_run(run)
+    if identity_is_opaque:
+        expected = BehaviorObservation(run.outcome, actual_result, run.post_inputs)
+    differences = compare_observations(
+        expected, BehaviorObservation(actual_outcome, actual_result, actual_post_inputs)
+    )
+    if differences:
+        status = ReplayStatus.MISMATCHED
+    elif identity_is_opaque:
+        status = ReplayStatus.NOT_COMPARABLE
+        differences = ("result contains process-local object identity",)
+    else:
+        status = ReplayStatus.MATCHED
     return ReplayResult(
         run=run,
-        status=(ReplayStatus.MATCHED if not differences else ReplayStatus.MISMATCHED),
+        status=status,
         actual_outcome=actual_outcome,
         actual_result=actual_result,
         actual_post_inputs=actual_post_inputs,
-        differences=tuple(differences),
+        differences=differences,
     )
+
+
+def _contains_identity_token(value: Any) -> bool:
+    if isinstance(value, IdentityToken):
+        return True
+    if isinstance(value, dict):
+        return any(
+            _contains_identity_token(key) or _contains_identity_token(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_contains_identity_token(item) for item in value)
+    return False
 
 
 async def _await_value(awaitable: Awaitable[Any]) -> Any:
@@ -116,12 +143,27 @@ def _load_entry(path: Path, entry: str, index: int):
     sys.modules[module_name] = module
     try:
         specification.loader.exec_module(module)
-        function = getattr(module, entry)
+        function = _resolve_runtime_entry(module, entry)
     finally:
         sys.modules.pop(module_name, None)
         if sys.path and sys.path[0] == root:
             sys.path.pop(0)
     return function
+
+
+def _resolve_runtime_entry(module: Any, entry: str):
+    if "." not in entry:
+        return getattr(module, entry)
+    class_name, method_name = entry.split(".", 1)
+    owner = getattr(module, class_name)
+    descriptor = inspect.getattr_static(owner, method_name)
+    if isinstance(descriptor, staticmethod):
+        return getattr(owner, method_name)
+    if isinstance(descriptor, classmethod):
+        return getattr(owner, method_name)
+    if isinstance(descriptor, property):
+        raise TypeError(f"entry {entry!r} is a property")
+    return getattr(owner(), method_name)
 
 
 def _module_identity(path: Path, index: int) -> tuple[str, Path]:
@@ -137,35 +179,3 @@ def _module_identity(path: Path, index: int) -> tuple[str, Path]:
             package_parts.append(path.stem)
         return ".".join(package_parts), parent
     return f"_pyflow_concolic_replay_{index}", path.parent
-
-
-def _compare_replay(
-    run: RunRecord,
-    actual_outcome: ExecutionOutcome,
-    actual_result: Any,
-    actual_post_inputs: tuple[Any, ...],
-) -> list[str]:
-    differences: list[str] = []
-    expected = run.outcome
-    if actual_outcome.kind is not expected.kind:
-        differences.append(
-            f"outcome: expected {expected.kind.value}, " f"got {actual_outcome.kind.value}"
-        )
-    elif expected.kind is OutcomeKind.RETURNED and actual_result != run.result:
-        differences.append(f"result: expected {run.result!r}, got {actual_result!r}")
-    elif expected.kind is OutcomeKind.TARGET_EXCEPTION:
-        if actual_outcome.exception_type != expected.exception_type:
-            differences.append(
-                f"exception type: expected {expected.exception_type!r}, "
-                f"got {actual_outcome.exception_type!r}"
-            )
-        if actual_outcome.message != expected.message:
-            differences.append(
-                f"exception message: expected {expected.message!r}, "
-                f"got {actual_outcome.message!r}"
-            )
-    if run.post_inputs is not None and actual_post_inputs != run.post_inputs:
-        differences.append(
-            f"post inputs: expected {run.post_inputs!r}, " f"got {actual_post_inputs!r}"
-        )
-    return differences

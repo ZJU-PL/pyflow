@@ -9,7 +9,6 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Protocol
 
-
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
 
 
@@ -27,6 +26,26 @@ class ExecutionTimeoutError(ConcolicError):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(reason.replace("_", " "))
+
+
+@dataclass(frozen=True)
+class IdentityToken:
+    """A stable execution-local object identity that has no portable integer value."""
+
+    reference: int
+
+    def __repr__(self) -> str:
+        return f"<identity #{self.reference}>"
+
+
+@dataclass(frozen=True)
+class _HeapRefValue:
+    reference: int
+    symbolic: Any
+
+    @property
+    def concrete(self) -> IdentityToken:
+        return IdentityToken(self.reference)
 
 
 @dataclass(frozen=True)
@@ -89,6 +108,11 @@ class _FloatValue:
 @dataclass
 class _ListValue:
     values: list[Any]
+    input_name: str | None = None
+    symbolic_length: Any = None
+    initial_length: int | None = None
+    capacity: int | None = None
+    element_templates: tuple[Any, ...] = ()
 
     @property
     def concrete(self) -> list[Any]:
@@ -103,6 +127,10 @@ class _DequeValue(_ListValue):
 @dataclass
 class _DictValue:
     values: dict[int | str | bool, Any]
+    input_name: str | None = None
+    candidate_templates: dict[int | str | bool, Any] = dataclass_field(default_factory=dict)
+    symbolic_presence: dict[int | str | bool, Any] = dataclass_field(default_factory=dict)
+    value_names: dict[int | str | bool, str] = dataclass_field(default_factory=dict)
 
     @property
     def concrete(self) -> dict[int | str | bool, Any]:
@@ -111,7 +139,7 @@ class _DictValue:
 
 @dataclass
 class _DefaultDictValue(_DictValue):
-    factory: Any
+    factory: Any = None
 
 
 @dataclass
@@ -161,6 +189,10 @@ class _EnumMember:
 @dataclass
 class _SetValue:
     values: list[Any]
+    input_name: str | None = None
+    candidate_templates: dict[int | str | bool, Any] = dataclass_field(default_factory=dict)
+    symbolic_presence: dict[int | str | bool, Any] = dataclass_field(default_factory=dict)
+    value_names: dict[int | str | bool, str] = dataclass_field(default_factory=dict)
 
     @property
     def concrete(self) -> set[Any]:
@@ -842,6 +874,7 @@ class CoverageSnapshot:
 class OutcomeKind(str, Enum):
     RETURNED = "returned"
     TARGET_EXCEPTION = "target_exception"
+    PRECONDITION_REJECTED = "precondition_rejected"
     UNSUPPORTED = "unsupported"
     RESOURCE_LIMIT = "resource_limit"
     ENGINE_ERROR = "engine_error"
@@ -891,13 +924,27 @@ class RunRecord:
     def to_dict(self) -> dict[str, Any]:
         return {
             "inputs": list(self.inputs),
-            "result": self.result,
+            "result": _portable_result(self.result),
             "path_length": self.path_length,
             "schedule": list(self.schedule),
             "outcome": self.outcome.to_dict(),
             "coverage": self.coverage.to_dict(),
             "post_inputs": (list(self.post_inputs) if self.post_inputs is not None else None),
         }
+
+
+def _portable_result(value: Any) -> Any:
+    if isinstance(value, IdentityToken):
+        return {"identity_reference": value.reference}
+    if isinstance(value, list):
+        return [_portable_result(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_portable_result(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _portable_result(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return [_portable_result(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -907,6 +954,7 @@ class ExplorationStatistics:
     executions: int
     returned: int
     target_exceptions: int
+    precondition_rejected: int
     unsupported: int
     resource_limits: int
     engine_errors: int
@@ -914,9 +962,12 @@ class ExplorationStatistics:
     satisfiable_queries: int
     unsatisfiable_queries: int
     solver_timeouts: int
+    solver_unknowns: int
+    solver_cache_hits: int
     states_enqueued: int
     states_dropped: int
     maximum_queue_size: int
+    path_tree_nodes: int
     coverage_discoveries: int
     iterations_without_discovery: int
     per_run_timeouts: int
@@ -924,6 +975,7 @@ class ExplorationStatistics:
     execution_seconds: float
     solver_seconds: float
     stop_reason: str
+    solver_diagnostics: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -931,6 +983,7 @@ class ExplorationStatistics:
             "outcomes": {
                 "returned": self.returned,
                 "target_exception": self.target_exceptions,
+                "precondition_rejected": self.precondition_rejected,
                 "unsupported": self.unsupported,
                 "resource_limit": self.resource_limits,
                 "engine_error": self.engine_errors,
@@ -940,12 +993,16 @@ class ExplorationStatistics:
                 "satisfiable": self.satisfiable_queries,
                 "unsatisfiable": self.unsatisfiable_queries,
                 "timeouts": self.solver_timeouts,
+                "unknowns": self.solver_unknowns,
+                "cache_hits": self.solver_cache_hits,
                 "seconds": self.solver_seconds,
+                "diagnostics": list(self.solver_diagnostics),
             },
             "search": {
                 "states_enqueued": self.states_enqueued,
                 "states_dropped": self.states_dropped,
                 "maximum_queue_size": self.maximum_queue_size,
+                "path_tree_nodes": self.path_tree_nodes,
                 "coverage_discoveries": self.coverage_discoveries,
                 "iterations_without_discovery": self.iterations_without_discovery,
                 "stop_reason": self.stop_reason,

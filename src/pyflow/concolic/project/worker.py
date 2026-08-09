@@ -9,17 +9,28 @@ from typing import Any
 
 from ..artifacts.replay import replay_runs
 from ..exploration.engine import explore_file
+from .audit import enabled_audit_wall
 
 
 def run_request(request: dict[str, Any]) -> dict[str, Any]:
     options = request.get("options", {})
-    result = explore_file(
-        Path(request["path"]),
-        entry=request["entry"],
-        initial_inputs=request["inputs"],
-        **options,
-    )
-    replays = replay_runs(request["path"], request["entry"], result.runs)
+    if request.get("audit_wall", True):
+        with enabled_audit_wall():
+            result = explore_file(
+                Path(request["path"]),
+                entry=request["entry"],
+                initial_inputs=request["inputs"],
+                **options,
+            )
+            replays = replay_runs(request["path"], request["entry"], result.runs)
+    else:
+        result = explore_file(
+            Path(request["path"]),
+            entry=request["entry"],
+            initial_inputs=request["inputs"],
+            **options,
+        )
+        replays = replay_runs(request["path"], request["entry"], result.runs)
     return {
         "exploration": result.to_dict(),
         "replays": [replay.to_dict() for replay in replays],

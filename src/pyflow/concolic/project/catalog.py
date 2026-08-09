@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -115,13 +115,24 @@ def discover_targets(
                         kind,
                         module_hazards,
                     )
+                    reasons = list(target.eligibility_reasons)
+                    if kind == "property":
+                        reasons.append("property_entry_not_supported")
+                    elif kind == "method" and not _class_is_default_constructible(statement):
+                        reasons.append("receiver_construction_requires_arguments")
                     targets.append(
-                        replace(
-                            target,
-                            eligibility_reasons=(
-                                *target.eligibility_reasons,
-                                "method_entry_not_supported",
-                            ),
+                        FunctionTarget(
+                            path=target.path,
+                            module=target.module,
+                            qualname=target.qualname,
+                            entry=target.qualname,
+                            line=target.line,
+                            is_async=target.is_async,
+                            descriptor_kind=target.descriptor_kind,
+                            parameters=target.parameters,
+                            return_annotation=target.return_annotation,
+                            eligibility_reasons=tuple(reasons),
+                            hazards=target.hazards,
                         )
                     )
     return tuple(sorted(targets, key=lambda target: (str(target.path), target.line)))
@@ -154,14 +165,17 @@ def _function_target(
 ) -> FunctionTarget:
     positional = tuple(node.args.posonlyargs) + tuple(node.args.args)
     required_count = len(positional) - len(node.args.defaults)
+    implicit_receiver = descriptor_kind in {"method", "classmethod", "property"}
+    exposed_positional = positional[1:] if implicit_receiver and positional else positional
+    exposed_required_count = max(0, required_count - (1 if implicit_receiver else 0))
     parameters = tuple(
         ParameterTarget(
             parameter.arg,
             ast.unparse(parameter.annotation) if parameter.annotation else None,
-            index < required_count,
+            index < exposed_required_count,
             index,
         )
-        for index, parameter in enumerate(positional)
+        for index, parameter in enumerate(exposed_positional)
     )
     reasons: list[str] = []
     if node.args.vararg is not None:
@@ -194,6 +208,26 @@ def _descriptor_kind(node: FunctionNode) -> str:
     if "property" in names:
         return "property"
     return "method"
+
+
+def _class_is_default_constructible(node: ast.ClassDef) -> bool:
+    initializer = next(
+        (
+            member
+            for member in node.body
+            if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and member.name == "__init__"
+        ),
+        None,
+    )
+    if initializer is None:
+        return True
+    positional = tuple(initializer.args.posonlyargs) + tuple(initializer.args.args)
+    receiver_count = 1 if positional else 0
+    required = len(positional) - len(initializer.args.defaults)
+    if required > receiver_count:
+        return False
+    return not any(default is None for default in initializer.args.kw_defaults)
 
 
 _HAZARDOUS_CALLS = {

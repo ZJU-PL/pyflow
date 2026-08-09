@@ -285,8 +285,12 @@ class _CollectionMethodMixin:
 
     def _set_method(self, value: _SetValue, name: str, args: list[Any]) -> Any:
         if name == "add" and len(args) == 1:
+            key = self._key(args[0])
+            self._ensure_set_candidate(value, key)
             if not any(self._equals(item, args[0]).concrete for item in value.values):
                 value.values.append(args[0])
+            if key in value.symbolic_presence:
+                value.symbolic_presence[key] = self._z3.BoolVal(True)
             return None
         if name == "update" and args:
             for argument in args:
@@ -295,15 +299,23 @@ class _CollectionMethodMixin:
                         value.values.append(item)
             return None
         if name in {"discard", "remove"} and len(args) == 1:
+            key = self._key(args[0])
+            self._ensure_set_candidate(value, key)
             for index, item in enumerate(value.values):
                 if self._equals(item, args[0]).concrete:
                     value.values.pop(index)
+                    if key in value.symbolic_presence:
+                        value.symbolic_presence[key] = self._z3.BoolVal(False)
                     return None
+            if key in value.symbolic_presence:
+                value.symbolic_presence[key] = self._z3.BoolVal(False)
             if name == "remove":
                 raise ConcolicError("set.remove(x): x not in set")
             return None
         if name == "clear" and not args:
             value.values.clear()
+            for key in value.symbolic_presence:
+                value.symbolic_presence[key] = self._z3.BoolVal(False)
             return None
         if name == "copy" and not args:
             return _SetValue(list(value.values))

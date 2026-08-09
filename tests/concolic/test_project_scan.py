@@ -36,9 +36,10 @@ def test_catalog_discovers_functions_without_importing_module(tmp_path):
     assert public.parameters[0].required
     assert not public.parameters[1].required
     assert public.hazards == ("module_filesystem",)
-    assert not method.eligible
+    assert method.eligible
     assert method.descriptor_kind == "staticmethod"
-    assert "method_entry_not_supported" in method.eligibility_reasons
+    assert method.entry == "Example.method"
+    assert [parameter.name for parameter in method.parameters] == ["value"]
 
 
 def test_input_synthesizer_uses_annotations_tiers_and_overrides(tmp_path):
@@ -59,6 +60,22 @@ def test_input_synthesizer_uses_annotations_tiers_and_overrides(tmp_path):
     assert synthesizer.synthesize(target, 2).inputs == (-1, "tier-2", [1, 1], "a")
 
 
+def test_input_synthesizer_supports_optional_annotated_tuple_and_bytes(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "from typing import Annotated, Optional\n"
+        "def target(maybe: Optional[int], pair: tuple[int, str], "
+        "payload: Annotated[bytes, 'wire']):\n"
+        "    return maybe\n",
+        encoding="utf-8",
+    )
+    target = discover_targets(source)[0]
+    synthesizer = InputSynthesizer()
+
+    assert synthesizer.synthesize(target, 0).inputs == (None, (0, ""), b"")
+    assert synthesizer.synthesize(target, 1).inputs == (1, (0, ""), b"a")
+
+
 def test_project_scan_classifies_supported_and_hazardous_functions(tmp_path):
     source = tmp_path / "sample.py"
     source.write_text(
@@ -76,7 +93,12 @@ def test_project_scan_classifies_supported_and_hazardous_functions(tmp_path):
         tmp_path,
         input_complexity=1,
         function_timeout=10,
-        exploration_options={"max_iterations": 10},
+        exploration_options={
+            "max_iterations": 10,
+            "total_timeout": 5,
+            "per_run_timeout": 1,
+            "solver_timeout": 0.5,
+        },
     )
 
     functions = {item.target.qualname: item for item in result.functions}
@@ -106,7 +128,66 @@ def test_project_scan_replay_preserves_package_relative_imports(tmp_path):
     result = scan_project(
         package / "target.py",
         input_complexity=0,
-        exploration_options={"max_iterations": 5},
+        exploration_options={
+            "max_iterations": 5,
+            "total_timeout": 5,
+            "per_run_timeout": 1,
+            "solver_timeout": 0.5,
+        },
     )
 
     assert result.functions[0].status is ScanStatus.SUPPORTED
+
+
+def test_project_scan_times_out_worker_that_hangs_during_replay(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "while True:\n" "    pass\n" "def target(value: int):\n" "    return value\n",
+        encoding="utf-8",
+    )
+
+    result = scan_project(
+        source,
+        input_complexity=0,
+        function_timeout=0.5,
+        exploration_options={
+            "max_iterations": 2,
+            "total_timeout": 0.25,
+            "per_run_timeout": 0.1,
+            "solver_timeout": 0.05,
+        },
+    )
+
+    assert result.functions[0].status is ScanStatus.TIMEOUT
+    assert result.functions[0].attempts[0].reason == "worker exceeded 0.5s"
+
+
+def test_project_scan_runtime_audit_wall_blocks_indirect_file_writes(tmp_path):
+    marker = tmp_path / "written.txt"
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "writer = open\n"
+        f"writer({str(marker)!r}, 'w').write('unsafe')\n"
+        "def target():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    result = scan_project(source, input_complexity=0, function_timeout=2)
+
+    assert result.functions[0].status is ScanStatus.SIDE_EFFECT_HAZARD
+    assert not marker.exists()
+
+
+def test_input_synthesizer_supports_set_annotations(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "def target(values: set[int], frozen: frozenset[str]):\n"
+        "    return len(values) + len(frozen)\n",
+        encoding="utf-8",
+    )
+    target = discover_targets(source)[0]
+    synthesizer = InputSynthesizer()
+
+    assert synthesizer.synthesize(target, 0).inputs == (set(), frozenset())
+    assert synthesizer.synthesize(target, 1).inputs == ({0}, frozenset({""}))

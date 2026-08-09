@@ -69,8 +69,19 @@ class _SemanticMixin:
                 any(match.concrete for match in matches),
                 self._z3.Or(*(match.symbolic for match in matches)),
             )
+        if isinstance(container, _SetValue):
+            key = self._key(needle)
+            concrete = any(self._equals(item, needle).concrete for item in container.values)
+            if container.input_name is not None:
+                self._ensure_set_candidate(container, key)
+                return _BoolValue(concrete, container.symbolic_presence[key])
+            return _BoolValue(concrete, self._z3.BoolVal(concrete))
         if isinstance(container, _DictValue):
-            concrete = self._key(needle) in container.values
+            key = self._key(needle)
+            concrete = key in container.values
+            if container.input_name is not None:
+                self._ensure_dict_candidate(container, key, 0)
+                return _BoolValue(concrete, container.symbolic_presence[key])
             return _BoolValue(concrete, self._z3.BoolVal(concrete))
         raise UnsupportedSyntaxError("membership requires a supported container")
 
@@ -282,10 +293,17 @@ class _SemanticMixin:
             return _BoolValue(bool(value.concrete), self._z3.BoolVal(bool(value.concrete)))
         if isinstance(value, _StringValue):
             return _BoolValue(value.concrete != "", value.symbolic != self._z3.StringVal(""))
-        if isinstance(value, (_ListValue, _TupleValue, _SetValue, _RangeValue)):
+        if isinstance(value, _ListValue):
+            length = self._length(value)
+            return _BoolValue(bool(value.values), length.symbolic != 0)
+        if isinstance(value, _SetValue) and value.symbolic_presence:
+            length = self._length(value)
+            return _BoolValue(bool(value.values), length.symbolic != 0)
+        if isinstance(value, (_TupleValue, _SetValue, _RangeValue)):
             return _BoolValue(bool(value.values), self._z3.BoolVal(bool(value.values)))
         if isinstance(value, _DictValue):
-            return _BoolValue(bool(value.values), self._z3.BoolVal(bool(value.values)))
+            length = self._length(value)
+            return _BoolValue(bool(value.values), length.symbolic != 0)
         if isinstance(value, _RegexMatch):
             return _BoolValue(True, self._z3.BoolVal(True))
         if isinstance(value, _InstanceValue):
@@ -297,3 +315,21 @@ class _SemanticMixin:
             if method_with_owner is not None:
                 return self._truthy(self._length(value))
         return _BoolValue(value is not None, self._z3.BoolVal(value is not None))
+
+    def _ensure_dict_candidate(
+        self, value: _DictValue, key: int | str | bool, template: Any
+    ) -> None:
+        if key in value.symbolic_presence or value.input_name is None:
+            return
+        index = len(value.symbolic_presence)
+        value.candidate_templates[key] = template
+        value.symbolic_presence[key] = self._z3.Bool(f"{value.input_name}__present_{index}")
+        value.value_names[key] = f"{value.input_name}__value_{index}"
+
+    def _ensure_set_candidate(self, value: _SetValue, key: int | str | bool) -> None:
+        if key in value.symbolic_presence or value.input_name is None:
+            return
+        index = len(value.symbolic_presence)
+        value.candidate_templates[key] = key
+        value.symbolic_presence[key] = self._z3.Bool(f"{value.input_name}__present_{index}")
+        value.value_names[key] = ""

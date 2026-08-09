@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from ..core.runtime import (
     SourceLocation,
     _Branch,
     _ClassValue,
+    _HeapRefValue,
     _InstanceValue,
     _ModuleValue,
     _TaskValue,
@@ -55,6 +57,9 @@ class _Executor(
         module_cache: dict[Path, _ModuleValue],
         execution_deadline: float | None = None,
         execution_timeout_reason: str = "per_run_timeout",
+        max_symbolic_container_size: int = 3,
+        entry_owner: _ClassValue | None = None,
+        entry_kind: str = "function",
     ) -> None:
         self._function = function
         self._z3 = z3
@@ -75,6 +80,12 @@ class _Executor(
         self._module_cache = module_cache
         self._execution_deadline = execution_deadline
         self._execution_timeout_reason = execution_timeout_reason
+        self._max_symbolic_container_size = max_symbolic_container_size
+        self._entry_owner = entry_owner
+        self._entry_kind = entry_kind
+        self.input_constraints: list[Any] = []
+        self._input_memo: dict[int, Any] = {}
+        self._heap_references: dict[int, _HeapRefValue] = {}
         self._global_values: dict[str, Any] = {}
         self._global_names: set[str] = set()
         self._nonlocal_names: set[str] = set()
@@ -92,13 +103,35 @@ class _Executor(
         self.env: dict[str, Any] = {}
 
         parameters = _parameter_nodes(function)
-        required = _required_positional_count(function)
-        if not required <= len(inputs) <= len(parameters):
+        implicit_parameter_count = 1 if entry_kind in {"method", "classmethod"} else 0
+        exposed_parameters = parameters[implicit_parameter_count:]
+        required = max(0, _required_positional_count(function) - implicit_parameter_count)
+        if not required <= len(inputs) <= len(exposed_parameters):
             raise ValueError(
-                f"{function.name} expects {required} to {len(parameters)} inputs, "
+                f"{function.name} expects {required} to {len(exposed_parameters)} inputs, "
                 f"received {len(inputs)}"
             )
         initial_args = [
-            self._input_value(parameter.arg, value) for parameter, value in zip(parameters, inputs)
+            self._input_value(parameter.arg, value)
+            for parameter, value in zip(exposed_parameters, inputs)
         ]
-        self.env = self._bind_arguments(function, initial_args, {})
+        if entry_kind == "classmethod":
+            assert entry_owner is not None
+            bound_args = [entry_owner, *initial_args]
+        elif entry_kind == "method":
+            assert entry_owner is not None
+            bound_args = [self._construct(entry_owner, [], {}), *initial_args]
+        else:
+            bound_args = initial_args
+        self.input_values = tuple(initial_args)
+        self.env = self._bind_arguments(function, bound_args, {})
+        self.pre_env = copy.deepcopy(self.env)
+
+    def _heap_reference(self, value: Any) -> _HeapRefValue:
+        identity = id(value)
+        reference = self._heap_references.get(identity)
+        if reference is None:
+            token = len(self._heap_references) + 1
+            reference = _HeapRefValue(token, self._z3.IntVal(token))
+            self._heap_references[identity] = reference
+        return reference

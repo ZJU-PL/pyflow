@@ -96,7 +96,9 @@ def test_solver_timeout_is_reported_separately(monkeypatch, tmp_path):
     )
 
     assert result.statistics.solver_timeouts == 1
-    assert result.statistics.stop_reason == "solver_timeout"
+    assert result.statistics.solver_unknowns == 1
+    assert result.statistics.stop_reason == "exhausted"
+    assert "timeout" in result.statistics.solver_diagnostics[0]
 
 
 def test_timing_statistics_are_json_serializable(tmp_path):
@@ -120,6 +122,7 @@ def test_budget_options_must_be_positive(tmp_path):
         {"total_timeout": 0},
         {"per_run_timeout": 0},
         {"solver_timeout": 0},
+        {"solver_rlimit": 0},
         {"max_solver_calls": 0},
         {"max_pending_states": 0},
     ):

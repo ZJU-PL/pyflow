@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pyflow.concolic import explore_file
 
-from .helpers import target_file as _target
+from .helpers import assert_matches_cpython, target_file as _target
 
 
 def test_explorer_supports_display_protocols_and_fstring_formats(tmp_path):
@@ -28,6 +28,7 @@ def test_explorer_supports_display_protocols_and_fstring_formats(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "#4|Label(4)|4!"
 
 
@@ -45,6 +46,7 @@ def test_explorer_uses_os_path_library_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[2])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "src/item2.py|item2.py|src/item2|.py"
 
 
@@ -73,6 +75,7 @@ def test_explorer_uses_custom_iteration_length_and_boolean_protocols(tmp_path):
 
     result = explore_file(target, initial_inputs=[3])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 7
 
 
@@ -105,6 +108,7 @@ def test_explorer_uses_container_and_arithmetic_dunder_protocols(tmp_path):
 
     result = explore_file(target, initial_inputs=[2])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 8
 
 
@@ -130,6 +134,7 @@ def test_explorer_uses_rich_comparison_dunder_protocols(tmp_path):
 
     result = explore_file(target, initial_inputs=[2])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 1
 
 
@@ -148,6 +153,7 @@ def test_explorer_uses_functools_reduce_with_callable_values(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 12
 
 
@@ -168,6 +174,7 @@ def test_explorer_uses_map_filter_and_keyed_sorted(tmp_path):
 
     result = explore_file(target, initial_inputs=[-4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 2
 
 
@@ -179,6 +186,7 @@ def test_explorer_supports_fstring_format_specs_and_conversions(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "004|2.0|'x'|'\\xe9'"
 
 
@@ -190,6 +198,7 @@ def test_explorer_supports_str_format_with_positional_and_named_fields(tmp_path)
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "item:04"
 
 
@@ -215,6 +224,7 @@ def test_explorer_supports_inherited_dataclass_fields_and_default_factories(tmp_
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 11
 
 
@@ -232,6 +242,7 @@ def test_explorer_uses_collections_defaultdict_with_callable_factories(tmp_path)
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 6
 
 
@@ -250,6 +261,7 @@ def test_explorer_uses_collections_deque_queue_operations(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 6
 
 
@@ -265,6 +277,7 @@ def test_explorer_supports_text_and_bytes_encoding_workflows(tmp_path):
 
     result = explore_file(target, initial_inputs=[2])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "item2"
 
 
@@ -283,6 +296,7 @@ def test_explorer_supports_extended_regular_expression_workflows(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "value4 value2:4"
 
 
@@ -300,6 +314,7 @@ def test_explorer_supports_named_regular_expression_match_groups(tmp_path):
 
     result = explore_file(target, initial_inputs=[5])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "item55"
 
 
@@ -316,6 +331,7 @@ def test_explorer_supports_extended_string_processing_methods(tmp_path):
 
     result = explore_file(target, initial_inputs=[7])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "000__value"
 
 
@@ -327,6 +343,7 @@ def test_explorer_supports_percent_string_formatting(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "item-0006:ready"
 
 
@@ -342,6 +359,7 @@ def test_explorer_supports_common_numeric_and_character_builtins(tmp_path):
 
     result = explore_file(target, initial_inputs=[3])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "B:1.0:2"
 
 
@@ -354,6 +372,7 @@ def test_explorer_supports_common_representation_builtins(tmp_path):
 
     result = explore_file(target, initial_inputs=[7])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "7:'\\xe9':0007"
 
 
@@ -365,6 +384,7 @@ def test_explorer_supports_floating_point_abs_and_round(tmp_path):
 
     result = explore_file(target, initial_inputs=[1])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 1.5
 
 
@@ -381,6 +401,7 @@ def test_explorer_supports_extended_math_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[3])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 15
 
 
@@ -403,6 +424,7 @@ def test_explorer_uses_custom_equality_in_collection_operations(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 2
 
 
@@ -417,6 +439,7 @@ def test_explorer_supports_dictionary_union_and_set_algebra(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 16
 
 
@@ -434,6 +457,7 @@ def test_explorer_preserves_aliases_for_in_place_collection_operators(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 10
 
 
@@ -449,6 +473,7 @@ def test_explorer_uses_base64_library_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "item6"
 
 
@@ -464,6 +489,7 @@ def test_explorer_uses_pure_pathlib_path_summary(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "reports:item6.json"
 
 
@@ -479,6 +505,7 @@ def test_explorer_uses_hashlib_digest_summary(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "597b4124"
 
 
@@ -497,6 +524,7 @@ def test_explorer_uses_urllib_parse_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "https://example.test/api/6-a%20b"
 
 
@@ -513,6 +541,7 @@ def test_explorer_supports_structured_urllib_parse_results(tmp_path):
 
     result = explore_file(target, initial_inputs=[1])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "example.com:8443:2"
 
 
@@ -531,6 +560,7 @@ def test_explorer_uses_deterministic_datetime_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[6])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == "2024-01-07:2024-02-03:12"
 
 
@@ -546,4 +576,74 @@ def test_explorer_uses_statistics_library_summaries(tmp_path):
 
     result = explore_file(target, initial_inputs=[4])
 
+    assert_matches_cpython(target, result)
     assert result.runs[0].result == 9.0
+
+
+def test_explorer_uses_fnmatch_library_summaries(tmp_path):
+    target = _target(
+        tmp_path,
+        "from fnmatch import filter, fnmatch, fnmatchcase\n"
+        "def main(value):\n"
+        "    names = [f'item{value}.py', 'notes.txt']\n"
+        "    selected = filter(names, '*.py')\n"
+        "    return (fnmatch(selected[0], 'item?.py') and "
+        "fnmatchcase(selected[0], 'item?.py'))\n",
+    )
+
+    result = explore_file(target, initial_inputs=[4])
+
+    assert_matches_cpython(target, result)
+    assert result.runs[0].result is True
+
+
+def test_explorer_uses_binary_codec_library_summaries(tmp_path):
+    target = _target(
+        tmp_path,
+        "import binascii\n"
+        "import codecs\n"
+        "import zlib\n"
+        "def main(value):\n"
+        "    payload = codecs.encode(f'item{value}', 'utf-8')\n"
+        "    encoded = binascii.hexlify(payload)\n"
+        "    restored = zlib.decompress(zlib.compress(binascii.unhexlify(encoded)))\n"
+        "    return codecs.decode(restored, 'utf-8') + ':' + str(zlib.crc32(restored))\n",
+    )
+
+    result = explore_file(target, initial_inputs=[4])
+
+    assert_matches_cpython(target, result)
+    assert result.runs[0].result.startswith("item4:")
+
+
+def test_explorer_uses_struct_library_summaries(tmp_path):
+    target = _target(
+        tmp_path,
+        "import struct\n"
+        "def main(value):\n"
+        "    payload = struct.pack('>h', value)\n"
+        "    unpacked = struct.unpack('>h', payload)\n"
+        "    return unpacked[0] + struct.calcsize('>h')\n",
+    )
+
+    result = explore_file(target, initial_inputs=[7])
+
+    assert_matches_cpython(target, result)
+    assert result.runs[0].result == 9
+
+
+def test_explorer_uses_unicode_and_html_library_summaries(tmp_path):
+    target = _target(
+        tmp_path,
+        "import html\n"
+        "import unicodedata\n"
+        "def main(value):\n"
+        "    text = unicodedata.normalize('NFC', 'e\\u0301')\n"
+        "    escaped = html.escape('<' + text + str(value) + '>')\n"
+        "    return html.unescape(escaped) + ':' + unicodedata.category(text[0])\n",
+    )
+
+    result = explore_file(target, initial_inputs=[2])
+
+    assert_matches_cpython(target, result)
+    assert result.runs[0].result == "<é2>:Ll"

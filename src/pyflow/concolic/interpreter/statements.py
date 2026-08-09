@@ -66,11 +66,19 @@ from ..core.modules import (
 
 class _StatementMixin:
     def run(self) -> tuple[Any, tuple[_Branch, ...]]:
-        result = self._call_function_value(
-            self._function_value(self._function),
-            [self.env[parameter.arg] for parameter in _parameter_nodes(self._function)],
-            {},
-        )
+        arguments = [self.env[parameter.arg] for parameter in _parameter_nodes(self._function)]
+        if self._entry_owner is None:
+            result = self._call_function_value(self._function_value(self._function), arguments, {})
+        else:
+            current_instance = arguments[0] if self._entry_kind == "method" else None
+            result = self._call_scoped_function(
+                self._function,
+                arguments,
+                {},
+                self._entry_owner.module,
+                self._entry_owner,
+                current_instance,
+            )
         if isinstance(result, _ResumableFrame) and result.is_coroutine:
             result = self._drive_coroutine(result)
         self._last_result = result
@@ -736,6 +744,15 @@ class _StatementMixin:
     def _call_prepared(self, call: ast.Call, args: list[Any], keywords: dict[str, Any]) -> Any:
         if isinstance(call.func, ast.Name):
             name = call.func.id
+            bound_value = None
+            if name in self.env:
+                bound_value = self.env[name]
+            elif name in self._global_values:
+                bound_value = self._global_values[name]
+            elif name in self._globals:
+                bound_value = self._globals[name]
+            if isinstance(bound_value, _SummaryFunction):
+                return self._call_summary(bound_value.module, bound_value.name, args, keywords)
             if name == "abs" and len(args) == 1:
                 if isinstance(args[0], _FloatValue):
                     value = args[0]
@@ -750,6 +767,8 @@ class _StatementMixin:
                 )
             if name == "hash" and len(args) == 1:
                 return self._hash(args[0])
+            if name == "id" and len(args) == 1:
+                return self._heap_reference(args[0])
             if name == "len" and len(args) == 1:
                 return self._length(args[0])
             if name == "iter" and len(args) == 1:

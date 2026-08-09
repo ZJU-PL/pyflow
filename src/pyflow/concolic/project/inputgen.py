@@ -8,7 +8,6 @@ from typing import Any, Callable, Mapping
 
 from .catalog import FunctionTarget, ParameterTarget
 
-
 InputFactory = Callable[[FunctionTarget, ParameterTarget, int], Any]
 
 
@@ -85,6 +84,8 @@ def _value_for_node(node: ast.expr, complexity: int) -> Any:
         return float(_tiered_int(complexity))
     if name in {"str", "builtins.str"}:
         return ("", "a", "pyflow", "a/b c")[min(complexity, 3)]
+    if name in {"bytes", "builtins.bytes"}:
+        return (b"", b"a", b"pyflow", b"a/b c")[min(complexity, 3)]
     if name in {"bool", "builtins.bool"}:
         return bool(complexity % 2)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -104,16 +105,31 @@ def _value_for_node(node: ast.expr, complexity: int) -> Any:
             literals = [value for value in literals if value is not _UNSUPPORTED]
             return literals[complexity % len(literals)] if literals else _UNSUPPORTED
         if base in {"Optional", "typing.Optional"} and arguments:
-            return _value_for_node(arguments[0], complexity)
+            return None if complexity % 2 == 0 else _value_for_node(arguments[0], complexity)
         if base in {"Union", "typing.Union"}:
             values = [_value_for_node(argument, complexity) for argument in arguments]
-            values = [value for value in values if value is not _UNSUPPORTED and value is not None]
+            values = [value for value in values if value is not _UNSUPPORTED]
             return values[complexity % len(values)] if values else _UNSUPPORTED
+        if base in {"Annotated", "typing.Annotated"} and arguments:
+            return _value_for_node(arguments[0], complexity)
         if base in {"list", "typing.List", "Sequence", "typing.Sequence"}:
             element = _value_for_node(arguments[0], max(0, complexity - 1)) if arguments else 0
             if element is _UNSUPPORTED:
                 return _UNSUPPORTED
             return [element] * min(complexity, 3)
+        if base in {
+            "set",
+            "typing.Set",
+            "frozenset",
+            "typing.FrozenSet",
+            "AbstractSet",
+            "typing.AbstractSet",
+        }:
+            element = _value_for_node(arguments[0], max(0, complexity - 1)) if arguments else 0
+            if element is _UNSUPPORTED:
+                return _UNSUPPORTED
+            values = set() if complexity == 0 else {element}
+            return frozenset(values) if "Frozen" in (base or "") or base == "frozenset" else values
         if base in {"dict", "typing.Dict", "Mapping", "typing.Mapping"}:
             if len(arguments) < 2:
                 return {}
@@ -126,6 +142,20 @@ def _value_for_node(node: ast.expr, complexity: int) -> Any:
             ):
                 return _UNSUPPORTED
             return {} if complexity == 0 else {key: value}
+        if base in {"tuple", "typing.Tuple"}:
+            if not arguments:
+                return ()
+            if len(arguments) == 2 and _annotation_name(arguments[1]) == "Ellipsis":
+                element = _value_for_node(arguments[0], max(0, complexity - 1))
+                return (
+                    tuple(element for _ in range(min(complexity, 3)))
+                    if element is not _UNSUPPORTED
+                    else _UNSUPPORTED
+                )
+            values = tuple(
+                _value_for_node(argument, max(0, complexity - 1)) for argument in arguments
+            )
+            return _UNSUPPORTED if _UNSUPPORTED in values else values
     if name in {"None", "NoneType", "types.NoneType"}:
         return None
     return _UNSUPPORTED
@@ -143,6 +173,8 @@ def _annotation_name(node: ast.expr) -> str | None:
         return f"{prefix}.{node.attr}" if prefix else node.attr
     if isinstance(node, ast.Constant) and node.value is None:
         return "None"
+    if isinstance(node, ast.Constant) and node.value is Ellipsis:
+        return "Ellipsis"
     return None
 
 

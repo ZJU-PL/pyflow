@@ -5,11 +5,44 @@ from __future__ import annotations
 import ast
 from typing import Any, Iterable
 
-from .runtime import _TargetException
+from .runtime import (
+    _DictValue,
+    _ListValue,
+    _NamedTupleValue,
+    _SetValue,
+    _TargetException,
+    _TupleValue,
+)
 
 
 def _concrete(value: Any) -> Any:
     return value.concrete if value is not None and hasattr(value, "concrete") else value
+
+
+def _deep_concrete(value: Any, memo: dict[int, Any] | None = None) -> Any:
+    """Realize runtime containers while preserving shared-object identity."""
+
+    if memo is None:
+        memo = {}
+    if isinstance(value, _ListValue):
+        if id(value) in memo:
+            return memo[id(value)]
+        result: list[Any] = []
+        memo[id(value)] = result
+        result.extend(_deep_concrete(item, memo) for item in value.values)
+        return result
+    if isinstance(value, _DictValue):
+        if id(value) in memo:
+            return memo[id(value)]
+        result: dict[Any, Any] = {}
+        memo[id(value)] = result
+        result.update((key, _deep_concrete(item, memo)) for key, item in value.values.items())
+        return result
+    if isinstance(value, (_TupleValue, _NamedTupleValue)):
+        return tuple(_deep_concrete(item, memo) for item in value.values)
+    if isinstance(value, _SetValue):
+        return {_deep_concrete(item, memo) for item in value.values}
+    return _concrete(value)
 
 
 def _unique_values(values: Iterable[Any]) -> list[Any]:
@@ -63,8 +96,14 @@ def _handler_matches(node: ast.expr | None, error_name: str) -> bool:
 
 def _valid_input(value: Any) -> bool:
     return (
-        isinstance(value, (int, float, str, bool))
+        value is None
+        or isinstance(value, (int, float, str, bytes, bool))
         or (isinstance(value, list) and all(_valid_input(item) for item in value))
+        or (isinstance(value, tuple) and all(_valid_input(item) for item in value))
+        or (
+            isinstance(value, (set, frozenset))
+            and all(isinstance(item, (int, str, bool)) and _valid_input(item) for item in value)
+        )
         or (
             isinstance(value, dict)
             and all(
@@ -80,6 +119,8 @@ def _input_key(value: Any) -> Any:
         return tuple(_input_key(item) for item in value)
     if isinstance(value, tuple):
         return tuple(_input_key(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return ("set", tuple(sorted((_input_key(item) for item in value), key=repr)))
     if isinstance(value, dict):
         return tuple(sorted((key, _input_key(item)) for key, item in value.items()))
     return value

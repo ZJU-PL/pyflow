@@ -104,6 +104,29 @@ def test_coverage_search_prioritizes_a_new_edge_over_a_stale_state(tmp_path):
     assert [run.result for run in fifo.runs] == [0, 2, 2]
 
 
+def test_breadth_first_search_prefers_shallow_branch_targets(tmp_path):
+    target = _target(
+        tmp_path,
+        "def main(value):\n"
+        "    if value > 0:\n"
+        "        if value > 10:\n"
+        "            return 3\n"
+        "    if value != 0:\n"
+        "        return 2\n"
+        "    return 0\n",
+    )
+
+    result = explore_file(
+        target,
+        initial_inputs=[0],
+        max_iterations=3,
+        search_strategy="breadth_first",
+    )
+
+    assert result.statistics.path_tree_nodes >= 3
+    assert [run.result for run in result.runs] == [0, 2, 2]
+
+
 def test_search_stops_after_a_coverage_plateau(tmp_path):
     target = _target(
         tmp_path,

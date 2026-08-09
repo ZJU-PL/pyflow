@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 from collections import Counter
@@ -154,7 +156,14 @@ def _scan_target(
             )
             continue
         attempts.append(
-            _run_worker(target, complexity, generated.inputs, function_timeout, options)
+            _run_worker(
+                target,
+                complexity,
+                generated.inputs,
+                function_timeout,
+                options,
+                audit_wall=not allow_side_effects,
+            )
         )
     status = _overall_status(attempts)
     reasons = tuple(sorted({attempt.reason for attempt in attempts if attempt.reason}))
@@ -167,24 +176,28 @@ def _run_worker(
     inputs: tuple[Any, ...],
     timeout: float,
     options: dict[str, Any],
+    audit_wall: bool = True,
 ) -> ScanAttempt:
     request = {
         "path": str(target.path),
         "entry": target.entry,
         "inputs": list(inputs),
         "options": options,
+        "audit_wall": audit_wall,
     }
     started = monotonic()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "pyflow.concolic.project.worker"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **_worker_process_group_options(),
+    )
     try:
-        process = subprocess.run(
-            [sys.executable, "-m", "pyflow.concolic.project.worker"],
-            input=json.dumps(request),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        stdout, stderr = process.communicate(json.dumps(request), timeout=timeout)
     except subprocess.TimeoutExpired:
+        _terminate_worker_process_group(process)
         return ScanAttempt(
             complexity,
             inputs,
@@ -194,14 +207,19 @@ def _run_worker(
         )
     seconds = monotonic() - started
     try:
-        response = json.loads(process.stdout)
+        response = json.loads(stdout)
     except json.JSONDecodeError:
-        message = process.stderr.strip() or "worker produced invalid JSON"
+        message = stderr.strip() or "worker produced invalid JSON"
         return ScanAttempt(complexity, inputs, ScanStatus.WORKER_ERROR, seconds, message)
     if not response.get("ok"):
         error = response.get("error", {})
         reason = f"{error.get('type', 'Error')}: {error.get('message', '')}".rstrip()
-        return ScanAttempt(complexity, inputs, ScanStatus.WORKER_ERROR, seconds, reason)
+        status = (
+            ScanStatus.SIDE_EFFECT_HAZARD
+            if error.get("type") == "SideEffectDetected"
+            else ScanStatus.WORKER_ERROR
+        )
+        return ScanAttempt(complexity, inputs, status, seconds, reason)
     result = response["result"]
     return ScanAttempt(
         complexity,
@@ -213,10 +231,54 @@ def _run_worker(
     )
 
 
+def _worker_process_group_options() -> dict[str, Any]:
+    if os.name == "posix":
+        return {"start_new_session": True}
+    if os.name == "nt":  # pragma: no cover - exercised on Windows CI
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {}
+
+
+def _terminate_worker_process_group(process: subprocess.Popen[str]) -> None:
+    """Terminate a timed-out worker and any processes it started."""
+    if process.poll() is not None:
+        process.communicate()
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    else:
+        process.kill()
+    try:
+        process.communicate(timeout=0.25)
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        process.communicate()
+
+
 def _classify_result(result: Mapping[str, Any]) -> ScanStatus:
     replays = result.get("replays", [])
+    if any(
+        replay.get("status") == "replay_error"
+        and any(
+            "SideEffectDetected" in str(difference)
+            for difference in replay.get("differences", [])
+        )
+        for replay in replays
+    ):
+        return ScanStatus.SIDE_EFFECT_HAZARD
     if any(replay.get("status") in {"mismatched", "replay_error"} for replay in replays):
         return ScanStatus.REPLAY_MISMATCH
+    if any(replay.get("status") == "not_comparable" for replay in replays):
+        return ScanStatus.PARTIALLY_SUPPORTED
     exploration = result["exploration"]
     outcomes = exploration.get("statistics", {}).get("outcomes", {})
     if outcomes.get("unsupported", 0) or outcomes.get("engine_error", 0):

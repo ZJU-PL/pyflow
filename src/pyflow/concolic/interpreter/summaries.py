@@ -6,11 +6,19 @@ import ast
 
 import base64
 
+import binascii
+
 import bisect
+
+import codecs
 
 import datetime
 
+import fnmatch
+
 import heapq
+
+import html
 
 import itertools
 
@@ -21,6 +29,12 @@ import math
 import posixpath
 
 import statistics
+
+import struct
+
+import unicodedata
+
+import zlib
 
 from urllib import parse as urlparse
 
@@ -67,10 +81,62 @@ from ..core.runtime import (
 )
 
 from ..core.support import _concrete
+from .model_registry import SummaryModelRegistry, register_model_families
+
+
+def _builtin_model_family(
+    executor: Any, module: str, name: str, args: list[Any], keywords: dict[str, Any]
+) -> Any:
+    return executor._call_builtin_summary(module, name, args, keywords)
+
+
+DEFAULT_MODEL_REGISTRY = SummaryModelRegistry()
+register_model_families(
+    DEFAULT_MODEL_REGISTRY,
+    (
+        "asyncio",
+        "base64",
+        "binascii",
+        "bisect",
+        "collections",
+        "codecs",
+        "contextlib",
+        "copy",
+        "dataclasses",
+        "datetime",
+        "functools",
+        "fnmatch",
+        "hashlib",
+        "heapq",
+        "html",
+        "itertools",
+        "json",
+        "math",
+        "operator",
+        "os.path",
+        "pathlib",
+        "statistics",
+        "struct",
+        "unicodedata",
+        "urllib.parse",
+        "zlib",
+    ),
+    _builtin_model_family,
+)
 
 
 class _SummaryMixin:
+    _model_registry = DEFAULT_MODEL_REGISTRY
+
     def _call_summary(
+        self, module: str, name: str, args: list[Any], keywords: dict[str, Any]
+    ) -> Any:
+        handler = self._model_registry.resolve(module, name)
+        if handler is None:
+            raise UnsupportedSyntaxError(f"unsupported library summary {module}.{name}")
+        return handler(self, module, name, args, keywords)
+
+    def _call_builtin_summary(
         self, module: str, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
         if module == "asyncio" and name == "sleep" and 1 <= len(args) <= 2:
@@ -125,6 +191,22 @@ class _SummaryMixin:
                 return _IdentityDecorator()
         if module == "functools" and name == "wraps" and len(args) == 1:
             return _IdentityDecorator()
+        if module == "fnmatch":
+            if keywords:
+                raise UnsupportedSyntaxError("fnmatch summaries do not support keyword arguments")
+            if name in {"fnmatch", "fnmatchcase"} and len(args) == 2:
+                concrete = getattr(fnmatch, name)(
+                    self._to_string(args[0]).concrete,
+                    self._to_string(args[1]).concrete,
+                )
+                return _BoolValue(concrete, self._z3.BoolVal(concrete))
+            if name == "filter" and len(args) == 2:
+                names = [self._to_string(item).concrete for item in self._iter_values(args[0])]
+                pattern = self._to_string(args[1]).concrete
+                selected = fnmatch.filter(names, pattern)
+                return _ListValue(
+                    [_StringValue(item, self._z3.StringVal(item)) for item in selected]
+                )
         if module == "operator":
             if name == "itemgetter" and args and not keywords:
                 return _OperatorItemGetter(tuple(args))
@@ -302,6 +384,25 @@ class _SummaryMixin:
                 except (TypeError, ValueError) as error:
                     raise ConcolicError(str(error)) from error
                 return _StringValue(encoded, self._z3.StringVal(encoded))
+        if module == "html" and name == "escape" and 1 <= len(args) <= 2:
+            if set(keywords) - {"quote"}:
+                raise UnsupportedSyntaxError("html.escape() supports only quote")
+            quote = (
+                self._truthy(keywords["quote"]).concrete
+                if "quote" in keywords
+                else self._truthy(args[1]).concrete if len(args) == 2 else True
+            )
+            concrete = html.escape(self._to_string(args[0]).concrete, quote=quote)
+            return _StringValue(concrete, self._z3.StringVal(concrete))
+        if module == "codecs" and name in {"encode", "decode"} and 1 <= len(args) <= 3:
+            if keywords:
+                raise UnsupportedSyntaxError(f"codecs.{name}() does not support keyword arguments")
+            values = [_concrete(argument) for argument in args]
+            try:
+                concrete = getattr(codecs, name)(*values)
+            except (LookupError, TypeError, UnicodeError) as error:
+                raise ConcolicError(str(error)) from error
+            return self._constant_value(concrete)
         if module == "itertools" and name == "accumulate":
             if not 1 <= len(args) <= 2 or set(keywords) - {"func", "initial"}:
                 raise UnsupportedSyntaxError(
@@ -400,6 +501,82 @@ class _SummaryMixin:
             except ValueError as error:
                 raise ConcolicError(str(error)) from error
             return _BytesValue(concrete)
+        if module == "binascii" and name in {"hexlify", "unhexlify"} and len(args) == 1:
+            try:
+                concrete = getattr(binascii, name)(self._to_bytes(args[0]).concrete)
+            except (binascii.Error, ValueError) as error:
+                raise ConcolicError(str(error)) from error
+            return _BytesValue(concrete)
+        if module == "binascii" and name == "crc32" and 1 <= len(args) <= 2:
+            values = [self._to_bytes(args[0]).concrete]
+            if len(args) == 2:
+                values.append(self._as_int(args[1]).concrete)
+            concrete = binascii.crc32(*values)
+            return _IntValue(concrete, self._z3.IntVal(concrete))
+        if module == "struct" and name == "calcsize" and len(args) == 1:
+            try:
+                concrete = struct.calcsize(self._to_string(args[0]).concrete)
+            except struct.error as error:
+                raise ConcolicError(str(error)) from error
+            return _IntValue(concrete, self._z3.IntVal(concrete))
+        if module == "struct" and name == "pack" and args:
+            try:
+                concrete = struct.pack(
+                    self._to_string(args[0]).concrete,
+                    *(_concrete(argument) for argument in args[1:]),
+                )
+            except (struct.error, TypeError) as error:
+                raise ConcolicError(str(error)) from error
+            return _BytesValue(concrete)
+        if module == "struct" and name == "unpack" and len(args) == 2:
+            try:
+                concrete = struct.unpack(
+                    self._to_string(args[0]).concrete,
+                    self._to_bytes(args[1]).concrete,
+                )
+            except struct.error as error:
+                raise ConcolicError(str(error)) from error
+            return self._constant_value(concrete)
+        if (
+            module == "unicodedata"
+            and name
+            in {
+                "category",
+                "combining",
+                "east_asian_width",
+                "mirrored",
+            }
+            and len(args) == 1
+        ):
+            concrete = getattr(unicodedata, name)(self._to_string(args[0]).concrete)
+            return self._constant_value(concrete)
+        if module == "unicodedata" and name == "normalize" and len(args) == 2:
+            try:
+                concrete = unicodedata.normalize(
+                    self._to_string(args[0]).concrete,
+                    self._to_string(args[1]).concrete,
+                )
+            except ValueError as error:
+                raise ConcolicError(str(error)) from error
+            return _StringValue(concrete, self._z3.StringVal(concrete))
+        if module == "html" and name == "unescape" and len(args) == 1:
+            concrete = html.unescape(self._to_string(args[0]).concrete)
+            return _StringValue(concrete, self._z3.StringVal(concrete))
+        if module == "zlib" and name in {"compress", "decompress"} and 1 <= len(args) <= 2:
+            values: list[Any] = [self._to_bytes(args[0]).concrete]
+            if len(args) == 2:
+                values.append(self._as_int(args[1]).concrete)
+            try:
+                concrete = getattr(zlib, name)(*values)
+            except zlib.error as error:
+                raise ConcolicError(str(error)) from error
+            return _BytesValue(concrete)
+        if module == "zlib" and name in {"crc32", "adler32"} and 1 <= len(args) <= 2:
+            values = [self._to_bytes(args[0]).concrete]
+            if len(args) == 2:
+                values.append(self._as_int(args[1]).concrete)
+            concrete = getattr(zlib, name)(*values)
+            return _IntValue(concrete, self._z3.IntVal(concrete))
         if module == "datetime":
             if name == "date" and len(args) == 3:
                 return _DateTimeValue(
@@ -535,7 +712,7 @@ class _SummaryMixin:
                 raise ConcolicError("namedtuple fields must be distinct and non-empty")
             return _NamedTupleClass(class_name, fields)
         if module == "collections" and name == "defaultdict" and len(args) == 1:
-            return _DefaultDictValue({}, args[0])
+            return _DefaultDictValue({}, factory=args[0])
         if module == "collections" and name == "deque" and len(args) <= 1:
             return _DequeValue([] if not args else list(self._iter_values(args[0])))
         if module == "functools" and name == "reduce" and 2 <= len(args) <= 3:

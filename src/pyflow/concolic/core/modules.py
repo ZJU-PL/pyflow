@@ -164,15 +164,19 @@ _UNSUPPORTED_LITERAL = object()
 _SUMMARY_MODULES = {
     "asyncio",
     "base64",
+    "binascii",
     "bisect",
     "collections",
+    "codecs",
     "copy",
     "contextlib",
     "dataclasses",
     "datetime",
     "functools",
+    "fnmatch",
     "hashlib",
     "heapq",
+    "html",
     "itertools",
     "json",
     "math",
@@ -180,7 +184,10 @@ _SUMMARY_MODULES = {
     "os.path",
     "pathlib",
     "statistics",
+    "struct",
+    "unicodedata",
     "urllib.parse",
+    "zlib",
 }
 
 

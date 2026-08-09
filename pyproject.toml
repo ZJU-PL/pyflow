@@ -45,6 +45,7 @@ dev = [
     "z3-solver",
     "pytest>=6.0",
     "pytest-cov",
+    "pytest-timeout>=2.3",
     "black",
     "flake8",
     "mypy",
@@ -56,6 +57,7 @@ test = [
     "z3-solver",
     "pytest>=6.0",
     "pytest-cov",
+    "pytest-timeout>=2.3",
     "tomli; python_version < '3.11'",
 ]
 callgraph = [
@@ -101,6 +103,8 @@ addopts = [
     "-W",
     "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
+timeout = 120
+timeout_method = "thread"
 
 [tool.black]
 line-length = 100

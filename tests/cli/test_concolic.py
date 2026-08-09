@@ -33,10 +33,14 @@ def test_concolic_parser_exposes_coverage_search_controls():
             "2",
             "--solver-timeout",
             "1",
+            "--solver-rlimit",
+            "1000",
             "--max-solver-calls",
             "20",
             "--max-pending-states",
             "30",
+            "--max-symbolic-container-size",
+            "4",
             "--emit-pytest",
             "generated_test.py",
         ]
@@ -47,8 +51,10 @@ def test_concolic_parser_exposes_coverage_search_controls():
     assert args.total_timeout == 10
     assert args.per_run_timeout == 2
     assert args.solver_timeout == 1
+    assert args.solver_rlimit == 1000
     assert args.max_solver_calls == 20
     assert args.max_pending_states == 30
+    assert args.max_symbolic_container_size == 4
     assert args.emit_pytest == "generated_test.py"
 
 

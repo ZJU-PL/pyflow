@@ -67,6 +67,17 @@ from ..core.modules import _contains_yield, _import_local_module
 from ..core.support import _concrete
 
 
+def _is_contract_decorator(node: ast.expr) -> bool:
+    function = node.func if isinstance(node, ast.Call) else node
+    if isinstance(function, ast.Name):
+        name = function.id
+    elif isinstance(function, ast.Attribute):
+        name = function.attr
+    else:
+        return False
+    return name in {"require", "ensure", "pre", "post", "raises", "invariant"}
+
+
 class _CallMixin:
     def _call_function(
         self,
@@ -182,6 +193,8 @@ class _CallMixin:
         value: Any = _FunctionValue(function, self.env, self._current_module)
         self._decorated_functions[key] = value
         for decorator in reversed(function.decorator_list):
+            if _is_contract_decorator(decorator):
+                continue
             value = self._call_value(self._evaluate(decorator), [value], {})
         self._decorated_functions[key] = value
         return value

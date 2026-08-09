@@ -28,6 +28,7 @@ from ..core.runtime import (
     _EnumClass,
     _EnumMember,
     _FloatValue,
+    _HeapRefValue,
     _InstanceValue,
     _IntValue,
     _IteratorValue,
@@ -330,6 +331,23 @@ class _ValueMixin:
                 symbolic_parts.append(self._z3.BoolVal(concrete))
                 left = right
                 continue
+            if isinstance(left, _HeapRefValue) or isinstance(right, _HeapRefValue):
+                if not isinstance(operator, (ast.Eq, ast.NotEq)):
+                    raise UnsupportedSyntaxError(
+                        "object identity values only support equality comparison"
+                    )
+                if isinstance(left, _HeapRefValue) and isinstance(right, _HeapRefValue):
+                    concrete = left.reference == right.reference
+                    symbolic = left.symbolic == right.symbolic
+                else:
+                    concrete = False
+                    symbolic = self._z3.BoolVal(False)
+                if isinstance(operator, ast.NotEq):
+                    concrete, symbolic = not concrete, self._z3.Not(symbolic)
+                concrete_parts.append(concrete)
+                symbolic_parts.append(symbolic)
+                left = right
+                continue
             if (
                 isinstance(left, (_IntValue, _FloatValue))
                 and isinstance(right, (_IntValue, _FloatValue))
@@ -412,6 +430,8 @@ class _ValueMixin:
         return _BoolValue(all(concrete_parts), self._z3.And(*symbolic_parts))
 
     def _input_value(self, name: str, value: Any) -> Any:
+        if value is None:
+            return None
         if isinstance(value, bool):
             return _BoolValue(value, self._z3.Bool(name))
         if isinstance(value, int):
@@ -420,19 +440,69 @@ class _ValueMixin:
             return _FloatValue(value, self._z3.Real(name))
         if isinstance(value, str):
             return _StringValue(value, self._z3.String(name))
+        if isinstance(value, bytes):
+            return _BytesValue(value)
         if isinstance(value, list):
-            return _ListValue(
-                [self._input_value(f"{name}_{index}", item) for index, item in enumerate(value)]
+            previous = self._input_memo.get(id(value))
+            if previous is not None:
+                return previous
+            capacity = max(len(value), self._max_symbolic_container_size)
+            symbolic_length = self._z3.Int(f"{name}__len")
+            self.input_constraints.extend((symbolic_length >= 0, symbolic_length <= capacity))
+            templates = tuple(value) or (0,)
+            wrapped = _ListValue(
+                [],
+                input_name=name,
+                symbolic_length=symbolic_length,
+                initial_length=len(value),
+                capacity=capacity,
+                element_templates=templates,
             )
+            self._input_memo[id(value)] = wrapped
+            wrapped.values.extend(
+                self._input_value(f"{name}_{index}", item) for index, item in enumerate(value)
+            )
+            return wrapped
         if isinstance(value, dict):
-            return _DictValue(
-                {
-                    key: self._input_value(f"{name}_{key}", item)
-                    for key, item in value.items()
-                    if isinstance(key, (int, str, bool))
-                }
+            previous = self._input_memo.get(id(value))
+            if previous is not None:
+                return previous
+            supported = [
+                (key, item) for key, item in value.items() if isinstance(key, (int, str, bool))
+            ]
+            values: dict[int | str | bool, Any] = {}
+            templates: dict[int | str | bool, Any] = {}
+            presence: dict[int | str | bool, Any] = {}
+            value_names: dict[int | str | bool, str] = {}
+            wrapped = _DictValue(values, name, templates, presence, value_names)
+            self._input_memo[id(value)] = wrapped
+            for index, (key, item) in enumerate(supported):
+                value_name = f"{name}__value_{index}"
+                values[key] = self._input_value(value_name, item)
+                templates[key] = item
+                presence[key] = self._z3.Bool(f"{name}__present_{index}")
+                value_names[key] = value_name
+            return wrapped
+        if isinstance(value, tuple):
+            return _TupleValue(
+                tuple(
+                    self._input_value(f"{name}_{index}", item) for index, item in enumerate(value)
+                )
             )
-        raise ValueError("initial_inputs must contain integers, strings, Booleans, or lists")
+        if isinstance(value, (set, frozenset)):
+            previous = self._input_memo.get(id(value))
+            if previous is not None:
+                return previous
+            wrapped = _SetValue([], input_name=name)
+            self._input_memo[id(value)] = wrapped
+            for index, item in enumerate(sorted(value, key=repr)):
+                value_name = f"{name}__value_{index}"
+                wrapped.values.append(self._input_value(value_name, item))
+                wrapped.candidate_templates[item] = item
+                wrapped.symbolic_presence[item] = self._z3.Bool(f"{name}__present_{index}")
+                wrapped.value_names[item] = value_name
+            return wrapped
+        raise ValueError("initial_inputs contain an unsupported value")
 
     def _assign(self, target: ast.expr, value: Any) -> None:
         if isinstance(target, ast.Name):
@@ -463,7 +533,11 @@ class _ValueMixin:
                 container.values[self._as_int(index).concrete] = value
                 return
             if isinstance(container, _DictValue):
-                container.values[self._key(index)] = value
+                key = self._key(index)
+                container.values[key] = value
+                if container.input_name is not None:
+                    self._ensure_dict_candidate(container, key, _concrete(value))
+                    container.symbolic_presence[key] = self._z3.BoolVal(True)
                 return
         if isinstance(target, ast.Attribute):
             instance = self._evaluate(target.value)
@@ -541,7 +615,10 @@ class _ValueMixin:
                 del container.values[self._as_int(index).concrete]
                 return
             if isinstance(container, _DictValue):
-                del container.values[self._key(index)]
+                key = self._key(index)
+                del container.values[key]
+                if key in container.symbolic_presence:
+                    container.symbolic_presence[key] = self._z3.BoolVal(False)
                 return
         raise UnsupportedSyntaxError("unsupported deletion target")
 
@@ -645,6 +722,11 @@ class _ValueMixin:
     def _as_iterator(self, value: Any) -> _IteratorValue:
         if isinstance(value, _IteratorValue):
             return value
+        if isinstance(value, _SetValue) and value.symbolic_presence:
+            symbolic = self._z3.Sum(
+                *(self._z3.If(present, 1, 0) for present in value.symbolic_presence.values())
+            )
+            return _IntValue(len(value.values), symbolic)
         if isinstance(value, (_ListValue, _TupleValue, _NamedTupleValue, _SetValue, _RangeValue)):
             return _SequenceIteratorValue(tuple(value.values))
         if isinstance(value, _BytesValue):
@@ -734,11 +816,20 @@ class _ValueMixin:
     def _length(self, value: Any) -> _IntValue:
         if isinstance(value, _StringValue):
             return _IntValue(len(value.concrete), self._z3.Length(value.symbolic))
+        if isinstance(value, _ListValue) and value.symbolic_length is not None:
+            initial_length = value.initial_length or 0
+            delta = len(value.values) - initial_length
+            return _IntValue(len(value.values), value.symbolic_length + delta)
         if isinstance(value, (_ListValue, _TupleValue, _NamedTupleValue, _SetValue, _RangeValue)):
             return _IntValue(len(value.values), self._z3.IntVal(len(value.values)))
         if isinstance(value, _BytesValue):
             return _IntValue(len(value.concrete), self._z3.IntVal(len(value.concrete)))
         if isinstance(value, _DictValue):
+            if value.symbolic_presence:
+                symbolic = self._z3.Sum(
+                    *(self._z3.If(present, 1, 0) for present in value.symbolic_presence.values())
+                )
+                return _IntValue(len(value.values), symbolic)
             return _IntValue(len(value.values), self._z3.IntVal(len(value.values)))
         if isinstance(value, _InstanceValue):
             method_with_owner = self._method_with_owner(value.class_value, "__len__")
@@ -942,7 +1033,7 @@ class _ValueMixin:
         if isinstance(value, _DefaultDictValue):
             return _DefaultDictValue(
                 {key: copy_value(item) for key, item in value.values.items()},
-                value.factory,
+                factory=value.factory,
             )
         if isinstance(value, _CounterValue):
             return _CounterValue({key: copy_value(item) for key, item in value.values.items()})
