@@ -68,7 +68,7 @@ class _Executor(
         self._task_switches = 0
         self._schedule_prefix = schedule_prefix
         self._schedule_choices: list[tuple[int, int]] = []
-        self._scheduler_cursor = 0
+        self._scheduler_clock = 0
         self._tasks: list[_TaskValue] = []
         self._functions = functions
         self._classes = classes
@@ -113,6 +113,7 @@ def explore_file(
     max_resume_steps: int = 1000,
     scheduler: str = "fifo",
     max_task_switches: int = 1000,
+    max_schedule_states: int = 1000,
     check_contracts: bool = False,
 ) -> ExplorationResult:
     """Explore feasible branches in ``entry`` and return generated inputs.
@@ -132,6 +133,8 @@ def explore_file(
         raise ValueError("scheduler must be 'fifo' or 'nondeterministic'")
     if max_task_switches < 1:
         raise ValueError("max_task_switches must be at least one")
+    if max_schedule_states < 1:
+        raise ValueError("max_schedule_states must be at least one")
     try:
         import z3
     except ImportError as error:  # pragma: no cover - depends on installation
@@ -167,6 +170,7 @@ def explore_file(
     queued_executions: set[tuple[Any, tuple[int, ...]]] = {
         (_input_key(initial), ())
     }
+    schedule_state_counts: dict[Any, int] = {_input_key(initial): 1}
     queued_paths: set[tuple[tuple[str, bool], ...]] = set()
     observed_path_prefixes: set[tuple[tuple[str, bool], ...]] = set()
     observed_schedules: set[tuple[Any, tuple[int, ...]]] = set()
@@ -222,8 +226,16 @@ def explore_file(
                             continue
                         alternative_prefix = tuple((*prior_choices, alternative))
                         execution_key = (_input_key(inputs), alternative_prefix)
-                        if execution_key not in queued_executions:
+                        input_key = _input_key(inputs)
+                        if (
+                            execution_key not in queued_executions
+                            and schedule_state_counts.get(input_key, 0)
+                            < max_schedule_states
+                        ):
                             queued_executions.add(execution_key)
+                            schedule_state_counts[input_key] = (
+                                schedule_state_counts.get(input_key, 0) + 1
+                            )
                             pending.append((inputs, alternative_prefix))
                 prior_choices.append(chosen)
 
@@ -253,6 +265,7 @@ def explore_file(
                 queued_inputs.add(_input_key(model_inputs))
                 execution_key = (_input_key(model_inputs), ())
                 queued_executions.add(execution_key)
+                schedule_state_counts.setdefault(_input_key(model_inputs), 1)
                 pending.append((model_inputs, ()))
 
         for index, branch in enumerate(path_constraints):
@@ -271,6 +284,7 @@ def explore_file(
                 queued_inputs.add(_input_key(model_inputs))
                 execution_key = (_input_key(model_inputs), ())
                 queued_executions.add(execution_key)
+                schedule_state_counts.setdefault(_input_key(model_inputs), 1)
                 pending.append((model_inputs, ()))
 
     return ExplorationResult(

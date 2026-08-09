@@ -57,6 +57,12 @@ def add_concolic_parser(subparsers):
         help="Maximum async task scheduling steps (default: 1000)",
     )
     parser.add_argument(
+        "--max-schedule-states",
+        type=int,
+        default=1000,
+        help="Maximum nondeterministic schedule prefixes per input (default: 1000)",
+    )
+    parser.add_argument(
         "--check-contracts",
         action="store_true",
         help="Check supported PEP 316 postconditions and report counterexamples",
@@ -90,6 +96,7 @@ def run_concolic(args) -> int:
             max_resume_steps=getattr(args, "max_resume_steps", 1000),
             scheduler=getattr(args, "scheduler", "fifo"),
             max_task_switches=getattr(args, "max_task_switches", 1000),
+            max_schedule_states=getattr(args, "max_schedule_states", 1000),
             check_contracts=getattr(args, "check_contracts", False),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:

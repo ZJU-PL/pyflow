@@ -27,15 +27,20 @@ summaries, plus `contextlib.suppress`, `nullcontext`, and supported
 `contextmanager`/`asynccontextmanager` decorators. It also models context
 managers and `try`/`except`/`finally`, simple `except*`, exception chaining,
 lazy coroutine calls, local `await`, async generators and iterators, and
-incremental `async with` hooks. A small `asyncio` model supports `sleep`,
+incremental `async with` hooks. Async generators support `__anext__`, `asend`,
+`athrow`, and suspending `aclose`; local objects may provide `__await__`.
+A small `asyncio` model supports `sleep`,
 `create_task`, and `gather`; select `--scheduler nondeterministic` to explore
 task-order choices separately from SMT branch choices. Task state includes
 deferred cancellation plus `done`, `cancelled`, `result`, and `exception`
-behavior for the supported scheduler model.
+behavior for the supported scheduler model, including cancellation propagation
+through directly awaited tasks.
 
 Resource controls include `--max-loop-iterations`, `--max-resume-steps`, and
-`--max-task-switches`. The corresponding `explore_file` keyword arguments are
-`max_loop_iterations`, `max_resume_steps`, and `max_task_switches`.
+`--max-task-switches`. Nondeterministic exploration is separately bounded by
+`--max-schedule-states`. The corresponding `explore_file` keyword arguments
+are `max_loop_iterations`, `max_resume_steps`, `max_task_switches`, and
+`max_schedule_states`.
 
 ## Contracts
 

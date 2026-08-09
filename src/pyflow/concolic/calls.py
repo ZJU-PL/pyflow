@@ -22,6 +22,7 @@ from .runtime import (
     UnsupportedSyntaxError,
     _BoolValue,
     _AsyncContextOperation,
+    _AsyncGeneratorOperation,
     _BytesValue,
     _ClassValue,
     _DateTimeValue,
@@ -280,10 +281,45 @@ class _CallMixin:
     def _call_attribute(
         self, value: Any, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
+        if isinstance(value, _ResumableFrame) and value.is_async_generator:
+            if name == "__aiter__" and not args and not keywords:
+                return value
+            if name == "__anext__" and not args and not keywords:
+                return _AsyncGeneratorOperation(
+                    value, _ResumeOperation(_ResumeKind.NEXT)
+                )
+            if name == "asend" and len(args) == 1 and not keywords:
+                return _AsyncGeneratorOperation(
+                    value, _ResumeOperation(_ResumeKind.SEND, args[0])
+                )
+            if name == "athrow" and 1 <= len(args) <= 3 and not keywords:
+                exception = args[0]
+                if isinstance(exception, _ExceptionType):
+                    message = str(_concrete(args[1])) if len(args) >= 2 else ""
+                    exception = _TargetException(exception.name, message)
+                if not isinstance(exception, BaseException):
+                    raise ConcolicError("async generator athrow() requires an exception")
+                return _AsyncGeneratorOperation(
+                    value, _ResumeOperation(_ResumeKind.THROW, exception)
+                )
+            if name == "aclose" and not args and not keywords:
+                return _AsyncGeneratorOperation(
+                    value,
+                    _ResumeOperation(
+                        _ResumeKind.THROW, _TargetException("GeneratorExit")
+                    ),
+                    closing=True,
+                )
         if isinstance(value, _IteratorValue):
             if name == "__iter__" and not args and not keywords:
                 return value
-            if name == "__next__" and not keywords:
+            if (
+                name == "__next__"
+                and not (
+                    isinstance(value, _ResumableFrame) and value.is_async_generator
+                )
+                and not keywords
+            ):
                 if args:
                     raise ConcolicError("iterator.__next__() takes no arguments")
                 resumed = self._resume_iterator(
@@ -292,7 +328,12 @@ class _CallMixin:
                 if isinstance(resumed, _Returned):
                     raise _TargetException("StopIteration", str(resumed.value or ""))
                 return resumed.value
-            if name == "send" and isinstance(value, _ResumableFrame) and not keywords:
+            if (
+                name == "send"
+                and isinstance(value, _ResumableFrame)
+                and not value.is_async_generator
+                and not keywords
+            ):
                 if len(args) != 1:
                     raise ConcolicError("generator.send() takes one argument")
                 resumed = self._resume_iterator(
@@ -304,6 +345,7 @@ class _CallMixin:
             if (
                 name == "throw"
                 and isinstance(value, _ResumableFrame)
+                and not value.is_async_generator
                 and 1 <= len(args) <= 3
                 and not keywords
             ):
@@ -322,6 +364,7 @@ class _CallMixin:
             if (
                 name == "close"
                 and isinstance(value, _ResumableFrame)
+                and not value.is_async_generator
                 and not args
                 and not keywords
             ):

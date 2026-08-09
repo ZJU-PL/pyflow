@@ -721,6 +721,14 @@ class _AsyncContextOperation:
     args: tuple[Any, ...] = ()
 
 
+@dataclass
+class _AsyncGeneratorOperation:
+    frame: _ResumableFrame
+    operation: _ResumeOperation
+    closing: bool = False
+    consumed: bool = False
+
+
 @dataclass(frozen=True)
 class _SchedulerYield:
     result: Any = None
@@ -740,6 +748,7 @@ class _TaskValue:
     exception: BaseException | None = None
     blocked_on: "_TaskValue | None" = None
     cancel_requested: bool = False
+    ready_order: int = 0
 
 
 @dataclass(frozen=True)
