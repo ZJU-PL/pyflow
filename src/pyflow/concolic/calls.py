@@ -21,11 +21,13 @@ from .runtime import (
     FunctionNode,
     UnsupportedSyntaxError,
     _BoolValue,
+    _AsyncContextOperation,
     _BytesValue,
     _ClassValue,
     _DateTimeValue,
     _DequeValue,
     _DictValue,
+    _ExceptionType,
     _FloatValue,
     _FunctionValue,
     _GeneratorContext,
@@ -42,6 +44,10 @@ from .runtime import (
     _RegexMatch,
     _RegexModule,
     _RegexPattern,
+    _ResumeKind,
+    _ResumeOperation,
+    _ResumableFrame,
+    _Returned,
     _Return,
     _SetValue,
     _StringValue,
@@ -50,11 +56,14 @@ from .runtime import (
     _SuperValue,
     _SuppressContext,
     _TimedeltaValue,
+    _TaskValue,
+    _TargetException,
     _TupleValue,
     _URLParseValue,
 )
 
 from .module_loader import _contains_yield, _import_local_module
+from .support import _concrete
 
 
 class _CallMixin:
@@ -67,6 +76,13 @@ class _CallMixin:
         current_instance: _InstanceValue | None = None,
     ) -> Any:
         bound = self._bind_arguments(function, args, keywords or {})
+        if _contains_yield(function) or isinstance(function, ast.AsyncFunctionDef):
+            return self._make_resumable_frame(
+                function,
+                bound,
+                current_class=current_class,
+                current_instance=current_instance,
+            )
         previous_env = self.env
         previous_globals = self._global_names
         previous_class = self._current_class
@@ -75,20 +91,13 @@ class _CallMixin:
         self._global_names = set()
         self._current_class = current_class
         self._current_instance = current_instance
-        previous_yielded_values = self._yielded_values
-        if _contains_yield(function):
-            self._yielded_values = []
         try:
             outcome = self._execute_block(function.body)
         finally:
-            yielded_values = self._yielded_values
             self.env = previous_env
             self._global_names = previous_globals
             self._current_class = previous_class
             self._current_instance = previous_instance
-            self._yielded_values = previous_yielded_values
-        if _contains_yield(function):
-            return _IteratorValue(tuple(yielded_values or []))
         return outcome.value if isinstance(outcome, _Return) else None
 
     def _call_scoped_function(
@@ -146,32 +155,31 @@ class _CallMixin:
                 self._global_names = previous_global_names
                 self._nonlocal_names = previous_nonlocal_names
                 self._closure_env = previous_closure_env
+        bound = self._bind_arguments(value.definition, args, keywords)
+        environment = {**value.closure, **bound}
+        if _contains_yield(value.definition) or isinstance(
+            value.definition, ast.AsyncFunctionDef
+        ):
+            return self._make_resumable_frame(
+                value.definition,
+                environment,
+                closure=value.closure,
+            )
         previous_env = self.env
         previous_global_names = self._global_names
         previous_nonlocal_names = self._nonlocal_names
         previous_closure_env = self._closure_env
-        previous_yielded_values = self._yielded_values
-        is_generator = _contains_yield(value.definition)
-        self.env = {
-            **value.closure,
-            **self._bind_arguments(value.definition, args, keywords),
-        }
+        self.env = environment
         self._global_names = set()
         self._nonlocal_names = set()
         self._closure_env = value.closure
-        if is_generator:
-            self._yielded_values = []
         try:
             outcome = self._execute_block(value.definition.body)
         finally:
-            yielded_values = self._yielded_values
             self.env = previous_env
             self._global_names = previous_global_names
             self._nonlocal_names = previous_nonlocal_names
             self._closure_env = previous_closure_env
-            self._yielded_values = previous_yielded_values
-        if is_generator:
-            return _IteratorValue(tuple(yielded_values or []))
         return outcome.value if isinstance(outcome, _Return) else None
 
     def _function_value(self, function: FunctionNode) -> Any:
@@ -272,16 +280,137 @@ class _CallMixin:
     def _call_attribute(
         self, value: Any, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
+        if isinstance(value, _IteratorValue):
+            if name == "__iter__" and not args and not keywords:
+                return value
+            if name == "__next__" and not keywords:
+                if args:
+                    raise ConcolicError("iterator.__next__() takes no arguments")
+                resumed = self._resume_iterator(
+                    value, _ResumeOperation(_ResumeKind.NEXT)
+                )
+                if isinstance(resumed, _Returned):
+                    raise _TargetException("StopIteration", str(resumed.value or ""))
+                return resumed.value
+            if name == "send" and isinstance(value, _ResumableFrame) and not keywords:
+                if len(args) != 1:
+                    raise ConcolicError("generator.send() takes one argument")
+                resumed = self._resume_iterator(
+                    value, _ResumeOperation(_ResumeKind.SEND, args[0])
+                )
+                if isinstance(resumed, _Returned):
+                    raise _TargetException("StopIteration", str(resumed.value or ""))
+                return resumed.value
+            if (
+                name == "throw"
+                and isinstance(value, _ResumableFrame)
+                and 1 <= len(args) <= 3
+                and not keywords
+            ):
+                exception = args[0]
+                if isinstance(exception, _ExceptionType):
+                    message = str(_concrete(args[1])) if len(args) >= 2 else ""
+                    exception = _TargetException(exception.name, message)
+                if not isinstance(exception, BaseException):
+                    raise ConcolicError("generator.throw() requires an exception")
+                resumed = self._resume_iterator(
+                    value, _ResumeOperation(_ResumeKind.THROW, exception)
+                )
+                if isinstance(resumed, _Returned):
+                    raise _TargetException("StopIteration", str(resumed.value or ""))
+                return resumed.value
+            if (
+                name == "close"
+                and isinstance(value, _ResumableFrame)
+                and not args
+                and not keywords
+            ):
+                self._resume_iterator(value, _ResumeOperation(_ResumeKind.CLOSE))
+                return None
+        if isinstance(value, _TaskValue):
+            if name == "done" and not args and not keywords:
+                return _BoolValue(value.done, self._z3.BoolVal(value.done))
+            if name == "cancelled" and not args and not keywords:
+                cancelled = value.done and isinstance(
+                    value.exception, _TargetException
+                ) and value.exception.name == "CancelledError"
+                return _BoolValue(cancelled, self._z3.BoolVal(cancelled))
+            if name == "result" and not args and not keywords:
+                if not value.done:
+                    raise _TargetException(
+                        "InvalidStateError", "result is not ready"
+                    )
+                if value.exception is not None:
+                    raise value.exception
+                return value.result
+            if name == "exception" and not args and not keywords:
+                if not value.done:
+                    raise _TargetException(
+                        "InvalidStateError", "exception is not set"
+                    )
+                if isinstance(value.exception, _TargetException) and (
+                    value.exception.name == "CancelledError"
+                ):
+                    raise value.exception
+                return value.exception
+            if name == "get_name" and not args and not keywords:
+                concrete = value.name or "Task"
+                return _StringValue(concrete, self._z3.StringVal(concrete))
+            if name == "cancel" and not args and not keywords:
+                if value.done:
+                    return _BoolValue(False, self._z3.BoolVal(False))
+                value.cancel_requested = True
+                return _BoolValue(True, self._z3.BoolVal(True))
         if isinstance(value, _GeneratorContext):
+            if name == "__aenter__" and not args and not keywords:
+                return _AsyncContextOperation(value, True)
+            if name == "__aexit__" and len(args) == 3 and not keywords:
+                return _AsyncContextOperation(value, False, tuple(args))
             if name in {"__enter__", "__aenter__"} and not args and not keywords:
-                if value.iterator.position >= len(value.iterator.values):
-                    raise ConcolicError("contextmanager generator did not yield")
-                result = value.iterator.values[value.iterator.position]
-                value.iterator.position += 1
-                return result
+                if value.entered:
+                    raise _TargetException(
+                        "RuntimeError", "generator context manager cannot be re-entered"
+                    )
+                value.entered = True
+                resumed = self._resume_iterator(
+                    value.iterator, _ResumeOperation(_ResumeKind.NEXT)
+                )
+                if isinstance(resumed, _Returned):
+                    raise _TargetException(
+                        "RuntimeError", "contextmanager generator did not yield"
+                    )
+                return resumed.value
             if name in {"__exit__", "__aexit__"} and len(args) == 3 and not keywords:
-                value.iterator.position = len(value.iterator.values)
-                return _BoolValue(False, self._z3.BoolVal(False))
+                if value.exited:
+                    return _BoolValue(False, self._z3.BoolVal(False))
+                value.exited = True
+                if args[0] is None:
+                    resumed = self._resume_iterator(
+                        value.iterator, _ResumeOperation(_ResumeKind.NEXT)
+                    )
+                    if not isinstance(resumed, _Returned):
+                        raise _TargetException(
+                            "RuntimeError", "contextmanager generator did not stop"
+                        )
+                    return _BoolValue(False, self._z3.BoolVal(False))
+                exception = _TargetException(
+                    self._to_string(args[0]).concrete,
+                    self._to_string(args[1]).concrete,
+                )
+                try:
+                    resumed = self._resume_iterator(
+                        value.iterator,
+                        _ResumeOperation(_ResumeKind.THROW, exception),
+                    )
+                except _TargetException as raised:
+                    if raised.name == exception.name and raised.message == exception.message:
+                        return _BoolValue(False, self._z3.BoolVal(False))
+                    raise
+                if not isinstance(resumed, _Returned):
+                    raise _TargetException(
+                        "RuntimeError", "contextmanager generator did not stop"
+                    )
+                return _BoolValue(True, self._z3.BoolVal(True))
         if isinstance(value, _URLParseValue) and name == "geturl" and not args:
             if keywords:
                 raise UnsupportedSyntaxError(

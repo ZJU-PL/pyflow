@@ -44,7 +44,18 @@ def _handler_matches(node: ast.expr | None, error_name: str) -> bool:
     if node is None:
         return True
     if isinstance(node, ast.Name):
-        return node.id in {error_name, "Exception", "BaseException", "RuntimeError"}
+        if node.id == "BaseException":
+            return True
+        if node.id == "Exception":
+            return error_name not in {
+                "CancelledError",
+                "GeneratorExit",
+                "KeyboardInterrupt",
+                "SystemExit",
+            }
+        return node.id == error_name
+    if isinstance(node, ast.Attribute):
+        return node.attr == error_name
     if isinstance(node, ast.Tuple):
         return any(_handler_matches(element, error_name) for element in node.elts)
     return False

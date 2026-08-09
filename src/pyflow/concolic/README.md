@@ -14,16 +14,28 @@ inheritance, class variables, `super()`, function and supported class decorators
 lists/dictionaries (including union), sets (including common mutating methods), unpacking, f-strings, percent
 formatting, assignment expressions, and structural pattern matching (including
 dataclass and literal-`__match_args__` class patterns),
-synchronous and eager-async comprehensions, and eagerly materialized generators
-with consumable iterator behavior; local and
+synchronous and asynchronous comprehensions; lazy generator expressions;
+suspended generator frames with `send`, `throw`, `close`, and `yield from`;
+and incremental sequence, `map`, `filter`, `zip`, `enumerate`, and common
+`itertools` iterators; local and
 package-relative imports, safe computed module constants, and the common `re.compile(...).match(...).group()`
 workflow, plus structured `base64`, `bisect`, `collections.Counter`/`namedtuple`, `copy`,
 `dataclasses`, deterministic `datetime`, `functools.partial`, `hashlib`,
 `heapq`, `itertools`, `json`, `math`, `operator`, `os.path`, lexical
 `pathlib.Path`, basic `enum.Enum`/`IntEnum`/`StrEnum`, `statistics`, and `urllib.parse`
-summaries, plus `contextlib.suppress`, `nullcontext`, and supported `contextmanager`/`asynccontextmanager` decorators. It also models context managers and `try`/`except`/`finally`, simple `except*`, and exception chaining
-for conversion, lookup, and explicit target exceptions, including eager
-`async with` context-manager hooks.
+summaries, plus `contextlib.suppress`, `nullcontext`, and supported
+`contextmanager`/`asynccontextmanager` decorators. It also models context
+managers and `try`/`except`/`finally`, simple `except*`, exception chaining,
+lazy coroutine calls, local `await`, async generators and iterators, and
+incremental `async with` hooks. A small `asyncio` model supports `sleep`,
+`create_task`, and `gather`; select `--scheduler nondeterministic` to explore
+task-order choices separately from SMT branch choices. Task state includes
+deferred cancellation plus `done`, `cancelled`, `result`, and `exception`
+behavior for the supported scheduler model.
+
+Resource controls include `--max-loop-iterations`, `--max-resume-steps`, and
+`--max-task-switches`. The corresponding `explore_file` keyword arguments are
+`max_loop_iterations`, `max_resume_steps`, and `max_task_switches`.
 
 ## Contracts
 

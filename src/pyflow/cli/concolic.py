@@ -39,6 +39,24 @@ def add_concolic_parser(subparsers):
         help="Maximum concrete iterations of one while loop (default: 100)",
     )
     parser.add_argument(
+        "--max-resume-steps",
+        type=int,
+        default=1000,
+        help="Maximum iterator/generator resume operations (default: 1000)",
+    )
+    parser.add_argument(
+        "--scheduler",
+        choices=("fifo", "nondeterministic"),
+        default="fifo",
+        help="Async task scheduling policy (default: fifo)",
+    )
+    parser.add_argument(
+        "--max-task-switches",
+        type=int,
+        default=1000,
+        help="Maximum async task scheduling steps (default: 1000)",
+    )
+    parser.add_argument(
         "--check-contracts",
         action="store_true",
         help="Check supported PEP 316 postconditions and report counterexamples",
@@ -69,6 +87,9 @@ def run_concolic(args) -> int:
             initial_inputs=initial_inputs,
             max_iterations=args.max_iterations,
             max_loop_iterations=args.max_loop_iterations,
+            max_resume_steps=getattr(args, "max_resume_steps", 1000),
+            scheduler=getattr(args, "scheduler", "fifo"),
+            max_task_switches=getattr(args, "max_task_switches", 1000),
             check_contracts=getattr(args, "check_contracts", False),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:
@@ -84,7 +105,8 @@ def run_concolic(args) -> int:
         )
         print("Generated inputs:")
         for run in result.runs:
-            print(f"  {list(run.inputs)} -> {run.result!r}")
+            schedule = f" schedule={list(run.schedule)}" if run.schedule else ""
+            print(f"  {list(run.inputs)} -> {run.result!r}{schedule}")
         if result.unsatisfiable_paths:
             print(f"Unsatisfiable path flips: {result.unsatisfiable_paths}")
         if result.counterexamples:

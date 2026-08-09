@@ -21,8 +21,10 @@ from .runtime import (
     _ClassValue,
     _InstanceValue,
     _ModuleValue,
+    _TaskValue,
     _TargetException,
 )
+from .resumable import _ResumableMixin
 from .semantics import _SemanticMixin
 from .statements import _StatementMixin
 from .summaries import _SummaryMixin
@@ -31,6 +33,7 @@ from .values import _ValueMixin
 
 
 class _Executor(
+    _ResumableMixin,
     _StatementMixin,
     _ValueMixin,
     _CallMixin,
@@ -45,6 +48,10 @@ class _Executor(
         z3: Any,
         inputs: tuple[Any, ...],
         max_loop_iterations: int,
+        max_resume_steps: int,
+        scheduler_mode: str,
+        max_task_switches: int,
+        schedule_prefix: tuple[int, ...],
         functions: dict[str, FunctionNode],
         classes: dict[str, _ClassValue],
         globals: dict[str, Any],
@@ -54,6 +61,15 @@ class _Executor(
         self._function = function
         self._z3 = z3
         self._max_loop_iterations = max_loop_iterations
+        self._max_resume_steps = max_resume_steps
+        self._resume_steps = 0
+        self._scheduler_mode = scheduler_mode
+        self._max_task_switches = max_task_switches
+        self._task_switches = 0
+        self._schedule_prefix = schedule_prefix
+        self._schedule_choices: list[tuple[int, int]] = []
+        self._scheduler_cursor = 0
+        self._tasks: list[_TaskValue] = []
         self._functions = functions
         self._classes = classes
         self._globals = globals
@@ -94,6 +110,9 @@ def explore_file(
     initial_inputs: Iterable[Any] | None = None,
     max_iterations: int = 50,
     max_loop_iterations: int = 100,
+    max_resume_steps: int = 1000,
+    scheduler: str = "fifo",
+    max_task_switches: int = 1000,
     check_contracts: bool = False,
 ) -> ExplorationResult:
     """Explore feasible branches in ``entry`` and return generated inputs.
@@ -107,6 +126,12 @@ def explore_file(
         raise ValueError("max_iterations must be at least one")
     if max_loop_iterations < 1:
         raise ValueError("max_loop_iterations must be at least one")
+    if max_resume_steps < 1:
+        raise ValueError("max_resume_steps must be at least one")
+    if scheduler not in {"fifo", "nondeterministic"}:
+        raise ValueError("scheduler must be 'fifo' or 'nondeterministic'")
+    if max_task_switches < 1:
+        raise ValueError("max_task_switches must be at least one")
     try:
         import z3
     except ImportError as error:  # pragma: no cover - depends on installation
@@ -137,10 +162,14 @@ def explore_file(
     functions = module.functions
     classes = module.classes
 
-    pending: deque[tuple[Any, ...]] = deque([initial])
+    pending: deque[tuple[tuple[Any, ...], tuple[int, ...]]] = deque([(initial, ())])
     queued_inputs = {_input_key(initial)}
+    queued_executions: set[tuple[Any, tuple[int, ...]]] = {
+        (_input_key(initial), ())
+    }
     queued_paths: set[tuple[tuple[str, bool], ...]] = set()
     observed_path_prefixes: set[tuple[tuple[str, bool], ...]] = set()
+    observed_schedules: set[tuple[Any, tuple[int, ...]]] = set()
     runs: list[RunRecord] = []
     unsatisfiable_paths = 0
     counterexamples: list[ContractCounterexample] = []
@@ -148,12 +177,16 @@ def explore_file(
     queued_contract_targets: set[tuple[Any, ...]] = set()
 
     while pending and len(runs) < max_iterations:
-        inputs = pending.popleft()
+        inputs, schedule_prefix = pending.popleft()
         executor = _Executor(
             function,
             z3,
             inputs,
             max_loop_iterations,
+            max_resume_steps,
+            scheduler,
+            max_task_switches,
+            schedule_prefix,
             functions,
             classes,
             module.globals,
@@ -166,14 +199,33 @@ def explore_file(
                 executor, postconditions
             )
         except (ConcolicError, _TargetException):
-            if inputs == initial:
+            if inputs == initial and not schedule_prefix:
                 raise
             continue
-        runs.append(RunRecord(inputs, result, len(path_constraints)))
+        schedule = tuple(chosen for _, chosen in executor._schedule_choices)
+        schedule_key = (_input_key(inputs), schedule)
+        if schedule_key in observed_schedules:
+            continue
+        observed_schedules.add(schedule_key)
+        runs.append(RunRecord(inputs, result, len(path_constraints), schedule))
         observed_path_prefixes.update(
             tuple(branch.key() for branch in path_constraints[: index + 1])
             for index in range(len(path_constraints))
         )
+
+        if scheduler == "nondeterministic":
+            prior_choices: list[int] = []
+            for candidate_count, chosen in executor._schedule_choices:
+                if candidate_count > 1:
+                    for alternative in range(candidate_count):
+                        if alternative == chosen:
+                            continue
+                        alternative_prefix = tuple((*prior_choices, alternative))
+                        execution_key = (_input_key(inputs), alternative_prefix)
+                        if execution_key not in queued_executions:
+                            queued_executions.add(execution_key)
+                            pending.append((inputs, alternative_prefix))
+                prior_choices.append(chosen)
 
         for clause, condition in contract_conditions:
             if not condition.concrete:
@@ -199,7 +251,9 @@ def explore_file(
             )
             if model_inputs is not None and _input_key(model_inputs) not in queued_inputs:
                 queued_inputs.add(_input_key(model_inputs))
-                pending.append(model_inputs)
+                execution_key = (_input_key(model_inputs), ())
+                queued_executions.add(execution_key)
+                pending.append((model_inputs, ()))
 
         for index, branch in enumerate(path_constraints):
             target = tuple(prior.key() for prior in path_constraints[:index]) + (
@@ -215,7 +269,9 @@ def explore_file(
                 unsatisfiable_paths += 1
             elif _input_key(model_inputs) not in queued_inputs:
                 queued_inputs.add(_input_key(model_inputs))
-                pending.append(model_inputs)
+                execution_key = (_input_key(model_inputs), ())
+                queued_executions.add(execution_key)
+                pending.append((model_inputs, ()))
 
     return ExplorationResult(
         entry,

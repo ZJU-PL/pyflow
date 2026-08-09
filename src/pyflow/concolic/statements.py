@@ -20,14 +20,16 @@ from .runtime import (
     _DequeValue,
     _DictValue,
     _EnumClass,
+    _ExceptionType,
     _FloatValue,
+    _FilterIteratorValue,
     _FunctionValue,
     _ImportlibFunction,
     _ImportlibModule,
     _InstanceValue,
     _IntValue,
-    _IteratorValue,
     _ListValue,
+    _MapIteratorValue,
     _NamedTupleClass,
     _NamedTupleValue,
     _OperatorAttrGetter,
@@ -35,6 +37,11 @@ from .runtime import (
     _OperatorMethodCaller,
     _PartialValue,
     _RangeValue,
+    _EnumerateIteratorValue,
+    _ResumeKind,
+    _ResumeOperation,
+    _Returned,
+    _ResumableFrame,
     _RegexModule,
     _Return,
     _SetValue,
@@ -44,6 +51,7 @@ from .runtime import (
     _SuperValue,
     _TargetException,
     _TupleValue,
+    _ZipIteratorValue,
 )
 
 from .support import _concrete, _exception_name, _handler_matches, _unique_values
@@ -63,6 +71,8 @@ class _StatementMixin:
             [self.env[parameter.arg] for parameter in _parameter_nodes(self._function)],
             {},
         )
+        if isinstance(result, _ResumableFrame) and result.is_coroutine:
+            result = self._drive_coroutine(result)
         self._last_result = result
         return _concrete(result), tuple(self.path)
 
@@ -162,8 +172,16 @@ class _StatementMixin:
                 return self._execute_block(statement.orelse)
             return None
         if isinstance(statement, (ast.For, ast.AsyncFor)):
-            values = self._iter_values(self._evaluate(statement.iter))
-            for value in values:
+            iterator = self._as_iterator(self._evaluate(statement.iter))
+            while True:
+                resumed = self._resume_iterator(
+                    iterator, _ResumeOperation(_ResumeKind.NEXT)
+                )
+                if isinstance(resumed, _Returned):
+                    if statement.orelse:
+                        return self._execute_block(statement.orelse)
+                    break
+                value = resumed.value
                 self._assign(statement.target, value)
                 outcome = self._execute_block(statement.body)
                 if isinstance(outcome, _Return):
@@ -172,9 +190,6 @@ class _StatementMixin:
                     break
                 if isinstance(outcome, _Continue):
                     continue
-            else:
-                if statement.orelse:
-                    return self._execute_block(statement.orelse)
             return None
         if isinstance(statement, ast.Match):
             return self._execute_match(statement)
@@ -683,9 +698,7 @@ class _StatementMixin:
             )
             return _DictValue({self._key(key): value for key, value in pairs})
         if isinstance(expression, ast.GeneratorExp):
-            return _ListValue(
-                self._evaluate_comprehension(expression.generators, expression.elt)
-            )
+            return self._make_generator_expression(expression)
         if isinstance(expression, ast.Subscript):
             return self._subscript(self._evaluate(expression.value), expression.slice)
         if isinstance(expression, ast.Attribute):
@@ -793,6 +806,11 @@ class _StatementMixin:
                 keywords.update({str(key): item for key, item in value.values.items()})
             else:
                 keywords[keyword.arg] = value
+        return self._call_prepared(call, args, keywords)
+
+    def _call_prepared(
+        self, call: ast.Call, args: list[Any], keywords: dict[str, Any]
+    ) -> Any:
         if isinstance(call.func, ast.Name):
             name = call.func.id
             if name == "abs" and len(args) == 1:
@@ -814,20 +832,17 @@ class _StatementMixin:
             if name == "len" and len(args) == 1:
                 return self._length(args[0])
             if name == "iter" and len(args) == 1:
-                if isinstance(args[0], _IteratorValue):
-                    return args[0]
-                return _IteratorValue(self._iter_values(args[0]))
+                return self._as_iterator(args[0])
             if name == "next" and 1 <= len(args) <= 2:
-                iterator = args[0]
-                if not isinstance(iterator, _IteratorValue):
-                    iterator = _IteratorValue(self._iter_values(iterator))
-                if iterator.position < len(iterator.values):
-                    value = iterator.values[iterator.position]
-                    iterator.position += 1
-                    return value
+                iterator = self._as_iterator(args[0])
+                resumed = self._resume_iterator(
+                    iterator, _ResumeOperation(_ResumeKind.NEXT)
+                )
+                if not isinstance(resumed, _Returned):
+                    return resumed.value
                 if len(args) == 2:
                     return args[1]
-                raise ConcolicError("StopIteration")
+                raise _TargetException("StopIteration")
             if name == "bool" and len(args) == 1:
                 return self._truthy(args[0])
             if name == "int" and len(args) == 1:
@@ -993,58 +1008,51 @@ class _StatementMixin:
                     )
                 )
             if name == "map" and len(args) >= 2:
-                return _ListValue(
-                    [
-                        self._call_value(args[0], list(row), {})
-                        for row in zip(
-                            *(self._iter_values(value) for value in args[1:])
-                        )
-                    ]
+                return _MapIteratorValue(
+                    args[0], tuple(self._as_iterator(value) for value in args[1:])
                 )
             if name == "filter" and len(args) == 2:
-                return _ListValue(
-                    [
-                        value
-                        for value in self._iter_values(args[1])
-                        if (
-                            self._truthy(value).concrete
-                            if args[0] is None
-                            else self._truthy(
-                                self._call_value(args[0], [value], {})
-                            ).concrete
-                        )
-                    ]
-                )
+                return _FilterIteratorValue(args[0], self._as_iterator(args[1]))
             if name == "enumerate" and 1 <= len(args) <= 2:
                 start = self._as_int(args[1]).concrete if len(args) == 2 else 0
-                return _ListValue(
-                    [
-                        _TupleValue((self._literal(index), item))
-                        for index, item in enumerate(self._iter_values(args[0]), start)
-                    ]
-                )
-            if name == "zip" and len(args) >= 1:
-                return _ListValue(
-                    [
-                        _TupleValue(tuple(row))
-                        for row in zip(
-                            *(self._iter_values(argument) for argument in args)
-                        )
-                    ]
+                return _EnumerateIteratorValue(self._as_iterator(args[0]), start)
+            if name == "zip":
+                strict = False
+                if set(keywords) - {"strict"}:
+                    raise UnsupportedSyntaxError("unsupported zip() keyword")
+                if "strict" in keywords:
+                    strict = self._truthy(keywords["strict"]).concrete
+                return _ZipIteratorValue(
+                    tuple(self._as_iterator(argument) for argument in args), strict
                 )
             if name in {"any", "all"} and len(args) == 1:
-                values = [self._truthy(item) for item in self._iter_values(args[0])]
-                concrete = (
-                    any(item.concrete for item in values)
-                    if name == "any"
-                    else all(item.concrete for item in values)
-                )
-                symbolic = (
-                    self._z3.Or(*(item.symbolic for item in values))
-                    if name == "any"
-                    else self._z3.And(*(item.symbolic for item in values))
-                )
-                return _BoolValue(concrete, symbolic)
+                iterator = self._as_iterator(args[0])
+                tested = []
+                while True:
+                    resumed = self._resume_iterator(
+                        iterator, _ResumeOperation(_ResumeKind.NEXT)
+                    )
+                    if isinstance(resumed, _Returned):
+                        concrete = name == "all"
+                        symbolic = (
+                            self._z3.Or(*(item.symbolic for item in tested))
+                            if name == "any"
+                            else self._z3.And(*(item.symbolic for item in tested))
+                        )
+                        return _BoolValue(concrete, symbolic)
+                    condition = self._truthy(resumed.value)
+                    tested.append(condition)
+                    self.path.append(_Branch(condition.symbolic, condition.concrete))
+                    if name == "any" and condition.concrete:
+                        return _BoolValue(
+                            True,
+                            self._z3.Or(*(item.symbolic for item in tested)),
+                        )
+                    if name == "all" and not condition.concrete:
+                        return _BoolValue(
+                            False,
+                            self._z3.And(*(item.symbolic for item in tested)),
+                        )
             if name in {"sum", "min", "max"} and args:
                 return self._aggregate(name, args)
             if name == "super" and not args and not keywords:
@@ -1079,6 +1087,8 @@ class _StatementMixin:
                 )
             if isinstance(callee, _ContextManagerFactory):
                 return self._call_value(callee, args, keywords)
+            if isinstance(callee, _ExceptionType):
+                return self._call_value(callee, args, keywords)
             if isinstance(
                 callee,
                 (_OperatorItemGetter, _OperatorAttrGetter, _OperatorMethodCaller),
@@ -1100,6 +1110,8 @@ class _StatementMixin:
         if isinstance(callee, _PartialValue):
             return self._call_value(callee, args, keywords)
         if isinstance(callee, _ContextManagerFactory):
+            return self._call_value(callee, args, keywords)
+        if isinstance(callee, _ExceptionType):
             return self._call_value(callee, args, keywords)
         if isinstance(
             callee, (_OperatorItemGetter, _OperatorAttrGetter, _OperatorMethodCaller)

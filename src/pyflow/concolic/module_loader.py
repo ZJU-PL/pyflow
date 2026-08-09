@@ -178,6 +178,7 @@ def _import_local_module(
 
 _UNSUPPORTED_LITERAL = object()
 _SUMMARY_MODULES = {
+    "asyncio",
     "base64",
     "bisect",
     "collections",

@@ -29,9 +29,11 @@ from typing import Any
 from .runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
+    _AccumulateIteratorValue,
     _BoolValue,
     _BytesValue,
     _ContextManagerFactory,
+    _ChainIteratorValue,
     _CounterValue,
     _DateTimeValue,
     _DefaultDictValue,
@@ -43,6 +45,7 @@ from .runtime import (
     _HashValue,
     _IdentityDecorator,
     _InstanceValue,
+    _ISliceIteratorValue,
     _IntValue,
     _ListValue,
     _NamedTupleClass,
@@ -52,11 +55,15 @@ from .runtime import (
     _OperatorMethodCaller,
     _PartialValue,
     _PathValue,
+    _PairwiseIteratorValue,
+    _RepeatIteratorValue,
     _StringValue,
     _SuppressContext,
+    _SchedulerYield,
     _TimedeltaValue,
     _TupleValue,
     _URLParseValue,
+    _ZipLongestIteratorValue,
 )
 
 from .support import _concrete
@@ -66,6 +73,36 @@ class _SummaryMixin:
     def _call_summary(
         self, module: str, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
+        if module == "asyncio" and name == "sleep" and 1 <= len(args) <= 2:
+            if set(keywords) - {"result"}:
+                raise UnsupportedSyntaxError(
+                    "asyncio.sleep() supports only the result keyword"
+                )
+            result = keywords.get("result", args[1] if len(args) == 2 else None)
+            return _SchedulerYield(result)
+        if module == "asyncio" and name == "create_task" and len(args) == 1:
+            if set(keywords) - {"name", "context"}:
+                raise UnsupportedSyntaxError(
+                    "asyncio.create_task() supports name and context"
+                )
+            name_value = keywords.get("name")
+            task_name = (
+                self._to_string(name_value).concrete
+                if name_value is not None
+                else None
+            )
+            return self._create_task(args[0], task_name)
+        if module == "asyncio" and name == "gather":
+            if set(keywords) - {"return_exceptions"}:
+                raise UnsupportedSyntaxError(
+                    "asyncio.gather() supports only return_exceptions"
+                )
+            return self._create_gather(
+                args,
+                self._truthy(keywords["return_exceptions"]).concrete
+                if "return_exceptions" in keywords
+                else False,
+            )
         if module == "contextlib" and name == "suppress" and args and not keywords:
             if not all(isinstance(value, _ExceptionType) for value in args):
                 raise UnsupportedSyntaxError(
@@ -312,45 +349,23 @@ class _SummaryMixin:
                 )
             if len(args) == 2 and "func" in keywords:
                 raise ConcolicError("accumulate() received func more than once")
-            values = list(self._iter_values(args[0]))
             function = keywords.get("func", args[1] if len(args) == 2 else None)
             has_initial = "initial" in keywords
-            if has_initial:
-                accumulator = keywords["initial"]
-                output = [accumulator]
-            elif values:
-                accumulator = values.pop(0)
-                output = [accumulator]
-            else:
-                return _ListValue([])
-            for value in values:
-                accumulator = (
-                    self._binary(accumulator, ast.Add(), value)
-                    if function is None
-                    else self._call_value(function, [accumulator, value], {})
-                )
-                output.append(accumulator)
-            return _ListValue(output)
+            return _AccumulateIteratorValue(
+                self._as_iterator(args[0]),
+                function,
+                keywords.get("initial"),
+                False,
+                has_initial,
+            )
         if module == "itertools" and name == "zip_longest":
             if set(keywords) - {"fillvalue"}:
                 raise UnsupportedSyntaxError(
                     "itertools.zip_longest() supports only fillvalue"
                 )
-            iterables = [list(self._iter_values(argument)) for argument in args]
             fillvalue = keywords.get("fillvalue", None)
-            length = max((len(values) for values in iterables), default=0)
-            return _ListValue(
-                [
-                    _TupleValue(
-                        tuple(
-                            values[index]
-                            if index < len(values)
-                            else fillvalue
-                            for values in iterables
-                        )
-                    )
-                    for index in range(length)
-                ]
+            return _ZipLongestIteratorValue(
+                tuple(self._as_iterator(argument) for argument in args), fillvalue
             )
         if keywords:
             raise UnsupportedSyntaxError(
@@ -523,16 +538,14 @@ class _SummaryMixin:
             return _FloatValue(float(concrete), self._z3.RealVal(str(concrete)))
         if module == "itertools":
             if name == "chain":
-                return _ListValue(
-                    [
-                        item
-                        for argument in args
-                        for item in self._iter_values(argument)
-                    ]
+                return _ChainIteratorValue(
+                    tuple(self._as_iterator(argument) for argument in args)
                 )
             if name == "islice" and 2 <= len(args) <= 4:
-                values = self._iter_values(args[0])
-                offsets = [self._as_int(argument).concrete for argument in args[1:]]
+                offsets = [
+                    None if argument is None else self._as_int(argument).concrete
+                    for argument in args[1:]
+                ]
                 start, stop, step = (
                     (0, offsets[0], 1)
                     if len(offsets) == 1
@@ -542,10 +555,18 @@ class _SummaryMixin:
                         offsets[2] if len(offsets) == 3 else 1,
                     )
                 )
-                return _ListValue(list(values[slice(start, stop, step)]))
+                if start is None:
+                    start = 0
+                if step is None:
+                    step = 1
+                if start < 0 or (stop is not None and stop < 0) or step <= 0:
+                    raise ConcolicError("islice indices must be non-negative")
+                return _ISliceIteratorValue(
+                    self._as_iterator(args[0]), start, stop, step
+                )
             if name == "repeat" and 1 <= len(args) <= 2:
-                times = self._as_int(args[1]).concrete if len(args) == 2 else 1
-                return _ListValue([args[0]] * times)
+                times = self._as_int(args[1]).concrete if len(args) == 2 else None
+                return _RepeatIteratorValue(args[0], times)
             if name == "product" and args:
                 rows: list[tuple[Any, ...]] = [()]
                 for argument in args:
@@ -565,13 +586,7 @@ class _SummaryMixin:
                     ]
                 )
             if name == "pairwise" and len(args) == 1:
-                values = self._iter_values(args[0])
-                return _ListValue(
-                    [
-                        _TupleValue((left, right))
-                        for left, right in zip(values, values[1:])
-                    ]
-                )
+                return _PairwiseIteratorValue(self._as_iterator(args[0]))
         if module == "collections" and name == "Counter" and len(args) <= 1:
             values = () if not args else self._iter_values(args[0])
             counts: dict[int | str | bool, Any] = {}

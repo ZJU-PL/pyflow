@@ -23,6 +23,7 @@ from .runtime import (
     _DictValue,
     _EnumClass,
     _EnumMember,
+    _ExceptionType,
     _FloatValue,
     _FunctionValue,
     _GeneratorContext,
@@ -44,6 +45,7 @@ from .runtime import (
     _StringValue,
     _SummaryFunction,
     _SummaryModule,
+    _TargetException,
     _TimedeltaValue,
     _TupleValue,
     _URLParseValue,
@@ -107,6 +109,11 @@ class _ObjectMixin:
             )
         if isinstance(value, _IdentityDecorator) and len(args) == 1 and not keywords:
             return args[0]
+        if isinstance(value, _ExceptionType):
+            if keywords or len(args) > 1:
+                raise ConcolicError(f"{value.name}() expects at most one argument")
+            message = str(_concrete(args[0])) if args else ""
+            return _TargetException(value.name, message)
         if isinstance(value, _BuiltinFunction):
             if keywords:
                 raise UnsupportedSyntaxError(

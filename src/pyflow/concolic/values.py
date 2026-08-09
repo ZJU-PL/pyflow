@@ -16,6 +16,7 @@ from .runtime import (
     ConcolicError,
     UnsupportedSyntaxError,
     _BoolValue,
+    _Awaiting,
     _Branch,
     _BuiltinFunction,
     _BytesValue,
@@ -35,10 +36,16 @@ from .runtime import (
     _NamedTupleValue,
     _PathValue,
     _RangeValue,
+    _Raised,
+    _ResumeKind,
+    _ResumeOperation,
+    _Returned,
+    _SequenceIteratorValue,
     _SetValue,
     _StringValue,
     _TimedeltaValue,
     _TupleValue,
+    _Yielded,
 )
 
 from .support import _concrete, _unique_values
@@ -248,10 +255,18 @@ class _ValueMixin:
 
     def _compare(self, comparison: ast.Compare) -> _BoolValue:
         left = self._evaluate(comparison.left)
+        pairs = [
+            (operator, self._evaluate(node))
+            for operator, node in zip(comparison.ops, comparison.comparators)
+        ]
+        return self._compare_values(left, pairs)
+
+    def _compare_values(
+        self, left: Any, pairs: list[tuple[ast.cmpop, Any]]
+    ) -> _BoolValue:
         concrete_parts: list[bool] = []
         symbolic_parts: list[Any] = []
-        for operator, node in zip(comparison.ops, comparison.comparators):
-            right = self._evaluate(node)
+        for operator, right in pairs:
             if isinstance(operator, (ast.In, ast.NotIn)):
                 membership = self._contains(right, left)
                 concrete = membership.concrete
@@ -694,36 +709,68 @@ class _ValueMixin:
             concrete, self._z3.SubString(value.symbolic, index.symbolic, 1)
         )
 
-    def _iter_values(self, value: Any) -> tuple[Any, ...]:
+    def _as_iterator(self, value: Any) -> _IteratorValue:
         if isinstance(value, _IteratorValue):
-            values = value.values[value.position :]
-            value.position = len(value.values)
-            return values
+            return value
         if isinstance(
             value, (_ListValue, _TupleValue, _NamedTupleValue, _SetValue, _RangeValue)
         ):
-            return tuple(value.values)
+            return _SequenceIteratorValue(tuple(value.values))
         if isinstance(value, _BytesValue):
-            return tuple(self._literal(item) for item in value.concrete)
+            return _SequenceIteratorValue(
+                tuple(self._literal(item) for item in value.concrete)
+            )
         if isinstance(value, _StringValue):
-            return tuple(
-                _StringValue(char, self._z3.StringVal(char)) for char in value.concrete
+            return _SequenceIteratorValue(
+                tuple(
+                    _StringValue(char, self._z3.StringVal(char))
+                    for char in value.concrete
+                )
             )
         if isinstance(value, _DictValue):
-            return tuple(self._literal(key) for key in value.values)
+            return _SequenceIteratorValue(
+                tuple(self._literal(key) for key in value.values)
+            )
         if isinstance(value, _EnumClass):
-            return tuple(
-                _EnumMember(value, name, member_value)
-                for name, member_value in value.members.items()
+            return _SequenceIteratorValue(
+                tuple(
+                    _EnumMember(value, name, member_value)
+                    for name, member_value in value.members.items()
+                )
             )
         if isinstance(value, _InstanceValue):
             method_with_owner = self._method_with_owner(value.class_value, "__iter__")
             if method_with_owner is not None:
                 method, owner = method_with_owner
-                return self._iter_values(
+                return self._as_iterator(
                     self._call_method(method, owner, value, [], {})
                 )
         raise UnsupportedSyntaxError("value is not iterable in the concolic subset")
+
+    def _resume_iterator(
+        self, iterator: _IteratorValue, operation: _ResumeOperation
+    ) -> _Yielded | _Awaiting | _Returned:
+        self._resume_steps += 1
+        if self._resume_steps > self._max_resume_steps:
+            raise ConcolicError(
+                "iterator execution exceeded --max-resume-steps "
+                f"({self._max_resume_steps})"
+            )
+        outcome = iterator.resume(self, operation)
+        if isinstance(outcome, _Raised):
+            raise outcome.exception
+        return outcome
+
+    def _iter_values(self, value: Any) -> tuple[Any, ...]:
+        iterator = self._as_iterator(value)
+        values: list[Any] = []
+        while True:
+            outcome = self._resume_iterator(
+                iterator, _ResumeOperation(_ResumeKind.NEXT)
+            )
+            if isinstance(outcome, _Returned):
+                return tuple(values)
+            values.append(outcome.value)
 
     def _evaluate_comprehension(
         self,
