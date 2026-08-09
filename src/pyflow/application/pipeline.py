@@ -61,6 +61,9 @@ class Pipeline(object):
             "cpa",
             "methodcall",
             "simplify",
+            "ipa_after_simplify",
+            "cpa_after_simplify",
+            "lifetime_after_simplify",
             "clone",
             "argument_normalization",
         ]
@@ -69,13 +72,10 @@ class Pipeline(object):
         passes.extend(
             [
                 "cull_program",
-                "lifetime",
-                "store_elimination",
                 "ipa_refresh",
                 "cpa_path_sensitive",
                 "lifetime_refresh",
                 "simplify_final",
-                "store_elimination_final",
             ]
         )
         return passes

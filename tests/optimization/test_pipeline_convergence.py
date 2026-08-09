@@ -153,13 +153,30 @@ def test_default_pipeline_matches_legacy_pipeline_structure():
     assert "ipa" in default_passes
     assert "cpa" in default_passes
     assert "methodcall" in default_passes
-    assert "lifetime" in default_passes
+    assert "lifetime_after_simplify" in default_passes
     assert "simplify" in default_passes
     assert "clone" in default_passes
     assert "argument_normalization" in default_passes
+    assert default_passes.index("simplify") < default_passes.index(
+        "ipa_after_simplify"
+    )
+    assert default_passes.index("ipa_after_simplify") < default_passes.index(
+        "cpa_after_simplify"
+    )
+    assert default_passes.index("cpa_after_simplify") < default_passes.index(
+        "lifetime_after_simplify"
+    )
+    assert default_passes.index("lifetime_after_simplify") < default_passes.index(
+        "clone"
+    )
 
     # Should NOT include inlining by default
     assert "inlining" not in default_passes
+
+    # This terminal IR-only pass has no downstream analysis consumer.  It
+    # remains available as an explicit pass, but source optimization should not
+    # pay its cost by default.
+    assert "store_elimination_final" not in default_passes
 
 
 def test_experimental_inlining_inserted_correctly():

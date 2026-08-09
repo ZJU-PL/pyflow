@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 import argparse
+import json
 
 from pyflow.cli import optimize
 from pyflow.application.program import Program
@@ -137,6 +138,86 @@ def test_optimize_parser_rejects_conflicting_mode_flags():
         assert exc.code == 2
     else:
         raise AssertionError("expected mutually exclusive optimize mode flags to fail")
+
+
+def test_optimize_parser_accepts_explicit_optimized_source_destination():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    optimize.add_optimize_parser(subparsers)
+
+    args = parser.parse_args(
+        ["optimize", "sample.py", "--emit-optimized", "optimized.py"]
+    )
+
+    assert args.emit_optimized == "optimized.py"
+
+
+def test_optimize_parser_accepts_source_level_and_json_report():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    optimize.add_optimize_parser(subparsers)
+
+    args = parser.parse_args(
+        [
+            "optimize",
+            "sample.py",
+            "--emit-optimized",
+            "optimized.py",
+            "--opt-level",
+            "2",
+            "--report-optimizations",
+            "report.json",
+        ]
+    )
+
+    assert args.opt_level == 2
+    assert args.report_optimizations == "report.json"
+
+
+def test_run_analysis_emits_source_even_when_no_entry_point(monkeypatch, tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text("answer = 6 * 7\n", encoding="utf-8")
+    optimized = tmp_path / "optimized.py"
+    compiler = _Compiler()
+    program = SimpleNamespace(interface=SimpleNamespace(func=[]))
+
+    monkeypatch.setattr(
+        optimize,
+        "_build_analysis_state",
+        lambda _python_files, _args: (compiler, program),
+    )
+
+    args = SimpleNamespace(emit_optimized=str(optimized))
+    optimize.run_analysis(sample, args)
+
+    assert optimized.read_text(encoding="utf-8") == "answer = 42\n"
+
+
+def test_run_analysis_writes_machine_readable_optimization_report(monkeypatch, tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text("answer = 6 * 7\n", encoding="utf-8")
+    optimized = tmp_path / "optimized.py"
+    report = tmp_path / "report.json"
+    compiler = _Compiler()
+    program = SimpleNamespace(interface=SimpleNamespace(func=[]))
+
+    monkeypatch.setattr(
+        optimize,
+        "_build_analysis_state",
+        lambda _python_files, _args: (compiler, program),
+    )
+
+    args = SimpleNamespace(
+        emit_optimized=str(optimized),
+        opt_level=2,
+        report_optimizations=str(report),
+    )
+    optimize.run_analysis(sample, args)
+
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["optimization_level"] == 2
+    assert data["totals"]["constant_folds"] == 1
+    assert data["legacy_passes"] == []
 
 
 def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):

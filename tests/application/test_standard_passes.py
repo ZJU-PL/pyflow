@@ -111,59 +111,33 @@ def test_path_sensitive_cpa_pass_uses_legacy_second_pass_settings():
     assert mocked.call_args_list[-1].kwargs == {"firstPass": False}
 
 
-def test_path_sensitive_cpa_pipeline_requires_first_pass_conditioning():
+def test_path_sensitive_cpa_pipeline_requires_refreshed_first_pass_conditioning():
     manager = PassManager()
     register_standard_passes(manager)
 
     pipeline = manager.build_pipeline(["cpa_path_sensitive"])
 
-    assert pipeline.passes.index("methodcall") < pipeline.passes.index(
-        "cpa_path_sensitive"
-    )
-    assert pipeline.passes.index("clone") < pipeline.passes.index("cpa_path_sensitive")
-    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
-        "cpa_path_sensitive"
-    )
+    assert pipeline.passes.index("simplify") < pipeline.passes.index("cull_program")
     assert pipeline.passes.index("cull_program") < pipeline.passes.index(
+        "first_pass_complete"
+    )
+    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
+        "ipa_refresh"
+    )
+    assert pipeline.passes.index("ipa_refresh") < pipeline.passes.index(
         "cpa_path_sensitive"
     )
-    assert pipeline.passes.index("store_elimination") < pipeline.passes.index(
-        "cpa_path_sensitive"
-    )
+    assert "store_elimination" not in pipeline.passes
 
 
-def test_path_sensitive_pipeline_preserves_legacy_first_pass_stage_order():
+def test_path_sensitive_pipeline_preserves_refreshed_stage_order():
     manager = PassManager()
     register_standard_passes(manager)
 
     pipeline = manager.build_pipeline(["cpa_path_sensitive"])
 
-    assert pipeline.passes.index("methodcall") < pipeline.passes.index("first_pass_methodcall")
-    assert pipeline.passes.index("first_pass_methodcall") < pipeline.passes.index("lifetime")
-    assert pipeline.passes.index("lifetime") < pipeline.passes.index("first_pass_lifetime")
-    assert pipeline.passes.index("first_pass_lifetime") < pipeline.passes.index("simplify")
-    assert pipeline.passes.index("simplify") < pipeline.passes.index("first_pass_simplify")
-    assert pipeline.passes.index("first_pass_simplify") < pipeline.passes.index("clone")
-    assert pipeline.passes.index("clone") < pipeline.passes.index("first_pass_clone")
-    assert pipeline.passes.index("first_pass_clone") < pipeline.passes.index(
-        "argument_normalization"
-    )
-    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
-        "first_pass_argument_normalization"
-    )
-    assert pipeline.passes.index("first_pass_argument_normalization") < pipeline.passes.index(
-        "cull_program"
-    )
+    assert pipeline.passes.index("simplify") < pipeline.passes.index("cull_program")
     assert pipeline.passes.index("cull_program") < pipeline.passes.index(
-        "first_pass_cull_program"
-    )
-    assert pipeline.passes.index("first_pass_cull_program") < pipeline.passes.index(
-        "store_elimination"
-    )
-    assert pipeline.passes.index("store_elimination") < pipeline.passes.index(
-        "first_pass_store_elimination"
-    )
-    assert pipeline.passes.index("first_pass_store_elimination") < pipeline.passes.index(
         "first_pass_complete"
     )
     assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
@@ -194,7 +168,7 @@ def test_inlining_pipeline_requires_argument_normalization():
     )
 
 
-def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
+def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
     pipeline = Pipeline(use_pass_manager=True)
     program = Program()
     captured = {}
@@ -214,19 +188,30 @@ def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
 
     pipeline.run(program, compiler=_Compiler())
 
-    assert captured["passes"].index("methodcall") < captured["passes"].index("lifetime")
     assert captured["passes"][:4] == ["ipa", "cpa", "methodcall", "simplify"]
-    assert captured["passes"].index("lifetime") < captured["passes"].index("store_elimination")
+    assert captured["passes"].index("simplify") < captured["passes"].index(
+        "ipa_after_simplify"
+    )
+    assert captured["passes"].index("ipa_after_simplify") < captured["passes"].index(
+        "cpa_after_simplify"
+    )
+    assert captured["passes"].index("cpa_after_simplify") < captured["passes"].index(
+        "lifetime_after_simplify"
+    )
+    assert captured["passes"].index("lifetime_after_simplify") < captured[
+        "passes"
+    ].index("clone")
     assert captured["passes"].index("clone") < captured["passes"].index("cull_program")
     assert captured["passes"].index("argument_normalization") < captured["passes"].index(
         "cull_program"
     )
-    assert captured["passes"][-4:] == [
+    assert captured["passes"][-3:] == [
         "cpa_path_sensitive",
         "lifetime_refresh",
         "simplify_final",
-        "store_elimination_final",
     ]
+    assert "store_elimination_final" not in captured["passes"]
+    assert "store_elimination" not in captured["passes"]
 
 
 def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):

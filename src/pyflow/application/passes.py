@@ -300,6 +300,16 @@ STANDARD_PASSES = {
     "ipa_refresh": lambda: IPAAnalysisPass(
         "ipa_refresh", "Recompute IPA after whole-program transformations"
     ),
+    "ipa_after_simplify": lambda: IPAAnalysisPass(
+        "ipa_after_simplify", "Recompute IPA after simplification"
+    ),
+    "cpa_after_simplify": lambda: CPAAnalysisPass(
+        "cpa_after_simplify",
+        description="Recompute CPA after simplification",
+    ),
+    "lifetime_after_simplify": lambda: LifetimeAnalysisPass(
+        "lifetime_after_simplify", "Recompute lifetime facts after simplification"
+    ),
     "cpa_path_sensitive": lambda: CPAAnalysisPass(
         "cpa_path_sensitive",
         op_path_length=3,
@@ -452,8 +462,16 @@ def register_standard_passes(pass_manager):
             opt_pass.info.dependencies.add("simplify")
 
     if "clone" in pass_manager.passes:
-        pass_manager.passes["clone"].info.dependencies.add("lifetime")
-        pass_manager.passes["clone"].info.requirements.add("lifetime")
+        pass_manager.passes["clone"].info.dependencies.add("lifetime_after_simplify")
+        pass_manager.passes["clone"].info.requirements.add("lifetime_after_simplify")
+
+    pass_manager.passes["ipa_after_simplify"].info.dependencies.add("simplify")
+    pass_manager.passes["cpa_after_simplify"].info.dependencies.add(
+        "ipa_after_simplify"
+    )
+    pass_manager.passes["lifetime_after_simplify"].info.dependencies.add(
+        "cpa_after_simplify"
+    )
 
     if "inlining" in pass_manager.passes:
         # Legacy sequencing requires argument normalization before inlining.
@@ -487,8 +505,10 @@ def register_standard_passes(pass_manager):
     pass_manager.passes["first_pass_store_elimination"].info.dependencies.update(
         {"first_pass_cull_program", "store_elimination"}
     )
+    # Store elimination remains available explicitly, but must not be forced
+    # after whole-program rewrites that invalidate its lifetime facts.
     pass_manager.passes["first_pass_complete"].info.dependencies.add(
-        "first_pass_store_elimination"
+        "cull_program"
     )
 
     pass_manager.passes["cpa_path_sensitive"].info.dependencies.update(

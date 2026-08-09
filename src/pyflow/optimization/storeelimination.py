@@ -20,6 +20,7 @@ import collections
 
 from pyflow.optimization import rewrite
 from pyflow.ir.core import AnalysisFacts, Capabilities
+from .source_candidates import record_source_candidate
 
 
 def evaluate(compiler, prgm, simplify=False):
@@ -110,6 +111,19 @@ def evaluate(compiler, prgm, simplify=False):
                     if not is_live:
                         # No modified locations are live - store is dead
                         replace[store] = []
+                        revision = getattr(getattr(prgm, "ir", None), "revision", None)
+                        record_source_candidate(
+                            compiler,
+                            code,
+                            store,
+                            "store_elimination",
+                            proof={
+                                "analysis": "lifetime",
+                                "ir_revision": (
+                                    str(revision) if revision is not None else None
+                                ),
+                            },
+                        )
                         eliminated += 1
                 else:
                     # If no modifies info, assume it's live (conservative)

@@ -3,6 +3,7 @@
 import sys
 import os
 import fnmatch
+import json
 from pathlib import Path
 
 from pyflow.application.context import CompilerContext
@@ -21,7 +22,9 @@ OPTIMIZATION_PASSES = {
     "lifetime": "Lifetime analysis for variables and objects",
     "simplify": "Constant folding and dead code elimination",
     "clone": "Separate different invocations of the same code",
-    "argument_normalization": "Specialize eligible *args when existing callers are positional-compatible",
+    "argument_normalization": (
+        "Specialize eligible *args when existing callers are positional-compatible"
+    ),
     "cull_program": "Remove dead functions and contexts",
     "load_elimination": "Eliminate redundant load operations",
     "store_elimination": "Eliminate redundant store operations",
@@ -116,6 +119,29 @@ def add_optimize_parser(subparsers):
         action="store_true",
         help="Enable the experimental and potentially unsafe inlining pass",
     )
+    parser.add_argument(
+        "--emit-optimized",
+        metavar="PATH",
+        help=(
+            "Write a syntax-valid optimized Python copy to PATH. For a directory "
+            "input, PATH is an output directory; source files are never overwritten."
+        ),
+    )
+    parser.add_argument(
+        "--opt-level",
+        type=int,
+        choices=(0, 1, 2),
+        default=1,
+        help=(
+            "Source optimization level: 0=format only, 1=safe local rewrites, "
+            "2=guarded propagation"
+        ),
+    )
+    parser.add_argument(
+        "--report-optimizations",
+        metavar="PATH",
+        help="Write a JSON source-optimization report to PATH (requires --emit-optimized)",
+    )
     parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
     parser.add_argument(
         "--list-opt-passes", action="store_true", help="List available passes"
@@ -193,19 +219,46 @@ def run_analysis(input_path, args):
             )
             sys.exit(1)
 
+        if getattr(args, "report_optimizations", None) and not getattr(
+            args, "emit_optimized", None
+        ):
+            raise ValueError("--report-optimizations requires --emit-optimized")
+
         compiler, program = _build_analysis_state(python_files, args)
         console = compiler.console
+        legacy_results = None
 
         if not program.interface.func:
+            emit_path = getattr(args, "emit_optimized", None)
+            if emit_path:
+                from pyflow.optimization.source_candidates import source_candidates
+
+                candidates = source_candidates(compiler)
+                results = emit_optimized_output(
+                    python_files,
+                    input_path,
+                    Path(emit_path),
+                    level=getattr(args, "opt_level", 1),
+                    legacy_candidates=candidates,
+                )
+                write_optimization_report(
+                    results,
+                    getattr(args, "report_optimizations", None),
+                    level=getattr(args, "opt_level", 1),
+                    legacy_results=legacy_results,
+                    program=program,
+                    legacy_candidates=candidates,
+                )
+                print("Analysis complete!")
+                return
             print("Warning: No functions found in interface")
             return
 
         # Run analysis based on mode
         with console.scope("analysis"):
             if args.analysis == "all":
-                apply_mode = getattr(args, "apply_optimizations", False)
                 if getattr(args, "no_opt_passes", False):
-                    run_analysis_only(compiler, program)
+                    legacy_results = run_analysis_only(compiler, program)
                 elif getattr(args, "suggest_only", False):
                     suggestion_compiler, suggestion_program = _build_analysis_state(
                         python_files, args
@@ -214,11 +267,13 @@ def run_analysis(input_path, args):
                     if args.dump or args.dump_ipa or args.dump_shape:
                         run_analysis_only(compiler, program)
                 elif getattr(args, "opt_passes", None):
-                    run_optimization_passes(compiler, program, args.opt_passes, args)
+                    legacy_results = run_optimization_passes(
+                        compiler, program, args.opt_passes, args
+                    )
                 else:
                     # Optimization is the default mode, and --apply-optimizations
                     # is an explicit spelling of the same behavior.
-                    _run_default_pipeline(
+                    legacy_results = _run_default_pipeline(
                         compiler,
                         program,
                         str(input_path),
@@ -237,6 +292,27 @@ def run_analysis(input_path, args):
             else:
                 run_analysis_passes(compiler, program, args.analysis)
 
+        emit_path = getattr(args, "emit_optimized", None)
+        if emit_path:
+            from pyflow.optimization.source_candidates import source_candidates
+
+            candidates = source_candidates(compiler)
+            results = emit_optimized_output(
+                python_files,
+                input_path,
+                Path(emit_path),
+                level=getattr(args, "opt_level", 1),
+                legacy_candidates=candidates,
+            )
+            write_optimization_report(
+                results,
+                getattr(args, "report_optimizations", None),
+                level=getattr(args, "opt_level", 1),
+                legacy_results=legacy_results,
+                program=program,
+                legacy_candidates=candidates,
+            )
+
         # Handle result dumping
         if args.dump_ipa:
             dump_ipa_results(compiler, program, input_path, args.output)
@@ -253,6 +329,90 @@ def run_analysis(input_path, args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def emit_optimized_output(
+    python_files, input_path, output_path, *, level=1, legacy_candidates=()
+):
+    """Write a conservative source-level optimized copy of the input program."""
+    from pyflow.optimization.source import emit_optimized_sources
+
+    legacy_candidates = tuple(legacy_candidates)
+    results = emit_optimized_sources(
+        python_files,
+        input_path,
+        output_path,
+        level=level,
+        legacy_candidates=legacy_candidates,
+    )
+    folds = sum(result.constant_folds for result in results.values())
+    branches = sum(result.dead_branches_removed for result in results.values())
+    unreachable = sum(
+        result.unreachable_statements_removed for result in results.values()
+    )
+    assertions = sum(
+        result.redundant_assertions_removed for result in results.values()
+    )
+    boolean_simplifications = sum(
+        result.boolean_simplifications for result in results.values()
+    )
+    propagations = sum(result.constant_propagations for result in results.values())
+    guarded_functions = sum(result.guarded_functions for result in results.values())
+    legacy_applied = sum(
+        result.legacy_candidates_applied for result in results.values()
+    )
+    legacy_rejected = sum(
+        result.legacy_candidates_rejected for result in results.values()
+    )
+    legacy_unrouted = max(0, len(legacy_candidates) - legacy_applied - legacy_rejected)
+    print(
+        "Optimized Python written to: %s [O%d] (%d constant folds, %d dead "
+        "branches, %d unreachable statements, %d redundant assertions, %d "
+        "boolean simplifications, %d propagated constants; %d guarded functions, "
+        "%d legacy candidates applied, %d rejected, %d not routed)"
+        % (
+            output_path,
+            level,
+            folds,
+            branches,
+            unreachable,
+            assertions,
+            boolean_simplifications,
+            propagations,
+            guarded_functions,
+            legacy_applied,
+            legacy_rejected,
+            legacy_unrouted,
+        )
+    )
+    return results
+
+
+def write_optimization_report(
+    results, report_path, *, level, legacy_results=None, program=None, legacy_candidates=()
+):
+    """Write an explicit, machine-readable source optimization report."""
+    if not report_path:
+        return
+    from pyflow.optimization.source import optimization_report
+
+    destination = Path(report_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(
+            optimization_report(
+                results,
+                level=level,
+                legacy_results=legacy_results,
+                program=program,
+                legacy_candidates=legacy_candidates,
+            ),
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"Optimization report written to: {destination}")
 
 
 def find_python_files(directory, args):
@@ -415,10 +575,11 @@ def dump_results(compiler, program, input_path, output_file):
 def run_analysis_only(compiler, program):
     """Run only analysis passes, no optimization."""
     with compiler.console.scope("analysis-only"):
-        Pipeline(use_pass_manager=True).run_custom_pipeline(
+        results = Pipeline(use_pass_manager=True).run_custom_pipeline(
             compiler, program, ["ipa", "cpa", "lifetime"]
         )
         compiler.console.output("Analysis-only mode completed")
+        return results
 
 
 def run_suggestions(compiler, program):
@@ -443,7 +604,6 @@ def run_suggestions(compiler, program):
         # Capture initial metrics
         initial_code_count = len(getattr(program, "liveCode", []))
         ipa_analysis = program.get_analysis_result("ipa")
-        initial_contexts = len(ipa_analysis.contexts) if ipa_analysis else 0
         initial_funcs = set()
         for code in getattr(program, "liveCode", []):
             if code and hasattr(code, "name") and code.name:
@@ -521,7 +681,8 @@ def run_suggestions(compiler, program):
                 )
                 if unresolved_count > 0:
                     suggestions["Type Analysis"].append(
-                        f"  {unresolved_count} unresolved calls - add type hints for better precision"
+                        f"  {unresolved_count} unresolved calls - add type hints for "
+                        "better precision"
                     )
 
         # Method call optimizations
@@ -558,7 +719,8 @@ def run_suggestions(compiler, program):
 
         contexts_added = max(0, final_code_count - initial_code_count)
         print(
-            f"\n✓ Summary: {len(removed_funcs)} dead functions removed, {contexts_added} contexts added"
+            f"\n✓ Summary: {len(removed_funcs)} dead functions removed, "
+            f"{contexts_added} contexts added"
         )
         print("=" * 60)
         compiler.console.output("Suggestion mode completed")
@@ -577,7 +739,7 @@ def run_optimization_passes(compiler, program, passes, args=None):
             normalized = [pass_name for pass_name in normalized if pass_name != "inlining"]
 
         if "all" in normalized:
-            _run_default_pipeline(
+            results = _run_default_pipeline(
                 compiler,
                 program,
                 "cli_optimize_all",
@@ -586,13 +748,14 @@ def run_optimization_passes(compiler, program, passes, args=None):
                 ),
             )
             compiler.console.output("Completed full optimization pipeline")
-            return
+            return results
 
         if not normalized:
             compiler.console.output("No optimization passes selected")
-            return
+            return {}
 
-        Pipeline(use_pass_manager=True).run_custom_pipeline(
+        results = Pipeline(use_pass_manager=True).run_custom_pipeline(
             compiler, program, normalized
         )
         compiler.console.output(f"Completed {len(normalized)} optimization passes")
+        return results

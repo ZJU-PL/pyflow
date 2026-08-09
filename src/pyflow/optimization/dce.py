@@ -11,6 +11,7 @@ from pyflow.optimization.dataflow.reverse import *
 from pyflow.optimization.dataflow.base import top, undefined, MutateCodeReversed
 
 from pyflow.analysis import tools
+from .source_candidates import record_source_candidate
 
 
 def _snapshot_code(node):
@@ -151,12 +152,13 @@ class MarkLive(TypeDispatcher):
         marker: MarkLocals instance for marking variable usage.
     """
 
-    def __init__(self, code):
+    def __init__(self, code, compiler=None):
         """Initialize the live variable marker.
 
         Args:
             code: Code object to analyze for liveness.
         """
+        self.compiler = compiler
         self.code = code
         self.marker = MarkLocals()
 
@@ -192,6 +194,13 @@ class MarkLive(TypeDispatcher):
     @dispatch(ast.Discard)
     def visitDiscard(self, node):
         if self.hasNoSideEffects(node.expr):
+            record_source_candidate(
+                self.compiler,
+                self.code,
+                node,
+                "dce_discard",
+                proof={"analysis": "dce_liveness"},
+            )
             return []
         else:
             self.marker(node)
@@ -207,6 +216,13 @@ class MarkLive(TypeDispatcher):
             return node
 
         elif self.hasNoSideEffects(node.expr):
+            record_source_candidate(
+                self.compiler,
+                self.code,
+                node,
+                "dce_assign",
+                proof={"analysis": "dce_liveness"},
+            )
             return []
         else:
             node = ast.Discard(node.expr)
@@ -322,7 +338,7 @@ def evaluateCode(compiler, node, initialLive=None):
     Returns:
         AST node with dead code eliminated.
     """
-    rewrite = MarkLive(node)
+    rewrite = MarkLive(node, compiler=compiler)
     traverse = ReverseFlowTraverse(liveMeet, rewrite)
 
     # HACK: Set up flow analysis

@@ -15,6 +15,7 @@ from pyflow.optimization import termrewrite
 from pyflow.optimization.termrewrite import DirectCallRewriter
 
 from . import rewrite
+from .source_candidates import record_source_candidate
 from pyflow.ir.core import (
     AnalysisFacts,
     Capabilities,
@@ -206,6 +207,17 @@ class FoldRewrite(TypeDispatcher):
         if catalog is None:
             return
         for original, replacement in self.fact_replacements.items():
+            record_source_candidate(
+                getattr(self.extractor, "compiler", None),
+                self.code,
+                original,
+                "fold",
+                replacement_type=type(replacement).__name__,
+                proof={
+                    "analysis": "constant_facts",
+                    "ir_revision": str(catalog.revision),
+                },
+            )
             catalog.replace_node(
                 self.code,
                 original,

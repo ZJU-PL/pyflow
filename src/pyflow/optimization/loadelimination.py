@@ -21,6 +21,7 @@ from pyflow.analysis.numbering.ssa import ForwardESSA
 
 from pyflow.optimization import rewrite
 from pyflow.ir.core import AnalysisFacts, Capabilities
+from .source_candidates import record_source_candidate
 
 # For debugging
 from pyflow.util.io.xmloutput import XMLOutput
@@ -252,6 +253,18 @@ class RedundantLoadEliminator(object):
                 assert len(op.lcls) == 1
                 src = self.getReplacementSource(dominator)
                 self.replace[op] = ast.Assign(src, [op.lcls[0]])
+                revision = getattr(getattr(self.prgm, "ir", None), "revision", None)
+                record_source_candidate(
+                    self.compiler,
+                    self.code,
+                    op,
+                    "load_elimination",
+                    replacement_local=getattr(src, "name", None),
+                    proof={
+                        "analysis": "lifetime",
+                        "ir_revision": str(revision) if revision is not None else None,
+                    },
+                )
                 self.eliminated += 1
         return self.replace
 

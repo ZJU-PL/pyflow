@@ -8,7 +8,7 @@ import pytest
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.application.pipeline import evaluate as pipeline_evaluate
+from pyflow.application.pipeline import Pipeline, evaluate as pipeline_evaluate
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -53,3 +53,30 @@ class TestPipelineIntegration:
 
         pipeline_evaluate(compiler, program, "integration_test")
         # No exception means success
+
+    def test_default_pass_manager_refreshes_facts_after_simplification(
+        self, tmp_path: Path
+    ) -> None:
+        """The default pipeline must not feed stale CPA facts to lifetime."""
+        sample = tmp_path / "arithmetic.py"
+        sample.write_text(
+            "def add(left, right):\n    return left + right\n",
+            encoding="utf-8",
+        )
+        options = _make_options(verbose=False)
+        console = Console(verbose=False)
+        compiler = CompilerContext(console)
+        program = Program()
+        program.interface, all_source_code = build_interface_from_paths(
+            [sample], options
+        )
+        compiler.extractor = Extractor(
+            compiler, verbose=False, source_code=all_source_code
+        )
+        extract_program(compiler, program)
+
+        results = Pipeline().run(program, compiler=compiler, name="integration_test")
+
+        assert results["lifetime_after_simplify"].success
+        assert results["clone"].success
+        assert results["simplify_final"].success

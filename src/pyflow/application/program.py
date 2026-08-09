@@ -27,10 +27,13 @@ class Program(object):
     ANALYSIS_KEYS = {
         "ipa": "ipa",
         "ipa_refresh": "ipa",
+        "ipa_after_simplify": "ipa",
         "cpa": "cpa",
         "cpa_path_sensitive": "cpa",
+        "cpa_after_simplify": "cpa",
         "lifetime": "lifetime",
         "lifetime_refresh": "lifetime",
+        "lifetime_after_simplify": "lifetime",
         "heap": "heap",
     }
 

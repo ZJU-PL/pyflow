@@ -152,11 +152,12 @@ def test_cli_help_text_matches_registered_passes():
     internal_passes = {
         "first_pass_methodcall", "first_pass_lifetime", "first_pass_simplify",
         "first_pass_clone", "first_pass_argument_normalization",
-        "first_pass_cull_program", "first_pass_store_elimination",
-        "first_pass_complete", "ipa_refresh", "cpa_path_sensitive",
-        "lifetime_refresh", "simplify_final", "store_elimination_final",
-        "inlining",
-    }
+            "first_pass_cull_program", "first_pass_store_elimination",
+            "first_pass_complete", "ipa_refresh", "cpa_path_sensitive",
+            "lifetime_refresh", "ipa_after_simplify", "cpa_after_simplify",
+            "lifetime_after_simplify", "simplify_final", "store_elimination_final",
+            "inlining",
+        }
 
     # All registered optimization passes should be in CLI
     for pass_name in manager.passes:
