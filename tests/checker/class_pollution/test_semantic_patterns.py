@@ -39,6 +39,30 @@ def merge(src, dst):
     assert all(len(finding.object_path) == 1 for finding in result.findings)
 
 
+def test_recursive_attribute_merge_widens_repeated_dynamic_paths(tmp_path):
+    result = _analyze_source(
+        tmp_path,
+        """
+def merge(src, dst):
+    for key, value in src.items():
+        if hasattr(dst, '__getitem__'):
+            if dst.get(key) and type(value) == dict:
+                merge(value, dst.get(key))
+            else:
+                setattr(dst, key, value)
+        elif hasattr(dst, key) and type(value) == dict:
+            merge(value, getattr(dst, key))
+        else:
+            setattr(dst, key, value)
+""",
+        "merge",
+    )
+
+    assert len(result.findings) == 2
+    assert result.statistics.propagated_path_edges < 8000
+    assert result.statistics.peak_facts_at_node < 64
+
+
 @pytest.mark.parametrize(
     ("function", "source"),
     [

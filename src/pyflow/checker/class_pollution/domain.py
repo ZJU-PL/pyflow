@@ -120,6 +120,7 @@ class PollutionFact:
     object_path: tuple[ObjectPathStep, ...] = ()
     controller: PollutionOrigin | None = None
     access_path: tuple[str, ...] = ()
+    recursive_summary: bool = False
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,7 @@ class ExpressionPollutionFact:
     controller: PollutionOrigin | None = None
     result_index: int = 0
     access_path: tuple[str, ...] = ()
+    recursive_summary: bool = False
 
 
 PollutionDataFact = PollutionFact | ExpressionPollutionFact

@@ -233,6 +233,7 @@ class ClassPollutionProblem(
             object_path=template_fact.object_path,
             controller=template_fact.controller,
             access_path=template_fact.access_path,
+            recursive_summary=template_fact.recursive_summary,
         )
 
     def _make_location_fact_with_path(self, location, access_path, template_fact=None):
@@ -256,6 +257,7 @@ class ClassPollutionProblem(
             controller=template_fact.controller,
             result_index=result_index,
             access_path=template_fact.access_path,
+            recursive_summary=template_fact.recursive_summary,
         )
 
     @staticmethod
@@ -719,12 +721,58 @@ class ClassPollutionProblem(
 
     def _extend_object_path(self, fact, step):
         path = fact.object_path
+        if (
+            self.configuration.summarize_recursive_paths
+            and step.static_name is None
+            and step.key_language == KeyLanguage.top()
+            and any(
+                candidate.kind == step.kind
+                and candidate.static_name is None
+                and candidate.key_language == KeyLanguage.top()
+                for candidate in path
+            )
+        ):
+            # A repeated unknown access of the same kind is a regular-language
+            # cycle, not a new proof obligation.  Keeping one representative
+            # prevents CFG loops from enumerating paths such as item^1..item^N.
+            return path
+        if fact.recursive_summary:
+            return self._canonical_recursive_path((*path, step))
         if len(path) < self.configuration.max_object_path:
             return (*path, step)
         widened = ObjectPathStep(step.kind, KeyLanguage.top())
         if path[-1] == widened:
             return path
         return (*path[: self.configuration.max_object_path - 1], widened)
+
+    @staticmethod
+    def _canonical_recursive_path(path):
+        """Keep recursive traversal evidence finite without losing magic steps.
+
+        Once a fact has crossed a summarized recursive call, additional
+        dynamic attribute/item reads denote further iterations of the same
+        unknown traversal language.  Retaining every attribute/item ordering
+        creates exponentially many equivalent paths.  One dynamic wildcard
+        plus the distinct magic components is sufficient for pollution and
+        gadget-reachability proofs.
+        """
+
+        canonical = []
+        dynamic_seen = False
+        magic_seen = set()
+        for candidate in path:
+            if candidate.static_name in MAGIC_PATH_COMPONENTS:
+                identity = (candidate.kind, candidate.static_name)
+                if identity not in magic_seen:
+                    canonical.append(candidate)
+                    magic_seen.add(identity)
+                continue
+            if candidate.static_name is None and not dynamic_seen:
+                canonical.append(
+                    ObjectPathStep(candidate.kind, KeyLanguage.top())
+                )
+                dynamic_seen = True
+        return tuple(canonical)
 
     def _static_access_template(self, procedure, expression, fact):
         """Refine an object fact with static access syntax around its base.
@@ -994,15 +1042,13 @@ class ClassPollutionProblem(
                     and fact.role is PollutionRole.TARGET_OBJECT
                     and fact.object_path
                 ):
-                    magic = tuple(
-                        step
-                        for step in fact.object_path
-                        if step.static_name in MAGIC_PATH_COMPONENTS
+                    template = replace(
+                        fact,
+                        object_path=self._canonical_recursive_path(
+                            fact.object_path
+                        ),
+                        recursive_summary=True,
                     )
-                    last = fact.object_path[-1]
-                    summary = ObjectPathStep(last.kind, KeyLanguage.top())
-                    path = (*magic, summary) if magic else (summary,)
-                    template = replace(fact, object_path=path)
                 outputs.update(
                     self._facts_for_locals(node.procedure, (formal,), template)
                 )

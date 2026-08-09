@@ -29,7 +29,8 @@ The implemented analysis combines:
 * flow-sensitive heap locations and attribute/item access paths;
 * interprocedural call/return propagation, including recursive helpers;
 * bounded self-recursion summaries for recursive dictionary/object merge
-  functions even when Python call-graph construction misses the self edge;
+  functions even when Python call-graph construction misses the self edge,
+  with cycle-aware canonical widening of repeated dynamic traversal paths;
 * inferred parameter roles, separating controlled structured input from root
   objects used by reflective reads and writes;
 * a finite-height key-language domain with unknown, finite-set, and proven-safe
