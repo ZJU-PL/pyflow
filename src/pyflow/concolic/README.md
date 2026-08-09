@@ -36,11 +36,20 @@ deferred cancellation plus `done`, `cancelled`, `result`, and `exception`
 behavior for the supported scheduler model, including cancellation propagation
 through directly awaited tasks.
 
-Resource controls include `--max-loop-iterations`, `--max-resume-steps`, and
-`--max-task-switches`. Nondeterministic exploration is separately bounded by
-`--max-schedule-states`. The corresponding `explore_file` keyword arguments
-are `max_loop_iterations`, `max_resume_steps`, `max_task_switches`, and
-`max_schedule_states`.
+Resource controls include:
+
+- `--total-timeout`, `--per-run-timeout`, and `--solver-timeout` for
+  wall-clock budgets in seconds;
+- `--max-solver-calls` and `--max-pending-states` for global search bounds;
+- `--max-loop-iterations`, `--max-resume-steps`, and `--max-task-switches` for
+  one concrete execution; and
+- `--max-schedule-states` for nondeterministic scheduling prefixes per input.
+
+The `explore_file` keyword arguments use the corresponding underscore names.
+Budget termination is explicit in `ExplorationStatistics.stop_reason`, with
+values such as `total_timeout`, `solver_timeout`, `max_solver_calls`, and
+`max_pending_states`. A per-run timeout is recorded as a structured resource
+outcome and exploration continues with other pending states.
 
 ## Coverage and Search
 
@@ -56,10 +65,11 @@ FIFO behavior with `--search-strategy fifo` or
 `search_strategy="fifo"`. Use `--max-uninteresting-iterations N` to stop after
 N executions without new node or branch coverage.
 
-Exploration statistics report execution outcomes, solver SAT/UNSAT counts,
-queue size and enqueue counts, coverage discoveries, plateau length, and the
-final stop reason. `--json` serializes coverage, outcomes, and statistics along
-with generated inputs and contract counterexamples.
+Exploration statistics report execution outcomes, solver SAT/UNSAT/timeout
+counts, solver and execution time, queue size, dropped and enqueued states,
+coverage discoveries, plateau length, and the final stop reason. `--json`
+serializes coverage, outcomes, timings, and statistics along with generated
+inputs and contract counterexamples.
 
 ## Architecture
 

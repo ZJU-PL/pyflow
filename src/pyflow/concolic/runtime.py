@@ -21,6 +21,14 @@ class UnsupportedSyntaxError(ConcolicError):
     """Raised when a target uses syntax outside the supported subset."""
 
 
+class ExecutionTimeoutError(ConcolicError):
+    """Raised when an execution crosses its wall-clock deadline."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason.replace("_", " "))
+
+
 @dataclass(frozen=True)
 class _IntValue:
     concrete: int
@@ -927,10 +935,16 @@ class ExplorationStatistics:
     solver_calls: int
     satisfiable_queries: int
     unsatisfiable_queries: int
+    solver_timeouts: int
     states_enqueued: int
+    states_dropped: int
     maximum_queue_size: int
     coverage_discoveries: int
     iterations_without_discovery: int
+    per_run_timeouts: int
+    total_seconds: float
+    execution_seconds: float
+    solver_seconds: float
     stop_reason: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -947,13 +961,22 @@ class ExplorationStatistics:
                 "calls": self.solver_calls,
                 "satisfiable": self.satisfiable_queries,
                 "unsatisfiable": self.unsatisfiable_queries,
+                "timeouts": self.solver_timeouts,
+                "seconds": self.solver_seconds,
             },
             "search": {
                 "states_enqueued": self.states_enqueued,
+                "states_dropped": self.states_dropped,
                 "maximum_queue_size": self.maximum_queue_size,
                 "coverage_discoveries": self.coverage_discoveries,
                 "iterations_without_discovery": self.iterations_without_discovery,
                 "stop_reason": self.stop_reason,
+            },
+            "timing": {
+                "total_seconds": self.total_seconds,
+                "execution_seconds": self.execution_seconds,
+                "solver_seconds": self.solver_seconds,
+                "per_run_timeouts": self.per_run_timeouts,
             },
         }
 

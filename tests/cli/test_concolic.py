@@ -27,11 +27,26 @@ def test_concolic_parser_exposes_coverage_search_controls():
             "fifo",
             "--max-uninteresting-iterations",
             "7",
+            "--total-timeout",
+            "10",
+            "--per-run-timeout",
+            "2",
+            "--solver-timeout",
+            "1",
+            "--max-solver-calls",
+            "20",
+            "--max-pending-states",
+            "30",
         ]
     )
 
     assert args.search_strategy == "fifo"
     assert args.max_uninteresting_iterations == 7
+    assert args.total_timeout == 10
+    assert args.per_run_timeout == 2
+    assert args.solver_timeout == 1
+    assert args.max_solver_calls == 20
+    assert args.max_pending_states == 30
 
 
 def test_concolic_cli_emits_generated_inputs(tmp_path, capsys):
@@ -52,6 +67,8 @@ def test_concolic_cli_emits_generated_inputs(tmp_path, capsys):
     assert output["coverage"]["node_count"] > 0
     assert output["coverage"]["branch_count"] == 2
     assert output["statistics"]["solver"]["calls"] >= 1
+    assert output["statistics"]["solver"]["seconds"] >= 0
+    assert output["statistics"]["timing"]["total_seconds"] >= 0
     assert output["statistics"]["search"]["stop_reason"] == "exhausted"
     assert all("outcome" in run and "coverage" in run for run in output["runs"])
 

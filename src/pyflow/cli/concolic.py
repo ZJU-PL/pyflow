@@ -74,6 +74,32 @@ def add_concolic_parser(subparsers):
         help="Stop after this many executions without new AST coverage",
     )
     parser.add_argument(
+        "--total-timeout",
+        type=float,
+        help="Maximum wall-clock seconds for the complete exploration",
+    )
+    parser.add_argument(
+        "--per-run-timeout",
+        type=float,
+        help="Maximum wall-clock seconds for one concrete execution",
+    )
+    parser.add_argument(
+        "--solver-timeout",
+        type=float,
+        help="Maximum wall-clock seconds for one solver query",
+    )
+    parser.add_argument(
+        "--max-solver-calls",
+        type=int,
+        help="Maximum number of solver queries",
+    )
+    parser.add_argument(
+        "--max-pending-states",
+        type=int,
+        default=10000,
+        help="Maximum queued exploration states (default: 10000)",
+    )
+    parser.add_argument(
         "--check-contracts",
         action="store_true",
         help="Check supported PEP 316 postconditions and report counterexamples",
@@ -112,6 +138,11 @@ def run_concolic(args) -> int:
             max_uninteresting_iterations=getattr(
                 args, "max_uninteresting_iterations", None
             ),
+            total_timeout=getattr(args, "total_timeout", None),
+            per_run_timeout=getattr(args, "per_run_timeout", None),
+            solver_timeout=getattr(args, "solver_timeout", None),
+            max_solver_calls=getattr(args, "max_solver_calls", None),
+            max_pending_states=getattr(args, "max_pending_states", 10000),
             check_contracts=getattr(args, "check_contracts", False),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:
@@ -143,6 +174,7 @@ def run_concolic(args) -> int:
                 "Search: "
                 f"{result.statistics.executions} execution(s), "
                 f"{result.statistics.solver_calls} solver call(s), "
+                f"{result.statistics.total_seconds:.3f}s total, "
                 f"stop={result.statistics.stop_reason}"
             )
         if result.unsatisfiable_paths:

@@ -27,6 +27,7 @@ class _ResumableSchedulerMixin:
         self._tasks.insert(0, main_task)
         try:
             while not main_task.done:
+                self._check_execution_budget()
                 candidates = [
                     task
                     for task in self._tasks

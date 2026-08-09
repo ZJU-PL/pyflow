@@ -53,6 +53,8 @@ class _Executor(
         globals: dict[str, Any],
         module: _ModuleValue,
         module_cache: dict[Path, _ModuleValue],
+        execution_deadline: float | None = None,
+        execution_timeout_reason: str = "per_run_timeout",
     ) -> None:
         self._function = function
         self._z3 = z3
@@ -71,6 +73,8 @@ class _Executor(
         self._globals = globals
         self._current_module = module
         self._module_cache = module_cache
+        self._execution_deadline = execution_deadline
+        self._execution_timeout_reason = execution_timeout_reason
         self._global_values: dict[str, Any] = {}
         self._global_names: set[str] = set()
         self._nonlocal_names: set[str] = set()

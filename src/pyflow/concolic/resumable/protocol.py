@@ -65,6 +65,8 @@ class _ResumableExecutorProtocol(Protocol):
 
     def _cover_node(self, node: ast.AST) -> None: ...
 
+    def _check_execution_budget(self) -> None: ...
+
     def _record_branch(
         self,
         expression: Any,

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+from time import monotonic
 from typing import Any
 
 from ..runtime import (
     BranchCoverage,
     CoverageSnapshot,
+    ExecutionTimeoutError,
     SourceLocation,
     _Branch,
     _ModuleValue,
@@ -19,6 +21,8 @@ class _CoverageMixin:
     _covered_nodes: set[SourceLocation]
     _covered_branches: set[BranchCoverage]
     path: list[_Branch]
+    _execution_deadline: float | None
+    _execution_timeout_reason: str
 
     def _source_location(self, node: ast.AST | None) -> SourceLocation | None:
         if node is None or not hasattr(node, "lineno"):
@@ -37,9 +41,15 @@ class _CoverageMixin:
         )
 
     def _cover_node(self, node: ast.AST) -> None:
+        self._check_execution_budget()
         location = self._source_location(node)
         if location is not None:
             self._covered_nodes.add(location)
+
+    def _check_execution_budget(self) -> None:
+        deadline = self._execution_deadline
+        if deadline is not None and monotonic() >= deadline:
+            raise ExecutionTimeoutError(self._execution_timeout_reason)
 
     def _record_branch(
         self,
