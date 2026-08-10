@@ -38,6 +38,26 @@ class TestProjectResolution(unittest.TestCase):
 
             self.assertEqual(context.module_name_from_path(module), "pkg.mod")
 
+    def test_workspace_roots_use_the_same_nearest_root_identity(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            backend = root / "backend"
+            frontend = root / "frontend"
+            backend_module = backend / "pkg" / "api.py"
+            frontend_module = frontend / "pkg" / "ui.py"
+            backend_module.parent.mkdir(parents=True)
+            frontend_module.parent.mkdir(parents=True)
+            backend_module.write_text("", encoding="utf-8")
+            frontend_module.write_text("", encoding="utf-8")
+            context = ProjectContext(
+                root,
+                sys_path=[],
+                workspace_roots=[backend, frontend],
+            )
+
+            self.assertEqual(context.module_name_from_path(backend_module), "pkg.api")
+            self.assertEqual(context.module_name_from_path(frontend_module), "pkg.ui")
+
     def test_get_sys_path_adds_project_and_parent_paths_like_jedi(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

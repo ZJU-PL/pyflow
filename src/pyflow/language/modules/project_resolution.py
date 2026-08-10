@@ -43,6 +43,38 @@ class ModuleResolution:
     is_in_memory: bool = False
 
 
+@dataclass(frozen=True)
+class ModuleIdentityResolver:
+    """Derive module names relative to the nearest configured workspace root."""
+
+    workspace_roots: tuple[Path, ...]
+
+    def __init__(self, workspace_roots: Iterable[str | os.PathLike[str]]):
+        object.__setattr__(
+            self,
+            "workspace_roots",
+            tuple(Path(root).absolute() for root in workspace_roots),
+        )
+
+    def module_name_from_path(self, file_path: str | os.PathLike[str]) -> Optional[str]:
+        path = Path(file_path).absolute()
+        containing_roots: list[Path] = []
+        for root in self.workspace_roots:
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            containing_roots.append(root)
+        if not containing_roots:
+            return None
+        root = max(containing_roots, key=lambda item: len(item.parts))
+        relative = path.relative_to(root).with_suffix("")
+        parts = list(relative.parts)
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        return ".".join(parts) or path.stem
+
+
 def _remove_duplicates_from_path(paths: Iterable[str]) -> List[str]:
     used: Set[str] = set()
     out: List[str] = []
@@ -234,12 +266,14 @@ class ProjectContext:
         added_sys_path: Sequence[str] = (),
         smart_sys_path: bool = True,
         source_files: Optional[Mapping[str, str]] = None,
+        workspace_roots: Sequence[str | os.PathLike[str]] = (),
     ) -> None:
         self.path = Path(path).absolute() if path is not None else infer_project_path()
         self._sys_path = list(map(str, sys_path)) if sys_path is not None else None
         self.added_sys_path = [str(p) for p in added_sys_path]
         self.smart_sys_path = smart_sys_path
         self.source_files: Dict[str, str] = dict(source_files or {})
+        self.module_identity = ModuleIdentityResolver(workspace_roots)
         self._source_map_cache: Optional[Dict[str, str]] = None
         self._source_map_cache_keys: Optional[frozenset[str]] = None
         self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
@@ -304,6 +338,10 @@ class ProjectContext:
         file_str = str(file_path)
         if file_str == "<string>" or file_str.startswith("<"):
             return "__pyflow_module__"
+
+        workspace_module = self.module_identity.module_name_from_path(file_str)
+        if workspace_module is not None:
+            return workspace_module
 
         path = Path(file_str)
         if not path.is_absolute():

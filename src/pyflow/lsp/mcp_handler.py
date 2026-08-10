@@ -14,6 +14,7 @@ LOG = logging.getLogger(__name__)
 # Keep protocol negotiation in this adapter.  Query/core code never imports it.
 MCP_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
+SUPPORTED_MODERN_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION})
 SUPPORTED_LEGACY_PROTOCOL_VERSIONS = {
     LEGACY_PROTOCOL_VERSION,
     "2025-11-25",
@@ -21,16 +22,24 @@ SUPPORTED_LEGACY_PROTOCOL_VERSIONS = {
     "2024-11-05",
 }
 _PROTOCOL_META_KEY = "io.modelcontextprotocol/protocolVersion"
+_CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities"
+_SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+_UNSUPPORTED_PROTOCOL_VERSION = -32022
 
 
 class UnsupportedProtocolVersionError(JsonRpcError):
     """Report a protocol era that cannot use the requested MCP endpoint."""
 
-    def __init__(self, version: object, message: str = "Unsupported MCP protocol version"):
+    def __init__(
+        self, version: object, message: str = "Unsupported MCP protocol version"
+    ):
         super().__init__(
-            ErrorCodes.InvalidParams,
+            _UNSUPPORTED_PROTOCOL_VERSION,
             message,
-            {"requestedProtocolVersion": version, "supportedProtocolVersion": MCP_PROTOCOL_VERSION},
+            {
+                "requested": version,
+                "supported": sorted(SUPPORTED_MODERN_PROTOCOL_VERSIONS),
+            },
         )
 
 
@@ -39,7 +48,7 @@ class McpHandler:
 
     def __init__(self, server: AnalysisManager):
         self._server = server
-        self._initialized = False
+        self._legacy_initialized = False
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         methods = {
@@ -71,6 +80,7 @@ class McpHandler:
         if requested is not None and requested not in SUPPORTED_LEGACY_PROTOCOL_VERSIONS:
             raise UnsupportedProtocolVersionError(requested)
         version = requested or LEGACY_PROTOCOL_VERSION
+        self._legacy_initialized = True
         return {
             "protocolVersion": version,
             "capabilities": {"resources": {}, "tools": {"listChanged": False}},
@@ -84,21 +94,20 @@ class McpHandler:
     def _handle_server_discover(self, params: Any) -> dict[str, Any]:
         """Modern MCP discovery; it replaces the legacy initialize handshake."""
         self._require_modern_request(params)
-        return self._complete(
-            params,
-            {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {"resources": {}, "tools": {"listChanged": False}},
-                "serverInfo": {"name": "pyflow", "version": self._version()},
-                "instructions": (
-                    "Query pyflow's static-analysis snapshot. Function names may be "
-                    "qualified; inspect pyflow://functions before graph queries."
-                ),
+        return {
+            "resultType": "complete",
+            "supportedVersions": sorted(SUPPORTED_MODERN_PROTOCOL_VERSIONS),
+            "capabilities": {"resources": {}, "tools": {"listChanged": False}},
+            "ttlMs": 60_000,
+            "cacheScope": "private",
+            "_meta": {
+                _SERVER_INFO_META_KEY: {"name": "pyflow", "version": self._version()}
             },
-        )
+        }
 
     def _handle_initialized(self, params: Any) -> None:
-        self._initialized = True
+        # This legacy lifecycle notification has no modern equivalent.
+        return None
 
     def _handle_cancelled(self, params: Any) -> None:
         # Queries are currently synchronous and bounded.  The adapter accepts
@@ -107,6 +116,7 @@ class McpHandler:
         return None
 
     def _handle_list_resources(self, params: Any) -> dict[str, Any]:
+        self._require_request_era(params)
         resources = [
             {
                 "uri": "pyflow://capabilities",
@@ -122,9 +132,7 @@ class McpHandler:
             },
         ]
         if (
-            self._server.is_loaded
-            and not self._server.current_snapshot().semantic_stale
-            and self._server.supports("callgraph")
+            self._server.is_loaded and self._server.supports("callgraph")
         ):
             resources.append(
                 {
@@ -137,6 +145,7 @@ class McpHandler:
         return self._complete(params, {"resources": resources})
 
     def _handle_list_resource_templates(self, params: Any) -> dict[str, Any]:
+        self._require_request_era(params)
         return self._complete(params, {
             "resourceTemplates": [
                 {
@@ -151,6 +160,7 @@ class McpHandler:
         })
 
     def _handle_read_resource(self, params: Any) -> dict[str, Any]:
+        self._require_request_era(params)
         self._require_loaded()
         uri = (params or {}).get("uri", "")
         if uri == "pyflow://capabilities":
@@ -203,18 +213,18 @@ class McpHandler:
         })
 
     def _handle_list_tools(self, params: Any) -> dict[str, Any]:
+        self._require_request_era(params)
         tools = []
         for spec in self._tool_specs():
             capability = spec.pop("_capability")
             if capability is None or (
-                self._server.is_loaded
-                and not self._server.current_snapshot().semantic_stale
-                and self._server.supports(capability)
+                self._server.is_loaded and self._server.supports(capability)
             ):
                 tools.append(spec)
         return self._complete(params, {"tools": tools})
 
     def _handle_call_tool(self, params: Any) -> dict[str, Any]:
+        self._require_request_era(params)
         self._require_loaded()
         name = (params or {}).get("name", "")
         args = (params or {}).get("arguments", {}) or {}
@@ -461,15 +471,23 @@ class McpHandler:
         except RuntimeError as exc:
             raise JsonRpcError(ErrorCodes.RequestCancelled, str(exc)) from exc
 
-    @staticmethod
-    def _is_modern_request(params: Any) -> bool:
+    def _is_modern_request(self, params: Any) -> bool:
         meta = (params or {}).get("_meta", {}) if isinstance(params, dict) else {}
-        version = meta.get(_PROTOCOL_META_KEY) if isinstance(meta, dict) else None
-        if version is None:
+        if not isinstance(meta, dict) or _PROTOCOL_META_KEY not in meta:
             return False
-        if not isinstance(version, str) or version < MCP_PROTOCOL_VERSION:
-            raise UnsupportedProtocolVersionError(version)
+        self._validate_modern_metadata(meta)
         return True
+
+    @staticmethod
+    def _validate_modern_metadata(meta: dict[str, Any]) -> None:
+        version = meta.get(_PROTOCOL_META_KEY)
+        if version not in SUPPORTED_MODERN_PROTOCOL_VERSIONS:
+            raise UnsupportedProtocolVersionError(version)
+        if not isinstance(meta.get(_CLIENT_CAPABILITIES_META_KEY), dict):
+            raise JsonRpcError(
+                ErrorCodes.InvalidParams,
+                "Modern MCP requests require client capabilities metadata",
+            )
 
     def _require_modern_request(self, params: Any) -> None:
         if not self._is_modern_request(params):
@@ -478,8 +496,23 @@ class McpHandler:
                 "server/discover requires a modern per-request protocol version",
             )
 
+    def _require_request_era(self, params: Any) -> str:
+        return self._request_era(params)
+
+    def _request_era(self, params: Any) -> str:
+        meta = (params or {}).get("_meta", {}) if isinstance(params, dict) else {}
+        if isinstance(meta, dict) and _PROTOCOL_META_KEY in meta:
+            self._validate_modern_metadata(meta)
+            return "modern"
+        if self._legacy_initialized:
+            return "legacy"
+        raise JsonRpcError(
+            ErrorCodes.InvalidRequest,
+            "Request requires modern protocol metadata or legacy initialize",
+        )
+
     def _complete(self, params: Any, result: dict[str, Any]) -> dict[str, Any]:
-        if self._is_modern_request(params):
+        if self._request_era(params) == "modern":
             return {"resultType": "complete", **result}
         return result
 

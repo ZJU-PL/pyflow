@@ -99,6 +99,7 @@ def mock_server():
 def handlers(mock_server):
     rpc = JsonRpcServer()
     McpHandler(mock_server).register_on(rpc)
+    _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
     return rpc
 
 
@@ -138,7 +139,10 @@ class TestInitialize:
                 "id": 1,
                 "method": "server/discover",
                 "params": {
-                    "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION}
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    }
                 },
             },
         )
@@ -150,8 +154,12 @@ class TestInitialize:
                 "params": {"protocolVersion": "2025-06-18"},
             },
         )
-        assert modern[0]["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
-        assert modern[0]["result"]["resultType"] == "complete"
+        result = modern[0]["result"]
+        assert result["resultType"] == "complete"
+        assert result["supportedVersions"] == [MCP_PROTOCOL_VERSION]
+        assert result["ttlMs"] > 0
+        assert result["cacheScope"] == "private"
+        assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "pyflow"
         assert legacy[0]["result"]["protocolVersion"] == "2025-06-18"
 
     def test_modern_initialize_is_rejected(self, handlers):
@@ -163,7 +171,52 @@ class TestInitialize:
                 "params": {"protocolVersion": MCP_PROTOCOL_VERSION},
             },
         )
-        assert sent[0]["error"]["code"] == -32602
+        assert sent[0]["error"]["code"] == -32022
+        assert sent[0]["error"]["data"] == {
+            "requested": MCP_PROTOCOL_VERSION,
+            "supported": [MCP_PROTOCOL_VERSION],
+        }
+
+    def test_modern_requests_validate_metadata_and_exact_version(self, mock_server):
+        rpc = JsonRpcServer()
+        McpHandler(mock_server).register_on(rpc)
+        missing_capabilities = _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "server/discover",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION
+                    }
+                },
+            },
+        )
+        future_version = _dispatch(
+            rpc,
+            {
+                "id": 2,
+                "method": "server/discover",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2030-01-01",
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    }
+                },
+            },
+        )
+
+        assert missing_capabilities[0]["error"]["code"] == -32602
+        assert future_version[0]["error"]["code"] == -32022
+
+    def test_uninitialized_request_without_modern_metadata_is_rejected(self, mock_server):
+        rpc = JsonRpcServer()
+        McpHandler(mock_server).register_on(rpc)
+        sent = _dispatch(
+            rpc,
+            {"id": 1, "method": "tools/list", "params": {}},
+        )
+        assert sent[0]["error"]["code"] == -32600
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +324,7 @@ class TestTools:
         mock_server.supports.side_effect = lambda capability: capability != "aliases"
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
+        _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
         sent = _dispatch(
             rpc,
             {
@@ -431,6 +485,7 @@ class TestTools:
         )
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
+        _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
         sent = _dispatch(
             rpc,
             {
@@ -445,7 +500,10 @@ class TestTools:
         params = {
             "name": "get_callers",
             "arguments": {"function": "foo"},
-            "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION},
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+            },
         }
         sent = _dispatch(
             handlers,
@@ -457,7 +515,10 @@ class TestTools:
 
     def test_modern_resource_results_are_complete(self, handlers):
         params = {
-            "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION}
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+            }
         }
         sent = _dispatch(
             handlers,
@@ -465,12 +526,13 @@ class TestTools:
         )
         assert sent[0]["result"]["resultType"] == "complete"
 
-    def test_stale_snapshot_hides_semantic_tools_and_rejects_their_calls(
+    def test_stale_snapshot_keeps_tools_stable_and_rejects_semantic_calls(
         self, mock_server
     ):
         mock_server.current_snapshot.return_value.semantic_stale = True
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
+        _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
 
         listed = _dispatch(
             rpc,
@@ -486,5 +548,5 @@ class TestTools:
         )
 
         names = {tool["name"] for tool in listed[0]["result"]["tools"]}
-        assert "get_callers" not in names
+        assert "get_callers" in names
         assert called[0]["result"]["isError"] is True

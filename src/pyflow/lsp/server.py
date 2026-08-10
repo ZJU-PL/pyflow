@@ -56,6 +56,8 @@ class AnalysisManager:
         self._source_index = SourceIndex({})
         self._documents = WorkspaceDocuments()
         self._next_revision = 0
+        self._generation = 0
+        self._closed = False
         self._state_lock = threading.RLock()
         self._analysis_lock = threading.Lock()
 
@@ -86,13 +88,14 @@ class AnalysisManager:
         if not python_files:
             raise ValueError(f"No Python files found in {root_path}")
 
-        self._root_path = root_path
-        self._workspace_roots = (root_path,)
+        generation = self._configure_workspace((root_path,), root_path)
         self.load_files(
             python_files,
             run_pipeline=run_pipeline,
             root_path=root_path,
             passes=passes,
+            _generation=generation,
+            _workspace_roots=(root_path,),
         )
 
     @staticmethod
@@ -135,18 +138,20 @@ class AnalysisManager:
         ]
         if not files:
             raise ValueError("No Python files found in workspace folders")
-        self._workspace_roots = roots
         try:
             effective_root = os.path.commonpath(roots)
         except ValueError:
             # Roots on different drives have no common path. The compiler needs
             # one analysis root, while SourceIndex retains the actual roots.
             effective_root = roots[0]
+        generation = self._configure_workspace(roots, effective_root)
         self.load_files(
             files,
             run_pipeline=run_pipeline,
             root_path=effective_root,
             passes=passes,
+            _generation=generation,
+            _workspace_roots=roots,
         )
 
     def load_files(
@@ -156,6 +161,8 @@ class AnalysisManager:
         run_pipeline: bool = True,
         root_path: Optional[str] = None,
         passes: Optional[list[str]] = None,
+        _generation: Optional[int] = None,
+        _workspace_roots: Optional[tuple[str, ...]] = None,
     ) -> None:
         """Load a specific set of Python files for analysis.
 
@@ -171,8 +178,12 @@ class AnalysisManager:
             or self._root_path
             or os.path.commonpath([str(p.parent) for p in normalized_files])
         )
-        if not self._workspace_roots:
-            self._workspace_roots = (effective_root,)
+        if _generation is None:
+            workspace_roots = (effective_root,)
+            generation = self._configure_workspace(workspace_roots, effective_root)
+        else:
+            generation = _generation
+            workspace_roots = _workspace_roots or (effective_root,)
         # Only one compiler pipeline is built at a time.  The completed state is
         # swapped atomically so queries can continue using the previous snapshot.
         with self._analysis_lock:
@@ -218,11 +229,14 @@ class AnalysisManager:
                 project_context = ProjectContext(
                     effective_root,
                     source_files=all_source_code,
+                    workspace_roots=workspace_roots,
                 )
                 type_info = TypeInfoService(project_context)
-            source_index = SourceIndex(all_source_code, self._workspace_roots)
+            source_index = SourceIndex(all_source_code, workspace_roots)
 
             with self._state_lock:
+                if self._closed or generation != self._generation:
+                    return
                 self._next_revision += 1
                 revision = self._next_revision
                 self._snapshot = AnalysisSnapshot.create(
@@ -250,19 +264,34 @@ class AnalysisManager:
         with self._state_lock:
             files = list(self._python_files)
             root = self._root_path
+            roots = self._workspace_roots
+            generation = self._generation
+            closed = self._closed
+        if closed:
+            raise RuntimeError("Server is closed")
         if root:
-            roots = self._workspace_roots or (root,)
+            roots = roots or (root,)
             discovered = [
                 file
                 for workspace_root in roots
                 for file in self._discover_python_files(Path(workspace_root))
             ]
             if discovered:
-                self.load_files(discovered, root_path=root)
+                self.load_files(
+                    discovered,
+                    root_path=root,
+                    _generation=generation,
+                    _workspace_roots=roots,
+                )
                 return
         if not files:
             raise RuntimeError("No project has been loaded")
-        self.load_files(files, root_path=root)
+        self.load_files(
+            files,
+            root_path=root,
+            _generation=generation,
+            _workspace_roots=roots,
+        )
 
     def open_document(self, uri: str, text: str, version: Optional[int] = None) -> bool:
         changed = self._documents.open(uri_to_path(uri), text, version)
@@ -329,10 +358,26 @@ class AnalysisManager:
     def close(self) -> None:
         """Release resources held by the server."""
         with self._state_lock:
+            self._generation += 1
+            self._closed = True
             self._snapshot = None
             self._source_files = {}
             self._source_index = SourceIndex({})
+            self._root_path = None
+            self._workspace_roots = ()
+            self._python_files = []
             self._loaded = False
+
+    def _configure_workspace(
+        self, workspace_roots: tuple[str, ...], root_path: str
+    ) -> int:
+        """Invalidate previous analysis work and start a new analysis universe."""
+        with self._state_lock:
+            self._generation += 1
+            self._closed = False
+            self._workspace_roots = workspace_roots
+            self._root_path = root_path
+            return self._generation
 
     def current_snapshot(self) -> AnalysisSnapshot:
         """Return one stable published snapshot for a complete request."""

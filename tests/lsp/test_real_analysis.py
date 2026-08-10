@@ -50,6 +50,14 @@ def dispatch(rpc: JsonRpcServer, msg: dict) -> list:
     if msg.get("method") in standard_methods:
         msg = {**msg, "method": standard_methods[msg["method"]]}
     sent = _run(_capture_send(rpc))
+    if msg.get("method") in {
+        "resources/list",
+        "resources/read",
+        "tools/list",
+        "tools/call",
+    }:
+        _run(rpc._dispatch({"id": "setup", "method": "initialize", "params": {}}))
+        sent.clear()
     _run(rpc._dispatch(msg))
     return sent
 

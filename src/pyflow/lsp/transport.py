@@ -34,7 +34,7 @@ class ErrorCodes(IntEnum):
 class JsonRpcError(Exception):
     """A JSON-RPC error that can be serialized to the wire format."""
 
-    def __init__(self, code: ErrorCodes, message: str, data: Any = None):
+    def __init__(self, code: int, message: str, data: Any = None):
         super().__init__(message)
         self.code = code
         self.data = data

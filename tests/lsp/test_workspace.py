@@ -193,3 +193,107 @@ def test_ambiguous_symbol_fallback_and_multi_root_module_identity(tmp_path: Path
     assert {symbol.module for symbol in index.symbols} == {"shared"}
     assert index.symbol_by_name("same") is None
     assert index.incoming_calls("same") == []
+
+
+def test_method_bare_names_skip_the_enclosing_class_namespace(tmp_path: Path):
+    path = tmp_path / "scope.py"
+    source = (
+        "value = 1\n\n"
+        "class A:\n"
+        "    value = 2\n\n"
+        "    def method(self):\n"
+        "        return value\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    global_value = index.symbol_at(path.as_uri(), 0, 1)
+    class_value = index.symbol_at(path.as_uri(), 3, 5)
+    reference = next(ref for ref in index.references if ref.location.start_line == 6)
+
+    assert global_value is not None and class_value is not None
+    assert reference.symbol_id == global_value.symbol_id
+    assert reference.symbol_id != class_value.symbol_id
+
+
+def test_self_attribute_resolution_remains_separate_from_bare_names(tmp_path: Path):
+    path = tmp_path / "attributes.py"
+    source = (
+        "class A:\n"
+        "    value = 2\n\n"
+        "    def method(self):\n"
+        "        return self.value\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    class_value = index.symbol_at(path.as_uri(), 1, 5)
+    attribute_reference = next(
+        ref for ref in index.references if ref.name == "value" and ref.location.start_line == 4
+    )
+
+    assert class_value is not None
+    assert attribute_reference.symbol_id == class_value.symbol_id
+
+
+def test_function_bindings_are_predeclared_with_global_and_nonlocal_rules(
+    tmp_path: Path,
+):
+    path = tmp_path / "bindings.py"
+    source = (
+        "value = 0\n\n"
+        "def outer():\n"
+        "    value = 1\n"
+        "    def inner():\n"
+        "        nonlocal value\n"
+        "        value = 2\n"
+        "        return value\n"
+        "    return inner\n\n"
+        "def use_before_assignment():\n"
+        "    print(value)\n"
+        "    value = 3\n"
+        "    return value\n\n"
+        "def set_global():\n"
+        "    global value\n"
+        "    value = 4\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    outer_value = index.symbol_at(path.as_uri(), 3, 5)
+    global_value = index.symbol_at(path.as_uri(), 0, 1)
+    local_value = index.symbol_at(path.as_uri(), 12, 5)
+    inner_references = [
+        ref for ref in index.references if ref.location.start_line in {6, 7}
+    ]
+    before_assignment = next(
+        ref
+        for ref in index.references
+        if ref.location.start_line == 11 and ref.name == "value"
+    )
+    global_assignment = next(
+        ref for ref in index.references if ref.location.start_line == 17
+    )
+
+    assert outer_value is not None and global_value is not None and local_value is not None
+    assert {ref.symbol_id for ref in inner_references} == {outer_value.symbol_id}
+    assert before_assignment.symbol_id == local_value.symbol_id
+    assert global_assignment.symbol_id == global_value.symbol_id
+
+
+def test_function_decorators_and_defaults_resolve_in_enclosing_scope(tmp_path: Path):
+    path = tmp_path / "defaults.py"
+    source = (
+        "decorator = object()\n"
+        "default = 1\n\n"
+        "@decorator\n"
+        "def function(value=default):\n"
+        "    return value\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    decorator = index.symbol_at(path.as_uri(), 0, 1)
+    default = index.symbol_at(path.as_uri(), 1, 1)
+    decorator_reference = next(
+        ref for ref in index.references if ref.location.start_line == 3
+    )
+    default_reference = next(
+        ref for ref in index.references if ref.location.start_line == 4
+    )
+
+    assert decorator is not None and default is not None
+    assert decorator_reference.symbol_id == decorator.symbol_id
+    assert default_reference.symbol_id == default.symbol_id
