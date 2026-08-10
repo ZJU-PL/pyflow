@@ -17,7 +17,7 @@ from pyflow.lsp import (
 )
 from pyflow.lsp.workspace import SourceIndex
 from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
-from pyflow.lsp.mcp_config import MCPServerMode
+from pyflow.lsp.mcp_config import MCPServerMode, analysis_config_for_mode
 
 from pyflow.frontend.entry_discovery import detect_entry_file
 
@@ -87,7 +87,7 @@ def _source_query_index(input_path: Path) -> SourceIndex:
         str(path.absolute()): path.read_text(encoding="utf-8")
         for path in python_files
     }
-    return SourceIndex(source_files, str(root.absolute()))
+    return SourceIndex(source_files, (root.absolute(),))
 
 
 def _dispatch_source_query(index: SourceIndex, args) -> object:
@@ -263,7 +263,7 @@ def add_query_parser(subparsers):
 def _run_server(args, handler_cls):
     """Run a JSON-RPC server (LSP or MCP) over stdio."""
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
-    server = AnalysisManager(server_mode=mode)
+    server = AnalysisManager(analysis_config=analysis_config_for_mode(mode))
 
     if hasattr(args, "root") and args.root:
         try:
@@ -310,7 +310,7 @@ def run_query(args):
         return
 
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
-    server = AnalysisManager(server_mode=mode)
+    server = AnalysisManager(analysis_config=analysis_config_for_mode(mode))
 
     required_passes = _compute_required_passes(args)
     run_pipeline = bool(required_passes)

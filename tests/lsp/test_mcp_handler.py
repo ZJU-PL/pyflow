@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, PropertyMock
 import pytest
 
 from pyflow.lsp import AnalysisManager, McpHandler, JsonRpcServer
+from pyflow.lsp.mcp_handler import MCP_PROTOCOL_VERSION
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,6 +31,19 @@ async def _capture_send_mock(rpc):
 
 
 def _dispatch(rpc, msg):
+    # Historical fixture payloads used the experimental dotted spelling. Keep
+    # test fixtures focused on the standard registered endpoints rather than
+    # retaining that alias in production.
+    method = msg.get("method", "")
+    standard_methods = {
+        "mcp.initialize": "initialize",
+        "mcp.resources.list": "resources/list",
+        "mcp.resources.read": "resources/read",
+        "mcp.tools.list": "tools/list",
+        "mcp.tools.call": "tools/call",
+    }
+    if method in standard_methods:
+        msg = {**msg, "method": standard_methods[method]}
     sent = _run(_capture_send_mock(rpc))
     _run(rpc._dispatch(msg))
     return sent
@@ -46,6 +60,8 @@ def mock_server():
     type(srv).is_loaded = PropertyMock(return_value=True)
 
     snapshot = MagicMock()
+    snapshot.semantic_stale = False
+    snapshot.require_fresh_semantics.return_value = snapshot
     snapshot.features = MagicMock()
     snapshot.features.supports.return_value = True
     snapshot.features.__dict__.update(
@@ -98,13 +114,14 @@ class TestInitialize:
         assert "resources/read" in handlers._handlers
         assert "tools/list" in handlers._handlers
         assert "tools/call" in handlers._handlers
+        assert "server/discover" in handlers._handlers
 
     def test_initialize_returns_protocol_version_and_capabilities(self, handlers):
         sent = _dispatch(
             handlers,
             {
                 "id": 1,
-                "method": "mcp.initialize",
+                "method": "initialize",
                 "params": {},
             },
         )
@@ -114,13 +131,15 @@ class TestInitialize:
         assert "serverInfo" in result
         assert result["serverInfo"]["name"] == "pyflow"
 
-    def test_initialize_negotiates_current_and_legacy_protocol_versions(self, handlers):
-        current = _dispatch(
+    def test_modern_requests_use_discovery_and_legacy_initialize(self, handlers):
+        modern = _dispatch(
             handlers,
             {
                 "id": 1,
-                "method": "initialize",
-                "params": {"protocolVersion": "2026-07-28"},
+                "method": "server/discover",
+                "params": {
+                    "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION}
+                },
             },
         )
         legacy = _dispatch(
@@ -131,8 +150,20 @@ class TestInitialize:
                 "params": {"protocolVersion": "2025-06-18"},
             },
         )
-        assert current[0]["result"]["protocolVersion"] == "2026-07-28"
+        assert modern[0]["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
+        assert modern[0]["result"]["resultType"] == "complete"
         assert legacy[0]["result"]["protocolVersion"] == "2025-06-18"
+
+    def test_modern_initialize_is_rejected(self, handlers):
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": MCP_PROTOCOL_VERSION},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32602
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +301,12 @@ class TestTools:
         assert "get_function_test_profile" in names
         assert "get_aliases" in names
         assert "get_cfg_structure" in names
-        assert {"search_symbol", "get_symbol", "get_callgraph_neighborhood", "get_references"} <= set(names)
+        assert {
+            "search_symbol",
+            "get_symbol",
+            "get_callgraph_neighborhood",
+            "get_references",
+        } <= set(names)
         assert all("outputSchema" in tool for tool in tools)
 
     def test_call_tool_get_callers(self, handlers):
@@ -390,7 +426,9 @@ class TestTools:
         assert sent[0]["error"]["code"] == -32600
 
     def test_call_tool_returns_error_on_exception(self, mock_server):
-        mock_server.current_snapshot.return_value.queries.call_graph.get_callers.side_effect = ValueError("boom")
+        mock_server.current_snapshot.return_value.queries.call_graph.get_callers.side_effect = (
+            ValueError("boom")
+        )
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         sent = _dispatch(
@@ -402,3 +440,51 @@ class TestTools:
             },
         )
         assert sent[0]["result"]["isError"] is True
+
+    def test_modern_results_are_complete_and_arrays_are_structured(self, handlers):
+        params = {
+            "name": "get_callers",
+            "arguments": {"function": "foo"},
+            "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION},
+        }
+        sent = _dispatch(
+            handlers,
+            {"id": 1, "method": "tools/call", "params": params},
+        )
+        result = sent[0]["result"]
+        assert result["resultType"] == "complete"
+        assert result["structuredContent"] == ["caller1"]
+
+    def test_modern_resource_results_are_complete(self, handlers):
+        params = {
+            "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION}
+        }
+        sent = _dispatch(
+            handlers,
+            {"id": 1, "method": "resources/list", "params": params},
+        )
+        assert sent[0]["result"]["resultType"] == "complete"
+
+    def test_stale_snapshot_hides_semantic_tools_and_rejects_their_calls(
+        self, mock_server
+    ):
+        mock_server.current_snapshot.return_value.semantic_stale = True
+        rpc = JsonRpcServer()
+        McpHandler(mock_server).register_on(rpc)
+
+        listed = _dispatch(
+            rpc,
+            {"id": 1, "method": "tools/list", "params": {}},
+        )
+        called = _dispatch(
+            rpc,
+            {
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "get_callers", "arguments": {"function": "foo"}},
+            },
+        )
+
+        names = {tool["name"] for tool in listed[0]["result"]["tools"]}
+        assert "get_callers" not in names
+        assert called[0]["result"]["isError"] is True

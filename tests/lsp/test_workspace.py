@@ -22,7 +22,7 @@ def _index(tmp_path: Path) -> tuple[SourceIndex, str]:
         "    return target(1)\n"
     )
     path.write_text(source)
-    return SourceIndex({str(path): source}, str(tmp_path)), path.as_uri()
+    return SourceIndex({str(path): source}, (tmp_path,)), path.as_uri()
 
 
 def test_file_uri_round_trip_handles_spaces(tmp_path: Path):
@@ -115,7 +115,7 @@ def test_symbol_identity_distinguishes_methods_and_local_shadowing(tmp_path: Pat
         "def foo(): return 3\n\n"
         "def use():\n    foo = 4\n    return foo\n"
     )
-    index = SourceIndex({str(path): source}, str(tmp_path))
+    index = SourceIndex({str(path): source}, (tmp_path,))
     a_foo = index.symbol_by_name("symbols.A.foo")
     b_foo = index.symbol_by_name("symbols.B.foo")
     local_foo = index.definitions_at(path.as_uri(), 9, 4)[0]
@@ -136,10 +136,60 @@ def test_import_alias_resolves_to_imported_symbol_identity(tmp_path: Path):
     provider_source = "def target():\n    return 1\n"
     consumer_source = "from provider import target as alias\n\ndef use():\n    return alias()\n"
     index = SourceIndex(
-        {str(provider): provider_source, str(consumer): consumer_source}, str(tmp_path)
+        {str(provider): provider_source, str(consumer): consumer_source}, (tmp_path,)
     )
 
     definition = index.definitions_at(consumer.as_uri(), 3, 11)
 
     assert len(definition) == 1
     assert definition[0].uri == provider.as_uri()
+
+
+def test_reassignment_reuses_lexical_binding_and_nested_function_is_not_method(
+    tmp_path: Path,
+):
+    path = tmp_path / "bindings.py"
+    source = (
+        "class A:\n"
+        "    def method(self):\n"
+        "        def inner():\n"
+        "            return 1\n"
+        "        return inner\n\n"
+        "def use():\n"
+        "    value = 1\n"
+        "    value = 2\n"
+        "    return value\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+
+    inner = index.symbol_by_name("bindings.A.method.inner")
+    assignment = index.symbol_at(path.as_uri(), 8, 5)
+    reference = index.symbol_at(path.as_uri(), 9, 12)
+
+    assert inner is not None
+    assert inner.symbol_id.kind is SymbolKind.FUNCTION
+    assert assignment is not None and reference is not None
+    assert assignment.symbol_id == reference.symbol_id
+    assert len([s for s in index.symbols if s.name == "value"]) == 1
+
+
+def test_ambiguous_symbol_fallback_and_multi_root_module_identity(tmp_path: Path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    first_file = first / "shared.py"
+    second_file = second / "shared.py"
+    first_file.write_text("def same(): pass\n\ndef use(): return same()\n")
+    second_file.write_text("def same(): pass\n")
+    index = SourceIndex(
+        {
+            str(first_file): first_file.read_text(),
+            str(second_file): second_file.read_text(),
+        },
+        (first, second),
+    )
+
+    assert {symbol.module for symbol in index.symbols} == {"shared"}
+    assert index.symbol_by_name("same") is None
+    assert index.incoming_calls("same") == []

@@ -18,8 +18,6 @@ from pyflow.frontend.interface_builder import (
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.util.application.console import Console
-from .mcp_config import MCPServerMode, DEFAULT_MODE, analysis_config_for_mode
-
 from .workspace import SourceIndex, WorkspaceDocuments, uri_to_path
 
 LOG = logging.getLogger(__name__)
@@ -44,13 +42,11 @@ class AnalysisManager:
 
     def __init__(
         self,
-        server_mode: MCPServerMode = DEFAULT_MODE,
         verbose: bool = False,
         analysis_config: Optional[AnalysisConfig] = None,
     ):
         self._snapshot: Optional[AnalysisSnapshot] = None
-        self._mode = server_mode
-        self._analysis_config = analysis_config or analysis_config_for_mode(server_mode)
+        self._analysis_config = analysis_config or AnalysisConfig()
         self._verbose = verbose
         self._loaded = False
         self._root_path: Optional[str] = None
@@ -140,7 +136,12 @@ class AnalysisManager:
         if not files:
             raise ValueError("No Python files found in workspace folders")
         self._workspace_roots = roots
-        effective_root = os.path.commonpath(roots)
+        try:
+            effective_root = os.path.commonpath(roots)
+        except ValueError:
+            # Roots on different drives have no common path. The compiler needs
+            # one analysis root, while SourceIndex retains the actual roots.
+            effective_root = roots[0]
         self.load_files(
             files,
             run_pipeline=run_pipeline,
@@ -170,6 +171,8 @@ class AnalysisManager:
             or self._root_path
             or os.path.commonpath([str(p.parent) for p in normalized_files])
         )
+        if not self._workspace_roots:
+            self._workspace_roots = (effective_root,)
         # Only one compiler pipeline is built at a time.  The completed state is
         # swapped atomically so queries can continue using the previous snapshot.
         with self._analysis_lock:
@@ -217,7 +220,7 @@ class AnalysisManager:
                     source_files=all_source_code,
                 )
                 type_info = TypeInfoService(project_context)
-            source_index = SourceIndex(all_source_code, effective_root)
+            source_index = SourceIndex(all_source_code, self._workspace_roots)
 
             with self._state_lock:
                 self._next_revision += 1
@@ -295,7 +298,7 @@ class AnalysisManager:
             if current is None:
                 return
             source_files = self._current_source_files()
-            source_index = SourceIndex(source_files, self._root_path)
+            source_index = SourceIndex(source_files, self._workspace_roots)
             self._next_revision += 1
             self._snapshot = AnalysisSnapshot.create(
                 program=current.program,
@@ -361,10 +364,6 @@ class AnalysisManager:
     @property
     def source_index(self) -> SourceIndex:
         return self.current_snapshot().source_index
-
-    @property
-    def server_mode(self) -> MCPServerMode:
-        return self._mode
 
     @property
     def root_path(self) -> Optional[str]:

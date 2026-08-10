@@ -40,6 +40,15 @@ async def _capture_send(rpc: JsonRpcServer) -> list:
 
 def dispatch(rpc: JsonRpcServer, msg: dict) -> list:
     """Send a JSON-RPC message and return captured responses."""
+    standard_methods = {
+        "mcp.initialize": "initialize",
+        "mcp.resources.list": "resources/list",
+        "mcp.resources.read": "resources/read",
+        "mcp.tools.list": "tools/list",
+        "mcp.tools.call": "tools/call",
+    }
+    if msg.get("method") in standard_methods:
+        msg = {**msg, "method": standard_methods[msg["method"]]}
     sent = _run(_capture_send(rpc))
     _run(rpc._dispatch(msg))
     return sent
@@ -539,7 +548,7 @@ class TestMcpHandlerReal:
             },
         )
         result = sent[0]["result"]
-        assert result["protocolVersion"] == "2026-07-28"
+        assert result["protocolVersion"] == "2025-11-25"
         assert result["serverInfo"]["name"] == "pyflow"
 
     def test_list_resources(self, tmp_path: Path) -> None:

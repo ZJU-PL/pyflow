@@ -13,12 +13,25 @@ from .transport import ErrorCodes, JsonRpcError, JsonRpcServer
 LOG = logging.getLogger(__name__)
 # Keep protocol negotiation in this adapter.  Query/core code never imports it.
 MCP_PROTOCOL_VERSION = "2026-07-28"
-SUPPORTED_PROTOCOL_VERSIONS = {
-    MCP_PROTOCOL_VERSION,
+LEGACY_PROTOCOL_VERSION = "2025-11-25"
+SUPPORTED_LEGACY_PROTOCOL_VERSIONS = {
+    LEGACY_PROTOCOL_VERSION,
     "2025-11-25",
     "2025-06-18",
     "2024-11-05",
 }
+_PROTOCOL_META_KEY = "io.modelcontextprotocol/protocolVersion"
+
+
+class UnsupportedProtocolVersionError(JsonRpcError):
+    """Report a protocol era that cannot use the requested MCP endpoint."""
+
+    def __init__(self, version: object, message: str = "Unsupported MCP protocol version"):
+        super().__init__(
+            ErrorCodes.InvalidParams,
+            message,
+            {"requestedProtocolVersion": version, "supportedProtocolVersion": MCP_PROTOCOL_VERSION},
+        )
 
 
 class McpHandler:
@@ -32,6 +45,7 @@ class McpHandler:
         methods = {
             "initialize": self._handle_initialize,
             "notifications/initialized": self._handle_initialized,
+            "server/discover": self._handle_server_discover,
             "resources/list": self._handle_list_resources,
             "resources/templates/list": self._handle_list_resource_templates,
             "resources/read": self._handle_read_resource,
@@ -45,19 +59,18 @@ class McpHandler:
             else:
                 rpc.register(name, handler)
 
-        # Compatibility aliases used by the original experimental adapter.
-        for name, handler in methods.items():
-            if name == "notifications/initialized":
-                continue
-            rpc.register(f"mcp.{name.replace('/', '.')}", handler)
-
     def _handle_initialize(self, params: Any) -> dict[str, Any]:
         requested = (params or {}).get("protocolVersion")
-        version = (
-            requested
-            if requested in SUPPORTED_PROTOCOL_VERSIONS
-            else MCP_PROTOCOL_VERSION
-        )
+        if self._is_modern_request(params) or (
+            isinstance(requested, str) and requested >= MCP_PROTOCOL_VERSION
+        ):
+            raise UnsupportedProtocolVersionError(
+                requested or MCP_PROTOCOL_VERSION,
+                "Modern MCP is stateless; use server/discover instead of initialize",
+            )
+        if requested is not None and requested not in SUPPORTED_LEGACY_PROTOCOL_VERSIONS:
+            raise UnsupportedProtocolVersionError(requested)
+        version = requested or LEGACY_PROTOCOL_VERSION
         return {
             "protocolVersion": version,
             "capabilities": {"resources": {}, "tools": {"listChanged": False}},
@@ -67,6 +80,22 @@ class McpHandler:
                 "qualified; inspect pyflow://functions before graph queries."
             ),
         }
+
+    def _handle_server_discover(self, params: Any) -> dict[str, Any]:
+        """Modern MCP discovery; it replaces the legacy initialize handshake."""
+        self._require_modern_request(params)
+        return self._complete(
+            params,
+            {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {"resources": {}, "tools": {"listChanged": False}},
+                "serverInfo": {"name": "pyflow", "version": self._version()},
+                "instructions": (
+                    "Query pyflow's static-analysis snapshot. Function names may be "
+                    "qualified; inspect pyflow://functions before graph queries."
+                ),
+            },
+        )
 
     def _handle_initialized(self, params: Any) -> None:
         self._initialized = True
@@ -82,7 +111,7 @@ class McpHandler:
             {
                 "uri": "pyflow://capabilities",
                 "name": "Server Capabilities",
-                "description": "Available analysis capabilities and server mode",
+                "description": "Available analysis capabilities in this snapshot",
                 "mimeType": "application/json",
             },
             {
@@ -92,7 +121,11 @@ class McpHandler:
                 "mimeType": "application/json",
             },
         ]
-        if self._server.is_loaded and self._server.supports("callgraph"):
+        if (
+            self._server.is_loaded
+            and not self._server.current_snapshot().semantic_stale
+            and self._server.supports("callgraph")
+        ):
             resources.append(
                 {
                     "uri": "pyflow://callgraph",
@@ -101,10 +134,10 @@ class McpHandler:
                     "mimeType": "application/json",
                 }
             )
-        return {"resources": resources}
+        return self._complete(params, {"resources": resources})
 
     def _handle_list_resource_templates(self, params: Any) -> dict[str, Any]:
-        return {
+        return self._complete(params, {
             "resourceTemplates": [
                 {
                     "uriTemplate": "pyflow://function/{name}",
@@ -115,7 +148,7 @@ class McpHandler:
                     "mimeType": "application/json",
                 }
             ]
-        }
+        })
 
     def _handle_read_resource(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
@@ -124,7 +157,10 @@ class McpHandler:
             value: Any = self._server.current_snapshot().features.__dict__
         elif uri == "pyflow://callgraph":
             self._require_capability("callgraph")
-            value = self._server.current_snapshot().queries.call_graph.get_callgraph_data()
+            value = (
+                self._fresh_semantic_snapshot()
+                .queries.call_graph.get_callgraph_data()
+            )
         elif uri == "pyflow://functions":
             value = [
                 {
@@ -148,7 +184,7 @@ class McpHandler:
                 "qualifiedName": symbol.qualified_name,
                 "location": symbol.selection_range.location(),
                 "profile": _serialize_profile(
-                    self._server.current_snapshot()
+                    self._fresh_semantic_snapshot()
                     .queries.test_generation.get_function_test_profile(
                         symbol.qualified_name
                     )
@@ -156,7 +192,7 @@ class McpHandler:
             }
         else:
             raise JsonRpcError(ErrorCodes.InvalidParams, f"Unknown resource: {uri}")
-        return {
+        return self._complete(params, {
             "contents": [
                 {
                     "uri": uri,
@@ -164,24 +200,26 @@ class McpHandler:
                     "text": json.dumps(value, default=str, sort_keys=True),
                 }
             ]
-        }
+        })
 
     def _handle_list_tools(self, params: Any) -> dict[str, Any]:
         tools = []
         for spec in self._tool_specs():
             capability = spec.pop("_capability")
             if capability is None or (
-                self._server.is_loaded and self._server.supports(capability)
+                self._server.is_loaded
+                and not self._server.current_snapshot().semantic_stale
+                and self._server.supports(capability)
             ):
                 tools.append(spec)
-        return {"tools": tools}
+        return self._complete(params, {"tools": tools})
 
     def _handle_call_tool(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
         name = (params or {}).get("name", "")
         args = (params or {}).get("arguments", {}) or {}
         if not isinstance(args, dict):
-            return self._tool_error("Tool arguments must be an object")
+            return self._tool_error("Tool arguments must be an object", params)
         snapshot = self._server.current_snapshot()
         dispatch: dict[str, tuple[str | None, tuple[str, ...], Callable[[], Any]]] = {
             "get_callers": (
@@ -254,32 +292,44 @@ class McpHandler:
         }
         entry = dispatch.get(name)
         if entry is None:
-            return self._tool_error(f"Unknown tool: {name}")
+            return self._tool_error(f"Unknown tool: {name}", params)
         capability, required, handler = entry
         missing = [field for field in required if field not in args]
         if missing:
-            return self._tool_error(f"Missing required arguments: {', '.join(missing)}")
+            return self._tool_error(
+                f"Missing required arguments: {', '.join(missing)}", params
+            )
         if capability and not snapshot.features.supports(capability):
             return self._tool_error(
-                f"Tool {name} is unavailable in {self._server.server_mode.value} mode"
+                f"Tool {name} is unavailable in this analysis snapshot", params
+            )
+        if capability and snapshot.semantic_stale:
+            return self._tool_error(
+                "Semantic analysis is refreshing for the current source revision", params
             )
         try:
             result = handler()
         except Exception as exc:
             LOG.exception("Tool %s failed", name)
-            return self._tool_error(str(exc))
+            return self._tool_error(str(exc), params)
+        try:
+            result_text = json.dumps(result, default=str, sort_keys=True)
+            json.dumps(result)
+        except (TypeError, ValueError) as exc:
+            return self._tool_error(f"Tool result is not JSON-serializable: {exc}", params)
         response = {
             "content": [
                 {
                     "type": "text",
-                    "text": json.dumps(result, default=str, sort_keys=True),
+                    "text": result_text,
                 }
             ],
             "isError": False,
         }
-        if isinstance(result, dict):
-            response["structuredContent"] = result
-        return response
+        # outputSchema is advertised for every tool, so every JSON value must
+        # be returned as structured content, including arrays and null.
+        response["structuredContent"] = result
+        return self._complete(params, response)
 
     def _tool_specs(self) -> list[dict[str, Any]]:
         def tool(
@@ -396,18 +446,48 @@ class McpHandler:
         if not self._server.supports(capability):
             raise JsonRpcError(
                 ErrorCodes.InvalidRequest,
-                (
-                    f"Capability {capability} is unavailable in "
-                    f"{self._server.server_mode.value} mode"
-                ),
+                f"Capability {capability} is unavailable in this analysis snapshot",
             )
 
+    def _fresh_semantic_snapshot(self):
+        snapshot = self._server.current_snapshot()
+        if snapshot.semantic_stale:
+            raise JsonRpcError(
+                ErrorCodes.RequestCancelled,
+                "Semantic analysis is refreshing for the current source revision",
+            )
+        try:
+            return snapshot.require_fresh_semantics()
+        except RuntimeError as exc:
+            raise JsonRpcError(ErrorCodes.RequestCancelled, str(exc)) from exc
+
     @staticmethod
-    def _tool_error(message: str) -> dict[str, Any]:
-        return {
+    def _is_modern_request(params: Any) -> bool:
+        meta = (params or {}).get("_meta", {}) if isinstance(params, dict) else {}
+        version = meta.get(_PROTOCOL_META_KEY) if isinstance(meta, dict) else None
+        if version is None:
+            return False
+        if not isinstance(version, str) or version < MCP_PROTOCOL_VERSION:
+            raise UnsupportedProtocolVersionError(version)
+        return True
+
+    def _require_modern_request(self, params: Any) -> None:
+        if not self._is_modern_request(params):
+            raise UnsupportedProtocolVersionError(
+                None,
+                "server/discover requires a modern per-request protocol version",
+            )
+
+    def _complete(self, params: Any, result: dict[str, Any]) -> dict[str, Any]:
+        if self._is_modern_request(params):
+            return {"resultType": "complete", **result}
+        return result
+
+    def _tool_error(self, message: str, params: Any) -> dict[str, Any]:
+        return self._complete(params, {
             "isError": True,
             "content": [{"type": "text", "text": message}],
-        }
+        })
 
     @staticmethod
     def _version() -> str:
@@ -419,7 +499,12 @@ class McpHandler:
             return "0.0.0"
 
 
-__all__ = ["MCP_PROTOCOL_VERSION", "McpHandler"]
+__all__ = [
+    "LEGACY_PROTOCOL_VERSION",
+    "MCP_PROTOCOL_VERSION",
+    "McpHandler",
+    "UnsupportedProtocolVersionError",
+]
 
 
 def _serialize_type(result: Any) -> Any:

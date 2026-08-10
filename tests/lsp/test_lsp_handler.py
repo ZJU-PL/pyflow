@@ -46,6 +46,8 @@ def mock_server():
     srv = MagicMock(spec=AnalysisManager)
     srv.is_loaded = True
     snapshot = MagicMock()
+    snapshot.semantic_stale = False
+    snapshot.require_fresh_semantics.return_value = snapshot
     snapshot.queries.call_graph.get_callers.return_value = ["caller_a"]
     snapshot.queries.call_graph.get_callees.return_value = ["callee_b"]
     snapshot.queries.call_graph.get_callgraph_data.return_value = {"nodes": []}
@@ -96,6 +98,9 @@ class TestInitialize:
         assert caps.get("hoverProvider") is True
         assert caps.get("callHierarchyProvider") is True
         assert caps.get("positionEncoding") == "utf-16"
+        assert "typeDefinitionProvider" not in caps
+        assert "implementationProvider" not in caps
+        assert "signatureHelpProvider" not in caps
 
     def test_initialize_loads_project_when_root_uri_provided(self, mock_server):
         rpc = JsonRpcServer()
@@ -109,6 +114,26 @@ class TestInitialize:
             },
         )
         mock_server.load_workspaces.assert_called_once_with(["/tmp/testproj"])
+
+    def test_workspace_folder_changes_reload_the_updated_root_set(self, mock_server):
+        mock_server.workspace_roots = ("/workspace/first",)
+        rpc = JsonRpcServer()
+        LspHandler(mock_server).register_on(rpc)
+        _dispatch(
+            rpc,
+            {
+                "method": "workspace/didChangeWorkspaceFolders",
+                "params": {
+                    "event": {
+                        "added": [{"uri": "file:///workspace/second"}],
+                        "removed": [],
+                    }
+                },
+            },
+        )
+        mock_server.load_workspaces.assert_called_once_with(
+            ["/workspace/first", "/workspace/second"]
+        )
 
 
 class TestShutdown:
@@ -343,6 +368,50 @@ class TestPyflowExtensions:
         )
         assert sent[0]["result"]["variable"] == "x"
 
+    def test_stale_semantic_snapshot_suppresses_hover_and_semantic_queries(
+        self, mock_server
+    ):
+        snapshot = mock_server.current_snapshot.return_value
+        snapshot.semantic_stale = True
+        snapshot.source_index.module_for_uri.return_value = "m"
+        rpc = JsonRpcServer()
+        LspHandler(mock_server).register_on(rpc)
+
+        hover = _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": "file:///sample.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        callers = _dispatch(
+            rpc,
+            {
+                "id": 2,
+                "method": "pyflow/getCallers",
+                "params": {"function": "foo"},
+            },
+        )
+
+        assert hover[0]["result"] is None
+        assert callers[0]["error"]["code"] == -32800
+
+
+def test_semantic_reload_coalesces_edit_bursts(mock_server):
+    async def exercise() -> None:
+        handler = LspHandler(mock_server)
+        for _ in range(20):
+            handler._schedule_semantic_reload()
+        await asyncio.sleep(0.2)
+        assert mock_server.reload.call_count == 1
+        assert handler._semantic_task is None
+
+    _run(exercise())
+
 
 class TestStandardLspExtensions:
     def test_rename_and_diagnostics_use_current_source_snapshot(
@@ -350,7 +419,7 @@ class TestStandardLspExtensions:
     ):
         path = tmp_path / "sample.py"
         source = "def target():\n    return target()\n"
-        index = SourceIndex({str(path): source}, str(tmp_path))
+        index = SourceIndex({str(path): source}, (tmp_path,))
         snapshot = mock_server.current_snapshot.return_value
         snapshot.source_index = index
         snapshot.revision = 7

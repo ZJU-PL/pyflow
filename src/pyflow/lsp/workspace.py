@@ -298,8 +298,14 @@ def _position_to_offset(text: str, line: int, character: int) -> int:
 class SourceIndex:
     """AST-backed index for source-accurate navigation and hierarchy results."""
 
-    def __init__(self, source_files: dict[str, str], root_path: Optional[str] = None):
-        self.root_path = os.path.abspath(root_path) if root_path else None
+    def __init__(
+        self,
+        source_files: dict[str, str],
+        workspace_roots: Iterable[str | os.PathLike[str]] = (),
+    ):
+        self.workspace_roots = tuple(
+            Path(root).absolute() for root in workspace_roots
+        )
         self.source_files = {
             os.path.abspath(path): text for path, text in source_files.items()
         }
@@ -316,14 +322,21 @@ class SourceIndex:
         self._resolve_import_aliases()
 
     def _module_name(self, path: str) -> str:
-        relative: Path
-        if self.root_path:
+        source_path = Path(path).absolute()
+        containing_roots = []
+        for root in self.workspace_roots:
             try:
-                relative = Path(path).relative_to(self.root_path)
+                source_path.relative_to(root)
             except ValueError:
-                relative = Path(Path(path).name)
+                continue
+            containing_roots.append(root)
+        if containing_roots:
+            # A nested workspace root owns its files rather than the broader
+            # root that might also contain them.
+            root = max(containing_roots, key=lambda item: len(item.parts))
+            relative = source_path.relative_to(root)
         else:
-            relative = Path(Path(path).name)
+            relative = Path(source_path.name)
         parts = list(relative.with_suffix("").parts)
         if parts and parts[-1] == "__init__":
             parts.pop()
@@ -441,10 +454,8 @@ class SourceIndex:
         word = self.word_at(uri, line, character)
         if not word:
             return None
-        module = self.module_for_uri(uri)
         candidates = [s for s in self.symbols if s.name == word]
-        candidates.sort(key=lambda s: (s.module != module, s.qualified_name.count(".")))
-        return candidates[0] if candidates else None
+        return candidates[0] if len(candidates) == 1 else None
 
     def definitions_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         symbol = self.symbol_at(uri, line, character)
@@ -520,14 +531,14 @@ class SourceIndex:
 
     def symbol_by_name(self, name: str) -> Optional[SourceSymbol]:
         exact = [s for s in self.symbols if s.qualified_name == name]
-        if exact:
+        if len(exact) == 1:
             return exact[0]
         suffix = [
             s
             for s in self.symbols
             if s.name == name or s.qualified_name.endswith(f".{name}")
         ]
-        return suffix[0] if suffix else None
+        return suffix[0] if len(suffix) == 1 else None
 
     def symbol_by_id(self, symbol_id: SymbolId) -> Optional[SourceSymbol]:
         return self._symbols_by_id.get(symbol_id)
@@ -541,14 +552,10 @@ class SourceIndex:
             if isinstance(target, SymbolId)
             else self.symbol_by_name(target)
         )
-        target_name = (
-            target_symbol.name if target_symbol else str(target).rsplit(".", 1)[-1]
-        )
+        if target_symbol is None:
+            return []
         for call in self.calls:
-            if call.callee_id != getattr(target_symbol, "symbol_id", None) and (
-                call.callee.rsplit(".", 1)[-1] != target_name
-                or not call.caller
-            ):
+            if call.callee_id != target_symbol.symbol_id:
                 continue
             caller = (
                 self.symbol_by_id(call.caller_id)
@@ -568,12 +575,10 @@ class SourceIndex:
             if isinstance(caller_id, SymbolId)
             else self.symbol_by_name(caller_id)
         )
-        caller_name = caller.qualified_name if caller else str(caller_id)
+        if caller is None:
+            return []
         for call in self.calls:
-            if (
-                call.caller_id != getattr(caller, "symbol_id", None)
-                and call.caller != caller_name
-            ):
+            if call.caller_id != caller.symbol_id:
                 continue
             callee = (
                 self.symbol_by_id(call.callee_id)
@@ -597,6 +602,7 @@ class _IndexVisitor(ast.NodeVisitor):
         self._bindings: list[dict[str, SymbolId]] = [{}]
         self._function_ids: list[Optional[SymbolId]] = [None]
         self._class_ids: list[Optional[SymbolId]] = [None]
+        self._scope_kinds: list[str] = ["module"]
 
     def _range(self, node: ast.AST, *, name: Optional[str] = None) -> SourceRange:
         start_line = max(getattr(node, "lineno", 1) - 1, 0)
@@ -665,12 +671,14 @@ class _IndexVisitor(ast.NodeVisitor):
         self._bindings.append({})
         self._function_ids.append(function or self._function_ids[-1])
         self._class_ids.append(class_symbol or self._class_ids[-1])
+        self._scope_kinds.append("class" if class_symbol else "function")
 
     def _pop_scope(self) -> None:
         self.scope.pop()
         self._bindings.pop()
         self._function_ids.pop()
         self._class_ids.pop()
+        self._scope_kinds.pop()
 
     def _resolve(self, name: str) -> Optional[SymbolId]:
         for bindings in reversed(self._bindings):
@@ -681,6 +689,9 @@ class _IndexVisitor(ast.NodeVisitor):
     def _add_local_definition(
         self, node: ast.AST, name: str, kind: SymbolKind
     ) -> SourceSymbol:
+        existing = self._bindings[-1].get(name)
+        if existing is not None:
+            return self.index._symbols_by_id[existing]
         return self._add_definition(node, name, 13, kind)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -694,7 +705,9 @@ class _IndexVisitor(ast.NodeVisitor):
             node,
             node.name,
             6 if self.scope else 12,
-            SymbolKind.METHOD if self._class_ids[-1] is not None else SymbolKind.FUNCTION,
+            SymbolKind.METHOD
+            if self._scope_kinds[-1] == "class"
+            else SymbolKind.FUNCTION,
         )
         self._push_scope(node.name, function=symbol.symbol_id)
         self.generic_visit(node)

@@ -21,6 +21,8 @@ class LspHandler:
         self._server = server
         self._capabilities: dict[str, Any] = {}
         self._shutdown = False
+        self._semantic_task: Optional[asyncio.Task[None]] = None
+        self._semantic_dirty = False
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         rpc.register("initialize", self._handle_initialize)
@@ -34,15 +36,16 @@ class LspHandler:
         rpc.register_notification(
             "workspace/didChangeWatchedFiles", self._handle_watched_files
         )
+        rpc.register_notification(
+            "workspace/didChangeWorkspaceFolders",
+            self._handle_workspace_folders_changed,
+        )
 
         rpc.register("textDocument/definition", self._handle_definition)
         rpc.register("textDocument/references", self._handle_references)
         rpc.register("textDocument/documentSymbol", self._handle_document_symbol)
         rpc.register("textDocument/completion", self._handle_completion)
         rpc.register("textDocument/hover", self._handle_hover)
-        rpc.register("textDocument/typeDefinition", self._handle_type_definition)
-        rpc.register("textDocument/implementation", self._handle_implementation)
-        rpc.register("textDocument/signatureHelp", self._handle_signature_help)
         rpc.register("textDocument/prepareRename", self._handle_prepare_rename)
         rpc.register("textDocument/rename", self._handle_rename)
         rpc.register("textDocument/diagnostic", self._handle_document_diagnostic)
@@ -115,9 +118,6 @@ class LspHandler:
             "hoverProvider": bool(
                 self._server.is_loaded and self._server.supports("type_info")
             ),
-            "typeDefinitionProvider": True,
-            "implementationProvider": True,
-            "signatureHelpProvider": {"triggerCharacters": ["(", ","]},
             "renameProvider": {"prepareProvider": True},
             "diagnosticProvider": {
                 "interFileDependencies": True,
@@ -136,10 +136,12 @@ class LspHandler:
 
     def _handle_shutdown(self, params: Any) -> None:
         self._shutdown = True
+        self._stop_semantic_refresh()
         self._server.close()
         return None
 
     def _handle_exit(self, params: Any) -> None:
+        self._stop_semantic_refresh()
         self._server.close()
 
     async def _handle_did_open(self, params: Any) -> None:
@@ -183,19 +185,77 @@ class LspHandler:
         if self._server.is_loaded and (params or {}).get("changes"):
             self._schedule_semantic_reload()
 
+    async def _handle_workspace_folders_changed(self, params: Any) -> None:
+        event = ((params or {}).get("event") or {})
+        removed = {
+            uri_to_path(folder["uri"])
+            for folder in event.get("removed", [])
+            if isinstance(folder, dict) and folder.get("uri")
+        }
+        roots = [root for root in self._server.workspace_roots if root not in removed]
+        for folder in event.get("added", []):
+            if not isinstance(folder, dict) or not folder.get("uri"):
+                continue
+            root = uri_to_path(folder["uri"])
+            if root not in roots:
+                roots.append(root)
+        if not roots:
+            self._server.close()
+            return
+        try:
+            await asyncio.to_thread(self._server.load_workspaces, roots)
+        except Exception:
+            LOG.exception("Unable to reload changed workspace folders")
+
     def _schedule_semantic_reload(self) -> None:
-        """Refresh expensive semantic facts without blocking document sync."""
-        task = asyncio.create_task(asyncio.to_thread(self._server.reload))
+        """Coalesce edits into one semantic worker and at most one rerun."""
+        self._semantic_dirty = True
+        if self._semantic_task is not None and not self._semantic_task.done():
+            return
+        self._semantic_task = asyncio.create_task(self._run_semantic_refresh())
 
-        def report_failure(completed: asyncio.Task) -> None:
-            try:
-                completed.result()
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                LOG.exception("Background semantic refresh failed")
+    def _stop_semantic_refresh(self) -> None:
+        self._semantic_dirty = False
+        if self._semantic_task is not None:
+            self._semantic_task.cancel()
 
-        task.add_done_callback(report_failure)
+    async def _run_semantic_refresh(self) -> None:
+        try:
+            while self._semantic_dirty and self._server.is_loaded:
+                # Let a burst of incremental edits settle before starting the
+                # expensive whole-workspace analysis.
+                await asyncio.sleep(0.1)
+                self._semantic_dirty = False
+                source_revision = self._server.current_snapshot().source_revision
+                await asyncio.to_thread(self._server.reload)
+                snapshot = self._server.current_snapshot()
+                if (
+                    snapshot.source_revision != source_revision
+                    or snapshot.semantic_stale
+                ):
+                    self._semantic_dirty = True
+        except asyncio.CancelledError:
+            self._semantic_dirty = False
+            raise
+        except GeneratorExit:
+            self._semantic_dirty = False
+            raise
+        except Exception:
+            LOG.exception("Background semantic refresh failed")
+        finally:
+            self._semantic_task = None
+            # An edit can arrive after the loop's final condition but before
+            # this task clears its reference. Keep that dirty signal alive.
+            if self._semantic_dirty and self._server.is_loaded:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    # A test/client can close the event loop while this worker
+                    # is being finalized. There is no remaining dispatcher to
+                    # consume a refresh task in that case.
+                    self._semantic_dirty = False
+                else:
+                    self._semantic_task = loop.create_task(self._run_semantic_refresh())
 
     def _require_loaded(self) -> None:
         if not self._server.is_loaded:
@@ -259,6 +319,8 @@ class LspHandler:
             return None
         uri, line, character = self._position(params)
         snapshot = self._server.current_snapshot()
+        if snapshot.semantic_stale:
+            return None
         module = snapshot.source_index.module_for_uri(uri)
         if not module:
             return None
@@ -273,31 +335,6 @@ class LspHandler:
                 "kind": "markdown",
                 "value": f"```python\n{result}\n```",
             }
-        }
-
-    def _handle_type_definition(self, params: Any) -> list[dict[str, Any]]:
-        return self._handle_definition(params)
-
-    def _handle_implementation(self, params: Any) -> list[dict[str, Any]]:
-        return self._handle_definition(params)
-
-    def _handle_signature_help(self, params: Any) -> Optional[dict[str, Any]]:
-        self._require_loaded()
-        uri, line, character = self._position(params)
-        symbol = self._server.current_snapshot().source_index.symbol_at(
-            uri, line, character
-        )
-        if symbol is None or symbol.kind not in {6, 12}:
-            return None
-        return {
-            "signatures": [
-                {
-                    "label": f"{symbol.name}(…)",
-                    "documentation": {"kind": "plaintext", "value": symbol.qualified_name},
-                }
-            ],
-            "activeSignature": 0,
-            "activeParameter": 0,
         }
 
     def _handle_prepare_rename(self, params: Any) -> Optional[dict[str, Any]]:
@@ -402,26 +439,31 @@ class LspHandler:
 
     def _handle_pyflow_callers(self, params: Any) -> list[str]:
         self._require_loaded()
-        return self._server.current_snapshot().queries.call_graph.get_callers(
+        snapshot = self._fresh_semantic_snapshot()
+        return snapshot.queries.call_graph.get_callers(
             (params or {}).get("function", "")
         )
 
     def _handle_pyflow_callees(self, params: Any) -> list[str]:
         self._require_loaded()
-        return self._server.current_snapshot().queries.call_graph.get_callees(
+        snapshot = self._fresh_semantic_snapshot()
+        return snapshot.queries.call_graph.get_callees(
             (params or {}).get("function", "")
         )
 
     def _handle_pyflow_callgraph(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
-        return self._server.current_snapshot().queries.call_graph.get_callgraph_data()
+        return self._fresh_semantic_snapshot().queries.call_graph.get_callgraph_data()
 
     def _handle_pyflow_type(self, params: Any) -> Optional[dict[str, Any]]:
         self._require_loaded()
         if not self._server.supports("type_info"):
             return None
+        snapshot = self._server.current_snapshot()
+        if snapshot.semantic_stale:
+            return None
         params = params or {}
-        result = self._server.current_snapshot().queries.type_info.get_expression_type(
+        result = snapshot.queries.type_info.get_expression_type(
             params.get("module", ""),
             int(params.get("line", 0)),
             int(params.get("column", 0)),
@@ -435,7 +477,7 @@ class LspHandler:
                 ErrorCodes.InvalidRequest,
                 "Alias analysis is unavailable in this analysis snapshot",
             )
-        info = self._server.current_snapshot().queries.data_flow.get_aliases_for_variable(
+        info = self._fresh_semantic_snapshot().queries.data_flow.get_aliases_for_variable(
             (params or {}).get("variable", "")
         )
         return {
@@ -445,6 +487,18 @@ class LspHandler:
             "ref_count": info.ref_count,
             "is_escaped": info.is_escaped,
         }
+
+    def _fresh_semantic_snapshot(self):
+        snapshot = self._server.current_snapshot()
+        if snapshot.semantic_stale:
+            raise JsonRpcError(
+                ErrorCodes.RequestCancelled,
+                "Semantic analysis is refreshing for the current source revision",
+            )
+        try:
+            return snapshot.require_fresh_semantics()
+        except RuntimeError as exc:
+            raise JsonRpcError(ErrorCodes.RequestCancelled, str(exc)) from exc
 
     @staticmethod
     def _version() -> str:

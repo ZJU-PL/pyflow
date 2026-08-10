@@ -10,6 +10,10 @@ from pyflow.api.queries import QueryComponents, create_query_components
 from pyflow.analysis.typeinfo import TypeInfoService
 
 
+class StaleSemanticSnapshotError(RuntimeError):
+    """Raised when a semantic query would use facts from an older source revision."""
+
+
 @dataclass(frozen=True)
 class AnalysisConfig:
     """Protocol-neutral selection of analyses to run."""
@@ -93,6 +97,19 @@ class AnalysisSnapshot:
     queries: QueryComponents
     source_files: Any = None
     type_info_service: Optional[TypeInfoService] = None
+
+    def require_fresh_semantics(self) -> "AnalysisSnapshot":
+        """Return this snapshot only when its semantic facts match its source.
+
+        Syntax-oriented clients may safely use a stale snapshot's source index.
+        Semantic clients must call this guard before reading query components so
+        they never combine current source positions with older analysis facts.
+        """
+        if self.semantic_stale:
+            raise StaleSemanticSnapshotError(
+                "Semantic analysis is refreshing for the current source revision"
+            )
+        return self
 
     @classmethod
     def create(
