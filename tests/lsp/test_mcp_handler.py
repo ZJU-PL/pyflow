@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, PropertyMock
 import pytest
 
 from pyflow.lsp import AnalysisManager, McpHandler, JsonRpcServer
-from pyflow.lsp.mcp_handler import MCP_PROTOCOL_VERSION
+from pyflow.lsp.mcp_handler import LEGACY_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,6 +47,15 @@ def _dispatch(rpc, msg):
     sent = _run(_capture_send_mock(rpc))
     _run(rpc._dispatch(msg))
     return sent
+
+
+def _modern_meta() -> dict[str, dict[str, object]]:
+    return {
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +109,7 @@ def handlers(mock_server):
     rpc = JsonRpcServer()
     McpHandler(mock_server).register_on(rpc)
     _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
+    _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
     return rpc
 
 
@@ -160,7 +170,25 @@ class TestInitialize:
         assert result["ttlMs"] > 0
         assert result["cacheScope"] == "private"
         assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "pyflow"
-        assert legacy[0]["result"]["protocolVersion"] == "2025-06-18"
+        assert legacy[0]["result"]["protocolVersion"] == LEGACY_PROTOCOL_VERSION
+
+    def test_legacy_queries_require_initialized_notification(self, mock_server):
+        rpc = JsonRpcServer()
+        McpHandler(mock_server).register_on(rpc)
+        initialized = _dispatch(
+            rpc, {"id": 1, "method": "initialize", "params": {}}
+        )
+        before_ready = _dispatch(
+            rpc, {"id": 2, "method": "tools/list", "params": {}}
+        )
+        _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
+        after_ready = _dispatch(
+            rpc, {"id": 3, "method": "tools/list", "params": {}}
+        )
+
+        assert initialized[0]["result"]["protocolVersion"] == LEGACY_PROTOCOL_VERSION
+        assert before_ready[0]["error"]["code"] == -32600
+        assert "tools" in after_ready[0]["result"]
 
     def test_modern_initialize_is_rejected(self, handlers):
         sent = _dispatch(
@@ -325,6 +353,7 @@ class TestTools:
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
+        _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
         sent = _dispatch(
             rpc,
             {
@@ -486,6 +515,7 @@ class TestTools:
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
+        _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
         sent = _dispatch(
             rpc,
             {
@@ -514,17 +544,25 @@ class TestTools:
         assert result["structuredContent"] == ["caller1"]
 
     def test_modern_resource_results_are_complete(self, handlers):
-        params = {
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
-                "io.modelcontextprotocol/clientCapabilities": {},
-            }
-        }
-        sent = _dispatch(
-            handlers,
-            {"id": 1, "method": "resources/list", "params": params},
-        )
-        assert sent[0]["result"]["resultType"] == "complete"
+        endpoints = [
+            ("tools/list", {}),
+            ("resources/list", {}),
+            ("resources/templates/list", {}),
+            ("resources/read", {"uri": "pyflow://capabilities"}),
+        ]
+        for request_id, (method, extra) in enumerate(endpoints, start=1):
+            sent = _dispatch(
+                handlers,
+                {
+                    "id": request_id,
+                    "method": method,
+                    "params": {**extra, **_modern_meta()},
+                },
+            )
+            result = sent[0]["result"]
+            assert result["resultType"] == "complete"
+            assert result["ttlMs"] > 0
+            assert result["cacheScope"] == "private"
 
     def test_stale_snapshot_keeps_tools_stable_and_rejects_semantic_calls(
         self, mock_server
@@ -533,6 +571,7 @@ class TestTools:
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
+        _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
 
         listed = _dispatch(
             rpc,

@@ -297,3 +297,112 @@ def test_function_decorators_and_defaults_resolve_in_enclosing_scope(tmp_path: P
     assert decorator is not None and default is not None
     assert decorator_reference.symbol_id == decorator.symbol_id
     assert default_reference.symbol_id == default.symbol_id
+
+
+def test_class_outer_expressions_resolve_before_class_namespace(tmp_path: Path):
+    path = tmp_path / "class_scope.py"
+    source = (
+        "Base = object\n"
+        "decorator = lambda value: value\n\n"
+        "@decorator\n"
+        "class Derived(Base, metaclass=Base):\n"
+        "    Base = object\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    outer_base = index.symbol_at(path.as_uri(), 0, 1)
+    class_base = index.symbol_at(path.as_uri(), 5, 5)
+    decorator_reference = next(
+        ref for ref in index.references if ref.location.start_line == 3
+    )
+    base_references = [
+        ref
+        for ref in index.references
+        if ref.name == "Base" and ref.location.start_line == 4
+    ]
+
+    assert outer_base is not None and class_base is not None
+    assert decorator_reference.symbol_id == index.symbol_at(path.as_uri(), 1, 1).symbol_id
+    assert {reference.symbol_id for reference in base_references} == {outer_base.symbol_id}
+    assert class_base.symbol_id != outer_base.symbol_id
+
+
+def test_lambda_parameters_use_anonymous_nested_scope(tmp_path: Path):
+    path = tmp_path / "lambda_scope.py"
+    source = (
+        "def function(value):\n"
+        "    transform = lambda value: value + 1\n"
+        "    return value\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    outer_parameter = index.symbol_at(path.as_uri(), 0, 13)
+    lambda_parameter = index.symbol_at(path.as_uri(), 1, 23)
+    lambda_reference = next(
+        ref for ref in index.references if ref.name == "value" and ref.location.start_line == 1
+    )
+    outer_reference = next(
+        ref for ref in index.references if ref.name == "value" and ref.location.start_line == 2
+    )
+
+    assert outer_parameter is not None and lambda_parameter is not None
+    assert lambda_parameter.symbol_id != outer_parameter.symbol_id
+    assert "<lambda@" in lambda_parameter.qualified_name
+    assert lambda_reference.symbol_id == lambda_parameter.symbol_id
+    assert outer_reference.symbol_id == outer_parameter.symbol_id
+
+
+def test_comprehensions_use_implicit_scopes_without_leaking_targets(tmp_path: Path):
+    path = tmp_path / "comprehension_scope.py"
+    source = (
+        "x = 'outer'\n\n"
+        "def function(items):\n"
+        "    result = [x for x in items if x]\n"
+        "    nested = [(x, y) for x in items for y in x]\n"
+        "    return x\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    outer_x = index.symbol_at(path.as_uri(), 0, 1)
+    first_target = index.symbol_at(path.as_uri(), 3, 20)
+    nested_x_target = index.symbol_at(path.as_uri(), 4, 26)
+    nested_y_target = index.symbol_at(path.as_uri(), 4, 41)
+    return_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 5
+    )
+    nested_x_references = [
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 4
+    ]
+
+    assert all(
+        item is not None
+        for item in (outer_x, first_target, nested_x_target, nested_y_target)
+    )
+    assert "<comprehension@" in first_target.qualified_name
+    assert return_reference.symbol_id == outer_x.symbol_id
+    assert all(ref.symbol_id == nested_x_target.symbol_id for ref in nested_x_references)
+    assert nested_y_target.symbol_id != nested_x_target.symbol_id
+
+
+def test_module_bindings_are_predeclared_for_forward_references(tmp_path: Path):
+    path = tmp_path / "forward.py"
+    source = (
+        "def first():\n"
+        "    return second()\n\n"
+        "def set_later():\n"
+        "    global later\n"
+        "    return later\n\n"
+        "def second():\n"
+        "    pass\n\n"
+        "later = 1\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    second = index.symbol_by_name("forward.second")
+    later = index.symbol_at(path.as_uri(), 10, 1)
+    call_reference = next(
+        ref for ref in index.references if ref.name == "second" and ref.location.start_line == 1
+    )
+    global_reference = next(
+        ref for ref in index.references if ref.name == "later" and ref.location.start_line == 5
+    )
+
+    assert second is not None and later is not None
+    assert call_reference.symbol_id == second.symbol_id
+    assert global_reference.symbol_id == later.symbol_id

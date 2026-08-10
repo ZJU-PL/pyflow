@@ -12,7 +12,7 @@ import ast
 import os
 import re
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Optional
@@ -192,6 +192,29 @@ class SourceCall:
     callee_id: Optional[SymbolId] = None
 
 
+class _ScopeKind(str, Enum):
+    """Lexical execution contexts relevant to source symbol resolution."""
+
+    MODULE = "module"
+    FUNCTION = "function"
+    LAMBDA = "lambda"
+    CLASS = "class"
+    COMPREHENSION = "comprehension"
+
+
+@dataclass
+class _Scope:
+    """Bindings and lookup rules for one Python lexical scope."""
+
+    kind: _ScopeKind
+    bindings: dict[str, SymbolId]
+    function_id: Optional[SymbolId] = None
+    class_id: Optional[SymbolId] = None
+    global_names: set[str] = field(default_factory=set)
+    nonlocal_names: set[str] = field(default_factory=set)
+    predeclared: set[SymbolId] = field(default_factory=set)
+
+
 class WorkspaceDocuments:
     """Open-document overlays with monotonically increasing revisions."""
 
@@ -335,7 +358,12 @@ class SourceIndex:
         module = self._module_name(path)
         self._modules[path] = module
         visitor = _IndexVisitor(self, path, source, module)
-        visitor.visit(tree)
+        # Module bindings are known before any function body is resolved.
+        # This gives forward definitions and ``global`` declarations stable
+        # SymbolIds without turning the source index into a type checker.
+        visitor.predeclare_module(tree)
+        for statement in tree.body:
+            visitor.visit(statement)
 
     def _resolve_import_aliases(self) -> None:
         """Resolve ``from pkg import name as alias`` after all modules exist."""
@@ -584,13 +612,11 @@ class _IndexVisitor(ast.NodeVisitor):
         self.lines = source.splitlines()
         self.module = module
         self.scope: list[str] = []
-        self._bindings: list[dict[str, SymbolId]] = [{}]
-        self._function_ids: list[Optional[SymbolId]] = [None]
-        self._class_ids: list[Optional[SymbolId]] = [None]
-        self._scope_kinds: list[str] = ["module"]
-        self._global_names: list[set[str]] = [set()]
-        self._nonlocal_names: list[set[str]] = [set()]
-        self._predeclared: list[set[SymbolId]] = [set()]
+        self._scopes: list[_Scope] = [_Scope(_ScopeKind.MODULE, {})]
+
+    @property
+    def _current_scope(self) -> _Scope:
+        return self._scopes[-1]
 
     def _range(self, node: ast.AST, *, name: Optional[str] = None) -> SourceRange:
         start_line = max(getattr(node, "lineno", 1) - 1, 0)
@@ -645,63 +671,73 @@ class _IndexVisitor(ast.NodeVisitor):
         )
         self.index.symbols.append(symbol)
         self.index._symbols_by_id[symbol.symbol_id] = symbol
-        self._bindings[-1][name] = symbol.symbol_id
+        self._current_scope.bindings[name] = symbol.symbol_id
         return symbol
 
     def _push_scope(
         self,
         name: str,
         *,
+        kind: _ScopeKind,
         function: Optional[SymbolId] = None,
         class_symbol: Optional[SymbolId] = None,
     ) -> None:
         self.scope.append(name)
-        self._bindings.append({})
-        self._function_ids.append(function or self._function_ids[-1])
-        self._class_ids.append(class_symbol or self._class_ids[-1])
-        self._scope_kinds.append("class" if class_symbol else "function")
-        self._global_names.append(set())
-        self._nonlocal_names.append(set())
-        self._predeclared.append(set())
+        parent = self._current_scope
+        self._scopes.append(
+            _Scope(
+                kind,
+                {},
+                function_id=function or parent.function_id,
+                class_id=class_symbol or parent.class_id,
+            )
+        )
 
     def _pop_scope(self) -> None:
         self.scope.pop()
-        self._bindings.pop()
-        self._function_ids.pop()
-        self._class_ids.pop()
-        self._scope_kinds.pop()
-        self._global_names.pop()
-        self._nonlocal_names.pop()
-        self._predeclared.pop()
+        self._scopes.pop()
 
     def _resolve(self, name: str) -> Optional[SymbolId]:
-        current = len(self._bindings) - 1
-        if self._scope_kinds[current] == "function":
-            if name in self._global_names[current]:
-                return self._bindings[0].get(name)
-            if name in self._nonlocal_names[current]:
+        current = len(self._scopes) - 1
+        current_scope = self._current_scope
+        if current_scope.kind is _ScopeKind.FUNCTION:
+            if name in current_scope.global_names:
+                return self._scopes[0].bindings.get(name)
+            if name in current_scope.nonlocal_names:
                 for index in range(current - 1, -1, -1):
-                    if self._scope_kinds[index] == "function" and name in self._bindings[index]:
-                        return self._bindings[index][name]
+                    scope = self._scopes[index]
+                    if (
+                        scope.kind in {_ScopeKind.FUNCTION, _ScopeKind.LAMBDA}
+                        and name in scope.bindings
+                    ):
+                        return scope.bindings[name]
                 return None
-        inside_function = any(kind == "function" for kind in self._scope_kinds)
+        inside_lexical_scope = any(
+            scope.kind
+            in {_ScopeKind.FUNCTION, _ScopeKind.LAMBDA, _ScopeKind.COMPREHENSION}
+            for scope in self._scopes
+        )
         for index in range(current, -1, -1):
             # Python class bodies are execution namespaces, not lexical parent
-            # scopes for methods. ``self.attr`` is resolved separately.
-            if inside_function and self._scope_kinds[index] == "class":
+            # scopes for functions, lambdas, or comprehensions. ``self.attr``
+            # is resolved separately.
+            scope = self._scopes[index]
+            if inside_lexical_scope and scope.kind is _ScopeKind.CLASS:
                 continue
-            bindings = self._bindings[index]
-            if name in bindings:
-                return bindings[name]
+            if name in scope.bindings:
+                return scope.bindings[name]
         return None
 
     def _add_local_definition(
         self, node: ast.AST, name: str, kind: SymbolKind, lsp_kind: int = 13
     ) -> SourceSymbol:
-        existing = self._bindings[-1].get(name)
+        existing = self._current_scope.bindings.get(name)
         if existing is not None:
             return self.index._symbols_by_id[existing]
         return self._add_definition(node, name, lsp_kind, kind)
+
+    def predeclare_module(self, tree: ast.Module) -> None:
+        self._predeclare_bindings(tree.body)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function(node)
@@ -713,8 +749,8 @@ class _IndexVisitor(ast.NodeVisitor):
         # Decorators, defaults, and annotations are evaluated before the new
         # function binding becomes visible in its enclosing scope.
         self._visit_function_outer_expressions(node)
-        existing = self._bindings[-1].get(node.name)
-        if existing is not None and existing in self._predeclared[-1]:
+        existing = self._current_scope.bindings.get(node.name)
+        if existing is not None and existing in self._current_scope.predeclared:
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(
@@ -722,10 +758,12 @@ class _IndexVisitor(ast.NodeVisitor):
                 node.name,
                 6 if self.scope else 12,
                 SymbolKind.METHOD
-                if self._scope_kinds[-1] == "class"
+                if self._current_scope.kind is _ScopeKind.CLASS
                 else SymbolKind.FUNCTION,
             )
-        self._push_scope(node.name, function=symbol.symbol_id)
+        self._push_scope(
+            node.name, kind=_ScopeKind.FUNCTION, function=symbol.symbol_id
+        )
         self._predeclare_function_bindings(node)
         for statement in node.body:
             self.visit(statement)
@@ -752,37 +790,123 @@ class _IndexVisitor(ast.NodeVisitor):
     def _predeclare_function_bindings(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> None:
-        collector = _FunctionBindingCollector()
-        for argument in [
-            *node.args.posonlyargs,
-            *node.args.args,
-            *node.args.kwonlyargs,
-        ]:
+        self._predeclare_bindings(
+            node.body,
+            arguments=[
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+                *([node.args.vararg] if node.args.vararg is not None else []),
+                *([node.args.kwarg] if node.args.kwarg is not None else []),
+            ],
+        )
+
+    def _predeclare_bindings(
+        self, statements: list[ast.stmt], *, arguments: list[ast.arg] | None = None
+    ) -> None:
+        collector = _ScopeBindingCollector(
+            function_lsp_kind=12
+            if self._current_scope.kind is _ScopeKind.MODULE
+            else 6
+        )
+        for argument in arguments or []:
             collector.visit(argument)
-        if node.args.vararg is not None:
-            collector.visit(node.args.vararg)
-        if node.args.kwarg is not None:
-            collector.visit(node.args.kwarg)
-        for statement in node.body:
+        for statement in statements:
             collector.visit(statement)
-        self._global_names[-1].update(collector.global_names)
-        self._nonlocal_names[-1].update(collector.nonlocal_names)
+        self._current_scope.global_names.update(collector.global_names)
+        self._current_scope.nonlocal_names.update(collector.nonlocal_names)
         for binding in collector.bindings:
-            if binding.name in self._global_names[-1] | self._nonlocal_names[-1]:
+            if binding.name in (
+                self._current_scope.global_names | self._current_scope.nonlocal_names
+            ):
                 continue
             symbol = self._add_local_definition(
                 binding.node, binding.name, binding.identity_kind, binding.lsp_kind
             )
-            self._predeclared[-1].add(symbol.symbol_id)
+            self._current_scope.predeclared.add(symbol.symbol_id)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        existing = self._bindings[-1].get(node.name)
-        if existing is not None and existing in self._predeclared[-1]:
+        # Class decorators, bases and keyword expressions execute in the
+        # enclosing scope.  The class namespace exists only for its body.
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        existing = self._current_scope.bindings.get(node.name)
+        if existing is not None and existing in self._current_scope.predeclared:
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
-        self._push_scope(node.name, class_symbol=symbol.symbol_id)
-        self.generic_visit(node)
+        self._push_scope(
+            node.name, kind=_ScopeKind.CLASS, class_symbol=symbol.symbol_id
+        )
+        for statement in node.body:
+            self.visit(statement)
+        self._pop_scope()
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        # Lambda defaults execute outside its anonymous function scope.
+        for argument in [
+            *node.args.defaults,
+            *node.args.kw_defaults,
+        ]:
+            if argument is not None:
+                self.visit(argument)
+        self._push_scope(
+            f"<lambda@{node.lineno}:{node.col_offset}>", kind=_ScopeKind.LAMBDA
+        )
+        self._predeclare_bindings(
+            [],
+            arguments=[
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+                *([node.args.vararg] if node.args.vararg is not None else []),
+                *([node.args.kwarg] if node.args.kwarg is not None else []),
+            ],
+        )
+        self.visit(node.body)
+        self._pop_scope()
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node, [node.key, node.value])
+
+    def _visit_comprehension(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+        result_expressions: list[ast.expr],
+    ) -> None:
+        if not node.generators:
+            return
+        # Python evaluates the first iterable before entering the implicit
+        # comprehension scope; later iterables and filters use that scope.
+        first, *remaining = node.generators
+        self.visit(first.iter)
+        self._push_scope(
+            f"<comprehension@{node.lineno}:{node.col_offset}>",
+            kind=_ScopeKind.COMPREHENSION,
+        )
+        self.visit(first.target)
+        for condition in first.ifs:
+            self.visit(condition)
+        for generator in remaining:
+            self.visit(generator.iter)
+            self.visit(generator.target)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for expression in result_expressions:
+            self.visit(expression)
         self._pop_scope()
 
     def visit_arg(self, node: ast.arg) -> None:
@@ -808,8 +932,8 @@ class _IndexVisitor(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, (ast.Store, ast.Del)):
             if (
-                node.id in self._global_names[-1]
-                or node.id in self._nonlocal_names[-1]
+                node.id in self._current_scope.global_names
+                or node.id in self._current_scope.nonlocal_names
             ):
                 self.index.references.append(
                     SourceReference(
@@ -832,10 +956,10 @@ class _IndexVisitor(ast.NodeVisitor):
         )
 
     def visit_Global(self, node: ast.Global) -> None:
-        self._global_names[-1].update(node.names)
+        self._current_scope.global_names.update(node.names)
 
     def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
-        self._nonlocal_names[-1].update(node.names)
+        self._current_scope.nonlocal_names.update(node.names)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         location = self._range(node)
@@ -868,14 +992,14 @@ class _IndexVisitor(ast.NodeVisitor):
                     self._current_function(),
                     callee,
                     self._range(node.func),
-                    self._function_ids[-1],
+                    self._current_scope.function_id,
                     self._resolve_call(node.func),
                 )
             )
         self.generic_visit(node)
 
     def _current_function(self) -> Optional[str]:
-        function_id = self._function_ids[-1]
+        function_id = self._current_scope.function_id
         return function_id.qualname if function_id else None
 
     def _resolve_attribute(self, node: ast.Attribute) -> Optional[SymbolId]:
@@ -883,9 +1007,9 @@ class _IndexVisitor(ast.NodeVisitor):
             owner = self._resolve(node.value.id)
             if owner is not None and owner.kind is SymbolKind.CLASS:
                 return self._symbol_id_for_qualname(f"{owner.qualname}.{node.attr}")
-            if node.value.id == "self" and self._class_ids[-1] is not None:
+            if node.value.id == "self" and self._current_scope.class_id is not None:
                 return self._symbol_id_for_qualname(
-                    f"{self._class_ids[-1].qualname}.{node.attr}"
+                    f"{self._current_scope.class_id.qualname}.{node.attr}"
                 )
         return None
 
@@ -911,13 +1035,14 @@ class _FunctionBinding:
     lsp_kind: int = 13
 
 
-class _FunctionBindingCollector(ast.NodeVisitor):
-    """Collect bindings for one function without descending into child scopes."""
+class _ScopeBindingCollector(ast.NodeVisitor):
+    """Collect scope-local bindings without descending into child scopes."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, function_lsp_kind: int = 6) -> None:
         self.bindings: list[_FunctionBinding] = []
         self.global_names: set[str] = set()
         self.nonlocal_names: set[str] = set()
+        self._function_lsp_kind = function_lsp_kind
 
     def visit_Global(self, node: ast.Global) -> None:
         self.global_names.update(node.names)
@@ -953,12 +1078,22 @@ class _FunctionBindingCollector(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.bindings.append(
-            _FunctionBinding(node, node.name, SymbolKind.FUNCTION, lsp_kind=6)
+            _FunctionBinding(
+                node,
+                node.name,
+                SymbolKind.FUNCTION,
+                lsp_kind=self._function_lsp_kind,
+            )
         )
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.bindings.append(
-            _FunctionBinding(node, node.name, SymbolKind.FUNCTION, lsp_kind=6)
+            _FunctionBinding(
+                node,
+                node.name,
+                SymbolKind.FUNCTION,
+                lsp_kind=self._function_lsp_kind,
+            )
         )
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -969,6 +1104,27 @@ class _FunctionBindingCollector(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         # Lambda creates a nested scope; its internal assignments do not bind
         # the enclosing function.
+        return None
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node)
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node)
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node)
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node)
+
+    @staticmethod
+    def _visit_comprehension(
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+    ) -> None:
+        # Comprehension targets are local to an implicit nested scope.  Only
+        # the leftmost iterable runs in the enclosing scope, and it contains
+        # no declaration that should predeclare a name in that scope.
         return None
 
 

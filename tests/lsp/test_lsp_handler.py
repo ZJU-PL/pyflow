@@ -464,3 +464,40 @@ class TestStandardLspExtensions:
         assert len(edits) == 2
         assert all(edit["newText"] == "renamed" for edit in edits)
         assert diagnostics[0]["result"] == {"kind": "full", "items": [], "resultId": "7:3"}
+
+    def test_rename_lambda_parameter_excludes_shadowed_outer_parameter(
+        self, mock_server, tmp_path: Path
+    ):
+        path = tmp_path / "lambda_scope.py"
+        source = (
+            "def function(value):\n"
+            "    transform = lambda value: value + 1\n"
+            "    return value\n"
+        )
+        snapshot = mock_server.current_snapshot.return_value
+        snapshot.source_index = SourceIndex({str(path): source}, (tmp_path,))
+        rpc = JsonRpcServer()
+        LspHandler(mock_server).register_on(rpc)
+
+        renamed = _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": path.as_uri()},
+                    "position": {"line": 1, "character": 24},
+                    "newName": "item",
+                },
+            },
+        )
+
+        edits = renamed[0]["result"]["changes"][path.as_uri()]
+        positions = {
+            (
+                edit["range"]["start"]["line"],
+                edit["range"]["start"]["character"],
+            )
+            for edit in edits
+        }
+        assert positions == {(1, 23), (1, 30)}

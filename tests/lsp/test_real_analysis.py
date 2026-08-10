@@ -57,6 +57,7 @@ def dispatch(rpc: JsonRpcServer, msg: dict) -> list:
         "tools/call",
     }:
         _run(rpc._dispatch({"id": "setup", "method": "initialize", "params": {}}))
+        _run(rpc._dispatch({"method": "notifications/initialized", "params": {}}))
         sent.clear()
     _run(rpc._dispatch(msg))
     return sent

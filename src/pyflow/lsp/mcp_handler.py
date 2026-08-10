@@ -15,12 +15,9 @@ LOG = logging.getLogger(__name__)
 MCP_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_MODERN_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION})
-SUPPORTED_LEGACY_PROTOCOL_VERSIONS = {
-    LEGACY_PROTOCOL_VERSION,
-    "2025-11-25",
-    "2025-06-18",
-    "2024-11-05",
-}
+# Keep one clearly defined legacy era rather than letting old version aliases
+# leak into modern-protocol validation or lifecycle state.
+SUPPORTED_LEGACY_PROTOCOL_VERSIONS = frozenset({LEGACY_PROTOCOL_VERSION})
 _PROTOCOL_META_KEY = "io.modelcontextprotocol/protocolVersion"
 _CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities"
 _SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
@@ -48,7 +45,8 @@ class McpHandler:
 
     def __init__(self, server: AnalysisManager):
         self._server = server
-        self._legacy_initialized = False
+        self._legacy_initialize_completed = False
+        self._legacy_ready = False
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         methods = {
@@ -77,10 +75,16 @@ class McpHandler:
                 requested or MCP_PROTOCOL_VERSION,
                 "Modern MCP is stateless; use server/discover instead of initialize",
             )
-        if requested is not None and requested not in SUPPORTED_LEGACY_PROTOCOL_VERSIONS:
-            raise UnsupportedProtocolVersionError(requested)
-        version = requested or LEGACY_PROTOCOL_VERSION
-        self._legacy_initialized = True
+        # Legacy lifecycle negotiation selects a version in the initialize
+        # result.  It is deliberately not a modern -32022 error: an older
+        # client may decide whether it can continue with the selected version.
+        version = (
+            requested
+            if requested in SUPPORTED_LEGACY_PROTOCOL_VERSIONS
+            else LEGACY_PROTOCOL_VERSION
+        )
+        self._legacy_initialize_completed = True
+        self._legacy_ready = False
         return {
             "protocolVersion": version,
             "capabilities": {"resources": {}, "tools": {"listChanged": False}},
@@ -107,6 +111,8 @@ class McpHandler:
 
     def _handle_initialized(self, params: Any) -> None:
         # This legacy lifecycle notification has no modern equivalent.
+        if self._legacy_initialize_completed:
+            self._legacy_ready = True
         return None
 
     def _handle_cancelled(self, params: Any) -> None:
@@ -142,11 +148,11 @@ class McpHandler:
                     "mimeType": "application/json",
                 }
             )
-        return self._complete(params, {"resources": resources})
+        return self._cacheable_complete(params, {"resources": resources})
 
     def _handle_list_resource_templates(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
-        return self._complete(params, {
+        return self._cacheable_complete(params, {
             "resourceTemplates": [
                 {
                     "uriTemplate": "pyflow://function/{name}",
@@ -202,7 +208,7 @@ class McpHandler:
             }
         else:
             raise JsonRpcError(ErrorCodes.InvalidParams, f"Unknown resource: {uri}")
-        return self._complete(params, {
+        return self._cacheable_complete(params, {
             "contents": [
                 {
                     "uri": uri,
@@ -221,7 +227,7 @@ class McpHandler:
                 self._server.is_loaded and self._server.supports(capability)
             ):
                 tools.append(spec)
-        return self._complete(params, {"tools": tools})
+        return self._cacheable_complete(params, {"tools": tools})
 
     def _handle_call_tool(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
@@ -504,16 +510,34 @@ class McpHandler:
         if isinstance(meta, dict) and _PROTOCOL_META_KEY in meta:
             self._validate_modern_metadata(meta)
             return "modern"
-        if self._legacy_initialized:
+        if self._legacy_ready:
             return "legacy"
         raise JsonRpcError(
             ErrorCodes.InvalidRequest,
-            "Request requires modern protocol metadata or legacy initialize",
+            "Request requires modern protocol metadata or completed legacy initialization",
         )
 
     def _complete(self, params: Any, result: dict[str, Any]) -> dict[str, Any]:
         if self._request_era(params) == "modern":
             return {"resultType": "complete", **result}
+        return result
+
+    def _cacheable_complete(
+        self,
+        params: Any,
+        result: dict[str, Any],
+        *,
+        ttl_ms: int = 60_000,
+        cache_scope: str = "private",
+    ) -> dict[str, Any]:
+        """Complete endpoints whose modern result schema is cacheable."""
+        if self._request_era(params) == "modern":
+            return {
+                "resultType": "complete",
+                "ttlMs": ttl_ms,
+                "cacheScope": cache_scope,
+                **result,
+            }
         return result
 
     def _tool_error(self, message: str, params: Any) -> dict[str, Any]:
