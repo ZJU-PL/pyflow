@@ -63,10 +63,11 @@ results = pipeline.run(program, compiler)
 """
 
 from .program import Program
+from .analysis_snapshot import AnalysisConfig, AnalysisFeatures, AnalysisSnapshot
 from .pipeline import Pipeline
 from .context import Context
 from .errors import CompilerAbort
-from pyflow.api.queries import SemanticQueryService, IpaFunctionSummary
+from pyflow.api.queries import IpaFunctionSummary, QueryComponents, create_query_components
 
 # Pass manager system
 from .passmanager import (
@@ -90,7 +91,11 @@ __all__ = [
     "Pipeline",
     "Context",
     "CompilerAbort",
-    "SemanticQueryService",
+    "AnalysisConfig",
+    "AnalysisFeatures",
+    "AnalysisSnapshot",
+    "QueryComponents",
+    "create_query_components",
     "IpaFunctionSummary",
     # Pass manager system
     "PassManager",

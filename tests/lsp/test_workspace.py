@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pyflow.lsp.workspace import (
     SourceIndex,
+    SymbolKind,
     WorkspaceDocuments,
     lsp_character_to_offset,
     offset_to_lsp_character,
@@ -78,7 +79,67 @@ def test_workspace_documents_track_overlays(tmp_path: Path):
     documents = WorkspaceDocuments()
     path = str(tmp_path / "sample.py")
     documents.open(path, "x = 1\n", 1)
-    documents.change(path, "x = 2\n", 2)
+    documents.change(path, [{"text": "x = 2\n"}], 2)
     assert documents.source_overrides()[path] == "x = 2\n"
     documents.close(path)
     assert documents.source_overrides() == {}
+
+
+def test_workspace_documents_apply_incremental_utf16_changes_and_reject_stale():
+    documents = WorkspaceDocuments()
+    path = "/tmp/sample.py"
+    assert documents.open(path, "value = '😀'\n", 1)
+    assert documents.change(
+        path,
+        [
+            {
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 0, "character": 5},
+                },
+                "text": "result",
+            }
+        ],
+        2,
+    )
+    assert documents.text(path) == "result = '😀'\n"
+    assert not documents.change(path, [{"text": "stale"}], 1)
+    assert documents.text(path) == "result = '😀'\n"
+
+
+def test_symbol_identity_distinguishes_methods_and_local_shadowing(tmp_path: Path):
+    path = tmp_path / "symbols.py"
+    source = (
+        "class A:\n    def foo(self): return 1\n\n"
+        "class B:\n    def foo(self): return 2\n\n"
+        "def foo(): return 3\n\n"
+        "def use():\n    foo = 4\n    return foo\n"
+    )
+    index = SourceIndex({str(path): source}, str(tmp_path))
+    a_foo = index.symbol_by_name("symbols.A.foo")
+    b_foo = index.symbol_by_name("symbols.B.foo")
+    local_foo = index.definitions_at(path.as_uri(), 9, 4)[0]
+
+    assert a_foo is not None and b_foo is not None
+    assert a_foo.symbol_id != b_foo.symbol_id
+    assert a_foo.symbol_id.kind is SymbolKind.METHOD
+    assert local_foo.start_line == 9
+    references = index.references_at(
+        path.as_uri(), 10, 11, include_declaration=True
+    )
+    assert {item.start_line for item in references} == {9, 10}
+
+
+def test_import_alias_resolves_to_imported_symbol_identity(tmp_path: Path):
+    provider = tmp_path / "provider.py"
+    consumer = tmp_path / "consumer.py"
+    provider_source = "def target():\n    return 1\n"
+    consumer_source = "from provider import target as alias\n\ndef use():\n    return alias()\n"
+    index = SourceIndex(
+        {str(provider): provider_source, str(consumer): consumer_source}, str(tmp_path)
+    )
+
+    definition = index.definitions_at(consumer.as_uri(), 3, 11)
+
+    assert len(definition) == 1
+    assert definition[0].uri == provider.as_uri()

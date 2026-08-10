@@ -8,13 +8,14 @@ __email__ = "rainoftime@gmail.com"
 from .application.program import Program
 from .application.pipeline import Pipeline
 from .application.context import Context
-from .api.queries import SemanticQueryService, IpaFunctionSummary
+from .api.queries import IpaFunctionSummary, QueryComponents, create_query_components
 
 __all__ = [
     "Program",
     "Pipeline",
     "Context",
-    "SemanticQueryService",
+    "QueryComponents",
+    "create_query_components",
     "IpaFunctionSummary",
     "__version__",
     "__author__",

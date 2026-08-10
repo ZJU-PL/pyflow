@@ -18,7 +18,7 @@ from pyflow.cli.lsp import (
     _run_callgraph_analysis,
     run_query,
 )
-from pyflow.lsp import PyflowAnalysisServer
+from pyflow.lsp import AnalysisManager
 
 # ---------------------------------------------------------------------------
 # Fixture: parser builders
@@ -207,14 +207,17 @@ class TestQueryParser:
             func=lambda a: None,
         )
         from unittest.mock import MagicMock
+        from types import SimpleNamespace
 
-        server = MagicMock(spec=PyflowAnalysisServer)
-        server.get_capabilities.return_value = {"callgraph": True}
+        server = MagicMock(spec=AnalysisManager)
+        server.current_snapshot.return_value = SimpleNamespace(
+            features=SimpleNamespace(call_graph=True)
+        )
         server.program = MagicMock()
         server.program.liveCode = []
 
         result = _dispatch_query(server, args)
-        assert result == {"callgraph": True}
+        assert result == {"call_graph": True}
 
 
 class TestQueryRouting:
@@ -252,11 +255,14 @@ class TestQueryRouting:
     ):
         source = tmp_path / "sample.py"
         source.write_text("def foo():\n    return 1\n")
-        server = MagicMock(spec=PyflowAnalysisServer)
-        server.get_cfg_structure.return_value = {}
-        server.get_callers.return_value = []
-        server.get_aliases_for_variable.return_value = {}
-        monkeypatch.setattr("pyflow.cli.lsp.PyflowAnalysisServer", lambda **_: server)
+        server = MagicMock(spec=AnalysisManager)
+        snapshot = MagicMock()
+        snapshot.queries.control_flow.get_cfg_structure.return_value = {}
+        snapshot.queries.data_flow.get_aliases_for_variable.return_value = MagicMock(
+            variable="x", aliases=set(), is_aliased=False, ref_count=0, is_escaped=False
+        )
+        server.current_snapshot.return_value = snapshot
+        monkeypatch.setattr("pyflow.cli.lsp.AnalysisManager", lambda **_: server)
         values = {
             "input_path": source,
             "mode": "advanced",
@@ -293,7 +299,7 @@ class TestQueryRouting:
         def fail_if_constructed(**_kwargs):
             raise AssertionError("source queries must not construct analysis server")
 
-        monkeypatch.setattr("pyflow.cli.lsp.PyflowAnalysisServer", fail_if_constructed)
+        monkeypatch.setattr("pyflow.cli.lsp.AnalysisManager", fail_if_constructed)
         args = Namespace(
             input_path=source,
             mode="full",

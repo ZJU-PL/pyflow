@@ -871,7 +871,7 @@ class ASTDataflowTaintDetector(Detector):
         return_param_deps: Dict[str, Set[str]] = {}
         returns_value: Dict[str, bool] = {}
         try:
-            summaries = session.queries.get_ipa_function_summaries()
+            summaries = session.queries.data_flow.get_ipa_function_summaries()
         except Exception:
             return return_param_deps, returns_value
 

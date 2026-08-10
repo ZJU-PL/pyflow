@@ -816,7 +816,11 @@ class TestExtractProgram(unittest.TestCase):
             )
             extract_program(self.compiler, self.program)
 
-        cfg = self.program.get_queries(self.compiler).get_cfg("main")
+        from pyflow.api.queries import create_query_components
+
+        cfg = create_query_components(
+            self.compiler, self.program
+        ).control_flow.get_cfg("main")
         self.assertEqual(cfg.code.codeName(), "main")
 
     def test_interface_entrypoints_reuse_extracted_function_and_method_codes(self):

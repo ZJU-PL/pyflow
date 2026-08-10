@@ -127,6 +127,50 @@ class DataFlowQueries:
             for name, info in aliases.items()
         }
 
+    def get_aliases_for_variable(self, variable: str) -> AliasInfo:
+        """Return published heap facts for one source-level variable label."""
+        facts = self._require_alias_facts()
+        locations = self._matching_locations(facts, variable)
+        info = AliasInfo(variable=variable)
+        for location in locations:
+            info.aliases.update(
+                self._location_label(alias) for alias in facts.points_to(location)
+            )
+        info.is_aliased = len(info.aliases) > 1
+        info.ref_count = max(
+            (facts.reference_count(location) for location in locations), default=0
+        )
+        info.is_escaped = any(facts.is_escaped(location) for location in locations)
+        info.is_singleton = bool(locations) and all(
+            facts.reference_count(location) <= 1 for location in locations
+        )
+        info.strong_update_possible = bool(locations) and all(
+            facts.strong_update_possible(location) for location in locations
+        )
+        return info
+
+    def get_points_to_for_variable(self, variable: str) -> PointsToInfo:
+        """Return published points-to facts for one source-level variable label."""
+        facts = self._require_alias_facts()
+        locations = self._matching_locations(facts, variable)
+        info = PointsToInfo(variable=variable)
+        for location in locations:
+            info.points_to.update(
+                self._location_label(alias) for alias in facts.points_to(location)
+            )
+        info.ref_count = max(
+            (facts.reference_count(location) for location in locations), default=0
+        )
+        info.is_escaped = any(facts.is_escaped(location) for location in locations)
+        info.is_singleton = bool(locations) and all(
+            facts.reference_count(location) <= 1 for location in locations
+        )
+        info.strong_update_possible = bool(locations) and all(
+            facts.strong_update_possible(location) for location in locations
+        )
+        info.may_be_null = not locations or info.is_escaped
+        return info
+
     def get_interprocedural_taint(
         self,
         function: Union[str, object],
@@ -178,3 +222,17 @@ class DataFlowQueries:
         root = getattr(location, "root", None)
         label = getattr(root, "label", None)
         return label or repr(location)
+
+    def _require_alias_facts(self):
+        from pyflow.ir.core import AnalysisFacts, Capabilities
+
+        catalog = self.context.program.ir
+        if not catalog.facts.has(Capabilities.ALIAS_POINTS_TO):
+            raise TemporaryLimitation(
+                "Alias facts are unavailable; ensure the 'heap' pass has run."
+            )
+        return AnalysisFacts(catalog)
+
+    @staticmethod
+    def _matching_locations(facts, variable: str) -> tuple[object, ...]:
+        return tuple(facts.locations_by_label().get(variable, ()))

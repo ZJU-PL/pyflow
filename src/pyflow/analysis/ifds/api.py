@@ -11,6 +11,7 @@ from typing import Iterable, Sequence
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
+from pyflow.api.queries import create_query_components
 from pyflow.analysis.astcollector import getOps
 from pyflow.analysis.callgraph.publication import (
     analyze_constraint_callgraph_edges,
@@ -99,7 +100,7 @@ def _entry_nodes_from_program(
     if function_name is not None and entry_file is not None:
         raise ValueError("Specify either a function name or an entry file, not both.")
 
-    queries = session.program.get_queries(session.compiler)
+    queries = create_query_components(session.compiler, session.program)
     declared_codes: set[object] = set()
     if entry_file is not None:
         options = entry_point_options or EntryPointOptions(
@@ -207,7 +208,7 @@ def _restrict_program_entry_points(
     program: Program,
     function_name: str,
 ) -> None:
-    queries = program.get_queries(compiler)
+    queries = create_query_components(compiler, program)
     target_code = _resolve_requested_entry_code(program, queries, function_name)
     target_source = _source_filename_from_code(target_code)
     entry_points = []
@@ -401,7 +402,7 @@ def load_analysis_session(
         )
         extract_program(compiler, program)
         if root_function is not None:
-            queries = program.get_queries(compiler)
+            queries = create_query_components(compiler, program)
             target_code = _resolve_requested_entry_code(program, queries, root_function)
             target_source = _source_filename_from_code(target_code)
             preserved_codes = tuple(
@@ -459,9 +460,9 @@ def load_analysis_session(
         prepared = prepare_program_for_ifds(
             compiler,
             program,
-            get_cfg=lambda code: program.get_queries(compiler).graph_engine.get_cfg(
-                code, commit_revision=False
-            ),
+            get_cfg=lambda code: create_query_components(
+                compiler, program
+            ).graph_engine.get_cfg(code, commit_revision=False),
             supplemental_live_codes=preserved_codes,
             analysis_codes=(preserved_codes if entry_file is not None else None),
         )

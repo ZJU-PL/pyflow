@@ -11,7 +11,7 @@ from pyflow.api.queries.call_graph import CallGraphQueries
 from pyflow.api.queries.context import QueryContext
 from pyflow.api.queries.engine import GraphQueryEngine
 from pyflow.api.queries.localization import LocalizationCandidate, LocalizationQueries
-from pyflow.api.queries.service import SemanticQueryService
+from pyflow.api.queries import create_query_components
 from pyflow.api.queries.test_generation import TestGenerationQueries as _TestGenerationQueries
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.ir.core import (
@@ -511,20 +511,20 @@ def test_get_ifds_supergraph_rebuilds_after_reset_cache(monkeypatch):
     assert len(calls) == 2
 
 
-def test_semantic_query_service_exposes_typeinfo_service():
+def test_query_components_expose_typeinfo_service():
     type_info = TypeInfoService(ProjectContext(None))
     type_info.collect_module("pkg.mod", source="value: int\n")
-    service = SemanticQueryService(
+    queries = create_query_components(
         compiler=object(),
         program=SimpleNamespace(liveCode=[], interface=None),
         type_info_service=type_info,
     )
 
-    typ = service.get_symbol_type("pkg.mod", "value")
-    fact = service.get_type_fact("pkg.mod", "value")
+    typ = queries.type_info.get_symbol_type("pkg.mod", "value")
+    fact = queries.type_info.get_type_fact("pkg.mod", "value")
 
     assert isinstance(typ, Instance)
     assert typ.type.raw_type is int
     assert fact is not None
     assert fact.raw_annotation == "int"
-    assert service.capabilities()["type_info"]["available"] is True
+    assert queries.type_info.available is True

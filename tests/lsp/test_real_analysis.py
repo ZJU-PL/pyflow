@@ -1,6 +1,6 @@
 """Integration tests for pyflow's LSP module — real analysis on real files.
 
-These use ``PyflowAnalysisServer.load_files()`` with tiny Python sources,
+These use ``AnalysisManager.load_files()`` with tiny Python sources,
 so pyflow's full extraction and analysis pipeline actually runs.  They are
 marked ``integration`` and excluded from the default ``pytest`` run.
 
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from pyflow.lsp import LspHandler, McpHandler, JsonRpcServer
-from pyflow.lsp.server import PyflowAnalysisServer
+from pyflow.lsp.server import AnalysisManager
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -61,74 +61,70 @@ class TestSingleFileAnalysis:
 
     def test_capabilities_shape(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        caps = server.get_capabilities()
-        assert isinstance(caps, dict)
-        # Key capabilities pyflow should advertise
-        assert "cfg" in caps
-        assert "callgraph" in caps
-        assert "callers" in caps
-        assert "callees" in caps
-        assert caps["type_info"]["available"] is True
+        features = server.current_snapshot().features
+        assert features.control_flow
+        assert features.call_graph
+        assert features.type_info
 
     def test_type_service_is_wired_to_real_source(self, tmp_path: Path) -> None:
         sample = tmp_path / "typed.py"
         sample.write_text("def typed(value: int) -> int:\n    return value\n")
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         server.load_files([sample])
-        assert server.service.get_symbol_type("typed", "typed") is not None
+        assert server.queries.type_info.get_symbol_type("typed", "typed") is not None
 
     def test_callgraph_contains_function(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         # pyflow qualifies function names with the source location
         assert any("foo" in str(fn) for fn in functions)
 
     def test_get_callers_roundtrip(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         fn = next((f for f in functions if "foo" in str(f)), None)
         if fn is not None:
-            callers = server.get_callers(fn)
+            callers = server.queries.call_graph.get_callers(fn)
             assert isinstance(callers, list)
 
     def test_get_callees_roundtrip(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         fn = next((f for f in functions if "foo" in str(f)), None)
         if fn is not None:
-            callees = server.get_callees(fn)
+            callees = server.queries.call_graph.get_callees(fn)
             assert isinstance(callees, list)
 
     def test_function_test_profile(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         fn = next((f for f in functions if "foo" in str(f)), None)
         if fn is not None:
-            profile = server.get_function_test_profile(fn)
-            assert profile["name"] is not None
-            assert "parameters" in profile
+            profile = server.queries.test_generation.get_function_test_profile(fn)
+            assert profile.name is not None
+            assert profile.parameters is not None
 
     def test_cfg_structure(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         fn = next((f for f in functions if "foo" in str(f)), None)
         if fn is not None:
-            cfg = server.get_cfg_structure(fn)
+            cfg = server.queries.control_flow.get_cfg_structure(fn)
             assert isinstance(cfg, dict)
 
     def test_get_shortest_path(self, tmp_path: Path) -> None:
         """Shortest path between a function and itself should be length 1."""
         server = _analyze_simple(tmp_path)
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         fn = next((f for f in functions if "foo" in str(f)), None)
         if fn is not None:
-            path = server.get_shortest_path(fn, fn)
+            path = server.queries.call_graph.get_shortest_path(fn, fn)
             if path is not None:
                 assert len(path) >= 1
 
@@ -138,7 +134,7 @@ class TestSingleFileAnalysis:
         server.close()
         assert server.is_loaded is False
         with pytest.raises(RuntimeError, match="not loaded"):
-            _ = server.service
+            server.current_snapshot()
         # Reload with a different function
         sample2 = tmp_path / "bar.py"
         sample2.write_text("def bar(): return 42\n")
@@ -147,12 +143,12 @@ class TestSingleFileAnalysis:
 
     def test_verbose_flag_suppresses_logging(self, tmp_path: Path) -> None:
         """Setting verbose=False should not produce Console output."""
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         sample = tmp_path / "quiet.py"
         sample.write_text("def f(): return 1\n")
         server.load_files([sample], run_pipeline=True)
         assert server.is_loaded is True
-        assert server.get_capabilities() is not None
+        assert server.current_snapshot().features is not None
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +167,7 @@ class TestMultiFileAnalysis:
         a.write_text("def greet(): return 'hello'\n")
         b.write_text("from a import greet\ndef run(): return greet()\n")
 
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         try:
             server.load_files([a, b], run_pipeline=True)
         except RuntimeError as exc:
@@ -180,8 +176,7 @@ class TestMultiFileAnalysis:
                 pytest.skip("Multi-file pipeline pass-ordering issue")
             raise
 
-        caps = server.get_capabilities()
-        assert caps is not None
+        assert server.current_snapshot().features is not None
         live = getattr(server.program, "liveCode", [])
         assert len(live) >= 2
 
@@ -191,7 +186,7 @@ class TestMultiFileAnalysis:
         a.write_text("def helper(): return 1\n")
         b.write_text("from a import helper\ndef run(): return helper()\n")
 
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         try:
             server.load_files([a, b], run_pipeline=True)
         except RuntimeError as exc:
@@ -199,7 +194,7 @@ class TestMultiFileAnalysis:
                 pytest.skip("Multi-file pipeline pass-ordering issue")
             raise
 
-        cg = server.get_callgraph_data()
+        cg = server.queries.call_graph.get_callgraph_data()
         functions = list(cg.keys()) if isinstance(cg, dict) else cg.get("functions", cg)
         assert any("run" in str(f) for f in functions)
 
@@ -211,7 +206,7 @@ class TestMultiFileAnalysis:
 
 @pytest.mark.integration
 class TestLspHandlerReal:
-    """LspHandler wired to JsonRpcServer with a real PyflowAnalysisServer.
+    """LspHandler wired to JsonRpcServer with a real AnalysisManager.
 
     Tests that the handler dispatch → pyflow query → response pipeline
     produces correct results with genuine analysis data.
@@ -344,7 +339,7 @@ class TestLspHandlerReal:
     ) -> None:
         sample = tmp_path / "opened.py"
         sample.write_text("def disk_version(): return 1\n")
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
         dispatch(
@@ -504,7 +499,7 @@ class TestLspHandlerReal:
     def test_hover_returns_wired_type_information(self, tmp_path: Path) -> None:
         sample = tmp_path / "typed_hover.py"
         sample.write_text("def f():\n    value = 1\n    return value\n")
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         server.load_files([sample])
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
@@ -529,7 +524,7 @@ class TestLspHandlerReal:
 
 @pytest.mark.integration
 class TestMcpHandlerReal:
-    """McpHandler wired to JsonRpcServer with a real PyflowAnalysisServer."""
+    """McpHandler wired to JsonRpcServer with a real AnalysisManager."""
 
     def test_initialize_returns_protocol(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
@@ -544,7 +539,7 @@ class TestMcpHandlerReal:
             },
         )
         result = sent[0]["result"]
-        assert result["protocolVersion"] == "2025-06-18"
+        assert result["protocolVersion"] == "2026-07-28"
         assert result["serverInfo"]["name"] == "pyflow"
 
     def test_list_resources(self, tmp_path: Path) -> None:
@@ -595,8 +590,8 @@ class TestMcpHandlerReal:
             },
         )
         text = sent[0]["result"]["contents"][0]["text"]
-        assert "cfg" in text
-        assert "callgraph" in text
+        assert "control_flow" in text
+        assert "call_graph" in text
 
     def test_read_callgraph_resource(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
@@ -690,7 +685,7 @@ class TestMcpHandlerReal:
         assert sent[0]["result"]["isError"] is True
 
     def test_call_tool_on_unloaded_server(self, tmp_path: Path) -> None:
-        server = PyflowAnalysisServer(verbose=False)
+        server = AnalysisManager(verbose=False)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
         sent = dispatch(
@@ -709,19 +704,19 @@ class TestMcpHandlerReal:
 # ---------------------------------------------------------------------------
 
 
-def _analyze_simple(tmp_path: Path) -> PyflowAnalysisServer:
+def _analyze_simple(tmp_path: Path) -> AnalysisManager:
     """Create a server loaded with a minimal Python file."""
     sample = tmp_path / "sample.py"
     sample.write_text("def foo(x): return x + 1\n")
-    server = PyflowAnalysisServer(verbose=False)
+    server = AnalysisManager(verbose=False)
     server.load_files([sample], run_pipeline=True)
     return server
 
 
-def _analyze_with_bar(tmp_path: Path) -> tuple[PyflowAnalysisServer, Path]:
+def _analyze_with_bar(tmp_path: Path) -> tuple[AnalysisManager, Path]:
     """Create a server loaded with foo defined and called by bar."""
     sample = tmp_path / "sample.py"
     sample.write_text("def foo(x): return x + 1\ndef bar(): return foo(42)\n")
-    server = PyflowAnalysisServer(verbose=False)
+    server = AnalysisManager(verbose=False)
     server.load_files([sample], run_pipeline=True)
     return server, sample

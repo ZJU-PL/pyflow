@@ -13,6 +13,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Iterable, Optional
 from urllib.parse import unquote, urlparse
@@ -86,8 +87,62 @@ class SourceRange:
         )
 
 
+class SymbolKind(str, Enum):
+    """Stable language-level kinds, independent from LSP numeric kinds."""
+
+    CLASS = "class"
+    FUNCTION = "function"
+    METHOD = "method"
+    PARAMETER = "parameter"
+    VARIABLE = "variable"
+    IMPORT = "import"
+
+
+@dataclass(frozen=True)
+class SymbolId:
+    """Workspace-stable identity for a definition.
+
+    Names alone are intentionally insufficient: the definition location keeps
+    local shadowing and same-named methods in different classes distinct.
+    """
+
+    module: str
+    qualname: str
+    kind: SymbolKind
+    uri: str
+    line: int
+    character: int
+
+    def to_data(self) -> dict[str, str | int]:
+        return {
+            "module": self.module,
+            "qualname": self.qualname,
+            "kind": self.kind.value,
+            "uri": self.uri,
+            "line": self.line,
+            "character": self.character,
+        }
+
+    @classmethod
+    def from_data(cls, value: object) -> Optional["SymbolId"]:
+        if not isinstance(value, dict):
+            return None
+        try:
+            return cls(
+                module=str(value["module"]),
+                qualname=str(value["qualname"]),
+                kind=SymbolKind(str(value["kind"])),
+                uri=str(value["uri"]),
+                line=int(value["line"]),
+                character=int(value["character"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
 @dataclass(frozen=True)
 class SourceSymbol:
+    symbol_id: SymbolId
     name: str
     qualified_name: str
     module: str
@@ -123,6 +178,7 @@ class SourceReference:
     name: str
     location: SourceRange
     enclosing_function: Optional[str]
+    symbol_id: Optional[SymbolId] = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +186,8 @@ class SourceCall:
     caller: Optional[str]
     callee: str
     location: SourceRange
+    caller_id: Optional[SymbolId] = None
+    callee_id: Optional[SymbolId] = None
 
 
 class WorkspaceDocuments:
@@ -140,20 +198,68 @@ class WorkspaceDocuments:
         self.revision = 0
         self._lock = threading.RLock()
 
-    def open(self, path: str, text: str, version: Optional[int]) -> int:
+    def open(self, path: str, text: str, version: Optional[int]) -> bool:
         with self._lock:
-            self._documents[os.path.abspath(path)] = (text, version)
+            normalized = os.path.abspath(path)
+            current = self._documents.get(normalized)
+            if (
+                current is not None
+                and version is not None
+                and current[1] is not None
+                and version <= current[1]
+            ):
+                return False
+            self._documents[normalized] = (text, version)
             self.revision += 1
-            return self.revision
+            return True
 
-    def change(self, path: str, text: str, version: Optional[int]) -> int:
-        return self.open(path, text, version)
-
-    def close(self, path: str) -> int:
+    def change(
+        self, path: str, changes: list[dict[str, object]], version: Optional[int]
+    ) -> bool:
+        """Apply sequential LSP full or ranged edits, rejecting stale versions."""
         with self._lock:
-            self._documents.pop(os.path.abspath(path), None)
+            normalized = os.path.abspath(path)
+            current = self._documents.get(normalized)
+            if (
+                current is not None
+                and version is not None
+                and current[1] is not None
+                and version <= current[1]
+            ):
+                return False
+            text = current[0] if current is not None else _read_text(normalized)
+            for change in changes:
+                replacement = str(change.get("text", ""))
+                edit_range = change.get("range")
+                if edit_range is None:
+                    text = replacement
+                    continue
+                if not isinstance(edit_range, dict):
+                    raise ValueError("LSP content change range must be an object")
+                start = edit_range.get("start")
+                end = edit_range.get("end")
+                if not isinstance(start, dict) or not isinstance(end, dict):
+                    raise ValueError("LSP content change range needs start and end")
+                start_offset = _position_to_offset(
+                    text, int(start.get("line", 0)), int(start.get("character", 0))
+                )
+                end_offset = _position_to_offset(
+                    text, int(end.get("line", 0)), int(end.get("character", 0))
+                )
+                if end_offset < start_offset:
+                    raise ValueError("LSP content change end precedes start")
+                text = f"{text[:start_offset]}{replacement}{text[end_offset:]}"
+            self._documents[normalized] = (text, version)
             self.revision += 1
-            return self.revision
+            return True
+
+    def close(self, path: str) -> bool:
+        with self._lock:
+            existed = self._documents.pop(os.path.abspath(path), None) is not None
+            if not existed:
+                return False
+            self.revision += 1
+            return True
 
     def source_overrides(self) -> dict[str, str]:
         with self._lock:
@@ -163,6 +269,30 @@ class WorkspaceDocuments:
         with self._lock:
             item = self._documents.get(os.path.abspath(path))
             return item[0] if item else None
+
+    def version(self, path: str) -> Optional[int]:
+        with self._lock:
+            item = self._documents.get(os.path.abspath(path))
+            return item[1] if item else None
+
+
+def _read_text(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _position_to_offset(text: str, line: int, character: int) -> int:
+    lines = text.splitlines(keepends=True)
+    if line < 0:
+        raise ValueError("LSP content change line cannot be negative")
+    if line >= len(lines):
+        return len(text)
+    line_text = lines[line]
+    return sum(len(item) for item in lines[:line]) + lsp_character_to_offset(
+        line_text, character
+    )
 
 
 class SourceIndex:
@@ -177,8 +307,13 @@ class SourceIndex:
         self.references: list[SourceReference] = []
         self.calls: list[SourceCall] = []
         self._modules: dict[str, str] = {}
+        self._symbols_by_id: dict[SymbolId, SourceSymbol] = {}
+        self._references_by_range: dict[SourceRange, SymbolId] = {}
+        self._import_targets: dict[SymbolId, str] = {}
+        self._resolved_import_aliases: dict[SymbolId, SymbolId] = {}
         for path, source in self.source_files.items():
             self._index_file(path, source)
+        self._resolve_import_aliases()
 
     def _module_name(self, path: str) -> str:
         relative: Path
@@ -204,6 +339,42 @@ class SourceIndex:
         visitor = _IndexVisitor(self, path, source, module)
         visitor.visit(tree)
 
+    def _resolve_import_aliases(self) -> None:
+        """Resolve ``from pkg import name as alias`` after all modules exist."""
+        aliases = {
+            symbol_id: next(
+                (
+                    candidate.symbol_id
+                    for candidate in self.symbols
+                    if candidate.qualified_name == target
+                ),
+                symbol_id,
+            )
+            for symbol_id, target in self._import_targets.items()
+        }
+        self._resolved_import_aliases = {
+            source: target for source, target in aliases.items() if source != target
+        }
+        self.references = [
+            SourceReference(
+                reference.name,
+                reference.location,
+                reference.enclosing_function,
+                aliases.get(reference.symbol_id, reference.symbol_id),
+            )
+            for reference in self.references
+        ]
+        self.calls = [
+            SourceCall(
+                call.caller,
+                call.callee,
+                call.location,
+                call.caller_id,
+                aliases.get(call.callee_id, call.callee_id),
+            )
+            for call in self.calls
+        ]
+
     def module_for_uri(self, uri: str) -> Optional[str]:
         try:
             return self._modules.get(uri_to_path(uri))
@@ -217,7 +388,11 @@ class SourceIndex:
             return None
 
     def document_symbols(self, uri: str) -> list[SourceSymbol]:
-        return [s for s in self.symbols if s.full_range.uri == uri]
+        return [
+            s
+            for s in self.symbols
+            if s.full_range.uri == uri and s.kind in {5, 6, 12}
+        ]
 
     def workspace_symbols(self, query: str) -> list[SourceSymbol]:
         query = query.casefold()
@@ -255,7 +430,14 @@ class SourceIndex:
             if symbol.selection_range.uri == uri and symbol.selection_range.contains(
                 line, character
             ):
-                return symbol
+                target = self._resolved_import_aliases.get(symbol.symbol_id)
+                return self._symbols_by_id.get(target, symbol)
+        for reference in self.references:
+            if reference.location.uri == uri and reference.location.contains(
+                line, character
+            ):
+                if reference.symbol_id is not None:
+                    return self._symbols_by_id.get(reference.symbol_id)
         word = self.word_at(uri, line, character)
         if not word:
             return None
@@ -274,10 +456,49 @@ class SourceIndex:
         symbol = self.symbol_at(uri, line, character)
         if symbol is None:
             return []
-        result = [r.location for r in self.references if r.name == symbol.name]
+        result = [
+            reference.location
+            for reference in self.references
+            if reference.symbol_id == symbol.symbol_id
+        ]
         if include_declaration:
             result.insert(0, symbol.selection_range)
         return _deduplicate_ranges(result)
+
+    def rename_ranges_at(
+        self, uri: str, line: int, character: int
+    ) -> list[SourceRange]:
+        """Return declaration and identity-matched references for LSP rename."""
+        symbol = self.symbol_at(uri, line, character)
+        if symbol is None:
+            return []
+        return _deduplicate_ranges(
+            [symbol.selection_range]
+            + [
+                reference.location
+                for reference in self.references
+                if reference.symbol_id == symbol.symbol_id
+            ]
+        )
+
+    def diagnostics_for_uri(self, uri: str) -> list[dict[str, object]]:
+        text = self.text_for_uri(uri)
+        if text is None:
+            return []
+        try:
+            ast.parse(text, filename=uri_to_path(uri))
+        except SyntaxError as error:
+            line = max((error.lineno or 1) - 1, 0)
+            character = max((error.offset or 1) - 1, 0)
+            return [
+                {
+                    "range": SourceRange(uri, line, character, line, character + 1).to_lsp(),
+                    "severity": 1,
+                    "source": "pyflow",
+                    "message": error.msg,
+                }
+            ]
+        return []
 
     def function_at(
         self, uri: str, line: int, character: int = 0
@@ -308,26 +529,57 @@ class SourceIndex:
         ]
         return suffix[0] if suffix else None
 
-    def incoming_calls(self, name: str) -> list[tuple[SourceSymbol, list[SourceRange]]]:
+    def symbol_by_id(self, symbol_id: SymbolId) -> Optional[SourceSymbol]:
+        return self._symbols_by_id.get(symbol_id)
+
+    def incoming_calls(
+        self, target: SymbolId | str
+    ) -> list[tuple[SourceSymbol, list[SourceRange]]]:
         grouped: dict[SourceSymbol, list[SourceRange]] = {}
-        target = self.symbol_by_name(name)
-        target_name = target.name if target else name.rsplit(".", 1)[-1]
+        target_symbol = (
+            self.symbol_by_id(target)
+            if isinstance(target, SymbolId)
+            else self.symbol_by_name(target)
+        )
+        target_name = (
+            target_symbol.name if target_symbol else str(target).rsplit(".", 1)[-1]
+        )
         for call in self.calls:
-            if call.callee.rsplit(".", 1)[-1] != target_name or not call.caller:
+            if call.callee_id != getattr(target_symbol, "symbol_id", None) and (
+                call.callee.rsplit(".", 1)[-1] != target_name
+                or not call.caller
+            ):
                 continue
-            caller = self.symbol_by_name(call.caller)
+            caller = (
+                self.symbol_by_id(call.caller_id)
+                if call.caller_id
+                else self.symbol_by_name(call.caller)
+            )
             if caller:
                 grouped.setdefault(caller, []).append(call.location)
         return list(grouped.items())
 
-    def outgoing_calls(self, name: str) -> list[tuple[SourceSymbol, list[SourceRange]]]:
+    def outgoing_calls(
+        self, caller_id: SymbolId | str
+    ) -> list[tuple[SourceSymbol, list[SourceRange]]]:
         grouped: dict[SourceSymbol, list[SourceRange]] = {}
-        caller = self.symbol_by_name(name)
-        caller_name = caller.qualified_name if caller else name
+        caller = (
+            self.symbol_by_id(caller_id)
+            if isinstance(caller_id, SymbolId)
+            else self.symbol_by_name(caller_id)
+        )
+        caller_name = caller.qualified_name if caller else str(caller_id)
         for call in self.calls:
-            if call.caller != caller_name:
+            if (
+                call.caller_id != getattr(caller, "symbol_id", None)
+                and call.caller != caller_name
+            ):
                 continue
-            callee = self.symbol_by_name(call.callee)
+            callee = (
+                self.symbol_by_id(call.callee_id)
+                if call.callee_id
+                else self.symbol_by_name(call.callee)
+            )
             if callee:
                 grouped.setdefault(callee, []).append(call.location)
         return list(grouped.items())
@@ -342,6 +594,9 @@ class _IndexVisitor(ast.NodeVisitor):
         self.lines = source.splitlines()
         self.module = module
         self.scope: list[str] = []
+        self._bindings: list[dict[str, SymbolId]] = [{}]
+        self._function_ids: list[Optional[SymbolId]] = [None]
+        self._class_ids: list[Optional[SymbolId]] = [None]
 
     def _range(self, node: ast.AST, *, name: Optional[str] = None) -> SourceRange:
         start_line = max(getattr(node, "lineno", 1) - 1, 0)
@@ -367,20 +622,66 @@ class _IndexVisitor(ast.NodeVisitor):
     def _qualified(self, name: str) -> str:
         return ".".join([self.module, *self.scope, name])
 
-    def _add_definition(self, node: ast.AST, name: str, kind: int) -> None:
+    def _add_definition(
+        self,
+        node: ast.AST,
+        name: str,
+        kind: int,
+        identity_kind: SymbolKind,
+    ) -> SourceSymbol:
         qualified = self._qualified(name)
         container = ".".join([self.module, *self.scope]) if self.scope else self.module
-        self.index.symbols.append(
-            SourceSymbol(
-                name=name,
-                qualified_name=qualified,
+        selection_range = self._range(node, name=name)
+        symbol = SourceSymbol(
+            symbol_id=SymbolId(
                 module=self.module,
-                kind=kind,
-                full_range=self._range(node),
-                selection_range=self._range(node, name=name),
-                container_name=container,
-            )
+                qualname=qualified,
+                kind=identity_kind,
+                uri=selection_range.uri,
+                line=selection_range.start_line,
+                character=selection_range.start_character,
+            ),
+            name=name,
+            qualified_name=qualified,
+            module=self.module,
+            kind=kind,
+            full_range=self._range(node),
+            selection_range=selection_range,
+            container_name=container,
         )
+        self.index.symbols.append(symbol)
+        self.index._symbols_by_id[symbol.symbol_id] = symbol
+        self._bindings[-1][name] = symbol.symbol_id
+        return symbol
+
+    def _push_scope(
+        self,
+        name: str,
+        *,
+        function: Optional[SymbolId] = None,
+        class_symbol: Optional[SymbolId] = None,
+    ) -> None:
+        self.scope.append(name)
+        self._bindings.append({})
+        self._function_ids.append(function or self._function_ids[-1])
+        self._class_ids.append(class_symbol or self._class_ids[-1])
+
+    def _pop_scope(self) -> None:
+        self.scope.pop()
+        self._bindings.pop()
+        self._function_ids.pop()
+        self._class_ids.pop()
+
+    def _resolve(self, name: str) -> Optional[SymbolId]:
+        for bindings in reversed(self._bindings):
+            if name in bindings:
+                return bindings[name]
+        return None
+
+    def _add_local_definition(
+        self, node: ast.AST, name: str, kind: SymbolKind
+    ) -> SourceSymbol:
+        return self._add_definition(node, name, 13, kind)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function(node)
@@ -389,20 +690,53 @@ class _IndexVisitor(ast.NodeVisitor):
         self._visit_function(node)
 
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        self._add_definition(node, node.name, 6 if self.scope else 12)
-        self.scope.append(node.name)
+        symbol = self._add_definition(
+            node,
+            node.name,
+            6 if self.scope else 12,
+            SymbolKind.METHOD if self._class_ids[-1] is not None else SymbolKind.FUNCTION,
+        )
+        self._push_scope(node.name, function=symbol.symbol_id)
         self.generic_visit(node)
-        self.scope.pop()
+        self._pop_scope()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self._add_definition(node, node.name, 5)
-        self.scope.append(node.name)
+        symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
+        self._push_scope(node.name, class_symbol=symbol.symbol_id)
         self.generic_visit(node)
-        self.scope.pop()
+        self._pop_scope()
+
+    def visit_arg(self, node: ast.arg) -> None:
+        self._add_local_definition(node, node.arg, SymbolKind.PARAMETER)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            name = alias.asname or alias.name.split(".", 1)[0]
+            symbol = self._add_local_definition(alias, name, SymbolKind.IMPORT)
+            self.index._import_targets[symbol.symbol_id] = alias.name
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                symbol = self._add_local_definition(
+                    alias, alias.asname or alias.name, SymbolKind.IMPORT
+                )
+                if node.module:
+                    self.index._import_targets[symbol.symbol_id] = (
+                        f"{node.module}.{alias.name}"
+                    )
 
     def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self._add_local_definition(node, node.id, SymbolKind.VARIABLE)
+            return
         self.index.references.append(
-            SourceReference(node.id, self._range(node), self._current_function())
+            SourceReference(
+                node.id,
+                self._range(node),
+                self._current_function(),
+                self._resolve(node.id),
+            )
         )
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -419,7 +753,12 @@ class _IndexVisitor(ast.NodeVisitor):
             offset_to_lsp_character(line, end_offset),
         )
         self.index.references.append(
-            SourceReference(node.attr, attr_range, self._current_function())
+            SourceReference(
+                node.attr,
+                attr_range,
+                self._current_function(),
+                self._resolve_attribute(node),
+            )
         )
         self.generic_visit(node)
 
@@ -427,14 +766,43 @@ class _IndexVisitor(ast.NodeVisitor):
         callee = _call_name(node.func)
         if callee:
             self.index.calls.append(
-                SourceCall(self._current_function(), callee, self._range(node.func))
+                SourceCall(
+                    self._current_function(),
+                    callee,
+                    self._range(node.func),
+                    self._function_ids[-1],
+                    self._resolve_call(node.func),
+                )
             )
         self.generic_visit(node)
 
     def _current_function(self) -> Optional[str]:
-        if not self.scope:
-            return None
-        return ".".join([self.module, *self.scope])
+        function_id = self._function_ids[-1]
+        return function_id.qualname if function_id else None
+
+    def _resolve_attribute(self, node: ast.Attribute) -> Optional[SymbolId]:
+        if isinstance(node.value, ast.Name):
+            owner = self._resolve(node.value.id)
+            if owner is not None and owner.kind is SymbolKind.CLASS:
+                return self._symbol_id_for_qualname(f"{owner.qualname}.{node.attr}")
+            if node.value.id == "self" and self._class_ids[-1] is not None:
+                return self._symbol_id_for_qualname(
+                    f"{self._class_ids[-1].qualname}.{node.attr}"
+                )
+        return None
+
+    def _resolve_call(self, node: ast.AST) -> Optional[SymbolId]:
+        if isinstance(node, ast.Name):
+            return self._resolve(node.id)
+        if isinstance(node, ast.Attribute):
+            return self._resolve_attribute(node)
+        return None
+
+    def _symbol_id_for_qualname(self, qualname: str) -> Optional[SymbolId]:
+        for symbol in self.index.symbols:
+            if symbol.qualified_name == qualname:
+                return symbol.symbol_id
+        return None
 
 
 def _call_name(node: ast.AST) -> Optional[str]:
@@ -459,6 +827,8 @@ def _deduplicate_ranges(ranges: Iterable[SourceRange]) -> list[SourceRange]:
 __all__ = [
     "SourceIndex",
     "SourceRange",
+    "SymbolId",
+    "SymbolKind",
     "SourceSymbol",
     "WorkspaceDocuments",
     "lsp_character_to_offset",

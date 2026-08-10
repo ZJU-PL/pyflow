@@ -1,5 +1,5 @@
 from .transport import JsonLineRpcServer, JsonRpcServer, JsonRpcError, ErrorCodes
-from .server import PyflowAnalysisServer
+from .server import AnalysisManager
 from .lsp_handler import LspHandler
 from .mcp_handler import McpHandler
 
@@ -8,7 +8,7 @@ __all__ = [
     "JsonLineRpcServer",
     "JsonRpcError",
     "ErrorCodes",
-    "PyflowAnalysisServer",
+    "AnalysisManager",
     "LspHandler",
     "McpHandler",
 ]

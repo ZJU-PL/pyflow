@@ -11,13 +11,13 @@ from pathlib import Path
 from pyflow.lsp import (
     JsonLineRpcServer,
     JsonRpcServer,
-    PyflowAnalysisServer,
+    AnalysisManager,
     LspHandler,
     McpHandler,
 )
 from pyflow.lsp.workspace import SourceIndex
 from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
-from pyflow.api.queries import MCPServerMode
+from pyflow.lsp.mcp_config import MCPServerMode
 
 from pyflow.frontend.entry_discovery import detect_entry_file
 
@@ -263,7 +263,7 @@ def add_query_parser(subparsers):
 def _run_server(args, handler_cls):
     """Run a JSON-RPC server (LSP or MCP) over stdio."""
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
-    server = PyflowAnalysisServer(server_mode=mode)
+    server = AnalysisManager(server_mode=mode)
 
     if hasattr(args, "root") and args.root:
         try:
@@ -310,7 +310,7 @@ def run_query(args):
         return
 
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
-    server = PyflowAnalysisServer(server_mode=mode)
+    server = AnalysisManager(server_mode=mode)
 
     required_passes = _compute_required_passes(args)
     run_pipeline = bool(required_passes)
@@ -346,20 +346,31 @@ def _write_query_result(result: object, args) -> None:
         print(output)
 
 
-def _dispatch_query(server: PyflowAnalysisServer, args) -> object:
+def _dispatch_query(server: AnalysisManager, args) -> object:
+    snapshot = server.current_snapshot()
     if args.get_callers:
-        return server.get_callers(args.get_callers)
+        return snapshot.queries.call_graph.get_callers(args.get_callers)
     if args.get_callees:
-        return server.get_callees(args.get_callees)
+        return snapshot.queries.call_graph.get_callees(args.get_callees)
     if args.get_callgraph:
-        return server.get_callgraph_data()
+        return snapshot.queries.call_graph.get_callgraph_data()
     if args.get_type:
         module, line, col = args.get_type
-        return server.get_expression_type(module, int(line), int(col))
+        result = snapshot.queries.type_info.get_expression_type(
+            module, int(line), int(col)
+        )
+        return {"type": str(result)} if result is not None else None
     if args.get_cfg:
-        return server.get_cfg_structure(args.get_cfg)
+        return snapshot.queries.control_flow.get_cfg_structure(args.get_cfg)
     if args.get_aliases:
-        return server.get_aliases_for_variable(args.get_aliases)
+        info = snapshot.queries.data_flow.get_aliases_for_variable(args.get_aliases)
+        return {
+            "variable": info.variable,
+            "aliases": sorted(info.aliases),
+            "is_aliased": info.is_aliased,
+            "ref_count": info.ref_count,
+            "is_escaped": info.is_escaped,
+        }
     if args.list_functions:
         return sorted(
             (
@@ -370,4 +381,4 @@ def _dispatch_query(server: PyflowAnalysisServer, args) -> object:
             )
             for code in getattr(server.program, "liveCode", [])
         )
-    return server.get_capabilities()
+    return snapshot.features.__dict__

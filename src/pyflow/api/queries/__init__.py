@@ -1,21 +1,16 @@
 """
 Query interfaces for PyFlow.
 
-This package provides query services for accessing analysis results:
+This package provides composable query domains for accessing analysis results:
 - Call graph queries: callers, callees, paths
 - Control flow queries: CFG, SSA, CDG
 - Data flow queries: reaching defs, aliases, points-to
 - Task-specific queries: localization, test generation
-- Semantic query service: unified facade for all queries
+- Query components: a protocol-neutral composition root for a snapshot
 """
 
 from .call_graph import CallGraphQueries
-from .capabilities import (
-    MCPServerMode,
-    DEFAULT_MODE,
-    get_server_mode_description,
-    resolve_capabilities,
-)
+from .components import QueryComponents, create_query_components
 from .context import QueryContext
 from .control_flow import ControlFlowQueries
 from ._models import (
@@ -32,19 +27,15 @@ from ._models import (
 from .data_flow import DataFlowQueries
 from .engine import GraphQueryEngine
 from .localization import LocalizationQueries
-from .service import SemanticQueryService
 from .test_generation import TestGenerationQueries
+from .type_info import TypeInfoQueries
 
 __all__ = [
     # Core
     "QueryContext",
     "GraphQueryEngine",
-    "MCPServerMode",
-    "DEFAULT_MODE",
-    "get_server_mode_description",
-    "resolve_capabilities",
-    # Service
-    "SemanticQueryService",
+    "QueryComponents",
+    "create_query_components",
     # Graph queries
     "CallGraphQueries",
     "ControlFlowQueries",
@@ -62,4 +53,5 @@ __all__ = [
     "TestGenerationQueries",
     "FunctionTestProfile",
     "TestScenario",
+    "TypeInfoQueries",
 ]

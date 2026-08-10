@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
-from pyflow.lsp import LspHandler, JsonRpcServer, PyflowAnalysisServer
+from pyflow.lsp import AnalysisManager, LspHandler, JsonRpcServer
+from pyflow.lsp.workspace import SourceIndex
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,17 +43,18 @@ def _dispatch(rpc, msg):
 
 @pytest.fixture
 def mock_server():
-    srv = MagicMock(spec=PyflowAnalysisServer)
+    srv = MagicMock(spec=AnalysisManager)
     srv.is_loaded = True
-    srv.get_callers.return_value = ["caller_a"]
-    srv.get_callees.return_value = ["callee_b"]
-    srv.get_callgraph_data.return_value = {"nodes": []}
-    srv.get_expression_type.return_value = {"type": "int"}
-    srv.get_aliases_for_variable.return_value = {
-        "variable": "x",
-        "aliases": [],
-        "is_aliased": False,
-    }
+    snapshot = MagicMock()
+    snapshot.queries.call_graph.get_callers.return_value = ["caller_a"]
+    snapshot.queries.call_graph.get_callees.return_value = ["callee_b"]
+    snapshot.queries.call_graph.get_callgraph_data.return_value = {"nodes": []}
+    snapshot.queries.type_info.get_expression_type.return_value = "int"
+    snapshot.queries.data_flow.get_aliases_for_variable.return_value = MagicMock(
+        variable="x", aliases=set(), is_aliased=False, ref_count=0, is_escaped=False
+    )
+    srv.current_snapshot.return_value = snapshot
+    srv.supports.return_value = True
 
     mock_program = MagicMock()
     mock_program.liveCode = []
@@ -105,7 +108,7 @@ class TestInitialize:
                 "params": {"rootUri": "file:///tmp/testproj"},
             },
         )
-        mock_server.load.assert_called_once_with("/tmp/testproj")
+        mock_server.load_workspaces.assert_called_once_with(["/tmp/testproj"])
 
 
 class TestShutdown:
@@ -129,7 +132,7 @@ class TestShutdown:
 
 @pytest.fixture
 def unloaded_server():
-    srv = MagicMock(spec=PyflowAnalysisServer)
+    srv = MagicMock(spec=AnalysisManager)
     srv.is_loaded = False
     return srv
 
@@ -339,3 +342,56 @@ class TestPyflowExtensions:
             },
         )
         assert sent[0]["result"]["variable"] == "x"
+
+
+class TestStandardLspExtensions:
+    def test_rename_and_diagnostics_use_current_source_snapshot(
+        self, mock_server, tmp_path: Path
+    ):
+        path = tmp_path / "sample.py"
+        source = "def target():\n    return target()\n"
+        index = SourceIndex({str(path): source}, str(tmp_path))
+        snapshot = mock_server.current_snapshot.return_value
+        snapshot.source_index = index
+        snapshot.revision = 7
+        snapshot.source_revision = 3
+        rpc = JsonRpcServer()
+        LspHandler(mock_server).register_on(rpc)
+
+        prepare = _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/prepareRename",
+                "params": {
+                    "textDocument": {"uri": path.as_uri()},
+                    "position": {"line": 1, "character": 11},
+                },
+            },
+        )
+        renamed = _dispatch(
+            rpc,
+            {
+                "id": 2,
+                "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": path.as_uri()},
+                    "position": {"line": 1, "character": 11},
+                    "newName": "renamed",
+                },
+            },
+        )
+        diagnostics = _dispatch(
+            rpc,
+            {
+                "id": 3,
+                "method": "textDocument/diagnostic",
+                "params": {"textDocument": {"uri": path.as_uri()}},
+            },
+        )
+
+        assert prepare[0]["result"]["start"]["line"] == 0
+        edits = renamed[0]["result"]["changes"][path.as_uri()]
+        assert len(edits) == 2
+        assert all(edit["newText"] == "renamed" for edit in edits)
+        assert diagnostics[0]["result"] == {"kind": "full", "items": [], "resultId": "7:3"}

@@ -172,8 +172,6 @@ def test_changed_transform_clears_program_level_analysis_results():
     manager = PassManager(enable_caching=True)
     register_standard_passes(manager)
     program = Program()
-    program.semantic_queries = object()
-    program.semantic_queries_mode = "default"
 
     with patch("pyflow.application.passes.ipa.evaluate", return_value=SimpleNamespace()), patch(
         "pyflow.application.passes.cpa.evaluate", return_value=SimpleNamespace()
@@ -187,5 +185,3 @@ def test_changed_transform_clears_program_level_analysis_results():
     assert program.get_analysis_result("cpa") is None
     assert program.get_analysis_result("lifetime") is None
     assert program.analysis_results == {}
-    assert program.semantic_queries is None
-    assert program.semantic_queries_mode is None

@@ -10,7 +10,7 @@ Example usage:
     from pyflow.api import (
         InterfaceDeclaration,
         ClassDeclaration,
-        SemanticQueryService,
+        QueryComponents,
     )
 
     # Declare entry points
@@ -20,8 +20,8 @@ Example usage:
     interface.cls.append(cls_decl)
 
     # Query analysis results
-    service = SemanticQueryService(compiler, program)
-    callers = service.get_callers("my_function")
+    queries = create_query_components(compiler, program)
+    callers = queries.call_graph.get_callers("my_function")
 """
 
 from .entrypoints import (
@@ -35,8 +35,6 @@ from .entrypoints import (
     nullWrapper,
 )
 from .queries import (
-    DEFAULT_MODE,
-    MCPServerMode,
     AliasInfo,
     CallGraphQueries,
     ControlFlowQueries,
@@ -50,11 +48,10 @@ from .queries import (
     ProgramSlice,
     QueryContext,
     ReachingDef,
-    SemanticQueryService,
+    QueryComponents,
     TestGenerationQueries,
     TestScenario,
-    get_server_mode_description,
-    resolve_capabilities,
+    create_query_components,
 )
 
 __all__ = [
@@ -70,12 +67,8 @@ __all__ = [
     # Queries - core
     "QueryContext",
     "GraphQueryEngine",
-    "MCPServerMode",
-    "DEFAULT_MODE",
-    "get_server_mode_description",
-    "resolve_capabilities",
-    # Queries - service
-    "SemanticQueryService",
+    "QueryComponents",
+    "create_query_components",
     # Queries - graph
     "CallGraphQueries",
     "ControlFlowQueries",

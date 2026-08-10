@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.api.queries import SemanticQueryService
+from pyflow.api.queries import QueryComponents, create_query_components
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -24,7 +24,7 @@ class AnalysisSession:
 
     compiler: CompilerContext
     program: Program
-    queries: SemanticQueryService
+    queries: QueryComponents
     sources_by_name: Dict[str, str]
     analysis_facts: object
     # Cross-module tracking
@@ -67,8 +67,10 @@ class AnalysisSession:
         del use_pass_manager
         compiler.program = program
 
-        queries = program.get_semantic_queries(compiler)
-        analysis_facts = queries.get_analysis_facts()
+        queries = create_query_components(compiler, program)
+        from pyflow.ir.core import AnalysisFacts
+
+        analysis_facts = AnalysisFacts(program.ir)
         sources_by_name, func_to_file, file_imports = cls._collect_sources_and_imports(
             program, all_source_code
         )

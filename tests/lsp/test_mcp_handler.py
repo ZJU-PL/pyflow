@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
-from pyflow.lsp import McpHandler, JsonRpcServer, PyflowAnalysisServer
+from pyflow.lsp import AnalysisManager, McpHandler, JsonRpcServer
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,21 +42,36 @@ def _dispatch(rpc, msg):
 
 @pytest.fixture
 def mock_server():
-    srv = MagicMock(spec=PyflowAnalysisServer)
+    srv = MagicMock(spec=AnalysisManager)
     type(srv).is_loaded = PropertyMock(return_value=True)
 
-    srv.get_capabilities.return_value = {"callgraph": True}
-    srv.get_callgraph_data.return_value = {"nodes": ["a"], "edges": []}
-    srv.get_callers.return_value = ["caller1"]
-    srv.get_callees.return_value = ["callee1"]
-    srv.get_shortest_path.return_value = ["a", "b"]
-    srv.get_expression_type.return_value = {"type": "int"}
-    srv.get_function_test_profile.return_value = {
-        "name": "f",
-        "complexity": 1,
-    }
-    srv.get_aliases_for_variable.return_value = {"variable": "x", "aliases": []}
-    srv.get_cfg_structure.return_value = {"nodes": []}
+    snapshot = MagicMock()
+    snapshot.features = MagicMock()
+    snapshot.features.supports.return_value = True
+    snapshot.features.__dict__.update(
+        call_graph=True,
+        control_flow=True,
+        cpa=True,
+        lifetime=True,
+        heap=True,
+        type_info=True,
+    )
+    snapshot.queries.call_graph.get_callgraph_data.return_value = {"nodes": ["a"], "edges": []}
+    snapshot.queries.call_graph.get_callers.return_value = ["caller1"]
+    snapshot.queries.call_graph.get_callees.return_value = ["callee1"]
+    snapshot.queries.call_graph.get_shortest_path.return_value = ["a", "b"]
+    snapshot.queries.type_info.get_expression_type.return_value = "int"
+    snapshot.queries.test_generation.get_function_test_profile.return_value = SimpleNamespace(
+        name="f", signature="()", parameters=[], return_type="int", calls=[],
+        called_by=[], has_branches=False, has_loops=False, complexity=1,
+        external_dependencies=[],
+    )
+    snapshot.queries.data_flow.get_aliases_for_variable.return_value = SimpleNamespace(
+        variable="x", aliases=set(), is_aliased=False, ref_count=0, is_escaped=False
+    )
+    snapshot.queries.control_flow.get_cfg_structure.return_value = {"nodes": []}
+    srv.current_snapshot.return_value = snapshot
+    srv.supports.return_value = True
 
     mock_program = MagicMock()
     mock_program.liveCode = []
@@ -97,6 +113,26 @@ class TestInitialize:
         assert "capabilities" in result
         assert "serverInfo" in result
         assert result["serverInfo"]["name"] == "pyflow"
+
+    def test_initialize_negotiates_current_and_legacy_protocol_versions(self, handlers):
+        current = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2026-07-28"},
+            },
+        )
+        legacy = _dispatch(
+            handlers,
+            {
+                "id": 2,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18"},
+            },
+        )
+        assert current[0]["result"]["protocolVersion"] == "2026-07-28"
+        assert legacy[0]["result"]["protocolVersion"] == "2025-06-18"
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +270,8 @@ class TestTools:
         assert "get_function_test_profile" in names
         assert "get_aliases" in names
         assert "get_cfg_structure" in names
+        assert {"search_symbol", "get_symbol", "get_callgraph_neighborhood", "get_references"} <= set(names)
+        assert all("outputSchema" in tool for tool in tools)
 
     def test_call_tool_get_callers(self, handlers):
         sent = _dispatch(
@@ -352,7 +390,7 @@ class TestTools:
         assert sent[0]["error"]["code"] == -32600
 
     def test_call_tool_returns_error_on_exception(self, mock_server):
-        mock_server.get_callers.side_effect = ValueError("boom")
+        mock_server.current_snapshot.return_value.queries.call_graph.get_callers.side_effect = ValueError("boom")
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         sent = _dispatch(
