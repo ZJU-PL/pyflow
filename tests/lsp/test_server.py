@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from pyflow.application.analysis_snapshot import AnalysisConfig
 from pyflow.lsp import server as server_module
+from pyflow.lsp import workspace as workspace_module
 from pyflow.lsp.server import AnalysisManager
 
 
@@ -198,3 +200,95 @@ def test_old_workspace_analysis_cannot_overwrite_new_generation(
     assert not new_worker.is_alive()
     symbols = manager.current_snapshot().source_index.symbols
     assert {symbol.name for symbol in symbols} == {"second"}
+
+
+def test_syntax_update_reparses_only_changed_file(tmp_path: Path, monkeypatch):
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first.write_text("value = 1\n")
+    second.write_text("other = 2\n")
+    manager = AnalysisManager(verbose=False)
+    manager.load_files([first, second], run_pipeline=False)
+    assert manager.open_document(first.as_uri(), first.read_text(), 1)
+    parsed: list[str] = []
+    original_parse = workspace_module.ast.parse
+
+    def count_parse(source, filename="<unknown>", *args, **kwargs):
+        parsed.append(str(filename))
+        return original_parse(source, filename, *args, **kwargs)
+
+    monkeypatch.setattr(workspace_module.ast, "parse", count_parse)
+    assert manager.change_document(first.as_uri(), [{"text": "value = 3\n"}], 2)
+
+    assert parsed == [str(first.absolute())]
+
+
+def test_newer_syntax_revision_cannot_be_overwritten_by_slow_index_build(
+    tmp_path: Path, monkeypatch
+):
+    source = tmp_path / "sample.py"
+    source.write_text("value = 1\n")
+    manager = AnalysisManager(verbose=False)
+    manager.load_files([source], run_pipeline=False)
+    assert manager.open_document(source.as_uri(), source.read_text(), 1)
+    entered = threading.Event()
+    release = threading.Event()
+    original_update = workspace_module.SourceIndex.with_source_files
+    calls = 0
+
+    def slow_update(index, source_files):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            assert release.wait(timeout=5)
+        return original_update(index, source_files)
+
+    monkeypatch.setattr(workspace_module.SourceIndex, "with_source_files", slow_update)
+    worker = threading.Thread(
+        target=manager.change_document,
+        args=(source.as_uri(), [{"text": "value = 2\n"}], 2),
+    )
+    worker.start()
+    assert entered.wait(timeout=5)
+
+    assert manager.change_document(source.as_uri(), [{"text": "value = 3\n"}], 3)
+    release.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert manager.current_snapshot().source_index.text_for_uri(source.as_uri()) == "value = 3\n"
+
+
+def test_current_snapshot_does_not_wait_for_syntax_index_build(tmp_path: Path, monkeypatch):
+    source = tmp_path / "sample.py"
+    source.write_text("value = 1\n")
+    manager = AnalysisManager(verbose=False)
+    manager.load_files([source], run_pipeline=False)
+    assert manager.open_document(source.as_uri(), source.read_text(), 1)
+    entered = threading.Event()
+    release = threading.Event()
+    original_update = workspace_module.SourceIndex.with_source_files
+
+    def slow_update(index, source_files):
+        entered.set()
+        assert release.wait(timeout=5)
+        return original_update(index, source_files)
+
+    monkeypatch.setattr(workspace_module.SourceIndex, "with_source_files", slow_update)
+    worker = threading.Thread(
+        target=manager.change_document,
+        args=(source.as_uri(), [{"text": "value = 2\n"}], 2),
+    )
+    worker.start()
+    assert entered.wait(timeout=5)
+
+    started = time.monotonic()
+    snapshot = manager.current_snapshot()
+    elapsed = time.monotonic() - started
+    release.set()
+    worker.join(timeout=5)
+
+    assert snapshot.source_revision == 1
+    assert elapsed < 0.1
+    assert not worker.is_alive()

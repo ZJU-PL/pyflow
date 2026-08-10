@@ -316,6 +316,27 @@ class TestResources:
         )
         assert sent[0]["result"]["contents"][0]["uri"] == "pyflow://functions"
 
+    def test_read_resource_uses_one_pinned_snapshot(self, mock_server):
+        snapshot = mock_server.current_snapshot.return_value
+        mock_server.current_snapshot.reset_mock()
+        rpc = JsonRpcServer()
+        McpHandler(mock_server).register_on(rpc)
+        _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
+        _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
+
+        sent = _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "resources/read",
+                "params": {"uri": "pyflow://capabilities"},
+            },
+        )
+
+        assert "contents" in sent[0]["result"]
+        assert mock_server.current_snapshot.call_count == 1
+        assert mock_server.current_snapshot.return_value is snapshot
+
     def test_read_resource_unknown_returns_error(self, handlers):
         sent = _dispatch(
             handlers,
@@ -349,7 +370,9 @@ class TestResources:
 
 class TestTools:
     def test_list_tools_filters_unavailable_capabilities(self, mock_server):
-        mock_server.supports.side_effect = lambda capability: capability != "aliases"
+        mock_server.current_snapshot.return_value.features.supports.side_effect = (
+            lambda capability: capability != "aliases"
+        )
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
         _dispatch(rpc, {"id": 0, "method": "initialize", "params": {}})
@@ -561,8 +584,9 @@ class TestTools:
             )
             result = sent[0]["result"]
             assert result["resultType"] == "complete"
-            assert result["ttlMs"] > 0
+            assert result["ttlMs"] == (0 if method == "resources/read" else 60_000)
             assert result["cacheScope"] == "private"
+            assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "pyflow"
 
     def test_stale_snapshot_keeps_tools_stable_and_rejects_semantic_calls(
         self, mock_server

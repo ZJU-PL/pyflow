@@ -322,12 +322,27 @@ class AnalysisManager:
         The inherited query components remain pinned to the last completed
         semantic analysis and the resulting snapshot says so explicitly.
         """
+        # Index construction is deliberately outside ``_state_lock``: a
+        # reader can keep serving the last immutable snapshot while a changed
+        # file is parsed.  The final publication is guarded by revision and
+        # generation checks below.
         with self._state_lock:
             current = self._snapshot
-            if current is None:
+            if current is None or self._closed:
                 return
-            source_files = self._current_source_files()
-            source_index = SourceIndex(source_files, self._workspace_roots)
+            generation = self._generation
+            python_files = tuple(self._python_files)
+        source_overrides, source_revision = self._documents.snapshot()
+        source_files = self._current_source_files(python_files, source_overrides)
+        source_index = current.source_index.with_source_files(source_files)
+
+        with self._state_lock:
+            if (
+                self._closed
+                or generation != self._generation
+                or source_revision != self._documents.current_revision()
+            ):
+                return
             self._next_revision += 1
             self._snapshot = AnalysisSnapshot.create(
                 program=current.program,
@@ -336,21 +351,26 @@ class AnalysisManager:
                 source_files=source_files,
                 revision=self._next_revision,
                 semantic_revision=current.semantic_revision,
-                source_revision=self._documents.revision,
+                source_revision=source_revision,
                 semantic_stale=True,
                 type_info_service=current.type_info_service,
             )
             self._source_files = dict(source_files)
             self._source_index = source_index
 
-    def _current_source_files(self) -> dict[str, str]:
+    def _current_source_files(
+        self,
+        python_files: tuple[Path, ...] | None = None,
+        source_overrides: Optional[dict[str, str]] = None,
+    ) -> dict[str, str]:
+        python_files = python_files or tuple(self._python_files)
+        if source_overrides is None:
+            source_overrides = self._documents.source_overrides()
         source_files: dict[str, str] = {}
-        for path in self._python_files:
+        for path in python_files:
             normalized = str(path.absolute())
-            source_files[normalized] = self._documents.text(normalized) or _read_source(
-                path
-            )
-        for path, text in self._documents.source_overrides().items():
+            source_files[normalized] = source_overrides.get(normalized, _read_source(path))
+        for path, text in source_overrides.items():
             if path.endswith(".py"):
                 source_files[path] = text
         return source_files

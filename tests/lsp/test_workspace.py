@@ -406,3 +406,131 @@ def test_module_bindings_are_predeclared_for_forward_references(tmp_path: Path):
     assert second is not None and later is not None
     assert call_reference.symbol_id == second.symbol_id
     assert global_reference.symbol_id == later.symbol_id
+
+
+def test_class_body_bindings_are_visible_until_a_lexical_boundary(tmp_path: Path):
+    path = tmp_path / "class_body.py"
+    source = (
+        "def outer():\n"
+        "    class C:\n"
+        "        x = 1\n"
+        "        y = x\n"
+        "        method = lambda: x\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    class_x = index.symbol_at(path.as_uri(), 2, 9)
+    body_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 3
+    )
+    lambda_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 4
+    )
+
+    assert class_x is not None
+    assert body_reference.symbol_id == class_x.symbol_id
+    assert lambda_reference.symbol_id is None
+
+
+def test_global_in_class_body_resolves_module_binding(tmp_path: Path):
+    path = tmp_path / "class_global.py"
+    source = (
+        "x = 0\n\n"
+        "def outer():\n"
+        "    x = 1\n\n"
+        "    class C:\n"
+        "        global x\n"
+        "        y = x\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    module_x = index.symbol_at(path.as_uri(), 0, 1)
+    reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 7
+    )
+
+    assert module_x is not None
+    assert reference.symbol_id == module_x.symbol_id
+
+
+def test_named_expressions_follow_lambda_and_comprehension_scope_rules(tmp_path: Path):
+    path = tmp_path / "named_expr.py"
+    source = (
+        "x = 0\n\n"
+        "def lambda_scope():\n"
+        "    callback = lambda: (x, (x := 1))\n\n"
+        "def comprehension_scope(items):\n"
+        "    result = [y := item for item in items]\n"
+        "    return y\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    lambda_x = next(
+        symbol
+        for symbol in index.symbols
+        if symbol.name == "x" and "<lambda@" in symbol.qualified_name
+    )
+    lambda_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 3
+    )
+    comprehension_y = next(
+        symbol
+        for symbol in index.symbols
+        if symbol.name == "y" and symbol.qualified_name == "named_expr.comprehension_scope.y"
+    )
+    returned_y = next(
+        ref for ref in index.references if ref.name == "y" and ref.location.start_line == 7
+    )
+
+    assert lambda_reference.symbol_id == lambda_x.symbol_id
+    assert returned_y.symbol_id == comprehension_y.symbol_id
+
+
+def test_exception_and_pattern_captures_create_lexical_bindings(tmp_path: Path):
+    path = tmp_path / "captures.py"
+    source = (
+        "def function(obj):\n"
+        "    try:\n"
+        "        raise ValueError()\n"
+        "    except ValueError as error:\n"
+        "        seen = error\n"
+        "    match obj:\n"
+        "        case {\"item\": item, **rest}:\n"
+        "            return item, rest\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    error = index.symbol_at(path.as_uri(), 3, 25)
+    item = index.symbol_at(path.as_uri(), 6, 23)
+    rest = index.symbol_at(path.as_uri(), 6, 32)
+    references = {
+        (reference.name, reference.location.start_line): reference.symbol_id
+        for reference in index.references
+        if reference.name in {"error", "item", "rest"}
+    }
+
+    assert error is not None and item is not None and rest is not None
+    assert references[("error", 4)] == error.symbol_id
+    assert references[("item", 7)] == item.symbol_id
+    assert references[("rest", 7)] == rest.symbol_id
+
+
+def test_receiver_shortcut_requires_the_actual_method_receiver(tmp_path: Path):
+    path = tmp_path / "receiver.py"
+    source = (
+        "class A:\n"
+        "    x = 1\n\n"
+        "    def method(self):\n"
+        "        def inner(self):\n"
+        "            return self.x\n"
+        "        def capture():\n"
+        "            return self.x\n"
+    )
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    class_x = index.symbol_at(path.as_uri(), 1, 5)
+    inner_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 5
+    )
+    capture_reference = next(
+        ref for ref in index.references if ref.name == "x" and ref.location.start_line == 7
+    )
+
+    assert class_x is not None
+    assert inner_reference.symbol_id is None
+    assert capture_reference.symbol_id == class_x.symbol_id

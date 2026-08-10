@@ -123,6 +123,7 @@ class McpHandler:
 
     def _handle_list_resources(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
+        snapshot = self._server.current_snapshot() if self._server.is_loaded else None
         resources = [
             {
                 "uri": "pyflow://capabilities",
@@ -137,9 +138,7 @@ class McpHandler:
                 "mimeType": "application/json",
             },
         ]
-        if (
-            self._server.is_loaded and self._server.supports("callgraph")
-        ):
+        if snapshot is not None and snapshot.features.supports("callgraph"):
             resources.append(
                 {
                     "uri": "pyflow://callgraph",
@@ -168,15 +167,13 @@ class McpHandler:
     def _handle_read_resource(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
         self._require_loaded()
+        snapshot = self._server.current_snapshot()
         uri = (params or {}).get("uri", "")
         if uri == "pyflow://capabilities":
-            value: Any = self._server.current_snapshot().features.__dict__
+            value: Any = snapshot.features.__dict__
         elif uri == "pyflow://callgraph":
-            self._require_capability("callgraph")
-            value = (
-                self._fresh_semantic_snapshot()
-                .queries.call_graph.get_callgraph_data()
-            )
+            self._require_capability("callgraph", snapshot)
+            value = self._fresh_semantic_snapshot(snapshot).queries.call_graph.get_callgraph_data()
         elif uri == "pyflow://functions":
             value = [
                 {
@@ -185,12 +182,12 @@ class McpHandler:
                     "uri": symbol.full_range.uri,
                     "range": symbol.full_range.to_lsp(),
                 }
-                for symbol in self._server.source_index.symbols
+                for symbol in snapshot.source_index.symbols
                 if symbol.kind in {6, 12}
             ]
         elif uri.startswith("pyflow://function/"):
             name = unquote(uri.removeprefix("pyflow://function/"))
-            symbol = self._server.source_index.symbol_by_name(name)
+            symbol = snapshot.source_index.symbol_by_name(name)
             if symbol is None:
                 raise JsonRpcError(
                     ErrorCodes.InvalidParams, f"Unknown function: {name}"
@@ -200,7 +197,7 @@ class McpHandler:
                 "qualifiedName": symbol.qualified_name,
                 "location": symbol.selection_range.location(),
                 "profile": _serialize_profile(
-                    self._fresh_semantic_snapshot()
+                    self._fresh_semantic_snapshot(snapshot)
                     .queries.test_generation.get_function_test_profile(
                         symbol.qualified_name
                     )
@@ -216,15 +213,16 @@ class McpHandler:
                     "text": json.dumps(value, default=str, sort_keys=True),
                 }
             ]
-        })
+        }, ttl_ms=0)
 
     def _handle_list_tools(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
+        snapshot = self._server.current_snapshot() if self._server.is_loaded else None
         tools = []
         for spec in self._tool_specs():
             capability = spec.pop("_capability")
             if capability is None or (
-                self._server.is_loaded and self._server.supports(capability)
+                snapshot is not None and snapshot.features.supports(capability)
             ):
                 tools.append(spec)
         return self._cacheable_complete(params, {"tools": tools})
@@ -458,15 +456,18 @@ class McpHandler:
         if not self._server.is_loaded:
             raise JsonRpcError(ErrorCodes.InvalidRequest, "Workspace is not loaded")
 
-    def _require_capability(self, capability: str) -> None:
-        if not self._server.supports(capability):
+    def _require_capability(self, capability: str, snapshot: Any = None) -> None:
+        if snapshot is None:
+            snapshot = self._server.current_snapshot()
+        if not snapshot.features.supports(capability):
             raise JsonRpcError(
                 ErrorCodes.InvalidRequest,
                 f"Capability {capability} is unavailable in this analysis snapshot",
             )
 
-    def _fresh_semantic_snapshot(self):
-        snapshot = self._server.current_snapshot()
+    def _fresh_semantic_snapshot(self, snapshot: Any = None):
+        if snapshot is None:
+            snapshot = self._server.current_snapshot()
         if snapshot.semantic_stale:
             raise JsonRpcError(
                 ErrorCodes.RequestCancelled,
@@ -519,7 +520,7 @@ class McpHandler:
 
     def _complete(self, params: Any, result: dict[str, Any]) -> dict[str, Any]:
         if self._request_era(params) == "modern":
-            return {"resultType": "complete", **result}
+            return {"resultType": "complete", **self._with_server_meta(result)}
         return result
 
     def _cacheable_complete(
@@ -536,9 +537,21 @@ class McpHandler:
                 "resultType": "complete",
                 "ttlMs": ttl_ms,
                 "cacheScope": cache_scope,
-                **result,
+                **self._with_server_meta(result),
             }
         return result
+
+    def _with_server_meta(self, result: dict[str, Any]) -> dict[str, Any]:
+        meta = result.get("_meta", {})
+        if not isinstance(meta, dict):
+            meta = {}
+        return {
+            **result,
+            "_meta": {
+                **meta,
+                _SERVER_INFO_META_KEY: {"name": "pyflow", "version": self._version()},
+            },
+        }
 
     def _tool_error(self, message: str, params: Any) -> dict[str, Any]:
         return self._complete(params, {
