@@ -897,6 +897,42 @@ class ExecutionOutcome:
 
 
 @dataclass(frozen=True)
+class OperationObservation:
+    """Concrete behavior observed at one refined external operation."""
+
+    module: str
+    name: str
+    arguments: tuple[Any, ...]
+    keywords: tuple[tuple[str, Any], ...]
+    outcome: ExecutionOutcome
+    result: Any = None
+    post_arguments: tuple[Any, ...] | None = None
+    post_keywords: tuple[tuple[str, Any], ...] | None = None
+    precision: str = "opaque"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "module": self.module,
+            "name": self.name,
+            "arguments": [_portable_result(value) for value in self.arguments],
+            "keywords": {key: _portable_result(value) for key, value in self.keywords},
+            "outcome": self.outcome.to_dict(),
+            "result": _portable_result(self.result),
+            "post_arguments": (
+                [_portable_result(value) for value in self.post_arguments]
+                if self.post_arguments is not None
+                else None
+            ),
+            "post_keywords": (
+                {key: _portable_result(value) for key, value in self.post_keywords}
+                if self.post_keywords is not None
+                else None
+            ),
+            "precision": self.precision,
+        }
+
+
+@dataclass(frozen=True)
 class _Branch:
     expression: Any
     taken: bool
@@ -920,6 +956,7 @@ class RunRecord:
     )
     coverage: CoverageSnapshot = dataclass_field(default_factory=CoverageSnapshot)
     post_inputs: tuple[Any, ...] | None = None
+    operations: tuple[OperationObservation, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -930,6 +967,7 @@ class RunRecord:
             "outcome": self.outcome.to_dict(),
             "coverage": self.coverage.to_dict(),
             "post_inputs": (list(self.post_inputs) if self.post_inputs is not None else None),
+            "operations": [operation.to_dict() for operation in self.operations],
         }
 
 
@@ -976,6 +1014,8 @@ class ExplorationStatistics:
     solver_seconds: float
     stop_reason: str
     solver_diagnostics: tuple[str, ...] = ()
+    opaque_observations: int = 0
+    opaque_refinements: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1006,6 +1046,10 @@ class ExplorationStatistics:
                 "coverage_discoveries": self.coverage_discoveries,
                 "iterations_without_discovery": self.iterations_without_discovery,
                 "stop_reason": self.stop_reason,
+            },
+            "models": {
+                "opaque_observations": self.opaque_observations,
+                "opaque_refinements": self.opaque_refinements,
             },
             "timing": {
                 "total_seconds": self.total_seconds,

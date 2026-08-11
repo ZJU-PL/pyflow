@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import importlib
 import importlib.util
 import inspect
 import sys
@@ -12,7 +13,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Iterable
 
-from ..core.runtime import IdentityToken, ExecutionOutcome, OutcomeKind, RunRecord
+from ..core.runtime import (
+    IdentityToken,
+    ExecutionOutcome,
+    OperationObservation,
+    OutcomeKind,
+    RunRecord,
+)
 from .behavior import BehaviorObservation, compare_observations
 
 
@@ -95,8 +102,11 @@ def _replay_run(path: Path, entry: str, run: RunRecord, index: int) -> ReplayRes
     expected = BehaviorObservation.from_run(run)
     if identity_is_opaque:
         expected = BehaviorObservation(run.outcome, actual_result, run.post_inputs)
-    differences = compare_observations(
-        expected, BehaviorObservation(actual_outcome, actual_result, actual_post_inputs)
+    differences = (
+        *compare_observations(
+            expected, BehaviorObservation(actual_outcome, actual_result, actual_post_inputs)
+        ),
+        *_compare_operation_observations(run.operations),
     )
     if differences:
         status = ReplayStatus.MISMATCHED
@@ -113,6 +123,42 @@ def _replay_run(path: Path, entry: str, run: RunRecord, index: int) -> ReplayRes
         actual_post_inputs=actual_post_inputs,
         differences=differences,
     )
+
+
+def _compare_operation_observations(
+    operations: tuple[OperationObservation, ...],
+) -> tuple[str, ...]:
+    differences: list[str] = []
+    for index, operation in enumerate(operations, 1):
+        label = f"operation {index} {operation.module}.{operation.name}"
+        try:
+            function = getattr(importlib.import_module(operation.module), operation.name)
+        except (AttributeError, ImportError) as error:
+            differences.append(f"{label}: resolution failed: {type(error).__name__}: {error}")
+            continue
+        arguments = copy.deepcopy(operation.arguments)
+        keywords = copy.deepcopy(dict(operation.keywords))
+        actual_result: Any = None
+        try:
+            actual_result = function(*arguments, **keywords)
+            actual_outcome = ExecutionOutcome(OutcomeKind.RETURNED)
+        except Exception as error:
+            actual_outcome = ExecutionOutcome(
+                OutcomeKind.TARGET_EXCEPTION,
+                type(error).__name__,
+                str(error) or None,
+            )
+        expected_post = (
+            operation.post_arguments,
+            dict(operation.post_keywords or ()),
+        )
+        actual_post = (tuple(arguments), keywords)
+        operation_differences = compare_observations(
+            BehaviorObservation(operation.outcome, operation.result, expected_post),
+            BehaviorObservation(actual_outcome, actual_result, actual_post),
+        )
+        differences.extend(f"{label}: {difference}" for difference in operation_differences)
+    return tuple(differences)
 
 
 def _contains_identity_token(value: Any) -> bool:

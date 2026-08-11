@@ -49,6 +49,7 @@ from ..core.runtime import (
 )
 from ..core.support import _deep_concrete, _input_key, _valid_input
 from ..interpreter import _Executor
+from ..interpreter.model_registry import OpaqueRefinementStore
 from .search import _ExplorationQueue, _ExplorationState, _PathTree
 from .state_space import SolverResultCache, SolverStateSpace
 
@@ -78,6 +79,8 @@ class _Counters:
     execution_seconds: float = 0.0
     solver_seconds: float = 0.0
     solver_diagnostics: list[str] = field(default_factory=list)
+    opaque_observations: int = 0
+    opaque_refinements: int = 0
 
     def note_outcome(self, outcome: ExecutionOutcome) -> None:
         if outcome.kind is OutcomeKind.RETURNED:
@@ -120,6 +123,8 @@ class _Counters:
             solver_seconds=self.solver_seconds,
             stop_reason=stop_reason,
             solver_diagnostics=tuple(self.solver_diagnostics),
+            opaque_observations=self.opaque_observations,
+            opaque_refinements=self.opaque_refinements,
         )
 
 
@@ -161,6 +166,8 @@ def explore_file(
     max_pending_states: int = 10000,
     max_symbolic_container_size: int = 3,
     check_contracts: bool = False,
+    refine_opaque_calls: bool = False,
+    max_opaque_refinements: int = 1000,
 ) -> ExplorationResult:
     """Explore feasible branches in ``entry`` and return generated inputs."""
     _validate_options(
@@ -179,6 +186,7 @@ def explore_file(
         max_solver_calls,
         max_pending_states,
         max_symbolic_container_size,
+        max_opaque_refinements,
     )
     try:
         import z3  # type: ignore[import-untyped]
@@ -240,6 +248,7 @@ def explore_file(
     seen_counterexamples: set[tuple[str, Any]] = set()
     queued_contract_targets: set[tuple[Any, ...]] = set()
     solver_cache = SolverResultCache()
+    opaque_refinements = OpaqueRefinementStore()
     stop_reason = "exhausted"
     budget_stop_reason: str | None = None
     queue_was_truncated = False
@@ -283,6 +292,9 @@ def explore_file(
             max_symbolic_container_size,
             entry_owner,
             entry_kind,
+            refine_opaque_calls,
+            opaque_refinements,
+            max_opaque_refinements,
         )
         counters.executions += 1
         result: Any = None
@@ -314,6 +326,8 @@ def explore_file(
         finally:
             counters.execution_seconds += monotonic() - execution_started
         counters.note_outcome(outcome)
+        counters.opaque_observations = opaque_refinements.observations
+        counters.opaque_refinements = opaque_refinements.refinements
         if (
             outcome.kind is OutcomeKind.TARGET_EXCEPTION
             and contracts.expected_exceptions
@@ -354,6 +368,7 @@ def explore_file(
                     outcome,
                     coverage,
                     post_inputs,
+                    tuple(executor._operation_observations),
                 )
             )
         path_tree.observe(path_constraints)
@@ -407,6 +422,7 @@ def explore_file(
                     parameter_names,
                     executor.input_values,
                     tuple(executor.input_constraints),
+                    tuple(executor.guidance_constraints),
                     path_constraints,
                     _Branch(condition.symbolic, True),
                     counters,
@@ -436,6 +452,7 @@ def explore_file(
                 parameter_names,
                 executor.input_values,
                 tuple(executor.input_constraints),
+                tuple(executor.guidance_constraints),
                 path_constraints[:index],
                 branch,
                 counters,
@@ -571,6 +588,7 @@ def _validate_options(
     max_solver_calls: int | None,
     max_pending_states: int,
     max_symbolic_container_size: int,
+    max_opaque_refinements: int,
 ) -> None:
     positive_options = {
         "max_iterations": max_iterations,
@@ -580,6 +598,7 @@ def _validate_options(
         "max_schedule_states": max_schedule_states,
         "max_pending_states": max_pending_states,
         "max_symbolic_container_size": max_symbolic_container_size,
+        "max_opaque_refinements": max_opaque_refinements,
     }
     for name, value in positive_options.items():
         if value < 1:
@@ -677,6 +696,7 @@ def _solve_path(
     parameter_names: tuple[str, ...],
     input_kinds: tuple[Any, ...],
     input_constraints: tuple[Any, ...],
+    guidance_constraints: tuple[Any, ...],
     prefix: tuple[_Branch, ...],
     flipped: _Branch,
     counters: _Counters,
@@ -699,17 +719,26 @@ def _solve_path(
     if effective_timeout is not None:
         if timeout_reason is None:
             timeout_reason = "solver_timeout"
-    space = SolverStateSpace(
-        z3,
-        timeout_seconds=effective_timeout,
-        rlimit=budgets.solver_rlimit,
-        cache=cache,
-    )
-    space.add(*input_constraints)
-    for branch in prefix:
-        space.add(branch.expression if branch.taken else z3.Not(branch.expression))
-    space.add(flipped.expression if not flipped.taken else z3.Not(flipped.expression))
-    checked = space.check()
+
+    def check(guidance: tuple[Any, ...]) -> Any:
+        space = SolverStateSpace(
+            z3,
+            timeout_seconds=effective_timeout,
+            rlimit=budgets.solver_rlimit,
+            cache=cache,
+        )
+        space.add(*input_constraints)
+        space.add(*guidance)
+        for branch in prefix:
+            space.add(branch.expression if branch.taken else z3.Not(branch.expression))
+        space.add(flipped.expression if not flipped.taken else z3.Not(flipped.expression))
+        return space.check()
+
+    checked = check(guidance_constraints)
+    if guidance_constraints and checked.result == z3.unsat:
+        counters.solver_seconds += checked.seconds
+        counters.solver_cache_hits += int(checked.cache_hit)
+        checked = check(())
     result = checked.result
     counters.solver_seconds += checked.seconds
     counters.solver_cache_hits += int(checked.cache_hit)

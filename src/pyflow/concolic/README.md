@@ -47,6 +47,8 @@ Resource controls include:
   one concrete execution; and
 - `--max-schedule-states` for nondeterministic scheduling prefixes per input.
 - `--max-symbolic-container-size` for bounded input-list shape exploration.
+- `--max-opaque-refinements` for the number of distinct CPython observations
+  retained by observation-refined library models.
 
 The `explore_file` keyword arguments use the corresponding underscore names.
 Budget termination is explicit in `ExplorationStatistics.stop_reason`. A
@@ -72,6 +74,31 @@ Input lists and sets have bounded symbolic shape, so an empty seed can discover
 nonempty paths. Input dictionaries track symbolic presence for keys observed
 by membership tests. Aliased mutable parameters retain shared heap
 identity through execution, model generation, and replay.
+
+## Observation-Refined Library Calls
+
+Pass `--refine-opaque-calls` (or `refine_opaque_calls=True`) to continue through
+otherwise unsupported calls in a conservative allowlist of deterministic
+standard-library modules. The engine invokes the real CPython operation on
+deep-copied concrete arguments, records its return value, exception, and
+argument effects, and adds the observation to a refinement store shared by all
+executions in the current search.
+
+Primitive results are represented by typed uninterpreted functions constrained
+at every observed point. For Boolean, integer, and string results, the engine
+also proposes small branch-relevant relations, validates them against prior
+observations and fresh probes, and uses a valid relation as solver guidance.
+Guidance is speculative: an unsatisfiable guided query is retried without it.
+This lets path solving invert common operations such as predicates, integer
+sign changes, and string prefix/suffix transformations without treating an
+inferred relation as a sound global summary.
+
+List, dictionary, and set mutations are reflected in the concolic runtime;
+container-valued results can continue through concrete container operations.
+Each refined operation is attached to its `RunRecord`, included in JSON output,
+and replayed independently so a CPython mismatch identifies the responsible
+library call rather than only the final program result. Refinement is opt-in,
+allowlisted, and bounded because it executes host-library code.
 
 Exploration statistics report execution outcomes, solver SAT/UNSAT/timeout
 counts, solver and execution time, queue size, dropped and enqueued states,

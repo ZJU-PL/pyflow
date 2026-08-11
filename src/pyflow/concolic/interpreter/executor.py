@@ -11,6 +11,7 @@ from ..resumable import _ResumableMixin
 from ..core.runtime import (
     BranchCoverage,
     FunctionNode,
+    OperationObservation,
     SourceLocation,
     _Branch,
     _ClassValue,
@@ -22,6 +23,7 @@ from ..core.runtime import (
 from .calls import _CallMixin
 from .collections import _CollectionMethodMixin
 from .coverage import _CoverageMixin
+from .model_registry import OpaqueRefinementStore
 from .objects import _ObjectMixin
 from .semantics import _SemanticMixin
 from .statements import _StatementMixin
@@ -60,6 +62,9 @@ class _Executor(
         max_symbolic_container_size: int = 3,
         entry_owner: _ClassValue | None = None,
         entry_kind: str = "function",
+        refine_opaque_calls: bool = False,
+        opaque_refinements: OpaqueRefinementStore | None = None,
+        max_opaque_refinements: int = 1000,
     ) -> None:
         self._function = function
         self._z3 = z3
@@ -83,7 +88,13 @@ class _Executor(
         self._max_symbolic_container_size = max_symbolic_container_size
         self._entry_owner = entry_owner
         self._entry_kind = entry_kind
+        self._refine_opaque_calls = refine_opaque_calls
+        self._opaque_refinements = opaque_refinements or OpaqueRefinementStore()
+        self._max_opaque_refinements = max_opaque_refinements
+        self._opaque_functions: dict[str, Any] = {}
+        self._operation_observations: list[OperationObservation] = []
         self.input_constraints: list[Any] = []
+        self.guidance_constraints: list[Any] = []
         self._input_memo: dict[int, Any] = {}
         self._heap_references: dict[int, _HeapRefValue] = {}
         self._global_values: dict[str, Any] = {}

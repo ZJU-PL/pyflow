@@ -150,6 +150,20 @@ def add_concolic_parser(subparsers):
         action="store_true",
         help="Check supported PEP 316 postconditions and report counterexamples",
     )
+    parser.add_argument(
+        "--refine-opaque-calls",
+        action="store_true",
+        help=(
+            "Execute safe unsupported library calls concretely and refine "
+            "symbolic relations from observations"
+        ),
+    )
+    parser.add_argument(
+        "--max-opaque-refinements",
+        type=int,
+        default=1000,
+        help="Maximum distinct CPython observations for opaque calls (default: 1000)",
+    )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     parser.add_argument(
         "--emit-pytest",
@@ -196,6 +210,8 @@ def run_concolic(args) -> int:
             max_pending_states=getattr(args, "max_pending_states", 10000),
             max_symbolic_container_size=getattr(args, "max_symbolic_container_size", 3),
             check_contracts=getattr(args, "check_contracts", False),
+            refine_opaque_calls=getattr(args, "refine_opaque_calls", False),
+            max_opaque_refinements=getattr(args, "max_opaque_refinements", 1000),
         )
     except (ConcolicError, OSError, SyntaxError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
@@ -277,6 +293,8 @@ def _run_project_scan(args) -> int:
         "max_solver_calls": getattr(args, "max_solver_calls", None),
         "max_pending_states": getattr(args, "max_pending_states", 10000),
         "check_contracts": getattr(args, "check_contracts", False),
+        "refine_opaque_calls": getattr(args, "refine_opaque_calls", False),
+        "max_opaque_refinements": getattr(args, "max_opaque_refinements", 1000),
     }
     try:
         result = scan_project(

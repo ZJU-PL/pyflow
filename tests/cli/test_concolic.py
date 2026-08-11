@@ -41,6 +41,9 @@ def test_concolic_parser_exposes_coverage_search_controls():
             "30",
             "--max-symbolic-container-size",
             "4",
+            "--refine-opaque-calls",
+            "--max-opaque-refinements",
+            "40",
             "--emit-pytest",
             "generated_test.py",
         ]
@@ -55,6 +58,8 @@ def test_concolic_parser_exposes_coverage_search_controls():
     assert args.max_solver_calls == 20
     assert args.max_pending_states == 30
     assert args.max_symbolic_container_size == 4
+    assert args.refine_opaque_calls
+    assert args.max_opaque_refinements == 40
     assert args.emit_pytest == "generated_test.py"
 
 

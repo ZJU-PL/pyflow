@@ -12,6 +12,8 @@ import bisect
 
 import codecs
 
+import copy
+
 import datetime
 
 import fnmatch
@@ -19,6 +21,8 @@ import fnmatch
 import heapq
 
 import html
+
+import importlib
 
 import itertools
 
@@ -42,6 +46,9 @@ from typing import Any
 
 from ..core.runtime import (
     ConcolicError,
+    ExecutionOutcome,
+    OperationObservation,
+    OutcomeKind,
     UnsupportedSyntaxError,
     _AccumulateIteratorValue,
     _BoolValue,
@@ -74,14 +81,23 @@ from ..core.runtime import (
     _StringValue,
     _SuppressContext,
     _SchedulerYield,
+    _SetValue,
+    _TargetException,
     _TimedeltaValue,
     _TupleValue,
     _URLParseValue,
     _ZipLongestIteratorValue,
 )
 
-from ..core.support import _concrete
-from .model_registry import SummaryModelRegistry, register_model_families
+from ..core.support import _concrete, _deep_concrete
+from .model_registry import (
+    ModelPrecision,
+    ModelResult,
+    OpaqueCallSample,
+    OpaqueCallSignature,
+    SummaryModelRegistry,
+    register_model_families,
+)
 
 
 def _builtin_model_family(
@@ -132,9 +148,673 @@ class _SummaryMixin:
         self, module: str, name: str, args: list[Any], keywords: dict[str, Any]
     ) -> Any:
         handler = self._model_registry.resolve(module, name)
-        if handler is None:
-            raise UnsupportedSyntaxError(f"unsupported library summary {module}.{name}")
-        return handler(self, module, name, args, keywords)
+        if handler is not None:
+            try:
+                result = handler(self, module, name, args, keywords)
+            except UnsupportedSyntaxError:
+                if not self._refine_opaque_calls:
+                    raise
+            else:
+                return self._apply_model_result(result)
+        if self._refine_opaque_calls:
+            return self._call_opaque_summary(module, name, args, keywords)
+        raise UnsupportedSyntaxError(f"unsupported library summary {module}.{name}")
+
+    def _apply_model_result(self, result: Any) -> Any:
+        if not isinstance(result, ModelResult):
+            return result
+        self.input_constraints.extend(result.assumptions)
+        self.guidance_constraints.extend(result.guidance)
+        return result.value
+
+    def _call_opaque_summary(
+        self,
+        module: str,
+        name: str,
+        args: list[Any],
+        keywords: dict[str, Any],
+    ) -> Any:
+        if module not in _OPAQUE_SAFE_MODULES or "." in name or name.startswith("_"):
+            raise UnsupportedSyntaxError(f"unsafe opaque library call {module}.{name}")
+        terms = tuple(self._opaque_term(value) for value in args)
+        keyword_terms = tuple(
+            (key, self._opaque_term(value)) for key, value in sorted(keywords.items())
+        )
+        if any(term is None for term in terms) or any(term is None for _, term in keyword_terms):
+            raise UnsupportedSyntaxError(
+                f"opaque library call {module}.{name} requires primitive arguments"
+            )
+        concrete_args = tuple(_deep_concrete(value) for value in args)
+        concrete_keywords = tuple(
+            (key, _deep_concrete(value)) for key, value in sorted(keywords.items())
+        )
+        signature = OpaqueCallSignature(
+            module,
+            name,
+            tuple(self._opaque_kind(value) for value in concrete_args),
+            tuple((key, self._opaque_kind(value)) for key, value in concrete_keywords),
+        )
+        function = self._resolve_opaque_callable(module, name)
+        invoked_args = copy.deepcopy(concrete_args)
+        invoked_keywords = copy.deepcopy(dict(concrete_keywords))
+        original_args = copy.deepcopy(invoked_args)
+        original_keywords = copy.deepcopy(invoked_keywords)
+        result: Any = None
+        error: Exception | None = None
+        try:
+            result = function(*invoked_args, **invoked_keywords)
+        except Exception as caught:
+            error = caught
+        mutated = invoked_args != original_args or invoked_keywords != original_keywords
+        if mutated:
+            sources = (*args, *keywords.values())
+            self._apply_opaque_mutations(args, invoked_args, sources)
+            self._apply_opaque_keyword_mutations(keywords, invoked_keywords, sources)
+        result_kind = None if error is not None else self._opaque_kind(result)
+        if error is None and result_kind not in _OPAQUE_RESULT_KINDS:
+            raise UnsupportedSyntaxError(
+                f"opaque library call {signature.display_name} returned unsupported "
+                f"type {type(result).__name__}"
+            )
+        sample = OpaqueCallSample(
+            arguments=concrete_args,
+            keywords=concrete_keywords,
+            result_kind=result_kind,
+            result=result,
+            exception_type=type(error).__name__ if error is not None else None,
+            exception_message=str(error) if error is not None else None,
+        )
+        added = self._opaque_refinements.observe(
+            signature,
+            sample,
+            max_refinements=self._max_opaque_refinements,
+        )
+        if added is None:
+            raise ConcolicError(
+                "opaque refinement limit exceeded " f"({self._max_opaque_refinements})"
+            )
+        operation_outcome = (
+            ExecutionOutcome(
+                OutcomeKind.TARGET_EXCEPTION,
+                type(error).__name__,
+                str(error) or None,
+            )
+            if error is not None
+            else ExecutionOutcome(OutcomeKind.RETURNED)
+        )
+        self._operation_observations.append(
+            OperationObservation(
+                module=module,
+                name=name,
+                arguments=concrete_args,
+                keywords=concrete_keywords,
+                outcome=operation_outcome,
+                result=result,
+                post_arguments=tuple(invoked_args),
+                post_keywords=tuple(sorted(invoked_keywords.items())),
+                precision=(
+                    ModelPrecision.OPAQUE.value if mutated else ModelPrecision.REFINED.value
+                ),
+            )
+        )
+        all_terms = (*terms, *(term for _, term in keyword_terms))
+        exception_expression = self._opaque_function(
+            signature, "raises", all_terms, self._z3.BoolSort()
+        )
+        self._add_opaque_sample_constraints(signature, all_terms, exception_expression)
+        exception_guidance = self._synthesize_opaque_exception_guidance(
+            function,
+            signature,
+            terms,
+            keyword_terms,
+            concrete_args,
+            concrete_keywords,
+            exception_expression,
+        )
+        if exception_guidance is not None:
+            self.guidance_constraints.append(exception_guidance)
+        if error is not None or any(
+            observed.raised for observed in self._opaque_refinements.samples(signature)
+        ):
+            self._record_branch(
+                exception_expression,
+                error is not None,
+                None,
+                "opaque_exception",
+            )
+        if error is not None:
+            raise _TargetException(type(error).__name__, str(error))
+        if result is None:
+            return None
+        if result_kind in {"bytes", "list", "tuple", "dict", "set"}:
+            return self._constant_value(result)
+        assert result_kind is not None
+        result_sort = self._opaque_sort(result_kind)
+        result_expression = self._opaque_function(
+            signature, f"result_{result_kind}", all_terms, result_sort
+        )
+        self._add_opaque_result_constraints(
+            signature,
+            all_terms,
+            result_expression,
+            result_kind,
+        )
+        guidance = self._synthesize_opaque_guidance(
+            function,
+            signature,
+            terms,
+            keyword_terms,
+            concrete_args,
+            concrete_keywords,
+            result_expression,
+            result,
+        )
+        return self._apply_model_result(
+            ModelResult(
+                self._opaque_value(result, result_expression),
+                ModelPrecision.REFINED,
+                guidance=(guidance,) if guidance is not None else (),
+            )
+        )
+
+    def _opaque_term(self, value: Any) -> Any | None:
+        if isinstance(value, (_BoolValue, _IntValue, _FloatValue, _StringValue)):
+            return value.symbolic
+        concrete = _deep_concrete(value)
+        if isinstance(concrete, bool):
+            return self._z3.BoolVal(concrete)
+        if isinstance(concrete, int):
+            return self._z3.IntVal(concrete)
+        if isinstance(concrete, float) and math.isfinite(concrete):
+            return self._z3.RealVal(str(concrete))
+        if isinstance(concrete, str):
+            return self._z3.StringVal(concrete)
+        if isinstance(concrete, (bytes, list, tuple, dict, set)):
+            return self._z3.StringVal(_opaque_container_token(concrete))
+        return None
+
+    @staticmethod
+    def _opaque_kind(value: Any) -> str:
+        if value is None:
+            return "none"
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float) and math.isfinite(value):
+            return "float"
+        if isinstance(value, str):
+            return "str"
+        if isinstance(value, bytes):
+            return "bytes"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, tuple):
+            return "tuple"
+        if isinstance(value, dict):
+            return "dict"
+        if isinstance(value, set):
+            return "set"
+        return type(value).__name__
+
+    def _opaque_sort(self, kind: str) -> Any:
+        return {
+            "bool": self._z3.BoolSort(),
+            "int": self._z3.IntSort(),
+            "float": self._z3.RealSort(),
+            "str": self._z3.StringSort(),
+        }[kind]
+
+    def _opaque_literal(self, value: Any) -> Any:
+        kind = self._opaque_kind(value)
+        if kind == "bool":
+            return self._z3.BoolVal(value)
+        if kind == "int":
+            return self._z3.IntVal(value)
+        if kind == "float":
+            return self._z3.RealVal(str(value))
+        if kind == "str":
+            return self._z3.StringVal(value)
+        if kind in {"bytes", "list", "tuple", "dict", "set"}:
+            return self._z3.StringVal(_opaque_container_token(value))
+        raise UnsupportedSyntaxError(f"unsupported opaque literal {value!r}")
+
+    def _opaque_function(
+        self,
+        signature: OpaqueCallSignature,
+        suffix: str,
+        terms: tuple[Any, ...],
+        result_sort: Any,
+    ) -> Any:
+        name = _opaque_symbol_name(signature, suffix)
+        function = self._opaque_functions.get(name)
+        if function is None:
+            function = self._z3.Function(
+                name,
+                *(term.sort() for term in terms),
+                result_sort,
+            )
+            self._opaque_functions[name] = function
+        return function(*terms)
+
+    def _add_opaque_sample_constraints(
+        self,
+        signature: OpaqueCallSignature,
+        terms: tuple[Any, ...],
+        exception_expression: Any,
+    ) -> None:
+        for sample in self._opaque_refinements.samples(signature):
+            values = (*sample.arguments, *(value for _, value in sample.keywords))
+            condition = self._z3.And(
+                *(term == self._opaque_literal(value) for term, value in zip(terms, values))
+            )
+            self.input_constraints.append(
+                self._z3.Implies(condition, exception_expression == sample.raised)
+            )
+
+    def _add_opaque_result_constraints(
+        self,
+        signature: OpaqueCallSignature,
+        terms: tuple[Any, ...],
+        result_expression: Any,
+        result_kind: str,
+    ) -> None:
+        for sample in self._opaque_refinements.samples(signature):
+            if sample.raised or sample.result_kind != result_kind:
+                continue
+            values = (*sample.arguments, *(value for _, value in sample.keywords))
+            condition = self._z3.And(
+                *(term == self._opaque_literal(value) for term, value in zip(terms, values))
+            )
+            self.input_constraints.append(
+                self._z3.Implies(
+                    condition,
+                    result_expression == self._opaque_literal(sample.result),
+                )
+            )
+
+    def _opaque_value(self, concrete: Any, symbolic: Any) -> Any:
+        kind = self._opaque_kind(concrete)
+        if kind == "bool":
+            return _BoolValue(concrete, symbolic)
+        if kind == "int":
+            return _IntValue(concrete, symbolic)
+        if kind == "float":
+            return _FloatValue(concrete, symbolic)
+        if kind == "str":
+            return _StringValue(concrete, symbolic)
+        if kind in {"bytes", "list", "tuple", "dict", "set"}:
+            return self._constant_value(concrete)
+        raise UnsupportedSyntaxError(f"unsupported opaque result {concrete!r}")
+
+    def _apply_opaque_mutations(
+        self,
+        original: list[Any],
+        concrete: tuple[Any, ...],
+        sources: tuple[Any, ...],
+    ) -> None:
+        for value, updated in zip(original, concrete):
+            self._apply_opaque_mutation(value, updated, sources)
+
+    def _apply_opaque_keyword_mutations(
+        self,
+        original: dict[str, Any],
+        concrete: dict[str, Any],
+        sources: tuple[Any, ...],
+    ) -> None:
+        for name, value in original.items():
+            self._apply_opaque_mutation(value, concrete[name], sources)
+
+    def _apply_opaque_mutation(
+        self,
+        value: Any,
+        updated: Any,
+        sources: tuple[Any, ...],
+    ) -> None:
+        if isinstance(value, _ListValue) and isinstance(updated, list):
+            previous_list = tuple(value.values)
+            value.values[:] = [
+                self._reify_opaque_effect(
+                    item,
+                    sources,
+                    previous_list[index] if index < len(previous_list) else None,
+                )
+                for index, item in enumerate(updated)
+            ]
+            return
+        if isinstance(value, _DictValue) and isinstance(updated, dict):
+            previous_dict = dict(value.values)
+            value.values.clear()
+            value.values.update(
+                {
+                    key: self._reify_opaque_effect(item, sources, previous_dict.get(key))
+                    for key, item in updated.items()
+                }
+            )
+            return
+        if isinstance(value, _SetValue) and isinstance(updated, set):
+            previous_set = tuple(value.values)
+            value.values[:] = [
+                self._reify_opaque_effect(
+                    item,
+                    sources,
+                    next(
+                        (
+                            candidate
+                            for candidate in previous_set
+                            if _deep_concrete(candidate) == item
+                        ),
+                        None,
+                    ),
+                )
+                for item in updated
+            ]
+            return
+        if _deep_concrete(value) != updated:
+            raise UnsupportedSyntaxError(
+                "opaque library mutation requires a list, dictionary, or set"
+            )
+
+    def _reify_opaque_effect(
+        self,
+        concrete: Any,
+        sources: tuple[Any, ...],
+        previous: Any = None,
+    ) -> Any:
+        if previous is not None and _deep_concrete(previous) == concrete:
+            return previous
+        matching_sources = tuple(
+            source
+            for source in sources
+            if isinstance(
+                source,
+                (_BoolValue, _IntValue, _FloatValue, _StringValue),
+            )
+            and _deep_concrete(source) == concrete
+        )
+        for source in matching_sources:
+            if self._opaque_term_has_input(source.symbolic):
+                return source
+        if matching_sources:
+            return matching_sources[0]
+        return self._constant_value(concrete)
+
+    @staticmethod
+    def _resolve_opaque_callable(module: str, name: str) -> Any:
+        try:
+            value = getattr(importlib.import_module(module), name)
+        except (AttributeError, ImportError) as error:
+            raise UnsupportedSyntaxError(
+                f"cannot resolve opaque library call {module}.{name}"
+            ) from error
+        if not callable(value):
+            raise UnsupportedSyntaxError(f"opaque library value {module}.{name} is not callable")
+        return value
+
+    def _synthesize_opaque_guidance(
+        self,
+        function: Any,
+        signature: OpaqueCallSignature,
+        terms: tuple[Any, ...],
+        keyword_terms: tuple[tuple[str, Any], ...],
+        arguments: tuple[Any, ...],
+        keywords: tuple[tuple[str, Any], ...],
+        result_expression: Any,
+        result: Any,
+    ) -> Any | None:
+        symbolic_values = (*terms, *(term for _, term in keyword_terms))
+        concrete_values = (*arguments, *(value for _, value in keywords))
+        if isinstance(result, bool):
+            result_kind = "bool"
+            candidates = self._opaque_boolean_candidates(symbolic_values, concrete_values)
+        elif isinstance(result, int):
+            result_kind = "int"
+            candidates = self._opaque_integer_candidates(
+                symbolic_values,
+                concrete_values,
+                result,
+            )
+        elif isinstance(result, str):
+            result_kind = "str"
+            candidates = self._opaque_string_candidates(
+                symbolic_values,
+                concrete_values,
+                result,
+            )
+        else:
+            return None
+        dynamic = tuple(
+            self._opaque_term_has_input(term)
+            for term in (*terms, *(term for _, term in keyword_terms))
+        )
+        probes = _opaque_probe_arguments(arguments, keywords, dynamic)
+        samples = self._opaque_refinements.samples(signature)
+        for symbolic_candidate, concrete_candidate in candidates:
+            if not all(
+                sample.raised
+                or sample.result_kind != result_kind
+                or concrete_candidate((*sample.arguments, *(value for _, value in sample.keywords)))
+                == sample.result
+                for sample in samples
+            ):
+                continue
+            if not _opaque_candidate_matches_probes(
+                function,
+                probes,
+                concrete_candidate,
+                result_kind,
+            ):
+                continue
+            return result_expression == symbolic_candidate
+        return None
+
+    def _opaque_integer_candidates(
+        self,
+        terms: tuple[Any, ...],
+        values: tuple[Any, ...],
+        result: int,
+    ) -> tuple[tuple[Any, Any], ...]:
+        candidates: list[tuple[Any, Any]] = []
+        for index, value in enumerate(values):
+            if not isinstance(value, int) or isinstance(value, bool):
+                continue
+            term = terms[index]
+            if term.sort() != self._z3.IntSort():
+                continue
+            candidates.extend(
+                (
+                    (term, lambda vals, i=index: vals[i]),
+                    (-term, lambda vals, i=index: -vals[i]),
+                    (
+                        self._z3.If(term >= 0, term, -term),
+                        lambda vals, i=index: abs(vals[i]),
+                    ),
+                )
+            )
+            delta = result - value
+            if delta:
+                candidates.append(
+                    (
+                        term + delta,
+                        lambda vals, i=index, amount=delta: vals[i] + amount,
+                    )
+                )
+        return tuple(candidates)
+
+    def _opaque_string_candidates(
+        self,
+        terms: tuple[Any, ...],
+        values: tuple[Any, ...],
+        result: str,
+    ) -> tuple[tuple[Any, Any], ...]:
+        candidates: list[tuple[Any, Any]] = []
+        for index, value in enumerate(values):
+            if not isinstance(value, str):
+                continue
+            term = terms[index]
+            if term.sort() != self._z3.StringSort():
+                continue
+            candidates.append((term, lambda vals, i=index: vals[i]))
+            if result.startswith(value):
+                suffix = result[len(value) :]
+                if suffix:
+                    candidates.append(
+                        (
+                            self._z3.Concat(term, self._z3.StringVal(suffix)),
+                            lambda vals, i=index, text=suffix: vals[i] + text,
+                        )
+                    )
+            if result.endswith(value):
+                prefix = result[: len(result) - len(value)] if value else result
+                if prefix:
+                    candidates.append(
+                        (
+                            self._z3.Concat(self._z3.StringVal(prefix), term),
+                            lambda vals, i=index, text=prefix: text + vals[i],
+                        )
+                    )
+        return tuple(candidates)
+
+    def _synthesize_opaque_exception_guidance(
+        self,
+        function: Any,
+        signature: OpaqueCallSignature,
+        terms: tuple[Any, ...],
+        keyword_terms: tuple[tuple[str, Any], ...],
+        arguments: tuple[Any, ...],
+        keywords: tuple[tuple[str, Any], ...],
+        exception_expression: Any,
+    ) -> Any | None:
+        symbolic_values = (*terms, *(term for _, term in keyword_terms))
+        concrete_values = (*arguments, *(value for _, value in keywords))
+        candidates = self._opaque_boolean_candidates(symbolic_values, concrete_values)
+        dynamic = tuple(self._opaque_term_has_input(term) for term in symbolic_values)
+        probes = _opaque_probe_arguments(arguments, keywords, dynamic)
+        samples = self._opaque_refinements.samples(signature)
+        for symbolic_candidate, concrete_candidate in candidates:
+            if not all(
+                bool(
+                    concrete_candidate(
+                        (*sample.arguments, *(value for _, value in sample.keywords))
+                    )
+                )
+                == sample.raised
+                for sample in samples
+            ):
+                continue
+            if not _opaque_exception_candidate_matches_probes(function, probes, concrete_candidate):
+                continue
+            return exception_expression == symbolic_candidate
+        return None
+
+    def _opaque_term_has_input(self, term: Any) -> bool:
+        if (
+            self._z3.is_true(term)
+            or self._z3.is_false(term)
+            or self._z3.is_int_value(term)
+            or self._z3.is_rational_value(term)
+            or self._z3.is_string_value(term)
+        ):
+            return False
+        if term.num_args() == 0:
+            return True
+        return any(self._opaque_term_has_input(child) for child in term.children())
+
+    def _opaque_boolean_candidates(
+        self,
+        terms: tuple[Any, ...],
+        values: tuple[Any, ...],
+    ) -> tuple[tuple[Any, Any], ...]:
+        candidates: list[tuple[Any, Any]] = []
+        for left_index, left in enumerate(values):
+            if not isinstance(left, (int, float, str)) or isinstance(left, bool):
+                continue
+            for right_index, right in enumerate(values):
+                if right_index <= left_index or not isinstance(right, type(left)):
+                    continue
+                left_term = terms[left_index]
+                right_term = terms[right_index]
+                comparisons = (
+                    (
+                        left_term == right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] == vals[b],
+                    ),
+                    (
+                        left_term != right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] != vals[b],
+                    ),
+                    (
+                        left_term < right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] < vals[b],
+                    ),
+                    (
+                        left_term <= right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] <= vals[b],
+                    ),
+                    (
+                        left_term > right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] > vals[b],
+                    ),
+                    (
+                        left_term >= right_term,
+                        lambda vals, a=left_index, b=right_index: vals[a] >= vals[b],
+                    ),
+                )
+                candidates.extend(comparisons)
+        for index, value in enumerate(values):
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                continue
+            term = terms[index]
+            constants = {
+                0,
+                1,
+                -1,
+                *(
+                    candidate
+                    for candidate in values
+                    if isinstance(candidate, (int, float)) and not isinstance(candidate, bool)
+                ),
+            }
+            for constant in sorted(constants, key=repr):
+                literal = self._opaque_literal(constant)
+                candidates.extend(
+                    (
+                        (
+                            term == literal,
+                            lambda vals, i=index, c=constant: vals[i] == c,
+                        ),
+                        (
+                            term != literal,
+                            lambda vals, i=index, c=constant: vals[i] != c,
+                        ),
+                        (
+                            term < literal,
+                            lambda vals, i=index, c=constant: vals[i] < c,
+                        ),
+                        (
+                            term <= literal,
+                            lambda vals, i=index, c=constant: vals[i] <= c,
+                        ),
+                        (
+                            term > literal,
+                            lambda vals, i=index, c=constant: vals[i] > c,
+                        ),
+                        (
+                            term >= literal,
+                            lambda vals, i=index, c=constant: vals[i] >= c,
+                        ),
+                    )
+                )
+            candidates.extend(
+                (
+                    (term == 0, lambda vals, i=index: vals[i] == 0),
+                    (term < 0, lambda vals, i=index: vals[i] < 0),
+                    (term <= 0, lambda vals, i=index: vals[i] <= 0),
+                    (term > 0, lambda vals, i=index: vals[i] > 0),
+                    (term >= 0, lambda vals, i=index: vals[i] >= 0),
+                )
+            )
+        return tuple(candidates)
 
     def _call_builtin_summary(
         self, module: str, name: str, args: list[Any], keywords: dict[str, Any]
@@ -748,3 +1428,157 @@ class _SummaryMixin:
             result = posixpath.join(*(self._to_string(argument).concrete for argument in args))
             return _StringValue(result, self._z3.StringVal(result))
         raise UnsupportedSyntaxError(f"unsupported library summary {module}.{name}")
+
+
+_OPAQUE_SAFE_MODULES = {
+    "base64",
+    "binascii",
+    "codecs",
+    "fnmatch",
+    "html",
+    "math",
+    "operator",
+    "os.path",
+    "statistics",
+    "struct",
+    "unicodedata",
+    "urllib.parse",
+    "zlib",
+}
+_OPAQUE_RESULT_KINDS = {
+    "none",
+    "bool",
+    "int",
+    "float",
+    "str",
+    "bytes",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+}
+
+
+def _opaque_symbol_name(signature: OpaqueCallSignature, suffix: str) -> str:
+    raw = "_".join(
+        (
+            "pyflow_opaque",
+            signature.module,
+            signature.name,
+            *signature.argument_kinds,
+            *(f"{name}_{kind}" for name, kind in signature.keyword_kinds),
+            suffix,
+        )
+    )
+    return "".join(character if character.isalnum() else "_" for character in raw)
+
+
+def _opaque_container_token(value: Any) -> str:
+    if isinstance(value, bytes):
+        return f"bytes:{value.hex()}"
+    if isinstance(value, list):
+        return "list:[" + ",".join(_opaque_container_token(item) for item in value) + "]"
+    if isinstance(value, tuple):
+        return "tuple:(" + ",".join(_opaque_container_token(item) for item in value) + ")"
+    if isinstance(value, dict):
+        entries = sorted(value.items(), key=lambda item: repr(item[0]))
+        return (
+            "dict:{"
+            + ",".join(
+                f"{_opaque_container_token(key)}:{_opaque_container_token(item)}"
+                for key, item in entries
+            )
+            + "}"
+        )
+    if isinstance(value, set):
+        return "set:{" + ",".join(sorted((_opaque_container_token(item) for item in value))) + "}"
+    return f"{type(value).__name__}:{value!r}"
+
+
+def _opaque_probe_arguments(
+    arguments: tuple[Any, ...],
+    keywords: tuple[tuple[str, Any], ...],
+    dynamic: tuple[bool, ...],
+) -> tuple[tuple[tuple[Any, ...], tuple[tuple[str, Any], ...], tuple[Any, ...]], ...]:
+    values = [*arguments, *(value for _, value in keywords)]
+    numeric_constants = {
+        value for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    string_constants = {value for value in values if isinstance(value, str)}
+    probes: list[tuple[tuple[Any, ...], tuple[tuple[str, Any], ...], tuple[Any, ...]]] = []
+    for index, (value, is_dynamic) in enumerate(zip(values, dynamic)):
+        if not is_dynamic:
+            continue
+        alternatives: set[Any]
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            alternatives = {
+                0,
+                1,
+                -1,
+                value - 1,
+                value + 1,
+                *numeric_constants,
+                *(constant - 1 for constant in numeric_constants),
+                *(constant + 1 for constant in numeric_constants),
+            }
+        elif isinstance(value, str):
+            alternatives = {"", "a", value + "a", *string_constants}
+        else:
+            continue
+        for alternative in sorted(alternatives, key=repr):
+            if alternative == value:
+                continue
+            candidate = list(values)
+            candidate[index] = alternative
+            positional = tuple(candidate[: len(arguments)])
+            named_values = candidate[len(arguments) :]
+            named = tuple((key, item) for (key, _), item in zip(keywords, named_values))
+            probes.append((positional, named, tuple(candidate)))
+    return tuple(probes)
+
+
+def _opaque_candidate_matches_probes(
+    function: Any,
+    probes: tuple[tuple[tuple[Any, ...], tuple[tuple[str, Any], ...], tuple[Any, ...]], ...],
+    candidate: Any,
+    result_kind: str,
+) -> bool:
+    if not probes:
+        return False
+    for arguments, keywords, values in probes:
+        try:
+            actual = function(
+                *copy.deepcopy(arguments),
+                **copy.deepcopy(dict(keywords)),
+            )
+            predicted = candidate(values)
+        except Exception:
+            return False
+        if _SummaryMixin._opaque_kind(actual) != result_kind or predicted != actual:
+            return False
+    return True
+
+
+def _opaque_exception_candidate_matches_probes(
+    function: Any,
+    probes: tuple[tuple[tuple[Any, ...], tuple[tuple[str, Any], ...], tuple[Any, ...]], ...],
+    candidate: Any,
+) -> bool:
+    if not probes:
+        return False
+    for arguments, keywords, values in probes:
+        try:
+            function(
+                *copy.deepcopy(arguments),
+                **copy.deepcopy(dict(keywords)),
+            )
+            raised = False
+        except Exception:
+            raised = True
+        try:
+            predicted = bool(candidate(values))
+        except Exception:
+            return False
+        if predicted != raised:
+            return False
+    return True

@@ -2,10 +2,92 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Iterable
 
-ModelHandler = Callable[[Any, str, list[Any], dict[str, Any]], Any]
+ModelHandler = Callable[[Any, str, str, list[Any], dict[str, Any]], Any]
+
+
+class ModelPrecision(str, Enum):
+    """How strongly an operation model describes the concrete callable."""
+
+    EXACT = "exact"
+    REFINED = "refined"
+    OPAQUE = "opaque"
+
+
+@dataclass(frozen=True)
+class ModelResult:
+    """A modeled value together with the provenance of its semantics."""
+
+    value: Any
+    precision: ModelPrecision = ModelPrecision.EXACT
+    assumptions: tuple[Any, ...] = ()
+    guidance: tuple[Any, ...] = ()
+
+
+@dataclass(frozen=True)
+class OpaqueCallSignature:
+    """A stable identity for one dynamically typed external operation."""
+
+    module: str
+    name: str
+    argument_kinds: tuple[str, ...]
+    keyword_kinds: tuple[tuple[str, str], ...]
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.module}.{self.name}"
+
+
+@dataclass(frozen=True)
+class OpaqueCallSample:
+    """One CPython observation used to refine an opaque operation."""
+
+    arguments: tuple[Any, ...]
+    keywords: tuple[tuple[str, Any], ...]
+    result_kind: str | None
+    result: Any = None
+    exception_type: str | None = None
+    exception_message: str | None = None
+
+    @property
+    def raised(self) -> bool:
+        return self.exception_type is not None
+
+
+@dataclass
+class OpaqueRefinementStore:
+    """Share concrete observations across executions of one exploration."""
+
+    _samples: dict[OpaqueCallSignature, list[OpaqueCallSample]] = field(default_factory=dict)
+    observations: int = 0
+    refinements: int = 0
+
+    def samples(self, signature: OpaqueCallSignature) -> tuple[OpaqueCallSample, ...]:
+        return tuple(self._samples.get(signature, ()))
+
+    def observe(
+        self,
+        signature: OpaqueCallSignature,
+        sample: OpaqueCallSample,
+        *,
+        max_refinements: int | None = None,
+    ) -> bool | None:
+        """Record a sample, returning ``None`` when a refinement budget blocks it."""
+        self.observations += 1
+        samples = self._samples.setdefault(signature, [])
+        if sample in samples:
+            return False
+        if max_refinements is not None and self.refinements >= max_refinements:
+            return None
+        samples.append(sample)
+        self.refinements += 1
+        return True
+
+    def record(self, signature: OpaqueCallSignature, sample: OpaqueCallSample) -> bool:
+        return self.observe(signature, sample) is True
 
 
 @dataclass(frozen=True)
