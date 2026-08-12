@@ -8,9 +8,17 @@ from pyflow.language.modules.project_resolution import (
     check_sys_path_modifications,
     transform_path_to_dotted,
 )
+from pyflow.language.modules.imports import discover_module_exports
 
 
 class TestProjectResolution(unittest.TestCase):
+    def test_discover_exports_uses_top_level_dotted_import_binding(self):
+        exports = discover_module_exports(
+            "import package.module\nimport package.other as alias\n"
+        )
+
+        self.assertEqual(exports, ["alias", "package"])
+
     def test_transform_path_to_dotted_prefers_shortest_sys_path(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -103,6 +111,69 @@ class TestProjectResolution(unittest.TestCase):
             )
 
             self.assertEqual(resolved, "pkg.tools")
+
+    def test_relative_import_beyond_top_level_is_unresolved(self):
+        context = ProjectContext(sys_path=[])
+
+        resolved = context.resolve_import_name(
+            "pkg.sub.mod",
+            "tools",
+            3,
+            current_path="pkg/sub/mod.py",
+        )
+
+        self.assertIsNone(resolved)
+
+    def test_find_module_prefers_package_over_same_named_module(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "choice.py").write_text("MODULE = True\n", encoding="utf-8")
+            package = root / "choice"
+            package.mkdir()
+            init = package / "__init__.py"
+            init.write_text("PACKAGE = True\n", encoding="utf-8")
+            context = ProjectContext(root, sys_path=[])
+
+            resolution = context.find_module("choice")
+
+            self.assertEqual(resolution.path, str(init.absolute()))
+            self.assertTrue(resolution.is_package)
+
+    def test_find_module_rejects_child_of_shadowing_module(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pkg.py").write_text("VALUE = 1\n", encoding="utf-8")
+            package = root / "pkg"
+            package.mkdir()
+            (package / "child.py").write_text("VALUE = 2\n", encoding="utf-8")
+            context = ProjectContext(root, sys_path=[])
+
+            self.assertIsNone(context.find_module("pkg.child"))
+
+    def test_find_module_supports_standalone_pyi_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stub = root / "only_stub.pyi"
+            stub.write_text("def build() -> int: ...\n", encoding="utf-8")
+            context = ProjectContext(root, sys_path=[])
+
+            resolution = context.find_module("only_stub")
+
+            self.assertEqual(resolution.path, str(stub.absolute()))
+
+    def test_find_module_does_not_cache_filesystem_misses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = ProjectContext(root, sys_path=[])
+            self.assertIsNone(context.find_module("created_later"))
+
+            module = root / "created_later.py"
+            module.write_text("VALUE = 1\n", encoding="utf-8")
+
+            self.assertEqual(
+                context.find_module("created_later").path,
+                str(module.absolute()),
+            )
 
     def test_find_module_supports_implicit_namespace_packages(self):
         with tempfile.TemporaryDirectory() as d:

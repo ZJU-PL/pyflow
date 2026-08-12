@@ -20,32 +20,36 @@ from ..conversion.source import best_source_for_callable
 class ObjectManager:
     """Manages Python objects and their PyFlow representations."""
 
+    _VALUE_CACHED_TYPES = frozenset(
+        {type(None), bool, int, float, complex, str, bytes}
+    )
+
     def __init__(
         self, verbose: bool = True, function_extractor=None, intrinsic_manager=None
     ):
         self.verbose = verbose
-        # Cache for hashable objects (value-based key).
+        # Cache safe immutable scalar values by value.
         self._object_cache: Dict[Any, Object] = {}
-        # Fallback cache for unhashable objects (identity-based key).
+        # Cache all other objects by identity, without invoking user equality/hash.
         self._object_cache_by_id: Dict[int, Object] = {}
         self.function_extractor = function_extractor
         self.intrinsic_manager = intrinsic_manager
 
     def _hashable_cache_key(self, obj: Any) -> Any:
-        """Use type-aware cache keys so equal-but-distinct values do not collide."""
+        """Return a type-aware key for immutable scalar values."""
         return (type(obj), obj)
 
     def get_object(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
-        try:
+        value_cached = type(obj) in self._VALUE_CACHED_TYPES
+        if value_cached:
             key = self._hashable_cache_key(obj)
             if key in self._object_cache:
                 return self._object_cache[key]
-        except TypeError:
-            # Unhashable objects (e.g., list/dict): cache by identity.
+        else:
             oid = id(obj)
             cached = self._object_cache_by_id.get(oid)
-            if cached is not None:
+            if cached is not None and cached.pyobj is obj:
                 return cached
 
         # Create an Object wrapper for the Python object
@@ -58,9 +62,9 @@ class ObjectManager:
             if hasattr(pyflow_obj, "type") and pyflow_obj.type is not None:
                 pyflow_obj.allocateDatastructures(pyflow_obj.type)
 
-            try:
+            if value_cached:
                 self._object_cache[self._hashable_cache_key(obj)] = pyflow_obj
-            except TypeError:
+            else:
                 self._object_cache_by_id[id(obj)] = pyflow_obj
             return pyflow_obj
         except Exception as e:
@@ -90,7 +94,9 @@ class ObjectManager:
                             if self.verbose:
                                 if func_source is not None:
                                     print(
-                                        f"DEBUG: Located source for {func.__qualname__} (len={len(func_source)})"
+                                        "DEBUG: Located source for "
+                                        f"{func.__qualname__} "
+                                        f"(len={len(func_source)})"
                                     )
                                 else:
                                     print(
@@ -104,7 +110,9 @@ class ObjectManager:
 
                 if self.verbose:
                     print(
-                        f"DEBUG: Calling convert_function for {func.__name__} with source_code type: {type(func_source)}"
+                        "DEBUG: Calling convert_function for "
+                        f"{func.__name__} with source_code type: "
+                        f"{type(func_source)}"
                     )
                     if func_source:
                         print(f"DEBUG: Source code length: {len(func_source)}")
@@ -194,7 +202,8 @@ class ObjectManager:
         """Get an abstract instance object for a given type.
 
         Args:
-            typeobj: A Python type object (e.g., int, str, MyClass) or string name (e.g., 'float', 'int')
+            typeobj: A Python type object (e.g., int, str, MyClass) or string
+                name (e.g., 'float', 'int')
 
         Returns:
             AbstractObject: The abstract instance representing instances of the type

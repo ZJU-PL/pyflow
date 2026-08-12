@@ -60,6 +60,7 @@ INTERPRETER_BINARY: Dict[str, str] = {
     "interpreter__add__": "+",
     "interpreter__sub__": "-",
     "interpreter__mul__": "*",
+    "interpreter__matmul__": "@",
     "interpreter__truediv__": "/",
     "interpreter__floordiv__": "//",
     "interpreter__mod__": "%",

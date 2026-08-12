@@ -662,6 +662,39 @@ class TestClass:
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.ClassDef)
 
+    def test_convert_class_def_preserves_keyword_unpack(self):
+        node = python_ast.parse("class Child(Base, **options):\n    pass\n").body[0]
+
+        result = self.converter._convert_node(node)
+
+        self.assertIsInstance(result, pyflow_ast.ClassDef)
+        self.assertEqual(len(result.keywords), 1)
+        self.assertIsNone(result.keywords[0][0])
+        self.assertIsInstance(result.keywords[0][1], pyflow_ast.Local)
+        self.assertEqual(result.keywords[0][1].name, "options")
+
+    def test_convert_matrix_multiplication_uses_intrinsic(self):
+        node = python_ast.parse("left @ right", mode="eval").body
+
+        result = self.converter._convert_expression(node)
+
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertEqual(result.expr.object.pyobj, "interpreter__matmul__")
+
+    @unittest.skipUnless(hasattr(python_ast, "MatchSingleton"), "Requires Python 3.10+")
+    def test_match_singleton_uses_identity_intrinsic(self):
+        match = python_ast.parse("match value:\n    case None:\n        pass\n").body[0]
+        bindings = []
+
+        result = self.converter._convert_pattern_with_bindings(
+            match.cases[0].pattern,
+            pyflow_ast.Local("value"),
+            bindings,
+        )
+
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertEqual(result.expr.object.pyobj, "interpreter__is__")
+
     def test_convert_expression_safe_none(self):
         """Test convert_expression_safe with None result."""
         # Create a mock node that returns None

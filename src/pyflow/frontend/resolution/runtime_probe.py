@@ -7,8 +7,12 @@ import subprocess
 import sys
 
 
+_DEFAULT_TIMEOUT_SECONDS = 5.0
+_PAYLOAD_PREFIX = "__PYFLOW_RUNTIME_PROBE__:"
+
 _PROBE_SCRIPT = r"""
 import builtins
+import contextlib
 import json
 import sys
 import types
@@ -16,6 +20,15 @@ import types
 FILE_PATH = sys.argv[1]
 ALLOW_STUBS = sys.argv[2] == "1"
 SOURCE = sys.stdin.read()
+PAYLOAD_PREFIX = "__PYFLOW_RUNTIME_PROBE__:"
+PROTOCOL_STDOUT = sys.stdout
+
+class _DiscardWriter:
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        return None
 
 def _noop(*args, **kwargs):
     return None
@@ -66,9 +79,13 @@ except Exception:
 
 try:
     compiled = compile(SOURCE, FILE_PATH, "exec")
-    exec(compiled, namespace)
+    with contextlib.redirect_stdout(_DiscardWriter()), contextlib.redirect_stderr(_DiscardWriter()):
+        exec(compiled, namespace)
 except Exception as error:
-    print(json.dumps({"error": f"{type(error).__name__}: {error}"}))
+    print(
+        PAYLOAD_PREFIX + json.dumps({"error": f"{type(error).__name__}: {error}"}),
+        file=PROTOCOL_STDOUT,
+    )
     sys.exit(1)
 finally:
     builtins.__import__ = orig_import
@@ -81,7 +98,10 @@ for name, obj in namespace.items():
     if code is not None and getattr(code, "co_filename", None) == FILE_PATH:
         functions.append(name)
 
-print(json.dumps({"functions": sorted(functions)}))
+print(
+    PAYLOAD_PREFIX + json.dumps({"functions": sorted(functions)}),
+    file=PROTOCOL_STDOUT,
+)
 """
 
 
@@ -90,27 +110,45 @@ def probe_function_names(
     file_path: str,
     *,
     allow_stub_imports: bool,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> list[str]:
     """Execute source in a child interpreter and report locally defined callables."""
 
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            _PROBE_SCRIPT,
-            file_path,
-            "1" if allow_stub_imports else "0",
-        ],
-        input=source,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _PROBE_SCRIPT,
+                file_path,
+                "1" if allow_stub_imports else "0",
+            ],
+            input=source,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            f"runtime probe timed out after {timeout_seconds:g} seconds"
+        ) from error
+
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()
+    payload = None
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(_PAYLOAD_PREFIX):
+            try:
+                payload = json.loads(line[len(_PAYLOAD_PREFIX) :])
+            except json.JSONDecodeError as error:
+                raise RuntimeError("runtime probe returned an invalid result") from error
+            break
     if completed.returncode != 0:
-        raise RuntimeError(stderr or stdout or "runtime probe failed")
-    payload = json.loads(stdout or "{}")
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        raise RuntimeError(detail or stderr or stdout or "runtime probe failed")
+    if not isinstance(payload, dict):
+        raise RuntimeError("runtime probe returned no valid result")
     return list(payload.get("functions", ()))
 
 

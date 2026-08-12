@@ -110,6 +110,8 @@ def _entries_from_pyproject(
         if not isinstance(scripts, dict):
             continue
         for command, reference in scripts.items():
+            if isinstance(reference, dict):
+                reference = reference.get("callable")
             if not isinstance(command, str) or not isinstance(reference, str):
                 continue
             module = reference.split(":", 1)[0].strip()
@@ -133,7 +135,14 @@ def _entries_from_setup_py(
 
     candidates: list[EntryCandidate] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "setup":
+        if not isinstance(node, ast.Call):
+            continue
+        is_setup_call = (
+            isinstance(node.func, ast.Name) and node.func.id == "setup"
+        ) or (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "setup"
+        )
+        if not is_setup_call:
             continue
         for keyword in node.keywords:
             if keyword.arg != "entry_points" or not isinstance(keyword.value, ast.Dict):
@@ -142,7 +151,7 @@ def _entries_from_setup_py(
                 if not (
                     isinstance(key, ast.Constant)
                     and key.value == "console_scripts"
-                    and isinstance(value, ast.List)
+                    and isinstance(value, (ast.List, ast.Tuple))
                 ):
                     continue
                 for element in value.elts:

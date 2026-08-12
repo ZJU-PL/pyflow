@@ -68,13 +68,18 @@ def _default_entry_args(callable_obj, *, skip_first: bool = False):
     args = []
     keywords = []
     for parameter in parameters:
+        value = (
+            None
+            if parameter.default is inspect.Parameter.empty
+            else parameter.default
+        )
         if parameter.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         ):
-            args.append(ExistingWrapper(None))
+            args.append(ExistingWrapper(value))
         elif parameter.kind == inspect.Parameter.KEYWORD_ONLY:
-            keywords.append((parameter.name, ExistingWrapper(None)))
+            keywords.append((parameter.name, ExistingWrapper(value)))
     return tuple(args), tuple(keywords)
 
 

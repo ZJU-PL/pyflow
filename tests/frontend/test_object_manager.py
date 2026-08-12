@@ -99,6 +99,25 @@ class TestObjectManager(unittest.TestCase):
         self.assertEqual(bool_obj.pyobj, True)
         self.assertIs(bool_obj.pyobj.__class__, bool)
 
+    def test_get_object_caches_custom_hashable_objects_by_identity(self):
+        class EqualObject:
+            def __hash__(self):
+                return 1
+
+            def __eq__(self, other):
+                return isinstance(other, EqualObject)
+
+        first = EqualObject()
+        second = EqualObject()
+
+        first_wrapper = self.object_manager.get_object(first)
+        second_wrapper = self.object_manager.get_object(second)
+
+        self.assertIsNot(first_wrapper, second_wrapper)
+        self.assertIs(self.object_manager.get_object(first), first_wrapper)
+        self.assertIs(first_wrapper.pyobj, first)
+        self.assertIs(second_wrapper.pyobj, second)
+
     def test_get_object_call_with_function(self):
         """Test getting object call for a function."""
         def test_func():

@@ -128,7 +128,7 @@ def discover_module_exports(source: str) -> list[str]:
             continue
         if isinstance(node, ast.Import):
             for alias in node.names:
-                local = alias.asname or alias.name.split(".")[-1]
+                local = alias.asname or alias.name.split(".", 1)[0]
                 if not local.startswith("_"):
                     discovered.add(local)
             continue

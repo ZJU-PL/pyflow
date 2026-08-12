@@ -398,8 +398,8 @@ class ProjectContext:
             package_parts = package_parts[:-1]
 
         ascents = level - 1
-        if ascents > len(package_parts):
-            return imported_module
+        if ascents >= len(package_parts):
+            return None
 
         prefix = ".".join(package_parts[: len(package_parts) - ascents])
         if imported_module:
@@ -455,7 +455,7 @@ class ProjectContext:
             return ModuleResolution(
                 module_name=module_name,
                 path=path,
-                is_package=os.path.basename(path) == "__init__.py",
+                is_package=os.path.basename(path) in {"__init__.py", "__init__.pyi"},
                 is_in_memory=True,
             )
 
@@ -475,20 +475,56 @@ class ProjectContext:
         for root in search_path:
             if not root:
                 root = os.curdir
-            base = os.path.join(root, *parts)
-            py_file = f"{base}.py"
-            if os.path.isfile(py_file):
-                result = ModuleResolution(module_name, os.path.abspath(py_file))
+            parent = root
+            blocked = False
+            for part in parts[:-1]:
+                package_dir = os.path.join(parent, part)
+                has_package_init = any(
+                    os.path.isfile(os.path.join(package_dir, filename))
+                    for filename in ("__init__.py", "__init__.pyi")
+                )
+                has_module_file = any(
+                    os.path.isfile(f"{package_dir}{suffix}")
+                    for suffix in (".py", ".pyi")
+                )
+                if has_package_init or (
+                    os.path.isdir(package_dir) and not has_module_file
+                ):
+                    parent = package_dir
+                    continue
+                blocked = True
                 break
+            if blocked:
+                continue
 
-            init_file = os.path.join(base, "__init__.py")
-            if os.path.isfile(init_file):
+            base = os.path.join(parent, parts[-1])
+            init_file = next(
+                (
+                    os.path.join(base, filename)
+                    for filename in ("__init__.py", "__init__.pyi")
+                    if os.path.isfile(os.path.join(base, filename))
+                ),
+                None,
+            )
+            if init_file is not None:
                 result = ModuleResolution(
                     module_name,
                     os.path.abspath(init_file),
                     is_package=True,
                     namespace_paths=(os.path.abspath(base),),
                 )
+                break
+
+            module_file = next(
+                (
+                    f"{base}{suffix}"
+                    for suffix in (".py", ".pyi")
+                    if os.path.isfile(f"{base}{suffix}")
+                ),
+                None,
+            )
+            if module_file is not None:
+                result = ModuleResolution(module_name, os.path.abspath(module_file))
                 break
 
             if os.path.isdir(base):
@@ -503,16 +539,17 @@ class ProjectContext:
                     namespace_paths=tuple(_remove_duplicates_from_path(namespace_paths)),
                 )
 
-        self._find_module_cache[cache_key] = result
-        self._find_module_cache_order.append(cache_key)
-        if len(self._find_module_cache_order) > self._max_find_module_cache:
-            for stale_key in self._find_module_cache_order[
-                : -self._max_find_module_cache
-            ]:
-                self._find_module_cache.pop(stale_key, None)
-            self._find_module_cache_order = self._find_module_cache_order[
-                -self._max_find_module_cache :
-            ]
+        if result is not None:
+            self._find_module_cache[cache_key] = result
+            self._find_module_cache_order.append(cache_key)
+            if len(self._find_module_cache_order) > self._max_find_module_cache:
+                for stale_key in self._find_module_cache_order[
+                    : -self._max_find_module_cache
+                ]:
+                    self._find_module_cache.pop(stale_key, None)
+                self._find_module_cache_order = self._find_module_cache_order[
+                    -self._max_find_module_cache :
+                ]
         return result
 
     def iter_imported_modules(

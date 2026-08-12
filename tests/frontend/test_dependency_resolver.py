@@ -149,6 +149,55 @@ def test_func(x):
         imports = self.resolver._extract_import_map(tree, "consumer")
         self.assertEqual(imports, {})
 
+    def test_extract_import_map_uses_top_level_binding_for_dotted_import(self):
+        tree = ast.parse("import package.module\nimport package.other as alias\n")
+
+        imports = self.resolver._extract_import_map(tree, "consumer")
+
+        self.assertEqual(
+            imports,
+            {"package": "package", "alias": "package.other"},
+        )
+
+    def test_stubs_strategy_falls_back_when_runtime_probe_fails(self):
+        resolver = DependencyResolver(
+            strategy="stubs", verbose=False, allow_runtime_execution=True
+        )
+        source = "def local_function():\n    return 1\n"
+
+        with patch.object(
+            resolver,
+            "_execute_runtime_extraction",
+            side_effect=RuntimeError("invalid probe response"),
+        ):
+            functions = resolver.extract_functions(source, "sample.py")
+
+        self.assertIn("local_function", functions)
+        self.assertEqual(resolver.get_telemetry()["runtime_exec_failures"], 1)
+        self.assertTrue(
+            any("invalid probe response" in item for item in resolver.get_diagnostics())
+        )
+
+    def test_inferred_analysis_root_updates_project_context(self):
+        import os
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "pkg"
+            package.mkdir()
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            file_path = os.path.join(directory, "pkg", "module.py")
+            resolver = DependencyResolver(strategy="ast_only", verbose=False)
+
+            resolver.extract_functions("def f():\n    return 1\n", file_path)
+
+            self.assertEqual(resolver.analysis_root, os.path.realpath(directory))
+            self.assertEqual(
+                resolver.project_context.path,
+                Path(directory).resolve(),
+            )
+
     def test_extract_functions_with_missing_imports(self):
         """Test extract_functions with missing imports."""
         source = """
@@ -691,6 +740,29 @@ def func2(x, y):
             self.assertEqual(
                 resolver._expand_star_import_names("lib"),
                 ["Client", "make", "value"],
+            )
+
+    def test_standalone_pyi_module_is_resolved(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            with open(
+                os.path.join(directory, "only_stub.pyi"),
+                "w",
+                encoding="utf-8",
+            ) as stub:
+                stub.write("def make() -> int: ...\n")
+
+            resolver = DependencyResolver(
+                strategy="ast_only",
+                verbose=False,
+                search_paths=[directory],
+            )
+
+            self.assertEqual(
+                resolver._expand_star_import_names("only_stub"),
+                ["make"],
             )
 
     def test_stub_diagnostics_can_be_returned_as_dicts(self):

@@ -748,6 +748,7 @@ class ASTConverter:
                 python_ast.Add: "interpreter__add__",
                 python_ast.Sub: "interpreter__sub__",
                 python_ast.Mult: "interpreter__mul__",
+                python_ast.MatMult: "interpreter__matmul__",
                 python_ast.Div: "interpreter__truediv__",
                 python_ast.FloorDiv: "interpreter__floordiv__",
                 python_ast.Mod: "interpreter__mod__",
@@ -1160,8 +1161,7 @@ class ASTConverter:
 
         keywords = []
         for kw in getattr(node, "keywords", []):
-            if kw.arg is not None:
-                keywords.append((kw.arg, self._convert_expression_safe(kw.value)))
+            keywords.append((kw.arg, self._convert_expression_safe(kw.value)))
 
         class_bound, _class_loaded = self._collect_scope_names(list(node.body))
         class_bound.add("__class__")
@@ -1519,6 +1519,7 @@ class ASTConverter:
             python_ast.Add: "interpreter__add__",
             python_ast.Sub: "interpreter__sub__",
             python_ast.Mult: "interpreter__mul__",
+            python_ast.MatMult: "interpreter__matmul__",
             python_ast.Div: "interpreter__truediv__",
             python_ast.FloorDiv: "interpreter__floordiv__",
             python_ast.Mod: "interpreter__mod__",
@@ -1966,7 +1967,7 @@ class ASTConverter:
             pattern, python_ast.MatchSingleton
         ):
             return self._call_named(
-                "interpreter__eq__",
+                "interpreter__is__",
                 [subject, pyflow_ast.Existing(Object(pattern.value))],
             )
 

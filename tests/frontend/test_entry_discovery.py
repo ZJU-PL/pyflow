@@ -91,6 +91,56 @@ where = ["lib"]
     assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
 
 
+def test_detect_entry_file_supports_setuptools_qualified_setup_call(tmp_path):
+    package = tmp_path / "demo"
+    package.mkdir()
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "setup.py").write_text(
+        "import setuptools\n"
+        "setuptools.setup(entry_points={\n"
+        "    'console_scripts': ['demo=demo.cli:main'],\n"
+        "})\n",
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_detect_entry_file_supports_tuple_console_scripts(tmp_path):
+    package = tmp_path / "demo"
+    package.mkdir()
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "setup.py").write_text(
+        "from setuptools import setup\n"
+        "setup(entry_points={\n"
+        "    'console_scripts': ('demo=demo.cli:main',),\n"
+        "})\n",
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_detect_entry_file_supports_poetry_script_tables(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.poetry.scripts]\n"
+        'demo = { callable = "demo.cli:main", type = "console" }\n',
+        encoding="utf-8",
+    )
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert candidates == [
+        type(candidates[0])(entry.relative_to(tmp_path), "tool.poetry.scripts", "demo")
+    ]
+
+
 def test_resolve_entry_file_accepts_explicit_relative_path(tmp_path):
     entry = tmp_path / "train.py"
     entry.write_text("print('train')\n", encoding="utf-8")

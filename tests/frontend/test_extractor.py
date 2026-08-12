@@ -584,6 +584,33 @@ def outer2():
         self.assertEqual(len(func_kwds), 1)
         self.assertEqual(func_kwds[0][0], "c")
 
+    def test_build_interface_preserves_optional_parameter_defaults(self):
+        import tempfile
+        from pathlib import Path
+
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = False
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(
+                "def f(required, optional=7, *, required_kw, optional_kw='x'):\n"
+                "    return required, optional, required_kw, optional_kw\n",
+                encoding="utf-8",
+            )
+
+            interface, _sources = _build_interface([sample], Args())
+
+        _func, func_args, func_kwds = interface.func[0]
+        self.assertEqual([wrapper.pyobj for wrapper in func_args], [None, 7])
+        self.assertEqual(
+            [(name, wrapper.pyobj) for name, wrapper in func_kwds],
+            [("required_kw", None), ("optional_kw", "x")],
+        )
+
     def test_create_entrypoint_rejects_posonly_keyword_argument(self):
         """User-facing entrypoint creation should reject positional-only kwargs."""
         interface = InterfaceDeclaration()

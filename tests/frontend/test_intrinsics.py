@@ -1,5 +1,6 @@
 """Unit tests for frontend intrinsic models."""
 
+import builtins
 import unittest
 
 from pyflow.frontend.runtime.intrinsics import IntrinsicManager
@@ -31,9 +32,11 @@ class TestIntrinsicManager(unittest.TestCase):
         exports = self.intrinsic_manager.stubs.exports
         self.assertIn('interpreter_getattribute', exports)
         self.assertIn('interpreter__mul__', exports)
+        self.assertIn('interpreter__matmul__', exports)
         self.assertIn('interpreter__add__', exports)
         self.assertIn('interpreter__sub__', exports)
         self.assertIn('interpreter__div__', exports)
+        self.assertIn('interpreter__truediv__', exports)
         self.assertIn('interpreter__mod__', exports)
         self.assertIn('interpreter__pow__', exports)
 
@@ -110,6 +113,70 @@ class TestIntrinsicManager(unittest.TestCase):
             ),
             {"key": "mapping"},
         )
+
+    def test_matrix_multiplication_dynamic_fold(self):
+        class Matrix:
+            def __matmul__(self, other):
+                return (self, other)
+
+        left = Matrix()
+        right = Matrix()
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter__matmul__"
+        ].annotation.dynamicFold
+
+        self.assertEqual(fold(left, right), (left, right))
+
+    def test_true_division_dynamic_fold(self):
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter__truediv__"
+        ].annotation.dynamicFold
+
+        self.assertEqual(fold(7, 2), 3.5)
+
+    def test_vararg_merge_accepts_general_iterables(self):
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter_merge_varargs"
+        ].annotation.dynamicFold
+
+        self.assertEqual(fold((item for item in (1, 2)), range(3, 5)), [1, 2, 3, 4])
+
+    def test_set_add_matches_set_add_return_value(self):
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter_set_add"
+        ].annotation.dynamicFold
+        values = set()
+
+        result = fold(values, "item")
+
+        self.assertIsNone(result)
+        self.assertEqual(values, {"item"})
+
+    def test_pattern_predicates_reject_strings_and_non_mappings(self):
+        exports = self.intrinsic_manager.stubs.exports
+        sequence = exports[
+            "interpreter_match_sequence_len"
+        ].annotation.dynamicFold
+        mapping = exports[
+            "interpreter_match_mapping_len"
+        ].annotation.dynamicFold
+
+        self.assertFalse(sequence("ab", 2))
+        self.assertTrue(sequence([1, 2], 2))
+        self.assertFalse(mapping([("key", "value")], 1))
+        self.assertTrue(mapping({"key": "value"}, 1))
+
+    @unittest.skipUnless(hasattr(builtins, "ExceptionGroup"), "Requires Python 3.11+")
+    def test_exception_group_extract_returns_matching_subgroup(self):
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter_exception_group_extract"
+        ].annotation.dynamicFold
+        group = ExceptionGroup("mixed", [ValueError("value"), TypeError("type")])
+
+        extracted = fold(group, ValueError)
+
+        self.assertEqual(len(extracted.exceptions), 1)
+        self.assertIsInstance(extracted.exceptions[0], ValueError)
 
     def test_stubs_code_structure(self):
         """Test that stub codes have correct structure."""

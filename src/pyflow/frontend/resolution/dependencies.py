@@ -22,7 +22,8 @@ Available Strategies:
     - STUBS: Create stub modules for missing dependencies, attempt runtime execution
     - NOOP: Pre-create no-op stubs for all potential missing imports
     - STRICT: Fail immediately if any dependencies can't be resolved
-    - AST_ONLY: Only use AST parsing, never attempt runtime execution (extracts function signatures and structure only)
+    - AST_ONLY: Only use AST parsing, never attempt runtime execution
+      (extracts function signatures and structure only)
 
 This approach follows established patterns in static analysis literature for
 handling the "missing dependencies" problem in a principled manner.
@@ -140,7 +141,16 @@ class DependencyResolver:
         self._analysis_root_explicit = analysis_root is not None
         if self.analysis_root is None:
             self.analysis_root = _infer_analysis_root(self.source_files.keys())
-        project_path = self.analysis_root if self._analysis_root_explicit else None
+        has_absolute_source = any(
+            os.path.isabs(path)
+            for path in self.source_files
+            if path and not path.startswith("<")
+        )
+        project_path = (
+            self.analysis_root
+            if self._analysis_root_explicit or has_absolute_source
+            else None
+        )
         self.project_context = ProjectContext(
             project_path,
             added_sys_path=self.search_paths,
@@ -199,6 +209,19 @@ class DependencyResolver:
         inferred = _infer_analysis_root(self.source_files.keys())
         if inferred is not None:
             self.analysis_root = inferred
+            has_absolute_source = any(
+                os.path.isabs(path)
+                for path in self.source_files
+                if path and not path.startswith("<")
+            )
+            if has_absolute_source:
+                inferred_path = Path(os.path.realpath(inferred))
+                if self.project_context.path != inferred_path:
+                    self.project_context.path = inferred_path
+                    self.project_context._source_map_cache = None
+                    self.project_context._source_map_cache_keys = None
+                    self.project_context._find_module_cache.clear()
+                    self.project_context._find_module_cache_order.clear()
 
     def extract_functions(self, source: str, file_path: str) -> Dict[str, Any]:
         """
@@ -258,7 +281,8 @@ class DependencyResolver:
         self._telemetry["runtime_fallbacks"] += 1
         if self.verbose:
             print(
-                f"DEBUG: {mode} runtime extraction disabled for {file_path}; using AST-only fallback"
+                f"DEBUG: {mode} runtime extraction disabled for {file_path}; "
+                "using AST-only fallback"
             )
         return self._extract_ast_functions(source, file_path)
 
@@ -465,7 +489,7 @@ class DependencyResolver:
         self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._prepare_exec_globals(source, file_path)
 
-        # Try normal execution first
+        # The isolated probe already installs stubs for missing imports.
         try:
             functions = self._execute_runtime_extraction(
                 source,
@@ -475,31 +499,13 @@ class DependencyResolver:
             )
             if functions:
                 return functions
-        except ImportError as e:
-            if self.verbose:
-                print(f"DEBUG: Import error in {file_path}: {e}")
-
-            # Create enhanced stubs for missing imports (may find source files)
-            exec_globals_with_stubs = self._prepare_exec_globals(
-                source, file_path, preload_stubs=True
+        except Exception as e:
+            self._telemetry["runtime_exec_failures"] += 1
+            self._record_diagnostic(
+                "stub_runtime_exec", file_path, f"{type(e).__name__}: {e}"
             )
-            try:
-                functions = self._execute_runtime_extraction(
-                    source,
-                    file_path,
-                    exec_globals_with_stubs,
-                    diagnostic_stage="stub_runtime_exec",
-                    allow_stub_imports=True,
-                )
-                if functions:
-                    return functions
-            except Exception as stub_e:
-                self._telemetry["runtime_exec_failures"] += 1
-                self._record_diagnostic(
-                    "stub_runtime_exec", file_path, f"{type(stub_e).__name__}: {stub_e}"
-                )
-                if self.verbose:
-                    print(f"DEBUG: Even with stubs, execution failed: {stub_e}")
+            if self.verbose:
+                print(f"DEBUG: Stub-assisted execution failed for {file_path}: {e}")
 
         # If runtime execution failed, fall back to AST extraction for local functions
         if self.verbose:
@@ -783,7 +789,11 @@ class DependencyResolver:
         for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, python_ast.Import):
                 for alias in node.names:
-                    imports[alias.asname or alias.name.split(".")[-1]] = alias.name
+                    if alias.asname:
+                        imports[alias.asname] = alias.name
+                    else:
+                        top_level = alias.name.split(".", 1)[0]
+                        imports[top_level] = top_level
             elif isinstance(node, python_ast.ImportFrom):
                 effective_module = self._resolve_imported_module(
                     module_name,

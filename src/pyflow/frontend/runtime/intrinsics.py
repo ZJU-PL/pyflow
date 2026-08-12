@@ -1,6 +1,7 @@
 """IR models for built-in operations and interpreter helpers."""
 
 import operator
+from collections.abc import Mapping, Sequence
 
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
@@ -133,11 +134,14 @@ class IntrinsicManager:
 
         def _safe_merge_varargs(a, b):
             try:
-                left = list(a if isinstance(a, (list, tuple)) else [a])
-                right = list(b if isinstance(b, (list, tuple)) else [b])
-                return left + right
+                return list(a) + list(b)
             except Exception:
                 return []
+
+        def _is_match_sequence(value):
+            return isinstance(value, Sequence) and not isinstance(
+                value, (str, bytes, bytearray)
+            )
 
         def _safe_merge_kwargs(a, b):
             out = {}
@@ -224,9 +228,11 @@ class IntrinsicManager:
             "interpreter_getattribute": getattr,
             "interpreter_setattr": setattr,
             "interpreter__mul__": operator.mul,
+            "interpreter__matmul__": operator.matmul,
             "interpreter__add__": operator.add,
             "interpreter__sub__": operator.sub,
             "interpreter__div__": operator.truediv,
+            "interpreter__truediv__": operator.truediv,
             "interpreter__mod__": operator.mod,
             "interpreter__pow__": operator.pow,
             "interpreter__and__": operator.and_,
@@ -272,13 +278,13 @@ class IntrinsicManager:
             "interpreter_build_set": lambda *args: set(args),
             # Pattern matching helpers (no simple Python equivalent)
             "interpreter_match_sequence_len": lambda seq, n: bool(
-                hasattr(seq, "__len__") and len(seq) == n
+                _is_match_sequence(seq) and len(seq) == n
             ),
             "interpreter_match_sequence_len_min": lambda seq, n: bool(
-                hasattr(seq, "__len__") and len(seq) >= n
+                _is_match_sequence(seq) and len(seq) >= n
             ),
             "interpreter_match_mapping_len": lambda mapping, n: bool(
-                hasattr(mapping, "__len__") and len(mapping) >= n
+                isinstance(mapping, Mapping) and len(mapping) >= n
             ),
             "interpreter_match_mapping_rest": lambda subject, keys: (
                 {
@@ -295,13 +301,17 @@ class IntrinsicManager:
                 getattr(cls, "__match_args__", ())[index],
             ),
             "interpreter_match_rest": lambda subject: subject,
-            "interpreter_exception_group_extract": lambda exc_group, exc_type: exc_group,
+            "interpreter_exception_group_extract": lambda exc_group, exc_type: (
+                exc_group.split(exc_type)[0]
+                if hasattr(exc_group, "split")
+                else exc_group
+            ),
             "interpreter_exception_type": type,
             "interpreter_make_generator": lambda value: iter((value,)),
             "interpreter_getattr": getattr,
             "interpreter_merge_varargs": _safe_merge_varargs,
             "interpreter_merge_kwargs": _safe_merge_kwargs,
-            "interpreter_set_add": lambda s, item: (s.add(item), s)[1],
+            "interpreter_set_add": lambda s, item: s.add(item),
             "interpreter_unsupported_expr": lambda node, detail: None,
             "interpreter_unsupported_stmt": lambda node, detail: None,
             "interpreter_unknown_augassign": lambda op, rhs: rhs,
@@ -335,9 +345,15 @@ class IntrinsicManager:
                     ),
                     "interpreter_setattr": create_stub_code("interpreter_setattr"),
                     "interpreter__mul__": create_stub_code("interpreter__mul__"),
+                    "interpreter__matmul__": create_stub_code(
+                        "interpreter__matmul__"
+                    ),
                     "interpreter__add__": create_stub_code("interpreter__add__"),
                     "interpreter__sub__": create_stub_code("interpreter__sub__"),
                     "interpreter__div__": create_stub_code("interpreter__div__"),
+                    "interpreter__truediv__": create_stub_code(
+                        "interpreter__truediv__"
+                    ),
                     "interpreter__mod__": create_stub_code("interpreter__mod__"),
                     "interpreter__pow__": create_stub_code("interpreter__pow__"),
                     "interpreter__and__": create_stub_code("interpreter__and__"),
