@@ -85,6 +85,32 @@ class TestIntrinsicManager(unittest.TestCase):
         self.assertIn('interpreter_merge_kwargs', exports)
         self.assertIn('interpreter_merge_varargs', exports)
 
+    def test_build_map_dynamic_fold_preserves_unpack_order(self):
+        fold = self.intrinsic_manager.stubs.exports[
+            "interpreter_build_map"
+        ].annotation.dynamicFold
+
+        self.assertEqual(
+            fold(
+                [
+                    ("mapping", {"key": "mapping"}),
+                    ("item", "key", "explicit"),
+                ],
+                [],
+            ),
+            {"key": "explicit"},
+        )
+        self.assertEqual(
+            fold(
+                [
+                    ("item", "key", "explicit"),
+                    ("mapping", {"key": "mapping"}),
+                ],
+                [],
+            ),
+            {"key": "mapping"},
+        )
+
     def test_stubs_code_structure(self):
         """Test that stub codes have correct structure."""
         exports = self.intrinsic_manager.stubs.exports

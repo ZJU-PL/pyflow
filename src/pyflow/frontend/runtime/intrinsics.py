@@ -192,7 +192,20 @@ class IntrinsicManager:
             out = {}
             try:
                 for pair in pairs:
-                    if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                    if (
+                        isinstance(pair, (list, tuple))
+                        and len(pair) == 3
+                        and pair[0] == "item"
+                    ):
+                        _, key, value = pair
+                        out[key] = value
+                    elif (
+                        isinstance(pair, (list, tuple))
+                        and len(pair) == 2
+                        and pair[0] == "mapping"
+                    ):
+                        out.update(dict(pair[1]))
+                    elif isinstance(pair, (list, tuple)) and len(pair) == 2:
                         key, value = pair
                         out[key] = value
             except Exception:

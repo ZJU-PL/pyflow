@@ -81,6 +81,32 @@ def collect_scope_names(
                 if alias.name != "*":
                     bound.add(alias.asname or alias.name)
 
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.name:
+                bound.add(node.name)
+            if node.type is not None:
+                self.visit(node.type)
+            for statement in node.body:
+                self.visit(statement)
+
+        def visit_MatchAs(self, node: ast.MatchAs) -> None:
+            if node.name:
+                bound.add(node.name)
+            if node.pattern is not None:
+                self.visit(node.pattern)
+
+        def visit_MatchStar(self, node: ast.MatchStar) -> None:
+            if node.name:
+                bound.add(node.name)
+
+        def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+            if node.rest:
+                bound.add(node.rest)
+            for key in node.keys:
+                self.visit(key)
+            for pattern in node.patterns:
+                self.visit(pattern)
+
     visitor = ScopeVisitor()
     for statement in body_nodes:
         visitor.visit(statement)
@@ -127,7 +153,20 @@ def direct_child_captures(
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_Lambda(self, node: ast.Lambda) -> None:
-            return
+            child_bound, child_loaded = scope_names([node.body])
+            child_bound.update(
+                argument.arg
+                for argument in (
+                    *getattr(node.args, "posonlyargs", ()),
+                    *getattr(node.args, "args", ()),
+                    *getattr(node.args, "kwonlyargs", ()),
+                )
+            )
+            if getattr(node.args, "vararg", None) is not None:
+                child_bound.add(node.args.vararg.arg)
+            if getattr(node.args, "kwarg", None) is not None:
+                child_bound.add(node.args.kwarg.arg)
+            captures.update((child_loaded - child_bound) & parent_bound)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
             return

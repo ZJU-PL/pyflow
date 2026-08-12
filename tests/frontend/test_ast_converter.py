@@ -5,7 +5,10 @@ import ast as python_ast
 from unittest.mock import Mock, patch
 
 from pyflow.frontend.conversion.ast import ASTConverter
-from pyflow.language.python.ir_metadata import call_argument_evaluation_order
+from pyflow.language.python.ir_metadata import (
+    call_argument_evaluation_order,
+    code_closure_cells,
+)
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
@@ -243,6 +246,30 @@ while x > 0:
         self.assertIsInstance(result.kargs.expr, pyflow_ast.Existing)
         self.assertEqual(result.kargs.expr.object.pyobj, "interpreter_merge_kwargs")
 
+    def test_dict_unpack_preserves_source_order(self):
+        first = self.converter._convert_expression(
+            python_ast.parse('{**mapping, "key": value}', mode="eval").body
+        )
+        second = self.converter._convert_expression(
+            python_ast.parse('{"key": value, **mapping}', mode="eval").body
+        )
+
+        first_entries = first.args[0].args
+        second_entries = second.args[0].args
+        self.assertEqual(first_entries[0].args[0].object.pyobj, "mapping")
+        self.assertEqual(first_entries[1].args[0].object.pyobj, "item")
+        self.assertEqual(second_entries[0].args[0].object.pyobj, "item")
+        self.assertEqual(second_entries[1].args[0].object.pyobj, "mapping")
+
+    def test_dict_unpack_preserves_key_before_value_evaluation(self):
+        result = self.converter._convert_expression(
+            python_ast.parse('{**mapping, key(): value()}', mode="eval").body
+        )
+        explicit_entry = result.args[0].args[1]
+
+        self.assertEqual(explicit_entry.args[1].expr.name, "key")
+        self.assertEqual(explicit_entry.args[2].expr.name, "value")
+
     def test_convert_binop_expression(self):
         """Test converting binary operation."""
         source = "a + b"
@@ -289,6 +316,16 @@ while x > 0:
         result = self.converter._convert_expression(tree.body)
         self.assertIsInstance(result, pyflow_ast.ShortCircutAnd)
         self.assertEqual(len(result.terms), 2)
+
+    def test_chained_comparison_evaluates_middle_operand_once(self):
+        tree = python_ast.parse("a < middle() < c", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+
+        first, second = result.terms
+        self.assertIsInstance(first.args[1], pyflow_ast.NamedExpr)
+        temporary = first.args[1].target
+        self.assertIsInstance(first.args[1].value, pyflow_ast.Call)
+        self.assertIs(second.args[0], temporary)
 
     def test_convert_subscript_expression(self):
         """Test converting subscript expression."""
@@ -680,6 +717,88 @@ class TestClass:
         params = result.code.codeparameters
         self.assertEqual([param.name for param in params.params], ["a", "flag"])
         self.assertEqual(list(params.paramnames), ["a", "kwonly:flag"])
+
+    def test_convert_lambda_captures_enclosing_local(self):
+        tree = python_ast.parse(
+            "def outer():\n"
+            "    captured = value\n"
+            "    return lambda: captured\n"
+        )
+        outer = self.converter._convert_node(tree.body[0])
+        make_function = outer.code.ast.blocks[-1].exprs[0]
+
+        self.assertIsInstance(make_function, pyflow_ast.MakeFunction)
+        self.assertEqual([cell.name for cell in make_function.cells], ["captured"])
+        self.assertEqual(
+            [cell.name for cell in code_closure_cells(make_function.code)],
+            ["captured"],
+        )
+        self.assertIsInstance(
+            make_function.code.ast.blocks[0].exprs[0],
+            pyflow_ast.GetCellDeref,
+        )
+
+    def test_exception_target_captured_by_child_is_stored_in_cell(self):
+        tree = python_ast.parse(
+            "def outer():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except Error as error:\n"
+            "        def child():\n"
+            "            return error\n"
+            "        return child\n"
+        )
+        outer = self.converter._convert_node(tree.body[0])
+        handler = outer.code.ast.blocks[0].handlers[0]
+
+        self.assertIsInstance(handler.value, pyflow_ast.Local)
+        self.assertIsInstance(handler.preamble.blocks[0], pyflow_ast.SetCellDeref)
+        child = handler.body.blocks[0]
+        self.assertIsInstance(
+            child.code.ast.blocks[0].exprs[0],
+            pyflow_ast.GetCellDeref,
+        )
+
+    @unittest.skipUnless(hasattr(python_ast, "TryStar"), "Requires Python 3.11+")
+    def test_exception_group_target_captured_by_child_is_stored_in_cell(self):
+        tree = python_ast.parse(
+            "def outer():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except* Error as error:\n"
+            "        def child():\n"
+            "            return error\n"
+            "        consume(child)\n"
+        )
+        outer = self.converter._convert_node(tree.body[0])
+        handler = outer.code.ast.blocks[0].handlers[0]
+
+        self.assertIsInstance(handler.preamble.blocks[0], pyflow_ast.SetCellDeref)
+        child = handler.body.blocks[0]
+        self.assertIsInstance(
+            child.code.ast.blocks[0].exprs[0],
+            pyflow_ast.GetCellDeref,
+        )
+
+    def test_match_target_captured_by_child_is_stored_in_cell(self):
+        tree = python_ast.parse(
+            "def outer(value):\n"
+            "    match value:\n"
+            "        case captured:\n"
+            "            def child():\n"
+            "                return captured\n"
+            "            return child\n"
+        )
+        outer = self.converter._convert_node(tree.body[0])
+        match_suite = outer.code.ast.blocks[0]
+        case_body = match_suite.blocks[1].t
+
+        self.assertIsInstance(case_body.blocks[0], pyflow_ast.SetCellDeref)
+        child = case_body.blocks[1]
+        self.assertIsInstance(
+            child.code.ast.blocks[0].exprs[0],
+            pyflow_ast.GetCellDeref,
+        )
 
     def test_convert_function_args_marks_missing_kwonly_defaults(self):
         """Missing kw-only defaults after earlier defaults should stay unbound."""

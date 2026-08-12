@@ -718,10 +718,18 @@ class ASTConverter:
 
             comps: List[PythonASTNode] = []
             cur_left = left
-            for op, right_node in zip(node.ops, node.comparators):
+            last_index = len(node.comparators) - 1
+            for index, (op, right_node) in enumerate(
+                zip(node.ops, node.comparators)
+            ):
                 right = self._convert_expression_safe(right_node)
-                comps.append(single(op, cur_left, right))
-                cur_left = right
+                if index < last_index:
+                    temp = self._tmp_local("compare", right_node)
+                    evaluated_right: PythonASTNode = pyflow_ast.NamedExpr(temp, right)
+                    comps.append(single(op, cur_left, evaluated_right))
+                    cur_left = temp
+                else:
+                    comps.append(single(op, cur_left, right))
 
             if len(comps) == 1:
                 return comps[0]
@@ -780,17 +788,26 @@ class ASTConverter:
                 return pyflow_ast.Existing(Object(value))
             except Exception:
                 if any(key is None for key in node.keys):
-                    explicit_entries = []
-                    unpacked_mappings = []
+                    ordered_entries = []
                     for key, value in zip(node.keys, node.values):
-                        value_expr = self._convert_expression_safe(value)
                         if key is None:
-                            unpacked_mappings.append(value_expr)
+                            value_expr = self._convert_expression_safe(value)
+                            ordered_entries.append(
+                                pyflow_ast.BuildTuple(
+                                    [
+                                        pyflow_ast.Existing(Object("mapping")),
+                                        value_expr,
+                                    ]
+                                )
+                            )
                             continue
-                        explicit_entries.append(
+                        key_expr = self._convert_expression_safe(key)
+                        value_expr = self._convert_expression_safe(value)
+                        ordered_entries.append(
                             pyflow_ast.BuildTuple(
                                 [
-                                    self._convert_expression_safe(key),
+                                    pyflow_ast.Existing(Object("item")),
+                                    key_expr,
                                     value_expr,
                                 ]
                             )
@@ -798,8 +815,8 @@ class ASTConverter:
                     return self._call_named(
                         "interpreter_build_map",
                         [
-                            pyflow_ast.BuildList(explicit_entries),
-                            pyflow_ast.BuildList(unpacked_mappings),
+                            pyflow_ast.BuildList(ordered_entries),
+                            pyflow_ast.BuildList([]),
                         ],
                     )
 
@@ -911,9 +928,31 @@ class ASTConverter:
         elif isinstance(node, python_ast.Lambda):
             # Handle lambda expressions
             codeparams = self._convert_function_args(node.args, ensure_return=True)
-            self._push_scope("function")
+            body_bound, body_loaded = self._collect_scope_names([node.body])
+            parameter_names = {
+                argument.arg
+                for argument in (
+                    *getattr(node.args, "posonlyargs", ()),
+                    *getattr(node.args, "args", ()),
+                    *getattr(node.args, "kwonlyargs", ()),
+                )
+            }
+            if getattr(node.args, "vararg", None) is not None:
+                parameter_names.add(node.args.vararg.arg)
+            if getattr(node.args, "kwarg", None) is not None:
+                parameter_names.add(node.args.kwarg.arg)
+            bound_names = body_bound | parameter_names
+            free_names = self._enclosing_cell_names(body_loaded - bound_names)
+            self._push_scope(
+                "function",
+                nonlocal_names=free_names,
+                bound_names=bound_names,
+            )
             try:
                 body_expr = self._convert_expression_safe(node.body)
+                closure_cells = tuple(
+                    self._resolve_nonlocal_cell(name) for name in sorted(free_names)
+                )
             finally:
                 self._pop_scope()
             suite = pyflow_ast.Suite([pyflow_ast.Return([body_expr])])
@@ -930,7 +969,10 @@ class ASTConverter:
                 runtime=False,
                 interpreter=False,
             )
-            return pyflow_ast.MakeFunction(defaults=[], cells=[], code=code)
+            register_code_definition_metadata(code, closure_cells=closure_cells)
+            return pyflow_ast.MakeFunction(
+                defaults=[], cells=list(closure_cells), code=code
+            )
 
         else:
             return self._unsupported_expr(node, "unhandled expression node")
@@ -1394,17 +1436,27 @@ class ASTConverter:
                 continue
 
             if handler.name:
-                # Convert exception variable name
-                exc_name = pyflow_ast.Local(handler.name)
+                # Exception targets can be closure cells when a nested scope
+                # captures the bound exception.  Bind through a temporary in
+                # that case so the handler preamble can perform the cell store.
+                if self._name_uses_plain_local(handler.name):
+                    exc_name = pyflow_ast.Local(handler.name)
+                    handler_preamble = pyflow_ast.Suite([])
+                else:
+                    exc_name = self._tmp_local("exception", handler)
+                    handler_preamble = pyflow_ast.Suite(
+                        [self._name_store(handler.name, exc_name)]
+                    )
             else:
                 exc_name = None
+                handler_preamble = pyflow_ast.Suite([])
 
             # Convert handler body
             handler_body = self.convert_python_ast_to_pyflow(handler.body)
 
             # Create exception handler
             exc_handler = pyflow_ast.ExceptionHandler(
-                preamble=pyflow_ast.Suite([]),
+                preamble=handler_preamble,
                 type=exc_type,
                 value=exc_name,
                 body=handler_body,
@@ -1852,14 +1904,14 @@ class ASTConverter:
                 condition = self._convert_pattern_with_bindings(
                     case.pattern, tmp_subject, bindings
                 )
-                if case.guard:
-                    guard = self._convert_expression_safe(case.guard)
-                    condition = self._call_named(
-                        "interpreter_booland", [condition, guard]
-                    )
-                cases.append((condition, bindings, case_body))
+                guard = (
+                    self._convert_expression_safe(case.guard)
+                    if case.guard
+                    else None
+                )
+                cases.append((condition, bindings, guard, case_body))
             else:
-                cases.append((None, [], case_body))
+                cases.append((None, [], None, case_body))
 
         if not cases:
             return suite
@@ -1869,12 +1921,20 @@ class ASTConverter:
         # statements in a list passed to its constructor; we should just use
         # the Suite object directly rather than trying to unwrap it.
         result: PythonASTNode = pyflow_ast.Suite([])
-        for condition, bindings, body in reversed(cases):
+        for condition, bindings, guard, body in reversed(cases):
             body_suite = self._ensure_suite(body)
-            if bindings:
-                full_body = pyflow_ast.Suite(list(bindings) + [body_suite])
+            if guard is not None:
+                guarded_body: PythonASTNode = pyflow_ast.Switch(
+                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), guard),
+                    t=body_suite,
+                    f=self._ensure_suite(result),
+                )
             else:
-                full_body = body_suite
+                guarded_body = body_suite
+            if bindings:
+                full_body = pyflow_ast.Suite(list(bindings) + [guarded_body])
+            else:
+                full_body = self._ensure_suite(guarded_body)
             if condition is None:
                 result = full_body
             else:
@@ -2001,7 +2061,7 @@ class ASTConverter:
                     "interpreter_match_mapping_rest", [subject, matched_keys]
                 )
                 bindings.append(
-                    pyflow_ast.Assign(rest, [pyflow_ast.Local(pattern.rest)])
+                    self._name_store(pattern.rest, rest)
                 )
             return result
 
@@ -2036,7 +2096,7 @@ class ASTConverter:
             if pattern.name:
                 rest = self._call_named("interpreter_match_rest", [subject])
                 bindings.append(
-                    pyflow_ast.Assign(rest, [pyflow_ast.Local(pattern.name)])
+                    self._name_store(pattern.name, rest)
                 )
             return pyflow_ast.Existing(Object(True))
 
@@ -2044,7 +2104,7 @@ class ASTConverter:
             if pattern.pattern is None:
                 if pattern.name:
                     bindings.append(
-                        pyflow_ast.Assign(subject, [pyflow_ast.Local(pattern.name)])
+                        self._name_store(pattern.name, subject)
                     )
                 return pyflow_ast.Existing(Object(True))
             sub_condition = self._convert_pattern_with_bindings(
@@ -2052,7 +2112,7 @@ class ASTConverter:
             )
             if pattern.name:
                 bindings.append(
-                    pyflow_ast.Assign(subject, [pyflow_ast.Local(pattern.name)])
+                    self._name_store(pattern.name, subject)
                 )
             return sub_condition
 
@@ -2108,11 +2168,6 @@ class ASTConverter:
             else:
                 exc_type = None
 
-            if handler.name:
-                exc_name = pyflow_ast.Local(handler.name)
-            else:
-                exc_name = None
-
             original_group = pyflow_ast.Local("__exc_group__")
             handler_body = self.convert_python_ast_to_pyflow(handler.body)
             handler_body = self._ensure_suite(handler_body)
@@ -2121,15 +2176,13 @@ class ASTConverter:
             # group here incorrectly removed the fully-handled normal path.
 
             preamble = pyflow_ast.Suite([])
-            if exc_name and exc_type:
+            if handler.name and exc_type:
+                extracted_group = self._call_named(
+                    "interpreter_exception_group_extract",
+                    [original_group, exc_type],
+                )
                 preamble.append(
-                    pyflow_ast.Assign(
-                        self._call_named(
-                            "interpreter_exception_group_extract",
-                            [original_group, exc_type],
-                        ),
-                        [exc_name],
-                    )
+                    self._name_store(handler.name, extracted_group)
                 )
 
             exc_handler = pyflow_ast.ExceptionHandler(
@@ -2337,6 +2390,8 @@ class ASTConverter:
 
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
+            if getattr(gen, "is_async", 0):
+                iter_expr = self._call_named("interpreter_aiter", [iter_expr])
             body_preamble = pyflow_ast.Suite([])
 
             if isinstance(gen.target, python_ast.Name):
@@ -2453,6 +2508,8 @@ class ASTConverter:
 
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
+            if getattr(gen, "is_async", 0):
+                iter_expr = self._call_named("interpreter_aiter", [iter_expr])
             body_preamble = pyflow_ast.Suite([])
 
             if isinstance(gen.target, python_ast.Name):

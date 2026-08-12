@@ -176,6 +176,24 @@ class TestTypeAnnotations(unittest.TestCase):
         self.assertIsInstance(result.blocks[0], pyflow_ast.TypeAlias)
         self.assertIsInstance(result.blocks[1], pyflow_ast.Assign)
 
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
+    def test_match_guard_runs_after_pattern_bindings(self):
+        source = """
+match value:
+    case captured if predicate(captured):
+        consume(captured)
+"""
+        result = self.converter._convert_node(python_ast.parse(source).body[0])
+        outer_switch = result.blocks[1]
+
+        self.assertIsInstance(outer_switch.t.blocks[0], pyflow_ast.Assign)
+        guard_switch = outer_switch.t.blocks[1]
+        self.assertIsInstance(guard_switch, pyflow_ast.Switch)
+        guard_call = guard_switch.condition.conditional
+        self.assertIsInstance(guard_call, pyflow_ast.Call)
+        self.assertEqual(guard_call.expr.name, "predicate")
+        self.assertEqual(guard_call.args[0].name, "captured")
+
 
 class TestGlobalNonlocal(unittest.TestCase):
     """Test improved global/nonlocal handling."""
@@ -334,6 +352,22 @@ class TestComprehensions(unittest.TestCase):
         self.assertIsInstance(result, pyflow_ast.DirectCall)
         code_ast = result.code.ast
         self.assertIsInstance(code_ast.blocks[0].expr, pyflow_ast.BuildMap)
+
+    def test_async_list_comprehension_uses_async_iterator(self):
+        tree = python_ast.parse("[x async for x in source]", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        loop = result.code.ast.blocks[1]
+
+        self.assertIsInstance(loop.iterator, pyflow_ast.Call)
+        self.assertEqual(loop.iterator.expr.object.pyobj, "interpreter_aiter")
+
+    def test_async_generator_expression_uses_async_iterator(self):
+        tree = python_ast.parse("(x async for x in source)", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        loop = result.code.ast.blocks[0]
+
+        self.assertIsInstance(loop.iterator, pyflow_ast.Call)
+        self.assertEqual(loop.iterator.expr.object.pyobj, "interpreter_aiter")
 
 
 class TestContextManagers(unittest.TestCase):
