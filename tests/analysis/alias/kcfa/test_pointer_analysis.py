@@ -341,7 +341,10 @@ result = second(**left, **right)
 """
         analysis = PointerAnalysis(source, k=1).run()
 
-        assert analysis.points_to("result") == analysis.points_to("y")
+        # Dicts are mutable, so allocation-site keys are only hints.  The
+        # concrete "b" flow must be retained even if conservative generic
+        # mapping flow also reaches the parameter.
+        assert analysis.points_to("y") <= analysis.points_to("result")
 
     def test_class_assignment_does_not_leak_into_module_binding(self) -> None:
         source = """
@@ -422,22 +425,38 @@ z = f(x, a=y)
             for detail in result.unknown_details()
         )
 
-    def test_known_dstar_absence_does_not_synthesize_parameter(self) -> None:
+    def test_mutated_dict_shape_is_not_rejected_from_allocation_syntax(self) -> None:
         source = """
 def f(a):
     return a
 
 x = object()
-d = {"b": x}
-y = f(**d)
+d = {}
+d["a"] = x
+result = f(**d)
 """
-        result = PointerAnalysis(source, k=1).run()
+        analysis = PointerAnalysis(source, k=1).run()
 
-        assert not result.points_to("y")
-        assert any(
+        assert analysis.points_to("result") == analysis.points_to("x")
+        assert not any(
             detail["kind"] == "invalid_call"
-            for detail in result.unknown_details()
+            for detail in analysis.unknown_details()
         )
+
+    def test_unknown_star_flows_to_every_feasible_position(self) -> None:
+        source = """
+def f(a, *rest):
+    return a
+
+x = object()
+y = []
+xs = [x]
+result = f(*xs, y)
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("x") <= analysis.points_to("result")
+        assert analysis.points_to("y") <= analysis.points_to("result")
 
     def test_known_star_overflow_rejects_call_before_body(self) -> None:
         source = """
@@ -529,5 +548,37 @@ x = C()
         assert any(
             detail["kind"] == "invalid_call"
             and "missing required" in detail["message"]
+            for detail in analysis.unknown_details()
+        )
+
+    def test_custom_new_invalid_init_has_no_instance_result(self) -> None:
+        source = """
+class C:
+    def __new__(cls):
+        return object.__new__(cls)
+
+    def __init__(self, required):
+        pass
+
+x = C()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert not analysis.points_to("x")
+
+    def test_non_none_init_return_has_no_instance_result(self) -> None:
+        source = """
+class C:
+    def __init__(self):
+        return object()
+
+x = C()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert not analysis.points_to("x")
+        assert any(
+            detail["kind"] == "invalid_call"
+            and "non-None" in detail["message"]
             for detail in analysis.unknown_details()
         )

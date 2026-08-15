@@ -876,6 +876,8 @@ class PointerSolver:
         callee_obj: 'NativeObject',
     ) -> bool:
         """Model an unanalyzed native call while preserving its result flow."""
+        if not self._has_exhaustive_native_summary(callee_obj):
+            self.mark_semantic_incomplete()
         if call.target is None:
             return True
         target = self.state.get_variable(scope, context, call.target)
@@ -889,6 +891,16 @@ class PointerSolver:
             (scope, NormalNode(target), PointsToSet.singleton(result))
         )
         return True
+
+    def _has_exhaustive_native_summary(self, callee_obj: 'NativeObject') -> bool:
+        return any(
+            effect.get("exhaustive", False)
+            and fnmatchcase(
+                callee_obj.access_path,
+                effect.get("access_path", ""),
+            )
+            for effect in self.config.native_effects or ()
+        )
 
     def _apply_configured_return_effects(
         self,
@@ -980,8 +992,8 @@ class PointerSolver:
             )
             for owner in constructor_owners
         )
-        validated_specials = ("__new__",) if has_custom_new else ("__init__",)
-        for special_name in validated_specials:
+
+        def special_irs(special_name):
             special_var = self.state._get_variable_direct(
                 cls_scope,
                 cls_scope.context,
@@ -1003,9 +1015,10 @@ class PointerSolver:
                 )
                 if isinstance(declared_ir, IRFunc):
                     candidate_irs.add(declared_ir)
-            if not candidate_irs:
-                continue
-            bindings = [
+            return candidate_irs
+
+        def bindings_for(candidate_irs):
+            return [
                 bind_arguments(
                     self.state,
                     scope,
@@ -1016,15 +1029,88 @@ class PointerSolver:
                 )
                 for candidate_ir in candidate_irs
             ]
-            if bindings and all(binding.definitely_invalid for binding in bindings):
-                self._unknown_tracker.record(
-                    UnknownKind.INVALID_CALL,
-                    str(call.call_site),
-                    "; ".join(bindings[0].diagnostics)
-                    or f"invalid constructor {special_name} arguments",
-                    context=class_obj.ir.get_qualname(),
-                )
+
+        new_irs = special_irs("__new__")
+        init_irs = special_irs("__init__")
+        new_bindings = bindings_for(new_irs)
+        init_bindings = bindings_for(init_irs)
+        new_invalid = bool(new_bindings) and all(
+            binding.definitely_invalid for binding in new_bindings
+        )
+        init_invalid = bool(init_bindings) and all(
+            binding.definitely_invalid for binding in init_bindings
+        )
+
+        if new_invalid or (not has_custom_new and init_invalid):
+            invalid_bindings = new_bindings if new_invalid else init_bindings
+            special_name = "__new__" if new_invalid else "__init__"
+            self._unknown_tracker.record(
+                UnknownKind.INVALID_CALL,
+                str(call.call_site),
+                "; ".join(invalid_bindings[0].diagnostics)
+                or f"invalid constructor {special_name} arguments",
+                context=class_obj.ir.get_qualname(),
+            )
+            return True
+
+        if has_custom_new and init_invalid:
+            # A foreign __new__ result remains a successful class-call result,
+            # but C/subclass results must not pass an invalid __init__.
+            self._unknown_tracker.record(
+                UnknownKind.INVALID_CALL,
+                str(call.call_site),
+                "; ".join(init_bindings[0].diagnostics)
+                or "invalid constructor __init__ arguments",
+                context=class_obj.ir.get_qualname(),
+            )
+
+        def init_may_return_none(func_ir):
+            returns = []
+
+            class ReturnCollector(ast.NodeVisitor):
+                def visit_Return(self, node):
+                    returns.append(node)
+
+                def visit_FunctionDef(self, node):
+                    if node is func_ir.get_ast():
+                        self.generic_visit(node)
+
+                visit_AsyncFunctionDef = visit_FunctionDef
+
+                def visit_Lambda(self, node):
+                    return None
+
+                def visit_ClassDef(self, node):
+                    return None
+
+            ReturnCollector().visit(func_ir.get_ast())
+            if not returns:
                 return True
+            last_stmt = func_ir.get_ast().body[-1] if func_ir.get_ast().body else None
+            definitely_returns_value = (
+                isinstance(last_stmt, ast.Return)
+                and last_stmt.value is not None
+                and all(
+                    node.value is not None
+                    and not (
+                        isinstance(node.value, ast.Constant)
+                        and node.value.value is None
+                    )
+                    for node in returns
+                )
+            )
+            return not definitely_returns_value
+
+        init_return_valid = not init_irs or any(
+            init_may_return_none(func_ir) for func_ir in init_irs
+        )
+        if not init_return_valid:
+            self._unknown_tracker.record(
+                UnknownKind.INVALID_CALL,
+                str(call.call_site),
+                "__init__ returned a non-None value",
+                context=class_obj.ir.get_qualname(),
+            )
 
         instance_alloc = AllocSite(call.call_site.statement, AllocKind.INSTANCE)
         if self.context_selector:
@@ -1101,11 +1187,6 @@ class PointerSolver:
             ),
         )
 
-        # Flow __new__ result to call target
-        if call.target:
-            target_var = self.state.get_variable(scope, context, call.target)
-            self.state._add_var_points_flow(ctx_new_result_var, target_var)
-
         # Call __init__ only for instance-like results
         init_base_var = self.variable_factory.make_variable(f"$init_base@{call.call_site.short_id()}")
         ctx_init_base_var = self.state.get_variable(scope, context, init_base_var)
@@ -1133,6 +1214,36 @@ class PointerSolver:
         self.state._add_points_flow_edge(
             PointerFlowEdge(guard, NormalNode(ctx_init_base_var), PointerFlowKind.NORMAL)
         )
+
+        if call.target:
+            target_var = self.state.get_variable(scope, context, call.target)
+            foreign_guard = GuardNode(
+                lambda edge, pts: PointsToSet.from_objects(
+                    [obj for obj in pts if not is_constructed_class_instance(obj)]
+                )
+            )
+            self.state._add_points_flow_edge(
+                PointerFlowEdge(
+                    NormalNode(ctx_new_result_var),
+                    foreign_guard,
+                    PointerFlowKind.NORMAL,
+                )
+            )
+            self.state._add_points_flow_edge(
+                PointerFlowEdge(
+                    foreign_guard,
+                    NormalNode(target_var),
+                    PointerFlowKind.NORMAL,
+                )
+            )
+            if not init_invalid and init_return_valid:
+                self.state._add_points_flow_edge(
+                    PointerFlowEdge(
+                        guard,
+                        NormalNode(target_var),
+                        PointerFlowKind.NORMAL,
+                    )
+                )
 
         init_callee_var = self.variable_factory.make_variable(f"$bound_init@{call.call_site.short_id()}")
         self.add_constraint(

@@ -1,6 +1,11 @@
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import AllocConstraint, CallConstraint, CopyConstraint
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind, ObjectFactory
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
+    AllocKind,
+    AllocSite,
+    NativeObject,
+    ObjectFactory,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor.normal_call import NormalCallProcessor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.solver import PointerSolver
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.state import PointerAnalysisState
@@ -126,3 +131,26 @@ def test_unsupported_builtin_gets_unknown_result_and_diagnostic(
     target = state.get_variable(module_scope, simple_context, Variable("result"))
     assert not state.get_points_to(target).is_empty()
     assert solver.query().get_unknown_summary()["unknown_unknown_builtin"] == 1
+    assert solver.query().get_statistics()["semantic_complete"] is False
+
+
+def test_unmodeled_native_call_marks_semantics_incomplete(
+    module_scope, simple_context, call_site_factory
+):
+    solver, _state, _processor = _solver(module_scope)
+    call = CallConstraint(
+        callee=Variable("native"),
+        args=(Variable("argument"),),
+        kwargs=(),
+        target=Variable("result"),
+        call_site=call_site_factory(),
+    )
+    native = NativeObject(
+        simple_context,
+        AllocSite("<native:test.identity>", AllocKind.NATIVE),
+        "test.identity",
+    )
+
+    solver._handle_native_call(module_scope, simple_context, call, native)
+
+    assert solver.query().get_statistics()["semantic_complete"] is False

@@ -42,7 +42,9 @@ def _star_lengths(state, source_var) -> Optional[FrozenSet[int]]:
     for obj in points_to:
         stmt = getattr(obj.alloc_site, "stmt", None)
         rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
-        if not isinstance(rval, (ast.List, ast.Tuple)):
+        # Tuple length is immutable.  A list allocation's original syntax is
+        # not a current-shape fact after append/extend/slice mutation.
+        if not isinstance(rval, ast.Tuple):
             return None
         lengths.add(len(rval.elts))
     return frozenset(lengths)
@@ -88,8 +90,8 @@ def _constant_name_value(state, source_var, name: str):
     return None
 
 
-def _mapping_key_sets(state, source_var) -> Optional[Tuple[FrozenSet[str], ...]]:
-    """Return possible exact string-key sets for literal dict abstractions."""
+def mapping_key_hints(state, source_var) -> Optional[Tuple[FrozenSet[str], ...]]:
+    """Return literal allocation keys as flow hints, never as absence facts."""
     possibilities = set()
     points_to = state.get_points_to(source_var)
     if points_to.is_empty():
@@ -114,11 +116,6 @@ def _mapping_key_sets(state, source_var) -> Optional[Tuple[FrozenSet[str], ...]]
             keys.add(key_value)
         possibilities.add(frozenset(keys))
     return tuple(sorted(possibilities, key=lambda keys: tuple(sorted(keys))))
-
-
-def mapping_key_sets(state, source_var) -> Optional[Tuple[FrozenSet[str], ...]]:
-    """Public helper shared with parameter-flow installation."""
-    return _mapping_key_sets(state, source_var)
 
 
 def bind_arguments(state, scope, context, func_args, call, *, leading_positional=0):
@@ -157,11 +154,9 @@ def bind_arguments(state, scope, context, func_args, call, *, leading_positional
         if name is not None:
             continue
         source_var = state.get_variable(scope, context, source)
-        options = _mapping_key_sets(state, source_var)
-        if options is None:
-            uncertain = True
-        else:
-            dstar_key_options.append(options)
+        # Dicts are mutable and may alias; allocation-site keys cannot prove
+        # current presence or absence at the call.
+        uncertain = True
 
     diagnostics = []
     invalid_for_all = False

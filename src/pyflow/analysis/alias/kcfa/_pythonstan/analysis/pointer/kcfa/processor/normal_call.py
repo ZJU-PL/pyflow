@@ -33,7 +33,7 @@ from ..context import Ctx, Scope, AbstractContext
 from ..variable import VariableKind, Variable
 from ..unknown_tracker import UnknownKind
 from ..heap_model import key, attr, elem, value
-from ..call_binding import bind_arguments, mapping_key_sets
+from ..call_binding import bind_arguments, mapping_key_hints
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRAssign
 
@@ -81,6 +81,7 @@ class NormalCallProcessor(Processor):
     ) -> bool:
         if solver._handle_builtin_call(scope, context, call, builtin_obj):
             return True
+        solver.mark_semantic_incomplete()
         builtin_name = getattr(builtin_obj, "name", None) or str(builtin_obj)
         solver._unknown_tracker.record(
             UnknownKind.UNKNOWN_BUILTIN,
@@ -520,14 +521,14 @@ class NormalCallProcessor(Processor):
         for obj in points_to:
             stmt = getattr(obj.alloc_site, "stmt", None)
             rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
-            if not isinstance(rval, (ast.List, ast.Tuple)):
+            if not isinstance(rval, ast.Tuple):
                 return None
             lengths.add(len(rval.elts))
         return lengths
 
     @staticmethod
     def _mapping_key_sets(state, source_var: 'Ctx[Variable]'):
-        return mapping_key_sets(state, source_var)
+        return mapping_key_hints(state, source_var)
 
     def _expanded_argument(
         self,
@@ -580,11 +581,16 @@ class NormalCallProcessor(Processor):
             if self_var is not None:
                 arg_vars.append(self_var)
             starred_sources = []
+            uncertain_star_values = []
+            plain_after_uncertain_star = []
+            saw_uncertain_star = False
             raw_args = tuple(call.iter_args())
             for source_index, (source, is_starred) in enumerate(raw_args):
                 source_var = state.get_variable(scope, context, source)
                 if not is_starred:
                     arg_vars.append(source_var)
+                    if saw_uncertain_star:
+                        plain_after_uncertain_star.append(source_var)
                     continue
                 known_lengths = self._known_star_lengths(state, source_var)
                 future_plain = sum(
@@ -596,6 +602,7 @@ class NormalCallProcessor(Processor):
                     len(positional_params) - len(arg_vars) - future_plain,
                 )
                 if known_lengths is None:
+                    saw_uncertain_star = True
                     expansion_count = positional_room
                 else:
                     expansion_count = max(known_lengths, default=0)
@@ -616,6 +623,35 @@ class NormalCallProcessor(Processor):
                     ))
                 starred_sources.append((source_index, source, known_lengths))
 
+                if known_lengths is None:
+                    uncertain_star_values.append(self._expanded_argument(
+                        solver,
+                        scope,
+                        context,
+                        call,
+                        source,
+                        f"star{source_index}:any-position",
+                        (elem(),),
+                    ))
+
+            # Unknown unpacking may occupy any remaining positional slot.  The
+            # following plain arguments consequently also have multiple valid
+            # alignments.  Join all feasible formal flows instead of selecting
+            # one flattened sequence.
+            first_user_param = 1 if self_var is not None else 0
+            uncertain_positional_values = [
+                *uncertain_star_values,
+                *plain_after_uncertain_star,
+            ]
+            for param in positional_params[first_user_param:]:
+                param_var = state.get_variable(
+                    callee_scope,
+                    call_context,
+                    solver.variable_factory.make_variable(param.arg),
+                )
+                for possible_value in uncertain_positional_values:
+                    state._add_var_points_flow(possible_value, param_var)
+
             kwarg_vars = {}
             dstar_sources = []
             for keyword_index, (name, source) in enumerate(call.kwargs):
@@ -635,26 +671,14 @@ class NormalCallProcessor(Processor):
                     self._mapping_key_sets(state, source_var)
                     for _, _, source_var in dstar_sources
                 ]
-                if source_key_sets and all(
-                    options is not None
-                    and all(param_name not in keys for keys in options)
-                    for options in source_key_sets
-                ):
-                    # Exact literal mappings prove this name absent.  Do not
-                    # manufacture a binding merely because ``**`` syntax exists.
-                    continue
                 possible_presence = any(
-                    options is None
-                    or any(param_name in keys for keys in options)
+                    options is None or any(param_name in keys for keys in options)
                     for options in source_key_sets
                 )
-                guaranteed_presence = any(
-                    options is not None
-                    and bool(options)
-                    and all(param_name in keys for keys in options)
-                    for options in source_key_sets
-                )
-                if possible_presence and not guaranteed_presence:
+                if not possible_presence:
+                    # The literal syntax omits the key, but mutation may add it.
+                    possible_presence = True
+                if possible_presence:
                     maybe_dstar_params.add(param_name)
                 target = solver.variable_factory.make_variable(
                     f"$dstar@{call.call_site.short_id()}@{param_name}",
@@ -663,7 +687,10 @@ class NormalCallProcessor(Processor):
                 for _, source, source_var in dstar_sources:
                     fields = [key(param_name)]
                     key_sets = self._mapping_key_sets(state, source_var)
-                    if key_sets is None:
+                    if (
+                        key_sets is None
+                        or not any(param_name in keys for keys in key_sets)
+                    ):
                         fields.extend((elem(), value()))
                     for field in fields:
                         solver.add_constraint(
@@ -824,6 +851,8 @@ class NormalCallProcessor(Processor):
                         elem(),
                     )
                     state._add_var_points_flow(expanded, generic_element)
+                for possible_value in plain_after_uncertain_star:
+                    state._add_var_points_flow(possible_value, generic_element)
             elif arg_index < len(arg_vars):
                 # Too many positional arguments and no *args to catch them
                 solver._unknown_tracker.record(
