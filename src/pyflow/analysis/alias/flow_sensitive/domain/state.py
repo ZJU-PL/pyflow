@@ -358,7 +358,11 @@ class HeapState:
             and self.absent == other.absent
             and self.scalar_present == other.scalar_present
             and self.complete_roots == other.complete_roots
-            and self.versions == other.versions
+            # Mutation versions are relational invalidation metadata, not a
+            # component of the dataflow lattice.  A transfer function may
+            # execute the same abstract write while solving a loop; assigning
+            # it a fresh numeric epoch must not manufacture a new lattice
+            # element and prevent convergence.
             and self.escaped == other.escaped
             and set_map_equal(self.returns, other.returns)
             and slot_map_equal(self.return_slots, other.return_slots)

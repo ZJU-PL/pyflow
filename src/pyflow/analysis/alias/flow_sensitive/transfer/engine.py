@@ -572,19 +572,23 @@ class HeapTransferEngine(
                 None,
                 {"raise": test.raises} if test.raises is not None else {},
             )
-        normal = test.normal
-        self._restore_flow_state(normal)
+        # Python only evaluates the message on the failing path.  Keep the
+        # true-refined state for normal flow and independently evaluate the
+        # message after refining the test to false.
+        self._restore_flow_state(test.normal)
         self._refine_identity_condition(procedure, node.test, truth=True)
         normal = self._capture_flow_state()
+
+        self._restore_flow_state(test.normal)
+        self._refine_identity_condition(procedure, node.test, truth=False)
         message = self._evaluate_expressions_outcome(
             procedure,
             node.message,
         )
         self.heap.mark_all_escaped(message.values)
         self.state.mark_escaped(message.values)
-        raised = message.normal
         abrupt: dict[str, _FlowState] = {}
-        for exceptional in (test.raises, message.raises, raised):
+        for exceptional in (test.raises, message.raises, message.normal):
             if exceptional is not None:
                 abrupt = self._merge_abrupt_maps(
                     abrupt,
@@ -901,15 +905,42 @@ class HeapTransferEngine(
         procedure: object,
         node: py_ast.While,
     ) -> _FlowOutcome:
-        condition = self.analyze_node(procedure, node.condition)
-        if condition.normal is None:
-            return condition
-        entry = condition.normal
+        # ``current`` is the state at the loop head, before the next
+        # condition evaluation.  Conditions may mutate the heap and Python
+        # evaluates them before every iteration, so evaluating once outside
+        # this fixed point loses loop-carried condition effects.
+        entry = self._capture_flow_state()
         current = entry
         breaks: list[_FlowState] = []
-        abrupt = dict(condition.abrupt)
+        natural_exits: list[_FlowState] = []
+        abrupt: dict[str, _FlowState] = {}
+        hit_iteration_bound = True
         for _ in range(self.max_loop_iterations):
-            body_outcome = self._outcome_after(procedure, node.body, current)
+            condition = self._outcome_after(procedure, node.condition, current)
+            abrupt = self._merge_abrupt_maps(abrupt, condition.abrupt)
+            if condition.normal is None:
+                hit_iteration_bound = False
+                break
+
+            self._restore_flow_state(condition.normal)
+            self._refine_identity_condition(
+                procedure,
+                node.condition.conditional,
+                truth=False,
+            )
+            natural_exits.append(self._capture_flow_state())
+
+            self._restore_flow_state(condition.normal)
+            self._refine_identity_condition(
+                procedure,
+                node.condition.conditional,
+                truth=True,
+            )
+            body_outcome = self._outcome_after(
+                procedure,
+                node.body,
+                self._capture_flow_state(),
+            )
             if "break" in body_outcome.abrupt:
                 breaks.append(body_outcome.abrupt["break"])
             abrupt = self._merge_abrupt_maps(
@@ -929,15 +960,34 @@ class HeapTransferEngine(
                 if state is not None
             )
             if not back_edges:
+                hit_iteration_bound = False
                 break
             body_state = self._join_flow_states(back_edges)
             next_state = self._join_flow_states((entry, body_state))
             if self._flow_states_equivalent(next_state, current):
                 current = next_state
+                hit_iteration_bound = False
                 break
             current = next_state
-        else_outcome = self._outcome_after(procedure, node.else_, current)
-        normal = self._join_optional_flow_states((else_outcome.normal, *breaks))
+        bound_exit: _FlowState | None = None
+        if hit_iteration_bound:
+            self.precision_degradations.append((node, "loop-iteration-bound"))
+            current = self._widen_loop_state(node, entry, current)
+            # At the bound, a later iteration may either exit naturally or
+            # break.  Retain both possibilities rather than silently using
+            # the last under-approximate approximant.
+            natural_exits.append(current)
+            bound_exit = current
+
+        else_entry = self._join_optional_flow_states(tuple(natural_exits))
+        else_outcome = (
+            self._outcome_after(procedure, node.else_, else_entry)
+            if else_entry is not None
+            else _FlowOutcome(None)
+        )
+        normal = self._join_optional_flow_states(
+            (else_outcome.normal, *breaks, bound_exit)
+        )
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -966,6 +1016,7 @@ class HeapTransferEngine(
         current = entry
         breaks: list[_FlowState] = []
         abrupt = dict(preamble.abrupt)
+        hit_iteration_bound = True
         for _ in range(self.max_loop_iterations):
             self._restore_flow_state(current)
             self._bind_for_index(procedure, node)
@@ -994,15 +1045,24 @@ class HeapTransferEngine(
                 if state is not None
             )
             if not back_edges:
+                hit_iteration_bound = False
                 break
             body_state = self._join_flow_states(back_edges)
             next_state = self._join_flow_states((entry, body_state))
             if self._flow_states_equivalent(next_state, current):
                 current = next_state
+                hit_iteration_bound = False
                 break
             current = next_state
+        bound_exit: _FlowState | None = None
+        if hit_iteration_bound:
+            self.precision_degradations.append((node, "loop-iteration-bound"))
+            current = self._widen_loop_state(node, entry, current)
+            bound_exit = current
         else_outcome = self._outcome_after(procedure, node.else_, current)
-        normal = self._join_optional_flow_states((else_outcome.normal, *breaks))
+        normal = self._join_optional_flow_states(
+            (else_outcome.normal, *breaks, bound_exit)
+        )
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -1449,6 +1509,63 @@ class HeapTransferEngine(
             for key in default_keys
         }
         return _FlowState(joined_heap, joined_environment, joined_defaults)
+
+    def _widen_loop_state(
+        self,
+        node: object,
+        entry: _FlowState,
+        current: _FlowState,
+    ) -> _FlowState:
+        """Conservatively contaminate heap locations changed by a bounded loop.
+
+        The normal loop approximation is retained, but each heap location
+        whose contents changed from the loop entry receives a stable unknown
+        value.  This makes the iteration cap explicit in both diagnostics and
+        the resulting may-information rather than treating the last
+        approximant as a fixed point.
+        """
+        widened = current.heap_state.copy()
+        changed = self._loop_modified_locations(entry.heap_state, current.heap_state)
+        for location in changed:
+            unknown = HeapLocation(
+                self.heap.unknown_object(
+                    (
+                        "loop-iteration-bound",
+                        self._program_point_identity(None, node),
+                        location,
+                    ),
+                    label=f"unknown loop value at {location!r}",
+                )
+            )
+            widened.write(location, (unknown,), UpdatePolicy.WEAK)
+        return _FlowState(
+            widened,
+            current.environment,
+            current.definition_defaults,
+        )
+
+    @staticmethod
+    def _loop_modified_locations(
+        entry: HeapState,
+        current: HeapState,
+    ) -> tuple[HeapLocation, ...]:
+        """Return heap paths whose value-presence facts changed in a loop."""
+        locations: set[HeapLocation] = set()
+        for before, after in (
+            (entry.values, current.values),
+            (entry.contaminants, current.contaminants),
+        ):
+            for location in set(before).union(after):
+                if frozenset(before.get(location, ())) != frozenset(
+                    after.get(location, ())
+                ):
+                    locations.add(location)
+        for before, after in (
+            (entry.absent, current.absent),
+            (entry.scalar_present, current.scalar_present),
+        ):
+            locations.update(before.symmetric_difference(after))
+        return tuple(locations)
 
     @staticmethod
     def _flow_states_equivalent(a: _FlowState, b: _FlowState) -> bool:

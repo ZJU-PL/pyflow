@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pyflow.analysis.alias.flow_sensitive import (
     HeapAnalysis,
+    HeapObjectKind,
     HeapPolicy,
     UpdatePolicy,
 )
@@ -252,6 +253,190 @@ def test_loop_fixed_point_keeps_wildcard_contamination():
 
     assert dynamic_location in loaded_locations
     assert graph.may_alias(loaded_locations[0], dynamic_location)
+
+
+def test_idempotent_loop_write_reaches_a_fixed_point_without_degradation():
+    """Repeated abstract writes must not create fresh lattice elements."""
+    obj = py_ast.Local("obj")
+    cond = py_ast.Local("cond")
+    value = py_ast.Local("value")
+    loaded = py_ast.Local("loaded")
+    loop = py_ast.While(
+        py_ast.Condition(py_ast.Suite([]), cond),
+        py_ast.Suite([py_ast.SetAttr(value, obj, _existing("payload"))]),
+        py_ast.Suite([]),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                loop,
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
+            ]
+        ),
+        params=(cond, value),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert "loop-iteration-bound" not in {
+        reason for reasons in analysis.precision_degradations.values() for reason in reasons
+    }
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
+        code, loaded
+    )
+
+
+def test_loop_bound_degrades_and_havocs_modified_heap_locations():
+    """A genuine bound hit is visible and does not retain a precise store."""
+    from pyflow.analysis.alias.flow_sensitive.abstraction import HeapAbstraction
+    from pyflow.analysis.alias.flow_sensitive.transfer import HeapTransferEngine
+
+    obj = py_ast.Local("obj")
+    cond = py_ast.Local("cond")
+    value = py_ast.Local("value")
+    loaded = py_ast.Local("loaded")
+    loop = py_ast.While(
+        py_ast.Condition(py_ast.Suite([]), cond),
+        py_ast.Suite([py_ast.SetAttr(value, obj, _existing("payload"))]),
+        py_ast.Suite([]),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                loop,
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
+            ]
+        ),
+        params=(cond, value),
+    )
+
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    engine = HeapTransferEngine(heap, max_loop_iterations=1)
+    outcome = engine.analyze_node(code, code.ast)
+
+    assert (loop, "loop-iteration-bound") in engine.precision_degradations
+    assert outcome.normal is not None
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert any(
+        location.root.kind is HeapObjectKind.UNKNOWN for location in loaded_locations
+    )
+
+
+def test_while_re_evaluates_condition_with_loop_carried_heap_effects():
+    obj = py_ast.Local("obj")
+    cond_formal = py_ast.Local("cond_formal")
+    initial = py_ast.Local("initial")
+    replacement = py_ast.Local("replacement")
+    loaded = py_ast.Local("loaded")
+    condition_code = _code(
+        "condition",
+        py_ast.Suite(
+            [
+                py_ast.SetAttr(
+                    py_ast.GetAttr(cond_formal, _existing("inp")),
+                    cond_formal,
+                    _existing("out"),
+                )
+            ]
+        ),
+        params=(cond_formal,),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.SetAttr(initial, obj, _existing("inp")),
+                py_ast.While(
+                    py_ast.Condition(
+                        py_ast.Suite([]),
+                        py_ast.DirectCall(condition_code, None, [obj], [], None, None),
+                    ),
+                    py_ast.Suite(
+                        [py_ast.SetAttr(replacement, obj, _existing("inp"))]
+                    ),
+                    py_ast.Suite([]),
+                ),
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("out")), [loaded]),
+            ]
+        ),
+        params=(initial, replacement),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert heap.locations_for_local(code, initial)[0] in loaded_locations
+    assert heap.locations_for_local(code, replacement)[0] in loaded_locations
+
+
+def test_assert_message_evaluates_on_the_false_refined_state():
+    from pyflow.analysis.alias.flow_sensitive.abstraction import HeapAbstraction
+    from pyflow.analysis.alias.flow_sensitive.transfer import HeapTransferEngine
+
+    cond = py_ast.Local("cond")
+    value = py_ast.Local("value")
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    selected = py_ast.Local("selected")
+    formal = py_ast.Local("formal")
+    stored = py_ast.Local("stored")
+    mutation = _code(
+        "mutate",
+        py_ast.Suite([py_ast.SetAttr(stored, formal, _existing("marked"))]),
+        params=(formal, stored),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [value]),
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(py_ast.BuildList([]), [y]),
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Assign(x, [selected])]),
+                    py_ast.Suite([py_ast.Assign(y, [selected])]),
+                ),
+                py_ast.Assert(
+                    py_ast.Is(selected, x),
+                    py_ast.DirectCall(
+                        mutation,
+                        None,
+                        [selected, value],
+                        [],
+                        None,
+                        None,
+                    ),
+                ),
+            ]
+        ),
+        params=(cond,),
+    )
+
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    engine = HeapTransferEngine(heap)
+    outcome = engine.analyze_node(code, code.ast)
+
+    assert "raise" in outcome.abrupt
+    x_location = heap.locations_for_local(code, x)[0]
+    y_location = heap.locations_for_local(code, y)[0]
+    value_location = heap.locations_for_local(code, value)[0]
+    raised = outcome.abrupt["raise"].heap_state
+    x_mark = heap.dynamic_attribute_location(x_location, "marked")
+    y_mark = heap.dynamic_attribute_location(y_location, "marked")
+    assert value_location not in raised.values.get(x_mark, ())
+    assert value_location in raised.values.get(y_mark, ())
 
 
 def test_for_loop_index_binds_to_iterator_elements():
