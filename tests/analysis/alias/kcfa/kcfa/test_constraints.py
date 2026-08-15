@@ -52,6 +52,27 @@ def test_call_constraint_uses_current_keyword_and_callsite_shape(call_site_facto
     assert constraint.stmt is call_site.statement
 
 
+def test_call_constraint_preserves_star_and_repeated_mapping_expansions(
+    call_site_factory,
+):
+    callee = Variable("callee")
+    items = Variable("items")
+    left = Variable("left")
+    right = Variable("right")
+
+    constraint = CallConstraint(
+        callee=callee,
+        args=(items,),
+        kwargs=((None, left), (None, right)),
+        target=None,
+        call_site=call_site_factory(),
+        starred=(True,),
+    )
+
+    assert tuple(constraint.iter_args()) == ((items, True),)
+    assert constraint.kwargs == ((None, left), (None, right))
+
+
 def test_constraint_manager_indexes_by_explicit_trigger_variable(module_scope):
     manager = ConstraintManager()
     source = Variable("source")

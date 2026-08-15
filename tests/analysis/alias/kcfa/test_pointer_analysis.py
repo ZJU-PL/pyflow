@@ -7,8 +7,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from pyflow.analysis.alias.kcfa import PointerAnalysis
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import ParamContext
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import NamespaceManager
+
+
+def _module_points_to(result, name: str) -> set[str]:
+    return set().union(*(
+        points_to
+        for binding, points_to in result.bindings_for_name(name)
+        if "<module " in binding
+    ))
 
 
 class TestBasicPointerAnalysis:
@@ -268,3 +278,118 @@ r2 = first(y, x)
             for obj in pts
         }
         assert pts_x
+
+    def test_constructor_param_context_preserves_argument_order(self) -> None:
+        source = """
+class C:
+    pass
+
+a = object()
+b = []
+x = C(a, b)
+y = C(b, a)
+"""
+        result = PointerAnalysis(source, context_policy="1-param").run()
+        signatures = []
+        for obj, scope in result.state._internal_scope.items():
+            if not isinstance(obj, InstanceObject):
+                continue
+            if not isinstance(scope.context, ParamContext):
+                continue
+            signature = scope.context.params[-1]
+            signatures.append(tuple(
+                entry[2].content.name
+                for entry in signature
+                if entry[0] == "pos"
+            ))
+
+        assert set(signatures) == {("a", "b"), ("b", "a")}
+
+    def test_starred_positional_arguments_expand_by_position(self) -> None:
+        source = """
+def first(a, b):
+    return a
+
+x = object()
+y = []
+items = (x, y)
+result = first(*items)
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("result") == analysis.points_to("x")
+
+    def test_multiple_mapping_expansions_remain_distinct(self) -> None:
+        source = """
+def second(a, b):
+    return b
+
+x = object()
+y = []
+left = {"a": x}
+right = {"b": y}
+result = second(**left, **right)
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("result") == analysis.points_to("y")
+
+    def test_class_assignment_does_not_leak_into_module_binding(self) -> None:
+        source = """
+x = object()
+class C:
+    x = []
+
+module_x = x
+class_x = C.x
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("module_x") == _module_points_to(analysis, "x")
+        assert any("AllocKind.OBJECT" in obj for obj in analysis.points_to("module_x"))
+        assert any("AllocKind.LIST" in obj for obj in analysis.points_to("class_x"))
+        assert analysis.points_to("module_x").isdisjoint(analysis.points_to("class_x"))
+
+    def test_later_assignment_makes_earlier_load_function_local(self) -> None:
+        source = """
+x = object()
+def f():
+    before = x
+    x = []
+    return before
+
+result = f()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert any("AllocKind.LIST" in obj for obj in analysis.points_to("result"))
+        assert all("AllocKind.OBJECT" not in obj for obj in analysis.points_to("result"))
+
+    def test_static_method_uses_module_not_class_namespace(self) -> None:
+        source = """
+x = object()
+class C:
+    x = []
+
+    @staticmethod
+    def f():
+        return x
+
+result = C.f()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("result") == _module_points_to(analysis, "x")
+        assert all("AllocKind.LIST" not in obj for obj in analysis.points_to("result"))
+
+    def test_targetless_call_in_class_body_translates(self) -> None:
+        source = """
+def register():
+    return object()
+
+class C:
+    register()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert any("register" in callee for _, callee in result.call_edges())

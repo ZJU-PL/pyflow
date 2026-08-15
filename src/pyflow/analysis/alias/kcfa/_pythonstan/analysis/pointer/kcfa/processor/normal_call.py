@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 
 from .processor import Processor
 from ..points_to_set import PointsToSet
-from ..constraints import CallConstraint, AllocConstraint, LoadConstraint
+from ..constraints import (
+    CallConstraint,
+    AllocConstraint,
+    LoadConstraint,
+    argument_source_signature,
+)
 from ..object import (
     AbstractObject,
     AllocKind,
@@ -27,7 +32,7 @@ from ..object import (
 from ..context import Ctx, Scope, AbstractContext
 from ..variable import VariableKind, Variable
 from ..unknown_tracker import UnknownKind
-from ..heap_model import key, attr
+from ..heap_model import key, attr, elem, value
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRAssign
 
@@ -92,16 +97,6 @@ class NormalCallProcessor(Processor):
                 target_var, scope, PointsToSet.singleton(unknown_obj)
             )
         return True
-
-    @staticmethod
-    def _argument_sources(args, kwargs):
-        """Build an ordered, hashable signature of syntactic argument sources."""
-        positional = tuple(("pos", index, arg) for index, arg in enumerate(args))
-        keyword_items = sorted(
-            kwargs.items(), key=lambda item: (item[0] is None, str(item[0]))
-        )
-        keywords = tuple(("kw", name, arg) for name, arg in keyword_items)
-        return positional + keywords
 
     def _analyze_function_body(
         self,
@@ -173,6 +168,7 @@ class NormalCallProcessor(Processor):
                 kwargs=call.kwargs,
                 target=call.target,
                 call_site=call.call_site,
+                starred=call.starred,
             ),
         )
         return True
@@ -295,21 +291,32 @@ class NormalCallProcessor(Processor):
         )
         solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(holder_obj))
 
-        args = [solver.state.get_variable(scope, context, arg) for arg in call.args]
-        args.insert(0, self_var)
-        kwargs = {k: solver.state.get_variable(scope, context, arg) for k, arg in call.kwargs}
+        args = tuple(
+            (solver.state.get_variable(scope, context, arg), is_starred)
+            for arg, is_starred in call.iter_args()
+        )
+        kwargs = tuple(
+            (name, solver.state.get_variable(scope, context, arg))
+            for name, arg in call.kwargs
+        )
 
         call_context = solver.context_selector.select_call_context(
             call.call_site,
             context,
             holder_obj,
-            params=self._argument_sources(args, kwargs),
+            params=argument_source_signature(args, kwargs, receiver=holder_obj),
         )
         
         logger.debug(f"Handling function call: {call.call_site} -> {method_obj.alloc_site.stmt}")
         
-        method_scope = solver.state.get_internal_scope(holder_obj)
-        callee_scope = Scope.new(method_obj, method_scope.module, call_context, func_ir, method_scope)
+        definition_scope = method_obj.container_scope
+        callee_scope = Scope.new(
+            method_obj,
+            definition_scope.module,
+            call_context,
+            func_ir,
+            definition_scope,
+        )
         assert holder_obj
 
         if func_ir.is_class_method:
@@ -365,14 +372,20 @@ class NormalCallProcessor(Processor):
             return False
         
         func_ir: IRFunc = func_obj.alloc_site.stmt
-        args = [solver.state.get_variable(scope, context, arg) for arg in call.args]
-        kwargs = {k: solver.state.get_variable(scope, context, arg) for k, arg in call.kwargs}
+        args = tuple(
+            (solver.state.get_variable(scope, context, arg), is_starred)
+            for arg, is_starred in call.iter_args()
+        )
+        kwargs = tuple(
+            (name, solver.state.get_variable(scope, context, arg))
+            for name, arg in call.kwargs
+        )
         
         call_context = solver.context_selector.select_call_context(
             call.call_site,
             context,
             None,  # No receiver ffor regular functions
-            params=self._argument_sources(args, kwargs),
+            params=argument_source_signature(args, kwargs),
         )
         
         logger.debug(f"Handling function call: {call.call_site} -> {func_obj.alloc_site.stmt}")
@@ -442,8 +455,67 @@ class NormalCallProcessor(Processor):
     
         global_vars = state.get_global_vars(callee_obj)
         for name, var in global_vars.items():
-            var = state.get_variable(scope.module, scope.module.context, solver.variable_factory.make_variable(name))
-            state.set_variable(callee_scope, call_context, var.content, var)
+            definition_module = callee_obj.container_scope.module
+            captured = state.get_variable(
+                definition_module,
+                definition_module.context,
+                solver.variable_factory.make_variable(name, VariableKind.GLOBAL),
+            )
+            state.set_variable(callee_scope, call_context, captured.content, captured)
+
+    @staticmethod
+    def _known_star_lengths(state, source_var: 'Ctx[Variable]'):
+        lengths = set()
+        points_to = state.get_points_to(source_var)
+        if points_to.is_empty():
+            return None
+        for obj in points_to:
+            stmt = getattr(obj.alloc_site, "stmt", None)
+            rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
+            if not isinstance(rval, (ast.List, ast.Tuple)):
+                return None
+            lengths.add(len(rval.elts))
+        return lengths
+
+    @staticmethod
+    def _has_known_mapping_keys(state, source_var: 'Ctx[Variable]') -> bool:
+        points_to = state.get_points_to(source_var)
+        if points_to.is_empty():
+            return False
+        for obj in points_to:
+            stmt = getattr(obj.alloc_site, "stmt", None)
+            rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
+            if not isinstance(rval, ast.Dict):
+                return False
+            if any(
+                not isinstance(item, ast.Constant)
+                and not (isinstance(item, ast.Name) and item.id.startswith("$const"))
+                for item in rval.keys
+            ):
+                return False
+        return True
+
+    def _expanded_argument(
+        self,
+        solver: 'PointerSolver',
+        scope: 'Scope',
+        context: 'AbstractContext',
+        call: 'CallConstraint',
+        source: 'Variable',
+        label: str,
+        fields,
+    ) -> 'Ctx[Variable]':
+        target = solver.variable_factory.make_variable(
+            f"$expand@{call.call_site.short_id()}@{label}",
+            VariableKind.TEMPORARY,
+        )
+        for field in fields:
+            solver.add_constraint(
+                scope,
+                context,
+                LoadConstraint(base=source, field=field, target=target),
+            )
+        return solver.state.get_variable(scope, context, target)
     
     def _match_parameters(self,
                           solver: 'PointerSolver',
@@ -457,11 +529,6 @@ class NormalCallProcessor(Processor):
                           ) -> None:
         """Match parameters: match arguments to parameters."""
         state = solver.state
-        
-        args = [state.get_variable(scope, context, arg) for arg in call.args]
-        if self_var is not None:
-            args.insert(0, self_var)
-        kwargs = {k: state.get_variable(scope, context, arg) for k, arg in call.kwargs}
 
         method_obj = callee_obj
         func_ir: IRFunc = method_obj.alloc_site.stmt
@@ -469,14 +536,81 @@ class NormalCallProcessor(Processor):
                 
         if hasattr(func_ir, 'args'):
             func_args = func_ir.args
-            arg_vars = args  # Positional argument variables from call site
-            kwarg_vars = kwargs.copy()  # Keyword argument variables from call site (dict: name -> Variable)
-            
             positional_params = []
             if hasattr(func_args, 'posonlyargs') and func_args.posonlyargs:
                 positional_params.extend(func_args.posonlyargs)
             if func_args.args:
                 positional_params.extend(func_args.args)
+
+            arg_vars = []
+            if self_var is not None:
+                arg_vars.append(self_var)
+            starred_sources = []
+            raw_args = tuple(call.iter_args())
+            for source_index, (source, is_starred) in enumerate(raw_args):
+                source_var = state.get_variable(scope, context, source)
+                if not is_starred:
+                    arg_vars.append(source_var)
+                    continue
+                known_lengths = self._known_star_lengths(state, source_var)
+                future_plain = sum(
+                    not later_starred
+                    for _, later_starred in raw_args[source_index + 1:]
+                )
+                positional_room = max(
+                    0,
+                    len(positional_params) - len(arg_vars) - future_plain,
+                )
+                if known_lengths is None:
+                    expansion_count = positional_room
+                else:
+                    expansion_count = max(known_lengths, default=0)
+                    if not func_args.vararg:
+                        expansion_count = min(expansion_count, positional_room)
+                for item_index in range(expansion_count):
+                    fields = [key(item_index)]
+                    if known_lengths is None:
+                        fields.append(elem())
+                    arg_vars.append(self._expanded_argument(
+                        solver,
+                        scope,
+                        context,
+                        call,
+                        source,
+                        f"star{source_index}:{item_index}",
+                        fields,
+                    ))
+                starred_sources.append((source_index, source, known_lengths))
+
+            kwarg_vars = {}
+            dstar_sources = []
+            for keyword_index, (name, source) in enumerate(call.kwargs):
+                source_var = state.get_variable(scope, context, source)
+                if name is None:
+                    dstar_sources.append((keyword_index, source, source_var))
+                else:
+                    kwarg_vars[name] = source_var
+
+            keyword_parameters = [*positional_params, *func_args.kwonlyargs]
+            for param in keyword_parameters:
+                param_name = param.arg
+                if param_name in kwarg_vars or not dstar_sources:
+                    continue
+                target = solver.variable_factory.make_variable(
+                    f"$dstar@{call.call_site.short_id()}@{param_name}",
+                    VariableKind.TEMPORARY,
+                )
+                for _, source, source_var in dstar_sources:
+                    fields = [key(param_name)]
+                    if not self._has_known_mapping_keys(state, source_var):
+                        fields.extend((elem(), value()))
+                    for field in fields:
+                        solver.add_constraint(
+                            scope,
+                            context,
+                            LoadConstraint(base=source, field=field, target=target),
+                        )
+                kwarg_vars[param_name] = state.get_variable(scope, context, target)
 
             positional_defaults = {}
             if func_args.defaults:
@@ -595,6 +729,25 @@ class NormalCallProcessor(Processor):
                     field = key(i - arg_index)
                     element_var = state.get_field(callee_scope, call_context, vararg_tuple_obj, field)
                     state._add_var_points_flow(arg_vars[i], element_var)
+                for source_index, source, known_lengths in starred_sources:
+                    if known_lengths is not None:
+                        continue
+                    expanded = self._expanded_argument(
+                        solver,
+                        scope,
+                        context,
+                        call,
+                        source,
+                        f"star{source_index}:rest",
+                        (elem(),),
+                    )
+                    generic_element = state.get_field(
+                        callee_scope,
+                        call_context,
+                        vararg_tuple_obj,
+                        elem(),
+                    )
+                    state._add_var_points_flow(expanded, generic_element)
             elif arg_index < len(arg_vars):
                 # Too many positional arguments and no *args to catch them
                 solver._unknown_tracker.record(
@@ -678,6 +831,24 @@ class NormalCallProcessor(Processor):
                     field = key(kw_name)
                     dict_value_var = state.get_field(callee_scope, call_context, kwarg_dict_obj, field)
                     state._add_var_points_flow(kw_var, dict_value_var)
+                for keyword_index, source, source_var in dstar_sources:
+                    fields = (elem(), value())
+                    expanded = self._expanded_argument(
+                        solver,
+                        scope,
+                        context,
+                        call,
+                        source,
+                        f"dstar{keyword_index}:rest",
+                        fields,
+                    )
+                    dict_value_var = state.get_field(
+                        callee_scope,
+                        call_context,
+                        kwarg_dict_obj,
+                        elem(),
+                    )
+                    state._add_var_points_flow(expanded, dict_value_var)
             elif remaining_kwargs:
                 # Unexpected keyword arguments and no **kwargs to catch them
                 extra_kw_names = ', '.join(remaining_kwargs.keys())

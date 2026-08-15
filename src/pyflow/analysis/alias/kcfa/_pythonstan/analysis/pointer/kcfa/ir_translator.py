@@ -82,6 +82,15 @@ class IRTranslator:
         locals_set.update(func.get_arg_names())
         stmts = self.scope_manager.get_ir(func, 'ir')
         if stmts is not None:
+            binders = set()
+            for stmt in stmts:
+                binders.update(stmt.get_stores())
+            binders.difference_update(func.get_global_vars())
+            binders.difference_update(func.get_nonlocal_vars())
+            locals_set.update(
+                name for name in binders
+                if name and name.isidentifier()
+            )
             for stmt in stmts:
                 constraints.extend(self._process_stmt(stmt))
         
@@ -149,9 +158,7 @@ class IRTranslator:
             kind = VariableKind.GLOBAL
         elif isinstance(self._current_scope, IRFunc):
             locals_in_scope = self._local_vars.get(self._current_scope, set())
-            if name in self._current_scope.get_cell_vars():
-                kind = VariableKind.CELL
-            elif name in self._current_scope.get_nonlocal_vars():
+            if name in self._current_scope.get_nonlocal_vars():
                 kind = VariableKind.NONLOCAL
             elif name in self._current_scope.get_global_vars():
                 kind = VariableKind.GLOBAL
@@ -161,6 +168,8 @@ class IRTranslator:
                 enclosing_kind = self._resolve_enclosing_variable_kind(name)
                 if enclosing_kind is not None:
                     kind = enclosing_kind
+                elif name in self._current_scope.get_cell_vars():
+                    kind = VariableKind.CELL
                 else:
                     # Treat unresolved names as globals (module-level)
                     kind = VariableKind.GLOBAL
@@ -202,7 +211,7 @@ class IRTranslator:
     def _register_local_var(self, name_or_var: Optional[Union[str, 'Variable']]) -> None:
         if not name_or_var:
             return
-        if not isinstance(self._current_scope, IRFunc):
+        if not isinstance(self._current_scope, (IRFunc, IRClass)):
             return
         if isinstance(name_or_var, str):
             name = name_or_var
@@ -553,7 +562,8 @@ class IRTranslator:
         
         callee_var = self._make_variable(callee_expr)
         arg_vars = []
-        for idx, (arg, _) in enumerate(args):
+        starred = []
+        for idx, (arg, is_starred) in enumerate(args):
             if arg.startswith("<Constant: ") and arg.endswith(">"):
                 value_str = arg[len("<Constant: "):-1]
                 try:
@@ -573,6 +583,7 @@ class IRTranslator:
                 arg_vars.append(const_var)
             else:
                 arg_vars.append(self._make_variable(arg))
+            starred.append(is_starred)
         arg_vars = tuple(arg_vars)
         
         target_var = None
@@ -589,13 +600,15 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=callee_var,
             args=arg_vars,
-            kwargs=frozenset(keyword_vars),
+            kwargs=keyword_vars,
             target=target_var,
-            call_site=call_site
+            call_site=call_site,
+            starred=tuple(starred),
         ))
         
         # for fields of class, we need to store the value to the class
         if (isinstance(self._current_scope, IRClass) and 
+            target_var is not None and
             not target_var.is_temporary): # only store the field to the class if it is not a temporary variable
             self.used_variables.append(target_var)
         
@@ -652,11 +665,13 @@ class IRTranslator:
                         name in arg_names):
                     return VariableKind.CELL
             elif isinstance(parent, IRClass):
-                if name in locals_in_parent:
+                if (
+                    not isinstance(self._current_scope, IRFunc)
+                    and name in locals_in_parent
+                ):
                     return VariableKind.NONLOCAL
             elif isinstance(parent, IRModule):
-                if hasattr(parent, "global_vars") and name in parent.get_global_vars():
-                    return VariableKind.GLOBAL
+                return VariableKind.GLOBAL
             parent = father_map.get(parent)
         
         return None
@@ -766,7 +781,7 @@ class IRTranslator:
             constraints.append(CallConstraint(
                 callee=getitem_method_var,
                 args=(index_var,),
-                kwargs=frozenset(),
+                kwargs=(),
                 target=target_var,
                 call_site=call_site
             ))
@@ -844,7 +859,7 @@ class IRTranslator:
             constraints.append(CallConstraint(
                 callee=setitem_method_var,
                 args=(index_var, value_var),
-                kwargs=frozenset(),
+                kwargs=(),
                 target=None,
                 call_site=call_site
             ))
@@ -944,7 +959,7 @@ class IRTranslator:
                         constraints.append(CallConstraint(
                             callee=factory_var,
                             args=tuple(factory_args),
-                            kwargs=frozenset(),
+                            kwargs=(),
                             target=decorator_var,
                             call_site=factory_call_site
                         ))
@@ -964,7 +979,7 @@ class IRTranslator:
                     constraints.append(CallConstraint(
                         callee=decorator_var,
                         args=(current_var,),
-                        kwargs=frozenset(),
+                        kwargs=(),
                         target=result_var,
                         call_site=call_site
                     ))
@@ -1076,7 +1091,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=enter_method_var,
             args=(),
-            kwargs=frozenset(),
+            kwargs=(),
             target=target_var,
             call_site=call_site
         ))
@@ -1102,7 +1117,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=exit_method_var,
             args=(),
-            kwargs=frozenset(),
+            kwargs=(),
             target=None,
             call_site=call_site
         ))
@@ -1128,7 +1143,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=iter_method_var,
             args=(),
-            kwargs=frozenset(),
+            kwargs=(),
             target=target_var,
             call_site=call_site
         ))
@@ -1151,7 +1166,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=next_method_var,
             args=(),
-            kwargs=frozenset(),
+            kwargs=(),
             target=target_var,
             call_site=call_site
         ))
@@ -1183,7 +1198,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=method_var,
             args=(right_var,),
-            kwargs=frozenset(),
+            kwargs=(),
             target=target_var,
             call_site=call_site
         ))
@@ -1217,7 +1232,7 @@ class IRTranslator:
         constraints.append(CallConstraint(
             callee=method_var,
             args=(),
-            kwargs=frozenset(),
+            kwargs=(),
             target=target_var,
             call_site=call_site
         ))

@@ -6,7 +6,7 @@ provides efficient storage and indexing for constraint-based solving.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Set, Dict, Type, Tuple, Optional, List, FrozenSet, TYPE_CHECKING, Union
+from typing import Any, Set, Dict, Type, Tuple, Optional, List, TYPE_CHECKING, Union
 from collections import defaultdict
 
 if TYPE_CHECKING:
@@ -31,6 +31,7 @@ __all__ = [
     "LoadSubscrConstraint",
     "StoreSubscrConstraint",
     "CallConstraint",
+    "argument_source_signature",
     "ReturnConstraint",
     "RaiseConstraint",
     "SuperResolveConstraint",
@@ -38,6 +39,26 @@ __all__ = [
     "AwaitConstraint",
     "ConstraintManager"
 ]
+
+
+def argument_source_signature(
+    args: Tuple[Tuple[Any, bool], ...],
+    kwargs: Tuple[Tuple[Optional[str], Any], ...],
+    receiver: Optional[Any] = None,
+) -> Tuple[Tuple[Any, ...], ...]:
+    """Return the canonical ordered source signature used by PARAM contexts."""
+    signature = []
+    if receiver is not None:
+        signature.append(("recv", receiver))
+    for index, (argument, is_starred) in enumerate(args):
+        tag = "star" if is_starred else "pos"
+        signature.append((tag, index, argument))
+    for index, (name, argument) in enumerate(kwargs):
+        if name is None:
+            signature.append(("dstar", index, argument))
+        else:
+            signature.append(("kw", name, argument))
+    return tuple(signature)
 
 
 class Constraint(ABC):
@@ -372,9 +393,21 @@ class CallConstraint(Constraint):
     
     callee: 'Variable'
     args: Tuple['Variable', ...]
-    kwargs: FrozenSet[Tuple[Optional[str], 'Variable']]
+    kwargs: Tuple[Tuple[Optional[str], 'Variable'], ...]
     target: Optional['Variable']
     call_site: 'CallSite'
+    starred: Tuple[bool, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kwargs, tuple):
+            object.__setattr__(self, "kwargs", tuple(self.kwargs))
+        if not self.starred:
+            object.__setattr__(self, "starred", (False,) * len(self.args))
+        elif len(self.starred) != len(self.args):
+            raise ValueError("starred flags must match positional arguments")
+
+    def iter_args(self):
+        return zip(self.args, self.starred)
     
     @property
     def stmt(self) -> 'IRStatement':

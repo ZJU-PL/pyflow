@@ -197,7 +197,7 @@ class AttributeSemanticsProcessor(Processor):
                 CallConstraint(
                     callee=getattribute_var,
                     args=(name_var,),
-                    kwargs=frozenset(),
+                    kwargs=(),
                     target=target_var,
                     call_site=call_site,
                 ),
@@ -251,7 +251,7 @@ class AttributeSemanticsProcessor(Processor):
             CallConstraint(
                 callee=data_get_var,
                 args=(inst_var, class_var),
-                kwargs=frozenset(),
+                kwargs=(),
                 target=data_result_var,
                 call_site=call_site,
             ),
@@ -292,7 +292,7 @@ class AttributeSemanticsProcessor(Processor):
             CallConstraint(
                 callee=nondata_get_var,
                 args=(inst_var, class_var),
-                kwargs=frozenset(),
+                kwargs=(),
                 target=nondata_result_var,
                 call_site=call_site,
             ),
@@ -324,7 +324,7 @@ class AttributeSemanticsProcessor(Processor):
                 CallConstraint(
                     callee=getattr_var,
                     args=(name_var,),
-                    kwargs=frozenset(),
+                    kwargs=(),
                     target=getattr_result,
                     call_site=call_site,
                 ),
@@ -392,7 +392,7 @@ class AttributeSemanticsProcessor(Processor):
                 CallConstraint(
                     callee=set_var,
                     args=(inst_var, source_var),
-                    kwargs=frozenset(),
+                    kwargs=(),
                     target=None,
                     call_site=call_site,
                 ),
@@ -419,7 +419,7 @@ class AttributeSemanticsProcessor(Processor):
                 CallConstraint(
                     callee=setattr_var,
                     args=(name_var, source_var),
-                    kwargs=frozenset(),
+                    kwargs=(),
                     target=None,
                     call_site=call_site,
                 ),

@@ -79,3 +79,14 @@ def test_state_statistics_count_reachable_objects(
     empty_state.set_points_to(cvar, PointsToSet.singleton(object_factory()))
 
     assert empty_state.get_statistics()["num_objects"] == 1
+
+
+def test_heap_get_all_variables_returns_contextual_bindings(
+    empty_state, module_scope, simple_context
+):
+    first = empty_state.get_variable(module_scope, simple_context, Variable("first"))
+    second = empty_state.get_variable(module_scope, simple_context, Variable("second"))
+
+    variables = set(empty_state._heap.get_all_variables(module_scope, simple_context))
+
+    assert {first, second} <= variables

@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any, Optional, Set
 
 from .processor import Processor
 from ..points_to_set import PointsToSet
-from ..constraints import CallConstraint, StoreConstraint, CopyConstraint
+from ..constraints import (
+    CallConstraint,
+    StoreConstraint,
+    CopyConstraint,
+    argument_source_signature,
+)
 from ..object import (
     AllocKind,
     AllocSite,
@@ -137,14 +142,32 @@ class GeneratorProcessor(Processor):
             context=gen_context,
             alloc_site=gen_alloc,
             func_obj=func_obj,
-            container_scope=scope
+            container_scope=func_obj.container_scope
         )
         
         # Set up call context for the generator body
-        call_context = solver.context_selector.select_call_context(
-            call.call_site, context, None, frozenset()
+        contextual_args = tuple(
+            (solver.state.get_variable(scope, context, arg), is_starred)
+            for arg, is_starred in call.iter_args()
         )
-        callee_scope = Scope.new(gen_obj, scope.module, call_context, func_ir, scope)
+        contextual_kwargs = tuple(
+            (name, solver.state.get_variable(scope, context, arg))
+            for name, arg in call.kwargs
+        )
+        call_context = solver.context_selector.select_call_context(
+            call.call_site,
+            context,
+            None,
+            argument_source_signature(contextual_args, contextual_kwargs),
+        )
+        definition_scope = func_obj.container_scope
+        callee_scope = Scope.new(
+            gen_obj,
+            definition_scope.module,
+            call_context,
+            func_ir,
+            definition_scope,
+        )
         
         # Store generator object in heap
         solver.state._heap.set_obj(scope, context, gen_alloc, gen_obj)
@@ -202,14 +225,32 @@ class GeneratorProcessor(Processor):
             context=coro_context,
             alloc_site=coro_alloc,
             func_obj=func_obj,
-            container_scope=scope
+            container_scope=func_obj.container_scope
         )
         
         # Set up call context for the coroutine body
-        call_context = solver.context_selector.select_call_context(
-            call.call_site, context, None, frozenset()
+        contextual_args = tuple(
+            (solver.state.get_variable(scope, context, arg), is_starred)
+            for arg, is_starred in call.iter_args()
         )
-        callee_scope = Scope.new(coro_obj, scope.module, call_context, func_ir, scope)
+        contextual_kwargs = tuple(
+            (name, solver.state.get_variable(scope, context, arg))
+            for name, arg in call.kwargs
+        )
+        call_context = solver.context_selector.select_call_context(
+            call.call_site,
+            context,
+            None,
+            argument_source_signature(contextual_args, contextual_kwargs),
+        )
+        definition_scope = func_obj.container_scope
+        callee_scope = Scope.new(
+            coro_obj,
+            definition_scope.module,
+            call_context,
+            func_ir,
+            definition_scope,
+        )
         
         # Store coroutine object in heap
         solver.state._heap.set_obj(scope, context, coro_alloc, coro_obj)
@@ -292,9 +333,11 @@ class GeneratorProcessor(Processor):
         
         global_vars = state.get_global_vars(callee_obj)
         for name, var in global_vars.items():
+            definition_module = callee_obj.container_scope.module
             var = state.get_variable(
-                scope.module, scope.module.context,
-                solver.variable_factory.make_variable(name)
+                definition_module,
+                definition_module.context,
+                solver.variable_factory.make_variable(name, VariableKind.GLOBAL),
             )
             state.set_variable(callee_scope, call_context, var.content, var)
     
@@ -308,46 +351,15 @@ class GeneratorProcessor(Processor):
         context: 'AbstractContext',
         call_context: 'AbstractContext'
     ) -> None:
-        """Simple parameter matching for generators/coroutines."""
-        state = solver.state
-        func_ir: IRFunc = callee_obj.alloc_site.stmt
-        
-        args = [state.get_variable(scope, context, arg) for arg in call.args]
-        kwargs = {k: state.get_variable(scope, context, arg) for k, arg in call.kwargs}
-        
-        if not hasattr(func_ir, 'args'):
-            return
-        
-        func_args = func_ir.args
-        arg_index = 0
-        
-        # Handle positional parameters
-        all_params = []
-        if hasattr(func_args, 'posonlyargs') and func_args.posonlyargs:
-            all_params.extend(func_args.posonlyargs)
-        if func_args.args:
-            all_params.extend(func_args.args)
-        
-        for param in all_params:
-            param_name = param.arg
-            param_var = state.get_variable(
-                callee_scope, call_context,
-                solver.variable_factory.make_variable(param_name)
-            )
-            
-            if param_name in kwargs:
-                state._add_var_points_flow(kwargs[param_name], param_var)
-            elif arg_index < len(args):
-                state._add_var_points_flow(args[arg_index], param_var)
-                arg_index += 1
-        
-        # Handle keyword-only parameters
-        if func_args.kwonlyargs:
-            for param in func_args.kwonlyargs:
-                param_name = param.arg
-                if param_name in kwargs:
-                    param_var = state.get_variable(
-                        callee_scope, call_context,
-                        solver.variable_factory.make_variable(param_name)
-                    )
-                    state._add_var_points_flow(kwargs[param_name], param_var)
+        """Match generator/coroutine parameters with normal call semantics."""
+        from .normal_call import NormalCallProcessor
+
+        NormalCallProcessor()._match_parameters(
+            solver,
+            callee_obj,
+            call,
+            scope,
+            callee_scope,
+            context,
+            call_context,
+        )

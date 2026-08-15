@@ -1197,7 +1197,7 @@ class BuiltinAPIHandler:
             constraints.append(CallConstraint(
                 callee=func_var,
                 args=tuple(elem_vars),
-                kwargs=frozenset(call.kwargs),
+                kwargs=call.kwargs,
                 target=result_var,
                 call_site=call.call_site,
             ))
@@ -1240,7 +1240,7 @@ class BuiltinAPIHandler:
             constraints.append(CallConstraint(
                 callee=func_var,
                 args=(elem_var,),
-                kwargs=frozenset(),
+                kwargs=(),
                 target=pred_var,
                 call_site=call.call_site,
             ))

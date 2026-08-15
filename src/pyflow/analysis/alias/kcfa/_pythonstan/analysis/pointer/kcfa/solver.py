@@ -160,6 +160,7 @@ class PointerSolver:
                         kwargs=constraint.kwargs,
                         target=constraint.target,
                         call_site=constraint.call_site,
+                        starred=constraint.starred,
                     )
                     self.state.constraints.add(scope, lazy_ctx, lazy_constraint)
                     self.state._static_constraints.append((
@@ -416,6 +417,15 @@ class PointerSolver:
         free_vars.difference_update(ir_func.get_nonlocal_vars())
         return {name for name in free_vars if name and name.isidentifier()}
 
+    def _function_binders(self, ir_func: 'IRFunc') -> Set[str]:
+        binders = set(ir_func.get_arg_names())
+        ir = self.state.scope_manager.get_ir(ir_func, "ir") or ()
+        for stmt in ir:
+            binders.update(stmt.get_stores())
+        binders.difference_update(ir_func.get_global_vars())
+        binders.difference_update(ir_func.get_nonlocal_vars())
+        return {name for name in binders if name and name.isidentifier()}
+
     def _resolve_outer_var_kind(self, scope: 'Scope', var_name: str) -> VariableKind:
         stmt = getattr(scope, "stmt", None)
         if isinstance(stmt, IRModule):
@@ -477,13 +487,22 @@ class PointerSolver:
         ir_func = c.alloc_site.stmt
         assert isinstance(ir_func, IRFunc), f"AllocSite to be allocated as function {c.alloc_site} should be IRFunc, {type(ir_func)} got!"
 
-        obj = MethodObject(context, c.alloc_site, scope, c.alloc_site.stmt, scope.obj, None)
+        lexical_scope = scope.parent if isinstance(scope.stmt, IRClass) else scope
+        obj = MethodObject(
+            context,
+            c.alloc_site,
+            lexical_scope,
+            c.alloc_site.stmt,
+            scope.obj,
+            None,
+        )
         
         # process cell vars into the closure
         cell_vars = {}
-        cell_var_names = ir_func.get_cell_vars()
+        cell_var_names = set(ir_func.get_cell_vars())
         if not cell_var_names:
             cell_var_names = self._infer_free_vars(ir_func)
+        cell_var_names.difference_update(self._function_binders(ir_func))
         closure_scope = scope.parent or scope
         for var_name in cell_var_names:
             var_kind = self._resolve_outer_var_kind(closure_scope, var_name)
@@ -512,13 +531,20 @@ class PointerSolver:
         # logger.info(f"alloc function {c}")
         assert isinstance(ir_func, IRFunc), f"AllocSite to be allocated as function {c.alloc_site} should be IRFunc, {type(ir_func)} got!"
 
-        obj = FunctionObject(context, c.alloc_site, scope, c.alloc_site.stmt)
+        lexical_scope = scope.parent if isinstance(scope.stmt, IRClass) else scope
+        obj = FunctionObject(
+            context,
+            c.alloc_site,
+            lexical_scope,
+            c.alloc_site.stmt,
+        )
         
         # process cell vars into the closure
         cell_vars = {}
-        cell_var_names = ir_func.get_cell_vars()
+        cell_var_names = set(ir_func.get_cell_vars())
         if not cell_var_names:
             cell_var_names = self._infer_free_vars(ir_func)
+        cell_var_names.difference_update(self._function_binders(ir_func))
         for var_name in cell_var_names:
             var_kind = self._resolve_outer_var_kind(scope, var_name)
             var = self.variable_factory.make_variable(var_name, var_kind)
@@ -902,11 +928,14 @@ class PointerSolver:
     def _native_effect_variables(call: 'CallConstraint', effect: dict):
         """Resolve positional, keyword, and wildcard effect selectors."""
         selected = []
-        keyword_map = dict(call.kwargs)
+        keyword_map = {
+            name: variable for name, variable in call.kwargs
+            if name is not None
+        }
         for selector in effect.get("arguments", ()):
             if selector == "*":
                 selected.extend(call.args)
-                selected.extend(keyword_map.values())
+                selected.extend(variable for _, variable in call.kwargs)
             elif isinstance(selector, int) and 0 <= selector < len(call.args):
                 selected.append(call.args[selector])
             elif isinstance(selector, str) and selector in keyword_map:
@@ -925,15 +954,27 @@ class PointerSolver:
         instance_obj = InstanceObject(alloc_context, instance_alloc, class_obj)
 
         cls_scope = self.state.get_internal_scope(class_obj)
-        params = (
-            [("$self", instance_obj)] +
-            [self.state.get_variable(scope, context, arg) for arg in call.args] +
-            [(k, self.state.get_variable(scope, context, arg)) for k, arg in call.kwargs]
+        contextual_args = tuple(
+            (self.state.get_variable(scope, context, arg), is_starred)
+            for arg, is_starred in call.iter_args()
+        )
+        contextual_kwargs = tuple(
+            (name, self.state.get_variable(scope, context, arg))
+            for name, arg in call.kwargs
         )
 
         instance_parent = cls_scope.parent
         assert instance_parent, f"{cls_scope} : {class_obj} has no parent"
-        instance_ctx = self.context_selector.select_call_context(call.call_site, context, instance_obj, frozenset(params))
+        instance_ctx = self.context_selector.select_call_context(
+            call.call_site,
+            context,
+            instance_obj,
+            argument_source_signature(
+                contextual_args,
+                contextual_kwargs,
+                receiver=instance_obj,
+            ),
+        )
         instance_scope = Scope.new(instance_obj, instance_parent.module, instance_ctx, class_obj.alloc_site.stmt, instance_parent)
         self.state.set_internal_scope(instance_obj, instance_scope)
 
@@ -958,6 +999,7 @@ class PointerSolver:
             ),
         )
         new_args = (cls_var,) + call.args
+        new_starred = (False,) + call.starred
         self.add_constraint(
             scope,
             context,
@@ -967,6 +1009,7 @@ class PointerSolver:
                 kwargs=call.kwargs,
                 target=new_result_var,
                 call_site=call.call_site,
+                starred=new_starred,
             ),
         )
 
@@ -1004,7 +1047,14 @@ class PointerSolver:
         self.add_constraint(
             scope,
             context,
-            CallConstraint(init_callee_var, call.args, call.kwargs, None, call.call_site),
+            CallConstraint(
+                init_callee_var,
+                call.args,
+                call.kwargs,
+                None,
+                call.call_site,
+                call.starred,
+            ),
         )
 
         return True

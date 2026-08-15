@@ -191,8 +191,10 @@ class HeapModel:
         return (context, scope)
 
     def get_all_variables(self, scope: 'Scope', context: 'AbstractContext') -> Set['Ctx[Variable]']:
-        ctx_key = (scope, )
-        return self.heap.get(ctx_key, {}).values()
+        variables = set(self.heap.get((context, scope), {}).values())
+        if scope is scope.module:
+            variables.update(self.heap.get((scope.module,), {}).values())
+        return variables
     
     def set_obj(self, scope: 'Scope', context: 'AbstractContext', c: 'AllocSite', o: "AbstractObject"):
         # print(f"New object: {o}")
