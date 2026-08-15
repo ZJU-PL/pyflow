@@ -145,7 +145,7 @@ x = foo()
         assert isinstance(result.points_to("x"), set)
         assert len(result.points_to("x")) == 0
 
-    def test_points_to_unions_matching_context_bindings(self) -> None:
+    def test_uncalled_function_body_is_not_analyzed(self) -> None:
         source = """
 x = [1]
 def f():
@@ -154,8 +154,66 @@ def f():
 """
         result = PointerAnalysis(source, k=1).run()
         bindings = result.bindings_for_name("x")
-        assert len(bindings) >= 2
+        assert len(bindings) == 1
         assert result.points_to("x") == set().union(*(pts for _, pts in bindings))
+
+    def test_return_values_remain_separate_across_call_contexts(self) -> None:
+        source = """
+def ident(value):
+    return value
+
+a = object()
+b = []
+x = ident(a)
+y = ident(b)
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        def module_points_to(name: str) -> set[str]:
+            return set().union(*(
+                pts
+                for binding, pts in result.bindings_for_name(name)
+                if "<module " in binding
+            ))
+
+        assert module_points_to("x") == module_points_to("a")
+        assert module_points_to("y") == module_points_to("b")
+        assert module_points_to("x").isdisjoint(module_points_to("y"))
+
+    def test_explicit_nonlocal_resolves_through_lexical_scopes(self) -> None:
+        source = """
+def outer():
+    x = object()
+    def middle():
+        def inner():
+            nonlocal x
+            return x
+        return inner
+    return middle()
+
+f = outer()
+y = f()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_param_context_preserves_argument_order(self) -> None:
+        source = """
+def first(a, b):
+    return a
+
+x = object()
+y = []
+r1 = first(x, y)
+r2 = first(y, x)
+"""
+        result = PointerAnalysis(source, context_policy="1-param").run()
+        callees = [callee for _, callee in result.call_edges() if "first" in callee]
+
+        assert len(callees) == 2
+        assert len(set(callees)) == 2
 
     def test_pointer_stdlib_stubs_are_resolved_from_vendor_tree(
         self, monkeypatch

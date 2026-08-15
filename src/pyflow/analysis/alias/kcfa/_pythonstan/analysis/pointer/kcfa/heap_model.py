@@ -17,9 +17,6 @@ if TYPE_CHECKING:
 
 __all__ = ["FieldKind", "Field", "attr", "elem", "key", "value", "unknown", "HeapModel"]
 
-_SHARED_TEMPORARY_NAMES = frozenset({"$return"})
-
-
 class FieldKind(Enum):
     """Kinds of heap fields."""
     
@@ -187,13 +184,6 @@ class HeapModel:
     
     def _get_var_key(self, scope: 'Scope', context: 'AbstractContext', var: 'Variable'):
         if var.kind == VariableKind.TEMPORARY:
-            if var.name in _SHARED_TEMPORARY_NAMES:
-                # Share select temporaries (e.g., $return) across contexts per function.
-                func_obj = getattr(scope, "obj", None)
-                if func_obj is not None:
-                    return (func_obj,)
-                # For module-level temporaries
-                return (scope.module if scope.module else scope,)
             return (context, scope)
         
         if var.kind == VariableKind.GLOBAL:

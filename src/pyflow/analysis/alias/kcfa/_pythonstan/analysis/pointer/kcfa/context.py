@@ -6,7 +6,7 @@ policies including call-string, object, type, receiver, and hybrid contexts.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Tuple, Optional, Any, TypeVar, Generic, Union, Literal, TYPE_CHECKING, Dict
+from typing import Tuple, Optional, Any, TypeVar, Generic, Union, Literal, TYPE_CHECKING
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import FunctionObject, ClassObject, ModuleObject
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRScope, IRModule, IRStatement
@@ -68,19 +68,9 @@ class CallSite:
         return self.site_id
 
 
-max_idx: int = 0
-context_pool: Dict['AbstractContext', int] = {}
-
-
 T = TypeVar('T', 'CallSite', 'AbstractObject', 'AllocSite')
 class AbstractContext(ABC, Generic[T]):
     """Base class for all context implementations."""
-    
-    def __post_init__(self):
-        global max_idx
-        if self not in context_pool:
-            context_pool[self] = max_idx
-            max_idx += 1
     
     @abstractmethod
     def to_string(self) -> str:
@@ -108,7 +98,7 @@ class AbstractContext(ABC, Generic[T]):
         pass
     
     def __str__(self) -> str:
-        return f"Ctx[{context_pool[self]}]"
+        return f"Ctx{self.to_string()}"
     
     def __repr__(self) -> str:
         return str(self)
@@ -268,15 +258,15 @@ class ReceiverContext(AbstractContext[Union['CallSite', 'AllocSite']]):
 
 
 @dataclass(frozen=True)
-class ParamContext(AbstractContext[Tuple['AbstractObject', ...]]):
-    """Receiver-object sensitivity: self/receiver allocation sites.
+class ParamContext(AbstractContext[Tuple[Any, ...]]):
+    """Ordered argument-source sensitivity.
     
     Attributes:
         params: Parameters
         depth: Maximum depth for receiver context
     """
 
-    params: Tuple[Union[CallSite, Tuple['AbstractObject', ...]], ...] = ()
+    params: Tuple[Union[CallSite, Tuple[Any, ...]], ...] = ()
     depth: int = 2
     
     def to_string(self) -> str:
@@ -287,7 +277,7 @@ class ParamContext(AbstractContext[Tuple['AbstractObject', ...]]):
     def is_empty(self) -> bool:
         return len(self.params) == 0
     
-    def append(self, params: Union[CallSite, Tuple['AbstractObject', ...]]) -> 'ParamContext':
+    def append(self, params: Union[CallSite, Tuple[Any, ...]]) -> 'ParamContext':
         """Create new context by appending parameters."""
         if self.depth == 0:
             return self

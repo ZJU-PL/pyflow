@@ -110,6 +110,8 @@ class PointerSolver:
     
     def _reset(self) -> None:
         self._iteration = 0
+        self._complete = False
+        self._analyzed_functions = set()
         self._stats: Dict[str, int] = {
             "iterations": 0,
             "constraints_applied": 0
@@ -189,7 +191,8 @@ class PointerSolver:
                 logger.warning(f"Reached max iterations {max_iter}")
         
         self._stats["iterations"] = self._iteration
-        if (not self.state._worklist.empty()) or self.state._static_constraints:
+        self._complete = self.state._worklist.empty() and not self.state._static_constraints
+        if not self._complete:
             self._unknown_tracker.record(
                 UnknownKind.SOLVER_BUDGET,
                 "<solver>",
@@ -202,7 +205,10 @@ class PointerSolver:
         logger.info(f"Call graph: {self.state._call_graph} node: {len(self.state._call_graph.get_nodes())} edge: {self.state._call_graph.get_number_of_edges()}")
         logger.info(f"    absolute nodes: { len(abs_nodes) } absolute edges: { self.state._call_graph.num_plain_edges() }")
         logger.info(f"Pointer flow graph: {self.state._pointer_flow_graph} node: {len(self.state._pointer_flow_graph.get_nodes())} edge: {len(self.state._pointer_flow_graph.get_edges())}")                
-        logger.info(f"Converged after {self._iteration} iterations")
+        if self._complete:
+            logger.info(f"Converged after {self._iteration} iterations")
+        else:
+            logger.warning(f"Stopped after solver budget at {self._iteration} iterations")
 
     def _record_empty_callees(self) -> None:
         """Make unresolved calls fail-visible after the points-to fixpoint."""
@@ -425,13 +431,47 @@ class PointerSolver:
                 return VariableKind.LOCAL
         return VariableKind.LOCAL
     
-    @staticmethod
-    def is_entrance(ir_func: 'IRFunc') -> bool:
-        return True
-        name = ir_func.name
-        if name.startswith("test") or name.startswith("__init__"):
-            return True
-        return False
+    def _resolve_nonlocal_binding(
+        self,
+        scope: 'Scope',
+        var_name: str,
+    ) -> Optional['Ctx[Variable]']:
+        """Resolve ``nonlocal`` to the nearest enclosing function binding."""
+        current = scope
+        visited = set()
+        while current is not None and current not in visited:
+            visited.add(current)
+            if isinstance(current.stmt, IRFunc):
+                func_obj = getattr(current, "obj", None)
+                if isinstance(func_obj, FunctionObject):
+                    captured = self.state.get_nonlocal_var(func_obj, var_name)
+                    if captured is not None:
+                        return captured
+                for kind in (VariableKind.CELL, VariableKind.LOCAL, VariableKind.PARAMETER):
+                    binding = self.state._get_variable_direct(
+                        current, current.context, var_name, kind
+                    )
+                    if binding is not None:
+                        return binding
+                if (
+                    var_name in current.stmt.get_cell_vars()
+                    or var_name in current.stmt.arg_names
+                ):
+                    kind = (
+                        VariableKind.CELL
+                        if var_name in current.stmt.get_cell_vars()
+                        else VariableKind.LOCAL
+                    )
+                    return self.state.get_variable(
+                        current,
+                        current.context,
+                        self.variable_factory.make_variable(var_name, kind),
+                    )
+            parent = current.parent
+            if parent is current:
+                break
+            current = parent
+        return None
     
     def _alloc_method(self, scope: 'Scope', context: 'AbstractContext', c: 'AllocConstraint') -> 'MethodObject':
         ir_func = c.alloc_site.stmt
@@ -461,35 +501,10 @@ class PointerSolver:
         # collect nonlocal vars into the closure
         nonlocal_vars = {}
         for var_name in ir_func.get_nonlocal_vars():
-            var = self.variable_factory.make_variable(var_name, VariableKind.NONLOCAL)
-            nonlocal_vars[var_name] = self.state.get_variable(scope.parent, context, var)
+            binding = self._resolve_nonlocal_binding(scope, var_name)
+            if binding is not None:
+                nonlocal_vars[var_name] = binding
         self.state.set_nonlocal_vars(obj, nonlocal_vars)
-
-        # Processing contents at once
-
-        func_obj = obj
-        func_ir = ir_func
-        call_context = self.context_selector.select_call_context(ir_func, context, scope.obj, None)
-        # func_ir = self.function_registry[func_name]
-        alloc_site = func_obj.alloc_site
-        # callee_scope = Scope.new(func_obj, method_scope.module, call_context, func_ir, method_scope)
-        callee_scope = Scope.new(func_obj, scope.module, call_context, func_ir, scope)
-        old_scope = self.ir_translator._current_scope
-        # old_context = self.ir_translator._current_context        
-        self.ir_translator._current_scope = alloc_site.stmt
-        # self.ir_translator._current_context = call_context
-        
-        if self.is_entrance(func_ir):        
-            try:
-                body_constraints = self.ir_translator.translate_function(func_ir)
-            except Exception as e:
-                body_constraints = []
-            finally:
-                self.ir_translator._current_scope = old_scope
-                # self.ir_translator._current_context = old_context
-            for constraint in body_constraints:
-                self.add_constraint(callee_scope, call_context, constraint)
-            
         return obj
 
     def _alloc_function(self, scope: 'Scope', context: 'AbstractContext', c: 'AllocConstraint') -> 'FunctionObject':
@@ -520,36 +535,10 @@ class PointerSolver:
         # collect nonlocal vars into the closure
         nonlocal_vars = {}
         for var_name in ir_func.get_nonlocal_vars():
-            var = self.variable_factory.make_variable(var_name, VariableKind.NONLOCAL)
-            nonlocal_vars[var_name] = self.state.get_variable(scope, context, var)
+            binding = self._resolve_nonlocal_binding(scope, var_name)
+            if binding is not None:
+                nonlocal_vars[var_name] = binding
         self.state.set_nonlocal_vars(obj, nonlocal_vars)
-
-        # Processing contents at once
-        func_obj = obj
-        func_ir = ir_func
-        call_context = self.context_selector.select_call_context(ir_func, context, None, None)
-        # func_ir = self.function_registry[func_name]
-        # method_scope = self.state.obj_scope[func_obj]
-        alloc_site = func_obj.alloc_site
-        # callee_scope = Scope.new(func_obj, method_scope.module, call_context, func_ir, method_scope)
-        callee_scope = Scope.new(func_obj, scope.module, call_context, func_ir, scope)
-        old_scope = self.ir_translator._current_scope
-        # old_context = self.ir_translator._current_context        
-        self.ir_translator._current_scope = alloc_site.stmt
-        # self.ir_translator._current_context = call_context
-        
-        if self.is_entrance(ir_func):
-            try:
-                body_constraints = self.ir_translator.translate_function(func_ir)
-            except Exception as e:
-                body_constraints = []
-            finally:
-                self.ir_translator._current_scope = old_scope
-                # self.ir_translator._current_context = old_context
-
-            for constraint in body_constraints:
-                self.add_constraint(callee_scope, call_context, constraint)
-
         return obj
     
     def _alloc_class(self, scope: 'Scope', context: 'AbstractContext', c: 'AllocConstraint') -> 'ClassObject':
@@ -1054,16 +1043,25 @@ class PointerSolver:
 
     def query(self) -> ISolverQuery:
         """Return a read-only query facade over the current fixed-point state."""
-        return SolverQuery(self.state, self._stats, self._unknown_tracker)
+        return SolverQuery(
+            self.state, self._stats, self._unknown_tracker, self._complete
+        )
 
 
 class SolverQuery(ISolverQuery):
     """Expose points-to, alias, call-graph, and diagnostic solver results."""
 
-    def __init__(self, state: 'PointerAnalysisState', stats: Dict[str, int], unknown_tracker: 'UnknownTracker'):
+    def __init__(
+        self,
+        state: 'PointerAnalysisState',
+        stats: Dict[str, int],
+        unknown_tracker: 'UnknownTracker',
+        complete: bool,
+    ):
         self._state = state
         self._stats = stats
         self._unknown_tracker = unknown_tracker
+        self._complete = complete
     
     def points_to(self, var: 'Variable') -> 'PointsToSet':
         return self._state.get_points_to(var)
@@ -1075,8 +1073,10 @@ class SolverQuery(ISolverQuery):
         pts1 = self._state.get_points_to(v1)
         pts2 = self._state.get_points_to(v2)
         
-        # Check for intersection
-        return (not pts1.intersection(pts2).is_empty())
+        if not pts1.intersection(pts2).is_empty():
+            return True
+        # A negative answer from a partial fixed point is not sound.
+        return not self._complete
     
     def call_graph(self) -> 'AbstractCallGraph':
         return self._state.call_graph
@@ -1087,6 +1087,7 @@ class SolverQuery(ISolverQuery):
         return {
             **state_stats,
             **self._stats,
+            "complete": self._complete,
             **unknown_stats
         }
     

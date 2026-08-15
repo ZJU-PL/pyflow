@@ -564,6 +564,12 @@ class PointerAnalysisState:
             owner_scope = scope.module
             owner_context = scope.module.context
         elif var_kind == VariableKind.NONLOCAL:
+            from .object import FunctionObject
+            func_obj = getattr(scope, "obj", None)
+            if isinstance(func_obj, FunctionObject):
+                captured = self._heap.get_nonlocal_vars(func_obj).get(var.name)
+                if captured is not None:
+                    return captured
             owner_scope = scope.parent
             owner_context = scope.parent.context
         elif var_kind == VariableKind.CELL:
@@ -666,13 +672,9 @@ class PointerAnalysisState:
             - num_objects: Number of unique objects
             - num_heap_locations: Number of heap locations
         """
-        objects = set()
-        '''
+        objects = set(self._heap.objects.values())
         for pts in self._env.values():
             objects.update(pts.objects)
-        for pts in self._heap.values():
-            objects.update(pts.objects)
-        '''
         
         return {
             "num_variables": len(self._env),

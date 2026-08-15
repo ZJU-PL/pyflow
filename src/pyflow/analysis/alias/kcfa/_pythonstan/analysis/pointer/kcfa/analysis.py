@@ -3,14 +3,12 @@
 This module provides the main entry point for running pointer analysis.
 """
 
-import ast
 import logging
 from typing import Optional, List, Any, TYPE_CHECKING, Dict
 from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisDriver, AnalysisConfig
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind, AllocSite
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import reset_object_table
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope
-from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRCall
 from .processor import *
 
 if TYPE_CHECKING:
@@ -151,10 +149,6 @@ class PointerAnalysis(AnalysisDriver):
         logger.info("Initializing builtin functions...")
         self._initialize_builtins(ctx_scope, empty_context)
         
-        # Create synthetic method contexts to enable method-to-method call resolution
-        logger.info("Creating synthetic method contexts...")
-        self._create_synthetic_method_contexts(ctx_scope, empty_context)
-        
         # Solve to fixpoint
         self.solver.solve_to_fixpoint()
         
@@ -183,138 +177,6 @@ class PointerAnalysis(AnalysisDriver):
         
         logger.info("Analysis complete")
         return result
-    
-    def _create_synthetic_method_contexts(self, module_scope: 'Scope', empty_context: 'AbstractContext') -> None:
-        """Create synthetic contexts for analyzing method bodies.
-        
-        This enables method-to-method call resolution by:
-        1. Creating synthetic 'self' instances for each method
-        2. Binding 'self' in method-specific contexts
-        3. Processing method bodies with bound 'self'
-        
-        Args:
-            module_scope: The module scope
-            empty_context: The empty context for module level
-        """
-        from .context import Scope, CallSite, CallStringContext
-        from .object import InstanceObject, AllocSite, AllocKind, ClassObject
-        from .variable import Variable, VariableKind
-        from pyflow.analysis.alias.kcfa._pythonstan.ir import IRClass, IRFunc
-        
-        # Get all scopes from the scope manager
-        scope_manager = self.world.scope_manager
-        
-        method_count = 0
-        class_count = 0
-        
-        # Iterate through all scopes to find classes and their methods
-        for scope_ir in scope_manager.scopes:
-            if isinstance(scope_ir, IRClass):
-                class_count += 1
-                class_qualname = scope_ir.get_qualname()
-                
-                # Get subscopes (methods) of this class
-                methods = scope_manager.subscopes.get(scope_ir, [])
-                
-                for method_ir in methods:
-                    if not isinstance(method_ir, IRFunc):
-                        continue
-                    
-                    # Only process instance methods (not static or class methods)
-                    if not method_ir.is_instance_method:
-                        continue
-                    
-                    method_count += 1
-                    method_qualname = method_ir.get_qualname()
-                    
-                    # Create a method-specific synthetic context
-                    # Use a special marker to distinguish from regular call contexts
-                    synthetic_stmt = IRCall(ast.parse("synthetic_method()").body[0].value)
-                    synthetic_call_site = CallSite(
-                        statement=synthetic_stmt,
-                        scope_name=f"synthetic_method:{method_qualname}",
-                        index=0
-                    )
-                    
-                    # Get k value from empty context
-                    if isinstance(empty_context, CallStringContext):
-                        k_value = empty_context.k
-                    else:
-                        k_value = 2  # Default to 2-CFA
-                    
-                    method_context = CallStringContext(
-                        call_sites=(synthetic_call_site,),
-                        k=k_value
-                    )
-                    
-                    # Map this instance to its class for method lookup
-                    # Find the class object allocation
-                    class_alloc_site = AllocSite.from_ir_node(scope_ir, AllocKind.CLASS)
-                    
-                    # ClassObject needs container_scope and ir parameters
-                    # We use module_scope as container since that's where the class is defined
-                    class_obj = ClassObject(
-                        context=empty_context,
-                        alloc_site=class_alloc_site,
-                        container_scope=module_scope,
-                        ir=scope_ir
-                    )
-                    
-                    # Create and register internal scope for the class
-                    # This is needed for field access resolution on instances
-                    class_internal_scope = Scope.new(
-                        obj=class_obj,
-                        module=module_scope,
-                        context=empty_context,
-                        stmt=scope_ir,
-                        parent=module_scope
-                    )
-                    self.state.set_internal_scope(class_obj, class_internal_scope)
-                    
-                    # Create a synthetic InstanceObject for 'self'
-                    cls_name = scope_ir.get_qualname().split(".")[-1]
-                    synthetic_alloc_site = AllocSite(
-                        stmt=IRCall(ast.parse(f"{cls_name}()").body[0].value),
-                        kind=AllocKind.INSTANCE
-                    )
-                    
-                    # Create the synthetic instance object with the class object
-                    # The class_obj is stored in the InstanceObject itself
-                    self_instance = InstanceObject(
-                        context=method_context,
-                        alloc_site=synthetic_alloc_site,
-                        class_obj=class_obj
-                    )
-                    
-                    # Create a scope for this method analysis
-                    method_scope = Scope.new(
-                        obj=self_instance,  # Use the instance as the scope object
-                        module=module_scope,
-                        context=method_context,
-                        stmt=method_ir,
-                        parent=module_scope
-                    )
-                    self.state.set_internal_scope(self_instance, method_scope)
-                    
-                    # Bind 'self' variable to point to the synthetic instance
-                    self_var = self.solver.variable_factory.make_variable('self', VariableKind.LOCAL)
-                    from .points_to_set import PointsToSet
-                    from .pointer_flow_graph import NormalNode
-                    self_pts = PointsToSet.singleton(self_instance)
-                    
-                    # Get contextualized variable and add to worklist for propagation
-                    ctx_self_var = self.state.get_variable(method_scope, method_context, self_var)
-                    self.state._worklist.add((method_scope, NormalNode(ctx_self_var), self_pts))
-                    
-                    # Translate the method body and add constraints
-                    try:
-                        method_constraints = self.translator.translate_function(method_ir)
-                        for constraint in method_constraints:
-                            self.solver.add_constraint(method_scope, method_context, constraint)
-                    except Exception as e:
-                        logger.warning(f"Error translating method {method_qualname}: {e}")
-        
-        logger.info(f"Created synthetic contexts for {method_count} methods in {class_count} classes")
     
     def _initialize_builtins(self, module_scope: 'Scope', context: 'AbstractContext') -> None:
         """Initialize common builtin functions in the global scope.

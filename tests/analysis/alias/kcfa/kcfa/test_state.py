@@ -70,3 +70,12 @@ def test_state_statistics_shape(empty_state):
         "num_heap_locations",
         "num_call_edges",
     }
+
+
+def test_state_statistics_count_reachable_objects(
+    empty_state, module_scope, simple_context, object_factory
+):
+    cvar = empty_state.get_variable(module_scope, simple_context, Variable("x"))
+    empty_state.set_points_to(cvar, PointsToSet.singleton(object_factory()))
+
+    assert empty_state.get_statistics()["num_objects"] == 1

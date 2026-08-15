@@ -4,7 +4,7 @@ This module implements context selection for various context-sensitive policies.
 """
 
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from .context import (
     AbstractContext,
     CallStringContext,
@@ -107,8 +107,8 @@ class ContextSelector:
         self,
         call_site: CallSite,
         caller_ctx: AbstractContext,
-        callee_obj: Optional['AbstractObject']=None,
-        params: Optional[Tuple['AbstractObject', ...]]=None,
+        callee_obj: Optional['AbstractObject'] = None,
+        params: Optional[Tuple[Any, ...]] = None,
     ) -> AbstractContext:
         """Select context for function call.
         

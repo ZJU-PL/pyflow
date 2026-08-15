@@ -47,6 +47,9 @@ class UnknownKind(Enum):
     SOLVER_BUDGET = "solver_budget"
     """Fixpoint solver stopped before exhausting its worklist"""
 
+    UNKNOWN_BUILTIN = "unknown_builtin"
+    """Builtin call has no precise summary"""
+
 
 @dataclass
 class UnknownRecord:

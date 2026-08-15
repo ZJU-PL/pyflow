@@ -9,6 +9,7 @@ from .processor import Processor
 from ..points_to_set import PointsToSet
 from ..constraints import CallConstraint, AllocConstraint, LoadConstraint
 from ..object import (
+    AbstractObject,
     AllocKind,
     FunctionObject,
     MethodObject,
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
     from ..pointer_flow_graph import NormalNode
     from ..solver import PointerSolver
     from ..constraints import CallConstraint, Constraint
-    from ..object import AbstractObject
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,70 @@ class NormalCallProcessor(Processor):
     ) -> bool:
         if solver._handle_builtin_call(scope, context, call, builtin_obj):
             return True
+        builtin_name = getattr(builtin_obj, "name", None) or str(builtin_obj)
+        solver._unknown_tracker.record(
+            UnknownKind.UNKNOWN_BUILTIN,
+            str(call.call_site),
+            f"No precise summary for builtin call: {builtin_name}",
+            context=str(context),
+        )
+        if call.target:
+            unknown_obj = AbstractObject(
+                context=context,
+                alloc_site=AllocSite(call.call_site.statement, AllocKind.UNKNOWN),
+            )
+            target_var = solver.state.get_variable(scope, context, call.target)
+            solver.handle_new_points_to(
+                target_var, scope, PointsToSet.singleton(unknown_obj)
+            )
         return True
+
+    @staticmethod
+    def _argument_sources(args, kwargs):
+        """Build an ordered, hashable signature of syntactic argument sources."""
+        positional = tuple(("pos", index, arg) for index, arg in enumerate(args))
+        keyword_items = sorted(
+            kwargs.items(), key=lambda item: (item[0] is None, str(item[0]))
+        )
+        keywords = tuple(("kw", name, arg) for name, arg in keyword_items)
+        return positional + keywords
+
+    def _analyze_function_body(
+        self,
+        solver: 'PointerSolver',
+        func_obj: 'FunctionObject',
+        func_ir: IRFunc,
+        callee_scope: 'Scope',
+        call_context: 'AbstractContext',
+        call: 'CallConstraint',
+    ) -> bool:
+        analysis_key = (func_obj, call_context)
+        if analysis_key in solver._analyzed_functions:
+            return False
+        solver._analyzed_functions.add(analysis_key)
+
+        old_scope = solver.ir_translator._current_scope
+        solver.ir_translator._current_scope = func_ir
+        try:
+            body_constraints = solver.ir_translator.translate_function(func_ir)
+        except Exception as e:
+            solver._unknown_tracker.record(
+                UnknownKind.TRANSLATION_ERROR,
+                str(call.call_site),
+                f"Error translating function body: {str(e)}",
+                context=func_ir.get_name(),
+            )
+            if solver.config.verbose:
+                logger.warning(
+                    f"[UNKNOWN] Translation error for {func_ir.get_name()}: {e}"
+                )
+            body_constraints = []
+        finally:
+            solver.ir_translator._current_scope = old_scope
+
+        for constraint in body_constraints:
+            solver.add_constraint(callee_scope, call_context, constraint)
+        return bool(body_constraints)
 
     def _handle_class_call(
         self,
@@ -211,8 +274,6 @@ class NormalCallProcessor(Processor):
                 
         func_ir: IRFunc = method_obj.alloc_site.stmt
         assert isinstance(func_ir, IRFunc), f"MethodObject alloc site stmt should be IRFunc, {type(func_ir)} got!"
-        func_name = func_ir.get_qualname()
-
         if func_ir.is_static_method:
             return self._handle_function_call(solver, scope, context, call, method_obj)
         
@@ -242,7 +303,7 @@ class NormalCallProcessor(Processor):
             call.call_site,
             context,
             holder_obj,
-            params=frozenset(args) | frozenset(kwargs.items())
+            params=self._argument_sources(args, kwargs),
         )
         
         logger.debug(f"Handling function call: {call.call_site} -> {method_obj.alloc_site.stmt}")
@@ -261,37 +322,13 @@ class NormalCallProcessor(Processor):
 
         self._dispatch_closure(solver, method_obj, call_context, scope, callee_scope)
 
-        alloc_site = method_obj.alloc_site
-        old_scope = solver.ir_translator._current_scope
-        solver.ir_translator._current_scope = alloc_site.stmt
-
-        try:
-            body_constraints = solver.ir_translator.translate_function(func_ir)
-        except Exception as e:
-            solver._unknown_tracker.record(
-                UnknownKind.TRANSLATION_ERROR,
-                str(call.call_site),
-                f"Error translating function body: {str(e)}",
-                context=func_name
-            )
-            
-            if solver.config.verbose:
-                logger.warning(f"[UNKNOWN] Translation error for {func_name}: {e}")
-            
-            body_constraints = []
-        finally:
-            solver.ir_translator._current_scope = old_scope
-            # self.ir_translator._current_context = old_context
-        
-        changed = False
-        for constraint in body_constraints:
-            solver.add_constraint(callee_scope, call_context, constraint)
-            changed = True
+        self._analyze_function_body(
+            solver, method_obj, func_ir, callee_scope, call_context, call
+        )
                 
         self._match_parameters(solver, method_obj, call, scope, callee_scope, context, call_context, self_var)
 
         if call.target:
-            # Use TEMPORARY kind for $return so it's shared across all contexts in the same function
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
             ret_var = solver.state.get_variable(callee_scope, call_context, ret)
             target_var = solver.state.get_variable(scope, context, call.target)
@@ -328,9 +365,6 @@ class NormalCallProcessor(Processor):
             return False
         
         func_ir: IRFunc = func_obj.alloc_site.stmt
-        func_name = func_ir.get_name()
-        alloc_site = func_obj.alloc_site
-        # logger.info(f"Handling function call: {call.call_site} -> {alloc_site}")
         args = [solver.state.get_variable(scope, context, arg) for arg in call.args]
         kwargs = {k: solver.state.get_variable(scope, context, arg) for k, arg in call.kwargs}
         
@@ -338,16 +372,19 @@ class NormalCallProcessor(Processor):
             call.call_site,
             context,
             None,  # No receiver ffor regular functions
-            params=frozenset(args) | frozenset(kwargs.items())
+            params=self._argument_sources(args, kwargs),
         )
         
         logger.debug(f"Handling function call: {call.call_site} -> {func_obj.alloc_site.stmt}")
         
-        # func_ir = self.function_registry[func_name]
-        # method_scope = solver.state.obj_scope[func_obj]
-        alloc_site = func_obj.alloc_site
-        # callee_scope = Scope.new(func_obj, method_scope.module, call_context, func_ir, method_scope)
-        callee_scope = Scope.new(func_obj, scope.module, call_context, func_ir, scope)
+        definition_scope = func_obj.container_scope
+        callee_scope = Scope.new(
+            func_obj,
+            definition_scope.module,
+            call_context,
+            func_ir,
+            definition_scope,
+        )
         call_kind = CallKind.STATIC if func_ir.is_static_method else CallKind.FUNCTION
         call_edge = CallEdge(kind=call_kind, callsite=Ctx(context, scope, call.call_site), callee=callee_scope)
         # if self.state.call_graph.has_edge(edge):
@@ -355,35 +392,13 @@ class NormalCallProcessor(Processor):
 
         self._dispatch_closure(solver, func_obj, call_context, scope, callee_scope)
         
-        old_scope = solver.ir_translator._current_scope
-        solver.ir_translator._current_scope = alloc_site.stmt
-        
-        try:
-            body_constraints = solver.ir_translator.translate_function(func_ir)
-        except Exception as e:
-            solver._unknown_tracker.record(
-                UnknownKind.TRANSLATION_ERROR,
-                str(call.call_site),
-                f"Error translating function body: {str(e)}",
-                context=func_name
-            )
-            
-            if solver.config.verbose:
-                logger.warning(f"[UNKNOWN] Translation error for {func_name}: {e}")
-            
-            body_constraints = []
-        finally:
-            solver.ir_translator._current_scope = old_scope
-        
-        changed = False
-        for constraint in body_constraints:
-            solver.add_constraint(callee_scope, call_context, constraint)
-            changed = True
+        self._analyze_function_body(
+            solver, func_obj, func_ir, callee_scope, call_context, call
+        )
         
         self._match_parameters(solver, func_obj, call, scope, callee_scope, context, call_context)
         
         if call.target:
-            # Use TEMPORARY kind for $return so it's shared across all contexts in the same function
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
             ret_var = solver.state.get_variable(callee_scope, call_context, ret)
             target_var = solver.state.get_variable(scope, context, call.target)
@@ -422,7 +437,8 @@ class NormalCallProcessor(Processor):
         
         nonlocal_vars = state.get_nonlocal_vars(callee_obj)
         for name, var in nonlocal_vars.items():
-            state.set_variable(callee_scope, call_context, var.content, var)
+            if var is not None:
+                state.set_variable(callee_scope, call_context, var.content, var)
     
         global_vars = state.get_global_vars(callee_obj)
         for name, var in global_vars.items():

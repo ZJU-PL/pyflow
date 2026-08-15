@@ -35,6 +35,15 @@ def test_zero_cfa_context_does_not_grow(call_site_factory):
     assert ctx.is_empty()
 
 
+def test_context_labels_are_content_based_and_deterministic(call_site_factory):
+    site = call_site_factory("scope")
+    first = CallStringContext((), 1).append(site)
+    second = CallStringContext((), 1).append(site)
+
+    assert str(first) == str(second)
+    assert site.site_id in str(first)
+
+
 def test_object_type_and_receiver_contexts_truncate(object_factory):
     first = object_factory()
     second = object_factory()
