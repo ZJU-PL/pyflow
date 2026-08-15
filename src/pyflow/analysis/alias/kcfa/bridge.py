@@ -216,6 +216,11 @@ class PointerAnalysis:
                                 "type": "pointer analysis",
                                 "k": self._k,
                                 "context_policy": self._context_policy,
+                                # The high-level alias query promises precise
+                                # literal container positions/keys.  Keep that
+                                # opt-in explicit now that Config.from_dict({})
+                                # correctly matches Config()'s False default.
+                                "index_sensitive": True,
                                 "native_effects": list(self._native_effects),
                             },
                         }

@@ -4,6 +4,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import
     ObjectContext,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context_selector import (
+    CallStringPolicy,
     ContextPolicy,
     ContextSelector,
     parse_policy,
@@ -14,6 +15,15 @@ def test_parse_policy_accepts_current_values():
     assert parse_policy("0-cfa") is ContextPolicy.INSENSITIVE
     assert parse_policy("1-cfa") is ContextPolicy.CALL_1
     assert parse_policy("2-obj") is ContextPolicy.OBJ_2
+
+
+def test_parse_policy_accepts_arbitrary_call_string_depth():
+    policy = parse_policy("4-cfa")
+
+    assert policy == CallStringPolicy(4)
+    selector = ContextSelector(policy)
+    assert isinstance(selector.empty_context(), CallStringContext)
+    assert selector.empty_context().k == 4
 
 
 def test_call_policy_appends_callsite(call_site_factory):

@@ -44,6 +44,9 @@ class UnknownKind(Enum):
     MISSING_ARGUMENT = "missing_argument"
     """Missing argument"""
 
+    INVALID_CALL = "invalid_call"
+    """Call is definitely invalid under Python argument-binding rules"""
+
     SOLVER_BUDGET = "solver_budget"
     """Fixpoint solver stopped before exhausting its worklist"""
 

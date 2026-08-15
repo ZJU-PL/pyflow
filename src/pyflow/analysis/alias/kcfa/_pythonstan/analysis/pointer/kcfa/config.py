@@ -3,8 +3,7 @@
 This module defines the configuration options for k-CFA pointer analysis.
 """
 
-from dataclasses import dataclass
-from re import S
+from dataclasses import dataclass, fields
 import json
 from typing import Optional, List, Dict
 
@@ -67,31 +66,11 @@ class Config:
     
     @classmethod
     def from_dict(cls, config_dict: Dict):
-        return cls(
-            context_policy=config_dict.get("context_policy", "2-cfa"),
-            max_iterations=config_dict.get("max_iterations", 10000),
-            max_points_to_size=config_dict.get("max_points_to_size", None),
-            verbose=config_dict.get("verbose", False),
-            log_level=config_dict.get("log_level", "INFO"),
-            enable_instrumentation=config_dict.get("enable_instrumentation", False),
-            entry_points=config_dict.get("entry_points", None),
-            build_class_hierarchy=config_dict.get("build_class_hierarchy", True),
-            use_mro_resolution=config_dict.get("use_mro_resolution", True),
-            project_path=config_dict.get("project_path", None),
-            library_paths=config_dict.get("library_paths", None),
-            max_import_depth=config_dict.get("max_import_depth", 2),
-            track_unknowns=config_dict.get("track_unknowns", True),
-            log_unknown_details=config_dict.get("log_unknown_details", False),
-            index_sensitive=config_dict.get("index_sensitive", True),
-            native_effects=config_dict.get("native_effects", None),
-            enable_debug_monitor=config_dict.get("enable_debug_monitor", False),
-            debug_log_interval=config_dict.get("debug_log_interval", 1000),
-            track_object_flow=config_dict.get("track_object_flow", False),
-            track_pfg_activation=config_dict.get("track_pfg_activation", False),
-            export_debug_data=config_dict.get("export_debug_data", False),
-            debug_output_dir=config_dict.get("debug_output_dir", "debug_output"),
-            debug_inheritance=config_dict.get("debug_inheritance", False),
-            type="pointer analysis")
+        defaults = cls()
+        return cls(**{
+            field.name: config_dict.get(field.name, getattr(defaults, field.name))
+            for field in fields(cls)
+        })
     
     def to_dict(self) -> Dict:
         return {

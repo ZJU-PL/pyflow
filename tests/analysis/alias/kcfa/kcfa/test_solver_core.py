@@ -67,6 +67,19 @@ def test_empty_solver_fixpoint_terminates(module_scope):
     assert solver.query().get_statistics()["complete"] is True
 
 
+def test_frontend_failure_is_distinct_from_fixpoint_completion(module_scope):
+    solver, _state, _processor = _solver(module_scope)
+    solver.mark_frontend_incomplete()
+
+    solver.solve_to_fixpoint()
+    stats = solver.query().get_statistics()
+
+    assert stats["fixpoint_complete"] is True
+    assert stats["frontend_complete"] is False
+    assert stats["semantic_complete"] is True
+    assert stats["complete"] is False
+
+
 def test_budget_exhaustion_makes_negative_alias_answer_conservative(
     module_scope, simple_context
 ):

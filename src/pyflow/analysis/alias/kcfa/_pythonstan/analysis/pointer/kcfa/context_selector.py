@@ -4,6 +4,8 @@ This module implements context selection for various context-sensitive policies.
 """
 
 from enum import Enum
+from dataclasses import dataclass
+import re
 from typing import Any, Optional, Tuple
 from .context import (
     AbstractContext,
@@ -17,7 +19,7 @@ from .context import (
 )
 from .object import AbstractObject, InstanceObject
 
-__all__ = ["ContextPolicy", "ContextSelector", "parse_policy"]
+__all__ = ["ContextPolicy", "CallStringPolicy", "ContextSelector", "parse_policy"]
 
 
 class ContextPolicy(Enum):
@@ -44,10 +46,21 @@ class ContextPolicy(Enum):
     HYBRID_CALL1_OBJ2 = "1c2o"
 
 
+@dataclass(frozen=True)
+class CallStringPolicy:
+    """An arbitrary non-negative call-string depth."""
+
+    depth: int
+
+    @property
+    def value(self) -> str:
+        return f"{self.depth}-cfa"
+
+
 class ContextSelector:
     """Selects contexts based on policy."""
     
-    def __init__(self, policy: ContextPolicy = ContextPolicy.CALL_2):
+    def __init__(self, policy: ContextPolicy | CallStringPolicy = ContextPolicy.CALL_2):
         """Initialize context selector.
         
         Args:
@@ -58,6 +71,8 @@ class ContextSelector:
     
     def _create_empty_context(self) -> AbstractContext:
         """Create empty context for policy."""
+        if isinstance(self.policy, CallStringPolicy):
+            return CallStringContext((), self.policy.depth)
         if self.policy == ContextPolicy.INSENSITIVE:
             return CallStringContext((), 0)
         elif self.policy == ContextPolicy.CALL_1:
@@ -122,6 +137,10 @@ class ContextSelector:
         Returns:
             New context for the called function
         """
+        if isinstance(self.policy, CallStringPolicy):
+            if isinstance(caller_ctx, CallStringContext):
+                return caller_ctx.append(call_site)
+            return self._empty_context.append(call_site)
         if self.policy == ContextPolicy.INSENSITIVE:
             return caller_ctx
         
@@ -254,7 +273,7 @@ class ContextSelector:
         return f"ContextSelector(policy={self.policy.value})"
 
 
-def parse_policy(policy_str: str) -> ContextPolicy:
+def parse_policy(policy_str: str) -> ContextPolicy | CallStringPolicy:
     """Parse policy string to enum.
     
     Args:
@@ -288,6 +307,11 @@ def parse_policy(policy_str: str) -> ContextPolicy:
         "1c2o": ContextPolicy.HYBRID_CALL1_OBJ2,
     }
     
+    call_match = re.fullmatch(r"(\d+)-cfa", policy_str)
+    if call_match:
+        depth = int(call_match.group(1))
+        return policy_map.get(policy_str, CallStringPolicy(depth))
+
     if policy_str not in policy_map:
         raise ValueError(
             f"Unknown policy: {policy_str}. "

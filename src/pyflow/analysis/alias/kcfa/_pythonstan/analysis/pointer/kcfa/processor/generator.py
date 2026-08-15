@@ -26,6 +26,7 @@ from ..object import (
 from ..context import Ctx, Scope
 from ..variable import VariableKind
 from ..heap_model import elem, attr
+from ..unknown_tracker import UnknownKind
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRYield
 
@@ -134,6 +135,13 @@ class GeneratorProcessor(Processor):
         values into the generator's elem() field.
         """
         logger.debug(f"Handling generator call: {call.call_site} -> {func_ir.name}")
+
+        from .normal_call import NormalCallProcessor
+        binding = NormalCallProcessor._validate_call(
+            solver, scope, context, func_ir, call
+        )
+        if binding.definitely_invalid:
+            return True
         
         # Create generator object allocation
         gen_alloc = AllocSite(stmt=call.stmt, kind=AllocKind.GENERATOR)
@@ -217,6 +225,13 @@ class GeneratorProcessor(Processor):
         its return value into the coroutine's $await_result field.
         """
         logger.debug(f"Handling coroutine call: {call.call_site} -> {func_ir.name}")
+
+        from .normal_call import NormalCallProcessor
+        binding = NormalCallProcessor._validate_call(
+            solver, scope, context, func_ir, call
+        )
+        if binding.definitely_invalid:
+            return True
         
         # Create coroutine object allocation
         coro_alloc = AllocSite(stmt=call.stmt, kind=AllocKind.COROUTINE)
@@ -300,6 +315,12 @@ class GeneratorProcessor(Processor):
         try:
             body_constraints = solver.ir_translator.translate_function(func_ir)
         except Exception as e:
+            solver.mark_semantic_incomplete()
+            solver._unknown_tracker.record(
+                UnknownKind.TRANSLATION_ERROR,
+                func_ir.get_qualname(),
+                f"Error translating generator/coroutine body: {e}",
+            )
             logger.warning(f"Error translating generator/coroutine body: {e}")
             body_constraints = []
         finally:
@@ -354,7 +375,7 @@ class GeneratorProcessor(Processor):
         """Match generator/coroutine parameters with normal call semantics."""
         from .normal_call import NormalCallProcessor
 
-        NormalCallProcessor()._match_parameters(
+        NormalCallProcessor()._install_parameter_flows(
             solver,
             callee_obj,
             call,

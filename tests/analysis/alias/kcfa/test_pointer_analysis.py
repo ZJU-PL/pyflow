@@ -9,6 +9,7 @@ from pathlib import Path
 from pyflow.analysis.alias.kcfa import PointerAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import ParamContext
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import NamespaceManager
 
@@ -22,6 +23,14 @@ def _module_points_to(result, name: str) -> set[str]:
 
 
 class TestBasicPointerAnalysis:
+
+    def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
+        assert Config.from_dict({}) == Config()
+
+    def test_pointer_analysis_accepts_call_depth_above_three(self) -> None:
+        result = PointerAnalysis("x = object()", k=4).run()
+
+        assert result.points_to("x")
 
     def test_list_alias(self) -> None:
         source = "x = [1, 2, 3]\ny = x"
@@ -393,3 +402,132 @@ class C:
         result = PointerAnalysis(source, k=1).run()
 
         assert any("register" in callee for _, callee in result.call_edges())
+
+    def test_duplicate_positional_and_keyword_rejects_call_before_body(self) -> None:
+        source = """
+def f(a, b):
+    return b
+
+x = object()
+y = []
+z = f(x, a=y)
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert not result.points_to("z")
+        assert not any("f" in callee for _, callee in result.call_edges())
+        assert any(
+            detail["kind"] == "invalid_call"
+            and "multiple values" in detail["message"]
+            for detail in result.unknown_details()
+        )
+
+    def test_known_dstar_absence_does_not_synthesize_parameter(self) -> None:
+        source = """
+def f(a):
+    return a
+
+x = object()
+d = {"b": x}
+y = f(**d)
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert not result.points_to("y")
+        assert any(
+            detail["kind"] == "invalid_call"
+            for detail in result.unknown_details()
+        )
+
+    def test_known_star_overflow_rejects_call_before_body(self) -> None:
+        source = """
+def f(a):
+    return object()
+
+x = object()
+y = []
+items = (x, y)
+result = f(*items)
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert not analysis.points_to("result")
+        assert any(
+            detail["kind"] == "invalid_call"
+            and "too many positional" in detail["message"]
+            for detail in analysis.unknown_details()
+        )
+
+    def test_precise_new_return_does_not_include_synthetic_instance(self) -> None:
+        source = """
+sentinel = object()
+
+class C:
+    def __new__(cls):
+        return sentinel
+
+x = C()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("x") == analysis.points_to("sentinel")
+        assert all(
+            "AllocKind.INSTANCE" not in obj for obj in analysis.points_to("x")
+        )
+
+    def test_call_default_is_evaluated_when_definition_executes(self) -> None:
+        source = """
+x = object()
+
+def make():
+    return x
+
+def f(a=make()):
+    return a
+
+y = f()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("y") == analysis.points_to("x")
+        make_edges = [callee for _, callee in analysis.call_edges() if "make" in callee]
+        assert len(make_edges) == 1
+
+    def test_init_is_skipped_for_foreign_instance_returned_by_new(self) -> None:
+        source = """
+class D:
+    pass
+
+foreign = D()
+
+class C:
+    def __new__(cls):
+        return foreign
+
+    def __init__(self, required):
+        self.impossible = []
+
+x = C()
+y = x.impossible
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("x") == analysis.points_to("foreign")
+        assert not analysis.points_to("y")
+
+    def test_invalid_constructor_arguments_do_not_create_instance(self) -> None:
+        source = """
+class C:
+    def __init__(self, required):
+        self.required = required
+
+x = C()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert not analysis.points_to("x")
+        assert any(
+            detail["kind"] == "invalid_call"
+            and "missing required" in detail["message"]
+            for detail in analysis.unknown_details()
+        )

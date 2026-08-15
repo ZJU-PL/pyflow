@@ -10,6 +10,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import reset_object_table
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope
 from .processor import *
+from .unknown_tracker import UnknownKind
 
 if TYPE_CHECKING:
     from .config import Config
@@ -136,9 +137,13 @@ class PointerAnalysis(AnalysisDriver):
             c = self.translator.translate_module(scope)
             constraints.extend(c)
         except Exception as e:
-            import traceback
-            print(traceback.format_exc())
-            logger.warning(f"Error translating scope {scope.get_qualname()}: {e}")        
+            self.solver.mark_frontend_incomplete()
+            self.solver._unknown_tracker.record(
+                UnknownKind.TRANSLATION_ERROR,
+                scope.get_qualname(),
+                f"Error translating top-level scope: {e}",
+            )
+            logger.warning(f"Error translating scope {scope.get_qualname()}: {e}")
         logger.info(f"Total constraints generated: {len(constraints)}")
         
         # Add all constraints to solver

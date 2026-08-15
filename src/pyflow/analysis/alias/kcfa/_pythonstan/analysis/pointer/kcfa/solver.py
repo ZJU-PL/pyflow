@@ -29,6 +29,7 @@ from .pointer_flow_graph import PointerFlowGraph, PointerFlowEdge, PointerFlowNo
 from .debug_monitor import DebugMonitor
 from .processor import Processor
 from .events import PointerEvent, PointerEventKind
+from .call_binding import bind_arguments
 
 __all__ = ["PointerSolver", "SolverQuery"]
 
@@ -79,6 +80,8 @@ class PointerSolver:
         self._unknown_tracker = UnknownTracker()
         self._debug_monitor = debug_monitor
         self.state.class_hierarchy = class_hierarchy
+        self._frontend_complete = True
+        self._semantic_complete = True
         
         # Initialize builtin handler with state
         if self.builtin_manager:
@@ -110,6 +113,7 @@ class PointerSolver:
     
     def _reset(self) -> None:
         self._iteration = 0
+        self._fixpoint_complete = False
         self._complete = False
         self._analyzed_functions = set()
         self._stats: Dict[str, int] = {
@@ -117,6 +121,12 @@ class PointerSolver:
             "constraints_applied": 0
         }
         self._modules = set()
+
+    def mark_frontend_incomplete(self) -> None:
+        self._frontend_complete = False
+
+    def mark_semantic_incomplete(self) -> None:
+        self._semantic_complete = False
     
     def add_constraint(self, scope: 'Scope', context: 'AbstractContext', constraint: 'Constraint') -> None:
         self.state.record_constraint_definition(scope, context, constraint)
@@ -192,21 +202,28 @@ class PointerSolver:
                 logger.warning(f"Reached max iterations {max_iter}")
         
         self._stats["iterations"] = self._iteration
-        self._complete = self.state._worklist.empty() and not self.state._static_constraints
-        if not self._complete:
+        self._fixpoint_complete = (
+            self.state._worklist.empty() and not self.state._static_constraints
+        )
+        if not self._fixpoint_complete:
             self._unknown_tracker.record(
                 UnknownKind.SOLVER_BUDGET,
                 "<solver>",
                 f"fixpoint not reached after {self.config.max_iterations} iterations",
             )
         self._record_empty_callees()
+        self._complete = (
+            self._fixpoint_complete
+            and self._frontend_complete
+            and self._semantic_complete
+        )
         logger.info(f"Processed {len(self._modules)} modules: {self._modules}")
         logger.info(f"Call Constraints: {len(self.state.constraints.get_by_type(CallConstraint))}")
         abs_nodes = set([node.stmt.get_qualname() for node in self.state._call_graph.get_nodes()])
         logger.info(f"Call graph: {self.state._call_graph} node: {len(self.state._call_graph.get_nodes())} edge: {self.state._call_graph.get_number_of_edges()}")
         logger.info(f"    absolute nodes: { len(abs_nodes) } absolute edges: { self.state._call_graph.num_plain_edges() }")
         logger.info(f"Pointer flow graph: {self.state._pointer_flow_graph} node: {len(self.state._pointer_flow_graph.get_nodes())} edge: {len(self.state._pointer_flow_graph.get_edges())}")                
-        if self._complete:
+        if self._fixpoint_complete:
             logger.info(f"Converged after {self._iteration} iterations")
         else:
             logger.warning(f"Stopped after solver budget at {self._iteration} iterations")
@@ -230,6 +247,7 @@ class PointerSolver:
                 f"call target has an empty points-to set: {constraint.callee}",
                 context=str(scope.context),
             )
+            self.mark_semantic_incomplete()
         
     def __iter__(self):
         self._reset()
@@ -946,6 +964,68 @@ class PointerSolver:
         """Handle class instantiation: call __new__, then __init__ conditionally."""
         # logger.info(f"Handling class instantiation: {call.call_site} -> {class_obj.alloc_site.stmt}")
 
+        cls_scope = self.state.get_internal_scope(class_obj)
+        constructor_owners = [class_obj]
+        if self.class_hierarchy is not None:
+            try:
+                constructor_owners = self.class_hierarchy.get_mro(class_obj)
+            except Exception:
+                pass
+        has_custom_new = any(
+            isinstance(owner, ClassObject)
+            and any(
+                isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and stmt.name == "__new__"
+                for stmt in owner.ir.get_ast().body
+            )
+            for owner in constructor_owners
+        )
+        validated_specials = ("__new__",) if has_custom_new else ("__init__",)
+        for special_name in validated_specials:
+            special_var = self.state._get_variable_direct(
+                cls_scope,
+                cls_scope.context,
+                special_name,
+                VariableKind.LOCAL,
+            )
+            candidate_irs = set()
+            if special_var is not None:
+                candidate_irs.update(
+                    obj.ir
+                    for obj in self.state.get_points_to(special_var)
+                    if isinstance(obj, FunctionObject)
+                )
+            for owner in constructor_owners:
+                if not isinstance(owner, ClassObject):
+                    continue
+                declared_ir = self.ir_translator.scope_manager.get_subscope(
+                    owner.ir, special_name
+                )
+                if isinstance(declared_ir, IRFunc):
+                    candidate_irs.add(declared_ir)
+            if not candidate_irs:
+                continue
+            bindings = [
+                bind_arguments(
+                    self.state,
+                    scope,
+                    context,
+                    candidate_ir.args,
+                    call,
+                    leading_positional=1,
+                )
+                for candidate_ir in candidate_irs
+            ]
+            if bindings and all(binding.definitely_invalid for binding in bindings):
+                self._unknown_tracker.record(
+                    UnknownKind.INVALID_CALL,
+                    str(call.call_site),
+                    "; ".join(bindings[0].diagnostics)
+                    or f"invalid constructor {special_name} arguments",
+                    context=class_obj.ir.get_qualname(),
+                )
+                return True
+
         instance_alloc = AllocSite(call.call_site.statement, AllocKind.INSTANCE)
         if self.context_selector:
             alloc_context = self.context_selector.select_alloc_context(context, instance_alloc, class_obj)
@@ -953,7 +1033,6 @@ class PointerSolver:
             alloc_context = context
         instance_obj = InstanceObject(alloc_context, instance_alloc, class_obj)
 
-        cls_scope = self.state.get_internal_scope(class_obj)
         contextual_args = tuple(
             (self.state.get_variable(scope, context, arg), is_starred)
             for arg, is_starred in call.iter_args()
@@ -978,10 +1057,19 @@ class PointerSolver:
         instance_scope = Scope.new(instance_obj, instance_parent.module, instance_ctx, class_obj.alloc_site.stmt, instance_parent)
         self.state.set_internal_scope(instance_obj, instance_scope)
 
-        # Seed __new__ result with a fresh instance as a conservative default
         new_result_var = self.variable_factory.make_variable(f"$new_result@{call.call_site.short_id()}")
         ctx_new_result_var = self.state.get_variable(scope, context, new_result_var)
-        self.handle_new_points_to(ctx_new_result_var, scope, PointsToSet.singleton(instance_obj))
+
+        # A fresh C instance is only the fallback for an unresolved/default
+        # ``__new__``.  Pre-seeding it would pollute precise user-defined
+        # ``__new__`` returns (which may be arbitrary objects).
+        new_field = self.state.get_field(
+            cls_scope, cls_scope.context, class_obj, attr("__new__")
+        )
+        if not has_custom_new and self.state.get_points_to(new_field).is_empty():
+            self.handle_new_points_to(
+                ctx_new_result_var, scope, PointsToSet.singleton(instance_obj)
+            )
 
         # Load and call C.__new__(C, *args, **kwargs)
         cls_var = self.variable_factory.make_variable(f"$class@{call.call_site.short_id()}")
@@ -1022,9 +1110,21 @@ class PointerSolver:
         init_base_var = self.variable_factory.make_variable(f"$init_base@{call.call_site.short_id()}")
         ctx_init_base_var = self.state.get_variable(scope, context, init_base_var)
 
+        def is_constructed_class_instance(obj):
+            if not isinstance(obj, InstanceObject):
+                return False
+            if obj.class_obj == class_obj:
+                return True
+            if self.class_hierarchy is None:
+                return False
+            try:
+                return class_obj in self.class_hierarchy.get_mro(obj.class_obj)
+            except Exception:
+                return False
+
         guard = GuardNode(
             lambda edge, pts: PointsToSet.from_objects(
-                [obj for obj in pts if isinstance(obj, InstanceObject)]
+                [obj for obj in pts if is_constructed_class_instance(obj)]
             )
         )
         self.state._add_points_flow_edge(
@@ -1094,7 +1194,12 @@ class PointerSolver:
     def query(self) -> ISolverQuery:
         """Return a read-only query facade over the current fixed-point state."""
         return SolverQuery(
-            self.state, self._stats, self._unknown_tracker, self._complete
+            self.state,
+            self._stats,
+            self._unknown_tracker,
+            self._fixpoint_complete,
+            self._frontend_complete,
+            self._semantic_complete,
         )
 
 
@@ -1106,12 +1211,19 @@ class SolverQuery(ISolverQuery):
         state: 'PointerAnalysisState',
         stats: Dict[str, int],
         unknown_tracker: 'UnknownTracker',
-        complete: bool,
+        fixpoint_complete: bool,
+        frontend_complete: bool,
+        semantic_complete: bool,
     ):
         self._state = state
         self._stats = stats
         self._unknown_tracker = unknown_tracker
-        self._complete = complete
+        self._fixpoint_complete = fixpoint_complete
+        self._frontend_complete = frontend_complete
+        self._semantic_complete = semantic_complete
+        self._complete = (
+            fixpoint_complete and frontend_complete and semantic_complete
+        )
     
     def points_to(self, var: 'Variable') -> 'PointsToSet':
         return self._state.get_points_to(var)
@@ -1137,6 +1249,9 @@ class SolverQuery(ISolverQuery):
         return {
             **state_stats,
             **self._stats,
+            "fixpoint_complete": self._fixpoint_complete,
+            "frontend_complete": self._frontend_complete,
+            "semantic_complete": self._semantic_complete,
             "complete": self._complete,
             **unknown_stats
         }

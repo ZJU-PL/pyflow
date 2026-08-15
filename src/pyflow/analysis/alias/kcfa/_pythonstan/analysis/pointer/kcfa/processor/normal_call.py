@@ -33,6 +33,7 @@ from ..context import Ctx, Scope, AbstractContext
 from ..variable import VariableKind, Variable
 from ..unknown_tracker import UnknownKind
 from ..heap_model import key, attr, elem, value
+from ..call_binding import bind_arguments, mapping_key_sets
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRAssign
 
@@ -117,6 +118,7 @@ class NormalCallProcessor(Processor):
         try:
             body_constraints = solver.ir_translator.translate_function(func_ir)
         except Exception as e:
+            solver.mark_semantic_incomplete()
             solver._unknown_tracker.record(
                 UnknownKind.TRANSLATION_ERROR,
                 str(call.call_site),
@@ -134,6 +136,25 @@ class NormalCallProcessor(Processor):
         for constraint in body_constraints:
             solver.add_constraint(callee_scope, call_context, constraint)
         return bool(body_constraints)
+
+    @staticmethod
+    def _validate_call(solver, scope, context, func_ir, call, *, leading_positional=0):
+        binding = bind_arguments(
+            solver.state,
+            scope,
+            context,
+            func_ir.args,
+            call,
+            leading_positional=leading_positional,
+        )
+        if binding.definitely_invalid:
+            solver._unknown_tracker.record(
+                UnknownKind.INVALID_CALL,
+                str(call.call_site),
+                "; ".join(binding.diagnostics) or "definitely invalid call",
+                context=func_ir.get_qualname(),
+            )
+        return binding
 
     def _handle_class_call(
         self,
@@ -291,6 +312,12 @@ class NormalCallProcessor(Processor):
         )
         solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(holder_obj))
 
+        binding = self._validate_call(
+            solver, scope, context, func_ir, call, leading_positional=1
+        )
+        if binding.definitely_invalid:
+            return True
+
         args = tuple(
             (solver.state.get_variable(scope, context, arg), is_starred)
             for arg, is_starred in call.iter_args()
@@ -329,11 +356,20 @@ class NormalCallProcessor(Processor):
 
         self._dispatch_closure(solver, method_obj, call_context, scope, callee_scope)
 
+        self._install_parameter_flows(
+            solver,
+            method_obj,
+            call,
+            scope,
+            callee_scope,
+            context,
+            call_context,
+            self_var,
+        )
+
         self._analyze_function_body(
             solver, method_obj, func_ir, callee_scope, call_context, call
         )
-                
-        self._match_parameters(solver, method_obj, call, scope, callee_scope, context, call_context, self_var)
 
         if call.target:
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
@@ -372,6 +408,10 @@ class NormalCallProcessor(Processor):
             return False
         
         func_ir: IRFunc = func_obj.alloc_site.stmt
+        binding = self._validate_call(solver, scope, context, func_ir, call)
+        if binding.definitely_invalid:
+            return True
+
         args = tuple(
             (solver.state.get_variable(scope, context, arg), is_starred)
             for arg, is_starred in call.iter_args()
@@ -405,11 +445,19 @@ class NormalCallProcessor(Processor):
 
         self._dispatch_closure(solver, func_obj, call_context, scope, callee_scope)
         
+        self._install_parameter_flows(
+            solver,
+            func_obj,
+            call,
+            scope,
+            callee_scope,
+            context,
+            call_context,
+        )
+
         self._analyze_function_body(
             solver, func_obj, func_ir, callee_scope, call_context, call
         )
-        
-        self._match_parameters(solver, func_obj, call, scope, callee_scope, context, call_context)
         
         if call.target:
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
@@ -478,22 +526,8 @@ class NormalCallProcessor(Processor):
         return lengths
 
     @staticmethod
-    def _has_known_mapping_keys(state, source_var: 'Ctx[Variable]') -> bool:
-        points_to = state.get_points_to(source_var)
-        if points_to.is_empty():
-            return False
-        for obj in points_to:
-            stmt = getattr(obj.alloc_site, "stmt", None)
-            rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
-            if not isinstance(rval, ast.Dict):
-                return False
-            if any(
-                not isinstance(item, ast.Constant)
-                and not (isinstance(item, ast.Name) and item.id.startswith("$const"))
-                for item in rval.keys
-            ):
-                return False
-        return True
+    def _mapping_key_sets(state, source_var: 'Ctx[Variable]'):
+        return mapping_key_sets(state, source_var)
 
     def _expanded_argument(
         self,
@@ -517,7 +551,7 @@ class NormalCallProcessor(Processor):
             )
         return solver.state.get_variable(scope, context, target)
     
-    def _match_parameters(self,
+    def _install_parameter_flows(self,
                           solver: 'PointerSolver',
                           callee_obj: 'FunctionObject',
                           call: 'CallConstraint',
@@ -527,7 +561,7 @@ class NormalCallProcessor(Processor):
                           call_context: 'AbstractContext',                          
                           self_var: Optional['Ctx[Variable]'] = None
                           ) -> None:
-        """Match parameters: match arguments to parameters."""
+        """Install flows for a call already accepted by ``bind_arguments``."""
         state = solver.state
 
         method_obj = callee_obj
@@ -592,17 +626,44 @@ class NormalCallProcessor(Processor):
                     kwarg_vars[name] = source_var
 
             keyword_parameters = [*positional_params, *func_args.kwonlyargs]
+            maybe_dstar_params = set()
             for param in keyword_parameters:
                 param_name = param.arg
                 if param_name in kwarg_vars or not dstar_sources:
                     continue
+                source_key_sets = [
+                    self._mapping_key_sets(state, source_var)
+                    for _, _, source_var in dstar_sources
+                ]
+                if source_key_sets and all(
+                    options is not None
+                    and all(param_name not in keys for keys in options)
+                    for options in source_key_sets
+                ):
+                    # Exact literal mappings prove this name absent.  Do not
+                    # manufacture a binding merely because ``**`` syntax exists.
+                    continue
+                possible_presence = any(
+                    options is None
+                    or any(param_name in keys for keys in options)
+                    for options in source_key_sets
+                )
+                guaranteed_presence = any(
+                    options is not None
+                    and bool(options)
+                    and all(param_name in keys for keys in options)
+                    for options in source_key_sets
+                )
+                if possible_presence and not guaranteed_presence:
+                    maybe_dstar_params.add(param_name)
                 target = solver.variable_factory.make_variable(
                     f"$dstar@{call.call_site.short_id()}@{param_name}",
                     VariableKind.TEMPORARY,
                 )
                 for _, source, source_var in dstar_sources:
                     fields = [key(param_name)]
-                    if not self._has_known_mapping_keys(state, source_var):
+                    key_sets = self._mapping_key_sets(state, source_var)
+                    if key_sets is None:
                         fields.extend((elem(), value()))
                     for field in fields:
                         solver.add_constraint(
@@ -673,15 +734,30 @@ class NormalCallProcessor(Processor):
                         solver.variable_factory.make_variable(param_name)
                     )
                     
-                    # First check if this parameter is provided as a keyword argument
-                    if param_name in kwarg_vars:
-                        # Bind keyword argument to parameter
-                        state._add_var_points_flow(kwarg_vars[param_name], param_var)
-                        consumed_kwargs.add(param_name)
-                    elif arg_index < len(arg_vars):
+                    # Python assigns positional arguments first.  A simultaneous
+                    # keyword was rejected by the pre-call binder as a duplicate.
+                    if arg_index < len(arg_vars):
                         # Bind positional argument to parameter
                         state._add_var_points_flow(arg_vars[arg_index], param_var)
                         arg_index += 1
+                    elif param_name in kwarg_vars:
+                        # Bind keyword argument to parameter
+                        state._add_var_points_flow(kwarg_vars[param_name], param_var)
+                        consumed_kwargs.add(param_name)
+                        if param_name in maybe_dstar_params:
+                            default_entry = positional_defaults.get(param_name)
+                            if default_entry is not None:
+                                default_expr, default_idx = default_entry
+                                default_ctx = self._materialize_default(
+                                    solver=solver,
+                                    func_ir=func_ir,
+                                    def_scope=callee_obj.container_scope,
+                                    def_context=callee_obj.container_scope.context,
+                                    param_name=param_name,
+                                    default_index=default_idx,
+                                    default_expr=default_expr,
+                                )
+                                state._add_var_points_flow(default_ctx, param_var)
                     else:
                         default_entry = positional_defaults.get(param_name)
                         if default_entry is not None:
@@ -773,6 +849,22 @@ class NormalCallProcessor(Processor):
                         # Bind keyword argument to parameter
                         state._add_var_points_flow(kwarg_vars[param_name], param_var)
                         consumed_kwargs.add(param_name)
+                        if (
+                            param_name in maybe_dstar_params
+                            and func_args.kw_defaults
+                            and kw_idx < len(func_args.kw_defaults)
+                            and func_args.kw_defaults[kw_idx] is not None
+                        ):
+                            default_ctx = self._materialize_default(
+                                solver=solver,
+                                func_ir=func_ir,
+                                def_scope=callee_obj.container_scope,
+                                def_context=callee_obj.container_scope.context,
+                                param_name=param_name,
+                                default_index=kw_idx,
+                                default_expr=func_args.kw_defaults[kw_idx],
+                            )
+                            state._add_var_points_flow(default_ctx, param_var)
                     elif func_args.kw_defaults and kw_idx < len(func_args.kw_defaults):
                         # Check if there's a default value
                         kw_default = func_args.kw_defaults[kw_idx]
