@@ -14,8 +14,16 @@ Key Features
 
 - **k-CFA Algorithm**: Configurable context sensitivity via the *k* parameter
 - **Constraint-Based**: Uses set constraints to model pointer relationships
+- **Monotone Semantics**: Static constraints, semantic dependencies, and
+  pointer-flow deltas converge to a schedule-independent may-analysis result
+- **Unified Type Model**: ``TypeUniverse`` applies MRO, metaclass, subtype,
+  and raw-member operations uniformly to user and builtin type references
+- **Explicit Class State**: Class construction exposes one of ``Pending``,
+  ``Feasible``, ``Invalid``, or ``Unknown`` to call resolution
 - **Points-To Queries**: Answer what objects a variable or expression may
   reference
+- **Read-Only Result Facade**: Fixed-point field queries never allocate heap
+  cells or otherwise mutate analysis state
 - **Self-Contained**: Operates independently of other pyflow analysis modules
 
 Quick Start

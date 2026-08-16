@@ -150,8 +150,16 @@ under <code class="docutils literal notranslate"><span class="pre">_pythonstan</
 <ul class="simple">
 <li><p><strong>k-CFA Algorithm</strong>: Configurable context sensitivity via the <em>k</em> parameter</p></li>
 <li><p><strong>Constraint-Based</strong>: Uses set constraints to model pointer relationships</p></li>
+<li><p><strong>Monotone Semantics</strong>: Static constraints, semantic dependencies, and
+pointer-flow deltas converge to a schedule-independent may-analysis result</p></li>
+<li><p><strong>Unified Type Model</strong>: <code class="docutils literal notranslate"><span class="pre">TypeUniverse</span></code> applies MRO, metaclass, subtype,
+and raw-member operations uniformly to user and builtin type references</p></li>
+<li><p><strong>Explicit Class State</strong>: Class construction exposes one of <code class="docutils literal notranslate"><span class="pre">Pending</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Feasible</span></code>, <code class="docutils literal notranslate"><span class="pre">Invalid</span></code>, or <code class="docutils literal notranslate"><span class="pre">Unknown</span></code> to call resolution</p></li>
 <li><p><strong>Points-To Queries</strong>: Answer what objects a variable or expression may
 reference</p></li>
+<li><p><strong>Read-Only Result Facade</strong>: Fixed-point field queries never allocate heap
+cells or otherwise mutate analysis state</p></li>
 <li><p><strong>Self-Contained</strong>: Operates independently of other pyflow analysis modules</p></li>
 </ul>
 </section>
