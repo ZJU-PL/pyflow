@@ -68,6 +68,44 @@ y = A()
         assert result.points_to("y")
         assert any("AllocKind.INSTANCE" in obj for obj in result.points_to("y"))
 
+    def test_overridden_metaclass_call_controls_class_call_result(self):
+        source = """
+sentinel = object()
+
+class M(type):
+    def __call__(cls):
+        return sentinel
+
+class A(metaclass=M):
+    pass
+
+x = A()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("x") == result.points_to("sentinel")
+        assert all("AllocKind.INSTANCE" not in obj for obj in result.points_to("x"))
+
+    def test_metaclass_call_is_inherited_by_subclasses(self):
+        source = """
+sentinel = object()
+
+class M(type):
+    def __call__(cls):
+        return sentinel
+
+class Base(metaclass=M):
+    pass
+
+class Child(Base):
+    pass
+
+x = Child()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("x") == result.points_to("sentinel")
+
     def test_generator_next_reads_yielded_value(self):
         source = """
 def gen():

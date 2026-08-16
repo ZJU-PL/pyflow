@@ -192,6 +192,8 @@ class ClassObject(AbstractObject):
 
     container_scope: 'Scope'
     ir: 'IRClass'
+    base_variables: Tuple['Variable', ...] = ()
+    metaclass_variables: Tuple['Variable', ...] = ()
 
 
 @dataclass(frozen=True)

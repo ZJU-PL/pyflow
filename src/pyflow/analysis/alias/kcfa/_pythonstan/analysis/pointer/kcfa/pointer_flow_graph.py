@@ -103,11 +103,14 @@ class GuardNode(PointerFlowNode):
     
 
 class SelectorNode(PointerFlowNode):
-    """Select the first non-empty incoming edge according to MRO priority.
+    """Monotonically merge priority candidates.
 
-    Each incoming edge is assigned an index.  Facts from the smallest active
-    index flow through, preventing a lower-priority base class from overriding
-    an earlier MRO match.
+    Priority cannot safely be inferred from the first non-empty points-to set:
+    an earlier candidate may become non-empty later, after lower-priority facts
+    have already escaped into the union-only solver.  Definite precedence is
+    therefore resolved structurally by the caller; this node conservatively
+    merges all remaining ``may exist`` candidates and is independent of
+    worklist order.
     """
     edges: Dict[PointerFlowEdge, int]
     least_index: int
@@ -126,32 +129,9 @@ class SelectorNode(PointerFlowNode):
         self.edges[edge] = index
     
     def flow_through(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
-        """Allow flow from edges with minimum index (MRO semantics).
-        
-        For multiple inheritance: when the same field appears in multiple parents,
-        only the first parent (smallest index) should provide the value.
-        Empty sets don't affect MRO ordering - we only consider edges that
-        actually provide objects.
-        """
+        """Pass every candidate selected by the caller's presence analysis."""
         assert edge in self.edges, f"edge {edge} not found in selector node"
-        
-        # If points-to set is empty, don't update state - just pass through
-        # This ensures empty fields from higher-priority parents don't block
-        # non-empty fields from lower-priority parents
-        if pts.is_empty():
-            return pts
-        
-        index = self.edges[edge]
-        
-        # Allow flow if this is the first non-empty edge OR if index matches/beats current minimum
-        if self.least_index == -1 or index <= self.least_index:
-            # Update least_index only if this index is actually smaller
-            if self.least_index == -1 or index < self.least_index:
-                self.least_index = index
-            return pts
-        else:
-            # Block flow from higher-index edges (lower priority in MRO)
-            return PointsToSet.empty()
+        return pts
 
 
 class PointerFlowGraph:

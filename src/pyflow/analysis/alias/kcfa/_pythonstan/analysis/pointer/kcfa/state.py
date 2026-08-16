@@ -27,6 +27,15 @@ if TYPE_CHECKING:
 __all__ = ["PointerAnalysisState"]
 
 
+@dataclass(frozen=True)
+class AttributePresence:
+    """Abstract presence and value information for an object attribute."""
+
+    may_exist: bool
+    must_exist: bool
+    points_to: PointsToSet
+
+
 # TODO to be done 
 class PointerCallGraph(AbstractCallGraph[Ctx[CallSite], Scope]):
     """Call graph with a context-insensitive edge index for fast deduplication."""
@@ -116,6 +125,7 @@ class PointerAnalysisState:
         self._call_edges = []  # List of CallEdge objects tracked during analysis
         self._pointer_flow_graph: PointerFlowGraph = PointerFlowGraph()
         self._field_accesses: Dict[Tuple['AbstractObject', 'Field'], FieldAccess] = {}
+        self._field_presence: Dict[Tuple['AbstractObject', 'Field'], Tuple[bool, bool]] = {}
         self._variable_factory: VariableFactory = VariableFactory()
         self._worklist: Worklist = Worklist()
         self._static_constraints: List[Tuple['Scope', 'AbstractContext', 'Constraint']] = []
@@ -217,12 +227,33 @@ class PointerAnalysisState:
         field_access = self._field_accesses.get((obj, field), None)
         return field_access
 
-    def _base_class_variable(self, base: Any) -> Optional['Variable']:
-        """Return the variable that holds a simple class base, if resolvable."""
-        if hasattr(base, "id"):
-            return self._variable_factory.make_variable(base.id, VariableKind.GLOBAL)
-        return None
-    
+    def mark_field_presence(
+        self,
+        obj: 'AbstractObject',
+        field: 'Field',
+        *,
+        must_exist: bool = False,
+    ) -> None:
+        """Record a monotone may/must-exist fact for ``obj.field``."""
+        _, old_must = self._field_presence.get((obj, field), (False, False))
+        self._field_presence[(obj, field)] = (True, old_must or must_exist)
+
+    def get_attribute_presence(
+        self,
+        obj: 'AbstractObject',
+        field: 'Field',
+    ) -> AttributePresence:
+        may_exist, must_exist = self._field_presence.get((obj, field), (False, False))
+        field_access = self._field_accesses.get((obj, field))
+        points_to = (
+            self.get_points_to(Ctx(obj.context, None, field_access))
+            if field_access is not None
+            else PointsToSet.empty()
+        )
+        if not points_to.is_empty():
+            may_exist = True
+        return AttributePresence(may_exist, must_exist, points_to)
+
     def get_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
         """Get field access for object field.
         
@@ -285,15 +316,12 @@ class PointerAnalysisState:
                     self._add_points_flow_edge(edge)
             
             elif isinstance(obj, ClassObject):
-                bases = obj.alloc_site.stmt.get_bases()
+                bases = obj.base_variables
                 scope = obj.container_scope
 
                 if len(bases) > 0:
                     resolved_base_objs = []
-                    for base in bases:
-                        base_var = self._base_class_variable(base)
-                        if base_var is None:
-                            continue
+                    for base_var in bases:
                         base_ctx_var = self.get_variable(scope, scope.context, base_var)
                         resolved_base_objs.extend(
                             base_obj for base_obj in self.get_points_to(base_ctx_var)
@@ -315,16 +343,11 @@ class PointerAnalysisState:
                             except Exception:
                                 mro_bases = resolved_base_objs
 
-                        fallback_field_access = None
                         for base_obj in mro_bases:
                             base_internal_scope = self.get_internal_scope(base_obj)
                             if not base_internal_scope:
                                 continue
                             base_field_access = self.get_field(base_internal_scope, base_obj.context, base_obj, field)
-                            if fallback_field_access is None:
-                                fallback_field_access = base_field_access
-                            if self.get_points_to(base_field_access).is_empty():
-                                continue
                             self._add_points_flow_edge(
                                 PointerFlowEdge(
                                     NormalNode(base_field_access),
@@ -332,25 +355,16 @@ class PointerAnalysisState:
                                     PointerFlowKind.INHERIT,
                                 )
                             )
-                            return cfield
-                        if fallback_field_access is not None:
-                            self._add_points_flow_edge(
-                                PointerFlowEdge(
-                                    NormalNode(fallback_field_access),
-                                    NormalNode(cfield),
-                                    PointerFlowKind.INHERIT,
-                                )
-                            )
+                            if self.get_attribute_presence(base_obj, field).must_exist:
+                                break
+                        if mro_bases:
                             return cfield
 
                     selector = SelectorNode()
                     inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.INHERIT)
                     self._add_points_flow_edge(inherit_edge)
 
-                    for idx, base in enumerate(bases):
-                        base_var = self._base_class_variable(base)
-                        if base_var is None:
-                            continue
+                    for idx, base_var in enumerate(bases):
                         # Contextualize the base variable for constraint indexing
                         base_ctx_var = self.get_variable(scope, scope.context, base_var)
                         inherit_constraint = InheritanceConstraint(base=base_var, field=field, target=selector, index=idx)
@@ -358,10 +372,9 @@ class PointerAnalysisState:
                         # Debug logging
                         import logging
                         logger = logging.getLogger(__name__)
-                        from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.analysis import PointerAnalysis
                         # Check if debug_inheritance is enabled (access through solver if possible)
                         # For now, log at debug level
-                        logger.debug(f"[INHERIT] Created InheritanceConstraint for {obj.alloc_site.stmt.name}.{field} from base {base.id}")
+                        logger.debug(f"[INHERIT] Created InheritanceConstraint for {obj.alloc_site.stmt.name}.{field} from base {base_var.name}")
                         
                         # CRITICAL FIX: If the base variable already has objects in its points-to set,
                         # we need to immediately resolve the field from those objects.
@@ -380,7 +393,7 @@ class PointerAnalysisState:
                                             base_edge = PointerFlowEdge(NormalNode(base_field_access), selector, PointerFlowKind.NORMAL)
                                             selector.add_edge(base_edge, idx)  # Register edge with selector
                                             self._add_points_flow_edge(base_edge)
-                                            logger.debug(f"[INHERIT] Immediately resolving field {field} from existing base {base.id}")
+                                            logger.debug(f"[INHERIT] Immediately resolving field {field} from existing base {base_var.name}")
             
             # Handle SuperObject - resolve fields via parent class MRO
             if isinstance(obj, SuperObject):
@@ -401,7 +414,7 @@ class PointerAnalysisState:
                     # These are the parent classes super() will search
                     from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRClass
                     if isinstance(obj.current_class.alloc_site.stmt, IRClass):
-                        bases = obj.current_class.alloc_site.stmt.get_bases()
+                        bases = obj.current_class.base_variables
                         current_scope = obj.current_class.container_scope
                         
                         if len(bases) > 0:
@@ -423,8 +436,7 @@ class PointerAnalysisState:
                             
                             # Add InheritanceConstraint for each parent class
                             # These constraints apply lazily when parent points-to sets are known
-                            for idx, base in enumerate(bases):
-                                base_var = self._variable_factory.make_variable(base.id, VariableKind.GLOBAL)
+                            for idx, base_var in enumerate(bases):
                                 # Contextualize the base variable for constraint indexing
                                 base_ctx_var = self.get_variable(current_scope, current_scope.context, base_var)
                                 inherit_constraint = InheritanceConstraint(

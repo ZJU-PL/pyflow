@@ -302,7 +302,7 @@ def _analyze_file_kcfa(filepath: Path, k: int, verbose: bool) -> None:
 
     print(f"  tracked variables: {len(seen_names)}")
     for name in sorted(seen_names):
-        pts = result.points_to(name)
+        pts = result.points_to_name_union(name)
         print(f"    {name} → {sorted(pts) if pts else '∅'}")
         if verbose:
             for ctx, ctx_pts in all_bindings.get(name, []):
@@ -338,7 +338,7 @@ def _analyze_file_kcfa_json(filepath: Path, k: int) -> dict:
 
     variables: dict[str, object] = {}
     for name in sorted(_collect_variable_names(source)):
-        pts = result.points_to(name)
+        pts = result.points_to_name_union(name)
         if pts:
             variables[name] = {
                 "points_to": sorted(pts),

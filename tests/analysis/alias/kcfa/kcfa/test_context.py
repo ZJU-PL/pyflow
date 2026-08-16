@@ -1,3 +1,5 @@
+import pytest
+
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import (
     CallSite,
     CallStringContext,
@@ -55,6 +57,11 @@ def test_object_type_and_receiver_contexts_truncate(object_factory):
     )
 
 
+def test_object_context_rejects_context_objects(simple_context):
+    with pytest.raises(TypeError, match="CallSite or AbstractObject"):
+        ObjectContext((), 1).append(simple_context)
+
+
 def test_hybrid_context_tracks_calls_and_objects(call_site_factory, object_factory):
     call_site = call_site_factory()
     obj = object_factory()
@@ -64,6 +71,21 @@ def test_hybrid_context_tracks_calls_and_objects(call_site_factory, object_facto
     assert ctx.call_sites == (call_site,)
     assert ctx.alloc_sites == (obj,)
     assert not ctx.is_empty()
+
+
+def test_hybrid_context_updates_nonzero_dimensions_independently(
+    call_site_factory, object_factory
+):
+    call_site = call_site_factory()
+    obj = object_factory()
+
+    object_only = HybridContext((), (), 0, 1).append(call_site, obj)
+    call_only = HybridContext((), (), 1, 0).append(call_site, obj)
+
+    assert object_only.call_sites == ()
+    assert object_only.alloc_sites == (obj,)
+    assert call_only.call_sites == (call_site,)
+    assert call_only.alloc_sites == ()
 
 
 def test_scope_is_ir_bound(module_scope, module_ir, simple_context):

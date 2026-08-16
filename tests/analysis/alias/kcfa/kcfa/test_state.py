@@ -2,6 +2,12 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import attr, elem
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
+    NormalNode,
+    PointerFlowEdge,
+    PointerFlowKind,
+    SelectorNode,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import Variable, VariableKind
 
 
@@ -90,3 +96,30 @@ def test_heap_get_all_variables_returns_contextual_bindings(
     variables = set(empty_state._heap.get_all_variables(module_scope, simple_context))
 
     assert {first, second} <= variables
+
+
+def test_selector_is_monotone_and_independent_of_candidate_arrival_order(
+    empty_state, module_scope, simple_context, object_factory
+):
+    high = NormalNode(
+        empty_state.get_variable(module_scope, simple_context, Variable("high"))
+    )
+    low = NormalNode(
+        empty_state.get_variable(module_scope, simple_context, Variable("low"))
+    )
+    selector = SelectorNode()
+    high_edge = PointerFlowEdge(high, selector, PointerFlowKind.NORMAL)
+    low_edge = PointerFlowEdge(low, selector, PointerFlowKind.NORMAL)
+    selector.add_edge(high_edge, 0)
+    selector.add_edge(low_edge, 1)
+    high_pts = PointsToSet.singleton(object_factory(AllocKind.OBJECT))
+    low_pts = PointsToSet.singleton(object_factory(AllocKind.LIST))
+
+    low_then_high = selector.flow_through(low_edge, low_pts).union(
+        selector.flow_through(high_edge, high_pts)
+    )
+    high_then_low = selector.flow_through(high_edge, high_pts).union(
+        selector.flow_through(low_edge, low_pts)
+    )
+
+    assert low_then_high == high_then_low == low_pts.union(high_pts)

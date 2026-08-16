@@ -28,6 +28,18 @@ Public API
 - ``PointerAnalysisResult`` — result container with query methods
 """
 
-from pyflow.analysis.alias.kcfa.bridge import PointerAnalysis, PointerAnalysisResult
+from pyflow.analysis.alias.kcfa.bridge import (
+    AliasStatus,
+    BindingId,
+    PointsToQueryResult,
+    PointerAnalysis,
+    PointerAnalysisResult,
+)
 
-__all__ = ["PointerAnalysis", "PointerAnalysisResult"]
+__all__ = [
+    "AliasStatus",
+    "BindingId",
+    "PointsToQueryResult",
+    "PointerAnalysis",
+    "PointerAnalysisResult",
+]

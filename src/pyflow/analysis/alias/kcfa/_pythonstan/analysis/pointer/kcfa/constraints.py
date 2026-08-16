@@ -31,6 +31,8 @@ __all__ = [
     "LoadSubscrConstraint",
     "StoreSubscrConstraint",
     "CallConstraint",
+    "MetaclassCallConstraint",
+    "InheritedMetaclassCallConstraint",
     "argument_source_signature",
     "ReturnConstraint",
     "RaiseConstraint",
@@ -426,6 +428,38 @@ class CallConstraint(Constraint):
         if self.target:
             return f"{self.target} = {self.callee}({args_str})"
         return f"CallConstraint: {self.callee}({args_str})"
+
+
+@dataclass(frozen=True)
+class MetaclassCallConstraint(Constraint):
+    """Deferred dispatch of a class call through an explicit metaclass."""
+
+    metaclass: 'Variable'
+    metaclass_scope: 'Scope'
+    class_object: 'AbstractObject'
+    call: CallConstraint
+
+    def variables(self) -> Set['Variable']:
+        return {self.metaclass}
+
+    def __str__(self) -> str:
+        return f"MetaclassCallConstraint: type({self.class_object})({self.call})"
+
+
+@dataclass(frozen=True)
+class InheritedMetaclassCallConstraint(Constraint):
+    """Deferred lookup of a class call's metaclass through a base binding."""
+
+    base: 'Variable'
+    base_scope: 'Scope'
+    class_object: 'AbstractObject'
+    call: CallConstraint
+
+    def variables(self) -> Set['Variable']:
+        return {self.base}
+
+    def __str__(self) -> str:
+        return f"InheritedMetaclassCallConstraint: type({self.base})({self.call})"
 
 
 @dataclass(frozen=True)

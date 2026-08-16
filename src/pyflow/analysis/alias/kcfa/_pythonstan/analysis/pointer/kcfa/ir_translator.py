@@ -62,6 +62,8 @@ class IRTranslator:
         self._import_depth = 0  # Track import depth for recursion limit
         self._local_vars: Dict[IRScope, Set[str]] = defaultdict(set)
         self._class_used_variables: Dict[IRClass, List['Variable']] = {}
+        self._class_base_variables: Dict[IRClass, Tuple['Variable', ...]] = {}
+        self._class_metaclass_variables: Dict[IRClass, Tuple['Variable', ...]] = {}
         
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
         if not hasattr(World, "scope_manager"):
@@ -146,6 +148,12 @@ class IRTranslator:
 
     def get_class_used_variables(self, cls_stmt: IRClass) -> List['Variable']:
         return self._class_used_variables.get(cls_stmt, [])
+
+    def get_class_base_variables(self, cls_stmt: IRClass) -> Tuple['Variable', ...]:
+        return self._class_base_variables.get(cls_stmt, ())
+
+    def get_class_metaclass_variables(self, cls_stmt: IRClass) -> Tuple['Variable', ...]:
+        return self._class_metaclass_variables.get(cls_stmt, ())
     
     def _make_variable(self, name: str) -> 'Variable':
         if self._current_scope is None:
@@ -1004,8 +1012,23 @@ class IRTranslator:
     def _translate_class_def(self, ir_cls: IRClass) -> Tuple[Variable, List['Constraint']]:
         """Translate class definition: allocate class object and bind methods."""
         constraints = []
-        if isinstance(self._current_scope, IRClass):
-            self._local_vars.setdefault(self._current_scope, set()).add(ir_cls.name)
+
+        # A class statement binds its name in the surrounding lexical scope.
+        # Register it before resolving the class variable so nested classes use
+        # local/cell bindings rather than being forced into module globals.
+        self._register_local_var(ir_cls.name)
+
+        base_variables = []
+        for base in ir_cls.get_bases():
+            if isinstance(base, ast.Name):
+                base_variables.append(self._make_variable(base.id))
+        self._class_base_variables[ir_cls] = tuple(base_variables)
+
+        metaclass_variables = []
+        for keyword in ir_cls.keywords:
+            if keyword.arg == "metaclass" and isinstance(keyword.value, ast.Name):
+                metaclass_variables.append(self._make_variable(keyword.value.id))
+        self._class_metaclass_variables[ir_cls] = tuple(metaclass_variables)
         
         class_alloc = AllocSite.from_ir_node(ir_cls, AllocKind.CLASS)
         class_var = self._make_variable(ir_cls.name)

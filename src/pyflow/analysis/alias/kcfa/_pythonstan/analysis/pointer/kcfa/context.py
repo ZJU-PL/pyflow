@@ -168,8 +168,13 @@ class ObjectContext(AbstractContext[Union['CallSite', 'AbstractObject']]):
     
     def append(self, item: Union['CallSite', 'AbstractObject']) -> 'ObjectContext':
         """Create new context by appending allocation site."""
-        if isinstance(item, AbstractContext):
-            item = item.alloc_site
+        from .object import AbstractObject
+
+        if not isinstance(item, (CallSite, AbstractObject)):
+            raise TypeError(
+                "ObjectContext accepts only CallSite or AbstractObject, "
+                f"got {type(item)}"
+            )
         if self.depth == 0:
             return self
         new_sites = (self.alloc_sites + (item,))[-self.depth:]
@@ -333,12 +338,16 @@ class HybridContext(AbstractContext[Tuple['CallSite', Optional['AbstractObject']
         return HybridContext(self.call_sites, new_allocs, self.call_k, self.obj_depth)
 
     def append(self, call_site: 'CallSite', alloc_site: Optional['AbstractObject']) -> 'HybridContext':
-        if self.call_k == 0:
+        new_calls = self.call_sites
+        if self.call_k > 0:
+            new_calls = (self.call_sites + (call_site,))[-self.call_k:]
+
+        new_allocs = self.alloc_sites
+        if self.obj_depth > 0 and alloc_site is not None:
+            new_allocs = (self.alloc_sites + (alloc_site,))[-self.obj_depth:]
+
+        if new_calls == self.call_sites and new_allocs == self.alloc_sites:
             return self
-        if self.obj_depth == 0:
-            return self
-        new_calls = (self.call_sites + (call_site,))[-self.call_k:]
-        new_allocs = (self.alloc_sites + (alloc_site,))[-self.obj_depth:]
         return HybridContext(new_calls, new_allocs, self.call_k, self.obj_depth)
     
     def __hash__(self) -> int:

@@ -590,7 +590,14 @@ class PointerSolver:
         # logger.info(f"alloc class {c}")
         assert isinstance(ir_cls, IRClass), f"AllocSite to be allocated as class {c.alloc_site} should be IRClass, {type(ir_cls)} got!"
 
-        obj = ClassObject(context, c.alloc_site, scope, c.alloc_site.stmt)
+        obj = ClassObject(
+            context,
+            c.alloc_site,
+            scope,
+            c.alloc_site.stmt,
+            self.ir_translator.get_class_base_variables(ir_cls),
+            self.ir_translator.get_class_metaclass_variables(ir_cls),
+        )
         
         cls_context = self.context_selector.select_alloc_context(context, obj)
         
@@ -627,7 +634,13 @@ class PointerSolver:
             self.add_constraint(ctx_scope, cls_context, constraint)
         
         for inner_var in self.ir_translator.get_class_used_variables(ir_cls):
-            ctx_field = self.state.get_field(scope, context, obj, attr(inner_var.name))
+            field = attr(inner_var.name)
+            ctx_field = self.state.get_field(scope, context, obj, field)
+            self.state.mark_field_presence(
+                obj,
+                field,
+                must_exist=inner_var.name in ir_cls.get_definitely_declared_names(),
+            )
             ctx_inner_var = self.state.get_variable(ctx_scope, cls_context, inner_var)
             self.state._add_var_points_flow(ctx_inner_var, ctx_field)
             if self.config.debug_inheritance:

@@ -12,23 +12,59 @@ from __future__ import annotations
 import ast
 import logging
 import tempfile
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import Sequence
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.analysis import (
     AnalysisResult,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import (
-        PointsToSet,
-    )
-
 _LOGGER = logging.getLogger(__name__)
 
-__all__ = ["PointerAnalysis", "PointerAnalysisResult"]
+__all__ = [
+    "AliasStatus",
+    "BindingId",
+    "PointsToQueryResult",
+    "PointerAnalysis",
+    "PointerAnalysisResult",
+]
+
+
+class AliasStatus(Enum):
+    """Three-valued alias answer that preserves analysis incompleteness."""
+
+    ALIASES = "aliases"
+    DOES_NOT_ALIAS = "does_not_alias"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, order=True)
+class BindingId:
+    """Stable public identity for a context-qualified source binding."""
+
+    module: str
+    lexical_scope: str
+    context: str
+    name: str
+    kind: str
+
+    def __str__(self) -> str:
+        return (
+            f"{self.module}:{self.lexical_scope}:{self.context}:"
+            f"{self.kind}:{self.name}"
+        )
+
+
+@dataclass(frozen=True)
+class PointsToQueryResult:
+    """Points-to values plus completeness and unresolved-reason metadata."""
+
+    objects: frozenset[str]
+    complete: bool
+    reasons: tuple[dict, ...] = ()
 
 
 class PointerAnalysisResult:
@@ -45,19 +81,77 @@ class PointerAnalysisResult:
         self._state = state
         self._query = inner.query()
 
-    def points_to(self, var_name: str) -> set[str]:
-        """Return abstract objects reachable from any binding named ``var_name``.
+    @staticmethod
+    def _scope_label(scope) -> str:
+        stmt = getattr(scope, "stmt", None)
+        if stmt is None:
+            return "<unknown>"
+        get_qualname = getattr(stmt, "get_qualname", None)
+        return str(get_qualname() if get_qualname else stmt)
 
-        Bindings from all analyzed scopes and contexts are combined.  Use
-        :meth:`bindings_for_name` when the distinction between those bindings
-        matters.
-        """
-        result: set[str] = set()
+    def _binding_id(self, cvar) -> BindingId:
+        content = getattr(cvar, "content", cvar)
+        scope = getattr(cvar, "scope", None)
+        module = getattr(scope, "module", None) if scope is not None else None
+        kind = getattr(getattr(content, "kind", None), "value", "unknown")
+        return BindingId(
+            module=self._scope_label(module),
+            lexical_scope=self._scope_label(scope),
+            context=str(getattr(cvar, "context", "<unknown>")),
+            name=str(getattr(content, "name", "<unknown>")),
+            kind=str(kind),
+        )
+
+    def _iter_named_bindings(self, var_name: str):
         for cvar, pts in self._state._env.items():
             content = getattr(cvar, "content", cvar)
             if getattr(content, "name", None) == var_name:
-                result.update(str(obj) for obj in pts)
+                yield self._binding_id(cvar), cvar, pts
+
+    def points_to(
+        self,
+        binding: str | BindingId,
+        *,
+        scope: str | None = None,
+        context: str | None = None,
+    ) -> set[str]:
+        """Return points-to objects for an exact binding or filtered name.
+
+        ``BindingId`` is the precise form.  A bare string retains the legacy
+        name-union behavior for compatibility; new clients should call
+        :meth:`points_to_name_union` when that union is intentional.
+        """
+        if isinstance(binding, BindingId):
+            return set().union(*(
+                {str(obj) for obj in pts}
+                for binding_id, _, pts in self._iter_named_bindings(binding.name)
+                if binding_id == binding
+            ))
+        return self.points_to_name_union(binding, scope=scope, context=context)
+
+    def points_to_name_union(
+        self,
+        var_name: str,
+        *,
+        scope: str | None = None,
+        context: str | None = None,
+    ) -> set[str]:
+        """Explicitly union bindings named ``var_name`` matching the filters."""
+        result: set[str] = set()
+        for binding_id, _, pts in self._iter_named_bindings(var_name):
+            if scope is not None and binding_id.lexical_scope != scope:
+                continue
+            if context is not None and binding_id.context != context:
+                continue
+            result.update(str(obj) for obj in pts)
         return result
+
+    def binding_ids_for_name(self, var_name: str) -> list[BindingId]:
+        """Return stable identifiers for every analyzed binding of a name."""
+        return sorted({
+            binding_id
+            for binding_id, _, _ in self._iter_named_bindings(var_name)
+        })
 
     def bindings_for_name(self, var_name: str) -> list[tuple[str, set[str]]]:
         """Return each context-qualified binding matching ``var_name``.
@@ -71,6 +165,34 @@ class PointerAnalysisResult:
             if getattr(content, "name", None) == var_name:
                 bindings.append((str(cvar), {str(obj) for obj in pts}))
         return bindings
+
+    def points_to_query(
+        self,
+        binding: str | BindingId,
+        *,
+        scope: str | None = None,
+        context: str | None = None,
+    ) -> PointsToQueryResult:
+        """Return values together with solver completeness diagnostics."""
+        stats = self._query.get_statistics()
+        complete = bool(stats.get("complete", False))
+        return PointsToQueryResult(
+            objects=frozenset(self.points_to(binding, scope=scope, context=context)),
+            complete=complete,
+            reasons=() if complete else tuple(self.unknown_details()),
+        )
+
+    def alias_status(
+        self,
+        left: str | BindingId,
+        right: str | BindingId,
+    ) -> AliasStatus:
+        """Return a sound three-valued alias relation for two queries."""
+        if self.points_to(left).intersection(self.points_to(right)):
+            return AliasStatus.ALIASES
+        if not self._query.get_statistics().get("complete", False):
+            return AliasStatus.UNKNOWN
+        return AliasStatus.DOES_NOT_ALIAS
 
     def call_edges(self) -> list[tuple[str, str]]:
         """Return discovered call-graph edges as ``(call_site, callee)`` pairs."""

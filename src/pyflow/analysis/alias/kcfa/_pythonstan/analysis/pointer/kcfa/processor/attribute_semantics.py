@@ -211,7 +211,14 @@ class AttributeSemanticsProcessor(Processor):
         class_field = self._get_class_field(solver, scope, class_obj, attr_field)
         instance_field = state.get_field(scope, context, base_obj, attr_field)
         guard = GuardNode(
-            lambda edge, pts, state=state, class_field=class_field: pts - state.get_points_to(class_field)
+            lambda edge, pts, state=state, class_field=class_field, solver=solver, scope=scope, self=self: (
+                PointsToSet.empty()
+                if any(
+                    self._is_data_descriptor(solver, scope, obj)
+                    for obj in state.get_points_to(class_field)
+                )
+                else pts
+            )
         )
         state._add_points_flow_edge(
             PointerFlowEdge(NormalNode(instance_field), guard, PointerFlowKind.NORMAL)
@@ -302,7 +309,18 @@ class AttributeSemanticsProcessor(Processor):
         selector.add_edge(nondata_edge, 2)
         state._add_points_flow_edge(nondata_edge)
         
-        class_edge = PointerFlowEdge(NormalNode(class_field), selector, PointerFlowKind.NORMAL)
+        plain_class_guard = GuardNode(
+            lambda edge, pts, solver=solver, scope=scope, self=self: PointsToSet.from_objects(
+                [
+                    obj for obj in pts
+                    if not self._descriptor_has_method(solver, scope, obj, "__get__")
+                ]
+            )
+        )
+        state._add_points_flow_edge(
+            PointerFlowEdge(NormalNode(class_field), plain_class_guard, PointerFlowKind.NORMAL)
+        )
+        class_edge = PointerFlowEdge(plain_class_guard, selector, PointerFlowKind.NORMAL)
         selector.add_edge(class_edge, 3)
         state._add_points_flow_edge(class_edge)
         

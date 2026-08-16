@@ -1013,7 +1013,7 @@ class ThreeAddressTransformer(NodeTransformer):
         return node
 
     def visit_ClassDef(self, node):
-        blk, bases = [], []
+        blk, bases, keywords = [], [], []
         for base in node.bases:
             if base is None or isinstance(base, ast.Name):
                 bases.append(base)
@@ -1021,10 +1021,14 @@ class ThreeAddressTransformer(NodeTransformer):
                 base_blk, base_elt = self.split_expr(base)
                 blk.extend(base_blk)
                 bases.append(base_elt)
+        for keyword in node.keywords:
+            keyword_blk, keyword_value = self.split_expr(keyword.value)
+            blk.extend(keyword_blk)
+            keywords.append(ast.keyword(arg=keyword.arg, value=keyword_value))
         ins = ast.ClassDef(
             name=node.name,
             bases=bases,
-            keywords=node.keywords,
+            keywords=keywords,
             body=self.visit_stmt_list(node.body),
             decorator_list=node.decorator_list)
         ast.copy_location(ins, node)

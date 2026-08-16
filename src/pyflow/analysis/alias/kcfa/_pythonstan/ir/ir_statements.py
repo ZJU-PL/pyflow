@@ -1552,6 +1552,17 @@ class IRClass(IRScope, IRStatement):
         """Returns the base expressions declared on the class."""
         return self.bases
 
+    def get_definitely_declared_names(self) -> Set[str]:
+        """Return names unconditionally bound by top-level class-body statements."""
+        names: Set[str] = set()
+        for statement in self.stmt.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(statement.name)
+            elif isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                names.update(target.id for target in targets if isinstance(target, ast.Name))
+        return names
+
     def __repr__(self) -> str:
         """Displays decorators, bases, and keywords for the class."""
         decrs = ', '.join([ast.unparse(decr) for decr in self.decorator_list])

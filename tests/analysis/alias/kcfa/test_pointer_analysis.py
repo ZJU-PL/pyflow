@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pyflow.analysis.alias.kcfa import PointerAnalysis
+from pyflow.analysis.alias.kcfa import AliasStatus, PointerAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import ParamContext
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
@@ -114,6 +114,55 @@ y = c.m()
         assert any("AllocKind.OBJECT" in obj for obj in pts_y)
         assert all("AllocKind.LIST" not in obj for obj in pts_y)
 
+    def test_local_lexical_class_base_is_resolved(self) -> None:
+        source = """
+def make_child():
+    class Base:
+        def m(self):
+            return object()
+
+    class Child(Base):
+        pass
+
+    return Child
+
+Child = make_child()
+y = Child().m()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_qualified_and_computed_class_bases_use_lowered_temporaries(self) -> None:
+        source = """
+class Namespace:
+    pass
+
+class Base:
+    def m(self):
+        return object()
+
+ns = Namespace()
+ns.Base = Base
+
+def choose_base():
+    return ns.Base
+
+class Qualified(ns.Base):
+    pass
+
+class Computed(choose_base()):
+    pass
+
+q = Qualified().m()
+c = Computed().m()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("q"))
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("c"))
+
     def test_dict_constructor_keyword_value_flows_to_subscript_load(self) -> None:
         source = '''
 v = object()
@@ -175,6 +224,38 @@ def f():
         bindings = result.bindings_for_name("x")
         assert len(bindings) == 1
         assert result.points_to("x") == set().union(*(pts for _, pts in bindings))
+
+    def test_binding_ids_support_precise_points_to_queries(self) -> None:
+        source = """
+x = object()
+
+def f():
+    x = []
+    return x
+
+y = f()
+"""
+        result = PointerAnalysis(source, k=1).run()
+        bindings = result.binding_ids_for_name("x")
+
+        assert len(bindings) == 2
+        precise_sets = [result.points_to(binding) for binding in bindings]
+        assert all(precise_sets)
+        assert precise_sets[0].isdisjoint(precise_sets[1])
+        assert result.points_to_name_union("x") == set().union(*precise_sets)
+
+    def test_completeness_aware_queries_do_not_treat_empty_as_impossible(self) -> None:
+        incomplete = PointerAnalysis('exec("x = object()")\ny = x\n', k=1).run()
+        query = incomplete.points_to_query("y")
+
+        assert query.objects == frozenset()
+        assert query.complete is False
+        assert query.reasons
+        assert incomplete.alias_status("x", "y") is AliasStatus.UNKNOWN
+
+        complete = PointerAnalysis("a = object()\nb = []\nc = a\n", k=1).run()
+        assert complete.alias_status("a", "c") is AliasStatus.ALIASES
+        assert complete.alias_status("a", "b") is AliasStatus.DOES_NOT_ALIAS
 
     def test_return_values_remain_separate_across_call_contexts(self) -> None:
         source = """
