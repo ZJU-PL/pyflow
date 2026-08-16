@@ -80,5 +80,5 @@ shape sensitivity, sanitizer contracts, heap refinement, relational summaries,
 outcome separation, provenance, and public detector compatibility:
 
 ```bash
-PYTHONPATH=src pytest -q tests/checker/test_ast_dataflow_*.py
+PYTHONPATH=src pytest -q tests/checker/ast_dataflow
 ```
