@@ -6,6 +6,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     NativeObject,
     ObjectFactory,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor import Processor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor.normal_call import NormalCallProcessor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.solver import PointerSolver
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.state import PointerAnalysisState
@@ -154,3 +155,35 @@ def test_unmodeled_native_call_marks_semantics_incomplete(
     solver._handle_native_call(module_scope, simple_context, call, native)
 
     assert solver.query().get_statistics()["semantic_complete"] is False
+
+
+def test_core_fixed_point_is_independent_of_worklist_schedule(
+    module_scope, simple_context, alloc_site_factory
+):
+    def solve(policy, seed=0):
+        state = PointerAnalysisState(
+            worklist_policy=policy,
+            worklist_seed=seed,
+        )
+        solver = PointerSolver(
+            state,
+            Config(max_iterations=100, worklist_policy=policy, worklist_seed=seed),
+            Processor(),
+        )
+        first_site = alloc_site_factory(AllocKind.OBJECT)
+        second_site = alloc_site_factory(AllocKind.LIST)
+        for constraint in (
+            AllocConstraint(Variable("a"), first_site),
+            AllocConstraint(Variable("b"), second_site),
+            CopyConstraint(Variable("a"), Variable("out")),
+            CopyConstraint(Variable("b"), Variable("out")),
+        ):
+            solver.add_constraint(module_scope, simple_context, constraint)
+        solver.solve_to_fixpoint()
+        out = state.get_variable(module_scope, simple_context, Variable("out"))
+        return {obj.kind for obj in state.get_points_to(out)}
+
+    expected = solve("fifo")
+    assert solve("lifo") == expected
+    assert solve("random", 1) == expected
+    assert solve("random", 17) == expected

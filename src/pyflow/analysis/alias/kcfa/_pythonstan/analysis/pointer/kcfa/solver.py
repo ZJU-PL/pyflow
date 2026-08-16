@@ -6,6 +6,7 @@ constraint-based propagation.
 
 import ast
 import logging
+from collections import defaultdict, deque
 from fnmatch import fnmatchcase
 from typing import Set, Dict, Any, TYPE_CHECKING, Optional, List, Tuple
 
@@ -19,17 +20,19 @@ from .heap_model import Field, FieldKind, attr, key, elem
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import AbstractCallGraph, CallEdge, CallKind
 from .ir_translator import IRTranslator
 from .context_selector import ContextSelector, AbstractContext
-from .context import Ctx, Scope
+from .context import Ctx, Scope, CallSite
 from .class_hierarchy import ClassHierarchyManager
 from .builtin_api_handler import BuiltinSummaryManager
 from .unknown_tracker import UnknownTracker, UnknownKind
 from .object import *
 from .solver_interface import ISolverQuery
-from .pointer_flow_graph import PointerFlowGraph, PointerFlowEdge, PointerFlowNode, NormalNode, GuardNode, SelectorNode, PointerFlowKind
+from .pointer_flow_graph import PointerFlowGraph, PointerFlowEdge, PointerFlowNode, NormalNode, GuardNode, SelectorNode, ClassBindingNode, PointerFlowKind
 from .debug_monitor import DebugMonitor
 from .processor import Processor
 from .events import PointerEvent, PointerEventKind
 from .call_binding import bind_arguments
+from .stable_key import stable_token
+from .type_ref import TypeRefKind
 
 __all__ = ["PointerSolver", "SolverQuery"]
 
@@ -82,6 +85,9 @@ class PointerSolver:
         self.state.class_hierarchy = class_hierarchy
         self._frontend_complete = True
         self._semantic_complete = True
+        self._incomplete_variables = defaultdict(list)
+        self._incomplete_scopes = defaultdict(list)
+        self._global_incomplete_reasons = []
         
         # Initialize builtin handler with state
         if self.builtin_manager:
@@ -121,12 +127,42 @@ class PointerSolver:
             "constraints_applied": 0
         }
         self._modules = set()
+        self._dispatched_class_factories = set()
+        self._class_original_bases = {}
+        self._class_namespaces = {}
+        self._class_name_variables = {}
+        self._class_object_variables = {}
+        self._installed_class_variant_hooks = set()
+        self._installed_class_owner_hooks = set()
+        self._scheduled_optional_calls = set()
+        self._installed_slot_descriptors = set()
+        self._expanded_dynamic_code = set()
 
     def mark_frontend_incomplete(self) -> None:
         self._frontend_complete = False
 
-    def mark_semantic_incomplete(self) -> None:
+    def mark_semantic_incomplete(
+        self,
+        *,
+        variables=(),
+        scopes=(),
+        kind: str = "semantic_incomplete",
+        message: str = "semantic operation was not modeled exhaustively",
+    ) -> None:
         self._semantic_complete = False
+        reason = {"kind": kind, "message": message}
+        variables = tuple(variables)
+        scopes = tuple(scopes)
+        if not variables and not scopes:
+            if reason not in self._global_incomplete_reasons:
+                self._global_incomplete_reasons.append(reason)
+            return
+        for variable in variables:
+            if reason not in self._incomplete_variables[variable]:
+                self._incomplete_variables[variable].append(reason)
+        for scope in scopes:
+            if reason not in self._incomplete_scopes[scope]:
+                self._incomplete_scopes[scope].append(reason)
     
     def add_constraint(self, scope: 'Scope', context: 'AbstractContext', constraint: 'Constraint') -> None:
         self.state.record_constraint_definition(scope, context, constraint)
@@ -203,7 +239,9 @@ class PointerSolver:
         
         self._stats["iterations"] = self._iteration
         self._fixpoint_complete = (
-            self.state._worklist.empty() and not self.state._static_constraints
+            self.state._worklist.empty()
+            and not self.state._static_constraints
+            and not self.state.dependencies.has_pending()
         )
         if not self._fixpoint_complete:
             self._unknown_tracker.record(
@@ -234,6 +272,22 @@ class PointerSolver:
         for scope, constraint in self.state.constraints.all():
             if not isinstance(constraint, CallConstraint):
                 continue
+            if constraint.callee.name.startswith((
+                "$getattribute@",
+                "$getattr@",
+                "$setattr@",
+                "$delattr@",
+                "$descriptor_get@",
+                "$descriptor_set@",
+                "$descriptor_delete@",
+                "$optional_method@",
+                "$optional_callee@",
+                "$set_name@",
+                "$init_subclass@",
+            )):
+                # These constraints probe optional protocol hooks.  An empty
+                # callee means the hook is absent, not that analysis failed.
+                continue
             callee = self.state.get_variable(scope, scope.context, constraint.callee)
             if not self.state.get_points_to(callee).is_empty():
                 continue
@@ -247,18 +301,36 @@ class PointerSolver:
                 f"call target has an empty points-to set: {constraint.callee}",
                 context=str(scope.context),
             )
-            self.mark_semantic_incomplete()
+            affected = ()
+            if constraint.target is not None:
+                affected = (self.state.get_variable(
+                    scope, scope.context, constraint.target
+                ),)
+            self.mark_semantic_incomplete(
+                variables=affected,
+                scopes=() if affected else (scope,),
+                kind=UnknownKind.CALLEE_EMPTY.value,
+                message=f"call target is unresolved: {constraint.callee}",
+            )
         
     def __iter__(self):
         self._reset()
         return self
     
     def __next__(self) -> 'PointerAnalysisState':
-        if ((not self.state._worklist.empty()) or self.state._static_constraints) and self._iteration < self.config.max_iterations:
+        has_work = (
+            not self.state._worklist.empty()
+            or self.state._static_constraints
+            or self.state.dependencies.has_pending()
+        )
+        if has_work and self._iteration < self.config.max_iterations:
             self._iteration += 1
             if self.state._static_constraints:
-                scope, ctx, constraint = self.state._static_constraints.pop()
+                scope, ctx, constraint = self.state.pop_static_constraint()
                 return self._apply_static(scope, ctx, constraint)
+            elif self.state.dependencies.has_pending():
+                self.state.dependencies.run_next()
+                return self.state
             elif not self.state._worklist.empty():
                 scope, node, pts = self.state._worklist.pop()
                 return self._apply_dynamic(scope, node, pts)
@@ -377,7 +449,7 @@ class PointerSolver:
             
             # Debug monitoring: record object allocation
             if self._debug_monitor and self._debug_monitor.enabled and self._debug_monitor.track_object_flow:
-                obj_id = f"{c.alloc_site.kind.value}:{id(obj)}"
+                obj_id = f"{c.alloc_site.kind.value}:{stable_token(obj)}"
                 location = str(c.alloc_site)
                 self._debug_monitor.record_object_allocated(
                     obj_id=obj_id,
@@ -386,7 +458,9 @@ class PointerSolver:
                     target_var=str(c.target)
                 )
             self.state.obj_scope[obj] = scope
-            if isinstance(obj, ClassObject) and obj.base_variables:
+            if isinstance(obj, ClassObject) and (
+                obj.base_variables or obj.metaclass_variables
+            ):
                 self.state.defer_class_binding(obj, scope, target)
                 self.state.release_class_binding_if_feasible(obj)
             else:
@@ -597,7 +671,7 @@ class PointerSolver:
         base_variables = self.ir_translator.get_class_base_variables(ir_cls)
         effective_base_variables = tuple(
             Variable(
-                name=f"$effective_base@{id(ir_cls)}@{index}",
+                name=f"$effective_base@{stable_token(ir_cls)}@{index}",
                 kind=VariableKind.TEMPORARY,
             )
             for index in range(len(base_variables))
@@ -610,6 +684,9 @@ class PointerSolver:
             base_variables=base_variables,
             metaclass_variables=(
                 self.ir_translator.get_class_metaclass_variables(ir_cls)
+            ),
+            class_keyword_variables=(
+                self.ir_translator.get_class_keyword_variables(ir_cls)
             ),
             effective_base_variables=effective_base_variables,
         )
@@ -664,34 +741,647 @@ class PointerSolver:
                 logger.info(f"[CLASS] Storing field {obj.alloc_site.stmt.name}.{inner_var.name}: {ctx_inner_var} -> {ctx_field}")
 
         self._install_class_base_resolution(scope, context, obj)
+        self._install_class_namespace(scope, context, obj, ctx_scope, cls_context)
+        self._install_class_slots(scope, context, obj)
+        self.state.refresh_class_variants(obj)
+
+        meta_sources = tuple(
+            self.state.get_variable(scope, context, meta_var)
+            for meta_var in obj.metaclass_variables
+        )
+        if meta_sources:
+            self.state.dependencies.subscribe(
+                ("class-variant-metaclass", obj),
+                meta_sources,
+                lambda: self._refresh_class_construction(
+                    scope, context, obj, c.target
+                ),
+            )
+
+        effective_sources = tuple(
+            self.state.get_variable(scope, context, base_var)
+            for base_var in obj.effective_base_variables
+        )
+        if effective_sources:
+            self.state.dependencies.subscribe(
+                ("class-construction-bases", obj),
+                effective_sources,
+                lambda: self._refresh_class_construction(
+                    scope, context, obj, c.target
+                ),
+            )
+
+        self._refresh_class_construction(scope, context, obj, c.target)
 
         return obj
 
-    def _install_class_base_resolution(
+    def _install_class_slots(
         self,
         scope: 'Scope',
         context: 'AbstractContext',
         class_obj: 'ClassObject',
     ) -> None:
-        """Install PEP 560 effective-base expansion for a new class."""
-        if not class_obj.base_variables:
+        class_scope = self.state.get_internal_scope(class_obj)
+        slot_var = next((
+            variable
+            for variable in self.ir_translator.get_class_used_variables(
+                class_obj.ir
+            )
+            if variable.name == "__slots__"
+        ), None)
+        if class_scope is None or slot_var is None:
+            return
+        slot_ctx = self.state.get_variable(
+            class_scope, class_obj.context, slot_var
+        )
+
+        def resolve_slots() -> None:
+            for slot_obj in self.state.get_points_to(slot_ctx):
+                if (
+                    isinstance(slot_obj, ConstantObject)
+                    and isinstance(slot_obj.value, str)
+                ):
+                    self._publish_class_slots(
+                        scope, context, class_obj, (slot_obj.value,)
+                    )
+                    continue
+                if not isinstance(slot_obj, (TupleObject, ListObject)):
+                    continue
+                statement = slot_obj.alloc_site.stmt
+                value_ast = (
+                    statement.get_rval()
+                    if isinstance(statement, IRAssign)
+                    else None
+                )
+                if not isinstance(value_ast, (ast.Tuple, ast.List)):
+                    continue
+                if not value_ast.elts:
+                    self._publish_class_slots(
+                        scope, context, class_obj, ()
+                    )
+                    continue
+                element_fields = tuple(
+                    self.state.raw_field(
+                        class_scope,
+                        class_obj.context,
+                        slot_obj,
+                        key(index) if self.config.index_sensitive else elem(),
+                    )
+                    for index in range(len(value_ast.elts))
+                )
+
+                def resolve_elements(
+                    element_fields=element_fields,
+                    slot_obj=slot_obj,
+                ) -> None:
+                    names = []
+                    for element_field in element_fields:
+                        element_pts = self.state.get_points_to(element_field)
+                        if element_pts.is_empty():
+                            return
+                        constants = {
+                            obj.value
+                            for obj in element_pts
+                            if isinstance(obj, ConstantObject)
+                            and isinstance(obj.value, str)
+                        }
+                        if len(constants) != len(element_pts):
+                            return
+                        names.extend(constants)
+                    self._publish_class_slots(
+                        scope, context, class_obj, names
+                    )
+
+                self.state.dependencies.subscribe(
+                    ("class-slot-elements", class_obj, slot_obj),
+                    element_fields,
+                    resolve_elements,
+                )
+                resolve_elements()
+
+        self.state.dependencies.subscribe(
+            ("class-slots", class_obj), (slot_ctx,), resolve_slots
+        )
+        resolve_slots()
+
+    def _publish_class_slots(
+        self, scope, context, class_obj, slot_names
+    ) -> None:
+        self.state.record_class_slots(class_obj, slot_names)
+        for slot_name in slot_names:
+            if slot_name in {"__dict__", "__weakref__"}:
+                continue
+            descriptor_key = (class_obj, slot_name)
+            if descriptor_key in self._installed_slot_descriptors:
+                continue
+            self._installed_slot_descriptors.add(descriptor_key)
+            descriptor = SlotDescriptorObject(
+                context=class_obj.context,
+                alloc_site=AllocSite(
+                    f"<slot:{class_obj.ir.get_qualname()}.{slot_name}>",
+                    AllocKind.OBJECT,
+                ),
+                owner=class_obj,
+                slot_name=slot_name,
+            )
+            field = attr(slot_name)
+            field_ctx = self.state.raw_field(
+                scope, context, class_obj, field
+            )
+            self.state.mark_field_presence(
+                class_obj, field, must_exist=True
+            )
+            self.state.obj_scope[descriptor] = scope
+            self.handle_new_points_to(
+                field_ctx, scope, PointsToSet.singleton(descriptor)
+            )
+
+    def _refresh_class_construction(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+        result_var: 'Variable',
+    ) -> None:
+        """Publish type variants or invoke arbitrary callable metaclasses."""
+        self.state.refresh_class_variants(class_obj)
+        self.state.release_class_binding_if_feasible(class_obj)
+        for variant in self.state.class_variants(class_obj):
+            self._install_class_variant_hooks(
+                scope, context, class_obj, result_var, variant
+            )
+        self._install_class_owner_hooks(scope, context, class_obj)
+        for meta_var in class_obj.metaclass_variables:
+            meta_ctx = self.state.get_variable(scope, context, meta_var)
+            for meta_obj in self.state.get_points_to(meta_ctx):
+                type_ref = self.state._type_ref(meta_obj)
+                if type_ref.kind is not TypeRefKind.OPAQUE:
+                    continue
+                key_ = (class_obj, meta_obj, result_var)
+                if key_ in self._dispatched_class_factories:
+                    continue
+                self._dispatched_class_factories.add(key_)
+                self._dispatch_class_factory(
+                    scope, context, class_obj, result_var, meta_obj
+                )
+
+    def _install_class_variant_hooks(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+        result_var: 'Variable',
+        variant,
+    ) -> None:
+        hook_key = (class_obj, variant)
+        if hook_key in self._installed_class_variant_hooks:
+            return
+        self._installed_class_variant_hooks.add(hook_key)
+        metaclass = variant.metaclass
+        if (
+            metaclass.kind is not TypeRefKind.USER
+            or not isinstance(metaclass.target, ClassObject)
+        ):
             return
 
-        tuple_name = f"$original_bases@{id(class_obj.ir)}"
+        meta_obj = metaclass.target
+        token = stable_token(class_obj.ir)
+        name_var = self._class_name_variable(scope, context, class_obj)
+        bases_var = self._original_bases_variable(
+            scope, context, class_obj
+        )
+        namespace_var = self._class_namespaces[class_obj]
+        prepare_result = Variable(
+            name=f"$prepared_namespace@{token}@{stable_token(meta_obj)}",
+            kind=VariableKind.TEMPORARY,
+        )
+        self._install_optional_object_method_call(
+            scope,
+            context,
+            owner=meta_obj,
+            field=attr("__prepare__"),
+            key_=("class-prepare", class_obj, variant),
+            args_factory=lambda _callee: (name_var, bases_var),
+            kwargs=class_obj.class_keyword_variables,
+            target=prepare_result,
+            call_site=CallSite(
+                statement=class_obj.ir,
+                scope_name=class_obj.ir.get_qualname(),
+                index=10,
+            ),
+        )
+        prepared_ctx = self.state.get_variable(
+            scope, context, prepare_result
+        )
+        self.state.dependencies.subscribe(
+            ("prepared-namespace-result", class_obj, variant),
+            (prepared_ctx,),
+            lambda: self._populate_class_namespace_objects(
+                scope,
+                context,
+                class_obj,
+                self.state.get_points_to(prepared_ctx),
+            ),
+        )
+
+        if self.state._variant_has_custom_metaclass_new(variant):
+            meta_var = self._class_object_variable(
+                scope, context, meta_obj, "metaclass"
+            )
+            self._install_optional_object_method_call(
+                scope,
+                context,
+                owner=meta_obj,
+                field=attr("__new__"),
+                key_=("class-metaclass-new", class_obj, variant),
+                args_factory=lambda _callee: (
+                    meta_var, name_var, bases_var, namespace_var
+                ),
+                kwargs=class_obj.class_keyword_variables,
+                target=result_var,
+                call_site=CallSite(
+                    statement=class_obj.ir,
+                    scope_name=class_obj.ir.get_qualname(),
+                    index=11,
+                ),
+            )
+
+        created_class_var = self._class_object_variable(
+            scope, context, class_obj, "created_class"
+        )
+        self._install_optional_object_method_call(
+            scope,
+            context,
+            owner=meta_obj,
+            field=attr("__init__"),
+            key_=("class-metaclass-init", class_obj, variant),
+            args_factory=lambda _callee: (
+                created_class_var, name_var, bases_var, namespace_var
+            ),
+            kwargs=class_obj.class_keyword_variables,
+            target=None,
+            call_site=CallSite(
+                statement=class_obj.ir,
+                scope_name=class_obj.ir.get_qualname(),
+                index=12,
+            ),
+        )
+
+    def _install_class_owner_hooks(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+    ) -> None:
+        if class_obj in self._installed_class_owner_hooks:
+            return
+        self._installed_class_owner_hooks.add(class_obj)
+        owner_var = self._class_object_variable(
+            scope, context, class_obj, "class_hook_owner"
+        )
+        for index, inner_var in enumerate(
+            self.ir_translator.get_class_used_variables(class_obj.ir)
+        ):
+            method_var = Variable(
+                name=(
+                    f"$set_name@{stable_token(class_obj.ir)}@"
+                    f"{stable_token(inner_var)}"
+                ),
+                kind=VariableKind.TEMPORARY,
+            )
+            self.add_constraint(
+                self.state.get_internal_scope(class_obj),
+                class_obj.context,
+                LoadConstraint(
+                    base=inner_var,
+                    field=attr("__set_name__"),
+                    target=method_var,
+                ),
+            )
+            name_var = self._constant_string_variable(
+                scope,
+                context,
+                f"$set_name_field@{stable_token(class_obj.ir)}@{index}",
+                inner_var.name,
+            )
+            method_ctx = self.state.get_variable(
+                self.state.get_internal_scope(class_obj),
+                class_obj.context,
+                method_var,
+            )
+            self._schedule_optional_call(
+                scope,
+                context,
+                method_ctx,
+                ("set-name", class_obj, inner_var),
+                lambda _callee, owner_var=owner_var, name_var=name_var: (
+                    owner_var, name_var
+                ),
+                (),
+                None,
+                CallSite(
+                    statement=class_obj.ir,
+                    scope_name=class_obj.ir.get_qualname(),
+                    index=20 + index,
+                ),
+            )
+
+        if not class_obj.base_variables:
+            return
+        init_subclass_var = Variable(
+            name=f"$init_subclass@{stable_token(class_obj.ir)}",
+            kind=VariableKind.TEMPORARY,
+        )
+        init_subclass_ctx = self.state.get_variable(
+            scope, context, init_subclass_var
+        )
+        selector = SelectorNode()
+        binding = ClassBindingNode(
+            class_obj, ("init-subclass", class_obj)
+        )
+        self.state._add_points_flow_edge(PointerFlowEdge(
+            selector, binding, PointerFlowKind.NORMAL
+        ))
+        self.state._add_points_flow_edge(PointerFlowEdge(
+            binding, NormalNode(init_subclass_ctx), PointerFlowKind.NORMAL
+        ))
+        self.state.register_class_inheritance_lookup(
+            class_obj, attr("__init_subclass__"), selector
+        )
+        self.state.refresh_class_inheritance(
+            class_obj, attr("__init_subclass__"), selector
+        )
+        effective_sources = tuple(
+            self.state.get_variable(scope, context, base_var)
+            for base_var in class_obj.effective_base_variables
+        )
+        if effective_sources:
+            self.state.dependencies.subscribe(
+                ("init-subclass-bases", class_obj),
+                effective_sources,
+                lambda: self.state.refresh_class_inheritance(
+                    class_obj, attr("__init_subclass__"), selector
+                ),
+            )
+        self._schedule_optional_call(
+            scope,
+            context,
+            init_subclass_ctx,
+            ("init-subclass", class_obj),
+            lambda callee: (
+                ()
+                if (
+                    isinstance(callee, MethodObject)
+                    and callee.ir.is_class_method
+                )
+                else (owner_var,)
+            ),
+            class_obj.class_keyword_variables,
+            None,
+            CallSite(
+                statement=class_obj.ir,
+                scope_name=class_obj.ir.get_qualname(),
+                index=30,
+            ),
+        )
+
+    def _install_optional_object_method_call(
+        self,
+        scope,
+        context,
+        *,
+        owner,
+        field,
+        key_,
+        args_factory,
+        kwargs,
+        target,
+        call_site,
+    ) -> None:
+        method_var = Variable(
+            name=f"$optional_method@{stable_token(key_)}",
+            kind=VariableKind.TEMPORARY,
+        )
+        method_ctx = self.state.get_variable(scope, context, method_var)
+        if not self.processor.handle_field_read(
+            self, scope, context, owner, field, method_var
+        ):
+            owner_scope = self.state.get_internal_scope(owner) or scope
+            raw = self.state.raw_field(
+                owner_scope, owner.context, owner, field
+            )
+            self.state._add_var_points_flow(raw, method_ctx)
+        self._schedule_optional_call(
+            scope,
+            context,
+            method_ctx,
+            key_,
+            args_factory,
+            kwargs,
+            target,
+            call_site,
+        )
+
+    def _schedule_optional_call(
+        self,
+        scope,
+        context,
+        callee_ctx,
+        key_,
+        args_factory,
+        kwargs,
+        target,
+        call_site,
+    ) -> None:
+        def schedule() -> None:
+            for callee in self.state.get_points_to(callee_ctx):
+                fact = (key_, callee)
+                if fact in self._scheduled_optional_calls:
+                    continue
+                self._scheduled_optional_calls.add(fact)
+                isolated = Variable(
+                    name=(
+                        f"$optional_callee@{stable_token(key_)}@"
+                        f"{stable_token(callee)}"
+                    ),
+                    kind=VariableKind.TEMPORARY,
+                )
+                isolated_ctx = self.state.get_variable(
+                    scope, context, isolated
+                )
+                self.handle_new_points_to(
+                    isolated_ctx, scope, PointsToSet.singleton(callee)
+                )
+                self.add_constraint(
+                    scope,
+                    context,
+                    CallConstraint(
+                        callee=isolated,
+                        args=tuple(args_factory(callee)),
+                        kwargs=tuple(kwargs),
+                        target=target,
+                        call_site=call_site,
+                    ),
+                )
+
+        self.state.dependencies.subscribe(
+            ("optional-call", key_), (callee_ctx,), schedule
+        )
+
+    def _class_object_variable(
+        self, scope, context, class_obj, prefix
+    ) -> 'Variable':
+        key_ = (scope, context, class_obj, prefix)
+        existing = self._class_object_variables.get(key_)
+        if existing is not None:
+            return existing
+        variable = Variable(
+            name=f"${prefix}@{stable_token(class_obj)}",
+            kind=VariableKind.TEMPORARY,
+        )
+        ctx_var = self.state.get_variable(scope, context, variable)
+        self.handle_new_points_to(
+            ctx_var, scope, PointsToSet.singleton(class_obj)
+        )
+        self._class_object_variables[key_] = variable
+        return variable
+
+    def _constant_string_variable(
+        self, scope, context, variable_name, value
+    ) -> 'Variable':
+        variable = Variable(
+            name=variable_name, kind=VariableKind.TEMPORARY
+        )
+        assign = IRAssign(ast.Assign(
+            targets=[ast.Name(id=variable_name, ctx=ast.Store())],
+            value=ast.Constant(value),
+        ))
+        self.add_constraint(
+            scope,
+            context,
+            AllocConstraint(
+                target=variable,
+                alloc_site=AllocSite.from_ir_node(
+                    assign, AllocKind.CONSTANT
+                ),
+            ),
+        )
+        return variable
+
+    def _populate_class_namespace_objects(
+        self, scope, context, class_obj, namespace_points
+    ) -> None:
+        class_scope = self.state.get_internal_scope(class_obj)
+        if class_scope is None:
+            return
+        for namespace_obj in namespace_points:
+            for inner_var in self.ir_translator.get_class_used_variables(
+                class_obj.ir
+            ):
+                inner_ctx = self.state.get_variable(
+                    class_scope, class_obj.context, inner_var
+                )
+                field_ctx = self.state.raw_field(
+                    scope,
+                    context,
+                    namespace_obj,
+                    key(inner_var.name),
+                )
+                self.state._add_var_points_flow(inner_ctx, field_ctx)
+
+    def _dispatch_class_factory(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+        result_var: 'Variable',
+        metaclass_obj: 'AbstractObject',
+    ) -> None:
+        token = stable_token(class_obj.ir)
+        callee_var = Variable(
+            name=f"$class_factory@{token}@{stable_token(metaclass_obj)}",
+            kind=VariableKind.TEMPORARY,
+        )
+        callee_ctx = self.state.get_variable(scope, context, callee_var)
+        self.handle_new_points_to(
+            callee_ctx, scope, PointsToSet.singleton(metaclass_obj)
+        )
+        self.add_constraint(
+            scope,
+            context,
+            CallConstraint(
+                callee=callee_var,
+                args=(
+                    self._class_name_variable(scope, context, class_obj),
+                    self._original_bases_variable(scope, context, class_obj),
+                    self._class_namespaces[class_obj],
+                ),
+                kwargs=class_obj.class_keyword_variables,
+                target=result_var,
+                call_site=CallSite(
+                    statement=class_obj.ir,
+                    scope_name=(
+                        class_obj.container_scope.stmt.get_qualname()
+                        if hasattr(
+                            class_obj.container_scope.stmt, "get_qualname"
+                        )
+                        else str(class_obj.container_scope.stmt)
+                    ),
+                ),
+            ),
+        )
+
+    def _class_name_variable(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+    ) -> 'Variable':
+        existing = self._class_name_variables.get(class_obj)
+        if existing is not None:
+            return existing
+        name = f"$class_name@{stable_token(class_obj.ir)}"
+        variable = Variable(name=name, kind=VariableKind.TEMPORARY)
+        assign = IRAssign(ast.Assign(
+            targets=[ast.Name(id=name, ctx=ast.Store())],
+            value=ast.Constant(class_obj.ir.name),
+        ))
+        self.add_constraint(
+            scope,
+            context,
+            AllocConstraint(
+                target=variable,
+                alloc_site=AllocSite.from_ir_node(
+                    assign, AllocKind.CONSTANT
+                ),
+            ),
+        )
+        self._class_name_variables[class_obj] = variable
+        return variable
+
+    def _original_bases_variable(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+    ) -> 'Variable':
+        existing = self._class_original_bases.get(class_obj)
+        if existing is not None:
+            return existing
+        tuple_name = f"$original_bases@{stable_token(class_obj.ir)}"
         original_bases = Variable(
             name=tuple_name,
             kind=VariableKind.TEMPORARY,
         )
-        tuple_ast = ast.Tuple(
-            elts=[
-                ast.Name(id=base_var.name, ctx=ast.Load())
-                for base_var in class_obj.base_variables
-            ],
-            ctx=ast.Load(),
-        )
         tuple_assign = IRAssign(ast.Assign(
             targets=[ast.Name(id=tuple_name, ctx=ast.Store())],
-            value=tuple_ast,
+            value=ast.Tuple(
+                elts=[
+                    ast.Name(id=base_var.name, ctx=ast.Load())
+                    for base_var in class_obj.base_variables
+                ],
+                ctx=ast.Load(),
+            ),
         ))
         self.add_constraint(
             scope,
@@ -704,24 +1394,80 @@ class PointerSolver:
             ),
         )
         for index, base_var in enumerate(class_obj.base_variables):
-            self.add_constraint(
-                scope,
-                context,
-                StoreConstraint(
-                    base=original_bases,
-                    field=key(index),
-                    source=base_var,
-                ),
-            )
-            self.add_constraint(
-                scope,
-                context,
-                StoreConstraint(
-                    base=original_bases,
-                    field=elem(),
-                    source=base_var,
-                ),
-            )
+            self.add_constraint(scope, context, StoreConstraint(
+                base=original_bases,
+                field=key(index),
+                source=base_var,
+            ))
+            self.add_constraint(scope, context, StoreConstraint(
+                base=original_bases,
+                field=elem(),
+                source=base_var,
+            ))
+        self._class_original_bases[class_obj] = original_bases
+        return original_bases
+
+    def _install_class_namespace(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+        class_scope: 'Scope',
+        class_context: 'AbstractContext',
+    ) -> None:
+        token = stable_token(class_obj.ir)
+        name = f"$class_namespace@{token}"
+        namespace = Variable(name=name, kind=VariableKind.TEMPORARY)
+        assign = IRAssign(ast.Assign(
+            targets=[ast.Name(id=name, ctx=ast.Store())],
+            value=ast.Dict(keys=[], values=[]),
+        ))
+        self.add_constraint(
+            scope,
+            context,
+            AllocConstraint(
+                target=namespace,
+                alloc_site=AllocSite.from_ir_node(assign, AllocKind.DICT),
+            ),
+        )
+        namespace_ctx = self.state.get_variable(scope, context, namespace)
+
+        def populate_namespace() -> None:
+            for namespace_obj in self.state.get_points_to(namespace_ctx):
+                for inner_var in self.ir_translator.get_class_used_variables(
+                    class_obj.ir
+                ):
+                    inner_ctx = self.state.get_variable(
+                        class_scope, class_context, inner_var
+                    )
+                    namespace_field = self.state.raw_field(
+                        scope,
+                        context,
+                        namespace_obj,
+                        key(inner_var.name),
+                    )
+                    self.state._add_var_points_flow(
+                        inner_ctx, namespace_field
+                    )
+
+        self.state.dependencies.subscribe(
+            ("class-namespace", class_obj),
+            (namespace_ctx,),
+            populate_namespace,
+        )
+        self._class_namespaces[class_obj] = namespace
+
+    def _install_class_base_resolution(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+    ) -> None:
+        """Install PEP 560 effective-base expansion for a new class."""
+        original_bases = self._original_bases_variable(
+            scope, context, class_obj
+        )
+        for index, base_var in enumerate(class_obj.base_variables):
             self.add_constraint(
                 scope,
                 context,
@@ -869,9 +1615,18 @@ class PointerSolver:
                         )
                         self.state._worklist.add((scope, NormalNode(target_var), PointsToSet.singleton(method_obj)))
                         continue
+
+                if self.processor.handle_field_read(
+                    self,
+                    scope,
+                    context,
+                    base_obj,
+                    c.field,
+                    target_var,
+                ):
+                    continue
             
-            # Default behavior: use field access for classes, instances, etc.
-            field_access = self.state.get_field(scope, context, base_obj, c.field)
+            field_access = self.state.raw_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(field_access, target_var)
     
     def _apply_store(self, scope: 'Scope', variable: 'Ctx', c: 'StoreConstraint', pts: 'PointsToSet'):
@@ -883,7 +1638,7 @@ class PointerSolver:
             self.state.record_semantic_event(
                 PointerEvent(PointerEventKind.STORE, scope, context, c, base_obj)
             )
-            field_access = self.state.get_field(scope, context, base_obj, c.field)
+            field_access = self.state.raw_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(source_var, field_access)
     
     def _apply_call(self, scope: 'Scope', variable: 'Ctx', c: 'CallConstraint', pts: 'PointsToSet') -> bool:
@@ -919,18 +1674,7 @@ class PointerSolver:
             if isinstance(callee_obj, NativeObject):
                 changed = self._handle_native_call(scope, context, c, callee_obj)
             elif self.processor.handle_call(self, variable, scope, c, callee_obj):
-                changed = True                    
-            elif callee_obj.kind == AllocKind.FUNCTION:
-                changed = self._handle_function_call(scope, context, c, callee_obj)
-            elif callee_obj.kind == AllocKind.CLASS:
-                changed = self._handle_class_instantiation(scope, context, c, callee_obj)
-            elif callee_obj.kind == AllocKind.METHOD:
-                changed = self._handle_method_call(scope, context, c, callee_obj)
-            elif callee_obj.kind == AllocKind.BOUND_METHOD:
-                changed = self._handle_bound_method_call(c, callee_obj)
-            elif callee_obj.kind == AllocKind.BUILTIN:
-                changed = self._handle_builtin_call(scope, context, c, callee_obj)
-            # TODO add the __callable__ magic method
+                changed = True
             else:
                 self._unknown_tracker.record(
                     UnknownKind.CALLEE_NON_CALLABLE,
@@ -977,9 +1721,30 @@ class PointerSolver:
         callee_obj: 'NativeObject',
     ) -> bool:
         """Model an unanalyzed native call while preserving its result flow."""
-        if not self._has_exhaustive_native_summary(callee_obj):
-            self.mark_semantic_incomplete()
-        if call.target is None:
+        exhaustive = self._has_exhaustive_native_summary(callee_obj)
+        if not exhaustive:
+            affected = [
+                self.state.get_variable(scope, context, argument)
+                for argument in call.args
+            ]
+            affected.extend(
+                self.state.get_variable(scope, context, argument)
+                for _, argument in call.kwargs
+            )
+            if call.target is not None:
+                affected.append(self.state.get_variable(
+                    scope, context, call.target
+                ))
+            self.mark_semantic_incomplete(
+                variables=affected,
+                scopes=(scope,) if call.target is None else (),
+                kind="native_effect",
+                message=(
+                    f"native call {callee_obj.access_path} has no exhaustive "
+                    "effect summary"
+                ),
+            )
+        if call.target is None or exhaustive:
             return True
         target = self.state.get_variable(scope, context, call.target)
         result_path = f"{callee_obj.access_path}.<return>"
@@ -1010,25 +1775,79 @@ class PointerSolver:
         call: 'CallConstraint',
         callee_obj: 'AbstractObject',
     ) -> None:
-        if call.target is None:
-            return
         access_path = self._configured_access_path(callee_obj)
         if access_path is None:
             return
-        target = self.state.get_variable(scope, context, call.target)
+        target = (
+            self.state.get_variable(scope, context, call.target)
+            if call.target is not None else None
+        )
         for effect in self.config.native_effects or ():
             if not fnmatchcase(access_path, effect.get("access_path", "")):
                 continue
             kind = effect.get("kind")
-            if kind == "return_argument":
+            if kind == "return_argument" and target is not None:
                 for argument in self._native_effect_variables(call, effect):
                     source = self.state.get_variable(scope, context, argument)
                     self.state._add_var_points_flow(source, target)
-            elif kind == "return_receiver":
+            elif kind == "return_receiver" and target is not None:
                 receiver = self._configured_receiver(callee_obj, context)
                 if receiver is not None:
                     self.state._worklist.add(
                         (scope, NormalNode(target), PointsToSet.singleton(receiver))
+                    )
+            elif kind == "return_fresh" and target is not None:
+                fresh_kind_name = str(effect.get("alloc_kind", "unknown")).upper()
+                fresh_kind = getattr(AllocKind, fresh_kind_name, AllocKind.UNKNOWN)
+                fresh = AbstractObject(
+                    context=context,
+                    alloc_site=AllocSite(call.call_site.statement, fresh_kind),
+                )
+                self.state._worklist.add((
+                    scope, NormalNode(target), PointsToSet.singleton(fresh)
+                ))
+
+        for effect in self.config.native_effects or ():
+            if not fnmatchcase(access_path, effect.get("access_path", "")):
+                continue
+            kind = effect.get("kind")
+            if kind == "write_argument_field":
+                receivers = self._effect_variables(
+                    call, effect.get("arguments", ())
+                )
+                values = self._effect_variables(
+                    call, effect.get("values", ("*",))
+                )
+                field_name = effect.get("field")
+                field = (
+                    attr(field_name)
+                    if isinstance(field_name, str) and field_name != "*"
+                    else unknown()
+                )
+                for receiver in receivers:
+                    for value_var in values:
+                        self.add_constraint(
+                            scope,
+                            context,
+                            StoreConstraint(
+                                base=receiver,
+                                field=field,
+                                source=value_var,
+                            ),
+                        )
+            elif kind == "escape_argument":
+                for argument in self._effect_variables(
+                    call, effect.get("arguments", ("*",))
+                ):
+                    argument_ctx = self.state.get_variable(
+                        scope, context, argument
+                    )
+                    self.state.dependencies.subscribe(
+                        ("native-escape", call, effect.get("access_path"), argument_ctx),
+                        (argument_ctx,),
+                        lambda argument_ctx=argument_ctx: self.state.mark_escaped(
+                            self.state.get_points_to(argument_ctx)
+                        ),
                     )
 
     @staticmethod
@@ -1058,12 +1877,18 @@ class PointerSolver:
     @staticmethod
     def _native_effect_variables(call: 'CallConstraint', effect: dict):
         """Resolve positional, keyword, and wildcard effect selectors."""
+        return PointerSolver._effect_variables(
+            call, effect.get("arguments", ())
+        )
+
+    @staticmethod
+    def _effect_variables(call: 'CallConstraint', selectors):
         selected = []
         keyword_map = {
             name: variable for name, variable in call.kwargs
             if name is not None
         }
-        for selector in effect.get("arguments", ()):
+        for selector in selectors:
             if selector == "*":
                 selected.extend(call.args)
                 selected.extend(variable for _, variable in call.kwargs)
@@ -1386,6 +2211,26 @@ class PointerSolver:
         if not handler:
             logger.debug("Builtin handler not initialized")
             return False
+
+        builtin_name = (
+            getattr(builtin_obj, "function_name", None)
+            or getattr(builtin_obj, "builtin_name", None)
+        )
+        if builtin_name in {"exec", "eval"}:
+            return self._handle_dynamic_code_builtin(
+                scope, context, call, builtin_name
+            )
+        if builtin_name in {"getattr", "setattr", "delattr", "hasattr"} and len(call.args) >= 2:
+            name_ctx = self.state.get_variable(
+                scope, context, call.args[1]
+            )
+            self.state.dependencies.subscribe(
+                ("builtin-attribute-name", call, builtin_obj),
+                (name_ctx,),
+                lambda: self._handle_builtin_call(
+                    scope, context, call, builtin_obj
+                ),
+            )
         
         # Delegate to handler to generate constraints
         try:
@@ -1402,6 +2247,116 @@ class PointerSolver:
         #     logger.warning(f"Error handling builtin call: {e}")
         #     return False
 
+    def _handle_dynamic_code_builtin(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        call: 'CallConstraint',
+        builtin_name: str,
+    ) -> bool:
+        """Parse and lower constant-string ``exec``/``eval`` in place."""
+        if not call.args:
+            return False
+        source_ctx = self.state.get_variable(scope, context, call.args[0])
+
+        def expand() -> None:
+            points = self.state.get_points_to(source_ctx)
+            for code_obj in points:
+                if not (
+                    isinstance(code_obj, ConstantObject)
+                    and isinstance(code_obj.value, str)
+                ):
+                    self.mark_semantic_incomplete(
+                        variables=(
+                            (self.state.get_variable(
+                                scope, context, call.target
+                            ),)
+                            if call.target is not None else ()
+                        ),
+                        scopes=(scope,),
+                        kind=UnknownKind.UNKNOWN_BUILTIN.value,
+                        message=(
+                            f"non-constant {builtin_name} source may modify "
+                            "the current namespace"
+                        ),
+                    )
+                    continue
+                fact = (scope, context, call, code_obj.value)
+                if fact in self._expanded_dynamic_code:
+                    continue
+                self._expanded_dynamic_code.add(fact)
+                try:
+                    if builtin_name == "eval":
+                        expression = ast.parse(
+                            code_obj.value, mode="eval"
+                        ).body
+                        if call.target is None:
+                            continue
+                        parsed_statements = [ast.Assign(
+                            targets=[ast.Name(
+                                id=call.target.name, ctx=ast.Store()
+                            )],
+                            value=expression,
+                        )]
+                    else:
+                        parsed_statements = ast.parse(
+                            code_obj.value, mode="exec"
+                        ).body
+
+                    from pyflow.analysis.alias.kcfa._pythonstan.analysis.transform.three_address import ThreeAddressTransformer
+                    from pyflow.analysis.alias.kcfa._pythonstan.analysis.transform.ir import IRTransformer
+
+                    token = stable_token((call.call_site, code_obj.value))
+                    three_address = ThreeAddressTransformer()
+                    three_address.reset(
+                        v_tmpl=f"$dynamic_tmp_{token}_%d",
+                        fn_tmpl=f"$dynamic_func_{token}_%d",
+                        c_tmpl=f"$dynamic_const_{token}_%d",
+                    )
+                    lowered = three_address.visit_stmt_list(
+                        parsed_statements
+                    )
+                    constant_statements = [
+                        ast.Assign(
+                            targets=[ast.Name(id=name, ctx=ast.Store())],
+                            value=ast.Constant(value=value_),
+                        )
+                        for name, value_ in three_address.const_colle.dump()
+                    ]
+                    ir_transformer = IRTransformer(scope.stmt)
+                    ir_transformer.process_stmts(
+                        [*constant_statements, *lowered]
+                    )
+                    old_scope = self.ir_translator._current_scope
+                    self.ir_translator._current_scope = scope.stmt
+                    try:
+                        for statement in ir_transformer.get_stmts():
+                            for constraint in self.ir_translator._process_stmt(
+                                statement
+                            ):
+                                self.add_constraint(
+                                    scope, context, constraint
+                                )
+                    finally:
+                        self.ir_translator._current_scope = old_scope
+                except (SyntaxError, ValueError, TypeError) as error:
+                    self.mark_semantic_incomplete(
+                        scopes=(scope,),
+                        kind=UnknownKind.TRANSLATION_ERROR.value,
+                        message=(
+                            f"cannot lower constant {builtin_name} source: "
+                            f"{error}"
+                        ),
+                    )
+
+        self.state.dependencies.subscribe(
+            ("dynamic-code", scope, context, call, builtin_name),
+            (source_ctx,),
+            expand,
+        )
+        expand()
+        return True
+
 
     def query(self) -> ISolverQuery:
         """Return a read-only query facade over the current fixed-point state."""
@@ -1412,6 +2367,9 @@ class PointerSolver:
             self._fixpoint_complete,
             self._frontend_complete,
             self._semantic_complete,
+            self._incomplete_variables,
+            self._incomplete_scopes,
+            tuple(self._global_incomplete_reasons),
         )
 
 
@@ -1426,6 +2384,9 @@ class SolverQuery(ISolverQuery):
         fixpoint_complete: bool,
         frontend_complete: bool,
         semantic_complete: bool,
+        incomplete_variables,
+        incomplete_scopes,
+        global_incomplete_reasons,
     ):
         self._state = state
         self._stats = stats
@@ -1433,6 +2394,9 @@ class SolverQuery(ISolverQuery):
         self._fixpoint_complete = fixpoint_complete
         self._frontend_complete = frontend_complete
         self._semantic_complete = semantic_complete
+        self._incomplete_variables = incomplete_variables
+        self._incomplete_scopes = incomplete_scopes
+        self._global_incomplete_reasons = global_incomplete_reasons
         self._complete = (
             fixpoint_complete and frontend_complete and semantic_complete
         )
@@ -1473,3 +2437,57 @@ class SolverQuery(ISolverQuery):
     
     def get_unknown_details(self) -> List[Dict]:
         return self._unknown_tracker.get_detailed_report()
+
+    def completeness_for(self, variables) -> Tuple[bool, Tuple[Dict, ...]]:
+        """Return completeness for the dataflow region reaching variables."""
+        reasons = list(self._global_incomplete_reasons)
+        if not self._fixpoint_complete:
+            reasons.append({
+                "kind": UnknownKind.SOLVER_BUDGET.value,
+                "message": "solver did not reach a fixed point",
+            })
+        if not self._frontend_complete:
+            reasons.append({
+                "kind": UnknownKind.TRANSLATION_ERROR.value,
+                "message": "frontend translation was incomplete",
+            })
+
+        graph = self._state.pointer_flow_graph
+        targets = set(variables)
+        target_nodes = {NormalNode(target) for target in targets}
+
+        def reaches_any_target(start_nodes) -> bool:
+            queue = deque(start_nodes)
+            seen = set(queue)
+            while queue:
+                node = queue.popleft()
+                if node in target_nodes:
+                    return True
+                for edge in graph.succs.get(node, ()):
+                    if edge.target not in seen:
+                        seen.add(edge.target)
+                        queue.append(edge.target)
+            return False
+
+        for incomplete_scope, scope_reasons in self._incomplete_scopes.items():
+            starts = [
+                node
+                for node in graph.nodes
+                if isinstance(node, NormalNode)
+                and node.var.scope == incomplete_scope
+            ]
+            if (
+                any(target.scope == incomplete_scope for target in targets)
+                or reaches_any_target(starts)
+            ):
+                reasons.extend(scope_reasons)
+
+        for source, source_reasons in self._incomplete_variables.items():
+            if reaches_any_target((NormalNode(source),)):
+                reasons.extend(source_reasons)
+
+        unique = []
+        for reason in reasons:
+            if reason not in unique:
+                unique.append(reason)
+        return not unique, tuple(unique)

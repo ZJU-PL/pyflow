@@ -24,20 +24,15 @@ __all__ = [
     "CopyConstraint",
     "InheritanceConstraint",
     "BaseResolutionConstraint",
-    "MROEntriesResultConstraint",
-    "MROEntriesElementConstraint",
     "LoadConstraint",
     "AttrReadConstraint",
     "AttrWriteConstraint",
+    "AttrDeleteConstraint",
     "StoreConstraint",
     "AllocConstraint",
     "LoadSubscrConstraint",
     "StoreSubscrConstraint",
     "CallConstraint",
-    "MetaclassCallConstraint",
-    "MetaclassBaseCallConstraint",
-    "InheritedMetaclassCallConstraint",
-    "ClassBaseCallConstraint",
     "argument_source_signature",
     "ReturnConstraint",
     "RaiseConstraint",
@@ -205,6 +200,22 @@ class AttrWriteConstraint(Constraint):
 
 
 @dataclass(frozen=True)
+class AttrDeleteConstraint(Constraint):
+    """Descriptor-aware deletion of ``base.attr``."""
+
+    base: 'Variable'
+    attr: Union[str, 'Field']
+    call_site: 'CallSite'
+
+    def variables(self) -> Set['Variable']:
+        return {self.base}
+
+    def __str__(self) -> str:
+        attr_str = f".{self.attr}" if isinstance(self.attr, str) else str(self.attr)
+        return f"AttrDeleteConstraint: del {self.base}{attr_str}"
+
+
+@dataclass(frozen=True)
 class InheritanceConstraint(Constraint):
     """Inheritance constraint: target.obj.class(.., base, ...) and base.field -> target
     
@@ -245,37 +256,6 @@ class BaseResolutionConstraint(Constraint):
 
     def __str__(self) -> str:
         return f"BaseResolutionConstraint: {self.owner}[{self.position}] <- {self.base}"
-
-
-@dataclass(frozen=True)
-class MROEntriesResultConstraint(Constraint):
-    """Validate and unpack a ``__mro_entries__`` return value."""
-
-    result: 'Variable'
-    owner: 'AbstractObject'
-    position: int
-
-    def variables(self) -> Set['Variable']:
-        return {self.result}
-
-    def __str__(self) -> str:
-        return f"MROEntriesResultConstraint: {self.owner}[{self.position}] <- {self.result}"
-
-
-@dataclass(frozen=True)
-class MROEntriesElementConstraint(Constraint):
-    """Refresh an effective base sequence when a tuple element grows."""
-
-    element: 'Variable'
-    elements: Tuple['Variable', ...]
-    owner: 'AbstractObject'
-    position: int
-
-    def variables(self) -> Set['Variable']:
-        return set(self.elements)
-
-    def __str__(self) -> str:
-        return f"MROEntriesElementConstraint: {self.owner}[{self.position}]"
 
 
 @dataclass(frozen=True)
@@ -481,71 +461,6 @@ class CallConstraint(Constraint):
         if self.target:
             return f"{self.target} = {self.callee}({args_str})"
         return f"CallConstraint: {self.callee}({args_str})"
-
-
-@dataclass(frozen=True)
-class MetaclassCallConstraint(Constraint):
-    """Deferred dispatch of a class call through an explicit metaclass."""
-
-    metaclass: 'Variable'
-    metaclass_scope: 'Scope'
-    class_object: 'AbstractObject'
-    call: CallConstraint
-
-    def variables(self) -> Set['Variable']:
-        return {self.metaclass}
-
-    def __str__(self) -> str:
-        return f"MetaclassCallConstraint: type({self.class_object})({self.call})"
-
-
-@dataclass(frozen=True)
-class MetaclassBaseCallConstraint(Constraint):
-    """Reconsider metaclass ``__call__`` lookup when a base grows."""
-
-    base: 'Variable'
-    base_scope: 'Scope'
-    metaclass_object: 'AbstractObject'
-    class_object: 'AbstractObject'
-    call: CallConstraint
-
-    def variables(self) -> Set['Variable']:
-        return {self.base}
-
-    def __str__(self) -> str:
-        return f"MetaclassBaseCallConstraint: {self.metaclass_object}.{self.base}"
-
-
-@dataclass(frozen=True)
-class InheritedMetaclassCallConstraint(Constraint):
-    """Deferred lookup of a class call's metaclass through a base binding."""
-
-    base: 'Variable'
-    base_scope: 'Scope'
-    class_object: 'AbstractObject'
-    call: CallConstraint
-
-    def variables(self) -> Set['Variable']:
-        return {self.base}
-
-    def __str__(self) -> str:
-        return f"InheritedMetaclassCallConstraint: type({self.base})({self.call})"
-
-
-@dataclass(frozen=True)
-class ClassBaseCallConstraint(Constraint):
-    """Retry a class call when an effective base position changes."""
-
-    base: 'Variable'
-    base_scope: 'Scope'
-    class_object: 'AbstractObject'
-    call: CallConstraint
-
-    def variables(self) -> Set['Variable']:
-        return {self.base}
-
-    def __str__(self) -> str:
-        return f"ClassBaseCallConstraint: {self.class_object}({self.call})"
 
 
 @dataclass(frozen=True)

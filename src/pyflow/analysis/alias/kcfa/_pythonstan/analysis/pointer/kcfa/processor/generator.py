@@ -53,9 +53,13 @@ class GeneratorProcessor(Processor):
     _generator_funcs: Set[IRFunc] = set()
     _checked_funcs: Set[IRFunc] = set()
     
-    def __init__(self) -> None:
+    def __init__(self, call_service=None) -> None:
         self._generator_funcs = set()
         self._checked_funcs = set()
+        if call_service is None:
+            from .normal_call import NormalCallProcessor
+            call_service = NormalCallProcessor()
+        self._call_service = call_service
     
     def _is_generator_function(self, func_ir: IRFunc, solver: 'PointerSolver') -> bool:
         """Check if function is a generator (contains yield statements)."""
@@ -136,8 +140,7 @@ class GeneratorProcessor(Processor):
         """
         logger.debug(f"Handling generator call: {call.call_site} -> {func_ir.name}")
 
-        from .normal_call import NormalCallProcessor
-        binding = NormalCallProcessor._validate_call(
+        binding = self._call_service._validate_call(
             solver, scope, context, func_ir, call
         )
         if binding.definitely_invalid:
@@ -226,8 +229,7 @@ class GeneratorProcessor(Processor):
         """
         logger.debug(f"Handling coroutine call: {call.call_site} -> {func_ir.name}")
 
-        from .normal_call import NormalCallProcessor
-        binding = NormalCallProcessor._validate_call(
+        binding = self._call_service._validate_call(
             solver, scope, context, func_ir, call
         )
         if binding.definitely_invalid:
@@ -373,9 +375,7 @@ class GeneratorProcessor(Processor):
         call_context: 'AbstractContext'
     ) -> None:
         """Match generator/coroutine parameters with normal call semantics."""
-        from .normal_call import NormalCallProcessor
-
-        NormalCallProcessor()._install_parameter_flows(
+        self._call_service._install_parameter_flows(
             solver,
             callee_obj,
             call,

@@ -1,3 +1,5 @@
+import ast
+
 import pytest
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import (
@@ -8,6 +10,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import
     ReceiverContext,
     TypeContext,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAstStmt
 
 
 def test_call_site_is_bound_to_ir_statement(call_site_factory):
@@ -16,6 +19,19 @@ def test_call_site_is_bound_to_ir_statement(call_site_factory):
     assert isinstance(site, CallSite)
     assert "scope" in site.site_id
     assert site.short_id().endswith(":1")
+
+
+def test_call_site_without_location_has_stable_content_identity():
+    first_node = ast.parse("result = f()").body[0]
+    second_node = ast.parse("result = f()").body[0]
+    for node in (first_node, second_node):
+        node.lineno = None
+        node.col_offset = None
+
+    first = CallSite(IRAstStmt(first_node), "scope", 2)
+    second = CallSite(IRAstStmt(second_node), "scope", 2)
+
+    assert first.short_id() == second.short_id()
 
 
 def test_call_string_context_appends_and_truncates(call_site_factory):

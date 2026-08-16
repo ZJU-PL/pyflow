@@ -54,6 +54,8 @@ class Config:
     type: str = "pointer analysis"
     index_sensitive: bool = False
     native_effects: Optional[List[Dict]] = None
+    worklist_policy: str = "fifo"
+    worklist_seed: int = 0
     
     # Debug monitoring options
     enable_debug_monitor: bool = False
@@ -90,6 +92,8 @@ class Config:
             "log_unknown_details": self.log_unknown_details,
             "index_sensitive": self.index_sensitive,
             "native_effects": self.native_effects,
+            "worklist_policy": self.worklist_policy,
+            "worklist_seed": self.worklist_seed,
             "enable_debug_monitor": self.enable_debug_monitor,
             "debug_log_interval": self.debug_log_interval,
             "track_object_flow": self.track_object_flow,
@@ -113,6 +117,11 @@ class Config:
         
         if self.max_import_depth < -1:
             raise ValueError("max_import_depth must be >= -1 (-1 = unlimited, 0 = no imports)")
+
+        if self.worklist_policy not in ("fifo", "lifo", "random"):
+            raise ValueError(
+                "worklist_policy must be one of: fifo, lifo, random"
+            )
     
     def __str__(self):
         return f"""Pointer Analysis Config: {json.dumps(self.to_dict(), indent=4)}"""

@@ -9,8 +9,6 @@ from ..constraints import (
     BaseResolutionConstraint,
     CallConstraint,
     LoadConstraint,
-    MROEntriesElementConstraint,
-    MROEntriesResultConstraint,
 )
 from ..heap_model import attr, elem, key
 from ..object import (
@@ -20,6 +18,7 @@ from ..object import (
     TupleObject,
 )
 from ..points_to_set import PointsToSet
+from ..stable_key import stable_token
 from ..unknown_tracker import UnknownKind
 from ..variable import Variable, VariableKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
@@ -54,26 +53,24 @@ class BaseResolutionProcessor(Processor):
         state = solver.state
         if isinstance(constraint, BaseResolutionConstraint):
             base_ctx = state.get_variable(scope, scope.context, constraint.base)
-            state.constraints.add(scope, base_ctx, constraint)
+            state.dependencies.subscribe(
+                (
+                    "base-resolution",
+                    constraint.owner,
+                    constraint.position,
+                    base_ctx,
+                ),
+                (base_ctx,),
+                lambda: self._apply_base_candidates(
+                    solver,
+                    scope,
+                    constraint,
+                    state.get_points_to(base_ctx),
+                ),
+            )
             pts = state.get_points_to(base_ctx)
             if not pts.is_empty():
                 self._apply_base_candidates(solver, scope, constraint, pts)
-            return True
-        if isinstance(constraint, MROEntriesResultConstraint):
-            result_ctx = state.get_variable(
-                scope, scope.context, constraint.result
-            )
-            state.constraints.add(scope, result_ctx, constraint)
-            pts = state.get_points_to(result_ctx)
-            if not pts.is_empty():
-                self._apply_result_candidates(solver, scope, constraint, pts)
-            return True
-        if isinstance(constraint, MROEntriesElementConstraint):
-            element_ctx = state.get_variable(
-                scope, scope.context, constraint.element
-            )
-            state.constraints.add(scope, element_ctx, constraint)
-            self._refresh_element_sequences(solver, scope, constraint)
             return True
         return False
 
@@ -85,15 +82,6 @@ class BaseResolutionProcessor(Processor):
         constraint: 'Constraint',
         pts: 'PointsToSet',
     ) -> bool:
-        if isinstance(constraint, BaseResolutionConstraint):
-            self._apply_base_candidates(solver, scope, constraint, pts)
-            return True
-        if isinstance(constraint, MROEntriesResultConstraint):
-            self._apply_result_candidates(solver, scope, constraint, pts)
-            return True
-        if isinstance(constraint, MROEntriesElementConstraint):
-            self._refresh_element_sequences(solver, scope, constraint)
-            return True
         return False
 
     def _apply_base_candidates(
@@ -122,7 +110,10 @@ class BaseResolutionProcessor(Processor):
             if call_key in self._scheduled_calls:
                 continue
             self._scheduled_calls.add(call_key)
-            token = f"{id(owner)}@{constraint.position}@{id(base_obj)}"
+            token = (
+                f"{stable_token(owner)}@{constraint.position}@"
+                f"{stable_token(base_obj)}"
+            )
             receiver = Variable(
                 name=f"$mro_entries_receiver@{token}",
                 kind=VariableKind.TEMPORARY,
@@ -161,24 +152,38 @@ class BaseResolutionProcessor(Processor):
                     call_site=self._call_site(owner, constraint.position),
                 ),
             )
-            solver.add_constraint(
-                scope,
-                scope.context,
-                MROEntriesResultConstraint(
-                    result=result,
-                    owner=owner,
-                    position=constraint.position,
+            result_ctx = solver.state.get_variable(
+                scope, scope.context, result
+            )
+            solver.state.dependencies.subscribe(
+                ("mro-entries-result", owner, constraint.position, result_ctx),
+                (result_ctx,),
+                lambda result_ctx=result_ctx: self._apply_result_candidates(
+                    solver,
+                    scope,
+                    owner,
+                    constraint.position,
+                    solver.state.get_points_to(result_ctx),
                 ),
             )
+            result_pts = solver.state.get_points_to(result_ctx)
+            if not result_pts.is_empty():
+                self._apply_result_candidates(
+                    solver,
+                    scope,
+                    owner,
+                    constraint.position,
+                    result_pts,
+                )
 
     def _apply_result_candidates(
         self,
         solver: 'PointerSolver',
         scope: 'Scope',
-        constraint: MROEntriesResultConstraint,
+        owner: ClassObject,
+        position: int,
         pts: 'PointsToSet',
     ) -> None:
-        owner = constraint.owner
         if not isinstance(owner, ClassObject):
             return
         for result_obj in pts:
@@ -189,7 +194,7 @@ class BaseResolutionProcessor(Processor):
                     "__mro_entries__ did not return a tuple",
                 )
                 continue
-            result_key = (owner, constraint.position, result_obj)
+            result_key = (owner, position, result_obj)
             if result_key in self._installed_results:
                 continue
             self._installed_results.add(result_key)
@@ -203,15 +208,15 @@ class BaseResolutionProcessor(Processor):
                 continue
             if tuple_length == 0:
                 solver.state.record_effective_base_sequence(
-                    owner, constraint.position, ()
+                    owner, position, ()
                 )
                 continue
 
             elements = tuple(
                 Variable(
                     name=(
-                        f"$mro_entries_element@{id(owner)}@"
-                        f"{constraint.position}@{id(result_obj)}@{index}"
+                        f"$mro_entries_element@{stable_token(owner)}@"
+                        f"{position}@{stable_token(result_obj)}@{index}"
                     ),
                     kind=VariableKind.TEMPORARY,
                 )
@@ -226,28 +231,33 @@ class BaseResolutionProcessor(Processor):
                     scope, scope.context, element_var
                 )
                 solver.state._add_var_points_flow(field_ctx, element_ctx)
-                solver.add_constraint(
-                    scope,
-                    scope.context,
-                    MROEntriesElementConstraint(
-                        element=element_var,
-                        elements=elements,
-                        owner=owner,
-                        position=constraint.position,
-                    ),
-                )
+            element_contexts = tuple(
+                solver.state.get_variable(scope, scope.context, element)
+                for element in elements
+            )
+            solver.state.dependencies.subscribe(
+                ("mro-entries-elements", owner, position, result_obj),
+                element_contexts,
+                lambda elements=elements: self._refresh_element_sequences(
+                    solver, scope, owner, position, elements
+                ),
+            )
+            self._refresh_element_sequences(
+                solver, scope, owner, position, elements
+            )
 
     def _refresh_element_sequences(
         self,
         solver: 'PointerSolver',
         scope: 'Scope',
-        constraint: MROEntriesElementConstraint,
+        owner: ClassObject,
+        position: int,
+        elements: tuple[Variable, ...],
     ) -> None:
-        owner = constraint.owner
         if not isinstance(owner, ClassObject):
             return
         position_options = []
-        for element_var in constraint.elements:
+        for element_var in elements:
             element_ctx = solver.state.get_variable(
                 scope, scope.context, element_var
             )
@@ -277,13 +287,13 @@ class BaseResolutionProcessor(Processor):
             for options in position_options:
                 for base_obj in options:
                     solver.state.record_effective_base_sequence(
-                        owner, constraint.position, (base_obj,)
+                        owner, position, (base_obj,)
                     )
             return
 
         for sequence in product(*position_options):
             solver.state.record_effective_base_sequence(
-                owner, constraint.position, tuple(sequence)
+                owner, position, tuple(sequence)
             )
 
     @staticmethod

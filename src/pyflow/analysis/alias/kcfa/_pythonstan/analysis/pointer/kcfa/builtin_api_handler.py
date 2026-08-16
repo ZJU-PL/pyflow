@@ -18,6 +18,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints im
     CopyConstraint,
     AttrReadConstraint,
     AttrWriteConstraint,
+    AttrDeleteConstraint,
     LoadConstraint,
     LoadSubscrConstraint,
     StoreConstraint,
@@ -1646,25 +1647,17 @@ class BuiltinAPIHandler:
         name_var = call.args[1]
         const_names, has_non_const = self._resolve_attr_names(scope, context, name_var)
         
-        value_var = self._make_temp_var("delattr_value", call)
-        constraints.append(AllocConstraint(
-            target=value_var,
-            alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
-        ))
-        
         for name in const_names:
-            constraints.append(AttrWriteConstraint(
+            constraints.append(AttrDeleteConstraint(
                 base=base_var,
                 attr=name,
-                source=value_var,
                 call_site=call.call_site,
             ))
         
         if has_non_const or not const_names:
-            constraints.append(AttrWriteConstraint(
+            constraints.append(AttrDeleteConstraint(
                 base=base_var,
                 attr=unknown(),
-                source=value_var,
                 call_site=call.call_site,
             ))
         

@@ -103,10 +103,38 @@ class PointerAnalysisResult:
         )
 
     def _iter_named_bindings(self, var_name: str):
+        seen = set()
         for cvar, pts in self._state._env.items():
             content = getattr(cvar, "content", cvar)
-            if getattr(content, "name", None) == var_name:
+            if getattr(content, "name", None) == var_name and hasattr(cvar, "scope"):
+                seen.add(cvar)
                 yield self._binding_id(cvar), cvar, pts
+        # Empty bindings may never receive an environment entry.  Recover
+        # them from constraint definitions so completeness remains queryable
+        # even when the points-to result is empty.
+        for scope, context, constraint in self._state.constraint_definitions:
+            candidates = []
+            for attribute in ("target", "source", "base", "callee"):
+                variable = getattr(constraint, attribute, None)
+                if variable is not None:
+                    candidates.append(variable)
+            candidates.extend(getattr(constraint, "args", ()))
+            candidates.extend(
+                variable
+                for _, variable in getattr(constraint, "kwargs", ())
+            )
+            for variable in candidates:
+                if getattr(variable, "name", None) != var_name:
+                    continue
+                cvar = self._state.get_variable(scope, context, variable)
+                if cvar in seen:
+                    continue
+                seen.add(cvar)
+                yield (
+                    self._binding_id(cvar),
+                    cvar,
+                    self._state.get_points_to(cvar),
+                )
 
     def points_to(
         self,
@@ -174,12 +202,22 @@ class PointerAnalysisResult:
         context: str | None = None,
     ) -> PointsToQueryResult:
         """Return values together with solver completeness diagnostics."""
-        stats = self._query.get_statistics()
-        complete = bool(stats.get("complete", False))
+        matched = [
+            cvar
+            for binding_id, cvar, _ in self._iter_named_bindings(
+                binding.name if isinstance(binding, BindingId) else binding
+            )
+            if (
+                (not isinstance(binding, BindingId) or binding_id == binding)
+                and (scope is None or binding_id.lexical_scope == scope)
+                and (context is None or binding_id.context == context)
+            )
+        ]
+        complete, reasons = self._query.completeness_for(matched)
         return PointsToQueryResult(
             objects=frozenset(self.points_to(binding, scope=scope, context=context)),
             complete=complete,
-            reasons=() if complete else tuple(self.unknown_details()),
+            reasons=reasons,
         )
 
     def alias_status(
@@ -190,7 +228,9 @@ class PointerAnalysisResult:
         """Return a sound three-valued alias relation for two queries."""
         if self.points_to(left).intersection(self.points_to(right)):
             return AliasStatus.ALIASES
-        if not self._query.get_statistics().get("complete", False):
+        left_query = self.points_to_query(left)
+        right_query = self.points_to_query(right)
+        if not left_query.complete or not right_query.complete:
             return AliasStatus.UNKNOWN
         return AliasStatus.DOES_NOT_ALIAS
 
@@ -244,6 +284,8 @@ class PointerAnalysis:
         k: int = 1,
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
+        worklist_policy: str = "fifo",
+        worklist_seed: int = 0,
     ) -> None:
         """Configure an analysis over ``source`` with call-string depth ``k``.
 
@@ -255,6 +297,8 @@ class PointerAnalysis:
         self._k = k
         self._context_policy = context_policy or f"{k}-cfa"
         self._native_effects = tuple(dict(effect) for effect in native_effects)
+        self._worklist_policy = worklist_policy
+        self._worklist_seed = worklist_seed
         self._entry_file: Path | None = None
         self._project_path: Path | None = None
         self._library_paths: tuple[Path, ...] = ()
@@ -271,6 +315,8 @@ class PointerAnalysis:
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
         import_level: int = -1,
+        worklist_policy: str = "fifo",
+        worklist_seed: int = 0,
     ) -> "PointerAnalysis":
         """Configure analysis of a real project and its reachable imports."""
         entry = Path(entry_file).resolve()
@@ -281,6 +327,8 @@ class PointerAnalysis:
             k=k,
             context_policy=context_policy,
             native_effects=native_effects,
+            worklist_policy=worklist_policy,
+            worklist_seed=worklist_seed,
         )
         analysis._entry_file = entry
         analysis._project_path = Path(project_path).resolve() if project_path else entry.parent
@@ -344,6 +392,8 @@ class PointerAnalysis:
                                 # correctly matches Config()'s False default.
                                 "index_sensitive": True,
                                 "native_effects": list(self._native_effects),
+                                "worklist_policy": self._worklist_policy,
+                                "worklist_seed": self._worklist_seed,
                             },
                         }
                     ],

@@ -18,7 +18,7 @@ __all__ = ["AllocKind", "AllocSite", "AbstractObject", "FunctionObject", "Consta
            "ClassObject", "ModuleObject", "InstanceObject", "MethodObject", "BuiltinObject", "ListObject",
            "TupleObject", "DictObject", "SetObject", "BuiltinClassObject", "BuiltinInstanceObject",
            "BuiltinMethodObject", "BuiltinFunctionObject", "SuperObject", "GeneratorObject",
-           "CoroutineObject", "NativeObject", "NativeModuleObject", "ObjectFactory",
+           "CoroutineObject", "NativeObject", "NativeModuleObject", "SlotDescriptorObject", "ObjectFactory",
            "truncate_context", "summarize_object", "is_summary_object"]
 
 
@@ -194,6 +194,7 @@ class ClassObject(AbstractObject):
     ir: 'IRClass'
     base_variables: Tuple['Variable', ...] = ()
     metaclass_variables: Tuple['Variable', ...] = ()
+    class_keyword_variables: Tuple[Tuple[Optional[str], 'Variable'], ...] = ()
     effective_base_variables: Tuple['Variable', ...] = ()
 
 
@@ -242,6 +243,14 @@ class ConstantObject(AbstractObject):
     """Abstract immutable scalar with a statically known value."""
 
     value: Union[str, int, float, bool]
+
+
+@dataclass(frozen=True)
+class SlotDescriptorObject(AbstractObject):
+    """Synthetic member descriptor introduced by a fixed ``__slots__``."""
+
+    owner: ClassObject
+    slot_name: str
 
 
 @dataclass(frozen=True)

@@ -5,10 +5,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from pyflow.analysis.alias.kcfa import AliasStatus, PointerAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import ParamContext
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import ClassObject
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.type_ref import TypeRefKind
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import NamespaceManager
@@ -26,6 +29,48 @@ class TestBasicPointerAnalysis:
 
     def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
         assert Config.from_dict({}) == Config()
+
+    def test_analysis_results_are_independent_of_worklist_schedule(self) -> None:
+        source = """
+def first(a, b):
+    return a
+
+x = object()
+y = []
+items = (x, y)
+result = first(*items)
+"""
+        results = [
+            PointerAnalysis(
+                source,
+                k=1,
+                worklist_policy=policy,
+                worklist_seed=seed,
+            ).run().points_to("result")
+            for policy, seed in (
+                ("fifo", 0),
+                ("lifo", 0),
+                ("random", 1),
+                ("random", 19),
+            )
+        ]
+
+        assert all(result == results[0] for result in results[1:])
+
+    def test_concurrent_analysis_runs_do_not_share_object_interning(self) -> None:
+        sources = [
+            "x = object()\ny = x",
+            "x = []\ny = x",
+            "x = {}\ny = x",
+            "x = ()\ny = x",
+        ]
+
+        with ThreadPoolExecutor(max_workers=len(sources)) as executor:
+            results = list(executor.map(lambda source: PointerAnalysis(source).run(), sources))
+
+        for result in results:
+            assert result.points_to("x") == result.points_to("y")
+            assert result.points_to("x")
 
     def test_pointer_analysis_accepts_call_depth_above_three(self) -> None:
         result = PointerAnalysis("x = object()", k=4).run()
@@ -135,6 +180,77 @@ y = C.x
 
         assert any("AllocKind.OBJECT" in obj for obj in pts_y)
         assert any("AllocKind.LIST" in obj for obj in pts_y)
+
+        class_c = next(
+            obj
+            for obj in result.state._heap.objects.values()
+            if isinstance(obj, ClassObject) and obj.ir.name == "C"
+        )
+        variants = result.state.class_variants(class_c)
+        assert len(variants) == 2
+        assert all(len(variant.effective_bases) == 1 for variant in variants)
+        assert all(
+            variant.effective_bases[0].kind is TypeRefKind.USER
+            for variant in variants
+        )
+
+    def test_metaclass_conflict_does_not_publish_class_variant(self) -> None:
+        source = """
+class M1(type):
+    pass
+
+class M2(type):
+    pass
+
+class A(metaclass=M1):
+    pass
+
+class B(metaclass=M2):
+    pass
+
+class C(A, B):
+    pass
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert not result.points_to("C")
+        class_c = next(
+            obj
+            for obj in result.state._heap.objects.values()
+            if isinstance(obj, ClassObject) and obj.ir.name == "C"
+        )
+        assert not result.state.class_variants(class_c)
+        assert result.state.invalid_class_variants(class_c)
+
+    def test_most_derived_compatible_metaclass_is_selected(self) -> None:
+        source = """
+class M1(type):
+    pass
+
+class M2(M1):
+    pass
+
+class A(metaclass=M1):
+    pass
+
+class B(metaclass=M2):
+    pass
+
+class C(A, B):
+    pass
+
+x = C()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("x")
+        class_c = next(
+            obj
+            for obj in result.state._heap.objects.values()
+            if isinstance(obj, ClassObject) and obj.ir.name == "C"
+        )
+        variants = result.state.class_variants(class_c)
+        assert {variant.metaclass.name for variant in variants} == {"M2"}
 
     def test_bare_class_annotation_does_not_cut_off_inherited_field(self) -> None:
         source = """
@@ -369,7 +485,9 @@ y = f()
         assert result.points_to_name_union("x") == set().union(*precise_sets)
 
     def test_completeness_aware_queries_do_not_treat_empty_as_impossible(self) -> None:
-        incomplete = PointerAnalysis('exec("x = object()")\ny = x\n', k=1).run()
+        incomplete = PointerAnalysis(
+            'code = input()\nexec(code)\ny = x\n', k=1
+        ).run()
         query = incomplete.points_to_query("y")
 
         assert query.objects == frozenset()
@@ -377,9 +495,96 @@ y = f()
         assert query.reasons
         assert incomplete.alias_status("x", "y") is AliasStatus.UNKNOWN
 
+        constant_exec = PointerAnalysis(
+            'exec("x = object()")\ny = x\n', k=1
+        ).run()
+        assert constant_exec.points_to("y")
+        assert constant_exec.points_to_query("y").complete is True
+
         complete = PointerAnalysis("a = object()\nb = []\nc = a\n", k=1).run()
         assert complete.alias_status("a", "c") is AliasStatus.ALIASES
         assert complete.alias_status("a", "b") is AliasStatus.DOES_NOT_ALIAS
+
+    def test_incompleteness_is_scoped_to_affected_dataflow_region(self) -> None:
+        source = """
+safe = object()
+other = []
+
+def dynamic():
+    code = input()
+    exec(code)
+    return created
+
+result = dynamic()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to_query("safe").complete is True
+        assert analysis.points_to_query("result").complete is False
+        assert analysis.alias_status("safe", "other") is AliasStatus.DOES_NOT_ALIAS
+
+    def test_exhaustive_native_return_effect_is_precise_and_complete(self) -> None:
+        source = """
+import missing_native
+sentinel = object()
+result = missing_native.identity(sentinel)
+"""
+        analysis = PointerAnalysis(
+            source,
+            k=1,
+            native_effects=({
+                "access_path": "missing_native.identity",
+                "kind": "return_argument",
+                "arguments": [0],
+                "exhaustive": True,
+            },),
+        ).run()
+
+        assert analysis.points_to("result") == analysis.points_to("sentinel")
+        assert analysis.points_to_query("result").complete is True
+
+    def test_native_write_and_escape_effects_update_heap_metadata(self) -> None:
+        source = """
+import missing_native
+
+class Box:
+    pass
+
+box = Box()
+sentinel = object()
+missing_native.store(box, sentinel)
+result = box.value
+"""
+        analysis = PointerAnalysis(
+            source,
+            k=1,
+            native_effects=(
+                {
+                    "access_path": "missing_native.store",
+                    "kind": "write_argument_field",
+                    "arguments": [0],
+                    "values": [1],
+                    "field": "value",
+                    "exhaustive": True,
+                },
+                {
+                    "access_path": "missing_native.store",
+                    "kind": "escape_argument",
+                    "arguments": [0],
+                    "exhaustive": True,
+                },
+            ),
+        ).run()
+
+        assert analysis.points_to("result") == analysis.points_to("sentinel")
+        box_objects = {
+            obj
+            for cvar, points in analysis.state._env.items()
+            if getattr(getattr(cvar, "content", None), "name", None) == "box"
+            for obj in points
+        }
+        assert box_objects
+        assert all(analysis.state.is_escaped(obj) for obj in box_objects)
 
     def test_return_values_remain_separate_across_call_contexts(self) -> None:
         source = """

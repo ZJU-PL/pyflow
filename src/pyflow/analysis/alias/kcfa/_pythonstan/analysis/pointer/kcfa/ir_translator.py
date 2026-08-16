@@ -15,6 +15,7 @@ from .variable import Variable, VariableFactory, VariableKind
 from .heap_model import elem, attr, key
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import *
 from .object import AllocSite, AllocKind
+from .stable_key import stable_token
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,14 @@ class IRTranslator:
         self._class_used_variables: Dict[IRClass, List['Variable']] = {}
         self._class_base_variables: Dict[IRClass, Tuple['Variable', ...]] = {}
         self._class_metaclass_variables: Dict[IRClass, Tuple['Variable', ...]] = {}
+        self._class_keyword_variables: Dict[
+            IRClass, Tuple[Tuple[Optional[str], 'Variable'], ...]
+        ] = {}
         
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
-        if not hasattr(World, "scope_manager"):
-            World.setup()
         self.world = World()
+        if not hasattr(self.world, "scope_manager"):
+            self.world.setup()
         self.scope_manager = self.world.scope_manager
         self.namespace_manager = self.world.namespace_manager
     
@@ -154,6 +158,11 @@ class IRTranslator:
 
     def get_class_metaclass_variables(self, cls_stmt: IRClass) -> Tuple['Variable', ...]:
         return self._class_metaclass_variables.get(cls_stmt, ())
+
+    def get_class_keyword_variables(
+        self, cls_stmt: IRClass
+    ) -> Tuple[Tuple[Optional[str], 'Variable'], ...]:
+        return self._class_keyword_variables.get(cls_stmt, ())
     
     def _make_variable(self, name: str) -> 'Variable':
         if self._current_scope is None:
@@ -251,6 +260,8 @@ class IRTranslator:
             ret = self._translate_return(stmt)
         elif isinstance(stmt, IRRaise):
             ret = self._translate_raise(stmt)
+        elif isinstance(stmt, IRDel):
+            ret = self._translate_delete(stmt)
         elif isinstance(stmt, IRLoadSubscr):
             ret = self._translate_load_subscr(stmt)
         elif isinstance(stmt, IRStoreSubscr):
@@ -282,6 +293,26 @@ class IRTranslator:
         ]
 
         return ret
+
+    def _translate_delete(self, stmt: IRDel) -> List['Constraint']:
+        """Lower attribute deletion through Python's descriptor protocol."""
+        target = stmt.value
+        if isinstance(target, ast.Name):
+            # Inclusion-based local points-to sets cannot retract prior
+            # bindings.  Retaining them is the sound flow-insensitive result.
+            return []
+        if isinstance(target, ast.Attribute) and isinstance(
+            target.value, ast.Name
+        ):
+            return [AttrDeleteConstraint(
+                base=self._make_variable(target.value.id),
+                attr=target.attr,
+                call_site=CallSite(
+                    statement=stmt,
+                    scope_name=self._get_current_scope_label(),
+                ),
+            )]
+        return []
     
     def _translate_copy(self, stmt: IRCopy) -> List['Constraint']:
         """Translate IRCopy: target = source"""
@@ -578,7 +609,7 @@ class IRTranslator:
                     const_value = ast.literal_eval(value_str)
                 except Exception:
                     const_value = value_str
-                const_name = f"$const_{id(stmt)}_{idx}"
+                const_name = f"$const_{stable_token(stmt)}_{idx}"
                 const_var = self._make_variable(const_name)
                 const_assign = IRAssign(
                     ast.Assign(
@@ -749,7 +780,7 @@ class IRTranslator:
             index_var = self._make_variable(subslice.id)
         else:
             # For non-name indexes (constants, etc.), create a temporary
-            index_name = f"$index_{id(stmt)}"
+            index_name = f"$index_{stable_token(stmt)}"
             index_var = self._make_variable(index_name)
             if isinstance(subslice, ast.Constant):
                 const_assign = IRAssign(
@@ -776,7 +807,7 @@ class IRTranslator:
             ))
         
         # Also generate __getitem__ call for custom container types
-        getitem_method_var = self._make_variable(f"$getitem_{id(stmt)}")
+        getitem_method_var = self._make_variable(f"$getitem_{stable_token(stmt)}")
         constraints.append(LoadConstraint(
             base=container_var,
             field=attr("__getitem__"),
@@ -821,7 +852,7 @@ class IRTranslator:
             index_var = self._make_variable(index_expr.id)
         else:
             # For non-name indexes (constants, etc.), create a temporary
-            index_name = f"$index_{id(stmt)}"
+            index_name = f"$index_{stable_token(stmt)}"
             index_var = self._make_variable(index_name)
             if isinstance(index_expr, ast.Constant):
                 const_assign = IRAssign(
@@ -853,7 +884,7 @@ class IRTranslator:
             ))
         
         # Also generate __setitem__ call for custom container types
-        setitem_method_var = self._make_variable(f"$setitem_{id(stmt)}")
+        setitem_method_var = self._make_variable(f"$setitem_{stable_token(stmt)}")
         constraints.append(LoadConstraint(
             base=container_var,
             field=attr("__setitem__"),
@@ -1025,14 +1056,55 @@ class IRTranslator:
         self._class_base_variables[ir_cls] = tuple(base_variables)
 
         metaclass_variables = []
+        class_keyword_variables = []
         for keyword in ir_cls.keywords:
-            if keyword.arg == "metaclass" and isinstance(keyword.value, ast.Name):
-                metaclass_variables.append(self._make_variable(keyword.value.id))
+            if not isinstance(keyword.value, ast.Name):
+                continue
+            keyword_var = self._make_variable(keyword.value.id)
+            if keyword.arg == "metaclass":
+                metaclass_variables.append(keyword_var)
+            else:
+                class_keyword_variables.append((keyword.arg, keyword_var))
         self._class_metaclass_variables[ir_cls] = tuple(metaclass_variables)
+        self._class_keyword_variables[ir_cls] = tuple(class_keyword_variables)
         
         class_alloc = AllocSite.from_ir_node(ir_cls, AllocKind.CLASS)
         class_var = self._make_variable(ir_cls.name)
-        constraints.append(AllocConstraint(target=class_var, alloc_site=class_alloc))
+        raw_class_var = self._make_variable(
+            f"$class_result@{stable_token(ir_cls)}"
+        )
+        constraints.append(AllocConstraint(
+            target=raw_class_var, alloc_site=class_alloc
+        ))
+
+        current_var = raw_class_var
+        for index, decorator in enumerate(reversed(ir_cls.decorator_list)):
+            if isinstance(decorator, ast.Name):
+                decorator_var = self._make_variable(decorator.id)
+            else:
+                # Three-address lowering normally leaves a name here.  Keep
+                # unsupported expressions fail-visible through an empty
+                # callee instead of accidentally bypassing the decorator.
+                decorator_var = self._make_variable(
+                    f"$class_decorator@{stable_token(ir_cls)}@{index}"
+                )
+            result_var = self._make_variable(
+                f"$class_decorated@{stable_token(ir_cls)}@{index}"
+            )
+            constraints.append(CallConstraint(
+                callee=decorator_var,
+                args=(current_var,),
+                kwargs=(),
+                target=result_var,
+                call_site=CallSite(
+                    statement=ir_cls,
+                    scope_name=self._get_current_scope_label(),
+                    index=index,
+                ),
+            ))
+            current_var = result_var
+
+        constraints.append(CopyConstraint(source=current_var, target=class_var))
 
         
         # TODO [CRITICAL] the method of treating inheritances is totally wrong, we should use the class hierarchy manager to handle this.
@@ -1102,7 +1174,9 @@ class IRTranslator:
         """
         constraints = []
         
-        enter_method_var = self._make_variable(f"$enter_{id(context_manager_var)}")
+        enter_method_var = self._make_variable(
+            f"$enter_{stable_token(context_manager_var)}"
+        )
         constraints.append(LoadConstraint(
             base=context_manager_var,
             field=attr("__enter__"),
@@ -1128,7 +1202,9 @@ class IRTranslator:
         """
         constraints = []
         
-        exit_method_var = self._make_variable(f"$exit_{id(context_manager_var)}")
+        exit_method_var = self._make_variable(
+            f"$exit_{stable_token(context_manager_var)}"
+        )
         constraints.append(LoadConstraint(
             base=context_manager_var,
             field=attr("__exit__"),
@@ -1154,7 +1230,7 @@ class IRTranslator:
         """
         constraints = []
         
-        iter_method_var = self._make_variable(f"$iter_{id(iterable_var)}")
+        iter_method_var = self._make_variable(f"$iter_{stable_token(iterable_var)}")
         constraints.append(LoadConstraint(
             base=iterable_var,
             field=attr("__iter__"),
@@ -1177,7 +1253,7 @@ class IRTranslator:
         """Generate constraints for iterator next."""
         constraints = []
         
-        next_method_var = self._make_variable(f"$next_{id(iterator_var)}")
+        next_method_var = self._make_variable(f"$next_{stable_token(iterator_var)}")
         constraints.append(LoadConstraint(
             base=iterator_var,
             field=attr("__next__"),
@@ -1209,7 +1285,7 @@ class IRTranslator:
         if not op_name:
             return constraints
         
-        method_var = self._make_variable(f"${op_name}_{id(left_var)}")
+        method_var = self._make_variable(f"${op_name}_{stable_token(left_var)}")
         constraints.append(LoadConstraint(
             base=left_var,
             field=attr(op_name),
@@ -1244,7 +1320,7 @@ class IRTranslator:
         if not op_name:
             return constraints
         
-        method_var = self._make_variable(f"${op_name}_{id(operand_var)}")
+        method_var = self._make_variable(f"${op_name}_{stable_token(operand_var)}")
         constraints.append(LoadConstraint(
             base=operand_var,
             field=attr(op_name),

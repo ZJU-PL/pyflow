@@ -39,3 +39,9 @@ class Processor(ABC):
 
     def handle_new_points_to(self, solver: 'PointerSolver', target: 'Ctx[Any]', scope: 'Scope', pts: 'PointsToSet') -> bool:
         return False
+
+    def handle_field_read(
+        self, solver, scope, context, base_obj, field, target
+    ) -> bool:
+        """Install semantic lookup flow for one object/field pair."""
+        return False

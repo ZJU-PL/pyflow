@@ -7,7 +7,6 @@ import logging
 from typing import Optional, List, Any, TYPE_CHECKING, Dict
 from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisDriver, AnalysisConfig
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind, AllocSite
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import reset_object_table
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope
 from .processor import *
 from .unknown_tracker import UnknownKind
@@ -63,7 +62,11 @@ class PointerAnalysis(AnalysisDriver):
             )
             logger.info(f"Debug monitoring enabled, output to: {self.kcfa_config.debug_output_dir}")
         
-        self.state = PointerAnalysisState(debug_monitor=self.debug_monitor)
+        self.state = PointerAnalysisState(
+            debug_monitor=self.debug_monitor,
+            worklist_policy=self.kcfa_config.worklist_policy,
+            worklist_seed=self.kcfa_config.worklist_seed,
+        )
         
         # Initialize PFG with debug monitor
         from .pointer_flow_graph import PointerFlowGraph
@@ -75,6 +78,7 @@ class PointerAnalysis(AnalysisDriver):
         self.class_hierarchy = ClassHierarchyManager()
         self.builtin_manager = BuiltinSummaryManager(self.kcfa_config)
         
+        normal_call_service = PythonCallService()
         self.solver = PointerSolver(
             state=self.state,
             config=self.kcfa_config,
@@ -84,10 +88,10 @@ class PointerAnalysis(AnalysisDriver):
             builtin_manager=self.builtin_manager,
             debug_monitor=self.debug_monitor,
             processor=ComposeProcessor([
-                GeneratorProcessor(),
+                GeneratorProcessor(normal_call_service),
                 AttributeSemanticsProcessor(),
                 BaseResolutionProcessor(),
-                NormalCallProcessor(),
+                normal_call_service,
                 ContainerProcessor(index_sensitive=self.kcfa_config.index_sensitive),
                 SuperResolveProcessor(),
             ])
@@ -107,9 +111,6 @@ class PointerAnalysis(AnalysisDriver):
         Returns:
             AnalysisResult containing points-to information and call graph
         """
-        # Reset object ID table for clean state each analysis run
-        reset_object_table()
-        
         logger.info("Starting pointer analysis")
 
         # Get empty context for module-level analysis

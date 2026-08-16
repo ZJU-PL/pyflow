@@ -10,6 +10,7 @@ from typing import Dict, FrozenSet, Tuple, Set, Optional, Iterable, Any, List, T
 from collections import defaultdict, deque
 from itertools import product
 from queue import Queue
+import random
 
 from pyflow.analysis.alias.kcfa._pythonstan.utils.common import Box
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRModule, IRStatement
@@ -20,7 +21,14 @@ from .context import CallSite, Ctx, AbstractContext, Scope
 from .constraints import ConstraintManager, Constraint, InheritanceConstraint
 from .heap_model import HeapModel, Field, FieldKind
 from .pointer_flow_graph import PointerFlowGraph, NormalNode, SelectorNode, PointerFlowEdge, PointerFlowNode, PointerFlowKind
-from .points_to_set import PointsToSet
+from .points_to_set import AnalysisArena, PointsToSet
+from .dependency import DependencyManager
+from .type_ref import (
+    ClassVariant,
+    InvalidClassVariant,
+    TypeRef,
+    TypeRefKind,
+)
 
 if TYPE_CHECKING:
     from pyflow.analysis.alias.kcfa._pythonstan.world.scope_manager import ScopeManager
@@ -57,16 +65,20 @@ class PointerCallGraph(AbstractCallGraph[Ctx[CallSite], Scope]):
 
 
 class Worklist:
-    """Deterministic worklist using list-based storage.
-    
-    Uses a list for deterministic ordering and a dict for fast lookup.
-    Items are processed in FIFO order for better determinism.
+    """Coalescing worklist with a configurable scheduling policy.
+
+    Scheduling is deliberately configurable so tests can enforce the solver's
+    semantic requirement that every fair order reaches the same fixed point.
     """
         
     items_list: Deque[Dict[str, Any]]
     items_dict: Dict[PointerFlowNode, Dict[str, Any]]  # Maps node to index in list
 
-    def __init__(self):
+    def __init__(self, policy: str = "fifo", seed: int = 0):
+        if policy not in ("fifo", "lifo", "random"):
+            raise ValueError(f"unsupported worklist policy: {policy}")
+        self.policy = policy
+        self._random = random.Random(seed)
         self.items_list = deque()
         self.items_dict = {}
         self._next_index = 0
@@ -90,11 +102,18 @@ class Worklist:
             self.items_dict[node] = worklist_item
     
     def pop(self) -> Tuple[Scope, PointerFlowNode, PointsToSet]:
-        """Pop from the front (FIFO) for deterministic processing."""
         if not self.items_list:
             raise IndexError("pop from empty worklist")
-        
-        scope, node, pts = self.items_list.popleft()
+
+        if self.policy == "fifo":
+            scope, node, pts = self.items_list.popleft()
+        elif self.policy == "lifo":
+            scope, node, pts = self.items_list.pop()
+        else:
+            index = self._random.randrange(len(self.items_list))
+            self.items_list.rotate(-index)
+            scope, node, pts = self.items_list.popleft()
+            self.items_list.rotate(index)
         del self.items_dict[node]
         
         return scope, node, pts.val
@@ -115,26 +134,40 @@ class PointerAnalysisState:
 
     MAX_BASE_COMBINATIONS = 64
     
-    def __init__(self, debug_monitor=None):
+    def __init__(
+        self,
+        debug_monitor=None,
+        *,
+        worklist_policy: str = "fifo",
+        worklist_seed: int = 0,
+    ):
         """Initialize empty analysis state.
         
         Args:
             debug_monitor: Optional DebugMonitor instance for tracking
         """
+        self.arena = AnalysisArena()
         self._env: Dict['Variable', PointsToSet] = {}
         self._heap = HeapModel()
         self._call_graph: 'PointerCallGraph' = PointerCallGraph()
         self._constraints: ConstraintManager = ConstraintManager()
+        self.dependencies = DependencyManager()
         self._call_edges = []  # List of CallEdge objects tracked during analysis
         self._pointer_flow_graph: PointerFlowGraph = PointerFlowGraph()
         self._field_accesses: Dict[Tuple['AbstractObject', 'Field'], FieldAccess] = {}
         self._field_presence: Dict[Tuple['AbstractObject', 'Field'], Tuple[bool, bool]] = {}
         self._effective_base_sequences = defaultdict(set)
         self._opaque_effective_base_positions = set()
+        self._opaque_effective_base_objects = defaultdict(set)
+        self._class_variants = defaultdict(set)
+        self._invalid_class_variants = defaultdict(set)
         self._class_inheritance_lookups = defaultdict(set)
         self._pending_class_bindings = defaultdict(list)
+        self._class_slots = {}
         self._variable_factory: VariableFactory = VariableFactory()
-        self._worklist: Worklist = Worklist()
+        self._worklist: Worklist = Worklist(worklist_policy, worklist_seed)
+        self._static_policy = worklist_policy
+        self._static_random = random.Random(worklist_seed + 1)
         self._static_constraints: List[Tuple['Scope', 'AbstractContext', 'Constraint']] = []
         self._constraint_definitions = []
         self._constraint_definition_set = set()
@@ -142,12 +175,28 @@ class PointerAnalysisState:
         self.obj_scope = {}
         self.class_hierarchy = None
         self._semantic_events = []
+        self._escaped_objects = set()
         
         # Debug monitoring
         self._debug_monitor = debug_monitor
 
         # Note: scope_manager is set lazily when needed
         self._scope_manager = None
+
+    def pop_static_constraint(self):
+        """Pop a pending static constraint using the configured schedule."""
+        if self._static_policy == "fifo":
+            return self._static_constraints.pop(0)
+        if self._static_policy == "lifo":
+            return self._static_constraints.pop()
+        index = self._static_random.randrange(len(self._static_constraints))
+        return self._static_constraints.pop(index)
+
+    def mark_escaped(self, objects: Iterable['AbstractObject']) -> None:
+        self._escaped_objects.update(objects)
+
+    def is_escaped(self, obj: 'AbstractObject') -> bool:
+        return obj in self._escaped_objects
 
     @property
     def semantic_events(self):
@@ -185,7 +234,7 @@ class PointerAnalysisState:
         Returns:
             Points-to set for variable (empty if not found)
         """
-        return self._env.get(var, PointsToSet.empty())
+        return self._env.get(var, PointsToSet.empty(self.arena))
     
     def set_points_to(self, var: Union['Ctx[Any]', 'PointerFlowNode'], pts: PointsToSet) -> bool:
         """Set points-to set for variable.
@@ -199,11 +248,13 @@ class PointerAnalysisState:
         Returns:
             True if points-to set changed
         """
-        old_pts = self._env.get(var, PointsToSet.empty())
+        pts = pts.rebase(self.arena)
+        old_pts = self._env.get(var, PointsToSet.empty(self.arena))
         new_pts = old_pts.union(pts)
         
         if new_pts != old_pts:
             self._env[var] = new_pts
+            self.dependencies.notify_growth(var)
             
             # Debug monitoring
             if self._debug_monitor and self._debug_monitor.enabled:
@@ -261,6 +312,260 @@ class PointerAnalysisState:
             may_exist = True
         return AttributePresence(may_exist, must_exist, points_to)
 
+    def record_class_slots(
+        self, class_obj: 'ClassObject', names: Iterable[str]
+    ) -> None:
+        """Record a resolved fixed slot layout for a class."""
+        self._class_slots[class_obj] = frozenset(names)
+
+    def class_slots(
+        self, class_obj: 'ClassObject'
+    ) -> Optional[FrozenSet[str]]:
+        return self._class_slots.get(class_obj)
+
+    def instance_field_allowed(
+        self, class_obj: 'ClassObject', field: 'Field'
+    ) -> bool:
+        """Whether an ordinary instance-dict cell may exist for ``field``."""
+        if field.kind is not FieldKind.ATTRIBUTE or not field.name:
+            return True
+        slots = self.class_slots(class_obj)
+        if slots is None or "__dict__" in slots:
+            return True
+        # A base without a fixed slot-only layout supplies an instance dict.
+        # Keep inherited layouts conservative until every alternative is
+        # proven slot-only.
+        if class_obj.base_variables:
+            return True
+        return field.name in slots
+
+    @staticmethod
+    def _type_ref(obj: 'AbstractObject') -> TypeRef:
+        if isinstance(obj, ClassObject):
+            return TypeRef.user(obj)
+        if isinstance(obj, BuiltinClassObject):
+            return TypeRef.builtin(obj.builtin_name, obj)
+        if isinstance(obj, BuiltinFunctionObject):
+            return TypeRef.builtin(obj.function_name, obj)
+        if isinstance(obj, NativeObject):
+            return TypeRef.native(obj, obj.access_path)
+        return TypeRef.opaque(str(obj), obj)
+
+    def _metaclass_refs_for_class(
+        self,
+        class_obj: 'ClassObject',
+        seen: Optional[Set['ClassObject']] = None,
+    ) -> Tuple[TypeRef, ...]:
+        if seen is None:
+            seen = set()
+        if class_obj in seen:
+            return (TypeRef.opaque("recursive-metaclass"),)
+        seen.add(class_obj)
+
+        if class_obj.metaclass_variables:
+            refs = []
+            for meta_var in class_obj.metaclass_variables:
+                meta_ctx = self.get_variable(
+                    class_obj.container_scope,
+                    class_obj.container_scope.context,
+                    meta_var,
+                )
+                pts = self.get_points_to(meta_ctx)
+                if pts.is_empty():
+                    return ()
+                refs.extend(self._type_ref(obj) for obj in pts)
+            return tuple(dict.fromkeys(refs))
+
+        variants = self._class_variants.get(class_obj)
+        if variants:
+            return tuple(dict.fromkeys(
+                variant.metaclass for variant in variants
+            ))
+        if not class_obj.base_variables:
+            return (TypeRef.builtin("type"),)
+
+        refs = []
+        for position in range(len(class_obj.base_variables)):
+            for sequence in self._effective_base_sequences.get(
+                (class_obj, position), ()
+            ):
+                for base_obj in sequence:
+                    refs.extend(
+                        self._metaclass_refs_for_class(base_obj, set(seen))
+                    )
+        return tuple(dict.fromkeys(refs))
+
+    def _select_metaclass(
+        self,
+        candidates: Iterable[TypeRef],
+    ) -> Tuple[Optional[TypeRef], Optional[str]]:
+        refs = tuple(dict.fromkeys(candidates))
+        if not refs:
+            return TypeRef.builtin("type"), None
+        if any(ref.is_opaque for ref in refs):
+            return TypeRef.opaque("compatible-metaclass"), None
+
+        user_refs = [
+            ref for ref in refs
+            if ref.kind is TypeRefKind.USER
+            and isinstance(ref.target, ClassObject)
+        ]
+        if not user_refs:
+            # Builtin ``type`` and compatible builtin metatypes collapse to a
+            # single explicit type-like alternative.
+            return refs[0], None
+        if self.class_hierarchy is None:
+            return TypeRef.opaque("unresolved-metaclass-hierarchy"), None
+
+        compatible = []
+        for candidate in user_refs:
+            try:
+                candidate_mro = set(
+                    self.class_hierarchy.get_mro(candidate.target)
+                )
+            except Exception:
+                continue
+            if all(
+                other.target in candidate_mro
+                for other in user_refs
+            ):
+                compatible.append(candidate)
+        if not compatible:
+            return None, "metaclass conflict"
+        return compatible[0], None
+
+    def refresh_class_variants(self, owner: 'ClassObject') -> None:
+        """Materialize feasible base/MRO/metaclass alternatives monotonically."""
+        if not owner.base_variables:
+            metaclass_refs = self._metaclass_refs_for_class(owner)
+            if owner.metaclass_variables and not metaclass_refs:
+                return
+            if owner.metaclass_variables:
+                # A class statement accepts any callable as its explicit
+                # metaclass.  Non-type callables construct the binding result
+                # directly and therefore must not publish the provisional
+                # ClassObject as a feasible type variant.
+                metaclass_refs = tuple(
+                    ref for ref in metaclass_refs
+                    if ref.kind is not TypeRefKind.OPAQUE
+                )
+                if not metaclass_refs:
+                    return
+            metaclass, error = self._select_metaclass(metaclass_refs)
+            if error is not None:
+                self._invalid_class_variants[owner].add(
+                    InvalidClassVariant(owner, (), error)
+                )
+                return
+            if metaclass is not None:
+                self._class_variants[owner].add(ClassVariant(
+                    owner=owner,
+                    effective_bases=(),
+                    metaclass=metaclass,
+                    mro=(TypeRef.user(owner),),
+                ))
+            return
+
+        sequence_options = []
+        has_opaque = False
+        for position in range(len(owner.base_variables)):
+            options = tuple(
+                self._effective_base_sequences.get((owner, position), ())
+            )
+            opaque = tuple(
+                self._opaque_effective_base_objects.get((owner, position), ())
+            )
+            if opaque:
+                has_opaque = True
+            if not options and not opaque:
+                return
+            sequence_options.append(options or ((),))
+
+        combination_count = 1
+        for options in sequence_options:
+            combination_count *= len(options)
+        if has_opaque or combination_count > self.MAX_BASE_COMBINATIONS:
+            refs = []
+            for options in sequence_options:
+                for sequence in options:
+                    refs.extend(self._type_ref(base) for base in sequence)
+            for position in range(len(owner.base_variables)):
+                refs.extend(
+                    self._type_ref(base)
+                    for base in self._opaque_effective_base_objects.get(
+                        (owner, position), ()
+                    )
+                )
+            self._class_variants[owner].add(ClassVariant(
+                owner=owner,
+                effective_bases=tuple(dict.fromkeys(refs)),
+                metaclass=TypeRef.opaque("widened-metaclass"),
+                mro=(TypeRef.user(owner), *tuple(dict.fromkeys(refs))),
+                widened=True,
+            ))
+            return
+
+        from .class_hierarchy import MROError, compute_c3_mro_for_bases
+
+        for selected in product(*sequence_options):
+            bases = tuple(
+                base for sequence in selected for base in sequence
+            )
+            base_refs = tuple(TypeRef.user(base) for base in bases)
+            try:
+                mro_tail = (
+                    compute_c3_mro_for_bases(
+                        list(bases), self.class_hierarchy
+                    )
+                    if self.class_hierarchy is not None
+                    else list(bases)
+                )
+            except MROError as error:
+                self._invalid_class_variants[owner].add(
+                    InvalidClassVariant(owner, base_refs, str(error))
+                )
+                continue
+
+            metaclass_candidates = []
+            if owner.metaclass_variables:
+                metaclass_candidates.extend(
+                    ref for ref in self._metaclass_refs_for_class(owner)
+                    if ref.kind is not TypeRefKind.OPAQUE
+                )
+                if not metaclass_candidates:
+                    continue
+            for base in bases:
+                metaclass_candidates.extend(
+                    self._metaclass_refs_for_class(base)
+                )
+            metaclass, error = self._select_metaclass(
+                metaclass_candidates
+            )
+            if error is not None or metaclass is None:
+                self._invalid_class_variants[owner].add(
+                    InvalidClassVariant(
+                        owner, base_refs, error or "invalid metaclass"
+                    )
+                )
+                continue
+            self._class_variants[owner].add(ClassVariant(
+                owner=owner,
+                effective_bases=base_refs,
+                metaclass=metaclass,
+                mro=(
+                    TypeRef.user(owner),
+                    *(TypeRef.user(base) for base in mro_tail),
+                ),
+            ))
+
+    def class_variants(self, owner: 'ClassObject') -> FrozenSet[ClassVariant]:
+        return frozenset(self._class_variants.get(owner, ()))
+
+    def invalid_class_variants(
+        self, owner: 'ClassObject'
+    ) -> FrozenSet[InvalidClassVariant]:
+        return frozenset(self._invalid_class_variants.get(owner, ()))
+
     def refresh_class_inheritance(
         self,
         owner: 'ClassObject',
@@ -268,6 +573,27 @@ class PointerAnalysisState:
         selector: 'SelectorNode',
     ) -> None:
         """Add field flows for every currently known concrete base tuple."""
+        variants = self.class_variants(owner)
+        if variants:
+            for variant in variants:
+                index = 0
+                for type_ref in variant.mro[1:]:
+                    if (
+                        type_ref.kind is not TypeRefKind.USER
+                        or not isinstance(type_ref.target, ClassObject)
+                    ):
+                        continue
+                    base_obj = type_ref.target
+                    self._add_inherited_field_candidate(
+                        base_obj, field, selector, index
+                    )
+                    index += 1
+                    if self.get_attribute_presence(
+                        base_obj, field
+                    ).must_exist:
+                        break
+            return
+
         sequence_options = []
         for position, base_var in enumerate(owner.base_variables):
             base_ctx = self.get_variable(
@@ -354,6 +680,7 @@ class PointerAnalysisState:
         self._effective_base_sequences[key].add(sequence)
 
         self._update_singleton_class_hierarchy(owner)
+        self.refresh_class_variants(owner)
 
         if position < len(owner.effective_base_variables):
             effective_var = owner.effective_base_variables[position]
@@ -382,6 +709,8 @@ class PointerAnalysisState:
     ) -> None:
         """Record a valid builtin/opaque type outside the user hierarchy."""
         self._opaque_effective_base_positions.add((owner, position))
+        self._opaque_effective_base_objects[(owner, position)].add(base_obj)
+        self.refresh_class_variants(owner)
         if position < len(owner.effective_base_variables):
             effective_ctx = self.get_variable(
                 owner.container_scope,
@@ -411,7 +740,15 @@ class PointerAnalysisState:
         owner: 'ClassObject',
     ) -> bool:
         """Publish a deferred class object after effective-base validation."""
-        if self.class_base_validity(owner) is not True:
+        self.refresh_class_variants(owner)
+        variants = self.class_variants(owner)
+        if not variants:
+            return False
+        if all(self._variant_has_custom_metaclass_new(v) for v in variants):
+            # A definitely selected user-defined metaclass ``__new__`` owns
+            # the class statement's result.  Its arbitrary return value flows
+            # to the deferred target through the construction call instead of
+            # leaking this provisional ClassObject.
             return False
         bindings = self._pending_class_bindings.pop(owner, ())
         for scope, target in bindings:
@@ -421,6 +758,39 @@ class PointerAnalysisState:
                 PointsToSet.singleton(owner),
             ))
         return bool(bindings)
+
+    def _variant_has_custom_metaclass_new(
+        self, variant: ClassVariant
+    ) -> bool:
+        metaclass = variant.metaclass
+        if (
+            metaclass.kind is not TypeRefKind.USER
+            or not isinstance(metaclass.target, ClassObject)
+        ):
+            return False
+        candidates = [metaclass.target]
+        meta_variants = self.class_variants(metaclass.target)
+        if meta_variants:
+            candidates.extend(
+                ref.target
+                for meta_variant in meta_variants
+                for ref in meta_variant.mro[1:]
+                if (
+                    ref.kind is TypeRefKind.USER
+                    and isinstance(ref.target, ClassObject)
+                )
+            )
+        elif self.class_hierarchy is not None:
+            try:
+                candidates = list(
+                    self.class_hierarchy.get_mro(metaclass.target)
+                )
+            except Exception:
+                pass
+        return any(
+            "__new__" in candidate.ir.get_definitely_declared_names()
+            for candidate in candidates
+        )
 
     def _update_singleton_class_hierarchy(
         self,
@@ -446,8 +816,11 @@ class PointerAnalysisState:
         owner: 'ClassObject',
     ) -> Optional[bool]:
         """Return True/False for feasible/invalid, or None while unresolved."""
-        if not owner.base_variables:
+        self.refresh_class_variants(owner)
+        if self.class_variants(owner):
             return True
+        if not owner.base_variables:
+            return False if self.invalid_class_variants(owner) else None
         sequence_options = []
         has_opaque_base = False
         for position in range(len(owner.base_variables)):
@@ -507,8 +880,37 @@ class PointerAnalysisState:
         selector.add_edge(edge, index)
         self._add_points_flow_edge(edge)
 
-    def get_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
-        """Get field access for object field.
+    def raw_field(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        obj: 'AbstractObject',
+        field: 'Field',
+    ) -> 'Ctx[FieldAccess]':
+        """Return the exact heap cell for ``obj`` and ``field``.
+
+        This operation never performs MRO lookup, descriptor dispatch, method
+        binding, or ``super`` resolution.  Those are semantic queries layered
+        over raw cells by processors.
+        """
+        field_access = self._field_accesses.get((obj, field))
+        if field_access is None:
+            field_access = self._variable_factory.make_field_access(obj, field)
+            self.set_field(scope, context, obj, field, field_access)
+        return Ctx(obj.context, None, field_access)
+
+    def get_field(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        obj: 'AbstractObject',
+        field: 'Field',
+    ) -> 'Ctx[FieldAccess]':
+        """Compatibility alias for exact raw heap storage."""
+        return self.raw_field(scope, context, obj, field)
+
+    def _legacy_lookup_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
+        """Legacy semantic lookup retained temporarily during migration.
         
         Handles container-specific field resolution:
         - TupleObject: Supports position(i) fields for precise tracking

@@ -37,17 +37,18 @@ class Pipeline:
             self.config = Config.from_file(filename)
         else:
             raise ValueError("No proper configuration for pipeline!")
-        World().setup()
-        World().build(self.config)
+        self.world = World.fresh()
+        self.world.setup()
+        self.world.build(self.config)
         self.analysis_manager = AnalysisManager()
         self.analysis_manager.build(self.config.get_analysis_list())
         self.analysis_manager.set_time_count(self.config.time_count)
-        World().analysis_manager = self.analysis_manager
+        self.world.analysis_manager = self.analysis_manager
         self.build_scope_graph(self.config.filename)
 
     def get_world(self):
         """Return the shared world populated by this pipeline."""
-        return World()
+        return self.world
 
     def build_scope_graph(self, entry_path: str):
         """Discover modules and run prerequisite lowering passes.
@@ -174,5 +175,6 @@ class Pipeline:
 
     def run(self):
         """Execute configured analyses in dependency order."""
+        World.set_current(self.world)
         analyzer_generator = self.analysis_manager.generator()
         self.do_analysis(analyzer_generator)

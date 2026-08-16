@@ -9,7 +9,7 @@ from .processor import Processor
 from .compose_processor import ComposeProcessor
 from .container import ContainerProcessor
 from .super_resolve import SuperResolveProcessor
-from .normal_call import NormalCallProcessor
+from .normal_call import NormalCallProcessor, PythonCallService
 from .generator import GeneratorProcessor
 from .attribute_semantics import AttributeSemanticsProcessor
 from .base_resolution import BaseResolutionProcessor
@@ -24,6 +24,7 @@ __all__ = [
     "ContainerProcessor",
     "SuperResolveProcessor",
     "NormalCallProcessor",
+    "PythonCallService",
     "GeneratorProcessor",
     "AttributeSemanticsProcessor",
     "BaseResolutionProcessor",

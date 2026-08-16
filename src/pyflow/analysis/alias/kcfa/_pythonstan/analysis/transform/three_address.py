@@ -35,13 +35,13 @@ class ConstCollector:
     next_idx: int
     consts: Dict[Any, int]
 
-    @staticmethod
-    def to_name(idx: int) -> str:
-        return CONST_TEMPLATE % idx
-
-    def __init__(self, init_idx: int = 0):
+    def __init__(self, init_idx: int = 0, template: str = CONST_TEMPLATE):
         self.next_idx = init_idx
         self.consts = {}
+        self.template = template
+
+    def to_name(self, idx: int) -> str:
+        return self.template % idx
 
     def load(self, c) -> ast.Name:
         if c in self.consts:
@@ -77,7 +77,7 @@ class ThreeAddressTransformer(NodeTransformer):
               fn_tmpl=FUNC_TEMPLATE, c_tmpl=CONST_TEMPLATE):
         self.tmp_gen = TempVarGenerator(template=v_tmpl)
         self.tmp_func_gen = TempVarGenerator(template=fn_tmpl)
-        self.const_colle = ConstCollector()
+        self.const_colle = ConstCollector(template=c_tmpl)
         self.import_stmts = {*()}
 
     def resolve_single_Assign(self, tgt, value, stmt):
@@ -698,7 +698,22 @@ class ThreeAddressTransformer(NodeTransformer):
     def visit_Delete(self, node):
         blk = []
         for tgt in node.targets:
-            tmp_blk, tmp_elt = self.split_expr(tgt)
+            if isinstance(tgt, ast.Attribute):
+                tmp_blk, base = self.split_expr(tgt.value)
+                tmp_elt = ast.Attribute(
+                    value=base, attr=tgt.attr, ctx=ast.Del()
+                )
+                ast.copy_location(tmp_elt, tgt)
+            elif isinstance(tgt, ast.Subscript):
+                tmp_blk, base = self.split_expr(tgt.value)
+                slice_blk, slice_value = self.split_expr(tgt.slice)
+                tmp_blk.extend(slice_blk)
+                tmp_elt = ast.Subscript(
+                    value=base, slice=slice_value, ctx=ast.Del()
+                )
+                ast.copy_location(tmp_elt, tgt)
+            else:
+                tmp_blk, tmp_elt = [], tgt
             stmt = ast.Delete(targets=[tmp_elt])
             ast.copy_location(stmt, tgt)
             blk.extend(tmp_blk)

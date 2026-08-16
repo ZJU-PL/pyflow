@@ -1,7 +1,10 @@
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import Ctx
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import attr, elem
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import (
+    AnalysisArena,
+    PointsToSet,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
     NormalNode,
     PointerFlowEdge,
@@ -27,6 +30,33 @@ def test_points_to_set_from_objects_handles_empty_and_nonempty(object_factory):
 
     obj = object_factory()
     assert set(PointsToSet.from_objects([obj])) == {obj}
+
+
+def test_points_to_sets_keep_analysis_arenas_isolated(object_factory):
+    first = object_factory(AllocKind.OBJECT)
+    second = object_factory(AllocKind.LIST)
+    first_arena = AnalysisArena()
+    second_arena = AnalysisArena()
+
+    first_pts = PointsToSet.singleton(first, first_arena)
+    second_pts = PointsToSet.singleton(second, second_arena)
+
+    # Both objects occupy bit zero, but each set resolves it in its own arena.
+    assert first_pts.objs_mask == second_pts.objs_mask == 1
+    assert set(first_pts) == {first}
+    assert set(second_pts) == {second}
+    assert set(first_pts.union(second_pts)) == {first, second}
+
+
+def test_state_rebases_external_points_to_sets_into_its_arena(
+    empty_state, module_scope, simple_context, object_factory
+):
+    cvar = empty_state.get_variable(module_scope, simple_context, Variable("x"))
+    obj = object_factory()
+
+    empty_state.set_points_to(cvar, PointsToSet.singleton(obj))
+
+    assert empty_state.get_points_to(cvar).arena is empty_state.arena
 
 
 def test_state_sets_points_to_on_contextual_variables(empty_state, module_scope, simple_context, object_factory):

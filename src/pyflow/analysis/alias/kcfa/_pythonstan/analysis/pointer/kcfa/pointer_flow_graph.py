@@ -24,7 +24,11 @@ if TYPE_CHECKING:
     from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import AbstractCallGraph, CallEdge
     from .context import CallSite, AbstractContext, Scope
 
-__all__ = ["PointerFlowGraph", "PointerFlowEdge", "PointerFlowNode", "NormalNode", "GuardNode", "SelectorNode", "PointerFlowKind"]
+__all__ = [
+    "PointerFlowGraph", "PointerFlowEdge", "PointerFlowNode", "NormalNode",
+    "GuardNode", "SelectorNode", "ClassBindingNode", "InstanceBindingNode",
+    "PointerFlowKind",
+]
 
 
 class PointerFlowKind(Enum):
@@ -84,6 +88,28 @@ class NormalNode(PointerFlowNode):
     
     def flow_through(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
         return pts
+
+
+@dataclass(frozen=True)
+class ClassBindingNode(PointerFlowNode):
+    """Rebind inherited method objects to the class being looked up."""
+
+    class_obj: ClassObject
+    lookup_key: Any
+
+    def flow_through(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
+        return pts.inherit_to(self.class_obj)
+
+
+@dataclass(frozen=True)
+class InstanceBindingNode(PointerFlowNode):
+    """Bind method objects to an instance without inventing a heap field."""
+
+    instance_obj: InstanceObject
+    lookup_key: Any
+
+    def flow_through(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
+        return pts.deliver_into(self.instance_obj)
     
 
 class GuardNode(PointerFlowNode):
@@ -158,6 +184,7 @@ class PointerFlowGraph:
         self.preds = {}
         self.nodes = set()
         self.edges = set()
+        self._edge_ids: Dict[PointerFlowEdge, str] = {}
         
         # Debug monitoring
         self._debug_monitor = debug_monitor
@@ -183,7 +210,7 @@ class PointerFlowGraph:
             
             # Debug monitoring
             if self._debug_monitor and self._debug_monitor.enabled and self._debug_monitor.track_pfg:
-                edge_id = f"{id(succ_edge.source)}->{id(succ_edge.target)}"
+                edge_id = self._edge_ids[succ_edge]
                 self._debug_monitor.record_pfg_edge_activated(edge_id, num_objects)
             
             result.append([succ_edge.target, succ_pts])
@@ -197,6 +224,7 @@ class PointerFlowGraph:
             self.nodes.add(edge.source)
             self.nodes.add(edge.target)
             self.edges.add(edge)
+            self._edge_ids[edge] = f"pfg-edge-{len(self._edge_ids)}"
             return True
         else:
             return False
@@ -268,7 +296,7 @@ class PointerFlowGraph:
             ),
             "most_active_edges": [
                 {
-                    "edge_id": f"{id(e.source)}->{id(e.target)}",
+                    "edge_id": self._edge_ids[e],
                     "kind": e.kind.value,
                     "count": count
                 }
@@ -276,7 +304,7 @@ class PointerFlowGraph:
             ],
             "highest_flow_edges": [
                 {
-                    "edge_id": f"{id(e.source)}->{id(e.target)}",
+                    "edge_id": self._edge_ids[e],
                     "kind": e.kind.value,
                     "objects": flow
                 }

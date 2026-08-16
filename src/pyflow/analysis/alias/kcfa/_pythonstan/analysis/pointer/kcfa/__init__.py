@@ -30,7 +30,8 @@ from .object import AllocKind, AllocSite, AbstractObject, SuperObject, ObjectFac
 from .variable import VariableKind, Variable
 from .heap_model import FieldKind, Field, attr, elem, unknown
 from .state import PointerAnalysisState
-from .points_to_set import PointsToSet, reset_object_table
+from .points_to_set import AnalysisArena, PointsToSet
+from .type_ref import ClassVariant, InvalidClassVariant, TypeRef, TypeRefKind
 from .solver import PointerSolver
 from .ir_translator import IRTranslator
 from .constraints import (
@@ -83,7 +84,11 @@ __all__ = [
     "PointsToSet",
     "PointerAnalysisState",
     "PointerSolver",
-    "reset_object_table",
+    "AnalysisArena",
+    "TypeRef",
+    "TypeRefKind",
+    "ClassVariant",
+    "InvalidClassVariant",
     
     # Constraints
     "Constraint",
@@ -106,5 +111,3 @@ __all__ = [
 ]
 
 __version__ = "1.0.0"
-
-

@@ -1,301 +1,313 @@
-"""Bitset-backed points-to set representation for efficient pointer analysis.
+"""Bitset-backed points-to sets with analysis-local object interning.
 
-Uses Python's arbitrary-precision int as a bitset for O(1) union/diff/intersection
-and O(popcount) iteration. Objects are assigned dense IDs via ObjectIdTable.
+Python integers provide a compact and fast bitset representation, but the bits
+only have meaning relative to the object table that assigned them.  Earlier
+versions kept that table in a module global and reset it before every run.  Two
+overlapping analyses could therefore reinterpret each other's points-to sets.
+
+``AnalysisArena`` makes the ownership explicit.  A normal analysis owns one
+arena through :class:`PointerAnalysisState`; standalone sets created by tests or
+clients can still be combined because operations transparently rebase the
+right-hand operand into the left-hand arena.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, FrozenSet, Iterable, Iterator, TYPE_CHECKING
+from typing import Dict, FrozenSet, Iterable, Iterator, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .object import AbstractObject, ClassObject, MethodObject, InstanceObject
+    from .object import AbstractObject, ClassObject, InstanceObject, MethodObject
 
-__all__ = ["PointsToSet", "reset_object_table"]
+__all__ = ["AnalysisArena", "PointsToSet"]
 
 
-class _ObjectIdTable:
-    """Maps abstract objects to dense integer IDs for bitset representation.
+class AnalysisArena:
+    """Analysis-local interner assigning dense bit positions to objects.
 
-    Thread safety: Not thread-safe. Each analysis run should use a single
-    table instance or ensure external synchronization.
+    The mapping is intentionally owned by a single analysis state.  Dense IDs
+    are an implementation detail; semantic identity remains the immutable
+    ``AbstractObject`` value, so rebasing between arenas is lossless.
     """
 
-    _obj_to_id: Dict['AbstractObject', int]
-    _id_to_obj: List['AbstractObject']
+    def __init__(self) -> None:
+        self._obj_to_id: Dict['AbstractObject', int] = {}
+        self._id_to_obj: List['AbstractObject'] = []
 
-    def __init__(self):
-        self._obj_to_id = {}
-        self._id_to_obj = []
-
-    def get_id(self, obj: 'AbstractObject') -> int:
-        """Get or assign ID for an object.
-
-        If the object already has an ID, returns it. Otherwise assigns a new
-        incremental ID and returns it.
-        """
+    def intern(self, obj: 'AbstractObject') -> int:
         existing = self._obj_to_id.get(obj)
         if existing is not None:
             return existing
-
-        new_id = len(self._id_to_obj)
-        self._obj_to_id[obj] = new_id
+        object_id = len(self._id_to_obj)
+        self._obj_to_id[obj] = object_id
         self._id_to_obj.append(obj)
-        return new_id
+        return object_id
 
-    def get_obj(self, id_: int) -> 'AbstractObject':
-        """Get object by ID. Raises IndexError if ID is invalid."""
-        return self._id_to_obj[id_]
+    def object_at(self, object_id: int) -> 'AbstractObject':
+        return self._id_to_obj[object_id]
 
-    def lookup_id(self, obj: 'AbstractObject') -> Optional[int]:
-        """Get ID for object if it exists, None otherwise."""
+    def lookup(self, obj: 'AbstractObject') -> Optional[int]:
         return self._obj_to_id.get(obj)
 
-    def clear(self) -> None:
-        """Clear all mappings. Used between analysis runs."""
-        self._obj_to_id.clear()
-        self._id_to_obj.clear()
+    def __len__(self) -> int:
+        return len(self._id_to_obj)
 
 
-# Module-level singleton for the current analysis run
-_global_table: Optional[_ObjectIdTable] = None
-
-
-def _get_object_table() -> _ObjectIdTable:
-    """Get the global object ID table, creating it if necessary."""
-    global _global_table
-    if _global_table is None:
-        _global_table = _ObjectIdTable()
-    return _global_table
-
-
-def reset_object_table() -> None:
-    """Reset the global object ID table. Call between analysis runs."""
-    global _global_table
-    if _global_table is not None:
-        _global_table.clear()
-    _global_table = None
-
-
-def _popcount(n: int) -> int:
-    """Count set bits in an integer. Python 3.9 compatible."""
-    return bin(n).count('1')
+def _popcount(value: int) -> int:
+    return value.bit_count()
 
 
 def _iter_bits(mask: int) -> Iterator[int]:
-    """Iterate over set bit positions in O(popcount) time."""
     while mask:
-        # Find lowest set bit position
-        lsb = mask & -mask
-        yield lsb.bit_length() - 1
-        mask ^= lsb
+        least_bit = mask & -mask
+        yield least_bit.bit_length() - 1
+        mask ^= least_bit
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, eq=False)
 class PointsToSet:
     """Immutable bitset-backed set of abstract objects.
 
-    Internally stores three bitmasks for different object categories:
-    - objs_mask: general objects (non-method)
-    - classmethods_mask: class method objects
-    - instancemethods_mask: instance method objects
-
-    This separation allows efficient method binding/inheritance transforms.
+    Empty sets may be arena-neutral.  Every non-empty set has an arena, and all
+    operations preserve or explicitly convert arena ownership.
     """
 
     objs_mask: int
     classmethods_mask: int
     instancemethods_mask: int
+    arena: Optional[AnalysisArena] = None
+
+    def __post_init__(self) -> None:
+        if not self.is_empty() and self.arena is None:
+            raise ValueError("a non-empty points-to set requires an AnalysisArena")
 
     @staticmethod
-    def empty() -> 'PointsToSet':
-        """Create empty points-to set."""
-        return _EMPTY_PTS
+    def empty(arena: Optional[AnalysisArena] = None) -> 'PointsToSet':
+        if arena is None:
+            return _EMPTY_PTS
+        return PointsToSet(0, 0, 0, arena)
 
     @staticmethod
-    def singleton(obj: 'AbstractObject') -> 'PointsToSet':
-        """Create singleton points-to set containing one object."""
+    def singleton(
+        obj: 'AbstractObject',
+        arena: Optional[AnalysisArena] = None,
+    ) -> 'PointsToSet':
+        return PointsToSet.from_objects((obj,), arena=arena)
+
+    @staticmethod
+    def from_objects(
+        objs: Iterable['AbstractObject'],
+        arena: Optional[AnalysisArena] = None,
+    ) -> 'PointsToSet':
         from .object import MethodObject
 
-        table = _get_object_table()
-        obj_id = table.get_id(obj)
-        bit = 1 << obj_id
-
-        if isinstance(obj, MethodObject):
-            if obj.alloc_site.stmt.is_class_method:
-                return PointsToSet(0, bit, 0)
-            else:
-                return PointsToSet(0, 0, bit)
-        return PointsToSet(bit, 0, 0)
-
-    @staticmethod
-    def from_objects(objs: Iterable['AbstractObject']) -> 'PointsToSet':
-        """Create points-to set from an iterable of objects."""
-        from .object import MethodObject
-
-        table = _get_object_table()
+        materialized = tuple(objs)
+        if not materialized:
+            return PointsToSet.empty(arena)
+        # ``AnalysisArena`` implements ``__len__`` and a fresh arena is falsey;
+        # use an identity check so an explicitly supplied empty arena is kept.
+        owner = arena if arena is not None else AnalysisArena()
         objs_mask = 0
-        cms_mask = 0
-        ims_mask = 0
-
-        for obj in objs:
-            obj_id = table.get_id(obj)
-            bit = 1 << obj_id
+        classmethods_mask = 0
+        instancemethods_mask = 0
+        for obj in materialized:
+            bit = 1 << owner.intern(obj)
             if isinstance(obj, MethodObject):
                 if obj.alloc_site.stmt.is_class_method:
-                    cms_mask |= bit
+                    classmethods_mask |= bit
                 else:
-                    ims_mask |= bit
+                    instancemethods_mask |= bit
             else:
                 objs_mask |= bit
+        return PointsToSet(
+            objs_mask,
+            classmethods_mask,
+            instancemethods_mask,
+            owner,
+        )
 
-        if objs_mask == 0 and cms_mask == 0 and ims_mask == 0:
-            return _EMPTY_PTS
-        return PointsToSet(objs_mask, cms_mask, ims_mask)
+    def rebase(self, arena: AnalysisArena) -> 'PointsToSet':
+        """Return an equivalent set whose bits belong to ``arena``."""
+        if self.arena is arena:
+            return self
+        if self.is_empty():
+            return PointsToSet.empty(arena)
+        return PointsToSet.from_objects(self, arena=arena)
+
+    def _common_arena(self, other: 'PointsToSet') -> Optional[AnalysisArena]:
+        if self.arena is not None:
+            return self.arena
+        return other.arena
 
     def inherit_to(self, new_cls: 'ClassObject') -> 'PointsToSet':
-        """Transform methods for class inheritance.
-
-        Creates new MethodObject instances with inherit_into() and interns them.
-        """
         if self.classmethods_mask == 0 and self.instancemethods_mask == 0:
             return self
-
-        table = _get_object_table()
-        new_cms_mask = 0
-        new_ims_mask = 0
-
-        # Transform class methods
-        for obj_id in _iter_bits(self.classmethods_mask):
-            cm = table.get_obj(obj_id)
-            new_cm = cm.inherit_into(new_cls)
-            new_id = table.get_id(new_cm)
-            new_cms_mask |= (1 << new_id)
-
-        # Transform instance methods
-        for obj_id in _iter_bits(self.instancemethods_mask):
-            im = table.get_obj(obj_id)
-            new_im = im.inherit_into(new_cls)
-            new_id = table.get_id(new_im)
-            new_ims_mask |= (1 << new_id)
-
-        return PointsToSet(self.objs_mask, new_cms_mask, new_ims_mask)
+        assert self.arena is not None
+        new_classmethods = 0
+        new_instancemethods = 0
+        for object_id in _iter_bits(self.classmethods_mask):
+            method = self.arena.object_at(object_id)
+            new_classmethods |= 1 << self.arena.intern(method.inherit_into(new_cls))
+        for object_id in _iter_bits(self.instancemethods_mask):
+            method = self.arena.object_at(object_id)
+            new_instancemethods |= 1 << self.arena.intern(method.inherit_into(new_cls))
+        return PointsToSet(
+            self.objs_mask,
+            new_classmethods,
+            new_instancemethods,
+            self.arena,
+        )
 
     def deliver_into(self, new_inst: 'InstanceObject') -> 'PointsToSet':
-        """Bind instance methods to a specific instance.
-
-        Creates new MethodObject instances with deliver_into() and interns them.
-        """
         if self.instancemethods_mask == 0:
             return self
-
-        table = _get_object_table()
-        new_ims_mask = 0
-
-        for obj_id in _iter_bits(self.instancemethods_mask):
-            im = table.get_obj(obj_id)
-            new_im = im.deliver_into(new_inst)
-            new_id = table.get_id(new_im)
-            new_ims_mask |= (1 << new_id)
-
-        return PointsToSet(self.objs_mask, self.classmethods_mask, new_ims_mask)
+        assert self.arena is not None
+        new_instancemethods = 0
+        for object_id in _iter_bits(self.instancemethods_mask):
+            method = self.arena.object_at(object_id)
+            new_instancemethods |= 1 << self.arena.intern(method.deliver_into(new_inst))
+        return PointsToSet(
+            self.objs_mask,
+            self.classmethods_mask,
+            new_instancemethods,
+            self.arena,
+        )
 
     def union(self, other: 'PointsToSet') -> 'PointsToSet':
-        """Union with another points-to set."""
-        new_objs = self.objs_mask | other.objs_mask
-        new_cms = self.classmethods_mask | other.classmethods_mask
-        new_ims = self.instancemethods_mask | other.instancemethods_mask
-
-        if (new_objs == self.objs_mask and new_cms == self.classmethods_mask
-                and new_ims == self.instancemethods_mask):
-            return self
-        if (new_objs == other.objs_mask and new_cms == other.classmethods_mask
-                and new_ims == other.instancemethods_mask):
-            return other
-        return PointsToSet(new_objs, new_cms, new_ims)
+        arena = self._common_arena(other)
+        if arena is None:
+            return _EMPTY_PTS
+        left = self.rebase(arena)
+        right = other.rebase(arena)
+        new_masks = (
+            left.objs_mask | right.objs_mask,
+            left.classmethods_mask | right.classmethods_mask,
+            left.instancemethods_mask | right.instancemethods_mask,
+        )
+        if new_masks == (
+            left.objs_mask,
+            left.classmethods_mask,
+            left.instancemethods_mask,
+        ):
+            return left
+        if new_masks == (
+            right.objs_mask,
+            right.classmethods_mask,
+            right.instancemethods_mask,
+        ):
+            return right
+        return PointsToSet(*new_masks, arena)
 
     def intersection(self, other: 'PointsToSet') -> 'PointsToSet':
-        """Intersection with another points-to set."""
-        new_objs = self.objs_mask & other.objs_mask
-        new_cms = self.classmethods_mask & other.classmethods_mask
-        new_ims = self.instancemethods_mask & other.instancemethods_mask
-
-        if new_objs == 0 and new_cms == 0 and new_ims == 0:
+        arena = self._common_arena(other)
+        if arena is None:
             return _EMPTY_PTS
-        return PointsToSet(new_objs, new_cms, new_ims)
+        left = self.rebase(arena)
+        right = other.rebase(arena)
+        masks = (
+            left.objs_mask & right.objs_mask,
+            left.classmethods_mask & right.classmethods_mask,
+            left.instancemethods_mask & right.instancemethods_mask,
+        )
+        return PointsToSet(*masks, arena)
 
     def is_empty(self) -> bool:
-        """Check if set is empty."""
-        return (self.objs_mask == 0 and self.classmethods_mask == 0
-                and self.instancemethods_mask == 0)
+        return not (self.objs_mask or self.classmethods_mask or self.instancemethods_mask)
 
     def __len__(self) -> int:
-        """Get number of objects in set."""
-        return (_popcount(self.objs_mask)
-                + _popcount(self.classmethods_mask)
-                + _popcount(self.instancemethods_mask))
+        return (
+            _popcount(self.objs_mask)
+            + _popcount(self.classmethods_mask)
+            + _popcount(self.instancemethods_mask)
+        )
 
     def __iter__(self) -> Iterator['AbstractObject']:
-        """Iterate over objects in set."""
-        table = _get_object_table()
-        for obj_id in _iter_bits(self.classmethods_mask):
-            yield table.get_obj(obj_id)
-        for obj_id in _iter_bits(self.instancemethods_mask):
-            yield table.get_obj(obj_id)
-        for obj_id in _iter_bits(self.objs_mask):
-            yield table.get_obj(obj_id)
+        if self.is_empty():
+            return
+        assert self.arena is not None
+        for object_id in _iter_bits(self.classmethods_mask):
+            yield self.arena.object_at(object_id)
+        for object_id in _iter_bits(self.instancemethods_mask):
+            yield self.arena.object_at(object_id)
+        for object_id in _iter_bits(self.objs_mask):
+            yield self.arena.object_at(object_id)
 
     def __contains__(self, obj: 'AbstractObject') -> bool:
-        """Check if object is in set."""
-        table = _get_object_table()
-        obj_id = table.lookup_id(obj)
-        if obj_id is None:
+        if self.arena is None:
             return False
-        bit = 1 << obj_id
-        combined_mask = self.objs_mask | self.classmethods_mask | self.instancemethods_mask
-        return bool(combined_mask & bit)
+        object_id = self.arena.lookup(obj)
+        if object_id is None:
+            return False
+        mask = self.objs_mask | self.classmethods_mask | self.instancemethods_mask
+        return bool(mask & (1 << object_id))
 
     def __sub__(self, other: 'PointsToSet') -> 'PointsToSet':
-        """Subtract another points-to set (set difference)."""
-        new_objs = self.objs_mask & ~other.objs_mask
-        new_cms = self.classmethods_mask & ~other.classmethods_mask
-        new_ims = self.instancemethods_mask & ~other.instancemethods_mask
-
-        if new_objs == 0 and new_cms == 0 and new_ims == 0:
+        arena = self._common_arena(other)
+        if arena is None:
             return _EMPTY_PTS
-        if (new_objs == self.objs_mask and new_cms == self.classmethods_mask
-                and new_ims == self.instancemethods_mask):
-            return self
-        return PointsToSet(new_objs, new_cms, new_ims)
+        left = self.rebase(arena)
+        right = other.rebase(arena)
+        masks = (
+            left.objs_mask & ~right.objs_mask,
+            left.classmethods_mask & ~right.classmethods_mask,
+            left.instancemethods_mask & ~right.instancemethods_mask,
+        )
+        if masks == (
+            left.objs_mask,
+            left.classmethods_mask,
+            left.instancemethods_mask,
+        ):
+            return left
+        return PointsToSet(*masks, arena)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointsToSet):
+            return NotImplemented
+        if self.is_empty() and other.is_empty():
+            return True
+        if self.arena is other.arena:
+            return (
+                self.objs_mask == other.objs_mask
+                and self.classmethods_mask == other.classmethods_mask
+                and self.instancemethods_mask == other.instancemethods_mask
+            )
+        return frozenset(self) == frozenset(other)
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self))
 
     def __str__(self) -> str:
-        """String representation for debugging."""
         if self.is_empty():
             return "{}"
-        objs = sorted((str(o) for o in self), key=str)
-        return "{" + ", ".join(objs) + "}"
+        return "{" + ", ".join(sorted(str(obj) for obj in self)) + "}"
 
     def __repr__(self) -> str:
         return f"PointsToSet({self})"
 
-    # Compatibility properties for code that directly accesses the frozenset fields
     @property
     def objects(self) -> FrozenSet['AbstractObject']:
-        """Lazy materialization of objects frozenset for compatibility."""
-        table = _get_object_table()
-        return frozenset(table.get_obj(obj_id) for obj_id in _iter_bits(self.objs_mask))
+        if self.arena is None:
+            return frozenset()
+        return frozenset(
+            self.arena.object_at(object_id)
+            for object_id in _iter_bits(self.objs_mask)
+        )
 
     @property
     def classmethods(self) -> FrozenSet['MethodObject']:
-        """Lazy materialization of classmethods frozenset for compatibility."""
-        table = _get_object_table()
-        return frozenset(table.get_obj(obj_id) for obj_id in _iter_bits(self.classmethods_mask))
+        if self.arena is None:
+            return frozenset()
+        return frozenset(
+            self.arena.object_at(object_id)
+            for object_id in _iter_bits(self.classmethods_mask)
+        )
 
     @property
     def instancemethods(self) -> FrozenSet['MethodObject']:
-        """Lazy materialization of instancemethods frozenset for compatibility."""
-        table = _get_object_table()
-        return frozenset(table.get_obj(obj_id) for obj_id in _iter_bits(self.instancemethods_mask))
+        if self.arena is None:
+            return frozenset()
+        return frozenset(
+            self.arena.object_at(object_id)
+            for object_id in _iter_bits(self.instancemethods_mask)
+        )
 
 
-# Singleton empty set to avoid repeated allocations
 _EMPTY_PTS = PointsToSet(0, 0, 0)

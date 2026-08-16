@@ -10,6 +10,7 @@ from typing import Tuple, Optional, Any, TypeVar, Generic, Union, Literal, TYPE_
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import FunctionObject, ClassObject, ModuleObject
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRScope, IRModule, IRStatement
+from .stable_key import stable_token
 
 if TYPE_CHECKING:
     from .object import AbstractObject, AllocSite
@@ -53,7 +54,7 @@ class CallSite:
     def short_id(self) -> str:
         line, col = self._location()
         if line is None or col is None:
-            return f"{id(self.statement)}:{self.index}"
+            return f"{stable_token(self.scope_name, self.statement)}:{self.index}"
         return f"{line}:{col}:{self.index}"
     
     def _location(self) -> Tuple[Optional[int], Optional[int]]:

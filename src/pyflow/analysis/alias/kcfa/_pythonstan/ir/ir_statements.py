@@ -632,14 +632,14 @@ class IRAwait(IRAbstractStmt):
 class IRDel(IRAbstractStmt):
     """Represents single-target ``del`` statements."""
 
-    value: ast.Name
+    value: ast.expr
     #: The identifier being deleted.
     del_collector: VarCollector
     #: Collector reused to expose delete-set semantics.
 
     def __init__(self, stmt: ast.Delete):
         """Records the symbol removed from the current scope."""
-        assert len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name)
+        assert len(stmt.targets) == 1
         ast.fix_missing_locations(stmt)
         self.value = stmt.targets[0]
         self.del_collector = VarCollector("del")
@@ -653,6 +653,9 @@ class IRDel(IRAbstractStmt):
     def get_dels(self) -> Set[str]:
         """Returns the identifier removed from scope."""
         return self.del_collector.get_vars()
+
+    def get_ast(self):
+        return ast.Delete(targets=[self.value])
 
     def rename(
         self,
