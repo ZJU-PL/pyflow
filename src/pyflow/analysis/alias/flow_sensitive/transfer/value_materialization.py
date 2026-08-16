@@ -122,36 +122,14 @@ class _ValueMaterializationMixin:
                 self._program_point_identity(procedure, operation)
             ] = (targets, slots)
             return
-        if expr is not None and not isinstance(expr, py_ast.Local):
-            expr_locations = self.locations_for_expression(procedure, expr)
-            if expr_locations:
-                for target in targets:
-                    self._bind_runtime_local(
-                        procedure,
-                        target,
-                        expr_locations,
-                    )
-            else:
-                for target in targets:
-                    self._clear_runtime_local(procedure, target)
-            return
-        if isinstance(expr, py_ast.Local):
-            source_locations = self.locations_for_expression(procedure, expr)
-            source_value = self.heap.local_value_for_local(
-                procedure,
-                expr,
-                initialize=False,
-            )
+        if expr is not None:
+            expression_value = self.value_for_expression(procedure, expr)
             for target in targets:
                 self._bind_runtime_local(
                     procedure,
                     target,
-                    source_locations,
-                    may_non_reference=(
-                        source_value.may_non_reference
-                        if source_value is not None
-                        else False
-                    ),
+                    expression_value.refs,
+                    may_non_reference=expression_value.may_non_reference,
                 )
             return
         self.heap.update_assignment_aliases(procedure, targets, expr)

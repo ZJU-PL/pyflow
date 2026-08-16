@@ -386,7 +386,11 @@ class PointerSolver:
                     target_var=str(c.target)
                 )
             self.state.obj_scope[obj] = scope
-            self.handle_new_points_to(target, scope, pts)
+            if isinstance(obj, ClassObject) and obj.base_variables:
+                self.state.defer_class_binding(obj, scope, target)
+                self.state.release_class_binding_if_feasible(obj)
+            else:
+                self.handle_new_points_to(target, scope, pts)
 
     @staticmethod
     def _native_import_path(stmt) -> str:
@@ -590,14 +594,27 @@ class PointerSolver:
         # logger.info(f"alloc class {c}")
         assert isinstance(ir_cls, IRClass), f"AllocSite to be allocated as class {c.alloc_site} should be IRClass, {type(ir_cls)} got!"
 
-        obj = ClassObject(
-            context,
-            c.alloc_site,
-            scope,
-            c.alloc_site.stmt,
-            self.ir_translator.get_class_base_variables(ir_cls),
-            self.ir_translator.get_class_metaclass_variables(ir_cls),
+        base_variables = self.ir_translator.get_class_base_variables(ir_cls)
+        effective_base_variables = tuple(
+            Variable(
+                name=f"$effective_base@{id(ir_cls)}@{index}",
+                kind=VariableKind.TEMPORARY,
+            )
+            for index in range(len(base_variables))
         )
+        obj = ClassObject(
+            context=context,
+            alloc_site=c.alloc_site,
+            container_scope=scope,
+            ir=c.alloc_site.stmt,
+            base_variables=base_variables,
+            metaclass_variables=(
+                self.ir_translator.get_class_metaclass_variables(ir_cls)
+            ),
+            effective_base_variables=effective_base_variables,
+        )
+        if self.class_hierarchy is not None:
+            self.class_hierarchy.add_class(obj)
         
         cls_context = self.context_selector.select_alloc_context(context, obj)
         
@@ -646,7 +663,75 @@ class PointerSolver:
             if self.config.debug_inheritance:
                 logger.info(f"[CLASS] Storing field {obj.alloc_site.stmt.name}.{inner_var.name}: {ctx_inner_var} -> {ctx_field}")
 
+        self._install_class_base_resolution(scope, context, obj)
+
         return obj
+
+    def _install_class_base_resolution(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        class_obj: 'ClassObject',
+    ) -> None:
+        """Install PEP 560 effective-base expansion for a new class."""
+        if not class_obj.base_variables:
+            return
+
+        tuple_name = f"$original_bases@{id(class_obj.ir)}"
+        original_bases = Variable(
+            name=tuple_name,
+            kind=VariableKind.TEMPORARY,
+        )
+        tuple_ast = ast.Tuple(
+            elts=[
+                ast.Name(id=base_var.name, ctx=ast.Load())
+                for base_var in class_obj.base_variables
+            ],
+            ctx=ast.Load(),
+        )
+        tuple_assign = IRAssign(ast.Assign(
+            targets=[ast.Name(id=tuple_name, ctx=ast.Store())],
+            value=tuple_ast,
+        ))
+        self.add_constraint(
+            scope,
+            context,
+            AllocConstraint(
+                target=original_bases,
+                alloc_site=AllocSite.from_ir_node(
+                    tuple_assign, AllocKind.TUPLE
+                ),
+            ),
+        )
+        for index, base_var in enumerate(class_obj.base_variables):
+            self.add_constraint(
+                scope,
+                context,
+                StoreConstraint(
+                    base=original_bases,
+                    field=key(index),
+                    source=base_var,
+                ),
+            )
+            self.add_constraint(
+                scope,
+                context,
+                StoreConstraint(
+                    base=original_bases,
+                    field=elem(),
+                    source=base_var,
+                ),
+            )
+            self.add_constraint(
+                scope,
+                context,
+                BaseResolutionConstraint(
+                    base=base_var,
+                    owner=class_obj,
+                    position=index,
+                    original_bases=original_bases,
+                ),
+            )
 
     def _alloc_module(self, scope: 'Scope', context: 'AbstractContext', c: 'AllocConstraint') -> 'ModuleObject':
         assert c.alloc_site.kind == AllocKind.MODULE, "AllocSite kind in module allocation should be Module"

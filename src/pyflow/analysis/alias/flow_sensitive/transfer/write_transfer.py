@@ -148,7 +148,9 @@ class _WriteTransferMixin:
     ) -> None:
         value = stored_value
         if value is not None:
-            value_locations = self.locations_for_expression(procedure, value)
+            expression_value = self.value_for_expression(procedure, value)
+            value_locations = expression_value.refs
+            has_non_reference = expression_value.may_non_reference
             if isinstance(operation, py_ast.SetSlice):
                 value_locations = self._expand_contained_locations(value_locations)
             # Don't return early when value_locations is empty: write()
@@ -165,6 +167,7 @@ class _WriteTransferMixin:
             if not coll_value_locs:
                 return
             value_locations = coll_value_locs
+            has_non_reference = False
         for write in writes:
             location = getattr(write, "location", None)
             policy = getattr(write, "policy", None)
@@ -182,7 +185,7 @@ class _WriteTransferMixin:
                         else UpdatePolicy.WEAK
                     )
                 ),
-                has_non_reference=value is not None and not value_locations,
+                has_non_reference=has_non_reference,
             )
             if isinstance(operation, py_ast.SetGlobal):
                 module = self._module_locations_by_owner.get(
@@ -197,7 +200,7 @@ class _WriteTransferMixin:
                         ),
                         tuple(dict.fromkeys(value_locations)),
                         UpdatePolicy.STRONG,
-                        has_non_reference=(value is not None and not value_locations),
+                        has_non_reference=has_non_reference,
                     )
         if isinstance(operation, py_ast.SetSubscript):
             key_locations = self.locations_for_expression(

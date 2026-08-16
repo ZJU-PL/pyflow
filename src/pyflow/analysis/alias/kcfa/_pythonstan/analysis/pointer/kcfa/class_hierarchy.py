@@ -237,16 +237,8 @@ def compute_c3_mro(
         base_mros.append(base_mro)
     
     # C3 linearization: L(C) = [C] + merge(L(B1), L(B2), ..., [B1, B2, ...])
-    try:
-        merged = _c3_merge(base_mros + [bases])
-        return [class_obj] + merged
-    except MROError:
-        # If merge fails, fall back to simple linearization
-        # Use first base's MRO
-        if base_mros:
-            return [class_obj] + base_mros[0]
-        else:
-            return [class_obj]
+    merged = _c3_merge(base_mros + [bases])
+    return [class_obj] + merged
 
 
 def compute_c3_mro_for_bases(
@@ -261,15 +253,7 @@ def compute_c3_mro_for_bases(
         if not hierarchy.has_class(base_obj):
             hierarchy.add_class(base_obj)
         base_mros.append(compute_c3_mro(base_obj, hierarchy))
-    try:
-        return _c3_merge(base_mros + [list(bases)])
-    except MROError:
-        result = []
-        for sequence in base_mros:
-            for candidate in sequence:
-                if candidate not in result:
-                    result.append(candidate)
-        return result
+    return _c3_merge(base_mros + [list(bases)])
 
 
 def _c3_merge(sequences: List[List['AbstractObject']]) -> List['AbstractObject']:

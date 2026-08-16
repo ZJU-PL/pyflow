@@ -1049,6 +1049,7 @@ any_distance = _config.settings.generator_selection.generator_any_distance
         # none
         (type(None), int, None),
         (int, type(None), None),
+        (type(None), type(None), 0),
         # any
         (Any, int, any_distance),
         (int, Any, any_distance),
@@ -1100,13 +1101,14 @@ any_distance = _config.settings.generator_selection.generator_any_distance
         (list, list, any_distance),
         (list[int], list, any_distance),
         (list[int], list[int], 0),
-        (list[object], list[int], 1),
+        (list[object], list[int], None),
         (list[int], list[str], None),
+        (list[int], dict[int, str], None),
         # set
         (set, set, any_distance),
         (set[int], set, any_distance),
         (set[int], set[int], 0),
-        (set[object], set[int], 1),
+        (set[object], set[int], None),
         (set[int], set[str], None),
         # dict
         (dict, dict, 2 * any_distance),
@@ -1114,15 +1116,19 @@ any_distance = _config.settings.generator_selection.generator_any_distance
         (dict[int], dict[int, int], any_distance),
         (dict[int, int], dict, 2 * any_distance),
         (dict[int, int], dict[int, int], 0),
-        (dict[object, int], dict[int, int], 1),
-        (dict[object, object], dict[int, int], 2),
+        (dict[object, int], dict[int, int], None),
+        (dict[object, object], dict[int, int], None),
         (dict[int, int], dict[str, int], None),
         # tuple
         (tuple, tuple, any_distance),
-        (tuple[int], tuple, any_distance),
+        (tuple[int], tuple, None),
         (tuple[int], tuple[int], 0),
         (tuple[object], tuple[int], 1),
         (tuple[int], tuple[str], None),
+        (tuple[object, ...], tuple[int, int], 2),
+        # callable
+        (Callable[[int], object], Callable[[object], int], 2),
+        (Callable[[int], int], Callable[[int], int], 0),
     ],
 )
 def test_subtype_distance(subtyping_cluster, left_hint, right_hint, subtype_distance):

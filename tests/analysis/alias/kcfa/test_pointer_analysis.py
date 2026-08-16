@@ -169,6 +169,75 @@ y = C.x
 
         assert result.points_to("sentinel") <= result.points_to("y")
 
+    def test_class_must_presence_with_suppressed_exception(self) -> None:
+        source = """
+sentinel = object()
+
+class B:
+    x = sentinel
+
+class Suppress:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, typ, val, tb):
+        return True
+
+class C(B):
+    with Suppress():
+        raise RuntimeError
+        x = object()
+
+y = C.x
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("sentinel") <= result.points_to("y")
+
+    def test_class_base_mro_entries(self) -> None:
+        source = """
+sentinel = object()
+
+class A:
+    x = sentinel
+
+class Proxy:
+    def __mro_entries__(self, bases):
+        return (A,)
+
+class C(Proxy()):
+    pass
+
+y = C.x
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y") == result.points_to("sentinel")
+
+    def test_inconsistent_c3_is_not_treated_as_instantiable(self) -> None:
+        source = """
+class X:
+    pass
+
+class Y:
+    pass
+
+class A(X, Y):
+    pass
+
+class B(Y, X):
+    pass
+
+class C(A, B):
+    pass
+
+value = C()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert not result.points_to("C")
+        assert not result.points_to("value")
+
     def test_local_lexical_class_base_is_resolved(self) -> None:
         source = """
 def make_child():

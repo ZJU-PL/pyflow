@@ -144,7 +144,12 @@ class _BindingTransferMixin:
     ) -> None:
         declared = self._declared_location(procedure, local)
         if declared is not None:
-            self.state.write(declared, locations, UpdatePolicy.STRONG)
+            self.state.write(
+                declared,
+                locations,
+                UpdatePolicy.STRONG,
+                has_non_reference=may_non_reference,
+            )
             return
         if not locations:
             self.heap.clear_local_binding(procedure, local)

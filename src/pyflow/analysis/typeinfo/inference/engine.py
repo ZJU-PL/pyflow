@@ -22,12 +22,14 @@ from typing import Callable, Iterable, cast
 
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
+    NEVER,
     NONE_TYPE,
     CallableType,
     Instance,
     NoneType,
     ProperType,
     TupleType,
+    TypeType,
     TypeSystem,
     TypeVarType,
     Variance,
@@ -597,7 +599,11 @@ class StaticTypeInferenceEngine:
                 )
                 returns = list(outcome.returns)
                 if not returns:
-                    returns.append(AbstractTypeValue.from_type(NONE_TYPE))
+                    returns.append(
+                        AbstractTypeValue.from_type(
+                            NEVER if outcome.terminated else NONE_TYPE
+                        )
+                    )
                 return_value = join_all(
                     returns,
                     self.type_system,
@@ -790,6 +796,8 @@ class StaticTypeInferenceEngine:
             value = self._evaluate_expression(
                 node.value, result, scope=scope, current_function=current_function
             )
+            if self._is_never_value(value):
+                return _Outcome(result, terminated=True)
             for target in node.targets:
                 self._assign_target(target, value, result, current_function)
             return _Outcome(result)
@@ -803,6 +811,8 @@ class StaticTypeInferenceEngine:
                     scope=scope,
                     current_function=current_function,
                 )
+                if self._is_never_value(inferred):
+                    return _Outcome(result, terminated=True)
                 self._check_annotation_compatibility(
                     inferred, annotated, node, context="annotated assignment"
                 )
@@ -816,6 +826,8 @@ class StaticTypeInferenceEngine:
             right = self._evaluate_expression(
                 node.value, result, scope=scope, current_function=current_function
             )
+            if self._is_never_value(left) or self._is_never_value(right):
+                return _Outcome(result, terminated=True)
             value = self._binary_result(left, right, node.op)
             self._assign_target(node.target, value, result, current_function)
             return _Outcome(result)
@@ -829,7 +841,11 @@ class StaticTypeInferenceEngine:
                 if isinstance(node.value, (ast.Yield, ast.YieldFrom))
                 else []
             )
-            return _Outcome(result, yields=yields)
+            return _Outcome(
+                result,
+                yields=yields,
+                terminated=self._is_never_value(value),
+            )
 
         if isinstance(node, ast.Return):
             value = (
@@ -845,9 +861,11 @@ class StaticTypeInferenceEngine:
             return _Outcome(result, returns=[value], terminated=True)
 
         if isinstance(node, ast.If):
-            self._evaluate_expression(
+            test = self._evaluate_expression(
                 node.test, result, scope=scope, current_function=current_function
             )
+            if self._is_never_value(test):
+                return _Outcome(result, terminated=True)
             true_env = self._narrow_environment(node.test, result, truthy=True)
             false_env = self._narrow_environment(node.test, result, truthy=False)
             true_outcome = self._execute_block(
@@ -888,6 +906,8 @@ class StaticTypeInferenceEngine:
                     scope=scope,
                     current_function=current_function,
                 )
+                if self._is_never_value(context):
+                    return _Outcome(result, terminated=True)
                 if item.optional_vars is not None:
                     self._assign_target(
                         item.optional_vars,
@@ -955,9 +975,11 @@ class StaticTypeInferenceEngine:
             return _Outcome(merged, returns, yields)
 
         if isinstance(node, ast.Assert):
-            self._evaluate_expression(
+            test = self._evaluate_expression(
                 node.test, result, scope=scope, current_function=current_function
             )
+            if self._is_never_value(test):
+                return _Outcome(result, terminated=True)
             return _Outcome(
                 self._narrow_environment(node.test, result, truthy=True)
             )
@@ -969,6 +991,8 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
+            if self._is_never_value(subject):
+                return _Outcome(result, terminated=True)
             match_outcomes: list[_Outcome] = []
             for case in node.cases:
                 case_environment = self._narrow_pattern(
@@ -1066,12 +1090,14 @@ class StaticTypeInferenceEngine:
         for _ in range(self.options.max_loop_iterations):
             body_env = dict(head)
             if isinstance(node, ast.While):
-                self._evaluate_expression(
+                test = self._evaluate_expression(
                     node.test,
                     body_env,
                     scope=scope,
                     current_function=current_function,
                 )
+                if self._is_never_value(test):
+                    return _Outcome(body_env, returns, yields, terminated=True)
                 body_env = self._narrow_environment(
                     node.test, body_env, truthy=True
                 )
@@ -1082,6 +1108,8 @@ class StaticTypeInferenceEngine:
                     scope=scope,
                     current_function=current_function,
                 )
+                if self._is_never_value(iterable):
+                    return _Outcome(body_env, returns, yields, terminated=True)
                 self._assign_target(
                     node.target,
                     self._iterable_element(iterable),
@@ -1144,24 +1172,36 @@ class StaticTypeInferenceEngine:
             element = self._evaluate_many(
                 node.elts, environment, scope, current_function
             )
-            value = self._instance(list, element.public_type() or ANY)
+            value = (
+                element
+                if self._is_never_value(element)
+                else self._instance(list, element.public_type() or ANY)
+            )
         elif isinstance(node, ast.Set):
             element = self._evaluate_many(
                 node.elts, environment, scope, current_function
             )
-            value = self._instance(set, element.public_type() or ANY)
+            value = (
+                element
+                if self._is_never_value(element)
+                else self._instance(set, element.public_type() or ANY)
+            )
         elif isinstance(node, ast.Tuple):
-            elements = tuple(
+            evaluated = [
                 self._evaluate_expression(
                     item,
                     environment,
                     scope=scope,
                     current_function=current_function,
-                ).public_type()
-                or ANY
+                )
                 for item in node.elts
-            )
-            value = AbstractTypeValue.from_type(TupleType(elements))
+            ]
+            if any(self._is_never_value(item) for item in evaluated):
+                value = AbstractTypeValue.from_type(NEVER)
+            else:
+                value = AbstractTypeValue.from_type(
+                    TupleType(tuple(item.public_type() or ANY for item in evaluated))
+                )
         elif isinstance(node, ast.Dict):
             keys = self._evaluate_many(
                 (item for item in node.keys if item is not None),
@@ -1172,11 +1212,14 @@ class StaticTypeInferenceEngine:
             values = self._evaluate_many(
                 node.values, environment, scope, current_function
             )
-            value = self._instance(
-                dict,
-                keys.public_type() or ANY,
-                values.public_type() or ANY,
-            )
+            if self._is_never_value(keys) or self._is_never_value(values):
+                value = AbstractTypeValue.from_type(NEVER)
+            else:
+                value = self._instance(
+                    dict,
+                    keys.public_type() or ANY,
+                    values.public_type() or ANY,
+                )
         elif isinstance(node, ast.BinOp):
             left = self._evaluate_expression(
                 node.left, environment, scope=scope, current_function=current_function
@@ -1184,7 +1227,11 @@ class StaticTypeInferenceEngine:
             right = self._evaluate_expression(
                 node.right, environment, scope=scope, current_function=current_function
             )
-            value = self._binary_result(left, right, node.op)
+            value = (
+                AbstractTypeValue.from_type(NEVER)
+                if self._is_never_value(left) or self._is_never_value(right)
+                else self._binary_result(left, right, node.op)
+            )
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate_expression(
                 node.operand,
@@ -1192,39 +1239,66 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
-            value = self._instance(bool) if isinstance(node.op, ast.Not) else operand
-        elif isinstance(node, (ast.Compare, ast.BoolOp)):
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, ast.expr):
+            value = (
+                operand
+                if self._is_never_value(operand)
+                else self._instance(bool) if isinstance(node.op, ast.Not) else operand
+            )
+        elif isinstance(node, ast.Compare):
+            operands = [
+                self._evaluate_expression(
+                    child,
+                    environment,
+                    scope=scope,
+                    current_function=current_function,
+                )
+                for child in (node.left, *node.comparators)
+            ]
+            value = (
+                AbstractTypeValue.from_type(NEVER)
+                if any(self._is_never_value(item) for item in operands)
+                else self._instance(bool)
+            )
+        elif isinstance(node, ast.BoolOp):
+            first = self._evaluate_expression(
+                node.values[0],
+                environment,
+                scope=scope,
+                current_function=current_function,
+            )
+            if self._is_never_value(first):
+                value = first
+            else:
+                rest = [
                     self._evaluate_expression(
-                        child,
+                        item,
                         environment,
                         scope=scope,
                         current_function=current_function,
                     )
-            if isinstance(node, ast.BoolOp):
-                value = self._evaluate_many(
-                    node.values, environment, scope, current_function
-                )
-            else:
-                value = self._instance(bool)
+                    for item in node.values[1:]
+                ]
+                value = self._join_normal_results((first, *rest))
         elif isinstance(node, ast.IfExp):
-            self._evaluate_expression(
+            test = self._evaluate_expression(
                 node.test, environment, scope=scope, current_function=current_function
             )
-            left = self._evaluate_expression(
-                node.body,
-                self._narrow_environment(node.test, environment, truthy=True),
-                scope=scope,
-                current_function=current_function,
-            )
-            right = self._evaluate_expression(
-                node.orelse,
-                self._narrow_environment(node.test, environment, truthy=False),
-                scope=scope,
-                current_function=current_function,
-            )
-            value = self._join(left, right)
+            if self._is_never_value(test):
+                value = test
+            else:
+                left = self._evaluate_expression(
+                    node.body,
+                    self._narrow_environment(node.test, environment, truthy=True),
+                    scope=scope,
+                    current_function=current_function,
+                )
+                right = self._evaluate_expression(
+                    node.orelse,
+                    self._narrow_environment(node.test, environment, truthy=False),
+                    scope=scope,
+                    current_function=current_function,
+                )
+                value = self._join_normal_results((left, right))
         elif isinstance(node, ast.Call):
             value = self._evaluate_call(node, environment, scope, current_function)
         elif isinstance(node, ast.Attribute):
@@ -1234,7 +1308,11 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
-            value = self._attribute_value(base, node.attr)
+            value = (
+                base
+                if self._is_never_value(base)
+                else self._attribute_value(base, node.attr)
+            )
         elif isinstance(node, ast.Subscript):
             base = self._evaluate_expression(
                 node.value,
@@ -1242,13 +1320,17 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
-            self._evaluate_expression(
+            index = self._evaluate_expression(
                 node.slice,
                 environment,
                 scope=scope,
                 current_function=current_function,
             )
-            value = self._subscript_value(base, node.slice)
+            value = (
+                AbstractTypeValue.from_type(NEVER)
+                if self._is_never_value(base) or self._is_never_value(index)
+                else self._subscript_value(base, node.slice)
+            )
         elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
             local_env = self._comprehension_environment(
                 node.generators, environment, scope, current_function
@@ -1297,7 +1379,11 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
-            value = self._unwrap_single_generic(awaited)
+            value = (
+                awaited
+                if self._is_never_value(awaited)
+                else self._unwrap_single_generic(awaited)
+            )
         elif isinstance(node, (ast.Yield, ast.YieldFrom)):
             value = (
                 AbstractTypeValue.from_type(NONE_TYPE)
@@ -1342,6 +1428,10 @@ class StaticTypeInferenceEngine:
             for keyword in node.keywords
             if keyword.arg is not None
         }
+        if any(self._is_never_value(value) for value in arguments) or any(
+            self._is_never_value(value) for value in keywords.values()
+        ):
+            return AbstractTypeValue.from_type(NEVER)
 
         qualified_callee = self._qualified_callee_name(node.func)
         if qualified_callee is not None:
@@ -1363,6 +1453,8 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
+            if self._is_never_value(base):
+                return base
             method_result = self._call_attribute(
                 node.func,
                 base,
@@ -1379,6 +1471,8 @@ class StaticTypeInferenceEngine:
             scope=scope,
             current_function=current_function,
         )
+        if self._is_never_value(callee):
+            return callee
         results: list[AbstractTypeValue] = []
         for class_target in callee.class_targets:
             class_info = self._classes.get(class_target)
@@ -1487,7 +1581,12 @@ class StaticTypeInferenceEngine:
             return self._instance(str)
         if name == "range":
             return self._instance(range)
-        if name in {"iter", "reversed"}:
+        if name == "iter":
+            if len(arguments) > 1:
+                callable_return = self._callable_return_type(arguments[0])
+                return self._instance(
+                    cabc.Iterator, callable_return.public_type() or ANY
+                )
             iterator_element = (
                 self._iterable_element(arguments[0])
                 if arguments
@@ -1495,6 +1594,15 @@ class StaticTypeInferenceEngine:
             )
             return self._instance(
                 cabc.Iterator, iterator_element.public_type() or ANY
+            )
+        if name == "reversed":
+            reversed_element = (
+                self._iterable_element(arguments[0])
+                if arguments
+                else AbstractTypeValue.unresolved()
+            )
+            return self._instance(
+                cabc.Iterator, reversed_element.public_type() or ANY
             )
         if name == "filter":
             filtered_element = (
@@ -1522,31 +1630,38 @@ class StaticTypeInferenceEngine:
             )
             return self._instance(cabc.Iterator, TupleType(elements))
         if name == "map":
-            returns = [
-                AbstractTypeValue.from_type(typ.return_type)
-                for typ in (arguments[0].types if arguments else ())
-                if isinstance(typ, CallableType)
-            ]
             mapped_element = (
-                join_all(
-                    returns,
-                    self.type_system,
-                    max_union_size=self.options.max_union_size,
-                )
-                if returns
+                self._callable_return_type(arguments[0])
+                if arguments
                 else AbstractTypeValue.unresolved()
             )
             return self._instance(
                 cabc.Iterator, mapped_element.public_type() or ANY
             )
-        if name in {"min", "max", "next"} and arguments:
+        if name in {"min", "max"} and arguments:
+            if len(arguments) == 1:
+                return self._iterable_element(arguments[0])
+            return join_all(
+                arguments,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
+        if name == "next" and arguments:
             return self._iterable_element(arguments[0])
         if name == "sum":
-            return self._numeric_join(arguments) if arguments else self._instance(int)
+            if not arguments:
+                return self._instance(int)
+            element = self._iterable_element(arguments[0])
+            start = arguments[1] if len(arguments) > 1 else self._instance(int)
+            return self._binary_result(start, element, ast.Add())
         if name == "sorted" and arguments:
             sorted_element = self._iterable_element(arguments[0])
             return self._instance(list, sorted_element.public_type() or ANY)
         if name == "type":
+            if len(arguments) == 1:
+                return AbstractTypeValue.from_type(
+                    TypeType(arguments[0].public_type() or ANY)
+                )
             return self._instance(type)
         return None
 
@@ -1581,37 +1696,23 @@ class StaticTypeInferenceEngine:
                 max_union_size=self.options.max_union_size,
             )
 
-        raw_types = {
-            typ.type.raw_type
+        text_results = [
+            result
             for typ in base.types
-            if isinstance(typ, Instance)
-        }
-        if raw_types and raw_types <= {str, bytes}:
-            if node.attr == "encode" and str in raw_types:
-                return self._instance(bytes)
-            if node.attr == "decode" and bytes in raw_types:
-                return self._instance(str)
-            if node.attr in {
-                "capitalize", "casefold", "center", "expandtabs",
-                "format", "format_map", "join", "ljust", "lower", "lstrip",
-                "removeprefix", "removesuffix", "replace", "rjust", "rstrip",
-                "strip", "swapcase", "title", "translate", "upper", "zfill",
-            }:
-                return self._instance(str if str in raw_types else bytes)
-            if node.attr in {
-                "endswith", "isalnum", "isalpha", "isascii", "isdecimal", "isdigit",
-                "isidentifier", "islower", "isnumeric", "isprintable", "isspace",
-                "istitle", "isupper", "startswith",
-            }:
-                return self._instance(bool)
-            if node.attr in {"count", "find", "index", "rfind", "rindex"}:
-                return self._instance(int)
-            if node.attr in {"partition", "rpartition"}:
-                element = self._proper_instance(str if str in raw_types else bytes)
-                return AbstractTypeValue.from_type(TupleType((element, element, element)))
-            if node.attr in {"split", "rsplit", "splitlines"}:
-                element = self._proper_instance(str if str in raw_types else bytes)
-                return self._instance(list, element)
+            if isinstance(typ, Instance) and typ.type.raw_type in {str, bytes}
+            if (
+                result := self._model_text_method(
+                    cast(type, typ.type.raw_type), node.attr
+                )
+            )
+            is not None
+        ]
+        if text_results:
+            return join_all(
+                text_results,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
 
         for typ in base.types:
             if not isinstance(typ, Instance):
@@ -1651,13 +1752,61 @@ class StaticTypeInferenceEngine:
                 if node.attr in {"setdefault", "pop"}:
                     return AbstractTypeValue.from_type(item)
                 if node.attr == "keys":
-                    return self._instance(list, key)
+                    return self._instance(cabc.KeysView, key)
                 if node.attr == "values":
-                    return self._instance(list, item)
+                    return self._instance(cabc.ValuesView, item)
                 if node.attr == "items":
-                    return self._instance(list, TupleType((key, item)))
+                    return self._instance(cabc.ItemsView, key, item)
                 if node.attr in {"update", "clear"}:
                     return AbstractTypeValue.from_type(NONE_TYPE)
+        return None
+
+    def _model_text_method(
+        self, receiver: type, attribute: str
+    ) -> AbstractTypeValue | None:
+        """Model one ``str`` or ``bytes`` receiver alternative."""
+        preserving: dict[type, set[str]] = {
+            str: {
+                "capitalize", "casefold", "center", "expandtabs", "format",
+                "format_map", "join", "ljust", "lower", "lstrip",
+                "removeprefix", "removesuffix", "replace", "rjust", "rstrip",
+                "strip", "swapcase", "title", "translate", "upper", "zfill",
+            },
+            bytes: {
+                "capitalize", "center", "expandtabs", "join", "ljust", "lower",
+                "lstrip", "removeprefix", "removesuffix", "replace", "rjust",
+                "rstrip", "strip", "swapcase", "title", "translate", "upper",
+                "zfill",
+            },
+        }
+        predicates: dict[type, set[str]] = {
+            str: {
+                "endswith", "isalnum", "isalpha", "isascii", "isdecimal",
+                "isdigit", "isidentifier", "islower", "isnumeric", "isprintable",
+                "isspace", "istitle", "isupper", "startswith",
+            },
+            bytes: {
+                "endswith", "isalnum", "isalpha", "isascii", "isdigit", "islower",
+                "isspace", "istitle", "isupper", "startswith",
+            },
+        }
+        if attribute == "encode" and receiver is str:
+            return self._instance(bytes)
+        if attribute == "decode" and receiver is bytes:
+            return self._instance(str)
+        if attribute in preserving[receiver]:
+            return self._instance(receiver)
+        if attribute in predicates[receiver]:
+            return self._instance(bool)
+        if attribute in {"count", "find", "index", "rfind", "rindex"}:
+            return self._instance(int)
+        element = self._proper_instance(receiver)
+        if attribute in {"partition", "rpartition"}:
+            return AbstractTypeValue.from_type(
+                TupleType((element, element, element))
+            )
+        if attribute in {"split", "rsplit", "splitlines"}:
+            return self._instance(list, element)
         return None
 
     # ------------------------------------------------------------------
@@ -2331,6 +2480,14 @@ class StaticTypeInferenceEngine:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
                 elif raw in {cabc.Iterable, cabc.Iterator, cabc.Generator} and typ.args:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
+                elif raw in {cabc.KeysView, cabc.ValuesView} and typ.args:
+                    elements.append(AbstractTypeValue.from_type(typ.args[0]))
+                elif raw is cabc.ItemsView and len(typ.args) >= 2:
+                    elements.append(
+                        AbstractTypeValue.from_type(
+                            TupleType((typ.args[0], typ.args[1]))
+                        )
+                    )
                 elif raw is str:
                     elements.append(self._instance(str))
                 elif raw is bytes:
@@ -2344,6 +2501,24 @@ class StaticTypeInferenceEngine:
                 max_union_size=self.options.max_union_size,
             )
             if elements
+            else AbstractTypeValue.unresolved()
+        )
+
+    def _callable_return_type(
+        self, value: AbstractTypeValue
+    ) -> AbstractTypeValue:
+        returns = [
+            AbstractTypeValue.from_type(typ.return_type)
+            for typ in value.types
+            if isinstance(typ, CallableType)
+        ]
+        return (
+            join_all(
+                returns,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
+            if returns
             else AbstractTypeValue.unresolved()
         )
 
@@ -2446,16 +2621,19 @@ class StaticTypeInferenceEngine:
         scope: str,
         current_function: _FunctionInfo | None,
     ) -> AbstractTypeValue:
+        values = [
+            self._evaluate_expression(
+                node,
+                environment,
+                scope=scope,
+                current_function=current_function,
+            )
+            for node in nodes
+        ]
+        if any(self._is_never_value(value) for value in values):
+            return AbstractTypeValue.from_type(NEVER)
         return join_all(
-            (
-                self._evaluate_expression(
-                    node,
-                    environment,
-                    scope=scope,
-                    current_function=current_function,
-                )
-                for node in nodes
-            ),
+            values,
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
@@ -2483,6 +2661,20 @@ class StaticTypeInferenceEngine:
     ) -> AbstractTypeValue:
         return left.join(
             right,
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+
+    def _join_normal_results(
+        self, values: Iterable[AbstractTypeValue]
+    ) -> AbstractTypeValue:
+        """Join values from branches that can complete normally."""
+        candidates = list(values)
+        normal = [
+            value for value in candidates if not self._is_never_value(value)
+        ]
+        return join_all(
+            normal or candidates,
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
@@ -2543,6 +2735,11 @@ class StaticTypeInferenceEngine:
             isinstance(typ, Instance) and typ.type.raw_type is raw_type
             for typ in value.types
         )
+
+    @staticmethod
+    def _is_never_value(value: AbstractTypeValue) -> bool:
+        """Whether evaluating a value cannot complete normally."""
+        return not value.unknown and value.types == frozenset((NEVER,))
 
     def _remove_none(self, value: AbstractTypeValue) -> AbstractTypeValue:
         return value.without_type(NoneType)

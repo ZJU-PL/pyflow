@@ -16,11 +16,13 @@ from pyflow.analysis.typeinfo import (
 )
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
+    NEVER,
     CallableType,
     Instance,
     NoneType,
     TupleType,
     TypeSystem,
+    TypeType,
     UnionType,
 )
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
@@ -545,6 +547,172 @@ def test_string_encode_and_bytes_decode_return_opposite_binary_types() -> None:
 
     assert _raw_types(result.type_of("encoded")) == {bytes}
     assert _raw_types(result.type_of("decoded")) == {str}
+
+
+def test_never_returning_function_does_not_infer_none_or_fall_through() -> None:
+    result = StaticTypeInferenceEngine(
+        options=InferenceOptions(strict_annotations=True)
+    ).infer_source(
+        "sample",
+        """
+from typing import Never
+
+def fail() -> Never:
+    raise RuntimeError()
+
+fail()
+unreachable = 42
+""",
+    )
+
+    assert result.functions["sample.fail"].return_type is NEVER
+    assert result.type_of("unreachable") is None
+    assert not any(item.code == "annotation-mismatch" for item in result.diagnostics)
+
+
+def test_never_propagates_through_nested_and_binary_expressions() -> None:
+    nested = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+from typing import Never
+
+def identity(value):
+    return value
+
+def fail() -> Never:
+    raise RuntimeError()
+
+result = identity(fail())
+unreachable = 1
+""",
+    )
+    binary = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+from typing import Never
+
+def fail() -> Never:
+    raise RuntimeError()
+
+result = fail() + 1
+unreachable = 1
+""",
+    )
+
+    assert nested.type_of("result") is None
+    assert nested.type_of("unreachable") is None
+    assert binary.type_of("result") is None
+    assert binary.type_of("unreachable") is None
+
+
+def test_never_in_optional_expression_branch_keeps_normal_completion() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+from typing import Never
+
+def fail() -> Never:
+    raise RuntimeError()
+
+conditional = fail() if flag else 1
+short_circuit = flag and fail()
+reachable = 1
+""",
+    )
+
+    assert _raw_types(result.type_of("conditional")) == {int}
+    assert result.type_of("reachable") is not None
+
+
+def test_builtin_min_max_sum_and_iter_overloads() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+def produce() -> int:
+    return 1
+
+minimum = min(1, 2)
+maximum = max(1.0, 2.0)
+total = sum([1, 2])
+float_total = sum([1.5, 2.5])
+generated = iter(produce, 0)
+""",
+    )
+
+    assert _raw_types(result.type_of("minimum")) == {int}
+    assert _raw_types(result.type_of("maximum")) == {float}
+    assert _raw_types(result.type_of("total")) == {int}
+    assert _raw_types(result.type_of("float_total")) == {float}
+    generated = result.type_of("generated")
+    assert isinstance(generated, Instance)
+    assert generated.type.raw_type is cabc.Iterator
+    assert _raw_types(generated.args[0]) == {int}
+
+
+def test_text_methods_join_str_and_bytes_receiver_alternatives() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+value = "a" if flag else b"a"
+upper = value.upper()
+parts = value.split()
+""",
+    )
+
+    assert _raw_types(result.type_of("upper")) == {str, bytes}
+    parts = result.type_of("parts")
+    assert isinstance(parts, UnionType)
+    element_types = {
+        item.args[0].type.raw_type
+        for item in parts.items
+        if isinstance(item, Instance)
+        and item.type.raw_type is list
+        and isinstance(item.args[0], Instance)
+    }
+    assert element_types == {str, bytes}
+
+
+def test_runtime_type_uses_type_type_and_preserves_known_union() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+single = type(1)
+value = 1 if flag else "a"
+union_type = type(value)
+""",
+    )
+
+    single = result.type_of("single")
+    assert isinstance(single, TypeType)
+    assert _raw_types(single.item) == {int}
+    union_type = result.type_of("union_type")
+    assert isinstance(union_type, TypeType)
+    assert _raw_types(union_type.item) == {int, str}
+
+
+def test_dict_view_methods_return_view_types() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+mapping = {"a": 1}
+keys = mapping.keys()
+values = mapping.values()
+items = mapping.items()
+first_key = list(keys)[0]
+first_item = list(items)[0]
+""",
+    )
+
+    keys = result.type_of("keys")
+    values = result.type_of("values")
+    items = result.type_of("items")
+    assert isinstance(keys, Instance) and keys.type.raw_type is cabc.KeysView
+    assert isinstance(values, Instance) and values.type.raw_type is cabc.ValuesView
+    assert isinstance(items, Instance) and items.type.raw_type is cabc.ItemsView
+    assert _raw_types(result.type_of("first_key")) == {str}
+    first_item = result.type_of("first_item")
+    assert isinstance(first_item, TupleType)
+    assert [_raw_types(item) for item in first_item.args] == [{str}, {int}]
 
 
 def test_async_calls_and_await_keep_result_types() -> None:

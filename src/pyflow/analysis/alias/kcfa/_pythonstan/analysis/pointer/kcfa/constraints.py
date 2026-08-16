@@ -23,6 +23,9 @@ __all__ = [
     "Constraint",
     "CopyConstraint",
     "InheritanceConstraint",
+    "BaseResolutionConstraint",
+    "MROEntriesResultConstraint",
+    "MROEntriesElementConstraint",
     "LoadConstraint",
     "AttrReadConstraint",
     "AttrWriteConstraint",
@@ -34,6 +37,7 @@ __all__ = [
     "MetaclassCallConstraint",
     "MetaclassBaseCallConstraint",
     "InheritedMetaclassCallConstraint",
+    "ClassBaseCallConstraint",
     "argument_source_signature",
     "ReturnConstraint",
     "RaiseConstraint",
@@ -225,6 +229,53 @@ class InheritanceConstraint(Constraint):
     
     def __str__(self) -> str:
         return f"InheritanceConstraint: {self.base}.{self.field} -[{self.index}]-> {self.target}"
+
+
+@dataclass(frozen=True)
+class BaseResolutionConstraint(Constraint):
+    """Resolve one syntactic class base into an effective base sequence."""
+
+    base: 'Variable'
+    owner: 'AbstractObject'
+    position: int
+    original_bases: 'Variable'
+
+    def variables(self) -> Set['Variable']:
+        return {self.base, self.original_bases}
+
+    def __str__(self) -> str:
+        return f"BaseResolutionConstraint: {self.owner}[{self.position}] <- {self.base}"
+
+
+@dataclass(frozen=True)
+class MROEntriesResultConstraint(Constraint):
+    """Validate and unpack a ``__mro_entries__`` return value."""
+
+    result: 'Variable'
+    owner: 'AbstractObject'
+    position: int
+
+    def variables(self) -> Set['Variable']:
+        return {self.result}
+
+    def __str__(self) -> str:
+        return f"MROEntriesResultConstraint: {self.owner}[{self.position}] <- {self.result}"
+
+
+@dataclass(frozen=True)
+class MROEntriesElementConstraint(Constraint):
+    """Refresh an effective base sequence when a tuple element grows."""
+
+    element: 'Variable'
+    elements: Tuple['Variable', ...]
+    owner: 'AbstractObject'
+    position: int
+
+    def variables(self) -> Set['Variable']:
+        return set(self.elements)
+
+    def __str__(self) -> str:
+        return f"MROEntriesElementConstraint: {self.owner}[{self.position}]"
 
 
 @dataclass(frozen=True)
@@ -479,6 +530,22 @@ class InheritedMetaclassCallConstraint(Constraint):
 
     def __str__(self) -> str:
         return f"InheritedMetaclassCallConstraint: type({self.base})({self.call})"
+
+
+@dataclass(frozen=True)
+class ClassBaseCallConstraint(Constraint):
+    """Retry a class call when an effective base position changes."""
+
+    base: 'Variable'
+    base_scope: 'Scope'
+    class_object: 'AbstractObject'
+    call: CallConstraint
+
+    def variables(self) -> Set['Variable']:
+        return {self.base}
+
+    def __str__(self) -> str:
+        return f"ClassBaseCallConstraint: {self.class_object}({self.call})"
 
 
 @dataclass(frozen=True)

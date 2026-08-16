@@ -170,7 +170,10 @@ class HeapState:
             if values:
                 target[location] = tuple(dict.fromkeys(values))
                 self.absent.discard(location)
-                self.scalar_present.discard(location)
+                if has_non_reference and location.is_precise():
+                    self.scalar_present.add(location)
+                else:
+                    self.scalar_present.discard(location)
                 self.definitely_scalar_present.discard(location)
             else:
                 target.pop(location, None)
@@ -193,6 +196,8 @@ class HeapState:
         if location.is_precise():
             self.absent.discard(location)
             self.definitely_scalar_present.discard(location)
+            if has_non_reference:
+                self.scalar_present.add(location)
 
     def delete(self, location: HeapLocation) -> None:
         self.versions[location] = frozenset({next(_HEAP_VERSION_IDS)})

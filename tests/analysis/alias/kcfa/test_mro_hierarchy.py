@@ -1,9 +1,11 @@
 """Tests for the current AbstractObject-based class hierarchy manager."""
 
 import ast
+import pytest
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.class_hierarchy import (
     ClassHierarchyManager,
+    MROError,
     compute_c3_mro,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import CallStringContext
@@ -83,3 +85,20 @@ def test_mro_cache_invalidates_when_bases_change():
 
     hierarchy.update_bases(child, [base_b])
     assert hierarchy.get_mro(child) == [child, base_b]
+
+
+def test_inconsistent_c3_raises_instead_of_fabricating_an_mro():
+    hierarchy = ClassHierarchyManager()
+    x = _class_obj("X")
+    y = _class_obj("Y")
+    a = _class_obj("A", ["X", "Y"])
+    b = _class_obj("B", ["Y", "X"])
+    c = _class_obj("C", ["A", "B"])
+    hierarchy.add_class(x)
+    hierarchy.add_class(y)
+    hierarchy.add_class(a, [x, y])
+    hierarchy.add_class(b, [y, x])
+    hierarchy.add_class(c, [a, b])
+
+    with pytest.raises(MROError):
+        hierarchy.get_mro(c)

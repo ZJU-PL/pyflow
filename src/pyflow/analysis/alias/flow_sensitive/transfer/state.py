@@ -12,6 +12,22 @@ from ..model import HeapLocation
 
 
 @dataclass(frozen=True)
+class ExpressionValue:
+    """Reference and non-reference alternatives produced by an expression."""
+
+    refs: tuple[HeapLocation, ...] = ()
+    may_non_reference: bool = False
+
+    def join(self, other: "ExpressionValue") -> "ExpressionValue":
+        return ExpressionValue(
+            refs=tuple(dict.fromkeys((*self.refs, *other.refs))),
+            may_non_reference=(
+                self.may_non_reference or other.may_non_reference
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class _CallSummary:
     state: HeapState
     returns: tuple[tuple[HeapLocation, ...], ...]

@@ -798,6 +798,48 @@ def test_resolved_call_propagates_explicit_exception_value_to_handler():
     assert not heap.locations_for_local(code, caught)
 
 
+def test_exception_handler_target_is_unbound_after_handler():
+    exception = py_ast.Local("exception")
+    caught = py_ast.Local("caught")
+    copied = py_ast.Local("copied")
+    read_caught = py_ast.Assign(caught, [copied])
+    handler = py_ast.ExceptionHandler(
+        preamble=py_ast.Suite([]),
+        type=_existing("Exception"),
+        value=caught,
+        body=py_ast.Suite([]),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.TryExceptFinally(
+                    body=py_ast.Suite(
+                        [py_ast.Raise(exception, None, None)]
+                    ),
+                    handlers=[handler],
+                    defaultHandler=None,
+                    else_=None,
+                    finally_=None,
+                ),
+                read_caught,
+            ]
+        ),
+        params=(exception,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert not heap.locations_for_local(code, caught)
+    assert not heap.locations_for_local(code, copied)
+    assert graph.outcome_snapshot(read_caught, "normal") is None
+    raised = graph.raised_values_at(code, read_caught)
+    assert any(location.root.label == "UnboundLocalError" for location in raised)
+
+
 def test_mapping_keys_escape_and_cells_with_same_name_remain_distinct():
     key = py_ast.Local("key")
     value = py_ast.Local("value")
@@ -2802,6 +2844,120 @@ def test_branch_join_preserves_reference_and_scalar_local_alternatives():
     assert copied_values.locations
     assert copied_values.includes_non_reference
     assert all(location.root.kind.value != "local" for location in copied_values.locations)
+
+
+def test_conditional_expression_preserves_reference_and_scalar_alternatives():
+    condition = py_ast.Local("condition")
+    reference = py_ast.Local("reference")
+    selected = py_ast.Local("selected")
+    copied = py_ast.Local("copied")
+    selection = py_ast.ConditionalExpr(condition, reference, _existing(1))
+    copy_assignment = py_ast.Assign(selected, [copied])
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [reference]),
+                py_ast.Assign(selection, [selected]),
+                copy_assignment,
+            ]
+        ),
+        params=(condition,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    copied_values = graph.possible_local_values_at(
+        code,
+        copied,
+        copy_assignment,
+        outcome="normal",
+    )
+
+    assert heap.locations_for_local(code, reference)[0] in copied_values.locations
+    assert copied_values.includes_non_reference
+
+
+def test_conditional_heap_store_preserves_reference_and_scalar_alternatives():
+    condition = py_ast.Local("condition")
+    obj = py_ast.Local("obj")
+    reference = py_ast.Local("reference")
+    loaded = py_ast.Local("loaded")
+    selection = py_ast.ConditionalExpr(condition, reference, _existing(1))
+    store = py_ast.SetAttr(selection, obj, _existing("payload"))
+    load = py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded])
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.Assign(py_ast.BuildList([]), [reference]),
+                store,
+                load,
+            ]
+        ),
+        params=(condition,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    field = heap.dynamic_attribute_location(
+        heap.locations_for_local(code, obj)[0],
+        "payload",
+    )
+    stored_values = graph.possible_values_at(field, store, outcome="normal")
+    loaded_values = graph.possible_local_values_at(
+        code,
+        loaded,
+        load,
+        outcome="normal",
+    )
+    reference_location = heap.locations_for_local(code, reference)[0]
+
+    assert reference_location in stored_values.locations
+    assert stored_values.includes_non_reference
+    assert reference_location in loaded_values.locations
+    assert loaded_values.includes_non_reference
+
+
+def test_named_short_circuit_expression_preserves_scalar_alternative():
+    reference = py_ast.Local("reference")
+    selected = py_ast.Local("selected")
+    copied = py_ast.Local("copied")
+    expression = py_ast.NamedExpr(
+        selected,
+        py_ast.ShortCircutOr([reference, _existing(1)]),
+    )
+    assignment = py_ast.Assign(expression, [copied])
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [reference]),
+                assignment,
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    reference_location = heap.locations_for_local(code, reference)[0]
+
+    for local in (selected, copied):
+        values = graph.possible_local_values_at(
+            code,
+            local,
+            assignment,
+            outcome="normal",
+        )
+        assert reference_location in values.locations
+        assert values.includes_non_reference
 
 
 def test_static_class_and_property_descriptors_bind_correctly():

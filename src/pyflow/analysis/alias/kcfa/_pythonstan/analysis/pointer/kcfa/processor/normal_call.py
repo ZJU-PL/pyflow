@@ -10,6 +10,7 @@ from .processor import Processor
 from ..points_to_set import PointsToSet
 from ..constraints import (
     CallConstraint,
+    ClassBaseCallConstraint,
     InheritedMetaclassCallConstraint,
     MetaclassBaseCallConstraint,
     MetaclassCallConstraint,
@@ -66,6 +67,7 @@ class NormalCallProcessor(Processor):
         self._installed_metaclass_base_watchers = set()
         self._installed_metaclass_call_edges = set()
         self._applied_default_metaclass_calls = set()
+        self._installed_class_base_call_watchers = set()
 
     def handle_new_constraint(
         self,
@@ -73,6 +75,22 @@ class NormalCallProcessor(Processor):
         scope: 'Scope',
         constraint: 'Constraint',
     ) -> bool:
+        if isinstance(constraint, ClassBaseCallConstraint):
+            base_ctx = solver.state.get_variable(
+                constraint.base_scope,
+                constraint.base_scope.context,
+                constraint.base,
+            )
+            solver.state.constraints.add(scope, base_ctx, constraint)
+            if not solver.state.get_points_to(base_ctx).is_empty():
+                self._handle_class_call(
+                    solver,
+                    scope,
+                    scope.context,
+                    constraint.call,
+                    constraint.class_object,
+                )
+            return True
         if isinstance(constraint, MetaclassBaseCallConstraint):
             base_ctx = solver.state.get_variable(
                 constraint.base_scope,
@@ -125,6 +143,15 @@ class NormalCallProcessor(Processor):
         constraint: 'Constraint',
         pts: 'PointsToSet',
     ) -> bool:
+        if isinstance(constraint, ClassBaseCallConstraint):
+            self._handle_class_call(
+                solver,
+                scope,
+                scope.context,
+                constraint.call,
+                constraint.class_object,
+            )
+            return True
         if isinstance(constraint, MetaclassBaseCallConstraint):
             self._apply_metaclass_object(
                 solver,
@@ -269,6 +296,27 @@ class NormalCallProcessor(Processor):
         call: 'CallConstraint',
         class_obj: 'ClassObject',
     ) -> bool:
+        base_variables = self._effective_base_variables(class_obj)
+        validity = solver.state.class_base_validity(class_obj)
+        if validity is False:
+            return True
+        if validity is None:
+            for base_var in base_variables:
+                watcher_key = (class_obj, call, base_var)
+                if watcher_key in self._installed_class_base_call_watchers:
+                    continue
+                self._installed_class_base_call_watchers.add(watcher_key)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    ClassBaseCallConstraint(
+                        base=base_var,
+                        base_scope=class_obj.container_scope,
+                        class_object=class_obj,
+                        call=call,
+                    ),
+                )
+            return True
         if class_obj.metaclass_variables:
             for meta_var in class_obj.metaclass_variables:
                 solver.add_constraint(
@@ -282,8 +330,8 @@ class NormalCallProcessor(Processor):
                     ),
                 )
             return True
-        if class_obj.base_variables:
-            for base_var in class_obj.base_variables:
+        if base_variables:
+            for base_var in base_variables:
                 solver.add_constraint(
                     scope,
                     context,
@@ -317,7 +365,7 @@ class NormalCallProcessor(Processor):
             )
 
         bindings = []
-        for base_var in class_obj.base_variables:
+        for base_var in self._effective_base_variables(class_obj):
             base_ctx = solver.state.get_variable(
                 class_obj.container_scope,
                 class_obj.container_scope.context,
@@ -342,7 +390,7 @@ class NormalCallProcessor(Processor):
         all_bindings = []
         default_possible_at_each_position = []
         class_obj = constraint.class_object
-        for base_var in class_obj.base_variables:
+        for base_var in self._effective_base_variables(class_obj):
             base_ctx = solver.state.get_variable(
                 class_obj.container_scope,
                 class_obj.container_scope.context,
@@ -416,7 +464,7 @@ class NormalCallProcessor(Processor):
         seen.add(class_obj)
         if class_obj.metaclass_variables:
             return
-        for base_var in class_obj.base_variables:
+        for base_var in self._effective_base_variables(class_obj):
             watcher_key = (
                 root_constraint.class_object,
                 root_constraint.call,
@@ -523,7 +571,7 @@ class NormalCallProcessor(Processor):
                     ),
                 )
 
-            for base_var in meta_obj.base_variables:
+            for base_var in self._effective_base_variables(meta_obj):
                 watcher_key = (class_obj, call, meta_obj, base_var)
                 if watcher_key in self._installed_metaclass_base_watchers:
                     continue
@@ -558,11 +606,12 @@ class NormalCallProcessor(Processor):
         if meta_obj in seen:
             return True
         seen.add(meta_obj)
-        if not meta_obj.base_variables:
+        base_variables = self._effective_base_variables(meta_obj)
+        if not base_variables:
             return True
 
         position_options = []
-        for base_var in meta_obj.base_variables:
+        for base_var in base_variables:
             base_ctx = solver.state.get_variable(
                 meta_obj.container_scope,
                 meta_obj.container_scope.context,
@@ -595,6 +644,12 @@ class NormalCallProcessor(Processor):
             if not tuple_has_custom_call:
                 return True
         return False
+
+    @staticmethod
+    def _effective_base_variables(
+        class_obj: 'ClassObject',
+    ) -> tuple[Variable, ...]:
+        return class_obj.effective_base_variables or class_obj.base_variables
 
     def _apply_default_metaclass_call(
         self,

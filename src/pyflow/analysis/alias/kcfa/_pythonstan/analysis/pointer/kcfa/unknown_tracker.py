@@ -53,6 +53,9 @@ class UnknownKind(Enum):
     UNKNOWN_BUILTIN = "unknown_builtin"
     """Builtin call has no precise summary"""
 
+    BASE_RESOLUTION = "base_resolution"
+    """Class base expansion or validation could not be modeled precisely"""
+
 
 @dataclass
 class UnknownRecord:

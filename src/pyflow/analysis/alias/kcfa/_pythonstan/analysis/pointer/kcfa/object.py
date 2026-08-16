@@ -194,6 +194,7 @@ class ClassObject(AbstractObject):
     ir: 'IRClass'
     base_variables: Tuple['Variable', ...] = ()
     metaclass_variables: Tuple['Variable', ...] = ()
+    effective_base_variables: Tuple['Variable', ...] = ()
 
 
 @dataclass(frozen=True)

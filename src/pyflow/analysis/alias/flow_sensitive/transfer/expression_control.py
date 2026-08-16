@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..model import HeapLocation
+from .state import ExpressionValue
 
 
 class _ExpressionControlMixin:
@@ -100,57 +101,78 @@ class _ExpressionControlMixin:
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_short_circuit_value(procedure, expression).refs
+
+    def _resolve_short_circuit_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         terms = tuple(getattr(expression, "terms", ()))
         if not terms:
-            return ()
-        possible_locations: list[HeapLocation] = []
+            return ExpressionValue()
+        possible_value = ExpressionValue()
         prefix_states: list[object] = []
         for term in terms:
-            possible_locations.extend(self.locations_for_expression(procedure, term))
+            possible_value = possible_value.join(
+                self.value_for_expression(procedure, term)
+            )
             # Evaluation may stop after every term.  Joining all prefixes
             # preserves both skipped and executed side effects from later
             # terms without pretending they execute unconditionally.
             prefix_states.append(self._capture_flow_state())
         self._restore_flow_state(self._join_flow_states(tuple(prefix_states)))
-        return tuple(dict.fromkeys(possible_locations))
+        return possible_value
 
     def _resolve_conditional(
         self,
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_conditional_value(procedure, expression).refs
+
+    def _resolve_conditional_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         self.locations_for_expression(procedure, expression.test)
         branch_entry = self._capture_flow_state()
         self._restore_flow_state(branch_entry)
-        body_locations = self.locations_for_expression(
+        body_value = self.value_for_expression(
             procedure,
             expression.body,
         )
         body_state = self._capture_flow_state()
         self._restore_flow_state(branch_entry)
-        else_locations = self.locations_for_expression(
+        else_value = self.value_for_expression(
             procedure,
             expression.orelse,
         )
         else_state = self._capture_flow_state()
         self._restore_flow_state(self._join_flow_states((body_state, else_state)))
-        return tuple(dict.fromkeys((*body_locations, *else_locations)))
+        return body_value.join(else_value)
 
     def _resolve_named_expression(
         self,
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
-        locations = self.locations_for_expression(procedure, expression.value)
-        if locations:
-            self._bind_runtime_local(
-                procedure,
-                expression.target,
-                locations,
-            )
-        else:
-            self._clear_runtime_local(procedure, expression.target)
-        return locations
+        return self._resolve_named_expression_value(procedure, expression).refs
+
+    def _resolve_named_expression_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
+        value = self.value_for_expression(procedure, expression.value)
+        self._bind_runtime_local(
+            procedure,
+            expression.target,
+            value.refs,
+            may_non_reference=value.may_non_reference,
+        )
+        return value
 
     def _resolve_existing(
         self,

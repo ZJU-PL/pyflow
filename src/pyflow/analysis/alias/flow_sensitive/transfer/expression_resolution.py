@@ -11,6 +11,7 @@ from .expression_access import _ExpressionAccessMixin
 from .expression_calls import _ExpressionCallMixin
 from .expression_control import _ExpressionControlMixin
 from .expression_protocols import _ExpressionProtocolMixin
+from .state import ExpressionValue
 
 
 class _ExpressionResolverMixin(
@@ -24,6 +25,13 @@ class _ExpressionResolverMixin(
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self.value_for_expression(procedure, expression).refs
+
+    def value_for_expression(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         cache = (
             self._operation_expression_caches[-1]
             if self._operation_expression_caches
@@ -47,11 +55,60 @@ class _ExpressionResolverMixin(
             if cached is not None:
                 return cached
         self._record_exception_prefix()
-        result = self._locations_for_expression_impl(procedure, expression)
+        result = self._value_for_expression_impl(procedure, expression)
         self._record_exception_prefix()
         if cache is not None and cacheable:
             cache[cache_key] = result
         return result
+
+    def _value_for_expression_impl(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
+        if isinstance(expression, py_ast.Input):
+            return self.value_for_expression(procedure, expression.lcl)
+        if isinstance(expression, py_ast.Local):
+            declared = self._declared_location(procedure, expression)
+            refs = self._resolve_local(procedure, expression)
+            if declared is not None:
+                return ExpressionValue(
+                    refs,
+                    may_non_reference=declared in self.state.scalar_present,
+                )
+            local_value = self.heap.local_value_for_local(
+                procedure,
+                expression,
+                initialize=False,
+            )
+            return ExpressionValue(
+                refs,
+                may_non_reference=(
+                    local_value.may_non_reference
+                    if local_value is not None
+                    else False
+                ),
+            )
+        if isinstance(expression, py_ast.GetGlobal):
+            return self._resolve_global_value(procedure, expression)
+        if isinstance(expression, (py_ast.GetCell, py_ast.GetCellDeref)):
+            return self._resolve_cell_value(procedure, expression)
+        if isinstance(expression, (py_ast.GetAttr, py_ast.Load)):
+            return self._resolve_attribute_value(procedure, expression)
+        if isinstance(expression, py_ast.GetSubscript):
+            return self._resolve_subscript_value(procedure, expression)
+        if isinstance(expression, (py_ast.ShortCircutAnd, py_ast.ShortCircutOr)):
+            return self._resolve_short_circuit_value(procedure, expression)
+        if isinstance(expression, py_ast.ConditionalExpr):
+            return self._resolve_conditional_value(procedure, expression)
+        if isinstance(expression, py_ast.NamedExpr):
+            return self._resolve_named_expression_value(procedure, expression)
+        if isinstance(expression, py_ast.Existing):
+            refs = self._resolve_existing(procedure, expression)
+            return ExpressionValue(refs, may_non_reference=not refs)
+        return ExpressionValue(
+            self._locations_for_expression_impl(procedure, expression)
+        )
 
     def _locations_for_expression_impl(
         self,
@@ -195,6 +252,17 @@ class _ExpressionResolverMixin(
                     )
                 )
         return tuple(dict.fromkeys(values))
+
+    def _read_heap_value(
+        self,
+        locations: tuple[HeapLocation, ...],
+    ) -> ExpressionValue:
+        return ExpressionValue(
+            refs=self._read_heap_locations(locations),
+            may_non_reference=any(
+                location in self.state.scalar_present for location in locations
+            ),
+        )
 
     def _merge_expression_locations(self, procedure, *expressions):
         """Return the deduplicated union of heap locations from multiple expressions."""

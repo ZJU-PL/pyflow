@@ -31,6 +31,7 @@ from .definitions import _DefinitionTransferMixin
 from .expression_resolution import _ExpressionResolverMixin
 from .mutations import _HeapMutationMixin
 from .state import (
+    ExpressionValue,
     _CallSummary,
     _DeferredActivation,
     _ExpressionOutcome,
@@ -125,7 +126,7 @@ class HeapTransferEngine(
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
         self._operation_expression_caches: list[
-            dict[object, tuple[HeapLocation, ...]]
+            dict[object, ExpressionValue]
         ] = (
             []
         )
@@ -1307,7 +1308,7 @@ class HeapTransferEngine(
             return None
         previous = self._capture_flow_state()
         self._restore_flow_state(state)
-        self._clear_runtime_local(procedure, local)
+        self._clear_runtime_local(procedure, local, unbound=True)
         cleared = self._capture_flow_state()
         self._restore_flow_state(previous)
         return cleared

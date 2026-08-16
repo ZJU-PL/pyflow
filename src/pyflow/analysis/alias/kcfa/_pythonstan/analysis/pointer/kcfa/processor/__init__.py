@@ -12,6 +12,7 @@ from .super_resolve import SuperResolveProcessor
 from .normal_call import NormalCallProcessor
 from .generator import GeneratorProcessor
 from .attribute_semantics import AttributeSemanticsProcessor
+from .base_resolution import BaseResolutionProcessor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,4 +26,5 @@ __all__ = [
     "NormalCallProcessor",
     "GeneratorProcessor",
     "AttributeSemanticsProcessor",
+    "BaseResolutionProcessor",
 ]

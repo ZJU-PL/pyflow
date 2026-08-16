@@ -105,6 +105,35 @@ def test_definitely_scalar_heap_read_does_not_synthesize_reference():
     assert not engine._read_heap_locations((field,))
 
 
+def test_heap_write_preserves_mixed_reference_and_scalar_state():
+    heap = _heap()
+    root = HeapLocation(heap.allocation_object(None, "root", label="root"))
+    field = heap.dynamic_attribute_location(root, "field")
+    reference = HeapLocation(
+        heap.allocation_object(None, "reference", label="reference")
+    )
+
+    strong = HeapState()
+    strong.write(
+        field,
+        (reference,),
+        UpdatePolicy.STRONG,
+        has_non_reference=True,
+    )
+    weak = HeapState()
+    weak.write(
+        field,
+        (reference,),
+        UpdatePolicy.WEAK,
+        has_non_reference=True,
+    )
+
+    for state in (strong, weak):
+        assert state.read(field) == (reference,)
+        assert field in state.scalar_present
+        assert field not in state.definitely_scalar_present
+
+
 def test_strong_exact_write_shadows_older_wildcard_contaminant():
     heap = _heap()
     root = HeapLocation(heap.allocation_object(None, "root", label="root"))

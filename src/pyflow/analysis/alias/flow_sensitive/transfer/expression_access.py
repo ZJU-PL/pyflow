@@ -6,6 +6,7 @@ from pyflow.language.python import ast as py_ast
 
 from ..model import HeapLocation, UpdatePolicy
 from ..semantics.effects import DYNAMIC_SUBSCRIPT_WILDCARD
+from .state import ExpressionValue
 
 
 class _ExpressionAccessMixin:
@@ -154,22 +155,43 @@ class _ExpressionAccessMixin:
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_global_value(procedure, expression).refs
+
+    def _resolve_global_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         location = self.effect_builder.global_location(procedure, expression.name)
-        return self._read_heap_locations((location,))
+        return self._read_heap_value((location,))
 
     def _resolve_cell(
         self,
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_cell_value(procedure, expression).refs
+
+    def _resolve_cell_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         location = self.effect_builder.cell_location(expression.cell, procedure)
-        return self._read_heap_locations((location,))
+        return self._read_heap_value((location,))
 
     def _resolve_attribute(
         self,
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_attribute_value(procedure, expression).refs
+
+    def _resolve_attribute_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         bases = self.locations_for_expression(procedure, expression.expr)
         name_locations = self.locations_for_expression(
             procedure,
@@ -192,7 +214,8 @@ class _ExpressionAccessMixin:
                 bases,
                 (attribute,),
             )
-        values = list(self._read_heap_locations(locations))
+        heap_value = self._read_heap_value(locations)
+        values = list(heap_value.refs)
         super_members: list[HeapLocation] = []
         super_receivers: list[HeapLocation] = []
         for base in bases:
@@ -321,13 +344,23 @@ class _ExpressionAccessMixin:
                     (bases, classes),
                 )
             )
-        return tuple(dict.fromkeys(values))
+        return ExpressionValue(
+            refs=tuple(dict.fromkeys(values)),
+            may_non_reference=heap_value.may_non_reference,
+        )
 
     def _resolve_subscript(
         self,
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
+        return self._resolve_subscript_value(procedure, expression).refs
+
+    def _resolve_subscript_value(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> ExpressionValue:
         bases = self.locations_for_expression(procedure, expression.expr)
         subscript_locations = self.locations_for_expression(
             procedure,
@@ -342,6 +375,10 @@ class _ExpressionAccessMixin:
         subscript = self.effect_builder._constant_subscript(expression.subscript)
         if subscript is None:
             values: list[HeapLocation] = []
+            wildcard_locations = self.heap.dynamic_subscript_locations(
+                bases,
+                (DYNAMIC_SUBSCRIPT_WILDCARD,),
+            )
             for base in bases:
                 wildcard = self.heap.dynamic_subscript_location(
                     base,
@@ -349,17 +386,23 @@ class _ExpressionAccessMixin:
                 )
                 values.extend(self.state.read_contained(wildcard))
             if values:
-                return tuple(dict.fromkeys((*values, *protocol_values)))
+                return ExpressionValue(
+                    tuple(dict.fromkeys((*values, *protocol_values))),
+                    may_non_reference=any(
+                        self.state.locations_may_overlap(stored, wildcard)
+                        for wildcard in wildcard_locations
+                        for stored in self.state.scalar_present
+                    ),
+                )
             if protocol_values:
-                return protocol_values
-            return self.heap.dynamic_subscript_locations(
-                bases,
-                (DYNAMIC_SUBSCRIPT_WILDCARD,),
-            )
+                return ExpressionValue(protocol_values)
+            return ExpressionValue(wildcard_locations)
         locations = self.heap.dynamic_subscript_locations(
             bases,
             (subscript, DYNAMIC_SUBSCRIPT_WILDCARD),
         )
-        return tuple(
-            dict.fromkeys((*self._read_heap_locations(locations), *protocol_values))
+        heap_value = self._read_heap_value(locations)
+        return ExpressionValue(
+            refs=tuple(dict.fromkeys((*heap_value.refs, *protocol_values))),
+            may_non_reference=heap_value.may_non_reference,
         )

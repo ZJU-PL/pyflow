@@ -129,6 +129,10 @@ class PointerAnalysisState:
         self._pointer_flow_graph: PointerFlowGraph = PointerFlowGraph()
         self._field_accesses: Dict[Tuple['AbstractObject', 'Field'], FieldAccess] = {}
         self._field_presence: Dict[Tuple['AbstractObject', 'Field'], Tuple[bool, bool]] = {}
+        self._effective_base_sequences = defaultdict(set)
+        self._opaque_effective_base_positions = set()
+        self._class_inheritance_lookups = defaultdict(set)
+        self._pending_class_bindings = defaultdict(list)
         self._variable_factory: VariableFactory = VariableFactory()
         self._worklist: Worklist = Worklist()
         self._static_constraints: List[Tuple['Scope', 'AbstractContext', 'Constraint']] = []
@@ -264,46 +268,47 @@ class PointerAnalysisState:
         selector: 'SelectorNode',
     ) -> None:
         """Add field flows for every currently known concrete base tuple."""
-        base_options = []
-        for base_var in owner.base_variables:
+        sequence_options = []
+        for position, base_var in enumerate(owner.base_variables):
             base_ctx = self.get_variable(
                 owner.container_scope,
                 owner.container_scope.context,
                 base_var,
             )
-            options = tuple(
-                obj for obj in self.get_points_to(base_ctx)
+            options = {
+                (obj,) for obj in self.get_points_to(base_ctx)
                 if isinstance(obj, ClassObject)
+            }
+            options.update(
+                self._effective_base_sequences.get((owner, position), set())
             )
             if not options:
                 return
-            base_options.append(options)
+            sequence_options.append(tuple(options))
 
         combination_count = 1
-        for options in base_options:
+        for options in sequence_options:
             combination_count *= len(options)
 
         if combination_count > self.MAX_BASE_COMBINATIONS:
-            for index, options in enumerate(base_options):
-                for base_obj in options:
-                    self._add_inherited_field_candidate(
-                        base_obj, field, selector, index
-                    )
+            index = 0
+            for options in sequence_options:
+                for sequence in options:
+                    for base_obj in sequence:
+                        self._add_inherited_field_candidate(
+                            base_obj, field, selector, index
+                        )
+                        index += 1
             return
 
-        from .class_hierarchy import compute_c3_mro_for_bases
+        from .class_hierarchy import MROError, compute_c3_mro_for_bases
 
-        for concrete_bases in product(*base_options):
-            concrete_bases = tuple(concrete_bases)
-            if (
-                self.class_hierarchy is not None
-                and all(len(options) == 1 for options in base_options)
-            ):
-                bases_list = list(concrete_bases)
-                if self.class_hierarchy.has_class(owner):
-                    self.class_hierarchy.update_bases(owner, bases_list)
-                else:
-                    self.class_hierarchy.add_class(owner, bases_list)
+        for selected_sequences in product(*sequence_options):
+            concrete_bases = tuple(
+                base_obj
+                for sequence in selected_sequences
+                for base_obj in sequence
+            )
             if self.class_hierarchy is None:
                 mro_bases = list(concrete_bases)
             else:
@@ -311,8 +316,14 @@ class PointerAnalysisState:
                     mro_bases = compute_c3_mro_for_bases(
                         list(concrete_bases), self.class_hierarchy
                     )
-                except Exception:
-                    mro_bases = list(concrete_bases)
+                except MROError:
+                    continue
+                if all(len(options) == 1 for options in sequence_options):
+                    bases_list = list(concrete_bases)
+                    if self.class_hierarchy.has_class(owner):
+                        self.class_hierarchy.update_bases(owner, bases_list)
+                    else:
+                        self.class_hierarchy.add_class(owner, bases_list)
 
             for index, base_obj in enumerate(mro_bases):
                 self._add_inherited_field_candidate(
@@ -320,6 +331,162 @@ class PointerAnalysisState:
                 )
                 if self.get_attribute_presence(base_obj, field).must_exist:
                     break
+
+    def register_class_inheritance_lookup(
+        self,
+        owner: 'ClassObject',
+        field: 'Field',
+        selector: 'SelectorNode',
+    ) -> None:
+        """Remember a lookup that depends on the owner's effective bases."""
+        self._class_inheritance_lookups[owner].add((field, selector))
+
+    def record_effective_base_sequence(
+        self,
+        owner: 'ClassObject',
+        position: int,
+        sequence: Tuple['ClassObject', ...],
+    ) -> bool:
+        """Record one monotone ``__mro_entries__`` expansion alternative."""
+        key = (owner, position)
+        if sequence in self._effective_base_sequences[key]:
+            return False
+        self._effective_base_sequences[key].add(sequence)
+
+        self._update_singleton_class_hierarchy(owner)
+
+        if position < len(owner.effective_base_variables):
+            effective_var = owner.effective_base_variables[position]
+            effective_ctx = self.get_variable(
+                owner.container_scope,
+                owner.container_scope.context,
+                effective_var,
+            )
+            if sequence:
+                self._worklist.add((
+                    owner.container_scope,
+                    NormalNode(effective_ctx),
+                    PointsToSet.from_objects(sequence),
+                ))
+
+        for field, selector in self._class_inheritance_lookups.get(owner, ()):
+            self.refresh_class_inheritance(owner, field, selector)
+        self.release_class_binding_if_feasible(owner)
+        return True
+
+    def record_opaque_effective_base(
+        self,
+        owner: 'ClassObject',
+        position: int,
+        base_obj: 'AbstractObject',
+    ) -> None:
+        """Record a valid builtin/opaque type outside the user hierarchy."""
+        self._opaque_effective_base_positions.add((owner, position))
+        if position < len(owner.effective_base_variables):
+            effective_ctx = self.get_variable(
+                owner.container_scope,
+                owner.container_scope.context,
+                owner.effective_base_variables[position],
+            )
+            self._worklist.add((
+                owner.container_scope,
+                NormalNode(effective_ctx),
+                PointsToSet.singleton(base_obj),
+            ))
+        self.release_class_binding_if_feasible(owner)
+
+    def defer_class_binding(
+        self,
+        owner: 'ClassObject',
+        scope: 'Scope',
+        target: 'Ctx[Variable]',
+    ) -> None:
+        """Delay publishing a class name until some base tuple is feasible."""
+        binding = (scope, target)
+        if binding not in self._pending_class_bindings[owner]:
+            self._pending_class_bindings[owner].append(binding)
+
+    def release_class_binding_if_feasible(
+        self,
+        owner: 'ClassObject',
+    ) -> bool:
+        """Publish a deferred class object after effective-base validation."""
+        if self.class_base_validity(owner) is not True:
+            return False
+        bindings = self._pending_class_bindings.pop(owner, ())
+        for scope, target in bindings:
+            self._worklist.add((
+                scope,
+                NormalNode(target),
+                PointsToSet.singleton(owner),
+            ))
+        return bool(bindings)
+
+    def _update_singleton_class_hierarchy(
+        self,
+        owner: 'ClassObject',
+    ) -> None:
+        """Publish hierarchy edges once every base position is unambiguous."""
+        if self.class_hierarchy is None:
+            return
+        selected = []
+        for position in range(len(owner.base_variables)):
+            options = self._effective_base_sequences.get((owner, position), set())
+            if len(options) != 1:
+                return
+            selected.extend(next(iter(options)))
+        bases = list(selected)
+        if self.class_hierarchy.has_class(owner):
+            self.class_hierarchy.update_bases(owner, bases)
+        else:
+            self.class_hierarchy.add_class(owner, bases)
+
+    def class_base_validity(
+        self,
+        owner: 'ClassObject',
+    ) -> Optional[bool]:
+        """Return True/False for feasible/invalid, or None while unresolved."""
+        if not owner.base_variables:
+            return True
+        sequence_options = []
+        has_opaque_base = False
+        for position in range(len(owner.base_variables)):
+            options = tuple(
+                self._effective_base_sequences.get((owner, position), set())
+            )
+            if not options:
+                if (owner, position) not in self._opaque_effective_base_positions:
+                    return None
+                has_opaque_base = True
+                options = ((),)
+            sequence_options.append(options)
+
+        count = 1
+        for options in sequence_options:
+            count *= len(options)
+        if (
+            has_opaque_base
+            or count > self.MAX_BASE_COMBINATIONS
+            or self.class_hierarchy is None
+        ):
+            return True
+
+        from .class_hierarchy import MROError, compute_c3_mro_for_bases
+
+        for selected_sequences in product(*sequence_options):
+            concrete_bases = [
+                base_obj
+                for sequence in selected_sequences
+                for base_obj in sequence
+            ]
+            try:
+                compute_c3_mro_for_bases(
+                    concrete_bases, self.class_hierarchy
+                )
+                return True
+            except MROError:
+                continue
+        return False
 
     def _add_inherited_field_candidate(
         self,
@@ -407,6 +574,7 @@ class PointerAnalysisState:
 
                 if len(bases) > 0:
                     selector = SelectorNode()
+                    self.register_class_inheritance_lookup(obj, field, selector)
                     inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.INHERIT)
                     self._add_points_flow_edge(inherit_edge)
 
@@ -449,7 +617,10 @@ class PointerAnalysisState:
                     # These are the parent classes super() will search
                     from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRClass
                     if isinstance(obj.current_class.alloc_site.stmt, IRClass):
-                        bases = obj.current_class.base_variables
+                        bases = (
+                            obj.current_class.effective_base_variables
+                            or obj.current_class.base_variables
+                        )
                         current_scope = obj.current_class.container_scope
                         
                         if len(bases) > 0:

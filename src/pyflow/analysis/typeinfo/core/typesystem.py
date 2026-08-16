@@ -983,6 +983,16 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return isinstance(self.right, Instance) and self.right.type.raw_type is str
 
 
+def _sum_distances(distances: typing.Iterable[int | None]) -> int | None:
+    """Sum structural distances, rejecting any disconnected component."""
+    total = 0
+    for distance in distances:
+        if distance is None:
+            return None
+        total += distance
+    return total
+
+
 class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
     """A visitor to compute the subtype distance between two types.
 
@@ -1012,8 +1022,8 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
     def visit_any_type(self, supertype: AnyType) -> int:
         return self.any_distance
 
-    def visit_none_type(self, supertype: NoneType) -> None:
-        return None
+    def visit_none_type(self, supertype: NoneType) -> int | None:
+        return 0 if isinstance(self.subtype, NoneType) else None
 
     def visit_never_type(self, supertype: NeverType) -> int | None:
         return 0 if isinstance(self.subtype, NeverType) else None
@@ -1034,14 +1044,26 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
             The distance between the two types or None if they are not connected.
         """
         if isinstance(self.subtype, Instance):
-            if supertype.args and self.subtype.args:
-                distances = list(
-                    map(self.graph.subtype_distance, supertype.args, self.subtype.args)
+            class_distance = self.graph.get_shortest_path_length(
+                supertype.type, self.subtype.type
+            )
+            if class_distance is None:
+                return None
+            if supertype.type != self.subtype.type:
+                return class_distance
+            if len(supertype.args) != len(self.subtype.args):
+                return None
+            argument_distance = _sum_distances(
+                self.graph.subtype_distance(supertype_arg, subtype_arg)
+                for supertype_arg, subtype_arg in zip(
+                    supertype.args, self.subtype.args
                 )
-                if any(dist is None for dist in distances):
-                    return None
-                return sum(distances)  # type: ignore[arg-type]
-            return self.graph.get_shortest_path_length(supertype.type, self.subtype.type)
+            )
+            return (
+                None
+                if argument_distance is None
+                else class_distance + argument_distance
+            )
 
         if isinstance(self.subtype, UnionType):
             distances = [
@@ -1069,13 +1091,29 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
         Returns:
             The distance between the two types or None if they are not connected.
         """
-        if isinstance(self.subtype, TupleType) and len(supertype.args) == len(self.subtype.args):
-            distances = list(map(self.graph.subtype_distance, supertype.args, self.subtype.args))
-            if any(dist is None for dist in distances):
-                return None
-            return sum(distances)  # type: ignore[arg-type]
-
-        return None
+        if not isinstance(self.subtype, TupleType):
+            return None
+        if supertype.unknown_size:
+            if not supertype.args:
+                return 0
+            supertype_element = supertype.args[0]
+            subtype_elements = (
+                self.subtype.args[:1]
+                if self.subtype.unknown_size
+                else self.subtype.args
+            )
+            return _sum_distances(
+                self.graph.subtype_distance(supertype_element, subtype_element)
+                for subtype_element in subtype_elements
+            )
+        if self.subtype.unknown_size or len(supertype.args) != len(self.subtype.args):
+            return None
+        return _sum_distances(
+            self.graph.subtype_distance(supertype_arg, subtype_arg)
+            for supertype_arg, subtype_arg in zip(
+                supertype.args, self.subtype.args
+            )
+        )
 
     def visit_union_type(self, supertype: UnionType) -> int | None:
         """Calculate the distance between two union types.
@@ -1098,7 +1136,31 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
         raise NotImplementedError("This type shall not be used during runtime")
 
     def visit_callable_type(self, supertype: CallableType) -> int | None:
-        return 0 if supertype == self.subtype else None
+        if not isinstance(self.subtype, CallableType):
+            return None
+        return_distance = self.graph.subtype_distance(
+            supertype.return_type, self.subtype.return_type
+        )
+        if return_distance is None:
+            return None
+        if supertype.arg_types is None:
+            return return_distance
+        if (
+            self.subtype.arg_types is None
+            or len(supertype.arg_types) != len(self.subtype.arg_types)
+        ):
+            return None
+        parameter_distance = _sum_distances(
+            self.graph.subtype_distance(subtype_arg, supertype_arg)
+            for supertype_arg, subtype_arg in zip(
+                supertype.arg_types, self.subtype.arg_types
+            )
+        )
+        return (
+            None
+            if parameter_distance is None
+            else return_distance + parameter_distance
+        )
 
     def visit_type_type(self, supertype: TypeType) -> int | None:
         if not isinstance(self.subtype, TypeType):
@@ -2509,4 +2571,6 @@ class TypeSystem:  # noqa: PLR0904
         Returns:
             The number of subclassing steps from left to right, or None if no path exists.
         """
+        if not self.is_maybe_subtype(subtype, supertype):
+            return None
         return supertype.accept(_SubtypeDistanceVisitor(self, subtype))

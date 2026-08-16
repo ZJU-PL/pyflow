@@ -86,6 +86,7 @@ class PointerAnalysis(AnalysisDriver):
             processor=ComposeProcessor([
                 GeneratorProcessor(),
                 AttributeSemanticsProcessor(),
+                BaseResolutionProcessor(),
                 NormalCallProcessor(),
                 ContainerProcessor(index_sensitive=self.kcfa_config.index_sensitive),
                 SuperResolveProcessor(),

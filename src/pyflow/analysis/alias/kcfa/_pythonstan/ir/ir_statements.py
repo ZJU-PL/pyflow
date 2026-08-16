@@ -1592,7 +1592,11 @@ class IRClass(IRScope, IRStatement):
                     alternative = analyze_block(statement.orelse, present)
                     present &= body & alternative
                 elif isinstance(statement, (ast.With, ast.AsyncWith)):
-                    present = analyze_block(statement.body, present)
+                    body = analyze_block(statement.body, present)
+                    # An arbitrary __exit__ may suppress an exception raised
+                    # before a later binding in the body.  Such a binding is
+                    # therefore not guaranteed after the with statement.
+                    present &= body
                 elif isinstance(statement, ast.Try):
                     exits = [analyze_block(statement.body, present)]
                     exits.extend(
