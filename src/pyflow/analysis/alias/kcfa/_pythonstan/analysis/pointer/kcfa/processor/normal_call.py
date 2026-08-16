@@ -36,7 +36,7 @@ from ..unknown_tracker import UnknownKind
 from ..heap_model import key, attr, elem, value
 from ..call_binding import bind_arguments, mapping_key_hints
 from ..stable_key import stable_token
-from ..type_ref import TypeRefKind
+from ..type_ref import ClassConstructionKind, TypeRefKind
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRAssign
 
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PythonCallService", "NormalCallProcessor"]
+__all__ = ["CallResolver", "PythonCallService", "NormalCallProcessor"]
 
 
 class PythonCallService(Processor):
@@ -60,7 +60,6 @@ class PythonCallService(Processor):
 
     def __init__(self) -> None:
         self._default_alloc_sites: Dict[Tuple[IRFunc, str, int, AllocKind], AllocSite] = {}
-        self._scheduled_inherited_metaclass_bindings = set()
         self._installed_metaclass_call_edges = set()
         self._applied_default_metaclass_calls = set()
 
@@ -222,29 +221,40 @@ class PythonCallService(Processor):
         class_obj: 'ClassObject',
     ) -> bool:
         base_variables = self._effective_base_variables(class_obj)
-        validity = solver.state.class_base_validity(class_obj)
-        if validity is False:
+        construction = solver.state.classes.construction_state(class_obj)
+        if construction.kind is ClassConstructionKind.INVALID:
             return True
-        if validity is None:
-            base_sources = tuple(
+        if construction.kind is ClassConstructionKind.PENDING:
+            sources = [("class-variants", class_obj)]
+            sources.extend(
                 solver.state.get_variable(
                     class_obj.container_scope,
                     class_obj.container_scope.context,
-                    base_var,
+                    source_var,
                 )
-                for base_var in base_variables
+                for source_var in (
+                    *class_obj.metaclass_variables,
+                    *base_variables,
+                )
             )
             solver.state.dependencies.subscribe(
-                ("class-call-bases", class_obj, call),
-                base_sources,
+                ("pending-class-call", class_obj, call),
+                sources,
                 lambda: self._handle_class_call(
                     solver, scope, context, call, class_obj
                 ),
             )
             return True
-        variants = solver.state.class_variants(class_obj)
-        if variants:
-            for variant in variants:
+        if construction.kind is ClassConstructionKind.UNKNOWN:
+            solver.mark_semantic_incomplete(
+                message="; ".join(construction.reasons)
+            )
+            self._apply_default_metaclass_call(
+                solver, scope, call, class_obj
+            )
+            return True
+        if construction.kind is ClassConstructionKind.FEASIBLE:
+            for variant in construction.variants:
                 metaclass = variant.metaclass
                 if (
                     metaclass.kind is TypeRefKind.USER
@@ -267,230 +277,7 @@ class PythonCallService(Processor):
                         solver, scope, call, class_obj
                     )
             return True
-        if class_obj.metaclass_variables:
-            for meta_var in class_obj.metaclass_variables:
-                meta_ctx = solver.state.get_variable(
-                    class_obj.container_scope,
-                    class_obj.container_scope.context,
-                    meta_var,
-                )
-                solver.state.dependencies.subscribe(
-                    ("explicit-metaclass", class_obj, call, meta_ctx),
-                    (meta_ctx,),
-                    lambda meta_ctx=meta_ctx: self._apply_metaclass_candidates(
-                        solver,
-                        scope,
-                        class_obj,
-                        call,
-                        solver.state.get_points_to(meta_ctx),
-                    ),
-                )
-                self._apply_metaclass_candidates(
-                    solver,
-                    scope,
-                    class_obj,
-                    call,
-                    solver.state.get_points_to(meta_ctx),
-                )
-            return True
-        if base_variables:
-            base_sources = tuple(
-                solver.state.get_variable(
-                    class_obj.container_scope,
-                    class_obj.container_scope.context,
-                    base_var,
-                )
-                for base_var in base_variables
-            )
-            solver.state.dependencies.subscribe(
-                ("inherited-metaclass", class_obj, call),
-                base_sources,
-                lambda: self._apply_inherited_metaclass_candidates(
-                    solver, scope, class_obj, call
-                ),
-            )
-            self._apply_inherited_metaclass_candidates(
-                solver, scope, class_obj, call
-            )
-            return True
-        return solver._handle_class_instantiation(scope, context, call, class_obj)
-
-    def _effective_metaclass_bindings(
-        self,
-        solver: 'PointerSolver',
-        class_obj: 'ClassObject',
-        seen: Optional[set['ClassObject']] = None,
-    ) -> tuple[tuple['Scope', Variable], ...]:
-        """Resolve explicit or base-inherited metaclass bindings."""
-        if seen is None:
-            seen = set()
-        if class_obj in seen:
-            return ()
-        seen.add(class_obj)
-
-        if class_obj.metaclass_variables:
-            return tuple(
-                (class_obj.container_scope, meta_var)
-                for meta_var in class_obj.metaclass_variables
-            )
-
-        bindings = []
-        for base_var in self._effective_base_variables(class_obj):
-            base_ctx = solver.state.get_variable(
-                class_obj.container_scope,
-                class_obj.container_scope.context,
-                base_var,
-            )
-            for base_obj in solver.state.get_points_to(base_ctx):
-                if isinstance(base_obj, ClassObject):
-                    bindings.extend(
-                        self._effective_metaclass_bindings(
-                            solver, base_obj, set(seen)
-                        )
-                    )
-        return tuple(dict.fromkeys(bindings))
-
-    def _apply_inherited_metaclass_candidates(
-        self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        class_obj: 'ClassObject',
-        call: 'CallConstraint',
-    ) -> None:
-        all_bindings = []
-        default_possible_at_each_position = []
-        for base_var in self._effective_base_variables(class_obj):
-            base_ctx = solver.state.get_variable(
-                class_obj.container_scope,
-                class_obj.container_scope.context,
-                base_var,
-            )
-            base_pts = solver.state.get_points_to(base_ctx)
-            if base_pts.is_empty():
-                return
-
-            position_default_possible = False
-            for base_obj in base_pts:
-                if isinstance(base_obj, ClassObject):
-                    self._install_inherited_metaclass_watchers(
-                        solver, scope, class_obj, call, base_obj
-                    )
-                    bindings = self._effective_metaclass_bindings(
-                        solver, base_obj
-                    )
-                    if bindings:
-                        all_bindings.extend(bindings)
-                    else:
-                        position_default_possible = True
-                else:
-                    position_default_possible = True
-                    if not isinstance(
-                        base_obj,
-                        (BuiltinObject, BuiltinFunctionObject, BuiltinClassObject),
-                    ):
-                        solver.mark_semantic_incomplete()
-            default_possible_at_each_position.append(position_default_possible)
-
-        for meta_scope, meta_var in dict.fromkeys(all_bindings):
-            binding_key = (
-                class_obj,
-                call,
-                meta_scope,
-                meta_var,
-            )
-            if binding_key in self._scheduled_inherited_metaclass_bindings:
-                continue
-            self._scheduled_inherited_metaclass_bindings.add(binding_key)
-            meta_ctx = solver.state.get_variable(
-                meta_scope, meta_scope.context, meta_var
-            )
-            solver.state.dependencies.subscribe(
-                ("inherited-metaclass-binding", *binding_key),
-                (meta_ctx,),
-                lambda meta_ctx=meta_ctx: self._apply_metaclass_candidates(
-                    solver,
-                    scope,
-                    class_obj,
-                    call,
-                    solver.state.get_points_to(meta_ctx),
-                ),
-            )
-            self._apply_metaclass_candidates(
-                solver,
-                scope,
-                class_obj,
-                call,
-                solver.state.get_points_to(meta_ctx),
-            )
-
-        if not all_bindings or all(default_possible_at_each_position):
-            self._apply_default_metaclass_call(
-                solver, scope, call, class_obj
-            )
-
-    def _install_inherited_metaclass_watchers(
-        self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        root_class_obj: 'ClassObject',
-        root_call: 'CallConstraint',
-        class_obj: 'ClassObject',
-        seen: Optional[set['ClassObject']] = None,
-    ) -> None:
-        """Watch the transitive base graph used to inherit a metaclass."""
-        if seen is None:
-            seen = set()
-        if class_obj in seen:
-            return
-        seen.add(class_obj)
-        if class_obj.metaclass_variables:
-            return
-        for base_var in self._effective_base_variables(class_obj):
-            base_ctx = solver.state.get_variable(
-                class_obj.container_scope,
-                class_obj.container_scope.context,
-                base_var,
-            )
-            solver.state.dependencies.subscribe(
-                (
-                    "transitive-inherited-metaclass",
-                    root_class_obj,
-                    root_call,
-                    class_obj,
-                    base_var,
-                ),
-                (base_ctx,),
-                lambda: self._apply_inherited_metaclass_candidates(
-                    solver, scope, root_class_obj, root_call
-                ),
-            )
-            for base_obj in solver.state.get_points_to(base_ctx):
-                if isinstance(base_obj, ClassObject):
-                    self._install_inherited_metaclass_watchers(
-                        solver,
-                        scope,
-                        root_class_obj,
-                        root_call,
-                        base_obj,
-                        set(seen),
-                    )
-
-    def _apply_metaclass_candidates(
-        self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        class_obj: 'ClassObject',
-        call: 'CallConstraint',
-        meta_pts: 'PointsToSet',
-    ) -> None:
-        for meta_obj in meta_pts:
-            self._apply_metaclass_object(
-                solver,
-                scope,
-                class_obj,
-                call,
-                meta_obj,
-            )
+        raise AssertionError(f"unknown class construction state: {construction.kind}")
 
     def _apply_metaclass_object(
         self,
@@ -1543,3 +1330,4 @@ class PythonCallService(Processor):
 # name.  There is intentionally only one implementation and one shared
 # instance per analysis.
 NormalCallProcessor = PythonCallService
+CallResolver = PythonCallService

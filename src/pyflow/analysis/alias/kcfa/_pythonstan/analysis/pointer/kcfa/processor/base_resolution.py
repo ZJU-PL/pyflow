@@ -19,6 +19,7 @@ from ..object import (
 )
 from ..points_to_set import PointsToSet
 from ..stable_key import stable_token
+from ..type_ref import TypeRef
 from ..unknown_tracker import UnknownKind
 from ..variable import Variable, VariableKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
@@ -97,12 +98,16 @@ class BaseResolutionProcessor(Processor):
         for base_obj in pts:
             if isinstance(base_obj, ClassObject):
                 solver.state.record_effective_base_sequence(
-                    owner, constraint.position, (base_obj,)
+                    owner,
+                    constraint.position,
+                    (TypeRef.user(base_obj),),
                 )
                 continue
             if self._is_builtin_type(base_obj):
-                solver.state.record_opaque_effective_base(
-                    owner, constraint.position, base_obj
+                solver.state.record_effective_base_sequence(
+                    owner,
+                    constraint.position,
+                    (solver.state.types.ref(base_obj),),
                 )
                 continue
 
@@ -264,7 +269,11 @@ class BaseResolutionProcessor(Processor):
             pts = solver.state.get_points_to(element_ctx)
             if pts.is_empty():
                 return
-            options = tuple(obj for obj in pts if isinstance(obj, ClassObject))
+            options = tuple(
+                solver.state.types.ref(obj)
+                for obj in pts
+                if isinstance(obj, ClassObject) or self._is_builtin_type(obj)
+            )
             if len(options) != len(pts):
                 self._mark_incomplete(
                     solver,

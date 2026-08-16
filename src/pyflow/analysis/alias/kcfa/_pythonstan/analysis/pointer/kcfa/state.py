@@ -24,6 +24,8 @@ from .pointer_flow_graph import PointerFlowGraph, NormalNode, SelectorNode, Poin
 from .points_to_set import AnalysisArena, PointsToSet
 from .dependency import DependencyManager
 from .type_ref import (
+    ClassConstructionKind,
+    ClassConstructionState,
     ClassVariant,
     InvalidClassVariant,
     TypeRef,
@@ -147,6 +149,9 @@ class PointerAnalysisState:
             debug_monitor: Optional DebugMonitor instance for tracking
         """
         self.arena = AnalysisArena()
+        from .type_universe import TypeUniverse
+
+        self.types = TypeUniverse(self)
         self._env: Dict['Variable', PointsToSet] = {}
         self._heap = HeapModel()
         self._call_graph: 'PointerCallGraph' = PointerCallGraph()
@@ -157,8 +162,6 @@ class PointerAnalysisState:
         self._field_accesses: Dict[Tuple['AbstractObject', 'Field'], FieldAccess] = {}
         self._field_presence: Dict[Tuple['AbstractObject', 'Field'], Tuple[bool, bool]] = {}
         self._effective_base_sequences = defaultdict(set)
-        self._opaque_effective_base_positions = set()
-        self._opaque_effective_base_objects = defaultdict(set)
         self._class_variants = defaultdict(set)
         self._invalid_class_variants = defaultdict(set)
         self._class_inheritance_lookups = defaultdict(set)
@@ -176,6 +179,10 @@ class PointerAnalysisState:
         self.class_hierarchy = None
         self._semantic_events = []
         self._escaped_objects = set()
+        self._construction_inputs_sealed = False
+        from .class_semantics import ClassSemantics
+
+        self.classes = ClassSemantics(self)
         
         # Debug monitoring
         self._debug_monitor = debug_monitor
@@ -339,232 +346,41 @@ class PointerAnalysisState:
             return True
         return field.name in slots
 
-    @staticmethod
-    def _type_ref(obj: 'AbstractObject') -> TypeRef:
-        if isinstance(obj, ClassObject):
-            return TypeRef.user(obj)
-        if isinstance(obj, BuiltinClassObject):
-            return TypeRef.builtin(obj.builtin_name, obj)
-        if isinstance(obj, BuiltinFunctionObject):
-            return TypeRef.builtin(obj.function_name, obj)
-        if isinstance(obj, NativeObject):
-            return TypeRef.native(obj, obj.access_path)
-        return TypeRef.opaque(str(obj), obj)
+    def _type_ref(self, obj: 'AbstractObject') -> TypeRef:
+        """Compatibility shim; new semantic code uses ``state.types``."""
+        return self.types.ref(obj)
 
     def _metaclass_refs_for_class(
         self,
         class_obj: 'ClassObject',
         seen: Optional[Set['ClassObject']] = None,
     ) -> Tuple[TypeRef, ...]:
-        if seen is None:
-            seen = set()
-        if class_obj in seen:
-            return (TypeRef.opaque("recursive-metaclass"),)
-        seen.add(class_obj)
-
-        if class_obj.metaclass_variables:
-            refs = []
-            for meta_var in class_obj.metaclass_variables:
-                meta_ctx = self.get_variable(
-                    class_obj.container_scope,
-                    class_obj.container_scope.context,
-                    meta_var,
-                )
-                pts = self.get_points_to(meta_ctx)
-                if pts.is_empty():
-                    return ()
-                refs.extend(self._type_ref(obj) for obj in pts)
-            return tuple(dict.fromkeys(refs))
-
-        variants = self._class_variants.get(class_obj)
-        if variants:
-            return tuple(dict.fromkeys(
-                variant.metaclass for variant in variants
-            ))
-        if not class_obj.base_variables:
-            return (TypeRef.builtin("type"),)
-
-        refs = []
-        for position in range(len(class_obj.base_variables)):
-            for sequence in self._effective_base_sequences.get(
-                (class_obj, position), ()
-            ):
-                for base_obj in sequence:
-                    refs.extend(
-                        self._metaclass_refs_for_class(base_obj, set(seen))
-                    )
-        return tuple(dict.fromkeys(refs))
+        return self.classes.metaclass_refs_for_class(class_obj, seen)
 
     def _select_metaclass(
         self,
         candidates: Iterable[TypeRef],
     ) -> Tuple[Optional[TypeRef], Optional[str]]:
-        refs = tuple(dict.fromkeys(candidates))
-        if not refs:
-            return TypeRef.builtin("type"), None
-        if any(ref.is_opaque for ref in refs):
-            return TypeRef.opaque("compatible-metaclass"), None
-
-        user_refs = [
-            ref for ref in refs
-            if ref.kind is TypeRefKind.USER
-            and isinstance(ref.target, ClassObject)
-        ]
-        if not user_refs:
-            # Builtin ``type`` and compatible builtin metatypes collapse to a
-            # single explicit type-like alternative.
-            return refs[0], None
-        if self.class_hierarchy is None:
-            return TypeRef.opaque("unresolved-metaclass-hierarchy"), None
-
-        compatible = []
-        for candidate in user_refs:
-            try:
-                candidate_mro = set(
-                    self.class_hierarchy.get_mro(candidate.target)
-                )
-            except Exception:
-                continue
-            if all(
-                other.target in candidate_mro
-                for other in user_refs
-            ):
-                compatible.append(candidate)
-        if not compatible:
-            return None, "metaclass conflict"
-        return compatible[0], None
+        return self.classes.select_metaclass(candidates)
 
     def refresh_class_variants(self, owner: 'ClassObject') -> None:
-        """Materialize feasible base/MRO/metaclass alternatives monotonically."""
-        if not owner.base_variables:
-            metaclass_refs = self._metaclass_refs_for_class(owner)
-            if owner.metaclass_variables and not metaclass_refs:
-                return
-            if owner.metaclass_variables:
-                # A class statement accepts any callable as its explicit
-                # metaclass.  Non-type callables construct the binding result
-                # directly and therefore must not publish the provisional
-                # ClassObject as a feasible type variant.
-                metaclass_refs = tuple(
-                    ref for ref in metaclass_refs
-                    if ref.kind is not TypeRefKind.OPAQUE
-                )
-                if not metaclass_refs:
-                    return
-            metaclass, error = self._select_metaclass(metaclass_refs)
-            if error is not None:
-                self._invalid_class_variants[owner].add(
-                    InvalidClassVariant(owner, (), error)
-                )
-                return
-            if metaclass is not None:
-                self._class_variants[owner].add(ClassVariant(
-                    owner=owner,
-                    effective_bases=(),
-                    metaclass=metaclass,
-                    mro=(TypeRef.user(owner),),
-                ))
-            return
-
-        sequence_options = []
-        has_opaque = False
-        for position in range(len(owner.base_variables)):
-            options = tuple(
-                self._effective_base_sequences.get((owner, position), ())
-            )
-            opaque = tuple(
-                self._opaque_effective_base_objects.get((owner, position), ())
-            )
-            if opaque:
-                has_opaque = True
-            if not options and not opaque:
-                return
-            sequence_options.append(options or ((),))
-
-        combination_count = 1
-        for options in sequence_options:
-            combination_count *= len(options)
-        if has_opaque or combination_count > self.MAX_BASE_COMBINATIONS:
-            refs = []
-            for options in sequence_options:
-                for sequence in options:
-                    refs.extend(self._type_ref(base) for base in sequence)
-            for position in range(len(owner.base_variables)):
-                refs.extend(
-                    self._type_ref(base)
-                    for base in self._opaque_effective_base_objects.get(
-                        (owner, position), ()
-                    )
-                )
-            self._class_variants[owner].add(ClassVariant(
-                owner=owner,
-                effective_bases=tuple(dict.fromkeys(refs)),
-                metaclass=TypeRef.opaque("widened-metaclass"),
-                mro=(TypeRef.user(owner), *tuple(dict.fromkeys(refs))),
-                widened=True,
-            ))
-            return
-
-        from .class_hierarchy import MROError, compute_c3_mro_for_bases
-
-        for selected in product(*sequence_options):
-            bases = tuple(
-                base for sequence in selected for base in sequence
-            )
-            base_refs = tuple(TypeRef.user(base) for base in bases)
-            try:
-                mro_tail = (
-                    compute_c3_mro_for_bases(
-                        list(bases), self.class_hierarchy
-                    )
-                    if self.class_hierarchy is not None
-                    else list(bases)
-                )
-            except MROError as error:
-                self._invalid_class_variants[owner].add(
-                    InvalidClassVariant(owner, base_refs, str(error))
-                )
-                continue
-
-            metaclass_candidates = []
-            if owner.metaclass_variables:
-                metaclass_candidates.extend(
-                    ref for ref in self._metaclass_refs_for_class(owner)
-                    if ref.kind is not TypeRefKind.OPAQUE
-                )
-                if not metaclass_candidates:
-                    continue
-            for base in bases:
-                metaclass_candidates.extend(
-                    self._metaclass_refs_for_class(base)
-                )
-            metaclass, error = self._select_metaclass(
-                metaclass_candidates
-            )
-            if error is not None or metaclass is None:
-                self._invalid_class_variants[owner].add(
-                    InvalidClassVariant(
-                        owner, base_refs, error or "invalid metaclass"
-                    )
-                )
-                continue
-            self._class_variants[owner].add(ClassVariant(
-                owner=owner,
-                effective_bases=base_refs,
-                metaclass=metaclass,
-                mro=(
-                    TypeRef.user(owner),
-                    *(TypeRef.user(base) for base in mro_tail),
-                ),
-            ))
+        """Compatibility facade for the extracted class service."""
+        self.classes.refresh_variants(owner)
 
     def class_variants(self, owner: 'ClassObject') -> FrozenSet[ClassVariant]:
-        return frozenset(self._class_variants.get(owner, ()))
+        """Compatibility facade; semantic clients should use ``classes``."""
+        return self.classes.variants(owner)
 
     def invalid_class_variants(
         self, owner: 'ClassObject'
     ) -> FrozenSet[InvalidClassVariant]:
-        return frozenset(self._invalid_class_variants.get(owner, ()))
+        return self.classes.invalid_variants(owner)
+
+    def class_construction_state(
+        self, owner: 'ClassObject'
+    ) -> ClassConstructionState:
+        """Return the single construction state consumed by call semantics."""
+        return self.classes.construction_state(owner)
 
     def refresh_class_inheritance(
         self,
@@ -602,8 +418,9 @@ class PointerAnalysisState:
                 base_var,
             )
             options = {
-                (obj,) for obj in self.get_points_to(base_ctx)
-                if isinstance(obj, ClassObject)
+                (self.types.ref(obj),)
+                for obj in self.get_points_to(base_ctx)
+                if self.types.is_subclassable(self.types.ref(obj)) is True
             }
             options.update(
                 self._effective_base_sequences.get((owner, position), set())
@@ -620,38 +437,38 @@ class PointerAnalysisState:
             index = 0
             for options in sequence_options:
                 for sequence in options:
-                    for base_obj in sequence:
+                    for base_ref in sequence:
+                        if (
+                            base_ref.kind is not TypeRefKind.USER
+                            or not isinstance(base_ref.target, ClassObject)
+                        ):
+                            continue
                         self._add_inherited_field_candidate(
-                            base_obj, field, selector, index
+                            base_ref.target, field, selector, index
                         )
                         index += 1
             return
 
-        from .class_hierarchy import MROError, compute_c3_mro_for_bases
+        from .class_hierarchy import MROError
 
         for selected_sequences in product(*sequence_options):
             concrete_bases = tuple(
-                base_obj
+                base_ref
                 for sequence in selected_sequences
-                for base_obj in sequence
+                for base_ref in sequence
             )
-            if self.class_hierarchy is None:
-                mro_bases = list(concrete_bases)
-            else:
-                try:
-                    mro_bases = compute_c3_mro_for_bases(
-                        list(concrete_bases), self.class_hierarchy
-                    )
-                except MROError:
-                    continue
-                if all(len(options) == 1 for options in sequence_options):
-                    bases_list = list(concrete_bases)
-                    if self.class_hierarchy.has_class(owner):
-                        self.class_hierarchy.update_bases(owner, bases_list)
-                    else:
-                        self.class_hierarchy.add_class(owner, bases_list)
+            try:
+                mro_bases = self.types.c3_mro_for_bases(concrete_bases)
+            except MROError:
+                continue
 
-            for index, base_obj in enumerate(mro_bases):
+            for index, base_ref in enumerate(mro_bases):
+                if (
+                    base_ref.kind is not TypeRefKind.USER
+                    or not isinstance(base_ref.target, ClassObject)
+                ):
+                    continue
+                base_obj = base_ref.target
                 self._add_inherited_field_candidate(
                     base_obj, field, selector, index
                 )
@@ -671,7 +488,7 @@ class PointerAnalysisState:
         self,
         owner: 'ClassObject',
         position: int,
-        sequence: Tuple['ClassObject', ...],
+        sequence: Tuple[TypeRef, ...],
     ) -> bool:
         """Record one monotone ``__mro_entries__`` expansion alternative."""
         key = (owner, position)
@@ -681,6 +498,7 @@ class PointerAnalysisState:
 
         self._update_singleton_class_hierarchy(owner)
         self.refresh_class_variants(owner)
+        self.dependencies.notify_growth(("class-variants", owner))
 
         if position < len(owner.effective_base_variables):
             effective_var = owner.effective_base_variables[position]
@@ -690,39 +508,19 @@ class PointerAnalysisState:
                 effective_var,
             )
             if sequence:
+                targets = tuple(
+                    ref.target for ref in sequence if ref.target is not None
+                )
                 self._worklist.add((
                     owner.container_scope,
                     NormalNode(effective_ctx),
-                    PointsToSet.from_objects(sequence),
+                    PointsToSet.from_objects(targets),
                 ))
 
         for field, selector in self._class_inheritance_lookups.get(owner, ()):
             self.refresh_class_inheritance(owner, field, selector)
         self.release_class_binding_if_feasible(owner)
         return True
-
-    def record_opaque_effective_base(
-        self,
-        owner: 'ClassObject',
-        position: int,
-        base_obj: 'AbstractObject',
-    ) -> None:
-        """Record a valid builtin/opaque type outside the user hierarchy."""
-        self._opaque_effective_base_positions.add((owner, position))
-        self._opaque_effective_base_objects[(owner, position)].add(base_obj)
-        self.refresh_class_variants(owner)
-        if position < len(owner.effective_base_variables):
-            effective_ctx = self.get_variable(
-                owner.container_scope,
-                owner.container_scope.context,
-                owner.effective_base_variables[position],
-            )
-            self._worklist.add((
-                owner.container_scope,
-                NormalNode(effective_ctx),
-                PointsToSet.singleton(base_obj),
-            ))
-        self.release_class_binding_if_feasible(owner)
 
     def defer_class_binding(
         self,
@@ -744,7 +542,10 @@ class PointerAnalysisState:
         variants = self.class_variants(owner)
         if not variants:
             return False
-        if all(self._variant_has_custom_metaclass_new(v) for v in variants):
+        if all(
+            self.classes.variant_has_custom_metaclass_new(v)
+            for v in variants
+        ):
             # A definitely selected user-defined metaclass ``__new__`` owns
             # the class statement's result.  Its arbitrary return value flows
             # to the deferred target through the construction call instead of
@@ -762,35 +563,7 @@ class PointerAnalysisState:
     def _variant_has_custom_metaclass_new(
         self, variant: ClassVariant
     ) -> bool:
-        metaclass = variant.metaclass
-        if (
-            metaclass.kind is not TypeRefKind.USER
-            or not isinstance(metaclass.target, ClassObject)
-        ):
-            return False
-        candidates = [metaclass.target]
-        meta_variants = self.class_variants(metaclass.target)
-        if meta_variants:
-            candidates.extend(
-                ref.target
-                for meta_variant in meta_variants
-                for ref in meta_variant.mro[1:]
-                if (
-                    ref.kind is TypeRefKind.USER
-                    and isinstance(ref.target, ClassObject)
-                )
-            )
-        elif self.class_hierarchy is not None:
-            try:
-                candidates = list(
-                    self.class_hierarchy.get_mro(metaclass.target)
-                )
-            except Exception:
-                pass
-        return any(
-            "__new__" in candidate.ir.get_definitely_declared_names()
-            for candidate in candidates
-        )
+        return self.classes.variant_has_custom_metaclass_new(variant)
 
     def _update_singleton_class_hierarchy(
         self,
@@ -805,7 +578,13 @@ class PointerAnalysisState:
             if len(options) != 1:
                 return
             selected.extend(next(iter(options)))
-        bases = list(selected)
+        if any(
+            ref.kind is not TypeRefKind.USER
+            or not isinstance(ref.target, ClassObject)
+            for ref in selected
+        ):
+            return
+        bases = [ref.target for ref in selected]
         if self.class_hierarchy.has_class(owner):
             self.class_hierarchy.update_bases(owner, bases)
         else:
@@ -822,40 +601,32 @@ class PointerAnalysisState:
         if not owner.base_variables:
             return False if self.invalid_class_variants(owner) else None
         sequence_options = []
-        has_opaque_base = False
         for position in range(len(owner.base_variables)):
             options = tuple(
                 self._effective_base_sequences.get((owner, position), set())
             )
             if not options:
-                if (owner, position) not in self._opaque_effective_base_positions:
-                    return None
-                has_opaque_base = True
-                options = ((),)
+                return None
             sequence_options.append(options)
 
         count = 1
         for options in sequence_options:
             count *= len(options)
         if (
-            has_opaque_base
-            or count > self.MAX_BASE_COMBINATIONS
-            or self.class_hierarchy is None
+            count > self.MAX_BASE_COMBINATIONS
         ):
             return True
 
-        from .class_hierarchy import MROError, compute_c3_mro_for_bases
+        from .class_hierarchy import MROError
 
         for selected_sequences in product(*sequence_options):
-            concrete_bases = [
-                base_obj
+            concrete_bases = tuple(
+                base_ref
                 for sequence in selected_sequences
-                for base_obj in sequence
-            ]
+                for base_ref in sequence
+            )
             try:
-                compute_c3_mro_for_bases(
-                    concrete_bases, self.class_hierarchy
-                )
+                self.types.c3_mro_for_bases(concrete_bases)
                 return True
             except MROError:
                 continue
@@ -899,6 +670,23 @@ class PointerAnalysisState:
             self.set_field(scope, context, obj, field, field_access)
         return Ctx(obj.context, None, field_access)
 
+    def raw_field_points_to(
+        self,
+        obj: 'AbstractObject',
+        field: 'Field',
+    ) -> PointsToSet:
+        """Return the current points-to set for an existing raw field cell.
+
+        Unlike :meth:`raw_field`, this is a read-only fixed-point query: it
+        does not allocate a field cell, install pointer-flow edges, or notify
+        dependencies when the requested field has never been observed.
+        """
+        field_access = self._field_accesses.get((obj, field))
+        if field_access is None:
+            return PointsToSet.empty(self.arena)
+        field_ctx = Ctx(obj.context, None, field_access)
+        return self.get_points_to(field_ctx)
+
     def get_field(
         self,
         scope: 'Scope',
@@ -909,167 +697,6 @@ class PointerAnalysisState:
         """Compatibility alias for exact raw heap storage."""
         return self.raw_field(scope, context, obj, field)
 
-    def _legacy_lookup_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
-        """Legacy semantic lookup retained temporarily during migration.
-        
-        Handles container-specific field resolution:
-        - TupleObject: Supports position(i) fields for precise tracking
-        - DictObject: Supports key(k) fields for precise tracking
-        - ListObject/SetObject: Uses elem() field for all elements
-        
-        Args:
-            obj: Object to query
-            field: Field to query
-        
-        Returns:
-            Contextualized field access for the specified field
-        """
-
-        # Summary objects: connect summary field to all concrete counterparts
-        if is_summary_object(obj):
-            field_access = self._field_accesses.get((obj, field), None)
-            if field_access is None:
-                field_access = self._variable_factory.make_field_access(obj, field)
-                self.set_field(scope, context, obj, field, field_access)
-            summary_cfield: Ctx[FieldAccess] = Ctx(obj.context, None, field_access)
-            # Bidirectionally connect summary field with each concrete matching object
-            for concrete in self._heap.objects.values():
-                if summarize_object(concrete) == obj:
-                    concrete_field = self.get_field(scope, context, concrete, field)
-                    self._add_points_flow_edge(PointerFlowEdge(NormalNode(summary_cfield), NormalNode(concrete_field), PointerFlowKind.NORMAL))
-                    self._add_points_flow_edge(PointerFlowEdge(NormalNode(concrete_field), NormalNode(summary_cfield), PointerFlowKind.NORMAL))
-            return summary_cfield
-
-        field_access = self._field_accesses.get((obj, field), None)
-        exists = True
-        if field_access is None:
-            field_access = self._variable_factory.make_field_access(obj, field)
-            self.set_field(scope, context, obj, field, field_access)
-            exists = False
-        
-        cfield: Ctx[FieldAccess] = Ctx(obj.context, None, field_access)
-
-        if not exists:
-            if isinstance(obj, ModuleObject):
-                if field.name is None:
-                    return cfield
-                
-                internal_scope = self.get_internal_scope(obj)
-                var = self._variable_factory.make_variable(field.name, VariableKind.GLOBAL)
-                cvar = self.get_variable(internal_scope, internal_scope.context, var)
-                self._add_var_points_flow(cvar, cfield)
-            
-            elif isinstance(obj, InstanceObject):
-                # print(f"get field {field.name} for instance {obj}")
-                cls_obj = obj.class_obj
-                assert isinstance(cls_obj, ClassObject), f"cls_obj must be a ClassObject, but got {type(cls_obj)}"
-                cls_scope = self.get_internal_scope(cls_obj)
-                cls_field = self.get_field(cls_scope, cls_scope.context, cls_obj, field)
-                assert cls_field != cfield, f"cls_field {cls_field} and cfield {cfield} should not be the same"
-                if cls_field != cfield:
-                    edge = PointerFlowEdge(NormalNode(cls_field), NormalNode(cfield), PointerFlowKind.INSTANCE)
-                    self._add_points_flow_edge(edge)
-            
-            elif isinstance(obj, ClassObject):
-                bases = obj.base_variables
-                scope = obj.container_scope
-
-                if len(bases) > 0:
-                    selector = SelectorNode()
-                    self.register_class_inheritance_lookup(obj, field, selector)
-                    inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.INHERIT)
-                    self._add_points_flow_edge(inherit_edge)
-
-                    for idx, base_var in enumerate(bases):
-                        # Contextualize the base variable for constraint indexing
-                        base_ctx_var = self.get_variable(scope, scope.context, base_var)
-                        inherit_constraint = InheritanceConstraint(
-                            base=base_var,
-                            field=field,
-                            target=selector,
-                            index=idx,
-                            owner=obj,
-                        )
-                        self._constraints.add(scope, base_ctx_var, inherit_constraint)
-                        # Debug logging
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        # Check if debug_inheritance is enabled (access through solver if possible)
-                        # For now, log at debug level
-                        logger.debug(f"[INHERIT] Created InheritanceConstraint for {obj.alloc_site.stmt.name}.{field} from base {base_var.name}")
-                        
-                    self.refresh_class_inheritance(obj, field, selector)
-            
-            # Handle SuperObject - resolve fields via parent class MRO
-            if isinstance(obj, SuperObject):
-                """
-                SuperObject field resolution via PFG + InheritanceConstraint:
-                
-                1. Identify parent classes to search (skip current_class in MRO)
-                2. Create SelectorNode to aggregate results from parents
-                3. Add PFG edge: selector -> cfield (parent fields flow to result)
-                4. For each parent class, add InheritanceConstraint (lazy resolution)
-                5. Methods flow through PFG and get bound to instance_obj if present
-                
-                This reuses the same mechanism as ClassObject inheritance but starts
-                from parent classes instead of the class itself.
-                """
-                if obj.current_class:
-                    # Get base classes from the current class
-                    # These are the parent classes super() will search
-                    from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRClass
-                    if isinstance(obj.current_class.alloc_site.stmt, IRClass):
-                        bases = (
-                            obj.current_class.effective_base_variables
-                            or obj.current_class.base_variables
-                        )
-                        current_scope = obj.current_class.container_scope
-                        
-                        if len(bases) > 0:
-                            # Create SelectorNode to collect parent class fields
-                            selector = SelectorNode()
-                            
-                            if obj.instance_obj is not None:
-                                # Bind parent methods into the instance, then flow to super field
-                                instance_field = self.get_field(scope, context, obj.instance_obj, field)
-                                inherit_edge = PointerFlowEdge(selector, NormalNode(instance_field), PointerFlowKind.INSTANCE)
-                                self._add_points_flow_edge(inherit_edge)
-                                self._add_points_flow_edge(
-                                    PointerFlowEdge(NormalNode(instance_field), NormalNode(cfield), PointerFlowKind.NORMAL)
-                                )
-                            else:
-                                # No instance: flow parent fields directly to super field
-                                inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.NORMAL)
-                                self._add_points_flow_edge(inherit_edge)
-                            
-                            # Add InheritanceConstraint for each parent class
-                            # These constraints apply lazily when parent points-to sets are known
-                            for idx, base_var in enumerate(bases):
-                                # Contextualize the base variable for constraint indexing
-                                base_ctx_var = self.get_variable(current_scope, current_scope.context, base_var)
-                                inherit_constraint = InheritanceConstraint(
-                                    base=base_var,
-                                    field=field,
-                                    target=selector,
-                                    index=idx
-                                )
-                                self._constraints.add(current_scope, base_ctx_var, inherit_constraint)
-                                
-                                # Immediate resolution if base already known
-                                if base_ctx_var:
-                                    base_pts = self.get_points_to(base_ctx_var)
-                                    if len(base_pts) > 0:
-                                        for base_obj in base_pts:
-                                            if isinstance(base_obj, ClassObject):
-                                                base_internal_scope = self.get_internal_scope(base_obj)
-                                                if base_internal_scope:
-                                                    base_field_access = self.get_field(base_internal_scope, base_obj.context, base_obj, field)
-                                                    base_edge = PointerFlowEdge(NormalNode(base_field_access), selector, PointerFlowKind.NORMAL)
-                                                    selector.add_edge(base_edge, idx)
-                                                    self._add_points_flow_edge(base_edge)
-
-        return cfield
-    
     def _get_builtin_methods_for_type(self, builtin_type: str) -> Set[str]:
         """Get the set of known methods for a builtin type.
         

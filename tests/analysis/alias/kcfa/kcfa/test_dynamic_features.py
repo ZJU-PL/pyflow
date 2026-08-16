@@ -400,6 +400,51 @@ class A(metaclass=M):
 
         assert result.points_to("sentinel") <= result.points_to("seen")
 
+    def test_metaclass_new_receives_the_prepared_namespace(self):
+        source = """
+sentinel = object()
+
+class Namespace:
+    marker = sentinel
+
+class M(type):
+    @classmethod
+    def __prepare__(mcls, name, bases):
+        return Namespace()
+
+    def __new__(mcls, name, bases, namespace):
+        return namespace.marker
+
+class A(metaclass=M):
+    body_value = object()
+
+x = A
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("x") == result.points_to("sentinel")
+
+    def test_class_body_populates_the_prepared_mapping(self):
+        source = """
+sentinel = object()
+
+class M(type):
+    @classmethod
+    def __prepare__(mcls, name, bases):
+        return {}
+
+    def __new__(mcls, name, bases, namespace):
+        return namespace["body_value"]
+
+class A(metaclass=M):
+    body_value = sentinel
+
+x = A
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("x") == result.points_to("sentinel")
+
     def test_descriptor_set_name_hook_receives_new_class(self):
         source = """
 seen = None
@@ -481,6 +526,71 @@ y = b.m()
 
         assert result.points_to("y")
         assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_explicit_super_slices_the_receiver_mro(self):
+        source = """
+a = object()
+b = []
+
+class A:
+    x = a
+
+class B(A):
+    x = b
+
+class C(A):
+    pass
+
+class D(C, B):
+    pass
+
+d = D()
+y = super(C, d).x
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y") == result.points_to("b")
+
+    def test_super_tracks_all_late_argument_alternatives(self):
+        source = """
+a = object()
+b = []
+
+class A:
+    x = a
+
+class B(A):
+    x = b
+
+class C(A):
+    pass
+
+class D(C, B):
+    pass
+
+class E(B, C):
+    pass
+
+Start = C
+Start = B
+receiver = D()
+receiver = E()
+y = super(Start, receiver).x
+"""
+        for policy, seed in (
+            ("fifo", 0),
+            ("lifo", 0),
+            *[("random", seed) for seed in range(10)],
+        ):
+            result = PointerAnalysis(
+                source,
+                k=1,
+                worklist_policy=policy,
+                worklist_seed=seed,
+            ).run()
+
+            assert result.points_to("a") <= result.points_to("y")
+            assert result.points_to("b") <= result.points_to("y")
 
     def test_constant_exec_is_lowered_into_the_current_scope(self):
         result = PointerAnalysis('exec("x = object()")\ny = x\n', k=1).run()

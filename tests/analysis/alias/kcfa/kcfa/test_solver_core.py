@@ -1,11 +1,14 @@
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import AllocConstraint, CallConstraint, CopyConstraint
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import attr
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     AllocKind,
     AllocSite,
     NativeObject,
     ObjectFactory,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import NormalNode
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor import Processor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor.normal_call import NormalCallProcessor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.solver import PointerSolver
@@ -71,6 +74,23 @@ def test_empty_solver_fixpoint_terminates(module_scope):
 
     assert solver._stats["iterations"] == 0
     assert solver.query().get_statistics()["complete"] is True
+
+
+def test_solver_query_field_is_read_only(
+    module_scope, simple_context, object_factory
+):
+    solver, state, _processor = _solver(module_scope)
+    obj = object_factory()
+    value = object_factory(AllocKind.LIST)
+    field = attr("value")
+
+    assert solver.query().get_field(obj, field).is_empty()
+    assert state.has_field(module_scope, simple_context, obj, field) is None
+
+    field_ctx = state.raw_field(module_scope, simple_context, obj, field)
+    state.set_points_to(field_ctx, PointsToSet.singleton(value))
+
+    assert set(solver.query().get_field(obj, field)) == {value}
 
 
 def test_frontend_failure_is_distinct_from_fixpoint_completion(module_scope):
@@ -187,3 +207,56 @@ def test_core_fixed_point_is_independent_of_worklist_schedule(
     assert solve("lifo") == expected
     assert solve("random", 1) == expected
     assert solve("random", 17) == expected
+
+
+def test_random_schedule_interleaves_all_solver_queue_classes(
+    module_scope, simple_context, object_factory
+):
+    def agenda_order(seed):
+        state = PointerAnalysisState(
+            worklist_policy="random", worklist_seed=seed
+        )
+        solver = PointerSolver(
+            state,
+            Config(
+                max_iterations=10,
+                worklist_policy="random",
+                worklist_seed=seed,
+            ),
+            Processor(),
+        )
+        events = []
+        state._static_constraints.append((
+            module_scope,
+            simple_context,
+            CopyConstraint(Variable("a"), Variable("b")),
+        ))
+        state.dependencies.subscribe(
+            "agenda-dependency",
+            (),
+            lambda: events.append("dependency"),
+            run_initial=True,
+        )
+        dynamic_var = state.get_variable(
+            module_scope, simple_context, Variable("dynamic")
+        )
+        state._worklist.add((
+            module_scope,
+            NormalNode(dynamic_var),
+            PointsToSet.singleton(object_factory()),
+        ))
+        solver._apply_static = (
+            lambda *_args: events.append("static") or state
+        )
+        solver._apply_dynamic = (
+            lambda *_args: events.append("dynamic") or state
+        )
+
+        for _ in range(3):
+            next(solver)
+        return tuple(events)
+
+    orders = {agenda_order(seed) for seed in range(20)}
+
+    assert all(set(order) == {"static", "dependency", "dynamic"} for order in orders)
+    assert len(orders) > 1

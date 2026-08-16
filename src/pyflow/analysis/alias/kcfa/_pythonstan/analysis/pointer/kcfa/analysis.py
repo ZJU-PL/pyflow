@@ -89,7 +89,7 @@ class PointerAnalysis(AnalysisDriver):
             debug_monitor=self.debug_monitor,
             processor=ComposeProcessor([
                 GeneratorProcessor(normal_call_service),
-                AttributeSemanticsProcessor(),
+                AttributeResolver(),
                 BaseResolutionProcessor(),
                 normal_call_service,
                 ContainerProcessor(index_sensitive=self.kcfa_config.index_sensitive),

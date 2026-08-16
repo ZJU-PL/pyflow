@@ -17,6 +17,13 @@ class TypeRefKind(Enum):
     OPAQUE = "opaque"
 
 
+class ClassConstructionKind(Enum):
+    PENDING = "pending"
+    FEASIBLE = "feasible"
+    INVALID = "invalid"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class TypeRef:
     """A type-like value independent of its implementation origin."""
@@ -70,3 +77,12 @@ class InvalidClassVariant:
     owner: 'ClassObject'
     effective_bases: Tuple[TypeRef, ...]
     reason: str
+
+
+@dataclass(frozen=True)
+class ClassConstructionState:
+    """The sole monotone-facing state consumed by class call semantics."""
+
+    kind: ClassConstructionKind
+    variants: Tuple[ClassVariant, ...] = ()
+    reasons: Tuple[str, ...] = ()

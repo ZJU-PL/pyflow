@@ -9,9 +9,9 @@ from .processor import Processor
 from .compose_processor import ComposeProcessor
 from .container import ContainerProcessor
 from .super_resolve import SuperResolveProcessor
-from .normal_call import NormalCallProcessor, PythonCallService
+from .normal_call import CallResolver, NormalCallProcessor, PythonCallService
 from .generator import GeneratorProcessor
-from .attribute_semantics import AttributeSemanticsProcessor
+from .attribute_semantics import AttributeResolver, AttributeSemanticsProcessor
 from .base_resolution import BaseResolutionProcessor
 from typing import TYPE_CHECKING
 
@@ -25,7 +25,9 @@ __all__ = [
     "SuperResolveProcessor",
     "NormalCallProcessor",
     "PythonCallService",
+    "CallResolver",
     "GeneratorProcessor",
     "AttributeSemanticsProcessor",
+    "AttributeResolver",
     "BaseResolutionProcessor",
 ]

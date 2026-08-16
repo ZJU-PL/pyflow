@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import *
     from .context import AbstractContext, Scope, Ctx
     from .variable import Variable
+    from .type_ref import TypeRef
 
 __all__ = ["AllocKind", "AllocSite", "AbstractObject", "FunctionObject", "ConstantObject", 
            "ClassObject", "ModuleObject", "InstanceObject", "MethodObject", "BuiltinObject", "ListObject",
@@ -336,26 +337,36 @@ class BuiltinFunctionObject(AbstractObject):
 
 @dataclass(frozen=True)
 class SuperObject(AbstractObject):
-    """Super proxy object for MRO-based method resolution.
-    
-    Represents the result of super() calls. Field access on SuperObject
-    resolves to parent class fields using MRO and InheritanceConstraint.
-    
-    Key behaviors:
-    - Field access triggers InheritanceConstraint for parent classes
-    - Methods accessed are bound to instance_obj if present
-    - Uses SelectorNode + PFG edges for lazy parent field resolution
-    
-    Attributes:
-        current_class: Class context where super() was called (determines MRO position)
-        instance_obj: Instance for method binding (None for unbound super)
+    """One resolved ``super(start_type, receiver)`` alternative.
+
+    ``receiver_type`` identifies the MRO that must be sliced.  This is
+    intentionally distinct from ``start_type``: Python searches the
+    receiver's MRO immediately after the nominated start type.
     """
-    current_class: Optional['ClassObject']  # Class to skip in MRO lookup
-    instance_obj: Optional['AbstractObject']  # Instance for binding methods
+    start_type: Optional['TypeRef']
+    receiver: Optional['AbstractObject']
+    receiver_type: Optional['TypeRef']
+
+    @property
+    def current_class(self) -> Optional['ClassObject']:
+        """Compatibility view for callers not yet migrated to ``TypeRef``."""
+        from .type_ref import TypeRefKind
+
+        if (
+            self.start_type is not None
+            and self.start_type.kind is TypeRefKind.USER
+        ):
+            return self.start_type.target
+        return None
+
+    @property
+    def instance_obj(self) -> Optional['AbstractObject']:
+        """Compatibility alias for the bound receiver."""
+        return self.receiver
     
     def __str__(self) -> str:
-        if self.current_class:
-            return f"<super of {self.current_class}>"
+        if self.start_type:
+            return f"<super after {self.start_type.name}>"
         return f"<super at {self.alloc_site}>"
 
 
@@ -585,16 +596,18 @@ class ObjectFactory:
     def create_super(
         context: 'AbstractContext',
         stmt: Union[str, 'IRStatement'],
-        current_class: Optional['ClassObject'] = None,
-        instance_obj: Optional['AbstractObject'] = None
+        start_type: Optional['TypeRef'] = None,
+        receiver: Optional['AbstractObject'] = None,
+        receiver_type: Optional['TypeRef'] = None,
     ) -> 'SuperObject':
         """Create a super proxy object.
         
         Args:
             context: Analysis context
             stmt: IR statement or identifier for allocation site
-            current_class: Class context for MRO lookup (None = unresolved)
-            instance_obj: Instance for method binding (None = unbound)
+            start_type: Type after which receiver-MRO lookup begins
+            receiver: Object used for descriptor/method binding
+            receiver_type: Type whose MRO is searched
         
         Returns:
             SuperObject for parent class access
@@ -603,8 +616,9 @@ class ObjectFactory:
         return SuperObject(
             context=context,
             alloc_site=alloc_site,
-            current_class=current_class,
-            instance_obj=instance_obj
+            start_type=start_type,
+            receiver=receiver,
+            receiver_type=receiver_type,
         )
     
     @staticmethod

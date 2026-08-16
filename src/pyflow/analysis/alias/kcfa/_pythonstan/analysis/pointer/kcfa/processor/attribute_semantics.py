@@ -29,6 +29,7 @@ from ..object import (
     SuperObject,
 )
 from ..points_to_set import PointsToSet
+from ..type_ref import TypeRefKind
 from ..stable_key import stable_token
 from ..pointer_flow_graph import (
     ClassBindingNode,
@@ -48,10 +49,10 @@ if TYPE_CHECKING:
     from ..constraints import Constraint
     from ..object import AbstractObject, ClassObject
 
-__all__ = ["AttributeSemanticsProcessor"]
+__all__ = ["AttributeResolver", "AttributeSemanticsProcessor"]
 
 
-class AttributeSemanticsProcessor(Processor):
+class AttributeResolver(Processor):
     """Apply Python attribute read and write semantics during solving.
 
     Constant attribute names are resolved precisely.  Dynamic names fall back
@@ -195,9 +196,12 @@ class AttributeSemanticsProcessor(Processor):
         field: Field,
         target_ctx: 'Ctx[Any]',
     ) -> None:
-        current_class = super_obj.current_class
-        if current_class is None:
-            solver.mark_semantic_incomplete()
+        if (
+            super_obj.start_type is None
+            or super_obj.receiver_type is None
+        ):
+            # Pending allocation marker; resolved variants arrive
+            # incrementally from SuperResolveProcessor.
             return
         key = ("super-lookup", super_obj, field, target_ctx)
         if key in self._installed_field_lookups:
@@ -218,12 +222,81 @@ class AttributeSemanticsProcessor(Processor):
                 PointerFlowKind.NORMAL,
             )
         )
-        solver.state.register_class_inheritance_lookup(
-            current_class, field, selector
+        self._refresh_super_lookup(
+            solver, super_obj, field, selector
         )
-        solver.state.refresh_class_inheritance(
-            current_class, field, selector
-        )
+        receiver_type = super_obj.receiver_type
+        if (
+            receiver_type.kind is TypeRefKind.USER
+            and isinstance(receiver_type.target, ClassObject)
+        ):
+            receiver_class = receiver_type.target
+            sources = [("class-variants", receiver_class)]
+            sources.extend(
+                solver.state.get_variable(
+                    receiver_class.container_scope,
+                    receiver_class.container_scope.context,
+                    base_var,
+                )
+                for base_var in receiver_class.base_variables
+            )
+            solver.state.dependencies.subscribe(
+                ("super-lookup-mro", *key),
+                sources,
+                lambda: self._refresh_super_lookup(
+                    solver, super_obj, field, selector
+                ),
+            )
+
+    def _refresh_super_lookup(
+        self,
+        solver: 'PointerSolver',
+        super_obj: SuperObject,
+        field: Field,
+        selector: SelectorNode,
+    ) -> None:
+        """Install candidates after ``start_type`` in each receiver MRO."""
+        state = solver.state
+        start_type = super_obj.start_type
+        receiver_type = super_obj.receiver_type
+        if start_type is None or receiver_type is None:
+            return
+        mro_alternatives = []
+        if (
+            receiver_type.kind is TypeRefKind.USER
+            and isinstance(receiver_type.target, ClassObject)
+        ):
+            variants = state.class_variants(receiver_type.target)
+            mro_alternatives.extend(variant.mro for variant in variants)
+        if not mro_alternatives:
+            mro_alternatives.append(state.types.mro(receiver_type))
+
+        for mro in mro_alternatives:
+            try:
+                start_index = mro.index(start_type)
+            except ValueError:
+                # This concrete alternative raises TypeError at runtime.
+                continue
+            candidate_index = 0
+            for type_ref in mro[start_index + 1:]:
+                if (
+                    type_ref.kind is not TypeRefKind.USER
+                    or not isinstance(type_ref.target, ClassObject)
+                ):
+                    # Builtin/native member summaries are not yet expressible
+                    # as PFG cells. Preserve completeness metadata instead of
+                    # silently treating them as absent.
+                    solver.mark_semantic_incomplete()
+                    continue
+                candidate = type_ref.target
+                state._add_inherited_field_candidate(
+                    candidate, field, selector, candidate_index
+                )
+                candidate_index += 1
+                if state.get_attribute_presence(
+                    candidate, field
+                ).must_exist:
+                    break
     
     def handle_new_constraint(self, solver: 'PointerSolver', scope: 'Scope', constraint: 'Constraint') -> bool:
         state = solver.state
@@ -813,3 +886,7 @@ class AttributeSemanticsProcessor(Processor):
             instance_obj=instance_obj,
         )
         return lookup_ctx
+
+
+# Compatibility alias for the pre-service migration name.
+AttributeSemanticsProcessor = AttributeResolver

@@ -6,6 +6,7 @@ constraint-based propagation.
 
 import ast
 import logging
+import random
 from collections import defaultdict, deque
 from fnmatch import fnmatchcase
 from typing import Set, Dict, Any, TYPE_CHECKING, Optional, List, Tuple
@@ -81,6 +82,7 @@ class PointerSolver:
         self.builtin_manager = builtin_manager
         self.variable_factory = variable_factory or VariableFactory()
         self._unknown_tracker = UnknownTracker()
+        self._agenda_random = random.Random(config.worklist_seed + 2)
         self._debug_monitor = debug_monitor
         self.state.class_hierarchy = class_hierarchy
         self._frontend_complete = True
@@ -243,6 +245,7 @@ class PointerSolver:
             and not self.state._static_constraints
             and not self.state.dependencies.has_pending()
         )
+        self.state._construction_inputs_sealed = self._fixpoint_complete
         if not self._fixpoint_complete:
             self._unknown_tracker.record(
                 UnknownKind.SOLVER_BUDGET,
@@ -325,15 +328,26 @@ class PointerSolver:
         )
         if has_work and self._iteration < self.config.max_iterations:
             self._iteration += 1
+            available = []
             if self.state._static_constraints:
+                available.append("static")
+            if self.state.dependencies.has_pending():
+                available.append("dependency")
+            if not self.state._worklist.empty():
+                available.append("dynamic")
+            selected = (
+                self._agenda_random.choice(available)
+                if self.config.worklist_policy == "random"
+                else available[0]
+            )
+            if selected == "static":
                 scope, ctx, constraint = self.state.pop_static_constraint()
                 return self._apply_static(scope, ctx, constraint)
-            elif self.state.dependencies.has_pending():
+            if selected == "dependency":
                 self.state.dependencies.run_next()
                 return self.state
-            elif not self.state._worklist.empty():
-                scope, node, pts = self.state._worklist.pop()
-                return self._apply_dynamic(scope, node, pts)
+            scope, node, pts = self.state._worklist.pop()
+            return self._apply_dynamic(scope, node, pts)
             
             
         raise StopIteration
@@ -904,13 +918,19 @@ class PointerSolver:
         result_var: 'Variable',
     ) -> None:
         """Publish type variants or invoke arbitrary callable metaclasses."""
+        before = self.state.class_variants(class_obj)
         self.state.refresh_class_variants(class_obj)
+        if self.state.class_variants(class_obj) != before:
+            self.state.dependencies.notify_growth(
+                ("class-variants", class_obj)
+            )
         self.state.release_class_binding_if_feasible(class_obj)
         for variant in self.state.class_variants(class_obj):
             self._install_class_variant_hooks(
                 scope, context, class_obj, result_var, variant
             )
-        self._install_class_owner_hooks(scope, context, class_obj)
+            if not self.state.classes.variant_has_custom_metaclass_new(variant):
+                self._install_class_owner_hooks(scope, context, class_obj)
         for meta_var in class_obj.metaclass_variables:
             meta_ctx = self.state.get_variable(scope, context, meta_var)
             for meta_obj in self.state.get_points_to(meta_ctx):
@@ -950,29 +970,37 @@ class PointerSolver:
         bases_var = self._original_bases_variable(
             scope, context, class_obj
         )
-        namespace_var = self._class_namespaces[class_obj]
+        synthetic_namespace = self._class_namespaces[class_obj]
         prepare_result = Variable(
             name=f"$prepared_namespace@{token}@{stable_token(meta_obj)}",
             kind=VariableKind.TEMPORARY,
         )
-        self._install_optional_object_method_call(
-            scope,
-            context,
-            owner=meta_obj,
-            field=attr("__prepare__"),
-            key_=("class-prepare", class_obj, variant),
-            args_factory=lambda _callee: (name_var, bases_var),
-            kwargs=class_obj.class_keyword_variables,
-            target=prepare_result,
-            call_site=CallSite(
-                statement=class_obj.ir,
-                scope_name=class_obj.ir.get_qualname(),
-                index=10,
-            ),
-        )
         prepared_ctx = self.state.get_variable(
             scope, context, prepare_result
         )
+        if self._variant_has_custom_metaclass_method(
+            variant, "__prepare__"
+        ):
+            self._install_optional_object_method_call(
+                scope,
+                context,
+                owner=meta_obj,
+                field=attr("__prepare__"),
+                key_=("class-prepare", class_obj, variant),
+                args_factory=lambda _callee: (name_var, bases_var),
+                kwargs=class_obj.class_keyword_variables,
+                target=prepare_result,
+                call_site=CallSite(
+                    statement=class_obj.ir,
+                    scope_name=class_obj.ir.get_qualname(),
+                    index=10,
+                ),
+            )
+        else:
+            synthetic_ctx = self.state.get_variable(
+                scope, context, synthetic_namespace
+            )
+            self.state._add_var_points_flow(synthetic_ctx, prepared_ctx)
         self.state.dependencies.subscribe(
             ("prepared-namespace-result", class_obj, variant),
             (prepared_ctx,),
@@ -984,7 +1012,7 @@ class PointerSolver:
             ),
         )
 
-        if self.state._variant_has_custom_metaclass_new(variant):
+        if self.state.classes.variant_has_custom_metaclass_new(variant):
             meta_var = self._class_object_variable(
                 scope, context, meta_obj, "metaclass"
             )
@@ -995,7 +1023,7 @@ class PointerSolver:
                 field=attr("__new__"),
                 key_=("class-metaclass-new", class_obj, variant),
                 args_factory=lambda _callee: (
-                    meta_var, name_var, bases_var, namespace_var
+                    meta_var, name_var, bases_var, prepare_result
                 ),
                 kwargs=class_obj.class_keyword_variables,
                 target=result_var,
@@ -1004,6 +1032,21 @@ class PointerSolver:
                     scope_name=class_obj.ir.get_qualname(),
                     index=11,
                 ),
+            )
+            result_ctx = self.state.get_variable(
+                scope, context, result_var
+            )
+
+            def install_type_new_hooks() -> None:
+                if class_obj in self.state.get_points_to(result_ctx):
+                    self._install_class_owner_hooks(
+                        scope, context, class_obj
+                    )
+
+            self.state.dependencies.subscribe(
+                ("type-new-owner-hooks", class_obj, variant),
+                (result_ctx,),
+                install_type_new_hooks,
             )
 
         created_class_var = self._class_object_variable(
@@ -1016,7 +1059,7 @@ class PointerSolver:
             field=attr("__init__"),
             key_=("class-metaclass-init", class_obj, variant),
             args_factory=lambda _callee: (
-                created_class_var, name_var, bases_var, namespace_var
+                created_class_var, name_var, bases_var, prepare_result
             ),
             kwargs=class_obj.class_keyword_variables,
             target=None,
@@ -1026,6 +1069,25 @@ class PointerSolver:
                 index=12,
             ),
         )
+
+    def _variant_has_custom_metaclass_method(
+        self, variant, method_name: str
+    ) -> bool:
+        metaclass = variant.metaclass
+        if (
+            metaclass.kind is not TypeRefKind.USER
+            or not isinstance(metaclass.target, ClassObject)
+        ):
+            return False
+        for type_ref in self.state.types.mro(metaclass):
+            if (
+                type_ref.kind is TypeRefKind.USER
+                and isinstance(type_ref.target, ClassObject)
+                and method_name
+                in type_ref.target.ir.get_definitely_declared_names()
+            ):
+                return True
+        return False
 
     def _install_class_owner_hooks(
         self,
@@ -1275,6 +1337,14 @@ class PointerSolver:
         if class_scope is None:
             return
         for namespace_obj in namespace_points:
+            if not isinstance(namespace_obj, DictObject):
+                self.mark_semantic_incomplete(
+                    scopes=(class_scope,),
+                    message=(
+                        "custom prepared namespace writes are modeled as "
+                        "raw mapping entries; __setitem__ effects are unknown"
+                    ),
+                )
             for inner_var in self.ir_translator.get_class_used_variables(
                 class_obj.ir
             ):
@@ -2405,7 +2475,7 @@ class SolverQuery(ISolverQuery):
         return self._state.get_points_to(var)
     
     def get_field(self, obj: 'AbstractObject', field: 'Field') -> 'PointsToSet':
-        return self._state.get_field(obj, field)
+        return self._state.raw_field_points_to(obj, field)
     
     def may_alias(self, v1: 'Variable', v2: 'Variable') -> bool:
         pts1 = self._state.get_points_to(v1)

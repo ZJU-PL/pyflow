@@ -61,11 +61,29 @@ def test_identity_results_agree_with_cpython(source: str) -> None:
     concrete = _concrete_namespace(source)
     assert concrete["result"] is concrete["sentinel"]
 
-    abstract = PointerAnalysis(source, k=1).run()
+    schedules = (("fifo", 0), ("lifo", 0), *(
+        ("random", seed) for seed in range(10)
+    ))
+    results = [
+        PointerAnalysis(
+            source,
+            k=1,
+            worklist_policy=policy,
+            worklist_seed=seed,
+        ).run()
+        for policy, seed in schedules
+    ]
     # Differential oracle checks may-soundness: the concrete identity must be
     # represented even where descriptor/plain-value joins deliberately retain
     # additional conservative targets.
-    assert abstract.points_to("sentinel") <= abstract.points_to("result")
+    assert all(
+        result.points_to("sentinel") <= result.points_to("result")
+        for result in results
+    )
+    assert all(
+        result.points_to("result") == results[0].points_to("result")
+        for result in results[1:]
+    )
 
 
 def _allocation_kinds(values: set[str]) -> set[str]:
@@ -153,7 +171,7 @@ def test_base_combination_widening_retains_reachable_attribute_facts() -> None:
             worklist_policy="random",
             worklist_seed=seed,
         ).run()
-        for seed in (1, 7, 31)
+        for seed in range(10)
     ]
 
     for result in results:

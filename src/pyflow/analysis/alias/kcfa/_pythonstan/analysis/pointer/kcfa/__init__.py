@@ -31,7 +31,16 @@ from .variable import VariableKind, Variable
 from .heap_model import FieldKind, Field, attr, elem, unknown
 from .state import PointerAnalysisState
 from .points_to_set import AnalysisArena, PointsToSet
-from .type_ref import ClassVariant, InvalidClassVariant, TypeRef, TypeRefKind
+from .type_ref import (
+    ClassConstructionKind,
+    ClassConstructionState,
+    ClassVariant,
+    InvalidClassVariant,
+    TypeRef,
+    TypeRefKind,
+)
+from .type_universe import TypeUniverse
+from .class_semantics import ClassSemantics
 from .solver import PointerSolver
 from .ir_translator import IRTranslator
 from .constraints import (
@@ -87,7 +96,11 @@ __all__ = [
     "AnalysisArena",
     "TypeRef",
     "TypeRefKind",
+    "TypeUniverse",
+    "ClassSemantics",
     "ClassVariant",
+    "ClassConstructionKind",
+    "ClassConstructionState",
     "InvalidClassVariant",
     
     # Constraints

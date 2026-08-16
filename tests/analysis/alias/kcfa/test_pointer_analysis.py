@@ -330,6 +330,32 @@ y = C.x
 
         assert result.points_to("y") == result.points_to("sentinel")
 
+    def test_mro_entries_accepts_builtin_class_results(self) -> None:
+        source = """
+class Proxy:
+    def __mro_entries__(self, bases):
+        return (object,)
+
+class C(Proxy()):
+    pass
+
+x = C()
+"""
+        result = PointerAnalysis(source, k=1).run()
+        class_c = next(
+            obj
+            for obj in result.state._heap.objects.values()
+            if isinstance(obj, ClassObject) and obj.ir.name == "C"
+        )
+
+        assert result.points_to("x")
+        assert any(
+            variant.effective_bases
+            and variant.effective_bases[0].kind is TypeRefKind.BUILTIN
+            and variant.effective_bases[0].name == "object"
+            for variant in result.state.class_variants(class_c)
+        )
+
     def test_inconsistent_c3_is_not_treated_as_instantiable(self) -> None:
         source = """
 class X:
