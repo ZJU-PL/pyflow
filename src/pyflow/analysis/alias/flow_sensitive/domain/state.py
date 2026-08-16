@@ -30,7 +30,12 @@ class HeapState:
     # the same location absent.  This keeps "not modeled" distinct from
     # "definitely deleted/overwritten with a non-heap value".
     absent: set[HeapLocation] = field(default_factory=set)
+    # MAY contain a non-reference value.
     scalar_present: set[HeapLocation] = field(default_factory=set)
+    # MUST contain only a non-reference value on every represented path.
+    definitely_scalar_present: set[HeapLocation] = field(default_factory=set)
+    # Exact paths whose newer strong write/delete shadows older wildcard facts.
+    precise_shadows: set[HeapLocation] = field(default_factory=set)
     complete_roots: set[object] = field(default_factory=set)
     versions: dict[HeapLocation, frozenset[int]] = field(default_factory=dict)
     escaped: set[HeapLocation] = field(default_factory=set)
@@ -60,7 +65,9 @@ class HeapState:
         result: list[HeapLocation] = []
         result.extend(self.values.get(location, ()))
         for contaminant, values in self.contaminants.items():
-            if self.locations_may_overlap(location, contaminant):
+            if self.locations_may_overlap(
+                location, contaminant
+            ) and not self._contaminant_shadowed(location, contaminant):
                 result.extend(values)
         if result:
             return tuple(dict.fromkeys(result))
@@ -75,7 +82,19 @@ class HeapState:
             return False
         return not any(
             self.locations_may_overlap(location, contaminant)
+            and not self._contaminant_shadowed(location, contaminant)
             for contaminant in self.contaminants
+        )
+
+    def _contaminant_shadowed(
+        self,
+        location: HeapLocation,
+        contaminant: HeapLocation,
+    ) -> bool:
+        return (
+            location.is_precise()
+            and location in self.precise_shadows
+            and not contaminant.is_precise()
         )
 
     def read_many(
@@ -139,20 +158,31 @@ class HeapState:
             else frozenset((*previous_versions, version))
         )
         target = self.values if location.is_precise() else self.contaminants
+        if not location.is_precise():
+            self.precise_shadows = {
+                shadow
+                for shadow in self.precise_shadows
+                if not self.locations_may_overlap(shadow, location)
+            }
         if policy is UpdatePolicy.STRONG:
+            if location.is_precise() and location.is_nested():
+                self.precise_shadows.add(location)
             if values:
                 target[location] = tuple(dict.fromkeys(values))
                 self.absent.discard(location)
                 self.scalar_present.discard(location)
+                self.definitely_scalar_present.discard(location)
             else:
                 target.pop(location, None)
                 if location.is_precise():
                     if has_non_reference:
                         self.scalar_present.add(location)
+                        self.definitely_scalar_present.add(location)
                         self.absent.discard(location)
                     else:
                         self.absent.add(location)
                         self.scalar_present.discard(location)
+                        self.definitely_scalar_present.discard(location)
             return
         if not values:
             if has_non_reference and location.is_precise():
@@ -162,6 +192,7 @@ class HeapState:
         target[location] = tuple(dict.fromkeys((*target.get(location, ()), *values)))
         if location.is_precise():
             self.absent.discard(location)
+            self.definitely_scalar_present.discard(location)
 
     def delete(self, location: HeapLocation) -> None:
         self.versions[location] = frozenset({next(_HEAP_VERSION_IDS)})
@@ -170,6 +201,9 @@ class HeapState:
             self.contaminants.pop(location, None)
             self.absent.add(location)
             self.scalar_present.discard(location)
+            self.definitely_scalar_present.discard(location)
+            if location.is_nested():
+                self.precise_shadows.add(location)
             return
         self.values = {
             stored: values
@@ -189,6 +223,16 @@ class HeapState:
         self.scalar_present = {
             stored
             for stored in self.scalar_present
+            if not self.locations_may_overlap(stored, location)
+        }
+        self.definitely_scalar_present = {
+            stored
+            for stored in self.definitely_scalar_present
+            if not self.locations_may_overlap(stored, location)
+        }
+        self.precise_shadows = {
+            stored
+            for stored in self.precise_shadows
             if not self.locations_may_overlap(stored, location)
         }
 
@@ -314,6 +358,12 @@ class HeapState:
         joined.absent = set(self.absent).intersection(other.absent)
         joined.absent.difference_update(joined.values)
         joined.absent.difference_update(joined.scalar_present)
+        joined.definitely_scalar_present = set(
+            self.definitely_scalar_present
+        ).intersection(other.definitely_scalar_present)
+        joined.precise_shadows = set(self.precise_shadows).intersection(
+            other.precise_shadows
+        )
         joined.complete_roots = set(self.complete_roots).intersection(
             other.complete_roots
         )
@@ -325,6 +375,8 @@ class HeapState:
         copied.contaminants = dict(self.contaminants)
         copied.absent = set(self.absent)
         copied.scalar_present = set(self.scalar_present)
+        copied.definitely_scalar_present = set(self.definitely_scalar_present)
+        copied.precise_shadows = set(self.precise_shadows)
         copied.complete_roots = set(self.complete_roots)
         copied.versions = dict(self.versions)
         copied.escaped = set(self.escaped)
@@ -357,6 +409,8 @@ class HeapState:
             and set_map_equal(self.contaminants, other.contaminants)
             and self.absent == other.absent
             and self.scalar_present == other.scalar_present
+            and self.definitely_scalar_present == other.definitely_scalar_present
+            and self.precise_shadows == other.precise_shadows
             and self.complete_roots == other.complete_roots
             # Mutation versions are relational invalidation metadata, not a
             # component of the dataflow lattice.  A transfer function may

@@ -114,6 +114,61 @@ y = c.m()
         assert any("AllocKind.OBJECT" in obj for obj in pts_y)
         assert all("AllocKind.LIST" not in obj for obj in pts_y)
 
+    def test_abstract_base_alternatives_are_not_simultaneous_bases(self) -> None:
+        source = """
+class A:
+    x = object()
+
+class B:
+    x = []
+
+Base = A
+Base = B
+
+class C(Base):
+    pass
+
+y = C.x
+"""
+        result = PointerAnalysis(source, k=1).run()
+        pts_y = result.points_to("y")
+
+        assert any("AllocKind.OBJECT" in obj for obj in pts_y)
+        assert any("AllocKind.LIST" in obj for obj in pts_y)
+
+    def test_bare_class_annotation_does_not_cut_off_inherited_field(self) -> None:
+        source = """
+sentinel = object()
+
+class B:
+    x = sentinel
+
+class C(B):
+    x: int
+
+y = C.x
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("sentinel") <= result.points_to("y")
+
+    def test_deleted_class_field_does_not_cut_off_inherited_field(self) -> None:
+        source = """
+sentinel = object()
+
+class B:
+    x = sentinel
+
+class C(B):
+    x = object()
+    del x
+
+y = C.x
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("sentinel") <= result.points_to("y")
+
     def test_local_lexical_class_base_is_resolved(self) -> None:
         source = """
 def make_child():

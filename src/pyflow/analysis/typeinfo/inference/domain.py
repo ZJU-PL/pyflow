@@ -81,6 +81,16 @@ class AbstractTypeValue:
             and not self.class_targets
         )
 
+    @property
+    def is_complete(self) -> bool:
+        """Whether the known types form a closed set of possibilities."""
+        return not self.unknown
+
+    @property
+    def has_unknown_alternatives(self) -> bool:
+        """Whether additional unmodelled types may also be possible."""
+        return self.unknown
+
     def join(
         self,
         other: AbstractTypeValue,

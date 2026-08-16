@@ -174,6 +174,7 @@ class _ExpressionResolverMixin(
                 values.extend(stored)
             elif (
                 not self.state.definitely_absent(location)
+                and location not in self.state.definitely_scalar_present
                 and location.root not in self.state.complete_roots
             ):
                 values.append(

@@ -8,6 +8,7 @@ from calendar import c
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, Tuple, Set, Optional, Iterable, Any, List, TYPE_CHECKING, Union, Deque
 from collections import defaultdict, deque
+from itertools import product
 from queue import Queue
 
 from pyflow.analysis.alias.kcfa._pythonstan.utils.common import Box
@@ -18,7 +19,7 @@ from .variable import VariableFactory, VariableKind, FieldAccess, Variable
 from .context import CallSite, Ctx, AbstractContext, Scope
 from .constraints import ConstraintManager, Constraint, InheritanceConstraint
 from .heap_model import HeapModel, Field, FieldKind
-from .pointer_flow_graph import PointerFlowGraph, NormalNode, GuardNode, SelectorNode, PointerFlowEdge, PointerFlowNode, PointerFlowKind
+from .pointer_flow_graph import PointerFlowGraph, NormalNode, SelectorNode, PointerFlowEdge, PointerFlowNode, PointerFlowKind
 from .points_to_set import PointsToSet
 
 if TYPE_CHECKING:
@@ -111,6 +112,8 @@ class PointerAnalysisState:
     Maintains the environment (variable points-to information), heap (object
     field points-to information), call graph, and constraint manager.
     """
+
+    MAX_BASE_COMBINATIONS = 64
     
     def __init__(self, debug_monitor=None):
         """Initialize empty analysis state.
@@ -254,6 +257,89 @@ class PointerAnalysisState:
             may_exist = True
         return AttributePresence(may_exist, must_exist, points_to)
 
+    def refresh_class_inheritance(
+        self,
+        owner: 'ClassObject',
+        field: 'Field',
+        selector: 'SelectorNode',
+    ) -> None:
+        """Add field flows for every currently known concrete base tuple."""
+        base_options = []
+        for base_var in owner.base_variables:
+            base_ctx = self.get_variable(
+                owner.container_scope,
+                owner.container_scope.context,
+                base_var,
+            )
+            options = tuple(
+                obj for obj in self.get_points_to(base_ctx)
+                if isinstance(obj, ClassObject)
+            )
+            if not options:
+                return
+            base_options.append(options)
+
+        combination_count = 1
+        for options in base_options:
+            combination_count *= len(options)
+
+        if combination_count > self.MAX_BASE_COMBINATIONS:
+            for index, options in enumerate(base_options):
+                for base_obj in options:
+                    self._add_inherited_field_candidate(
+                        base_obj, field, selector, index
+                    )
+            return
+
+        from .class_hierarchy import compute_c3_mro_for_bases
+
+        for concrete_bases in product(*base_options):
+            concrete_bases = tuple(concrete_bases)
+            if (
+                self.class_hierarchy is not None
+                and all(len(options) == 1 for options in base_options)
+            ):
+                bases_list = list(concrete_bases)
+                if self.class_hierarchy.has_class(owner):
+                    self.class_hierarchy.update_bases(owner, bases_list)
+                else:
+                    self.class_hierarchy.add_class(owner, bases_list)
+            if self.class_hierarchy is None:
+                mro_bases = list(concrete_bases)
+            else:
+                try:
+                    mro_bases = compute_c3_mro_for_bases(
+                        list(concrete_bases), self.class_hierarchy
+                    )
+                except Exception:
+                    mro_bases = list(concrete_bases)
+
+            for index, base_obj in enumerate(mro_bases):
+                self._add_inherited_field_candidate(
+                    base_obj, field, selector, index
+                )
+                if self.get_attribute_presence(base_obj, field).must_exist:
+                    break
+
+    def _add_inherited_field_candidate(
+        self,
+        base_obj: 'ClassObject',
+        field: 'Field',
+        selector: 'SelectorNode',
+        index: int,
+    ) -> None:
+        base_scope = self.get_internal_scope(base_obj)
+        if base_scope is None:
+            return
+        base_field = self.get_field(
+            base_scope, base_obj.context, base_obj, field
+        )
+        edge = PointerFlowEdge(
+            NormalNode(base_field), selector, PointerFlowKind.NORMAL
+        )
+        selector.add_edge(edge, index)
+        self._add_points_flow_edge(edge)
+
     def get_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
         """Get field access for object field.
         
@@ -320,46 +406,6 @@ class PointerAnalysisState:
                 scope = obj.container_scope
 
                 if len(bases) > 0:
-                    resolved_base_objs = []
-                    for base_var in bases:
-                        base_ctx_var = self.get_variable(scope, scope.context, base_var)
-                        resolved_base_objs.extend(
-                            base_obj for base_obj in self.get_points_to(base_ctx_var)
-                            if isinstance(base_obj, ClassObject)
-                        )
-
-                    if resolved_base_objs:
-                        mro_bases = resolved_base_objs
-                        if self.class_hierarchy is not None:
-                            if not self.class_hierarchy.has_class(obj):
-                                self.class_hierarchy.add_class(obj, resolved_base_objs)
-                            else:
-                                self.class_hierarchy.update_bases(obj, resolved_base_objs)
-                            try:
-                                mro_bases = [
-                                    cls_obj for cls_obj in self.class_hierarchy.get_mro(obj)
-                                    if cls_obj != obj
-                                ]
-                            except Exception:
-                                mro_bases = resolved_base_objs
-
-                        for base_obj in mro_bases:
-                            base_internal_scope = self.get_internal_scope(base_obj)
-                            if not base_internal_scope:
-                                continue
-                            base_field_access = self.get_field(base_internal_scope, base_obj.context, base_obj, field)
-                            self._add_points_flow_edge(
-                                PointerFlowEdge(
-                                    NormalNode(base_field_access),
-                                    NormalNode(cfield),
-                                    PointerFlowKind.INHERIT,
-                                )
-                            )
-                            if self.get_attribute_presence(base_obj, field).must_exist:
-                                break
-                        if mro_bases:
-                            return cfield
-
                     selector = SelectorNode()
                     inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.INHERIT)
                     self._add_points_flow_edge(inherit_edge)
@@ -367,7 +413,13 @@ class PointerAnalysisState:
                     for idx, base_var in enumerate(bases):
                         # Contextualize the base variable for constraint indexing
                         base_ctx_var = self.get_variable(scope, scope.context, base_var)
-                        inherit_constraint = InheritanceConstraint(base=base_var, field=field, target=selector, index=idx)
+                        inherit_constraint = InheritanceConstraint(
+                            base=base_var,
+                            field=field,
+                            target=selector,
+                            index=idx,
+                            owner=obj,
+                        )
                         self._constraints.add(scope, base_ctx_var, inherit_constraint)
                         # Debug logging
                         import logging
@@ -376,24 +428,7 @@ class PointerAnalysisState:
                         # For now, log at debug level
                         logger.debug(f"[INHERIT] Created InheritanceConstraint for {obj.alloc_site.stmt.name}.{field} from base {base_var.name}")
                         
-                        # CRITICAL FIX: If the base variable already has objects in its points-to set,
-                        # we need to immediately resolve the field from those objects.
-                        # Otherwise, the InheritanceConstraint won't fire because it only triggers on NEW objects.
-                        if base_ctx_var:
-                            base_pts = self.get_points_to(base_ctx_var)
-                            if len(base_pts) > 0:
-                                # Manually apply inheritance for existing base class objects
-                                for base_obj in base_pts:
-                                    if isinstance(base_obj, ClassObject):
-                                        # Get field from base class using its internal scope
-                                        base_internal_scope = self.get_internal_scope(base_obj)
-                                        if base_internal_scope:
-                                            base_field_access = self.get_field(base_internal_scope, base_obj.context, base_obj, field)
-                                            # Add PFG edge from base field to selector with proper index
-                                            base_edge = PointerFlowEdge(NormalNode(base_field_access), selector, PointerFlowKind.NORMAL)
-                                            selector.add_edge(base_edge, idx)  # Register edge with selector
-                                            self._add_points_flow_edge(base_edge)
-                                            logger.debug(f"[INHERIT] Immediately resolving field {field} from existing base {base_var.name}")
+                    self.refresh_class_inheritance(obj, field, selector)
             
             # Handle SuperObject - resolve fields via parent class MRO
             if isinstance(obj, SuperObject):

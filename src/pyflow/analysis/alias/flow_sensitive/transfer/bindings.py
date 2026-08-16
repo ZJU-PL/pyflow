@@ -5,6 +5,7 @@ from __future__ import annotations
 from pyflow.language.python.ir_metadata import assigned_locals
 from pyflow.language.python import ast as py_ast
 
+from ..domain.abstraction import LocalValue
 from ..model import HeapLocation, UpdatePolicy
 
 
@@ -139,10 +140,14 @@ class _BindingTransferMixin:
         locations: tuple[HeapLocation, ...],
         *,
         include_provider_storage: bool = False,
+        may_non_reference: bool = False,
     ) -> None:
         declared = self._declared_location(procedure, local)
         if declared is not None:
             self.state.write(declared, locations, UpdatePolicy.STRONG)
+            return
+        if not locations:
+            self.heap.clear_local_binding(procedure, local)
             return
         self.heap.bind_local_to_locations(
             procedure,
@@ -150,17 +155,36 @@ class _BindingTransferMixin:
             locations,
             include_provider_storage=include_provider_storage,
         )
+        if may_non_reference:
+            self.heap._set_local_value(
+                procedure,
+                local,
+                LocalValue(
+                    refs=frozenset(locations),
+                    may_non_reference=True,
+                ),
+            )
 
     def _clear_runtime_local(
         self,
         procedure: object,
         local: py_ast.Local,
+        *,
+        unbound: bool = False,
     ) -> None:
         declared = self._declared_location(procedure, local)
         if declared is not None:
-            self.state.delete(declared)
+            if unbound:
+                self.state.delete(declared)
+            else:
+                self.state.write(
+                    declared,
+                    (),
+                    UpdatePolicy.STRONG,
+                    has_non_reference=True,
+                )
             return
-        self.heap.clear_local_binding(procedure, local)
+        self.heap.clear_local_binding(procedure, local, unbound=unbound)
 
     @classmethod
     def iter_code_objects(cls, root: object):

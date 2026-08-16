@@ -169,6 +169,21 @@ class _DeferredTransferMixin:
                 rebased.absent.discard(location)
             else:
                 rebased.scalar_present.discard(location)
+        changed_definite_scalars = (
+            previous.definitely_scalar_present
+            ^ current.definitely_scalar_present
+        )
+        for location in changed_definite_scalars:
+            if location in current.definitely_scalar_present:
+                rebased.definitely_scalar_present.add(location)
+            else:
+                rebased.definitely_scalar_present.discard(location)
+        changed_shadows = previous.precise_shadows ^ current.precise_shadows
+        for location in changed_shadows:
+            if location in current.precise_shadows:
+                rebased.precise_shadows.add(location)
+            else:
+                rebased.precise_shadows.discard(location)
         rebased.complete_roots.update(current.complete_roots - previous.complete_roots)
         rebased.escaped.update(current.escaped - previous.escaped)
         self.state = rebased

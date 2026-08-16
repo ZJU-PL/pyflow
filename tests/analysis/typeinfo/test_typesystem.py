@@ -11,7 +11,7 @@ from __future__ import annotations
 import inspect
 import operator
 import re
-from typing import Any, TypeVar, Union
+from typing import Any, Callable, NoReturn, TypeVar, Union
 from unittest import mock
 
 import pytest
@@ -19,6 +19,7 @@ import pytest
 import pyflow.analysis.typeinfo.config as _config
 from pyflow.analysis.typeinfo.inference.providers import HintInference, NoInference
 from pyflow.analysis.typeinfo.core.typesystem import (
+    NEVER,
     _DICT_KEY_ATTRIBUTES,
     _DICT_KEY_FROM_ARGUMENT_TYPES,
     _DICT_VALUE_ATTRIBUTES,
@@ -29,6 +30,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     _SET_ELEMENT_FROM_ARGUMENT_TYPES,
     UNSUPPORTED,
     AnyType,
+    CallableType,
     InferredSignature,
     Instance,
     NoneType,
@@ -36,6 +38,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TupleType,
     ClassDescriptor,
     TypeSystem,
+    TypeType,
     UnionType,
     _is_partial_type_match,
     is_collection_type,
@@ -243,9 +246,21 @@ A = TypeVar("A")
             ),
         ),
         (
+            tuple[int, ...],
+            TupleType((Instance(ClassDescriptor(int)),), unknown_size=True),
+        ),
+        (
             tuple,
             TupleType((AnyType(),), unknown_size=True),
         ),
+        (
+            Callable[[int], str],
+            CallableType(
+                (Instance(ClassDescriptor(int)),), Instance(ClassDescriptor(str))
+            ),
+        ),
+        (type[int], TypeType(Instance(ClassDescriptor(int)))),
+        (NoReturn, NEVER),
         (
             Any,
             AnyType(),
@@ -336,6 +351,55 @@ def test_is_subtype(subtyping_cluster, left_hint, right_hint, subtype_result, ma
     assert type_system.is_maybe_subtype(left, right) is maybe_subtype_result
 
 
+def test_callable_subtyping_is_total_and_contravariant(subtyping_cluster) -> None:
+    type_system = subtyping_cluster.type_system
+    integer = type_system.convert_type_hint(int)
+    object_ = type_system.convert_type_hint(object)
+    accepts_object = CallableType((object_,), integer)
+    accepts_integer = CallableType((integer,), object_)
+
+    assert type_system.is_subtype(accepts_object, accepts_integer) is True
+    assert type_system.is_subtype(accepts_integer, accepts_object) is False
+    assert type_system.is_subtype(accepts_object, accepts_object) is True
+    assert type_system.is_subtype(accepts_object, integer) is False
+
+
+def test_generic_arity_mismatch_returns_false_instead_of_raising(type_system) -> None:
+    parameterized = type_system.convert_type_hint(list[int])
+    assert isinstance(parameterized, Instance)
+    bare_internal_instance = Instance(parameterized.type)
+
+    assert type_system.is_subtype(parameterized, bare_internal_instance) is False
+
+
+def test_variadic_tuple_subtyping(type_system) -> None:
+    fixed = type_system.convert_type_hint(tuple[int, int])
+    variadic = type_system.convert_type_hint(tuple[int, ...])
+    mixed = type_system.convert_type_hint(tuple[int, str])
+
+    assert type_system.is_subtype(fixed, variadic) is True
+    assert type_system.is_subtype(mixed, variadic) is False
+    assert type_system.is_subtype(variadic, fixed) is False
+
+
+def test_never_is_bottom_type(type_system) -> None:
+    integer = type_system.convert_type_hint(int)
+
+    assert type_system.is_subtype(NEVER, integer) is True
+    assert type_system.is_subtype(integer, NEVER) is False
+    assert type_system.is_subtype(NEVER, NEVER) is True
+    assert str(NEVER) == "Never"
+
+
+def test_type_type_is_distinct_and_covariant(subtyping_cluster) -> None:
+    type_system = subtyping_cluster.type_system
+    integer = type_system.convert_type_hint(int)
+    object_ = type_system.convert_type_hint(object)
+
+    assert type_system.is_subtype(TypeType(integer), TypeType(object_)) is True
+    assert type_system.is_subtype(TypeType(integer), integer) is False
+
+
 @pytest.mark.parametrize(
     "hint, hint_str",
     [
@@ -350,6 +414,13 @@ def test_is_subtype(subtyping_cluster, left_hint, right_hint, subtype_result, ma
 def test_str_proper_type(type_system, hint, hint_str):
     proper = type_system.convert_type_hint(hint)
     assert str(proper) == hint_str
+
+
+def test_variadic_tuple_string_preserves_ellipsis(type_system) -> None:
+    proper = type_system.convert_type_hint(tuple[int, ...])
+
+    assert str(proper) == "tuple[int, ...]"
+    assert "unknown_size=True" in repr(proper)
 
 
 @pytest.mark.parametrize(

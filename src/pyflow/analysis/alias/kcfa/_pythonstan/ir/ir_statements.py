@@ -1553,15 +1553,67 @@ class IRClass(IRScope, IRStatement):
         return self.bases
 
     def get_definitely_declared_names(self) -> Set[str]:
-        """Return names unconditionally bound by top-level class-body statements."""
-        names: Set[str] = set()
-        for statement in self.stmt.body:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(statement.name)
-            elif isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-                names.update(target.id for target in targets if isinstance(target, ast.Name))
-        return names
+        """Return names present on every normal exit from the class body."""
+
+        def target_names(target: ast.expr) -> Set[str]:
+            if isinstance(target, ast.Name):
+                return {target.id}
+            if isinstance(target, (ast.Tuple, ast.List)):
+                return set().union(*(target_names(item) for item in target.elts))
+            return set()
+
+        def analyze_block(
+            statements: list[ast.stmt], incoming: Set[str]
+        ) -> Set[str]:
+            present = set(incoming)
+            for statement in statements:
+                if isinstance(
+                    statement,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                ):
+                    present.add(statement.name)
+                elif isinstance(statement, ast.Assign):
+                    for target in statement.targets:
+                        present.update(target_names(target))
+                elif isinstance(statement, ast.AnnAssign):
+                    if statement.value is not None:
+                        present.update(target_names(statement.target))
+                elif isinstance(statement, ast.AugAssign):
+                    present.update(target_names(statement.target))
+                elif isinstance(statement, ast.Delete):
+                    for target in statement.targets:
+                        present.difference_update(target_names(target))
+                elif isinstance(statement, ast.If):
+                    body = analyze_block(statement.body, present)
+                    alternative = analyze_block(statement.orelse, present)
+                    present = body & alternative
+                elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                    body = analyze_block(statement.body, present)
+                    alternative = analyze_block(statement.orelse, present)
+                    present &= body & alternative
+                elif isinstance(statement, (ast.With, ast.AsyncWith)):
+                    present = analyze_block(statement.body, present)
+                elif isinstance(statement, ast.Try):
+                    exits = [analyze_block(statement.body, present)]
+                    exits.extend(
+                        analyze_block(handler.body, present)
+                        for handler in statement.handlers
+                    )
+                    if statement.orelse:
+                        exits[0] = analyze_block(statement.orelse, exits[0])
+                    present = set.intersection(*exits) if exits else present
+                    present = analyze_block(statement.finalbody, present)
+                elif isinstance(statement, ast.Match):
+                    exits = [
+                        analyze_block(case.body, present)
+                        for case in statement.cases
+                    ]
+                    # A match need not select a case.
+                    exits.append(present)
+                    present = set.intersection(*exits)
+            return present
+
+        return analyze_block(self.stmt.body, set())
 
     def __repr__(self) -> str:
         """Displays decorators, bases, and keywords for the class."""

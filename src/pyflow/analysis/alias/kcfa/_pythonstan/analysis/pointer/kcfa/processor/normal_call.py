@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 import ast
 import logging
+from itertools import product
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 
 from .processor import Processor
@@ -10,6 +11,7 @@ from ..points_to_set import PointsToSet
 from ..constraints import (
     CallConstraint,
     InheritedMetaclassCallConstraint,
+    MetaclassBaseCallConstraint,
     MetaclassCallConstraint,
     AllocConstraint,
     LoadConstraint,
@@ -59,7 +61,11 @@ class NormalCallProcessor(Processor):
 
     def __init__(self) -> None:
         self._default_alloc_sites: Dict[Tuple[IRFunc, str, int, AllocKind], AllocSite] = {}
-        self._resolved_inherited_metaclass_calls = set()
+        self._scheduled_inherited_metaclass_bindings = set()
+        self._installed_inherited_metaclass_watchers = set()
+        self._installed_metaclass_base_watchers = set()
+        self._installed_metaclass_call_edges = set()
+        self._applied_default_metaclass_calls = set()
 
     def handle_new_constraint(
         self,
@@ -67,6 +73,22 @@ class NormalCallProcessor(Processor):
         scope: 'Scope',
         constraint: 'Constraint',
     ) -> bool:
+        if isinstance(constraint, MetaclassBaseCallConstraint):
+            base_ctx = solver.state.get_variable(
+                constraint.base_scope,
+                constraint.base_scope.context,
+                constraint.base,
+            )
+            solver.state.constraints.add(scope, base_ctx, constraint)
+            if not solver.state.get_points_to(base_ctx).is_empty():
+                self._apply_metaclass_object(
+                    solver,
+                    scope,
+                    constraint.class_object,
+                    constraint.call,
+                    constraint.metaclass_object,
+                )
+            return True
         if isinstance(constraint, InheritedMetaclassCallConstraint):
             base_ctx = solver.state.get_variable(
                 constraint.base_scope,
@@ -103,6 +125,15 @@ class NormalCallProcessor(Processor):
         constraint: 'Constraint',
         pts: 'PointsToSet',
     ) -> bool:
+        if isinstance(constraint, MetaclassBaseCallConstraint):
+            self._apply_metaclass_object(
+                solver,
+                scope,
+                constraint.class_object,
+                constraint.call,
+                constraint.metaclass_object,
+            )
+            return True
         if isinstance(constraint, InheritedMetaclassCallConstraint):
             self._apply_inherited_metaclass_candidates(
                 solver, scope, constraint, pts
@@ -296,7 +327,7 @@ class NormalCallProcessor(Processor):
                 if isinstance(base_obj, ClassObject):
                     bindings.extend(
                         self._effective_metaclass_bindings(
-                            solver, base_obj, seen
+                            solver, base_obj, set(seen)
                         )
                     )
         return tuple(dict.fromkeys(bindings))
@@ -308,10 +339,6 @@ class NormalCallProcessor(Processor):
         constraint: InheritedMetaclassCallConstraint,
         _trigger_pts: 'PointsToSet',
     ) -> None:
-        key = (constraint.class_object, constraint.call)
-        if key in self._resolved_inherited_metaclass_calls:
-            return
-
         all_bindings = []
         default_possible_at_each_position = []
         class_obj = constraint.class_object
@@ -328,6 +355,9 @@ class NormalCallProcessor(Processor):
             position_default_possible = False
             for base_obj in base_pts:
                 if isinstance(base_obj, ClassObject):
+                    self._install_inherited_metaclass_watchers(
+                        solver, scope, constraint, base_obj
+                    )
                     bindings = self._effective_metaclass_bindings(
                         solver, base_obj
                     )
@@ -344,8 +374,16 @@ class NormalCallProcessor(Processor):
                         solver.mark_semantic_incomplete()
             default_possible_at_each_position.append(position_default_possible)
 
-        self._resolved_inherited_metaclass_calls.add(key)
         for meta_scope, meta_var in dict.fromkeys(all_bindings):
+            binding_key = (
+                constraint.class_object,
+                constraint.call,
+                meta_scope,
+                meta_var,
+            )
+            if binding_key in self._scheduled_inherited_metaclass_bindings:
+                continue
+            self._scheduled_inherited_metaclass_bindings.add(binding_key)
             solver.add_constraint(
                 scope,
                 scope.context,
@@ -358,12 +396,55 @@ class NormalCallProcessor(Processor):
             )
 
         if not all_bindings or all(default_possible_at_each_position):
-            solver._handle_class_instantiation(
-                scope,
-                scope.context,
-                constraint.call,
-                class_obj,
+            self._apply_default_metaclass_call(
+                solver, scope, constraint.call, class_obj
             )
+
+    def _install_inherited_metaclass_watchers(
+        self,
+        solver: 'PointerSolver',
+        scope: 'Scope',
+        root_constraint: InheritedMetaclassCallConstraint,
+        class_obj: 'ClassObject',
+        seen: Optional[set['ClassObject']] = None,
+    ) -> None:
+        """Watch the transitive base graph used to inherit a metaclass."""
+        if seen is None:
+            seen = set()
+        if class_obj in seen:
+            return
+        seen.add(class_obj)
+        if class_obj.metaclass_variables:
+            return
+        for base_var in class_obj.base_variables:
+            watcher_key = (
+                root_constraint.class_object,
+                root_constraint.call,
+                class_obj,
+                base_var,
+            )
+            if watcher_key not in self._installed_inherited_metaclass_watchers:
+                self._installed_inherited_metaclass_watchers.add(watcher_key)
+                solver.add_constraint(
+                    scope,
+                    scope.context,
+                    InheritedMetaclassCallConstraint(
+                        base=base_var,
+                        base_scope=class_obj.container_scope,
+                        class_object=root_constraint.class_object,
+                        call=root_constraint.call,
+                    ),
+                )
+            base_ctx = solver.state.get_variable(
+                class_obj.container_scope,
+                class_obj.container_scope.context,
+                base_var,
+            )
+            for base_obj in solver.state.get_points_to(base_ctx):
+                if isinstance(base_obj, ClassObject):
+                    self._install_inherited_metaclass_watchers(
+                        solver, scope, root_constraint, base_obj, set(seen)
+                    )
 
     def _apply_metaclass_candidates(
         self,
@@ -372,9 +453,29 @@ class NormalCallProcessor(Processor):
         constraint: MetaclassCallConstraint,
         meta_pts: 'PointsToSet',
     ) -> None:
-        call = constraint.call
-        class_obj = constraint.class_object
+        for meta_obj in meta_pts:
+            self._apply_metaclass_object(
+                solver,
+                scope,
+                constraint.class_object,
+                constraint.call,
+                meta_obj,
+            )
+
+    def _apply_metaclass_object(
+        self,
+        solver: 'PointerSolver',
+        scope: 'Scope',
+        class_obj: 'ClassObject',
+        call: 'CallConstraint',
+        meta_obj: 'AbstractObject',
+    ) -> None:
         context = scope.context
+        if not isinstance(meta_obj, ClassObject):
+            solver.mark_semantic_incomplete()
+            self._apply_default_metaclass_call(solver, scope, call, class_obj)
+            return
+
         receiver_var = Variable(
             name=f"$metaclass_receiver@{call.call_site.short_id()}@{id(class_obj)}",
             kind=VariableKind.TEMPORARY,
@@ -384,49 +485,131 @@ class NormalCallProcessor(Processor):
             receiver_ctx, scope, PointsToSet.singleton(class_obj)
         )
 
-        for meta_obj in meta_pts:
-            if not isinstance(meta_obj, ClassObject):
-                solver.mark_semantic_incomplete()
-                solver._handle_class_instantiation(scope, context, call, class_obj)
-                continue
-
-            declares_call = "__call__" in meta_obj.ir.get_definitely_declared_names()
-            if not declares_call:
-                solver._handle_class_instantiation(scope, context, call, class_obj)
-                continue
-
+        edge_key = (class_obj, call, meta_obj)
+        if edge_key not in self._installed_metaclass_call_edges:
+            self._installed_metaclass_call_edges.add(edge_key)
             meta_scope = solver.state.get_internal_scope(meta_obj)
             if meta_scope is None:
                 solver.mark_semantic_incomplete()
-                solver._handle_class_instantiation(scope, context, call, class_obj)
-                continue
-            call_field = solver.state.get_field(
-                meta_scope,
-                meta_scope.context,
-                meta_obj,
-                attr("__call__"),
+                self._apply_default_metaclass_call(
+                    solver, scope, call, class_obj
+                )
+            else:
+                call_field = solver.state.get_field(
+                    meta_scope,
+                    meta_scope.context,
+                    meta_obj,
+                    attr("__call__"),
+                )
+                call_var = Variable(
+                    name=(
+                        f"$metaclass_call@{call.call_site.short_id()}@"
+                        f"{id(meta_obj)}"
+                    ),
+                    kind=VariableKind.TEMPORARY,
+                )
+                call_ctx = solver.state.get_variable(scope, context, call_var)
+                solver.state._add_var_points_flow(call_field, call_ctx)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    CallConstraint(
+                        callee=call_var,
+                        args=(receiver_var, *call.args),
+                        kwargs=call.kwargs,
+                        target=call.target,
+                        call_site=call.call_site,
+                        starred=(False, *call.starred),
+                    ),
+                )
+
+            for base_var in meta_obj.base_variables:
+                watcher_key = (class_obj, call, meta_obj, base_var)
+                if watcher_key in self._installed_metaclass_base_watchers:
+                    continue
+                self._installed_metaclass_base_watchers.add(watcher_key)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    MetaclassBaseCallConstraint(
+                        base=base_var,
+                        base_scope=meta_obj.container_scope,
+                        metaclass_object=meta_obj,
+                        class_object=class_obj,
+                        call=call,
+                    ),
+                )
+
+        default_possible = self._metaclass_default_call_possible(solver, meta_obj)
+        if default_possible is True:
+            self._apply_default_metaclass_call(solver, scope, call, class_obj)
+
+    def _metaclass_default_call_possible(
+        self,
+        solver: 'PointerSolver',
+        meta_obj: 'ClassObject',
+        seen: Optional[set['ClassObject']] = None,
+    ) -> Optional[bool]:
+        """Return whether some current MRO alternative reaches type.__call__."""
+        if "__call__" in meta_obj.ir.get_definitely_declared_names():
+            return False
+        if seen is None:
+            seen = set()
+        if meta_obj in seen:
+            return True
+        seen.add(meta_obj)
+        if not meta_obj.base_variables:
+            return True
+
+        position_options = []
+        for base_var in meta_obj.base_variables:
+            base_ctx = solver.state.get_variable(
+                meta_obj.container_scope,
+                meta_obj.container_scope.context,
+                base_var,
             )
-            call_var = Variable(
-                name=(
-                    f"$metaclass_call@{call.call_site.short_id()}@"
-                    f"{id(meta_obj)}"
-                ),
-                kind=VariableKind.TEMPORARY,
-            )
-            call_ctx = solver.state.get_variable(scope, context, call_var)
-            solver.state._add_var_points_flow(call_field, call_ctx)
-            solver.add_constraint(
-                scope,
-                context,
-                CallConstraint(
-                    callee=call_var,
-                    args=(receiver_var, *call.args),
-                    kwargs=call.kwargs,
-                    target=call.target,
-                    call_site=call.call_site,
-                    starred=(False, *call.starred),
-                ),
-            )
+            options = tuple(solver.state.get_points_to(base_ctx))
+            if not options:
+                return None
+            position_options.append(options)
+
+        count = 1
+        for options in position_options:
+            count *= len(options)
+        if count > solver.state.MAX_BASE_COMBINATIONS:
+            return True
+
+        for bases in product(*position_options):
+            tuple_has_custom_call = False
+            for base_obj in bases:
+                if not isinstance(base_obj, ClassObject):
+                    continue
+                base_default = self._metaclass_default_call_possible(
+                    solver, base_obj, set(seen)
+                )
+                if base_default is None:
+                    return None
+                if base_default is False:
+                    tuple_has_custom_call = True
+                    break
+            if not tuple_has_custom_call:
+                return True
+        return False
+
+    def _apply_default_metaclass_call(
+        self,
+        solver: 'PointerSolver',
+        scope: 'Scope',
+        call: 'CallConstraint',
+        class_obj: 'ClassObject',
+    ) -> None:
+        key = (class_obj, call)
+        if key in self._applied_default_metaclass_calls:
+            return
+        self._applied_default_metaclass_calls.add(key)
+        solver._handle_class_instantiation(
+            scope, scope.context, call, class_obj
+        )
 
     def _handle_object_call(
         self,

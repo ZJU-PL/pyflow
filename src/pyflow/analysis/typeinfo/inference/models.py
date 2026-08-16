@@ -50,6 +50,16 @@ class InferredSymbol:
         """Return the public type projection."""
         return self.value.public_type()
 
+    @property
+    def is_complete(self) -> bool:
+        """Whether ``typ`` describes all possible inferred alternatives."""
+        return self.value.is_complete
+
+    @property
+    def has_unknown_alternatives(self) -> bool:
+        """Whether alternatives beyond ``typ`` may still be possible."""
+        return self.value.has_unknown_alternatives
+
 
 @dataclass(frozen=True)
 class FunctionSpecialization:
@@ -108,6 +118,10 @@ class ModuleInferenceResult:
         if symbol is None and "." not in name:
             symbol = self.symbols.get(f"{self.module_name}.{name}")
         return None if symbol is None else symbol.typ
+
+    def known_type_of(self, name: str) -> ProperType | None:
+        """Return only the known projection, without implying completeness."""
+        return self.type_of(name)
 
     def value_of(self, name: str) -> AbstractTypeValue | None:
         """Return the full abstract value of a symbol."""

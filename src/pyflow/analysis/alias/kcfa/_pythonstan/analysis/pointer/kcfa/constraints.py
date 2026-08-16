@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .variable import Variable, FieldAccess
     from .heap_model import Field
     from .pointer_flow_graph import SelectorNode
-    from .object import AllocSite
+    from .object import AbstractObject, AllocSite
     from .context import Ctx, Scope
 
 __all__ = [
@@ -32,6 +32,7 @@ __all__ = [
     "StoreSubscrConstraint",
     "CallConstraint",
     "MetaclassCallConstraint",
+    "MetaclassBaseCallConstraint",
     "InheritedMetaclassCallConstraint",
     "argument_source_signature",
     "ReturnConstraint",
@@ -216,6 +217,7 @@ class InheritanceConstraint(Constraint):
     field: Optional['Field']
     target: 'SelectorNode'
     index: int = 0
+    owner: Optional['AbstractObject'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -444,6 +446,23 @@ class MetaclassCallConstraint(Constraint):
 
     def __str__(self) -> str:
         return f"MetaclassCallConstraint: type({self.class_object})({self.call})"
+
+
+@dataclass(frozen=True)
+class MetaclassBaseCallConstraint(Constraint):
+    """Reconsider metaclass ``__call__`` lookup when a base grows."""
+
+    base: 'Variable'
+    base_scope: 'Scope'
+    metaclass_object: 'AbstractObject'
+    class_object: 'AbstractObject'
+    call: CallConstraint
+
+    def variables(self) -> Set['Variable']:
+        return {self.base}
+
+    def __str__(self) -> str:
+        return f"MetaclassBaseCallConstraint: {self.metaclass_object}.{self.base}"
 
 
 @dataclass(frozen=True)

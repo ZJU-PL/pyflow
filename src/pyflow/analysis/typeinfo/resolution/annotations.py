@@ -56,6 +56,7 @@ class BuiltinTypeLookup:
     def __call__(self, qualified_name: str) -> ProperType | None:
         from pyflow.analysis.typeinfo.core.typesystem import (
             ANY,
+            NEVER,
             NONE_TYPE,
             Instance,
             TupleType,
@@ -66,13 +67,20 @@ class BuiltinTypeLookup:
             return ANY
         if qualified_name in {"None", "NoneType", "types.NoneType"}:
             return NONE_TYPE
+        if qualified_name in {
+            "Never", "NoReturn", "typing.Never", "typing.NoReturn",
+            "typing_extensions.Never", "typing_extensions.NoReturn",
+        }:
+            return NEVER
         if qualified_name in {"tuple", "builtins.tuple"}:
-            return TupleType((), unknown_size=True)
+            return TupleType((ANY,), unknown_size=True)
         if qualified_name.startswith("builtins."):
             qualified_name = qualified_name.rsplit(".", 1)[-1]
         raw = getattr(builtins, qualified_name, None)
         if isinstance(raw, type):
-            return Instance(ClassDescriptor(raw))
+            descriptor = ClassDescriptor(raw)
+            arity = descriptor.num_hardcoded_generic_parameters
+            return Instance(descriptor, () if arity is None else (ANY,) * arity)
         if self._fallback is not None:
             return self._fallback(qualified_name)
         return None
@@ -175,6 +183,11 @@ def _resolve_expr(
     if isinstance(node, ast.Attribute):
         qualified_name = _get_qualified_name(node)
         if qualified_name:
+            normalized = _normalize_typing_name(qualified_name)
+            if normalized != qualified_name:
+                special = _resolve_name(normalized, lookup)
+                if special is not None:
+                    return special
             direct = lookup(qualified_name)
             if direct is not None:
                 return direct
@@ -195,10 +208,14 @@ def _resolve_expr(
 
 def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
     """Resolve a bare name to a type via the lookup function."""
-    from pyflow.analysis.typeinfo.core.typesystem import NONE_TYPE
+    from pyflow.analysis.typeinfo.core.typesystem import ANY, NEVER, NONE_TYPE
 
     if name == "None":
         return NONE_TYPE
+    if name == "Any":
+        return ANY
+    if name in {"Never", "NoReturn"}:
+        return NEVER
     return lookup(name)
 
 
@@ -231,21 +248,18 @@ def _resolve_special_form(
     Handles: ``Optional``, ``Union``, ``Callable``, ``Tuple``, ``Type``,
     ``ClassVar``, ``Final``, ``Annotated``, ``Generic``, ``Protocol``.
     """
-    from pyflow.analysis.typeinfo.core.typesystem import ANY, NONE_TYPE, UNSUPPORTED
+    from pyflow.analysis.typeinfo.core.typesystem import ANY, NEVER, NONE_TYPE, TypeType
 
     # Wrapper forms: pass through to inner type
     if name in IGNORE_ANNOTATION_PARTS and args:
         return _resolve_expr(args[0], lookup)
 
     if name == "Optional" and args:
-        inner = _resolve_expr(args[0], lookup)
-        if inner is None:
-            return None
+        inner = _resolve_expr(args[0], lookup) or ANY
         return _make_union([inner, NONE_TYPE])
 
     if name == "Union" and args:
-        resolved = [_resolve_expr(a, lookup) for a in args]
-        return _make_union([r for r in resolved if r is not None])
+        return _make_union([_resolve_expr(a, lookup) or ANY for a in args])
 
     if name == "Literal" and args:
         return _resolve_literal(args, lookup)
@@ -254,10 +268,10 @@ def _resolve_special_form(
         return ANY
 
     if name in {"Never", "NoReturn"}:
-        return UNSUPPORTED
+        return NEVER
 
-    if name == "Type" and args:
-        return _resolve_expr(args[0], lookup)
+    if name in {"Type", "type", "builtins.type"} and args:
+        return TypeType(_resolve_expr(args[0], lookup) or ANY)
 
     if name in {"Tuple", "tuple", "builtins.tuple"} and args:
         return _resolve_tuple(args, lookup)
@@ -281,7 +295,7 @@ def _resolve_tuple(
     lookup: TypeLookup,
 ) -> ProperType | None:
     """Resolve ``Tuple[T, ...]`` or ``Tuple[X, Y]``."""
-    from pyflow.analysis.typeinfo.core.typesystem import TupleType
+    from pyflow.analysis.typeinfo.core.typesystem import ANY, TupleType
 
     if not args:
         return None
@@ -290,18 +304,11 @@ def _resolve_tuple(
     if len(args) == 2:
         second = args[1]
         if isinstance(second, ast.Constant) and second.value is Ellipsis:
-            elem = _resolve_expr(args[0], lookup)
-            if elem is not None:
-                return TupleType((elem,), unknown_size=True)
+            elem = _resolve_expr(args[0], lookup) or ANY
+            return TupleType((elem,), unknown_size=True)
 
     # Tuple[X, Y, Z] — fixed-length
-    resolved: list[ProperType] = []
-    for arg in args:
-        item = _resolve_expr(arg, lookup)
-        if item is not None:
-            resolved.append(item)
-    if not resolved:
-        return None
+    resolved = [_resolve_expr(arg, lookup) or ANY for arg in args]
     return TupleType(tuple(resolved), unknown_size=False)
 
 
@@ -328,11 +335,7 @@ def _resolve_callable(
     else:
         param_items = [params_expr]
 
-    param_types = tuple(
-        resolved
-        for item in param_items
-        if (resolved := _resolve_expr(item, lookup)) is not None
-    )
+    param_types = tuple(_resolve_expr(item, lookup) or ANY for item in param_items)
     return CallableType(param_types, return_type)
 
 
@@ -343,7 +346,9 @@ def _resolve_union_binop(
     """Resolve PEP 604 ``X | Y`` union syntax."""
     left = _resolve_expr(node.left, lookup)
     right = _resolve_expr(node.right, lookup)
-    return _make_union([t for t in (left, right) if t is not None])
+    from pyflow.analysis.typeinfo.core.typesystem import ANY
+
+    return _make_union([left or ANY, right or ANY])
 
 
 def _make_union(items: list[ProperType]) -> ProperType | None:
@@ -392,15 +397,9 @@ def _resolve_tuple_literal(
     lookup: TypeLookup,
 ) -> ProperType | None:
     """Resolve a tuple literal annotation like ``(int, str)``."""
-    from pyflow.analysis.typeinfo.core.typesystem import TupleType
+    from pyflow.analysis.typeinfo.core.typesystem import ANY, TupleType
 
-    resolved: list[ProperType] = []
-    for element in node.elts:
-        item = _resolve_expr(element, lookup)
-        if item is not None:
-            resolved.append(item)
-    if not resolved:
-        return None
+    resolved = [_resolve_expr(element, lookup) or ANY for element in node.elts]
     return TupleType(tuple(resolved), unknown_size=False)
 
 
@@ -461,16 +460,12 @@ def _build_generic_instance_from_type(
     lookup: TypeLookup,
 ) -> ProperType | None:
     """Apply type arguments to a base type."""
-    from pyflow.analysis.typeinfo.core.typesystem import Instance
+    from pyflow.analysis.typeinfo.core.typesystem import ANY, Instance
 
     if not isinstance(base_type, Instance):
         return base_type
 
-    resolved_args = tuple(
-        r for a in args if (r := _resolve_expr(a, lookup)) is not None
-    )
-    if not resolved_args:
-        return base_type
+    resolved_args = tuple(_resolve_expr(a, lookup) or ANY for a in args)
 
     return Instance(base_type.type, resolved_args)
 

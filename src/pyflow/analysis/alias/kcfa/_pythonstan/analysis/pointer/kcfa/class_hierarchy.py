@@ -11,7 +11,12 @@ from typing import Dict, List, Set, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from .object import AbstractObject
 
-__all__ = ["ClassHierarchyManager", "compute_c3_mro", "MROError"]
+__all__ = [
+    "ClassHierarchyManager",
+    "compute_c3_mro",
+    "compute_c3_mro_for_bases",
+    "MROError",
+]
 
 
 class MROError(Exception):
@@ -242,6 +247,29 @@ def compute_c3_mro(
             return [class_obj] + base_mros[0]
         else:
             return [class_obj]
+
+
+def compute_c3_mro_for_bases(
+    bases: List['AbstractObject'],
+    hierarchy: ClassHierarchyManager,
+) -> List['AbstractObject']:
+    """Compute the C3 tail for one concrete tuple of direct bases."""
+    if not bases:
+        return []
+    base_mros = []
+    for base_obj in bases:
+        if not hierarchy.has_class(base_obj):
+            hierarchy.add_class(base_obj)
+        base_mros.append(compute_c3_mro(base_obj, hierarchy))
+    try:
+        return _c3_merge(base_mros + [list(bases)])
+    except MROError:
+        result = []
+        for sequence in base_mros:
+            for candidate in sequence:
+                if candidate not in result:
+                    result.append(candidate)
+        return result
 
 
 def _c3_merge(sequences: List[List['AbstractObject']]) -> List['AbstractObject']:

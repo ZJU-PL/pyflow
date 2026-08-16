@@ -10,11 +10,14 @@ from __future__ import annotations
 import pytest
 
 from pyflow.analysis.typeinfo.core.typesystem import (
+    ANY,
+    NEVER,
     CallableType,
     Instance,
     TupleType,
     ClassDescriptor,
     TypeVarType,
+    TypeType,
     UnionType,
 )
 from pyflow.analysis.typeinfo.resolution.annotations import (
@@ -161,7 +164,17 @@ def test_resolve_builtin_bare_tuple() -> None:
     result = resolve_annotation("tuple", BuiltinTypeLookup())
     assert isinstance(result, TupleType)
     assert result.unknown_size
-    assert result.args == ()
+    assert result.args == (ANY,)
+
+
+def test_builtin_lookup_canonicalizes_bare_known_generics() -> None:
+    lookup = BuiltinTypeLookup()
+
+    list_ = resolve_annotation("list", lookup)
+    dict_ = resolve_annotation("dict", lookup)
+
+    assert isinstance(list_, Instance) and list_.args == (ANY,)
+    assert isinstance(dict_, Instance) and dict_.args == (ANY, ANY)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +278,33 @@ def test_resolve_callable_signature() -> None:
     assert len(result.arg_types) == 2
     assert isinstance(result.return_type, Instance)
     assert result.return_type.type.raw_type is bool
+
+
+def test_unresolved_nested_annotation_parts_preserve_shape() -> None:
+    union = resolve_annotation("Union[int, Missing]", _BASIC_LOOKUP)
+    tuple_ = resolve_annotation("Tuple[int, Missing]", _BASIC_LOOKUP)
+    callable_ = resolve_annotation(
+        "Callable[[int, Missing], str]", _BASIC_LOOKUP
+    )
+    generic = resolve_annotation("list[Missing]", _BASIC_LOOKUP)
+
+    assert isinstance(union, UnionType) and ANY in union.items
+    assert isinstance(tuple_, TupleType) and tuple_.args == (_INT, ANY)
+    assert isinstance(callable_, CallableType)
+    assert callable_.arg_types == (_INT, ANY)
+    assert isinstance(generic, Instance) and generic.args == (ANY,)
+
+
+def test_resolve_never_and_noreturn_as_bottom() -> None:
+    assert resolve_annotation("Never", _BASIC_LOOKUP) is NEVER
+    assert resolve_annotation("typing.NoReturn", _BASIC_LOOKUP) is NEVER
+
+
+def test_resolve_type_preserves_class_object_distinction() -> None:
+    result = resolve_annotation("Type[int]", _BASIC_LOOKUP)
+
+    assert isinstance(result, TypeType)
+    assert result.item == _INT
 
 
 def test_builtin_type_lookup_resolves_common_builtins() -> None:

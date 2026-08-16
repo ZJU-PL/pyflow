@@ -67,9 +67,29 @@ class _ExpressionAccessMixin:
         declared = self._declared_location(procedure, expression)
         if declared is not None:
             return self._read_heap_locations((declared,))
-        locations = self.heap.locations_for_local(procedure, expression)
-        if locations:
-            return locations
+        local_value = self.heap.local_value_for_local(procedure, expression)
+        if local_value is not None:
+            if local_value.may_unbound:
+                self._record_unbound_local_read(procedure, expression)
+            if (
+                not local_value.refs
+                and not local_value.may_non_reference
+                and local_value.may_unbound
+                and self._operation_normal_possible
+            ):
+                self._operation_normal_possible[-1] = False
+            storage_order = self.heap.locations_for_local(procedure, expression)
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *(location for location in storage_order if location in local_value.refs),
+                        *sorted(
+                            local_value.refs.difference(storage_order),
+                            key=repr,
+                        ),
+                    )
+                )
+            )
         definition_local = self._definition_locals.get(
             (self._procedure_identity(procedure), expression.name)
         )
@@ -84,9 +104,50 @@ class _ExpressionAccessMixin:
             outer_locations = self._outer_local_locations(expression)
             if outer_locations:
                 return outer_locations
+        for index, formal in enumerate(self._callee_formals(procedure)):
+            if getattr(formal, "name", None) != expression.name:
+                continue
+            self.heap.bind_parameter(procedure, expression, index, ())
+            return self.heap.locations_for_local(procedure, expression)
+        if self._scope_defines_name(procedure, expression.name):
+            self.heap.clear_local_binding(procedure, expression, unbound=True)
+            self._record_unbound_local_read(procedure, expression)
+            if self._operation_normal_possible:
+                self._operation_normal_possible[-1] = False
+            return ()
         obj = self.heap.local_object(procedure, expression)
         self.heap.bind_local_to_object(procedure, expression, obj)
         return self.heap.locations_for_local(procedure, expression)
+
+    def _record_unbound_local_read(
+        self,
+        procedure: object,
+        expression: object,
+    ) -> None:
+        if not self._operation_call_raises:
+            return
+        raised_state = self.state.copy()
+        exception = HeapLocation(
+            self.heap.external_object(
+                (
+                    "unbound-local",
+                    self._procedure_identity(procedure),
+                    expression.name,
+                ),
+                label="UnboundLocalError",
+                type_hint="UnboundLocalError",
+            )
+        )
+        raised_state.set_raised(procedure, (exception,))
+        from .state import _FlowState
+
+        self._operation_call_raises[-1].append(
+            _FlowState(
+                raised_state,
+                self.heap.snapshot_environment(),
+                dict(self._definition_default_locations),
+            )
+        )
 
     def _resolve_global(
         self,

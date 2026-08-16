@@ -1551,20 +1551,27 @@ class HeapTransferEngine(
     ) -> tuple[HeapLocation, ...]:
         """Return heap paths whose value-presence facts changed in a loop."""
         locations: set[HeapLocation] = set()
-        for before, after in (
+        for before_presence, after_presence in (
             (entry.values, current.values),
             (entry.contaminants, current.contaminants),
         ):
-            for location in set(before).union(after):
-                if frozenset(before.get(location, ())) != frozenset(
-                    after.get(location, ())
+            for location in set(before_presence).union(after_presence):
+                if frozenset(before_presence.get(location, ())) != frozenset(
+                    after_presence.get(location, ())
                 ):
                     locations.add(location)
-        for before, after in (
+        for before_presence, after_presence in (
             (entry.absent, current.absent),
             (entry.scalar_present, current.scalar_present),
+            (
+                entry.definitely_scalar_present,
+                current.definitely_scalar_present,
+            ),
+            (entry.precise_shadows, current.precise_shadows),
         ):
-            locations.update(before.symmetric_difference(after))
+            locations.update(
+                before_presence.symmetric_difference(after_presence)
+            )
         return tuple(locations)
 
     @staticmethod
@@ -1572,6 +1579,7 @@ class HeapTransferEngine(
         return (
             a.heap_state.equivalent(b.heap_state)
             and a.environment.storage_overrides == b.environment.storage_overrides
+            and a.environment.local_values == b.environment.local_values
             and a.environment.escaped_objects == b.environment.escaped_objects
             and a.definition_defaults == b.definition_defaults
         )

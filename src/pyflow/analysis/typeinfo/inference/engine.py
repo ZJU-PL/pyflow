@@ -1487,13 +1487,58 @@ class StaticTypeInferenceEngine:
             return self._instance(str)
         if name == "range":
             return self._instance(range)
-        if name in {"iter", "reversed", "enumerate", "zip", "map", "filter"}:
-            iterable_element = (
-                self._iterable_element(arguments[-1])
+        if name in {"iter", "reversed"}:
+            iterator_element = (
+                self._iterable_element(arguments[0])
                 if arguments
                 else AbstractTypeValue.unresolved()
             )
-            return self._instance(list, iterable_element.public_type() or ANY)
+            return self._instance(
+                cabc.Iterator, iterator_element.public_type() or ANY
+            )
+        if name == "filter":
+            filtered_element = (
+                self._iterable_element(arguments[1])
+                if len(arguments) > 1
+                else AbstractTypeValue.unresolved()
+            )
+            return self._instance(
+                cabc.Iterator, filtered_element.public_type() or ANY
+            )
+        if name == "enumerate":
+            enumerated_element = (
+                self._iterable_element(arguments[0])
+                if arguments
+                else AbstractTypeValue.unresolved()
+            )
+            pair = TupleType(
+                (self._proper_instance(int), enumerated_element.public_type() or ANY)
+            )
+            return self._instance(cabc.Iterator, pair)
+        if name == "zip":
+            elements = tuple(
+                self._iterable_element(argument).public_type() or ANY
+                for argument in arguments
+            )
+            return self._instance(cabc.Iterator, TupleType(elements))
+        if name == "map":
+            returns = [
+                AbstractTypeValue.from_type(typ.return_type)
+                for typ in (arguments[0].types if arguments else ())
+                if isinstance(typ, CallableType)
+            ]
+            mapped_element = (
+                join_all(
+                    returns,
+                    self.type_system,
+                    max_union_size=self.options.max_union_size,
+                )
+                if returns
+                else AbstractTypeValue.unresolved()
+            )
+            return self._instance(
+                cabc.Iterator, mapped_element.public_type() or ANY
+            )
         if name in {"min", "max", "next"} and arguments:
             return self._iterable_element(arguments[0])
         if name == "sum":
@@ -1542,8 +1587,12 @@ class StaticTypeInferenceEngine:
             if isinstance(typ, Instance)
         }
         if raw_types and raw_types <= {str, bytes}:
+            if node.attr == "encode" and str in raw_types:
+                return self._instance(bytes)
+            if node.attr == "decode" and bytes in raw_types:
+                return self._instance(str)
             if node.attr in {
-                "capitalize", "casefold", "center", "decode", "encode", "expandtabs",
+                "capitalize", "casefold", "center", "expandtabs",
                 "format", "format_map", "join", "ljust", "lower", "lstrip",
                 "removeprefix", "removesuffix", "replace", "rjust", "rstrip",
                 "strip", "swapcase", "title", "translate", "upper", "zfill",
@@ -1557,9 +1606,10 @@ class StaticTypeInferenceEngine:
                 return self._instance(bool)
             if node.attr in {"count", "find", "index", "rfind", "rindex"}:
                 return self._instance(int)
-            if node.attr in {
-                "split", "rsplit", "splitlines", "partition", "rpartition"
-            }:
+            if node.attr in {"partition", "rpartition"}:
+                element = self._proper_instance(str if str in raw_types else bytes)
+                return AbstractTypeValue.from_type(TupleType((element, element, element)))
+            if node.attr in {"split", "rsplit", "splitlines"}:
                 element = self._proper_instance(str if str in raw_types else bytes)
                 return self._instance(list, element)
 

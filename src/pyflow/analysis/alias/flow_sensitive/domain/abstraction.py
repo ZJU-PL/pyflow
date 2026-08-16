@@ -8,7 +8,7 @@ updates via reference counting, and tracks escape status.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from pyflow.ir.core.storage import (
@@ -45,6 +45,22 @@ from ..model import (
 
 
 @dataclass
+class LocalValue:
+    """Flow-sensitive value lattice for one source-level local name."""
+
+    refs: frozenset[HeapLocation] = frozenset()
+    may_non_reference: bool = False
+    may_unbound: bool = False
+
+    def join(self, other: "LocalValue") -> "LocalValue":
+        return LocalValue(
+            refs=self.refs | other.refs,
+            may_non_reference=self.may_non_reference or other.may_non_reference,
+            may_unbound=self.may_unbound or other.may_unbound,
+        )
+
+
+@dataclass
 class HeapEnvironment:
     """Flow-sensitive snapshot of mutable heap binding metadata.
 
@@ -63,6 +79,7 @@ class HeapEnvironment:
     equiv_parent: dict[int, int]
     equiv_members: dict[int, set[int]]
     site_ref_counts: dict[int, int]
+    local_values: dict[tuple[object, str], LocalValue] = field(default_factory=dict)
 
 
 class HeapAbstraction:
@@ -102,6 +119,7 @@ class HeapAbstraction:
         self._equiv_parent: dict[int, int] = {}
         self._equiv_members: dict[int, set[int]] = {}
         self._site_ref_counts: dict[int, int] = {}
+        self._local_values: dict[tuple[object, str], LocalValue] = {}
         self._opaque_sites: list[object] = []
         self._opaque_raw_objects: list[object] = []
         self.next_site = next_site
@@ -204,6 +222,7 @@ class HeapAbstraction:
                 root: set(members) for root, members in self._equiv_members.items()
             },
             site_ref_counts=dict(self._site_ref_counts),
+            local_values=dict(self._local_values),
         )
 
     def restore_environment(self, environment: HeapEnvironment) -> None:
@@ -220,6 +239,7 @@ class HeapAbstraction:
             root: set(members) for root, members in environment.equiv_members.items()
         }
         self._site_ref_counts = dict(environment.site_ref_counts)
+        self._local_values = dict(environment.local_values)
 
     def join_environments(
         self,
@@ -251,6 +271,40 @@ class HeapAbstraction:
         allocation_sites: dict[tuple[int, int], int] = {}
         site_storage: dict[int, tuple[object, ...]] = {}
         site_ref_counts: dict[int, int] = {}
+
+        logical_keys = {
+            logical_key
+            for environment in environments
+            for logical_key in environment.local_values
+        }
+        for environment in environments:
+            logical_keys.update(
+                (key[0], name)
+                for key, name in environment.local_names.items()
+                if name
+            )
+        local_values: dict[tuple[object, str], LocalValue] = {}
+        for logical_key in logical_keys:
+            incoming_values: list[LocalValue] = []
+            for environment in environments:
+                value = environment.local_values.get(logical_key)
+                if value is None:
+                    refs = frozenset(
+                        self.location_for_raw(raw)
+                        for key, name in environment.local_names.items()
+                        if (key[0], name) == logical_key
+                        for raw in self._environment_storage(environment, key)
+                    )
+                    value = (
+                        LocalValue(refs=refs)
+                        if refs
+                        else LocalValue(may_unbound=True)
+                    )
+                incoming_values.append(value)
+            joined_value = incoming_values[0]
+            for value in incoming_values[1:]:
+                joined_value = joined_value.join(value)
+            local_values[logical_key] = joined_value
 
         for key in sorted(keys, key=self._binding_sort_key):
             incoming = tuple(
@@ -296,7 +350,43 @@ class HeapAbstraction:
             equiv_parent=equiv_parent,
             equiv_members=equiv_members,
             site_ref_counts=site_ref_counts,
+            local_values=local_values,
         )
+
+    def local_value_for_local(
+        self,
+        procedure: object,
+        local: object,
+        *,
+        initialize: bool = True,
+    ) -> LocalValue | None:
+        """Return the local lattice value, deriving initial reference storage."""
+        name = getattr(local, "name", None)
+        if not isinstance(name, str):
+            return None
+        logical_key = (self._procedure_key(procedure), name)
+        value = self._local_values.get(logical_key)
+        if value is not None or not initialize:
+            return value
+        refs = frozenset(
+            self.location_for_raw(raw)
+            for raw in self._raw_storage_for_local(procedure, local)
+        )
+        if not refs:
+            return None
+        value = LocalValue(refs=refs)
+        self._local_values[logical_key] = value
+        return value
+
+    def _set_local_value(
+        self,
+        procedure: object,
+        local: object,
+        value: LocalValue,
+    ) -> None:
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_values[(self._procedure_key(procedure), name)] = value
 
     @staticmethod
     def _environment_storage(
@@ -529,6 +619,16 @@ class HeapAbstraction:
                 self._unify(source_site, target_site)
             else:
                 self._incr_site_ref(source_site)
+        source_value = self.local_value_for_local(procedure, source)
+        if source_value is not None:
+            self._set_local_value(
+                procedure,
+                target,
+                LocalValue(
+                    refs=source_value.refs,
+                    may_non_reference=source_value.may_non_reference,
+                ),
+            )
 
     def unalias_local(self, procedure: object, local: object) -> None:
         """Break a local alias and allocate a fresh site for the local."""
@@ -544,9 +644,22 @@ class HeapAbstraction:
         self.storage_overrides.pop(key, None)
         raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
+        self._set_local_value(
+            procedure,
+            local,
+            LocalValue(
+                refs=frozenset(self.location_for_raw(item) for item in raw)
+            ),
+        )
 
-    def clear_local_binding(self, procedure: object, local: object) -> None:
-        """Record that *local* currently contains no heap-relevant value."""
+    def clear_local_binding(
+        self,
+        procedure: object,
+        local: object,
+        *,
+        unbound: bool = False,
+    ) -> None:
+        """Record that *local* is scalar-valued or definitely unbound."""
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
@@ -557,6 +670,14 @@ class HeapAbstraction:
         if old_site is not None:
             self._decr_site_ref(old_site)
         self.storage_overrides[key] = ()
+        self._set_local_value(
+            procedure,
+            local,
+            LocalValue(
+                may_non_reference=not unbound,
+                may_unbound=unbound,
+            ),
+        )
         if isinstance(name, str):
             proc_id = self._procedure_key(procedure)
             for other_key in list(self.storage_overrides):
@@ -616,6 +737,11 @@ class HeapAbstraction:
         if include_provider_storage:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
         self.storage_overrides[key] = storage
+        self._set_local_value(
+            procedure,
+            local,
+            LocalValue(refs=frozenset(self.location_for_raw(raw) for raw in storage)),
+        )
         if isinstance(name, str) and obj not in self._object_labels:
             self._object_labels[obj] = name
         self._assign_site(key, storage)
@@ -645,6 +771,11 @@ class HeapAbstraction:
         if isinstance(name, str):
             self._local_names[key] = name
         self.storage_overrides[key] = storage
+        self._set_local_value(
+            procedure,
+            local,
+            LocalValue(refs=frozenset(self.location_for_raw(raw) for raw in storage)),
+        )
         if isinstance(name, str):
             for raw in storage:
                 location = self.location_for_raw(raw)
@@ -1164,8 +1295,16 @@ class HeapAbstraction:
         point_contaminants: dict[object, tuple[dict, dict]] = {}
         point_absent: dict[object, tuple[frozenset, frozenset]] = {}
         point_scalar_present: dict[object, tuple[frozenset, frozenset]] = {}
+        point_definitely_scalar_present: dict[
+            object, tuple[frozenset, frozenset]
+        ] = {}
+        point_precise_shadows: dict[object, tuple[frozenset, frozenset]] = {}
         point_complete_roots: dict[object, tuple[frozenset, frozenset]] = {}
         point_locals: dict[object, tuple[dict, dict]] = {}
+        point_local_non_reference: dict[
+            object, tuple[frozenset, frozenset]
+        ] = {}
+        point_local_unbound: dict[object, tuple[frozenset, frozenset]] = {}
         point_outcomes: dict[object, dict[str, HeapValueSnapshot]] = {}
 
         def heap_state(flow):
@@ -1175,10 +1314,14 @@ class HeapAbstraction:
             environment = getattr(flow, "environment", None)
             if environment is None:
                 return {}
+            result: dict[tuple[object, str], set[HeapLocation]] = {
+                key: set(value.refs)
+                for key, value in environment.local_values.items()
+                if value.refs
+            }
             keys = set(environment.storage_overrides) | set(
                 environment.allocation_sites
             )
-            result: dict[tuple[object, str], set[HeapLocation]] = {}
             for key in keys:
                 name = environment.local_names.get(key)
                 if not name:
@@ -1188,6 +1331,16 @@ class HeapAbstraction:
                     self.location_for_raw(raw) for raw in storage
                 )
             return {key: frozenset(locations) for key, locations in result.items()}
+
+        def local_flag_keys(flow, attribute: str) -> frozenset[tuple[object, str]]:
+            environment = getattr(flow, "environment", None)
+            if environment is None:
+                return frozenset()
+            return frozenset(
+                key
+                for key, value in environment.local_values.items()
+                if getattr(value, attribute)
+            )
 
         def payloads(mapping) -> dict[object, frozenset[HeapLocation]]:
             return {
@@ -1237,11 +1390,31 @@ class HeapAbstraction:
                 frozenset(getattr(before_heap, "scalar_present", ())),
                 frozenset(getattr(after_heap, "scalar_present", ())),
             )
+            point_definitely_scalar_present[key] = (
+                frozenset(
+                    getattr(before_heap, "definitely_scalar_present", ())
+                ),
+                frozenset(
+                    getattr(after_heap, "definitely_scalar_present", ())
+                ),
+            )
+            point_precise_shadows[key] = (
+                frozenset(getattr(before_heap, "precise_shadows", ())),
+                frozenset(getattr(after_heap, "precise_shadows", ())),
+            )
             point_complete_roots[key] = (
                 frozenset(getattr(before_heap, "complete_roots", ())),
                 frozenset(getattr(after_heap, "complete_roots", ())),
             )
             point_locals[key] = (local_values(before), local_values(after))
+            point_local_non_reference[key] = (
+                local_flag_keys(before, "may_non_reference"),
+                local_flag_keys(after, "may_non_reference"),
+            )
+            point_local_unbound[key] = (
+                local_flag_keys(before, "may_unbound"),
+                local_flag_keys(after, "may_unbound"),
+            )
         for key, outcomes in (program_point_outcomes or {}).items():
             point_outcomes[key] = {
                 label: HeapValueSnapshot(
@@ -1266,7 +1439,22 @@ class HeapAbstraction:
                     scalar_present=frozenset(
                         getattr(heap_state(outcome), "scalar_present", ())
                     ),
+                    definitely_scalar_present=frozenset(
+                        getattr(
+                            heap_state(outcome),
+                            "definitely_scalar_present",
+                            (),
+                        )
+                    ),
+                    precise_shadows=frozenset(
+                        getattr(heap_state(outcome), "precise_shadows", ())
+                    ),
                     locals=local_values(outcome),
+                    locals_non_reference=local_flag_keys(
+                        outcome,
+                        "may_non_reference",
+                    ),
+                    locals_unbound=local_flag_keys(outcome, "may_unbound"),
                     returns=return_payloads(
                         getattr(heap_state(outcome), "return_slots", {})
                     ),
@@ -1288,12 +1476,24 @@ class HeapAbstraction:
             program_point_contaminants=point_contaminants,
             heap_absent=frozenset(getattr(state, "absent", ())),
             heap_scalar_present=frozenset(getattr(state, "scalar_present", ())),
+            heap_definitely_scalar_present=frozenset(
+                getattr(state, "definitely_scalar_present", ())
+            ),
+            heap_precise_shadows=frozenset(
+                getattr(state, "precise_shadows", ())
+            ),
             complete_roots=frozenset(getattr(state, "complete_roots", ())),
             program_point_absent=point_absent,
             program_point_scalar_present=point_scalar_present,
+            program_point_definitely_scalar_present=(
+                point_definitely_scalar_present
+            ),
+            program_point_precise_shadows=point_precise_shadows,
             program_point_complete_roots=point_complete_roots,
             program_point_outcomes=point_outcomes,
             program_point_locals=point_locals,
+            program_point_local_non_reference=point_local_non_reference,
+            program_point_local_unbound=point_local_unbound,
             precision_degradations=dict(precision_degradations or {}),
             operation_identities=dict(operation_identities or {}),
         )

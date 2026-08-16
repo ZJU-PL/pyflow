@@ -238,4 +238,4 @@ class _WriteTransferMixin:
         """Handle ``del x`` — break aliasing and remove the local's heap state."""
         if not isinstance(operation, py_ast.Delete):
             return
-        self._clear_runtime_local(procedure, operation.lcl)
+        self._clear_runtime_local(procedure, operation.lcl, unbound=True)

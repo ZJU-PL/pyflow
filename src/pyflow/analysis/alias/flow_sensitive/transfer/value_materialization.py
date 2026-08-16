@@ -137,8 +137,22 @@ class _ValueMaterializationMixin:
             return
         if isinstance(expr, py_ast.Local):
             source_locations = self.locations_for_expression(procedure, expr)
+            source_value = self.heap.local_value_for_local(
+                procedure,
+                expr,
+                initialize=False,
+            )
             for target in targets:
-                self._bind_runtime_local(procedure, target, source_locations)
+                self._bind_runtime_local(
+                    procedure,
+                    target,
+                    source_locations,
+                    may_non_reference=(
+                        source_value.may_non_reference
+                        if source_value is not None
+                        else False
+                    ),
+                )
             return
         self.heap.update_assignment_aliases(procedure, targets, expr)
 

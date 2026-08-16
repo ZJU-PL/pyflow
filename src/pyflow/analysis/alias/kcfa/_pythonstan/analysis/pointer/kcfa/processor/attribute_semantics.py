@@ -21,7 +21,7 @@ from ..context import Ctx
 from ..heap_model import Field, FieldKind, attr, unknown
 from ..object import AllocKind, AllocSite, InstanceObject
 from ..points_to_set import PointsToSet
-from ..pointer_flow_graph import GuardNode, NormalNode, PointerFlowEdge, PointerFlowKind, SelectorNode
+from ..pointer_flow_graph import NormalNode, PointerFlowEdge, PointerFlowKind, SelectorNode
 from ..variable import Variable, VariableKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
 
@@ -210,117 +210,68 @@ class AttributeSemanticsProcessor(Processor):
         
         class_field = self._get_class_field(solver, scope, class_obj, attr_field)
         instance_field = state.get_field(scope, context, base_obj, attr_field)
-        guard = GuardNode(
-            lambda edge, pts, state=state, class_field=class_field, solver=solver, scope=scope, self=self: (
-                PointsToSet.empty()
-                if any(
-                    self._is_data_descriptor(solver, scope, obj)
-                    for obj in state.get_points_to(class_field)
-                )
-                else pts
-            )
+        # Suppressing an instance value requires proving that the class field is
+        # a data descriptor on every abstract execution.  Until descriptor-kind
+        # facts carry their own may/must lattice, retain the instance value.
+        instance_edge = PointerFlowEdge(
+            NormalNode(instance_field), selector, PointerFlowKind.NORMAL
         )
-        state._add_points_flow_edge(
-            PointerFlowEdge(NormalNode(instance_field), guard, PointerFlowKind.NORMAL)
-        )
-        instance_edge = PointerFlowEdge(guard, selector, PointerFlowKind.NORMAL)
         selector.add_edge(instance_edge, 1)
         state._add_points_flow_edge(instance_edge)
         
-        data_desc_var = self._make_temp_var("descriptor_data", call_site, f"{attr_token}@{id(base_obj)}")
-        data_desc_ctx = state.get_variable(scope, context, data_desc_var)
-        data_guard = GuardNode(
-            lambda edge, pts, solver=solver, scope=scope, self=self: PointsToSet.from_objects(
-                [obj for obj in pts if self._is_data_descriptor(solver, scope, obj)]
+        descriptor_var = self._make_temp_var(
+            "descriptor", call_site, f"{attr_token}@{id(base_obj)}"
+        )
+        descriptor_ctx = state.get_variable(scope, context, descriptor_var)
+        state._add_points_flow_edge(
+            PointerFlowEdge(
+                NormalNode(class_field),
+                NormalNode(descriptor_ctx),
+                PointerFlowKind.NORMAL,
             )
         )
-        state._add_points_flow_edge(
-            PointerFlowEdge(NormalNode(class_field), data_guard, PointerFlowKind.NORMAL)
-        )
-        state._add_points_flow_edge(
-            PointerFlowEdge(data_guard, NormalNode(data_desc_ctx), PointerFlowKind.NORMAL)
-        )
         
-        data_get_var = self._make_temp_var("descriptor_data_get", call_site, f"{attr_token}@{id(base_obj)}")
+        descriptor_get_var = self._make_temp_var(
+            "descriptor_get", call_site, f"{attr_token}@{id(base_obj)}"
+        )
         solver.add_constraint(
             scope,
             context,
             LoadConstraint(
-                base=data_desc_var,
+                base=descriptor_var,
                 field=attr("__get__"),
-                target=data_get_var,
+                target=descriptor_get_var,
             ),
         )
-        data_result_var = self._make_temp_var("descriptor_data_result", call_site, f"{attr_token}@{id(base_obj)}")
+        descriptor_result_var = self._make_temp_var(
+            "descriptor_result", call_site, f"{attr_token}@{id(base_obj)}"
+        )
         solver.add_constraint(
             scope,
             context,
             CallConstraint(
-                callee=data_get_var,
+                callee=descriptor_get_var,
                 args=(inst_var, class_var),
                 kwargs=(),
-                target=data_result_var,
+                target=descriptor_result_var,
                 call_site=call_site,
             ),
         )
-        data_result_ctx = state.get_variable(scope, context, data_result_var)
-        data_edge = PointerFlowEdge(NormalNode(data_result_ctx), selector, PointerFlowKind.NORMAL)
-        selector.add_edge(data_edge, 0)
-        state._add_points_flow_edge(data_edge)
+        descriptor_result_ctx = state.get_variable(
+            scope, context, descriptor_result_var
+        )
+        descriptor_edge = PointerFlowEdge(
+            NormalNode(descriptor_result_ctx), selector, PointerFlowKind.NORMAL
+        )
+        selector.add_edge(descriptor_edge, 0)
+        state._add_points_flow_edge(descriptor_edge)
         
-        nondata_desc_var = self._make_temp_var("descriptor_nond_data", call_site, f"{attr_token}@{id(base_obj)}")
-        nondata_desc_ctx = state.get_variable(scope, context, nondata_desc_var)
-        nondata_guard = GuardNode(
-            lambda edge, pts, solver=solver, scope=scope, self=self: PointsToSet.from_objects(
-                [obj for obj in pts if not self._is_data_descriptor(solver, scope, obj)]
-            )
+        # A later-discovered __get__ must not invalidate an earlier classification
+        # as a plain value.  Passing the class value as well is a sound, monotone
+        # over-approximation of the descriptor/plain split.
+        class_edge = PointerFlowEdge(
+            NormalNode(class_field), selector, PointerFlowKind.NORMAL
         )
-        state._add_points_flow_edge(
-            PointerFlowEdge(NormalNode(class_field), nondata_guard, PointerFlowKind.NORMAL)
-        )
-        state._add_points_flow_edge(
-            PointerFlowEdge(nondata_guard, NormalNode(nondata_desc_ctx), PointerFlowKind.NORMAL)
-        )
-        
-        nondata_get_var = self._make_temp_var("descriptor_nond_data_get", call_site, f"{attr_token}@{id(base_obj)}")
-        solver.add_constraint(
-            scope,
-            context,
-            LoadConstraint(
-                base=nondata_desc_var,
-                field=attr("__get__"),
-                target=nondata_get_var,
-            ),
-        )
-        nondata_result_var = self._make_temp_var("descriptor_nond_data_result", call_site, f"{attr_token}@{id(base_obj)}")
-        solver.add_constraint(
-            scope,
-            context,
-            CallConstraint(
-                callee=nondata_get_var,
-                args=(inst_var, class_var),
-                kwargs=(),
-                target=nondata_result_var,
-                call_site=call_site,
-            ),
-        )
-        nondata_result_ctx = state.get_variable(scope, context, nondata_result_var)
-        nondata_edge = PointerFlowEdge(NormalNode(nondata_result_ctx), selector, PointerFlowKind.NORMAL)
-        selector.add_edge(nondata_edge, 2)
-        state._add_points_flow_edge(nondata_edge)
-        
-        plain_class_guard = GuardNode(
-            lambda edge, pts, solver=solver, scope=scope, self=self: PointsToSet.from_objects(
-                [
-                    obj for obj in pts
-                    if not self._descriptor_has_method(solver, scope, obj, "__get__")
-                ]
-            )
-        )
-        state._add_points_flow_edge(
-            PointerFlowEdge(NormalNode(class_field), plain_class_guard, PointerFlowKind.NORMAL)
-        )
-        class_edge = PointerFlowEdge(plain_class_guard, selector, PointerFlowKind.NORMAL)
         selector.add_edge(class_edge, 3)
         state._add_points_flow_edge(class_edge)
         
@@ -379,46 +330,43 @@ class AttributeSemanticsProcessor(Processor):
         
         class_obj = base_obj.class_obj
         class_field = self._get_class_field(solver, scope, class_obj, attr_field)
-        class_pts = state.get_points_to(class_field)
-        
-        has_non_descriptor = False
-        for desc_obj in class_pts:
-            if not self._descriptor_has_method(solver, scope, desc_obj, "__set__"):
-                has_non_descriptor = True
-                continue
-            desc_var = self._make_object_var(
-                solver,
-                scope,
-                desc_obj,
-                "descriptor",
-                call_site,
-                f"{attr_token}@{id(desc_obj)}",
-            )
-            set_var = self._make_temp_var("descriptor_set", call_site, f"{attr_token}@{id(desc_obj)}")
-            solver.add_constraint(
-                scope,
-                context,
-                LoadConstraint(
-                    base=desc_var,
-                    field=attr("__set__"),
-                    target=set_var,
-                ),
-            )
-            solver.add_constraint(
-                scope,
-                context,
-                CallConstraint(
-                    callee=set_var,
-                    args=(inst_var, source_var),
-                    kwargs=(),
-                    target=None,
-                    call_site=call_site,
-                ),
-            )
-        
-        if class_pts.is_empty() or has_non_descriptor:
-            instance_field = state.get_field(scope, context, base_obj, attr_field)
-            state._add_var_points_flow(source_ctx, instance_field)
+        # Keep the ordinary instance write unless a data descriptor is known on
+        # every abstract execution.  The PFG cannot retract a write that escaped
+        # before descriptor discovery.
+        instance_field = state.get_field(scope, context, base_obj, attr_field)
+        state._add_var_points_flow(source_ctx, instance_field)
+
+        # Route every current and future class-field candidate through __set__.
+        # Non-descriptors simply produce no callable target, while descriptors
+        # discovered later are handled incrementally by the load constraint.
+        descriptor_var = self._make_temp_var(
+            "descriptor", call_site, f"{attr_token}@{id(base_obj)}"
+        )
+        descriptor_ctx = state.get_variable(scope, context, descriptor_var)
+        state._add_var_points_flow(class_field, descriptor_ctx)
+        set_var = self._make_temp_var(
+            "descriptor_set", call_site, f"{attr_token}@{id(base_obj)}"
+        )
+        solver.add_constraint(
+            scope,
+            context,
+            LoadConstraint(
+                base=descriptor_var,
+                field=attr("__set__"),
+                target=set_var,
+            ),
+        )
+        solver.add_constraint(
+            scope,
+            context,
+            CallConstraint(
+                callee=set_var,
+                args=(inst_var, source_var),
+                kwargs=(),
+                target=None,
+                call_site=call_site,
+            ),
+        )
         
         if attr_name not in self._WRITE_INTERCEPT_SKIP:
             setattr_var = self._make_temp_var("setattr", call_site, f"{attr_token}@{id(base_obj)}")
@@ -509,27 +457,6 @@ class AttributeSemanticsProcessor(Processor):
         ctx_var = solver.state.get_variable(scope, scope.context, var)
         solver.handle_new_points_to(ctx_var, scope, PointsToSet.singleton(obj))
         return var
-    
-    @staticmethod
-    def _descriptor_has_method(
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        obj: 'AbstractObject',
-        method_name: str,
-    ) -> bool:
-        field_access = solver.state.get_field(scope, scope.context, obj, attr(method_name))
-        return not solver.state.get_points_to(field_access).is_empty()
-
-    def _is_data_descriptor(
-        self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        obj: 'AbstractObject',
-    ) -> bool:
-        return (
-            self._descriptor_has_method(solver, scope, obj, "__set__")
-            or self._descriptor_has_method(solver, scope, obj, "__delete__")
-        )
     
     @staticmethod
     def _get_class_field(

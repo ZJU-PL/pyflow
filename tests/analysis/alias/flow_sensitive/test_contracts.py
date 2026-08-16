@@ -70,6 +70,89 @@ def test_scalar_presence_is_not_absence_or_unknown_reference():
     assert not result.includes_unknown
 
 
+def test_may_scalar_does_not_hide_unknown_reference_possibility():
+    heap = _heap()
+    root = HeapLocation(heap.unknown_object("root", label="root"))
+    field = heap.dynamic_attribute_location(root, "field")
+    untouched = HeapState()
+    scalar_branch = HeapState()
+    scalar_branch.write(
+        field,
+        (),
+        UpdatePolicy.WEAK,
+        has_non_reference=True,
+    )
+
+    graph = heap.to_points_to_graph(state=untouched.join(scalar_branch))
+    result = graph.possible_values_at(field)
+
+    assert result.includes_non_reference
+    assert result.includes_unknown
+
+
+def test_definitely_scalar_heap_read_does_not_synthesize_reference():
+    heap = _heap()
+    engine = HeapTransferEngine(heap)
+    root = HeapLocation(heap.unknown_object("root", label="root"))
+    field = heap.dynamic_attribute_location(root, "field")
+    engine.state.write(
+        field,
+        (),
+        UpdatePolicy.STRONG,
+        has_non_reference=True,
+    )
+
+    assert not engine._read_heap_locations((field,))
+
+
+def test_strong_exact_write_shadows_older_wildcard_contaminant():
+    heap = _heap()
+    root = HeapLocation(heap.allocation_object(None, "root", label="root"))
+    wildcard = heap.dynamic_attribute_location(root, "*")
+    exact = heap.dynamic_attribute_location(root, "field")
+    old = HeapLocation(heap.allocation_object(None, "old", label="old"))
+    new = HeapLocation(heap.allocation_object(None, "new", label="new"))
+    state = HeapState()
+    state.write(wildcard, (old,), UpdatePolicy.WEAK)
+    state.write(exact, (new,), UpdatePolicy.STRONG)
+
+    assert state.read(exact) == (new,)
+    assert heap.to_points_to_graph(state=state).possible_values_at(exact).locations == {
+        new
+    }
+
+
+def test_later_wildcard_write_clears_exact_shadow():
+    heap = _heap()
+    root = HeapLocation(heap.allocation_object(None, "root", label="root"))
+    wildcard = heap.dynamic_attribute_location(root, "*")
+    exact = heap.dynamic_attribute_location(root, "field")
+    old = HeapLocation(heap.allocation_object(None, "old", label="old"))
+    new = HeapLocation(heap.allocation_object(None, "new", label="new"))
+    state = HeapState()
+    state.write(exact, (new,), UpdatePolicy.STRONG)
+    state.write(wildcard, (old,), UpdatePolicy.WEAK)
+
+    assert frozenset(state.read(exact)) == {old, new}
+
+
+def test_exact_delete_shadows_older_wildcard_contaminant():
+    heap = _heap()
+    root = HeapLocation(heap.allocation_object(None, "root", label="root"))
+    wildcard = heap.dynamic_attribute_location(root, "*")
+    exact = heap.dynamic_attribute_location(root, "field")
+    old = HeapLocation(heap.allocation_object(None, "old", label="old"))
+    state = HeapState()
+    state.write(wildcard, (old,), UpdatePolicy.WEAK)
+    state.delete(exact)
+
+    assert not state.read(exact)
+    assert state.definitely_absent(exact)
+    assert heap.to_points_to_graph(state=state).possible_values_at(
+        exact
+    ).definitely_absent
+
+
 def test_summary_builder_and_effect_builder_share_operation_semantics():
     heap = _heap()
     obj = py_ast.Local("obj")

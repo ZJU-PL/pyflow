@@ -13,6 +13,7 @@ from ``pynguin.analyses.module``.
 
 from __future__ import annotations
 
+import collections.abc as cabc
 import dataclasses
 import enum
 import functools
@@ -34,6 +35,7 @@ from typing import (
     _BaseGenericAlias,  # noqa: PLC2701
     _eval_type,  # noqa: PLC2701
     cast,
+    get_args,
     get_origin,
 )
 
@@ -160,6 +162,19 @@ class NoneType(ProperType):
         return isinstance(other, NoneType)
 
 
+class NeverType(ProperType):
+    """The bottom type used by ``Never`` and ``NoReturn`` annotations."""
+
+    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
+        return visitor.visit_never_type(self)
+
+    def __hash__(self):
+        return hash(NeverType)
+
+    def __eq__(self, other):
+        return isinstance(other, NeverType)
+
+
 class Instance(ProperType):
     """An instance type of form C[T1, ..., Tn].
 
@@ -276,6 +291,25 @@ class CallableType(ProperType):
             and self.arg_types == other.arg_types
             and self.return_type == other.return_type
         )
+
+
+class TypeType(ProperType):
+    """A class-object type of the form ``type[T]``."""
+
+    def __init__(self, item: ProperType) -> None:
+        self.item: Final[ProperType] = item
+        self._hash: int | None = None
+
+    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
+        return visitor.visit_type_type(self)
+
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash((TypeType, self.item))
+        return self._hash
+
+    def __eq__(self, other):
+        return isinstance(other, TypeType) and self.item == other.item
 
 
 class StringSubtype(ProperType):
@@ -532,6 +566,7 @@ class TypeVarType(ProperType):
 # Static instances to avoid repeated construction.
 ANY = AnyType()
 NONE_TYPE = NoneType()
+NEVER = NeverType()
 UNSUPPORTED = Unsupported()
 
 
@@ -565,6 +600,10 @@ class TypeVisitor(Generic[T]):
         Returns:
             result of the visit
         """
+
+    def visit_never_type(self, left: NeverType) -> T:
+        """Visit the bottom type."""
+        return None  # type: ignore[return-value]
 
     @abstractmethod
     def visit_instance(self, left: Instance) -> T:
@@ -639,6 +678,10 @@ class TypeVisitor(Generic[T]):
         """Visit a callable type."""
         return None  # type: ignore[return-value]
 
+    def visit_type_type(self, left: TypeType) -> T:
+        """Visit a class-object type."""
+        return None  # type: ignore[return-value]
+
 
 class _PartialTypeMatch(TypeVisitor[ProperType | None]):
     """A type visitor to check for base type matches."""
@@ -654,6 +697,9 @@ class _PartialTypeMatch(TypeVisitor[ProperType | None]):
         if isinstance(self.right, NoneType):
             return NONE_TYPE
         return None
+
+    def visit_never_type(self, left: NeverType) -> ProperType | None:
+        return NEVER if isinstance(self.right, NeverType) else None
 
     def visit_instance(self, left: Instance) -> ProperType | None:
         if isinstance(self.right, Instance) and left.type == self.right.type:
@@ -678,6 +724,12 @@ class _PartialTypeMatch(TypeVisitor[ProperType | None]):
     def visit_unsupported_type(self, left: Unsupported) -> ProperType | None:
         # Cannot compare.
         return None
+
+    def visit_callable_type(self, left: CallableType) -> ProperType | None:
+        return left if left == self.right else None
+
+    def visit_type_type(self, left: TypeType) -> ProperType | None:
+        return left if isinstance(self.right, TypeType) else None
 
 
 def _is_partial_type_match(left: ProperType, right: ProperType) -> ProperType | None:
@@ -719,6 +771,9 @@ class TypeStringVisitor(TypeVisitor[str]):
     def visit_none_type(self, left: NoneType) -> str:  # noqa: D102
         return "None"
 
+    def visit_never_type(self, left: NeverType) -> str:  # noqa: D102
+        return "Never"
+
     def visit_instance(self, left: Instance) -> str:  # noqa: D102
         rep = left.type.name if left.type.module == "builtins" else left.type.full_name
         if len(left.args) > 0:
@@ -728,7 +783,10 @@ class TypeStringVisitor(TypeVisitor[str]):
     def visit_tuple_type(self, left: TupleType) -> str:  # noqa: D102
         rep = "tuple"
         if len(left.args) > 0:
-            rep += "[" + self._sequence_str(left.args) + "]"
+            args = self._sequence_str(left.args)
+            if left.unknown_size:
+                args += ", ..."
+            rep += f"[{args}]"
         return rep
 
     def visit_union_type(self, left: UnionType) -> str:  # noqa: D102
@@ -757,6 +815,9 @@ class TypeStringVisitor(TypeVisitor[str]):
             args = "[" + self._sequence_str(left.arg_types) + "]"
         return f"Callable[{args}, {left.return_type.accept(self)}]"
 
+    def visit_type_type(self, left: TypeType) -> str:
+        return f"type[{left.item.accept(self)}]"
+
 
 class TypeReprVisitor(TypeVisitor[str]):
     """A simple visitor to create a repr from a proper type."""
@@ -767,6 +828,9 @@ class TypeReprVisitor(TypeVisitor[str]):
     def visit_none_type(self, left: NoneType) -> str:  # noqa: D102
         return "NoneType()"
 
+    def visit_never_type(self, left: NeverType) -> str:  # noqa: D102
+        return "NeverType()"
+
     def visit_instance(self, left: Instance) -> str:  # noqa: D102
         rep = f"Instance({left.type!r}"
         if len(left.args) > 0:
@@ -774,7 +838,8 @@ class TypeReprVisitor(TypeVisitor[str]):
         return rep + ")"
 
     def visit_tuple_type(self, left: TupleType) -> str:  # noqa: D102
-        return f"TupleType({self._sequence_str(left.args)})"
+        unknown_size = ", unknown_size=True" if left.unknown_size else ""
+        return f"TupleType({self._sequence_str(left.args)}{unknown_size})"
 
     def visit_union_type(self, left: UnionType) -> str:  # noqa: D102
         return f"UnionType({self._sequence_str(left.items)})"
@@ -798,6 +863,9 @@ class TypeReprVisitor(TypeVisitor[str]):
     def visit_callable_type(self, left: CallableType) -> str:
         args = "..." if left.arg_types is None else self._sequence_str(left.arg_types)
         return f"CallableType(({args}), {left.return_type.accept(self)})"
+
+    def visit_type_type(self, left: TypeType) -> str:
+        return f"TypeType({left.item.accept(self)})"
 
 
 class _SubtypeVisitor(TypeVisitor[bool]):
@@ -834,32 +902,45 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         # TODO(fk) handle protocols, e.g., hashable.
         return isinstance(self.right, NoneType)
 
+    def visit_never_type(self, left: NeverType) -> bool:
+        return True
+
     def visit_instance(self, left: Instance) -> bool:
         if isinstance(self.right, Instance):
             if not self.graph.is_subclass(left.type, self.right.type):
                 return False
-            if (
-                left.type.num_hardcoded_generic_parameters
-                == self.right.type.num_hardcoded_generic_parameters
-                and left.type.num_hardcoded_generic_parameters is not None
-            ):
+            if left.type == self.right.type and (left.args or self.right.args):
                 # TODO(fk) handle generics properly :(
-                # We only check hard coded generics for now and treat them as invariant,
-                # i.e., set[T1] <: set[T2] <=> T1 <: T2 and T2 <: T1
+                # Until variance metadata exists, same-origin generics are invariant.
+                if len(left.args) != len(self.right.args):
+                    return False
                 return all(
                     self.sub_type_check(left_elem, right_elem)
                     and self.sub_type_check(right_elem, left_elem)
-                    for left_elem, right_elem in zip(left.args, self.right.args, strict=True)
+                    for left_elem, right_elem in zip(left.args, self.right.args)
                 )
             return True
         return False
 
     def visit_tuple_type(self, left: TupleType) -> bool:
         if isinstance(self.right, TupleType):
-            if len(left.args) != len(self.right.args):
-                # TODO(fk) Handle unknown size.
+            if self.right.unknown_size:
+                if not self.right.args:
+                    return True
+                right_element = self.right.args[0]
+                if left.unknown_size:
+                    return not left.args or self.sub_type_check(
+                        left.args[0], right_element
+                    )
+                return all(
+                    self.sub_type_check(left_element, right_element)
+                    for left_element in left.args
+                )
+            if left.unknown_size:
                 return False
-            return all(starmap(self.sub_type_check, zip(left.args, self.right.args, strict=True)))
+            if len(left.args) != len(self.right.args):
+                return False
+            return all(starmap(self.sub_type_check, zip(left.args, self.right.args)))
         return False
 
     def visit_union_type(self, left: UnionType) -> bool:
@@ -875,7 +956,31 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             return all(self.sub_type_check(c, self.right) for c in left.constraints)
         if left.has_bound:
             return self.sub_type_check(left.bound, self.right)  # type: ignore[arg-type]
-        return True  # Unconstrained TypeVar is subtype of everything
+        return isinstance(self.right, Instance) and self.right.type.raw_type is object
+
+    def visit_callable_type(self, left: CallableType) -> bool:
+        if not isinstance(self.right, CallableType):
+            return False
+        if not self.sub_type_check(left.return_type, self.right.return_type):
+            return False
+        if self.right.arg_types is None:
+            return True
+        if left.arg_types is None or len(left.arg_types) != len(self.right.arg_types):
+            return False
+        return all(
+            self.sub_type_check(right_arg, left_arg)
+            for left_arg, right_arg in zip(left.arg_types, self.right.arg_types)
+        )
+
+    def visit_type_type(self, left: TypeType) -> bool:
+        return isinstance(self.right, TypeType) and self.sub_type_check(
+            left.item, self.right.item
+        )
+
+    def visit_string_subtype(self, left: StringSubtype) -> bool:
+        if isinstance(self.right, StringSubtype):
+            return left == self.right
+        return isinstance(self.right, Instance) and self.right.type.raw_type is str
 
 
 class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
@@ -909,6 +1014,9 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
 
     def visit_none_type(self, supertype: NoneType) -> None:
         return None
+
+    def visit_never_type(self, supertype: NeverType) -> int | None:
+        return 0 if isinstance(self.subtype, NeverType) else None
 
     def visit_instance(self, supertype: Instance) -> int | None:
         """Calculate the distance between two instances.
@@ -989,6 +1097,14 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
     def visit_unsupported_type(self, supertype: Unsupported) -> int | None:
         raise NotImplementedError("This type shall not be used during runtime")
 
+    def visit_callable_type(self, supertype: CallableType) -> int | None:
+        return 0 if supertype == self.subtype else None
+
+    def visit_type_type(self, supertype: TypeType) -> int | None:
+        if not isinstance(self.subtype, TypeType):
+            return None
+        return self.graph.subtype_distance(supertype.item, self.subtype.item)
+
 
 class _MaybeSubtypeVisitor(_SubtypeVisitor):
     """A weaker subtype check, which only checks if left may be a subtype of right.
@@ -1014,6 +1130,9 @@ class _CollectionTypeVisitor(TypeVisitor[bool]):
     def visit_none_type(self, left: NoneType) -> bool:
         return False
 
+    def visit_never_type(self, left: NeverType) -> bool:
+        return False
+
     def visit_instance(self, left: Instance) -> bool:
         return left.type.raw_type in _CollectionTypeVisitor.Collections
 
@@ -1025,6 +1144,12 @@ class _CollectionTypeVisitor(TypeVisitor[bool]):
 
     def visit_unsupported_type(self, left: Unsupported) -> bool:
         raise NotImplementedError("This type shall not be used during runtime")
+
+    def visit_callable_type(self, left: CallableType) -> bool:
+        return False
+
+    def visit_type_type(self, left: TypeType) -> bool:
+        return False
 
 
 is_collection_type = _CollectionTypeVisitor()
@@ -1039,6 +1164,9 @@ class _PrimitiveTypeVisitor(TypeVisitor[bool]):
     def visit_none_type(self, left: NoneType) -> bool:
         return False
 
+    def visit_never_type(self, left: NeverType) -> bool:
+        return False
+
     def visit_instance(self, left: Instance) -> bool:
         return left.type.raw_type in _PrimitiveTypeVisitor.Primitives
 
@@ -1050,6 +1178,12 @@ class _PrimitiveTypeVisitor(TypeVisitor[bool]):
 
     def visit_unsupported_type(self, left: Unsupported) -> bool:
         raise NotImplementedError("This type shall not be used during runtime")
+
+    def visit_callable_type(self, left: CallableType) -> bool:
+        return False
+
+    def visit_type_type(self, left: TypeType) -> bool:
+        return False
 
 
 is_primitive_type = _PrimitiveTypeVisitor()
@@ -2242,6 +2376,8 @@ class TypeSystem:  # noqa: PLR0904
         if hint is type(None):
             # None
             return NONE_TYPE
+        if hint in {typing.NoReturn, getattr(typing, "Never", None)}:
+            return NEVER
         if hint is tuple:
             # tuple
             # TODO(fk) Tuple without size. Should use tuple[Any, ...] ?
@@ -2249,10 +2385,40 @@ class TypeSystem:  # noqa: PLR0904
             return TupleType((ANY,), unknown_size=True)
         if get_origin(hint) is tuple:
             # Type is `tuple[int, str]` or `typing.Tuple[int, str]` or `typing.Tuple`
+            raw_args = get_args(hint)
+            if len(raw_args) == 2 and raw_args[1] is Ellipsis:
+                return TupleType(
+                    (self.convert_type_hint(raw_args[0], unsupported=unsupported),),
+                    unknown_size=True,
+                )
             args = self.__convert_args_if_exists(hint, unsupported=unsupported)
             if not args:
                 return TupleType((ANY,), unknown_size=True)
             return TupleType(args)
+        if get_origin(hint) is type:
+            type_args = get_args(hint)
+            return TypeType(
+                self.convert_type_hint(type_args[0], unsupported=unsupported)
+                if type_args
+                else ANY
+            )
+        if get_origin(hint) is cabc.Callable:
+            callable_args = get_args(hint)
+            if len(callable_args) != 2:
+                return CallableType(None, ANY)
+            parameters, returned = callable_args
+            return_type = self.convert_type_hint(returned, unsupported=unsupported)
+            if parameters is Ellipsis:
+                return CallableType(None, return_type)
+            if not isinstance(parameters, list | tuple):
+                return CallableType(None, return_type)
+            return CallableType(
+                tuple(
+                    self.convert_type_hint(parameter, unsupported=unsupported)
+                    for parameter in parameters
+                ),
+                return_type,
+            )
         if is_union_type(hint) or isinstance(hint, types.UnionType):
             # Type is `int | str` or `typing.Union[int, str]`
             # TODO(fk) don't make a union including Any.

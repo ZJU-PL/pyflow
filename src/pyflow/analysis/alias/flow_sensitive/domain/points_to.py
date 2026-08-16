@@ -50,9 +50,13 @@ class HeapValueSnapshot:
     absent: "frozenset[HeapLocation]"
     complete_roots: "frozenset[object]"
     scalar_present: "frozenset[HeapLocation]" = frozenset()
+    definitely_scalar_present: "frozenset[HeapLocation]" = frozenset()
+    precise_shadows: "frozenset[HeapLocation]" = frozenset()
     locals: "dict[tuple[object, str], frozenset[HeapLocation]]" = field(
         default_factory=dict
     )
+    locals_non_reference: "frozenset[tuple[object, str]]" = frozenset()
+    locals_unbound: "frozenset[tuple[object, str]]" = frozenset()
     returns: "dict[object, tuple[frozenset[HeapLocation], ...]]" = field(
         default_factory=dict
     )
@@ -143,19 +147,35 @@ class PointsToGraph:
     heap_contaminants: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
         default_factory=dict
     )
-    program_point_values: (
-        "dict[object, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
-    ) = field(default_factory=dict)
-    program_point_contaminants: (
-        "dict[object, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
-    ) = field(default_factory=dict)
+    program_point_values: dict[
+        object,
+        tuple[
+            dict[HeapLocation, frozenset[HeapLocation]],
+            dict[HeapLocation, frozenset[HeapLocation]],
+        ],
+    ] = field(default_factory=dict)
+    program_point_contaminants: dict[
+        object,
+        tuple[
+            dict[HeapLocation, frozenset[HeapLocation]],
+            dict[HeapLocation, frozenset[HeapLocation]],
+        ],
+    ] = field(default_factory=dict)
     heap_absent: "frozenset[HeapLocation]" = frozenset()
     heap_scalar_present: "frozenset[HeapLocation]" = frozenset()
+    heap_definitely_scalar_present: "frozenset[HeapLocation]" = frozenset()
+    heap_precise_shadows: "frozenset[HeapLocation]" = frozenset()
     complete_roots: "frozenset[object]" = frozenset()
     program_point_absent: (
         "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
     ) = field(default_factory=dict)
     program_point_scalar_present: (
+        "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+    ) = field(default_factory=dict)
+    program_point_definitely_scalar_present: (
+        "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+    ) = field(default_factory=dict)
+    program_point_precise_shadows: (
         "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
     ) = field(default_factory=dict)
     program_point_complete_roots: (
@@ -164,8 +184,18 @@ class PointsToGraph:
     program_point_outcomes: "dict[object, dict[str, HeapValueSnapshot]]" = field(
         default_factory=dict
     )
-    program_point_locals: (
-        "dict[object, tuple[dict[tuple[object, str], frozenset[HeapLocation]], dict[tuple[object, str], frozenset[HeapLocation]]]]"
+    program_point_locals: dict[
+        object,
+        tuple[
+            dict[tuple[object, str], frozenset[HeapLocation]],
+            dict[tuple[object, str], frozenset[HeapLocation]],
+        ],
+    ] = field(default_factory=dict)
+    program_point_local_non_reference: (
+        "dict[object, tuple[frozenset[tuple[object, str]], frozenset[tuple[object, str]]]]"
+    ) = field(default_factory=dict)
+    program_point_local_unbound: (
+        "dict[object, tuple[frozenset[tuple[object, str]], frozenset[tuple[object, str]]]]"
     ) = field(default_factory=dict)
     precision_degradations: "dict[object, frozenset[str]]" = field(default_factory=dict)
     operation_identities: "dict[object, object]" = field(default_factory=dict)
@@ -215,6 +245,8 @@ class PointsToGraph:
         contaminants = self.heap_contaminants
         absent = self.heap_absent
         scalar_present = self.heap_scalar_present
+        definitely_scalar_present = self.heap_definitely_scalar_present
+        precise_shadows = self.heap_precise_shadows
         complete_roots = self.complete_roots
         if before and outcome is not None:
             raise ValueError("outcome is only valid for post-state queries")
@@ -232,6 +264,8 @@ class PointsToGraph:
                 contaminants = snapshot.contaminants
                 absent = snapshot.absent
                 scalar_present = snapshot.scalar_present
+                definitely_scalar_present = snapshot.definitely_scalar_present
+                precise_shadows = snapshot.precise_shadows
                 complete_roots = snapshot.complete_roots
             else:
                 index = 0 if before else 1
@@ -245,23 +279,40 @@ class PointsToGraph:
                 point_absent = self.program_point_absent.get(operation_key)
                 point_complete = self.program_point_complete_roots.get(operation_key)
                 point_scalar = self.program_point_scalar_present.get(operation_key)
+                point_definitely_scalar = (
+                    self.program_point_definitely_scalar_present.get(operation_key)
+                )
+                point_shadows = self.program_point_precise_shadows.get(operation_key)
                 if point_absent is not None:
                     absent = point_absent[index]
                 if point_complete is not None:
                     complete_roots = point_complete[index]
                 if point_scalar is not None:
                     scalar_present = point_scalar[index]
+                if point_definitely_scalar is not None:
+                    definitely_scalar_present = point_definitely_scalar[index]
+                if point_shadows is not None:
+                    precise_shadows = point_shadows[index]
         result = list(values.get(location, ()))
         from .state import HeapState
 
         for contaminant, stored in contaminants.items():
-            if HeapState.locations_may_overlap(location, contaminant):
+            if HeapState.locations_may_overlap(
+                location, contaminant
+            ) and not self._contaminant_shadowed(
+                location,
+                contaminant,
+                precise_shadows,
+            ):
                 result.extend(stored)
         locations = frozenset(result)
-        from ..model import HeapObjectKind
-
         has_overlapping_contaminant = any(
             HeapState.locations_may_overlap(location, contaminant)
+            and not self._contaminant_shadowed(
+                location,
+                contaminant,
+                precise_shadows,
+            )
             for contaminant in contaminants
         )
         definitely_absent = (
@@ -273,17 +324,11 @@ class PointsToGraph:
             )
         ) and not has_overlapping_contaminant
         includes_unknown = any(
-            value.root.kind
-            in {
-                HeapObjectKind.UNKNOWN,
-                HeapObjectKind.CALL_RESULT,
-                HeapObjectKind.RETURN,
-            }
-            for value in locations
+            self._root_value_is_unknown(value.root.kind) for value in locations
         ) or (
             not locations
             and not definitely_absent
-            and location not in scalar_present
+            and location not in definitely_scalar_present
             and location.root not in complete_roots
         )
         return PossibleValues(
@@ -314,18 +359,72 @@ class PointsToGraph:
             if snapshot is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = snapshot.locals.get(key, frozenset())
+            includes_non_reference = key in snapshot.locals_non_reference
+            may_unbound = key in snapshot.locals_unbound
+            known = (
+                key in snapshot.locals
+                or includes_non_reference
+                or may_unbound
+            )
         else:
             pair = self.program_point_locals.get(self._operation_key(operation))
             if pair is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = pair[0 if before else 1].get(key, frozenset())
+            index = 0 if before else 1
+            non_reference_pair = self.program_point_local_non_reference.get(
+                self._operation_key(operation),
+                (frozenset(), frozenset()),
+            )
+            unbound_pair = self.program_point_local_unbound.get(
+                self._operation_key(operation),
+                (frozenset(), frozenset()),
+            )
+            includes_non_reference = key in non_reference_pair[index]
+            may_unbound = key in unbound_pair[index]
+            known = (
+                key in pair[index]
+                or includes_non_reference
+                or may_unbound
+            )
         return PossibleValues(
             locations,
             includes_unknown=any(
-                location.root.kind.value in {"unknown", "summary", "call_result"}
+                self._root_value_is_unknown(location.root.kind)
                 for location in locations
             ),
-            definitely_absent=not locations,
+            definitely_absent=(
+                not known
+                or (
+                    may_unbound
+                    and not locations
+                    and not includes_non_reference
+                )
+            ),
+            includes_non_reference=includes_non_reference,
+        )
+
+    @staticmethod
+    def _root_value_is_unknown(kind: object) -> bool:
+        from ..model import HeapObjectKind
+
+        return kind in {
+            HeapObjectKind.UNKNOWN,
+            HeapObjectKind.SUMMARY,
+            HeapObjectKind.CALL_RESULT,
+            HeapObjectKind.RETURN,
+        }
+
+    @staticmethod
+    def _contaminant_shadowed(
+        location: "HeapLocation",
+        contaminant: "HeapLocation",
+        precise_shadows: "frozenset[HeapLocation]",
+    ) -> bool:
+        return (
+            location.is_precise()
+            and location in precise_shadows
+            and not contaminant.is_precise()
         )
 
     def outcome_snapshot(
@@ -421,7 +520,11 @@ class PointsToGraph:
         if entry is None:
             return False
         if location.is_nested():
-            return self.allow_strong_nested_fresh and entry.is_singleton
+            return (
+                location.is_precise()
+                and self.allow_strong_nested_fresh
+                and entry.is_singleton
+            )
         return entry.update_policy is UpdatePolicy.STRONG
 
     def receiver_cardinality(

@@ -2712,6 +2712,98 @@ def test_scalar_presence_and_local_program_point_queries_are_distinct():
     ).locations
 
 
+def test_scalar_local_read_does_not_fabricate_heap_reference():
+    value = py_ast.Local("value")
+    copied = py_ast.Local("copied")
+    scalar_assignment = py_ast.Assign(_existing(1), [value])
+    copy_assignment = py_ast.Assign(value, [copied])
+    code = _code(
+        "main",
+        py_ast.Suite([scalar_assignment, copy_assignment]),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    copied_values = graph.possible_local_values_at(
+        code,
+        copied,
+        copy_assignment,
+        outcome="normal",
+    )
+
+    assert not heap.locations_for_local(code, value)
+    assert not heap.locations_for_local(code, copied)
+    assert not copied_values.locations
+    assert copied_values.includes_non_reference
+    assert not copied_values.includes_unknown
+
+
+def test_deleted_local_read_has_only_unbound_exceptional_path():
+    value = py_ast.Local("value")
+    copied = py_ast.Local("copied")
+    read_deleted = py_ast.Assign(value, [copied])
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [value]),
+                py_ast.Delete(value),
+                read_deleted,
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert not heap.locations_for_local(code, value)
+    assert not heap.locations_for_local(code, copied)
+    assert graph.outcome_snapshot(read_deleted, "normal") is None
+    raised = graph.raised_values_at(code, read_deleted)
+    assert raised
+    assert any(location.root.label == "UnboundLocalError" for location in raised)
+
+
+def test_branch_join_preserves_reference_and_scalar_local_alternatives():
+    condition = py_ast.Local("condition")
+    value = py_ast.Local("value")
+    copied = py_ast.Local("copied")
+    copy_assignment = py_ast.Assign(value, [copied])
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), condition),
+                    py_ast.Suite([py_ast.Assign(py_ast.BuildList([]), [value])]),
+                    py_ast.Suite([py_ast.Assign(_existing(1), [value])]),
+                ),
+                copy_assignment,
+            ]
+        ),
+        params=(condition,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    copied_values = graph.possible_local_values_at(
+        code,
+        copied,
+        copy_assignment,
+        outcome="normal",
+    )
+
+    assert copied_values.locations
+    assert copied_values.includes_non_reference
+    assert all(location.root.kind.value != "local" for location in copied_values.locations)
+
+
 def test_static_class_and_property_descriptors_bind_correctly():
     static_value = py_ast.Local("static_value")
     static_code = _code(

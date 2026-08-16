@@ -155,6 +155,17 @@ def test_strong_update_possible_after_alias_is_false():
         assert not graph.strong_update_possible(entry.location)
 
 
+def test_strong_update_possible_rejects_wildcard_selector():
+    heap = _heap()
+    obj = py_ast.Local("obj")
+    heap.bind_allocation_targets(None, (obj,), object(), label="obj")
+    root = heap.locations_for_local(None, obj)[0]
+    wildcard = heap.dynamic_attribute_location(root, "*")
+    graph = heap.to_points_to_graph()
+
+    assert not graph.strong_update_possible(wildcard)
+
+
 def test_aliased_two_unrelated_objects():
     graph = _build_graph_with_two_objects()
     entries = list(graph.iter_entries())

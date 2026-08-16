@@ -109,8 +109,10 @@ def substitute_type_vars(
         the original *type_* is returned unchanged.
     """
     from pyflow.analysis.typeinfo.core.typesystem import (
+        CallableType,
         Instance,
         TupleType,
+        TypeType,
         TypeVarType,
         UnionType,
     )
@@ -142,6 +144,21 @@ def substitute_type_vars(
             return UnionType(new_items)
         return type_
 
+    if isinstance(type_, CallableType):
+        callable_args = (
+            None
+            if type_.arg_types is None
+            else tuple(substitute_type_vars(a, substitutions) for a in type_.arg_types)
+        )
+        new_return = substitute_type_vars(type_.return_type, substitutions)
+        if callable_args != type_.arg_types or new_return != type_.return_type:
+            return CallableType(callable_args, new_return)
+        return type_
+
+    if isinstance(type_, TypeType):
+        new_item = substitute_type_vars(type_.item, substitutions)
+        return TypeType(new_item) if new_item != type_.item else type_
+
     return type_
 
 
@@ -155,8 +172,10 @@ def collect_type_vars(type_: ProperType) -> list[TypeVarType]:
         A list of distinct type variables, in depth-first order.
     """
     from pyflow.analysis.typeinfo.core.typesystem import (
+        CallableType,
         Instance,
         TupleType,
+        TypeType,
         TypeVarType,
         UnionType,
     )
@@ -177,6 +196,13 @@ def collect_type_vars(type_: ProperType) -> list[TypeVarType]:
         elif isinstance(t, UnionType):
             for i in t.items:
                 _collect(i)
+        elif isinstance(t, CallableType):
+            if t.arg_types is not None:
+                for a in t.arg_types:
+                    _collect(a)
+            _collect(t.return_type)
+        elif isinstance(t, TypeType):
+            _collect(t.item)
 
     _collect(type_)
     return result

@@ -149,6 +149,22 @@ def test_substitute_type_vars_in_tuple() -> None:
     assert result.args[1].type.raw_type is int  # type: ignore[union-attr]
 
 
+def test_substitute_and_collect_type_vars_in_callable() -> None:
+    from pyflow.analysis.typeinfo.core.typesystem import CallableType
+
+    t = TypeVarType("T")
+    callable_ = CallableType((t,), Instance(ClassDescriptor(list), (t,)))
+    result = substitute_type_vars(
+        callable_, {"T": Instance(ClassDescriptor(int))}
+    )
+
+    assert isinstance(result, CallableType)
+    assert result.arg_types is not None
+    assert result.arg_types[0].type.raw_type is int  # type: ignore[union-attr]
+    assert result.return_type.args[0].type.raw_type is int  # type: ignore[union-attr]
+    assert collect_type_vars(callable_) == [t]
+
+
 def test_substitute_type_vars_no_change() -> None:
     inst = Instance(ClassDescriptor(int))
     result = substitute_type_vars(inst, {"T": Instance(ClassDescriptor(str))})

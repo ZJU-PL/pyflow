@@ -51,6 +51,27 @@ def test_domain_keeps_unknown_distinct_from_any() -> None:
     assert unknown.join(explicit_any, type_system).public_type() is ANY
 
 
+def test_domain_exposes_projection_completeness() -> None:
+    known_open = AbstractTypeValue.from_type(
+        Instance(TypeSystem().to_class_descriptor(int)), unknown=True
+    )
+
+    assert known_open.is_complete is False
+    assert known_open.has_unknown_alternatives is True
+
+
+def test_bare_generic_annotation_accepts_parameterized_literal() -> None:
+    result = StaticTypeInferenceEngine(
+        options=InferenceOptions(strict_annotations=True)
+    ).infer_source("sample", "x: list = [1]\n")
+
+    inferred = result.type_of("x")
+    assert isinstance(inferred, Instance)
+    assert inferred.type.raw_type is list
+    assert inferred.args == (ANY,)
+    assert result.diagnostics == []
+
+
 def test_infers_literals_precise_collections_and_subscripts() -> None:
     result = StaticTypeInferenceEngine().infer_source(
         "sample",
@@ -486,6 +507,44 @@ item = items[0]
     )
 
     assert _raw_types(result.type_of("item")) == {int}
+
+
+def test_builtin_iterator_models_preserve_iterator_element_shapes() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+enumerated = enumerate(["x"])
+zipped = zip([1], ["x"])
+filtered = filter(None, [1])
+""",
+    )
+
+    enumerated = result.type_of("enumerated")
+    assert isinstance(enumerated, Instance)
+    assert enumerated.type.raw_type is cabc.Iterator
+    assert isinstance(enumerated.args[0], TupleType)
+    assert [_raw_types(item) for item in enumerated.args[0].args] == [{int}, {str}]
+
+    zipped = result.type_of("zipped")
+    assert isinstance(zipped, Instance)
+    assert zipped.type.raw_type is cabc.Iterator
+    assert isinstance(zipped.args[0], TupleType)
+    assert [_raw_types(item) for item in zipped.args[0].args] == [{int}, {str}]
+
+    filtered = result.type_of("filtered")
+    assert isinstance(filtered, Instance)
+    assert filtered.type.raw_type is cabc.Iterator
+    assert _raw_types(filtered.args[0]) == {int}
+
+
+def test_string_encode_and_bytes_decode_return_opposite_binary_types() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        'encoded = "x".encode()\ndecoded = b"x".decode()\n',
+    )
+
+    assert _raw_types(result.type_of("encoded")) == {bytes}
+    assert _raw_types(result.type_of("decoded")) == {str}
 
 
 def test_async_calls_and_await_keep_result_types() -> None:

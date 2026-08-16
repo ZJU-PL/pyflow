@@ -693,6 +693,9 @@ class PointerSolver:
         the inheritance target (used by ClassObject and SuperObject).
         """
         from .object import ClassObject
+        if isinstance(c.owner, ClassObject) and c.field is not None:
+            self.state.refresh_class_inheritance(c.owner, c.field, c.target)
+            return True
         for base_obj in pts:
             # For class inheritance, use the base class's internal scope
             if isinstance(base_obj, ClassObject):
