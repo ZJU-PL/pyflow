@@ -8,7 +8,7 @@ import json
 import re
 from typing import Optional, List, Dict
 
-DEFAULT_MAX_ITERATIONS = 50_000
+DEFAULT_MAX_ITERATIONS = 100_000
 
 __all__ = ["Config", "DEFAULT_MAX_ITERATIONS"]
 

@@ -42,7 +42,7 @@ class TestBasicPointerAnalysis:
 
     def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
         assert Config.from_dict({}) == Config()
-        assert Config().max_iterations == DEFAULT_MAX_ITERATIONS == 50_000
+        assert Config().max_iterations == DEFAULT_MAX_ITERATIONS == 100_000
         assert Config().max_import_depth == -1
 
     def test_public_pointer_analysis_uses_shared_default_solver_budget(self) -> None:

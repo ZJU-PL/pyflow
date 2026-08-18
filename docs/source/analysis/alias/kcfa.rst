@@ -49,7 +49,7 @@ completion is explicit on the returned result:
    analysis = PointerAnalysis.from_project(
        "package/__main__.py",
        k=1,
-       max_iterations=50_000,
+       max_iterations=100_000,
        max_import_depth=3,
    )
    results = analysis.run()

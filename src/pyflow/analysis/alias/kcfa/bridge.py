@@ -309,7 +309,7 @@ class PointerAnalysis:
         Explicit context policy. For ``N-cfa`` policies, its depth must agree
         with ``k``; non-call-string policies replace ``k``.
     max_iterations : int
-        Solver work-item budget (default 50,000).
+        Solver work-item budget (default 100,000).
     max_points_to_size : int or None
         Optional threshold that widens growing points-to sets to summary
         objects. Widened queries are reported as incomplete.
