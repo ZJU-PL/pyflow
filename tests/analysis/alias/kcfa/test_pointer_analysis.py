@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -14,9 +15,19 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import ClassObject
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.type_ref import TypeRefKind
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import (
+    Config,
+    DEFAULT_MAX_ITERATIONS,
+)
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.dataflow.driver import (
+    DataflowAnalysisDriver,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
-from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import NamespaceManager
+from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import (
+    Namespace,
+    NamespaceManager,
+)
+from pyflow.analysis.alias.kcfa._pythonstan.world.scope_manager import ScopeManager
 
 
 def _module_points_to(result, name: str) -> set[str]:
@@ -31,6 +42,11 @@ class TestBasicPointerAnalysis:
 
     def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
         assert Config.from_dict({}) == Config()
+        assert Config().max_iterations == DEFAULT_MAX_ITERATIONS == 50_000
+        assert Config().max_import_depth == -1
+
+    def test_public_pointer_analysis_uses_shared_default_solver_budget(self) -> None:
+        assert PointerAnalysis("pass")._max_iterations == DEFAULT_MAX_ITERATIONS
 
     def test_config_uses_k_when_policy_is_omitted_and_rejects_conflicts(self) -> None:
         assert Config.from_dict({"k": 3}).context_policy == "3-cfa"
@@ -52,10 +68,201 @@ class TestBasicPointerAnalysis:
         budgeted = PointerAnalysis(
             "x = object()\n", max_iterations=1
         ).run()
+        assert budgeted.complete is False
+        assert budgeted.fixpoint_complete is False
+        assert budgeted.stop_reason == "solver_budget"
+        assert budgeted.statistics()["iterations"] == 1
         assert any(
             detail["kind"] == "solver_budget"
             for detail in budgeted.unknown_details()
         )
+
+    def test_complete_result_surfaces_fixpoint_status(self) -> None:
+        result = PointerAnalysis("x = object()\n").run()
+
+        assert result.complete is True
+        assert result.fixpoint_complete is True
+        assert result.stop_reason == "fixpoint"
+
+    def test_project_import_depth_has_a_public_name(self, tmp_path) -> None:
+        (tmp_path / "grandchild.py").write_text(
+            "value = object()\n", encoding="utf-8"
+        )
+        (tmp_path / "child.py").write_text(
+            "import grandchild\n", encoding="utf-8"
+        )
+        entry = tmp_path / "main.py"
+        entry.write_text("import child\n", encoding="utf-8")
+
+        unlimited = PointerAnalysis.from_project(entry)
+        depth_zero = PointerAnalysis.from_project(
+            entry, max_import_depth=0
+        ).run()
+
+        assert unlimited._import_level == -1
+        zero_modules = depth_zero.state.scope_manager.module_graph.get_modules()
+        assert {module.get_filename() for module in zero_modules} == {str(entry)}
+        assert str(tmp_path / "child.py") not in depth_zero.state.scope_manager.file2mod
+        assert depth_zero.statistics()["frontend_complete"] is True
+        assert depth_zero.statistics()["semantic_complete"] is False
+        assert any(
+            detail["kind"] == "import_depth"
+            for detail in depth_zero.unknown_details()
+        )
+
+        depth_one = PointerAnalysis.from_project(
+            entry, max_import_depth=1
+        ).run()
+        one_modules = depth_one.state.scope_manager.module_graph.get_modules()
+        assert {module.get_filename() for module in one_modules} == {
+            str(entry),
+            str(tmp_path / "child.py"),
+        }
+        assert (
+            str(tmp_path / "grandchild.py")
+            not in depth_one.state.scope_manager.file2mod
+        )
+        with pytest.raises(ValueError, match="must agree"):
+            PointerAnalysis.from_project(
+                entry,
+                import_level=1,
+                max_import_depth=2,
+            )
+
+    def test_scope_manager_reuses_namespace_for_a_new_resolved_path(
+        self, tmp_path
+    ) -> None:
+        first = tmp_path / "time.py"
+        second = tmp_path / "alternate_time.py"
+        first.write_text("value = 1\n", encoding="utf-8")
+        second.write_text("value = 2\n", encoding="utf-8")
+        namespace = Namespace.from_str("__builtin__.time")
+        manager = ScopeManager()
+        manager.build()
+
+        module = manager.add_module(namespace, str(first))
+
+        assert manager.add_module(namespace, str(second)) is module
+        assert manager.file2mod[str(second)] is module
+
+    def test_import_resolution_caches_missing_modules(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        manager = NamespaceManager()
+        manager.build(str(tmp_path), [], mock_libs=False)
+        original = manager.find_ns_in_path
+        lookups = 0
+
+        def counted_lookup(paths, namespace):
+            nonlocal lookups
+            lookups += 1
+            return original(paths, namespace)
+
+        monkeypatch.setattr(manager, "find_ns_in_path", counted_lookup)
+
+        assert manager.resolve_import("missing_dependency") is None
+        assert manager.resolve_import("missing_dependency") is None
+        assert lookups == 1
+
+    def test_project_closure_analysis_visits_each_scope_once(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        (tmp_path / "first.py").write_text(
+            "def outer():\n"
+            "    value = object()\n"
+            "    def inner():\n"
+            "        return value\n"
+            "    return inner\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "second.py").write_text(
+            "class Container:\n"
+            "    def method(self):\n"
+            "        return object()\n",
+            encoding="utf-8",
+        )
+        entry = tmp_path / "main.py"
+        entry.write_text("import first\nimport second\n", encoding="utf-8")
+
+        original = DataflowAnalysisDriver.analyze
+        visits = []
+
+        def record_scope(driver, scope, prev_results):
+            visits.append(scope.get_qualname())
+            return original(driver, scope, prev_results)
+
+        monkeypatch.setattr(DataflowAnalysisDriver, "analyze", record_scope)
+        pipeline = Pipeline(
+            config={
+                "filename": str(entry),
+                "project_path": str(tmp_path),
+                "library_paths": [],
+                "mock_libs": True,
+                "prefer_mock_libs": True,
+                "lazy_ir_construction": False,
+                "import_level": -1,
+                "time_count": False,
+                "analysis": [],
+            }
+        )
+
+        expected = {
+            scope.get_qualname()
+            for scope in pipeline.world.scope_manager.get_scopes()
+            if pipeline.world.scope_manager.get_ir(scope, "cfg") is not None
+        }
+        assert Counter(visits) == Counter({name: 1 for name in expected})
+
+    def test_nested_imports_do_not_expand_the_eager_module_graph(
+        self, tmp_path
+    ) -> None:
+        eager = tmp_path / "eager.py"
+        nested = tmp_path / "nested.py"
+        eager.write_text("value = object()\n", encoding="utf-8")
+        nested.write_text("value = object()\n", encoding="utf-8")
+        entry = tmp_path / "main.py"
+        entry.write_text(
+            "import eager\n"
+            "def load_later():\n"
+            "    import nested\n"
+            "    return nested.value\n",
+            encoding="utf-8",
+        )
+
+        result = PointerAnalysis.from_project(entry).run()
+        modules = result.state.scope_manager.module_graph.get_modules()
+
+        assert {module.get_filename() for module in modules} == {
+            str(entry),
+            str(eager),
+        }
+        assert str(nested) not in result.state.scope_manager.file2mod
+
+    def test_type_checking_imports_do_not_expand_the_module_graph(
+        self, tmp_path
+    ) -> None:
+        type_only = tmp_path / "type_only.py"
+        runtime = tmp_path / "runtime.py"
+        type_only.write_text("value = object()\n", encoding="utf-8")
+        runtime.write_text("value = object()\n", encoding="utf-8")
+        entry = tmp_path / "main.py"
+        entry.write_text(
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    import type_only\n"
+            "else:\n"
+            "    import runtime\n",
+            encoding="utf-8",
+        )
+
+        result = PointerAnalysis.from_project(entry).run()
+        filenames = {
+            module.get_filename()
+            for module in result.state.scope_manager.module_graph.get_modules()
+        }
+
+        assert str(type_only) not in filenames
+        assert str(runtime) in filenames
 
     def test_analysis_results_are_independent_of_worklist_schedule(self) -> None:
         source = """

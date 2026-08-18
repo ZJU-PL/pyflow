@@ -6,18 +6,19 @@ required IR and CFG passes, and dispatches analysis drivers in dependency order.
 """
 
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRModule
-from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisConfig, AnalysisDriver
-from .namespace import Namespace
+from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisDriver
 from .world import World
 from .config import Config
 from .scope_manager import ModuleGraph
 from .analysis_manager import AnalysisManager
 
-from typing import List, Tuple, Generator
+from typing import Generator
+from collections import deque
 from queue import Queue
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class Pipeline:
     """Coordinate project discovery, lowering, and analysis execution."""
@@ -50,6 +51,14 @@ class Pipeline:
         """Return the shared world populated by this pipeline."""
         return self.world
 
+    def _lower_module(self, module: IRModule) -> None:
+        """Run the prerequisite lowering pipeline once for ``module``."""
+        self.analysis_manager.analysis("three address", module)
+        self.analysis_manager.analysis("ir", module)
+        self.analysis_manager.analysis("block cfg", module)
+        self.analysis_manager.analysis("cfg", module)
+        self.analysis_manager.analysis("closure", module)
+
     def build_scope_graph(self, entry_path: str):
         """Discover modules and run prerequisite lowering passes.
 
@@ -59,51 +68,49 @@ class Pipeline:
         entry_ns = World().namespace_manager.set_entry_module(entry_path, self.config.project_path)
         entry_mod = World().scope_manager.add_module(entry_ns, entry_path)
         World().entry_module = entry_mod
-        q: List[Tuple[Namespace, IRModule, int]] = [(entry_ns, entry_mod, 0)]
+        q = deque([(entry_ns, entry_mod, 0)])
         g = ModuleGraph()
         g.add_node(entry_mod)
-        visited_ns = set()
-        
+        lowered_modules = set()
+        scheduled_modules = {entry_mod.get_qualname()}
+
         # Lazy IR construction: only process entry module, skip imports
         if self.config.lazy_ir_construction:
             # Only process the entry module
-            ns, mod, _ = q.pop()
-            visited_ns.add(ns)
+            _, mod, _ = q.pop()
+            lowered_modules.add(mod.get_qualname())
             # Run transformations only on entry module
-            self.analysis_manager.analysis("three address", mod)
-            self.analysis_manager.analysis("ir", mod)
-            self.analysis_manager.analysis("block cfg", mod)
-            self.analysis_manager.analysis("cfg", mod)
-            self.analysis_manager.analysis("closure", mod)
-            # Skip import traversal - imports are registered but not processed
+            self._lower_module(mod)
+            # Preserve skipped imports as native summaries without resolving
+            # or parsing their source modules.
             imports = World().scope_manager.get_ir(mod, "imports")
             for stmt in imports:
-                get_import = World().namespace_manager.get_import(ns, stmt)
-                if get_import is not None:
-                    mod_ns, mod_path = get_import
-                    new_mod = World().scope_manager.add_module(mod_ns, mod_path)
-                    if new_mod is not None and mod_ns not in visited_ns:
-                        g.add_edge(mod, stmt, new_mod)
-                        World().import_manager.set_import(mod, stmt, new_mod)
-                        
+                World().truncated_imports.append((mod, stmt, 1))
+
         else:
             # Original behavior: process all imports transitively
-            while len(q) > 0:
-                ns, mod, level = q.pop()
-                
-                if mod.get_qualname() in visited_ns:
-                    continue                
-                visited_ns.add(mod.get_qualname())
-                
+            while q:
+                ns, mod, level = q.popleft()
+
+                module_name = mod.get_qualname()
+                if module_name in lowered_modules:
+                    continue
+                lowered_modules.add(module_name)
+
                 # Preprocess module
-                # TODO to be completed
-                self.analysis_manager.analysis("three address", mod)
-                self.analysis_manager.analysis("ir", mod)
-                self.analysis_manager.analysis("block cfg", mod)
-                self.analysis_manager.analysis("cfg", mod)
-                self.analysis_manager.analysis("closure", mod)
+                self._lower_module(mod)
                 # self.analysis_manager.analysis("ssa", mod)
                 imports = World().scope_manager.get_ir(mod, "imports")
+
+                should_traverse = (
+                    self.config.import_level < 0
+                    or level < self.config.import_level
+                )
+                if not should_traverse:
+                    World().truncated_imports.extend(
+                        (mod, stmt, level + 1) for stmt in imports
+                    )
+                    continue
 
                 for stmt in imports:
                     get_import = World().namespace_manager.get_import(ns, stmt)
@@ -113,10 +120,15 @@ class Pipeline:
                         new_mod = World().scope_manager.add_module(mod_ns, mod_path)
                         if new_mod is None:
                             continue
-                        
+
                         g.add_edge(mod, stmt, new_mod)
-                        if self.config.import_level < 0 or level < self.config.import_level:
-                            q.append((mod_ns, new_mod, level + 1))                 
+                        new_name = new_mod.get_qualname()
+                        if (
+                            new_name not in lowered_modules
+                            and new_name not in scheduled_modules
+                        ):
+                            scheduled_modules.add(new_name)
+                            q.append((mod_ns, new_mod, level + 1))
                         World().import_manager.set_import(mod, stmt, new_mod)
         World().scope_manager.set_module_graph(g)
 
@@ -132,7 +144,7 @@ class Pipeline:
             self.analysis_manager.do_analysis(analyzer, cur_module)
             visited.add(cur_module)
             for succ in module_graph.succs_of(cur_module):
-                if not succ in visited:
+                if succ not in visited:
                     q.put(succ)
 
     def analyse_inter_procedure(self, analyzer: AnalysisDriver):
@@ -152,7 +164,7 @@ class Pipeline:
             self.analysis_manager.do_analysis(analyzer, cur_module)
             visited.add(cur_module)
             for succ in module_graph.succs_of(cur_module):
-                if not succ in visited:
+                if succ not in visited:
                     q.put(succ)
 
     def do_analysis(self, analyzer_generator: Generator[AnalysisDriver, None, None]):

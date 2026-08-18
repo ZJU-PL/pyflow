@@ -79,6 +79,8 @@ class ThreeAddressTransformer(NodeTransformer):
         self.tmp_func_gen = TempVarGenerator(template=fn_tmpl)
         self.const_colle = ConstCollector(template=c_tmpl)
         self.import_stmts = {*()}
+        self.type_checking_names = set()
+        self.typing_module_names = set()
 
     def resolve_single_Assign(self, tgt, value, stmt):
         """
@@ -869,6 +871,11 @@ class ThreeAddressTransformer(NodeTransformer):
         return t_blk
 
     def visit_If(self, node):
+        type_checking_value = self._type_checking_constant(node.test)
+        if type_checking_value is not None:
+            branch = node.body if type_checking_value else node.orelse
+            return self.visit_stmt_list(branch)
+
         t_blk, t_val = self.split_expr(node.test)
         b_blk = self.visit_stmt_list(node.body)
         o_blk = self.visit_stmt_list(node.orelse)
@@ -876,6 +883,25 @@ class ThreeAddressTransformer(NodeTransformer):
         ast.copy_location(ins, node)
         t_blk.append(ins)
         return t_blk
+
+    def _type_checking_constant(self, node):
+        """Evaluate the statically false ``typing.TYPE_CHECKING`` sentinel."""
+        if (
+            isinstance(node, ast.Name)
+            and node.id in self.type_checking_names
+        ):
+            return False
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "TYPE_CHECKING"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.typing_module_names
+        ):
+            return False
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            value = self._type_checking_constant(node.operand)
+            return None if value is None else not value
+        return None
 
     def visit_With(self, node):
         items = []
@@ -1172,6 +1198,22 @@ class ThreeAddressTransformer(NodeTransformer):
 
     def visit_Module(self, node):
         self.reset()
+        for statement in node.body:
+            if (
+                isinstance(statement, ast.ImportFrom)
+                and statement.module == "typing"
+            ):
+                for alias in statement.names:
+                    if alias.name == "TYPE_CHECKING":
+                        self.type_checking_names.add(
+                            alias.asname or alias.name
+                        )
+            elif isinstance(statement, ast.Import):
+                for alias in statement.names:
+                    if alias.name == "typing":
+                        self.typing_module_names.add(
+                            alias.asname or alias.name
+                        )
         stmts = self.visit_stmt_list(node.body)
         const_stmts = [ast.Assign(targets=[ast.Name(id=n, ctx=ast.Store())],
                                   value=ast.Constant(value=v))

@@ -25,6 +25,7 @@ class World:
     class_hierarchy: 'ClassHierarchy'
     import_manager: 'ImportManager'
     module2ns: Dict[IRModule, 'Namespace']
+    truncated_imports: List[Tuple[IRModule, IRImport, int]]
 
     _current: ContextVar[Optional['World']] = ContextVar(
         "pyflow_kcfa_world", default=None
@@ -62,9 +63,11 @@ class World:
         self.import_manager = ImportManager()
 
         self.module2ns = {}
+        self.truncated_imports = []
 
     def build(self, config: 'Config'):
         """Reset managers and configure module search paths from ``config``."""
+        self.config = config
         self.scope_manager.build()
         self.import_manager.build()
         self.namespace_manager.build(

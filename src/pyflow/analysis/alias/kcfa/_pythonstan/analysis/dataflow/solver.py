@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar, Tuple, Dict, Type
 from abc import ABC, abstractmethod
-from queue import Queue
+from collections import deque
 
 from .analysis import DataflowAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import BaseBlock
@@ -14,7 +14,7 @@ class Solver(Generic[Fact], ABC):
 
     def __init_subclass__(cls) -> None:
         cls.solver_dict[cls.__name__] = cls
-    
+
     @classmethod
     def get_solver(cls, id):
         return cls.solver_dict[id]
@@ -39,9 +39,9 @@ class Solver(Generic[Fact], ABC):
                 out_facts[node] = analysis.new_boundary_fact()
             else:
                 in_facts[node] = analysis.new_init_fact()
-                out_facts[node] = analysis.new_init_fact()        
+                out_facts[node] = analysis.new_init_fact()
         return in_facts, out_facts
-    
+
     @classmethod
     def init_backward(cls, analysis: DataflowAnalysis[Fact]
                       ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
@@ -53,9 +53,9 @@ class Solver(Generic[Fact], ABC):
                 out_facts[node] = analysis.new_boundary_fact()
             else:
                 in_facts[node] = analysis.new_init_fact()
-                out_facts[node] = analysis.new_init_fact()        
+                out_facts[node] = analysis.new_init_fact()
         return in_facts, out_facts
-    
+
     @classmethod
     def solve(cls, analysis: DataflowAnalysis[Fact]):
         in_facts, out_facts = cls.init(analysis)
@@ -82,6 +82,33 @@ class Solver(Generic[Fact], ABC):
 
 class WorklistSolver(Generic[Fact], Solver[Fact]):
     @classmethod
+    def _cfg_postorder(cls, cfg) -> list[BaseBlock]:
+        """Return a successor DFS postorder covering every CFG block."""
+        postorder = []
+        visited = set()
+
+        def visit(root):
+            visited.add(root)
+            stack = [(root, iter(cfg.succs_of(root)))]
+            while stack:
+                node, successors = stack[-1]
+                try:
+                    successor = next(successors)
+                except StopIteration:
+                    postorder.append(node)
+                    stack.pop()
+                    continue
+                if successor not in visited:
+                    visited.add(successor)
+                    stack.append((successor, iter(cfg.succs_of(successor))))
+
+        visit(cfg.entry_blk)
+        for block in cfg.blks:
+            if block not in visited:
+                visit(block)
+        return postorder
+
+    @classmethod
     def init_forward(cls, analysis: DataflowAnalysis[Fact]
                      ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         in_facts, out_facts = {}, {}
@@ -103,18 +130,20 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
                 if node not in out_facts:
                     out_facts[node] = analysis.new_init_fact()
         return in_facts, out_facts
-    
+
     @classmethod
     def solve_forward(cls, analysis: DataflowAnalysis[Fact],
                       in_facts: Dict[BaseBlock, Fact],
                       out_facts: Dict[BaseBlock, Fact]):
         cfg = analysis.get_cfg()
-        work_list = Queue()
-        for blk in cfg.blks:
-            if blk != cfg.entry_blk:
-                work_list.put(blk)
-        while not work_list.empty():
-            cur = work_list.get()
+        postorder = cls._cfg_postorder(cfg)
+        work_list = deque(
+            blk for blk in reversed(postorder) if blk != cfg.entry_blk
+        )
+        queued = set(work_list)
+        while work_list:
+            cur = work_list.popleft()
+            queued.remove(cur)
             fact_in = in_facts[cur]
             if cfg.in_degree_of(cur) > 0:
                 for e in cfg.in_edges_of(cur):
@@ -127,7 +156,9 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
             if fact_out != out_facts[cur]:
                 out_facts[cur] = fact_out
                 for succ in cfg.succs_of(cur):
-                    work_list.put(succ)
+                    if succ not in queued:
+                        queued.add(succ)
+                        work_list.append(succ)
 
     @classmethod
     def init_backward(cls, analysis: DataflowAnalysis[Fact]
@@ -151,18 +182,20 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
                 if node not in in_facts:
                     in_facts[node] = analysis.new_init_fact()
         return in_facts, out_facts
-    
+
     @classmethod
     def solve_backward(cls, analysis: DataflowAnalysis[Fact],
                        in_facts: Dict[BaseBlock, Fact],
                        out_facts: Dict[BaseBlock, Fact]):
         cfg = analysis.get_cfg()
-        work_list = Queue()
-        for blk in cfg.blks:
-            if blk != cfg.super_exit_blk:
-                work_list.put(blk)
-        while not work_list.empty():
-            cur = work_list.get()
+        postorder = cls._cfg_postorder(cfg)
+        work_list = deque(
+            blk for blk in postorder if blk != cfg.super_exit_blk
+        )
+        queued = set(work_list)
+        while work_list:
+            cur = work_list.popleft()
+            queued.remove(cur)
             fact_out = out_facts[cur]
             if cfg.out_degree_of(cur) > 0:
                 for e in cfg.out_edges_of(cur):
@@ -175,4 +208,6 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
             if fact_in != in_facts[cur]:
                 in_facts[cur] = fact_in
                 for pred in cfg.preds_of(cur):
-                    work_list.put(pred)
+                    if pred not in queued:
+                        queued.add(pred)
+                        work_list.append(pred)

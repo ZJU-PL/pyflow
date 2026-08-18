@@ -1,9 +1,7 @@
 from ast import stmt
-from typing import Set, Iterator
+from typing import Set
 
-from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope, IRStatement, IRFunc, IRModule
-from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import ControlFlowGraph
-from pyflow.analysis.alias.kcfa._pythonstan.utils.var_collector import VarCollector
+from pyflow.analysis.alias.kcfa._pythonstan.ir import IRFunc, IRModule, IRScope
 from .analysis import AnalysisConfig, AnalysisDriver
 from .dataflow.driver import DataflowAnalysisDriver
 
@@ -25,45 +23,38 @@ class ClosureAnalysis(AnalysisDriver):
         self.world = World()
 
         super().__init__(config)
-    
+
     def analyze(self, scope: IRScope, prev_results):
         scope_manager = self.world.scope_manager
-        scopes = scope_manager.get_scopes()
-        parent_scope = {}
-        subscopes = {}
+        # Analyze only the requested module's lexical tree.  Pipeline invokes
+        # this driver once per lowered module; walking every scope registered
+        # so far made project construction quadratic in the number of imports.
+        postorder = []
+        pending = [(scope, False)]
+        while pending:
+            current, expanded = pending.pop()
+            if expanded:
+                postorder.append(current)
+                continue
+            pending.append((current, True))
+            pending.extend(
+                (subscope, False)
+                for subscope in scope_manager.get_subscopes(current)
+            )
 
-        from queue import Queue
-        q = Queue()
-
-        for scope in scopes:
-            subscopes[scope] = set()
-            for subscope in scope_manager.get_subscopes(scope):
-                parent_scope[subscope] = scope
-                subscopes[scope].add(subscope)
-            if len(subscopes[scope]) == 0:
-                q.put(scope)
-        
-        while not q.empty():
-            scope = q.get()
-
-            cfg = scope_manager.get_ir(scope, "cfg")
+        for current in postorder:
+            cfg = scope_manager.get_ir(current, "cfg")
 
             if cfg:
-                self.liveness_analysis.analyze(scope, cfg)
+                self.liveness_analysis.analyze(current, cfg)
 
                 # set cell vars for each scope
                 entry = cfg.get_entry()
                 cell_vars = self.liveness_analysis.results["out"][entry]
-                if isinstance(scope, IRFunc):
-                    arguments = scope.get_arg_names()
+                if isinstance(current, IRFunc):
+                    arguments = current.get_arg_names()
                     cell_vars.difference_update(arguments)
-                if not isinstance(scope, IRModule):
-                    scope.cell_vars = cell_vars
+                if not isinstance(current, IRModule):
+                    current.cell_vars = cell_vars
 
-            parent = parent_scope.get(scope, None)
-            if parent:
-                subscopes[parent].remove(scope)
-                if len(subscopes[parent]) == 0:
-                    q.put(parent)
-        
         self.results = None

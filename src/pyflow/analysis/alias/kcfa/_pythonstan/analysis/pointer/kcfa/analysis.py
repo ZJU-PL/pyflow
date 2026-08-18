@@ -131,6 +131,25 @@ class PointerAnalysis(AnalysisDriver):
         module_obj = ModuleObject(empty_context, alloc_site, entry_scope)
         ctx_scope = Scope(scope, None, empty_context, None, None)
         self.state.set_internal_scope(module_obj, ctx_scope)
+
+        truncated_imports = tuple(self.world.truncated_imports)
+        if truncated_imports:
+            count = len(truncated_imports)
+            max_depth = max(depth for _, _, depth in truncated_imports)
+            message = (
+                f"skipped {count} imports beyond max_import_depth="
+                f"{self.world.config.import_level}"
+            )
+            self.solver.mark_semantic_incomplete(
+                kind=UnknownKind.IMPORT_DEPTH.value,
+                message=message,
+            )
+            self.solver._unknown_tracker.record(
+                UnknownKind.IMPORT_DEPTH,
+                scope.get_qualname(),
+                message,
+                context=f"deepest skipped import level: {max_depth}",
+            )
         
         # Generate constraints
         try:

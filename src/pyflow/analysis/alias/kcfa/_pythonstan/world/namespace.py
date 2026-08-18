@@ -3,10 +3,13 @@
 import ast
 import os
 from pathlib import Path
-from typing import List, Dict, Tuple, Any, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRImport
-from pyflow.analysis.alias.kcfa._pythonstan.utils.common import is_src_file, srcfile_to_name, builtin_module_names
+from pyflow.analysis.alias.kcfa._pythonstan.utils.common import (
+    builtin_module_names,
+    is_src_file,
+)
 
 
 def get_root(path: str, names: List[str]) -> str:
@@ -132,6 +135,7 @@ class NamespaceManager:
     paths: List[str]
     names2path: Dict[str, str]
     ns2path: Dict[Namespace, str]
+    resolved_paths: Dict[str, Optional[str]]
     mock_root: Path
     mock_libs: bool
     prefer_mock_libs: bool
@@ -148,6 +152,7 @@ class NamespaceManager:
         self.paths = [homepath] + (paths or [])
         self.names2path = {}
         self.ns2path = {}
+        self.resolved_paths = {}
         self.mock_libs = mock_libs
         self.prefer_mock_libs = prefer_mock_libs
         self.mock_root = (
@@ -191,6 +196,7 @@ class NamespaceManager:
     def _cache_ns_path(self, ns: Namespace, path: str) -> str:
         self.ns2path[ns] = path
         self.names2path[ns.to_str()] = path
+        self.resolved_paths[ns.to_str()] = path
         return path
 
     def find_ns_in_path(self, paths: List[str], ns: Namespace) -> Optional[str]:
@@ -219,20 +225,32 @@ class NamespaceManager:
         return None
 
     def _resolve_import_path(self, ns: Namespace) -> Optional[str]:
+        name = ns.to_str()
+        if name in self.resolved_paths:
+            return self.resolved_paths[name]
+
         if not self.mock_libs:
-            return self.find_ns_in_path(self.paths, ns)
-        if self.prefer_mock_libs:
+            result = self.find_ns_in_path(self.paths, ns)
+        elif self.prefer_mock_libs:
             mock_path = self._find_mock_path(ns)
             if mock_path is not None:
-                return self._cache_ns_path(ns, mock_path)
-            return self.find_ns_in_path(self.paths, ns)
-        mod_path = self.find_ns_in_path(self.paths, ns)
-        if mod_path is not None:
-            return mod_path
-        mock_path = self._find_mock_path(ns)
-        if mock_path is not None:
-            return self._cache_ns_path(ns, mock_path)
-        return None
+                result = self._cache_ns_path(ns, mock_path)
+            else:
+                result = self.find_ns_in_path(self.paths, ns)
+        else:
+            result = self.find_ns_in_path(self.paths, ns)
+            if result is None:
+                mock_path = self._find_mock_path(ns)
+                result = (
+                    self._cache_ns_path(ns, mock_path)
+                    if mock_path is not None
+                    else None
+                )
+
+        # Negative results are stable because a manager's search roots and
+        # stub policy do not change during a pipeline run.
+        self.resolved_paths[name] = result
+        return result
 
     def resolve_import(self, name: str) -> Optional[Tuple[Namespace, str]]:
         """

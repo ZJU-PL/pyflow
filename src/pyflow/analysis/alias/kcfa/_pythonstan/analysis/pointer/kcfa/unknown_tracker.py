@@ -34,6 +34,9 @@ class UnknownKind(Enum):
     
     IMPORT_NOT_FOUND = "import_not_found"
     """Module import resolution failed"""
+
+    IMPORT_DEPTH = "import_depth"
+    """Import source was intentionally skipped at the configured depth"""
     
     ALLOC_CONTEXT_FAILURE = "alloc_context_failure"
     """Context selection failed during allocation"""

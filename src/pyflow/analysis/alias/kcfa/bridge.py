@@ -21,6 +21,9 @@ from typing import Sequence
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.analysis import (
     AnalysisResult,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import (
+    DEFAULT_MAX_ITERATIONS,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,6 +260,32 @@ class PointerAnalysisResult:
         """Return fail-visible unresolved-operation diagnostics."""
         return self._query.get_unknown_details()
 
+    def statistics(self) -> dict[str, object]:
+        """Return solver statistics, including completeness status."""
+        return dict(self._query.get_statistics())
+
+    @property
+    def complete(self) -> bool:
+        """Whether the solver, frontend, and semantic modeling are complete."""
+        return bool(self._query.get_statistics()["complete"])
+
+    @property
+    def fixpoint_complete(self) -> bool:
+        """Whether all solver work was exhausted before the iteration budget."""
+        return bool(self._query.get_statistics()["fixpoint_complete"])
+
+    @property
+    def stop_reason(self) -> str:
+        """Return the primary reason analysis stopped or remained incomplete."""
+        stats = self._query.get_statistics()
+        if not stats["fixpoint_complete"]:
+            return "solver_budget"
+        if not stats["frontend_complete"]:
+            return "frontend_incomplete"
+        if not stats["semantic_complete"]:
+            return "semantic_incomplete"
+        return "fixpoint"
+
     @property
     def raw(self) -> AnalysisResult:
         """Return the migrated backend result for advanced queries."""
@@ -280,7 +309,7 @@ class PointerAnalysis:
         Explicit context policy. For ``N-cfa`` policies, its depth must agree
         with ``k``; non-call-string policies replace ``k``.
     max_iterations : int
-        Solver work-item budget (default 10,000).
+        Solver work-item budget (default 50,000).
     max_points_to_size : int or None
         Optional threshold that widens growing points-to sets to summary
         objects. Widened queries are reported as incomplete.
@@ -293,7 +322,7 @@ class PointerAnalysis:
         k: int | None = None,
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
-        max_iterations: int = 10000,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
@@ -336,16 +365,34 @@ class PointerAnalysis:
         k: int | None = None,
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
-        max_iterations: int = 10000,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
         import_level: int = -1,
+        max_import_depth: int = -1,
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
     ) -> "PointerAnalysis":
-        """Configure analysis of a real project and its reachable imports."""
+        """Configure analysis of a real project and its reachable imports.
+
+        ``max_import_depth`` is the preferred spelling for the transitive
+        import limit (``0`` analyzes only the entry module and ``-1`` is
+        unlimited). ``import_level`` remains available for compatibility.
+        """
         entry = Path(entry_file).resolve()
         if not entry.is_file():
             raise FileNotFoundError(entry)
+        if max_import_depth != -1:
+            if import_level != -1 and import_level != max_import_depth:
+                raise ValueError(
+                    "import_level and max_import_depth must agree when both "
+                    "are provided"
+                )
+            import_level = max_import_depth
+        if import_level < -1:
+            raise ValueError(
+                "max_import_depth must be >= -1 (-1 = unlimited, "
+                "0 = entry module only)"
+            )
         analysis = cls(
             entry.read_text(encoding="utf-8"),
             k=k,

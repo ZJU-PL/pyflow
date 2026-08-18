@@ -8,7 +8,9 @@ import json
 import re
 from typing import Optional, List, Dict
 
-__all__ = ["Config"]
+DEFAULT_MAX_ITERATIONS = 50_000
+
+__all__ = ["Config", "DEFAULT_MAX_ITERATIONS"]
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ class Config:
     """
     
     context_policy: str = "2-cfa"
-    max_iterations: int = 10000
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_points_to_size: Optional[int] = None
     verbose: bool = False
     log_level: str = "INFO"
@@ -49,7 +51,7 @@ class Config:
     use_mro_resolution: bool = True
     project_path: Optional[str] = None
     library_paths: Optional[List[str]] = None
-    max_import_depth: int = 2
+    max_import_depth: int = -1
     track_unknowns: bool = True
     log_unknown_details: bool = False
     type: str = "pointer analysis"

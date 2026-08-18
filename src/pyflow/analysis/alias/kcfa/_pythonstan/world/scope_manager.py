@@ -6,7 +6,6 @@ from typing import Set, List, Dict, Tuple, Any, Optional, FrozenSet
 
 from .namespace import Namespace
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope, IRFunc, IRClass, IRModule, IRImport
-from pyflow.analysis.alias.kcfa._pythonstan.utils.persistent_rb_tree import PersistentMap
 
 
 class ModuleGraph:
@@ -56,7 +55,7 @@ class ModuleGraph:
     def get_modules(self) -> FrozenSet[IRModule]:
         """Return an immutable snapshot of all registered modules."""
         return frozenset(self.nodes)
-    
+
     def get_succ_module(self, src: IRModule, stmt: IRImport) -> Optional[IRModule]:
         """Return the module resolved for ``stmt`` in ``src``, if known."""
         return self.succ_module_index.get((src, stmt), None)
@@ -87,7 +86,7 @@ class ScopeManager:
         self.names2scope = {}
         self.scope_ir = {}
         self.file2mod = {}
-        
+
     def get_module_graph(self) -> ModuleGraph:
         return self.module_graph
 
@@ -129,8 +128,17 @@ class ScopeManager:
 
     def add_module(self, ns: Namespace, filename: str) -> Optional[IRModule]:
         """Parse and register a source module, returning ``None`` if absent."""
-        if filename in self.file2mod or ns.to_str() in self.names2scope:
-            return self.file2mod[filename]        
+        if filename in self.file2mod:
+            return self.file2mod[filename]
+
+        existing = self.names2scope.get(ns.to_str())
+        if isinstance(existing, IRModule):
+            # A namespace can be resolved through more than one concrete path
+            # (notably real stdlib modules and bundled ``__builtin__`` stubs).
+            # Keep both indexes coherent instead of assuming a namespace hit
+            # also implies that this exact filename was cached.
+            self.file2mod[filename] = existing
+            return existing
         if not os.path.isfile(filename):
             return None
         with open(filename, 'r') as f:

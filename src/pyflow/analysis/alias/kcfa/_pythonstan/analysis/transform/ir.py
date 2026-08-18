@@ -11,8 +11,6 @@ __all__ = ['STAGE_NAME', 'IR', 'IRTransformer']
 STAGE_NAME = "ir"
 
 
-imports = []
-
 class IR(Transform):
     transformer: 'IRTransformer'
 
@@ -20,14 +18,14 @@ class IR(Transform):
         super().__init__(config)
 
     def transform(self, module: IRModule):
-        global imports
         three_address_form = World().scope_manager.get_ir(module, "three address form")
-        imports.clear()
         self.transformer = IRTransformer(module)
         self.transformer.process_stmts(three_address_form.body)
         ir = self.transformer.stmts
         World().scope_manager.set_ir(module, STAGE_NAME, ir)
-        World().scope_manager.set_ir(module, "imports", imports)
+        World().scope_manager.set_ir(
+            module, "imports", self.transformer.get_imports()
+        )
         # self.results = imports
 
 
@@ -135,12 +133,12 @@ class IRTransformer(NodeVisitor):
 
     def visit_Import(self, node: Import):
         stmt = IRImport(node)
-        imports.append(stmt)
+        self.imports.append(stmt)
         self.stmts.append(stmt)
 
     def visit_ImportFrom(self, node: ImportFrom):
         stmt = IRImport(node)
-        imports.append(stmt)
+        self.imports.append(stmt)
         self.stmts.append(stmt)
     
     def visit_Global(self, node: Global):
