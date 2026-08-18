@@ -7,6 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from pyflow.analysis.alias.kcfa import AliasStatus, PointerAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import ParamContext
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import InstanceObject
@@ -29,6 +31,31 @@ class TestBasicPointerAnalysis:
 
     def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
         assert Config.from_dict({}) == Config()
+
+    def test_config_uses_k_when_policy_is_omitted_and_rejects_conflicts(self) -> None:
+        assert Config.from_dict({"k": 3}).context_policy == "3-cfa"
+
+        with pytest.raises(ValueError, match="conflicting context depth"):
+            Config.from_dict({"k": 1, "context_policy": "2-cfa"})
+
+    def test_public_solver_limits_are_forwarded_to_the_backend(self) -> None:
+        widened = PointerAnalysis(
+            "a = object()\nb = []\nx = a\nx = b\n",
+            max_points_to_size=1,
+        ).run()
+        assert widened.points_to_query("x").complete is False
+        assert any(
+            detail["kind"] == "points_to_widening"
+            for detail in widened.unknown_details()
+        )
+
+        budgeted = PointerAnalysis(
+            "x = object()\n", max_iterations=1
+        ).run()
+        assert any(
+            detail["kind"] == "solver_budget"
+            for detail in budgeted.unknown_details()
+        )
 
     def test_analysis_results_are_independent_of_worklist_schedule(self) -> None:
         source = """
@@ -634,6 +661,31 @@ y = ident(b)
         assert module_points_to("x") == module_points_to("a")
         assert module_points_to("y") == module_points_to("b")
         assert module_points_to("x").isdisjoint(module_points_to("y"))
+
+    def test_class_allocations_are_replayed_in_each_call_context(self) -> None:
+        source = """
+class A:
+    pass
+
+def allocate():
+    value = A()
+    return value
+
+def caller():
+    first = allocate()
+    second = allocate()
+    return first, second
+
+result = caller()
+"""
+        analysis = PointerAnalysis(source, k=1).run()
+
+        assert analysis.points_to("first")
+        assert analysis.points_to("second")
+        assert all(
+            "AllocKind.INSTANCE" in obj
+            for obj in analysis.points_to("first") | analysis.points_to("second")
+        )
 
     def test_explicit_nonlocal_resolves_through_lexical_scopes(self) -> None:
         source = """

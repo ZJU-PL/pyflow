@@ -435,7 +435,10 @@ class PythonCallService(Processor):
         call: 'CallConstraint',
         class_obj: 'ClassObject',
     ) -> None:
-        key = (class_obj, call)
+        # The same translated constructor constraint can be activated in
+        # several calling contexts.  Deduplicating without the caller scope
+        # silently drops every allocation after the first context.
+        key = (scope, class_obj, call)
         if key in self._applied_default_metaclass_calls:
             return
         self._applied_default_metaclass_calls.add(key)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
@@ -273,17 +274,27 @@ class PointerAnalysis:
     ----------
     source : str
         Python source code to analyze.
-    k : int
+    k : int or None
         Context sensitivity depth for k-CFA (default 1).
+    context_policy : str or None
+        Explicit context policy. For ``N-cfa`` policies, its depth must agree
+        with ``k``; non-call-string policies replace ``k``.
+    max_iterations : int
+        Solver work-item budget (default 10,000).
+    max_points_to_size : int or None
+        Optional threshold that widens growing points-to sets to summary
+        objects. Widened queries are reported as incomplete.
     """
 
     def __init__(
         self,
         source: str,
         *,
-        k: int = 1,
+        k: int | None = None,
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
+        max_iterations: int = 10000,
+        max_points_to_size: int | None = None,
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
     ) -> None:
@@ -291,12 +302,23 @@ class PointerAnalysis:
 
         The source is parsed when :meth:`run` is called.  ``k=0`` gives a
         context-insensitive analysis; positive values retain that many recent
-        call sites in each abstract calling context.
+        call sites in each abstract calling context.  Conflicting ``k`` and
+        ``N-cfa`` policy depths are rejected when the backend configuration is
+        constructed, rather than silently choosing one.
         """
         self._source = source
+        if k is None:
+            policy_match = (
+                re.fullmatch(r"(\d+)-cfa", context_policy)
+                if context_policy is not None
+                else None
+            )
+            k = int(policy_match.group(1)) if policy_match is not None else 1
         self._k = k
         self._context_policy = context_policy or f"{k}-cfa"
         self._native_effects = tuple(dict(effect) for effect in native_effects)
+        self._max_iterations = max_iterations
+        self._max_points_to_size = max_points_to_size
         self._worklist_policy = worklist_policy
         self._worklist_seed = worklist_seed
         self._entry_file: Path | None = None
@@ -311,9 +333,11 @@ class PointerAnalysis:
         *,
         project_path: str | Path | None = None,
         library_paths: Sequence[str | Path] = (),
-        k: int = 1,
+        k: int | None = None,
         context_policy: str | None = None,
         native_effects: Sequence[dict] = (),
+        max_iterations: int = 10000,
+        max_points_to_size: int | None = None,
         import_level: int = -1,
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
@@ -327,6 +351,8 @@ class PointerAnalysis:
             k=k,
             context_policy=context_policy,
             native_effects=native_effects,
+            max_iterations=max_iterations,
+            max_points_to_size=max_points_to_size,
             worklist_policy=worklist_policy,
             worklist_seed=worklist_seed,
         )
@@ -392,6 +418,8 @@ class PointerAnalysis:
                                 # correctly matches Config()'s False default.
                                 "index_sensitive": True,
                                 "native_effects": list(self._native_effects),
+                                "max_iterations": self._max_iterations,
+                                "max_points_to_size": self._max_points_to_size,
                                 "worklist_policy": self._worklist_policy,
                                 "worklist_seed": self._worklist_seed,
                             },

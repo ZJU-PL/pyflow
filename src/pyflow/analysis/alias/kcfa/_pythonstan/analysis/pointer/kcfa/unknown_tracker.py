@@ -50,6 +50,9 @@ class UnknownKind(Enum):
     SOLVER_BUDGET = "solver_budget"
     """Fixpoint solver stopped before exhausting its worklist"""
 
+    POINTS_TO_WIDENING = "points_to_widening"
+    """A points-to set exceeded its configured widening threshold"""
+
     UNKNOWN_BUILTIN = "unknown_builtin"
     """Builtin call has no precise summary"""
 

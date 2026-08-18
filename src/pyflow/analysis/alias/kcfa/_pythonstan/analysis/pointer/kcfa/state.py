@@ -277,6 +277,26 @@ class PointerAnalysisState:
             return True
         return False
 
+    def replace_points_to(
+        self,
+        var: Union['Ctx[Any]', 'PointerFlowNode'],
+        pts: PointsToSet,
+    ) -> bool:
+        """Replace a points-to value after an explicit widening step.
+
+        Ordinary propagation is monotone and must use :meth:`set_points_to`.
+        Widening changes the abstraction itself, replacing concrete objects
+        with summary objects that subsume them, so it needs a distinct and
+        deliberately narrow update operation.
+        """
+        pts = pts.rebase(self.arena)
+        old_pts = self._env.get(var, PointsToSet.empty(self.arena))
+        if pts == old_pts:
+            return False
+        self._env[var] = pts
+        self.dependencies.notify_growth(var)
+        return True
+
     def has_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> Optional['FieldAccess']:
         """Check if the field access exists in the object.
         

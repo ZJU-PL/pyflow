@@ -139,6 +139,7 @@ class PointerSolver:
         self._scheduled_optional_calls = set()
         self._installed_slot_descriptors = set()
         self._expanded_dynamic_code = set()
+        self._widened_points_to_nodes = set()
 
     def mark_frontend_incomplete(self) -> None:
         self._frontend_complete = False
@@ -355,15 +356,21 @@ class PointerSolver:
     def _apply_dynamic(self, scope: 'Scope', node: 'PointerFlowNode', pts: 'PointsToSet') -> 'PointerAnalysisState':
         if isinstance(node, NormalNode):
             assert isinstance(node.var, Ctx), f"node.var must be a Ctx, but got {type(node.var)}"
-        diff = pts - self.state.get_points_to(node)
+        pts, diff = self._widen_points_to_if_needed(node, pts)
         if not diff.is_empty():
-            self.state.set_points_to(node, diff)
+            if node in self._widened_points_to_nodes:
+                self.state.replace_points_to(node, pts)
+            else:
+                self.state.set_points_to(node, diff)
             
             # apply the constraints associated with the variable
             if isinstance(node, NormalNode):
                 self.processor.handle_pts(self, node.var, scope, diff)
-                
-                self.state.set_points_to(node.var, diff)
+
+                if node in self._widened_points_to_nodes:
+                    self.state.replace_points_to(node.var, pts)
+                else:
+                    self.state.set_points_to(node.var, diff)
                 for constraint_scope, constraint in self.state.constraints.iter_scoped_by_variable(node.var):
                     self._apply_constraint(constraint_scope, node.var, constraint, diff)
             
@@ -371,6 +378,77 @@ class PointerSolver:
                 succ_scope = succ.var.scope if isinstance(succ, NormalNode) else None
                 self.state._worklist.add((succ_scope, succ, succ_pts))
         return self.state
+
+    def _widen_points_to_if_needed(
+        self,
+        node: 'PointerFlowNode',
+        incoming: 'PointsToSet',
+    ) -> Tuple['PointsToSet', 'PointsToSet']:
+        """Apply the configured finite-height abstraction to one PFG node."""
+        limit = self.config.max_points_to_size
+        current = self.state.get_points_to(node)
+        if limit is None:
+            return current.union(incoming), incoming - current
+
+        from .object import summarize_object
+
+        already_widened = node in self._widened_points_to_nodes
+        combined = current.union(incoming)
+        if not already_widened and len(combined) <= limit:
+            return combined, incoming - current
+
+        summarized = PointsToSet.from_objects(
+            (
+                summarize_object(obj)
+                for obj in (incoming if already_widened else combined)
+            ),
+            arena=self.state.arena,
+        )
+        if already_widened:
+            new_summaries = summarized - current
+            remaining = max(0, limit - len(current))
+            if len(new_summaries) > remaining:
+                new_summaries = PointsToSet.from_objects(
+                    sorted(new_summaries, key=stable_token)[:remaining],
+                    arena=self.state.arena,
+                )
+            widened = current.union(new_summaries)
+            return widened, new_summaries
+
+        # Context truncation normally collapses recursive alternatives below
+        # the threshold.  If distinct allocation sites still exceed it, keep
+        # a deterministic bounded subset and expose the loss via completeness
+        # metadata instead of allowing unbounded growth.
+        if len(summarized) > limit:
+            summarized = PointsToSet.from_objects(
+                sorted(summarized, key=stable_token)[:limit],
+                arena=self.state.arena,
+            )
+
+        if not already_widened:
+            self._widened_points_to_nodes.add(node)
+            reason = (
+                f"points-to set exceeded max_points_to_size={limit}; "
+                "context alternatives were widened"
+            )
+            self._unknown_tracker.record(
+                UnknownKind.POINTS_TO_WIDENING,
+                str(node),
+                reason,
+            )
+            if isinstance(node, NormalNode):
+                self.mark_semantic_incomplete(
+                    variables=(node.var,),
+                    kind=UnknownKind.POINTS_TO_WIDENING.value,
+                    message=reason,
+                )
+            else:
+                self.mark_semantic_incomplete(
+                    kind=UnknownKind.POINTS_TO_WIDENING.value,
+                    message=reason,
+                )
+
+        return summarized, summarized - current
 
     def _log_solver_state(self):
         """Log periodic snapshot of solver state for debugging."""

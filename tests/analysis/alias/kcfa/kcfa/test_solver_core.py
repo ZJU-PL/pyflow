@@ -2,10 +2,14 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import AllocConstraint, CallConstraint, CopyConstraint
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import attr
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
+    AbstractObject,
     AllocKind,
     AllocSite,
     NativeObject,
     ObjectFactory,
+)
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import (
+    CallStringContext,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import NormalNode
@@ -175,6 +179,53 @@ def test_unmodeled_native_call_marks_semantics_incomplete(
     solver._handle_native_call(module_scope, simple_context, call, native)
 
     assert solver.query().get_statistics()["semantic_complete"] is False
+
+
+def test_points_to_widening_stops_recursive_context_growth(
+    module_scope, simple_context, call_site_factory, alloc_site_factory
+):
+    class GrowingProcessor(Processor):
+        def __init__(self):
+            self.count = 0
+
+        def handle_pts(self, solver, target, scope, pts):
+            self.count += 1
+            next_context = CallStringContext(
+                (call_site_factory(f"recursive-{self.count}"),),
+                1,
+            )
+            next_obj = AbstractObject(next_context, shared_site)
+            solver.state._worklist.add((
+                scope,
+                NormalNode(target),
+                PointsToSet.singleton(next_obj),
+            ))
+            return True
+
+    shared_site = alloc_site_factory(AllocKind.OBJECT)
+    processor = GrowingProcessor()
+    state = PointerAnalysisState()
+    solver = PointerSolver(
+        state,
+        Config(max_iterations=100, max_points_to_size=3),
+        processor,
+    )
+    target = state.get_variable(
+        module_scope, simple_context, Variable("recursive")
+    )
+    state._worklist.add((
+        module_scope,
+        NormalNode(target),
+        PointsToSet.singleton(AbstractObject(simple_context, shared_site)),
+    ))
+
+    solver.solve_to_fixpoint()
+
+    stats = solver.query().get_statistics()
+    assert stats["fixpoint_complete"] is True
+    assert stats["semantic_complete"] is False
+    assert stats["unknown_points_to_widening"] == 1
+    assert solver._stats["iterations"] < solver.config.max_iterations
 
 
 def test_core_fixed_point_is_independent_of_worklist_schedule(

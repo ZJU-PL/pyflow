@@ -5,6 +5,7 @@ This module defines the configuration options for k-CFA pointer analysis.
 
 from dataclasses import dataclass, fields
 import json
+import re
 from typing import Optional, List, Dict
 
 __all__ = ["Config"]
@@ -69,10 +70,24 @@ class Config:
     @classmethod
     def from_dict(cls, config_dict: Dict):
         defaults = cls()
-        return cls(**{
+        values = {
             field.name: config_dict.get(field.name, getattr(defaults, field.name))
             for field in fields(cls)
-        })
+        }
+        if "k" in config_dict:
+            k = config_dict["k"]
+            if not isinstance(k, int) or isinstance(k, bool) or k < 0:
+                raise ValueError("k must be a non-negative integer")
+            if "context_policy" not in config_dict:
+                values["context_policy"] = f"{k}-cfa"
+            else:
+                match = re.fullmatch(r"(\d+)-cfa", str(values["context_policy"]))
+                if match is not None and int(match.group(1)) != k:
+                    raise ValueError(
+                        "conflicting context depth: "
+                        f"k={k} but context_policy={values['context_policy']!r}"
+                    )
+        return cls(**values)
     
     def to_dict(self) -> Dict:
         return {
