@@ -181,7 +181,7 @@ completion is explicit on the returned result:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">analysis</span> <span class="o">=</span> <span class="n">PointerAnalysis</span><span class="o">.</span><span class="n">from_project</span><span class="p">(</span>
     <span class="s2">"package/__main__.py"</span><span class="p">,</span>
     <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">max_iterations</span><span class="o">=</span><span class="mi">50_000</span><span class="p">,</span>
+    <span class="n">max_iterations</span><span class="o">=</span><span class="mi">100_000</span><span class="p">,</span>
     <span class="n">max_import_depth</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
