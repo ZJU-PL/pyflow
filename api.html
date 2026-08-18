@@ -160,18 +160,18 @@ The API is organized into two main packages:</p>
 <span class="c1"># Add a class to analyze</span>
 <span class="n">class_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
 <span class="n">class_decl</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>
-<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;field1&quot;</span><span class="p">,</span> <span class="s2">&quot;field2&quot;</span><span class="p">)</span>
-<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">&quot;method_name&quot;</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">"field1"</span><span class="p">,</span> <span class="s2">"field2"</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">"method_name"</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>
 <span class="n">interface</span><span class="o">.</span><span class="n">cls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">class_decl</span><span class="p">)</span>
 
 <span class="c1"># Extract and analyze</span>
 <span class="n">interface</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">extractor</span><span class="p">)</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">&quot;my_file.py&quot;</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">"my_file.py"</span><span class="p">)</span>
 
 <span class="c1"># Query analysis results</span>
 <span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
 <span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -207,8 +207,8 @@ declaring what code should be analyzed.</p>
 
 <span class="n">class_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
 <span class="n">class_decl</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>  <span class="c1"># Constructor arguments</span>
-<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;field1&quot;</span><span class="p">,</span> <span class="s2">&quot;field2&quot;</span><span class="p">)</span>  <span class="c1"># Attributes</span>
-<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">&quot;method_name&quot;</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>  <span class="c1"># Methods</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">"field1"</span><span class="p">,</span> <span class="s2">"field2"</span><span class="p">)</span>  <span class="c1"># Attributes</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">"method_name"</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>  <span class="c1"># Methods</span>
 </pre></div>
 </div>
 <p><strong>Key Methods:</strong></p>
@@ -240,11 +240,11 @@ analysis results.</p>
 <span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
 
 <span class="c1"># Get various analysis results</span>
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 <span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
-<span class="n">data_flow</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_dataflow</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
-<span class="n">callers</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
-<span class="n">callees</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callees</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">data_flow</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_dataflow</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">callees</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callees</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Control Flow Queries:</strong></p>
@@ -303,13 +303,13 @@ analysis results.</p>
 <span class="p">)</span>
 
 <span class="n">call_queries</span> <span class="o">=</span> <span class="n">CallGraphQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
-<span class="n">callers</span> <span class="o">=</span> <span class="n">call_queries</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">call_queries</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 
 <span class="n">ctrl_queries</span> <span class="o">=</span> <span class="n">ControlFlowQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">ctrl_queries</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">ctrl_queries</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 
 <span class="n">data_queries</span> <span class="o">=</span> <span class="n">DataFlowQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
-<span class="n">reaching_defs</span> <span class="o">=</span> <span class="n">data_queries</span><span class="o">.</span><span class="n">get_reaching_defs</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">reaching_defs</span> <span class="o">=</span> <span class="n">data_queries</span><span class="o">.</span><span class="n">get_reaching_defs</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

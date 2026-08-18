@@ -248,7 +248,7 @@ Edges:
 <h4>Exception Block<a class="headerlink" href="#exception-block" title="Link to this heading"></a></h4>
 <p>A block handling exceptions:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 4 (Exception):
-  print(&quot;Error occurred&quot;)
+  print("Error occurred")
   return None
 </pre></div>
 </div>
@@ -324,23 +324,23 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> 
 <p>Unreachable code appears in blocks that have no incoming edges (except from
 themselves):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_reachability</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Identify potentially unreachable code.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Identify potentially unreachable code."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;blocks&quot;</span><span class="p">]</span>
-    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
 
     <span class="c1"># Build set of blocks with incoming edges</span>
     <span class="n">reachable</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
     <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
-        <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">])</span>
+        <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">"from"</span><span class="p">])</span>
 
     <span class="c1"># Entry block is always reachable</span>
-    <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;entry_block&quot;</span><span class="p">))</span>
+    <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"entry_block"</span><span class="p">))</span>
 
     <span class="c1"># Find unreachable blocks</span>
-    <span class="n">all_blocks</span> <span class="o">=</span> <span class="p">{</span><span class="n">block</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">}</span>
+    <span class="n">all_blocks</span> <span class="o">=</span> <span class="p">{</span><span class="n">block</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">}</span>
     <span class="n">unreachable</span> <span class="o">=</span> <span class="n">all_blocks</span> <span class="o">-</span> <span class="n">reachable</span>
 
     <span class="k">return</span> <span class="n">unreachable</span>
@@ -351,20 +351,20 @@ themselves):</p>
 <h3>Task 2: Find loop complexity<a class="headerlink" href="#task-2-find-loop-complexity" title="Link to this heading"></a></h3>
 <p>Analyze loop nesting depth:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_loop_depth</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze loop nesting depth.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Analyze loop nesting depth."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
     <span class="c1"># Back edges indicate loops</span>
     <span class="c1"># Count edges from higher blocks to lower blocks</span>
     <span class="n">back_edges</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;to&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;loop&quot;</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"from"</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"to"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"loop"</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"type"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
     <span class="p">]</span>
 
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;num_loops&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">back_edges</span><span class="p">),</span>
-        <span class="s2">&quot;back_edges&quot;</span><span class="p">:</span> <span class="n">back_edges</span>
+        <span class="s2">"num_loops"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">back_edges</span><span class="p">),</span>
+        <span class="s2">"back_edges"</span><span class="p">:</span> <span class="n">back_edges</span>
     <span class="p">}</span>
 </pre></div>
 </div>
@@ -373,12 +373,12 @@ themselves):</p>
 <h3>Task 3: Simplify complex conditionals<a class="headerlink" href="#task-3-simplify-complex-conditionals" title="Link to this heading"></a></h3>
 <p>Identify functions with complex control flow:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_complexity</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Calculate control flow complexity metrics.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Calculate control flow complexity metrics."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
-    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;blocks&quot;</span><span class="p">]</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]</span>
 
     <span class="c1"># Cyclomatic complexity = edges - nodes + 2</span>
     <span class="n">n_edges</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span>
@@ -387,9 +387,9 @@ themselves):</p>
     <span class="n">complexity</span> <span class="o">=</span> <span class="n">n_edges</span> <span class="o">-</span> <span class="n">n_nodes</span> <span class="o">+</span> <span class="mi">2</span>
 
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;cyclomatic_complexity&quot;</span><span class="p">:</span> <span class="n">complexity</span><span class="p">,</span>
-        <span class="s2">&quot;num_blocks&quot;</span><span class="p">:</span> <span class="n">n_nodes</span><span class="p">,</span>
-        <span class="s2">&quot;num_edges&quot;</span><span class="p">:</span> <span class="n">n_edges</span>
+        <span class="s2">"cyclomatic_complexity"</span><span class="p">:</span> <span class="n">complexity</span><span class="p">,</span>
+        <span class="s2">"num_blocks"</span><span class="p">:</span> <span class="n">n_nodes</span><span class="p">,</span>
+        <span class="s2">"num_edges"</span><span class="p">:</span> <span class="n">n_edges</span>
     <span class="p">}</span>
 </pre></div>
 </div>
@@ -410,8 +410,8 @@ and maintain:</p>
 <h4>Example: Low Complexity<a class="headerlink" href="#example-low-complexity" title="Link to this heading"></a></h4>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">simple</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;positive&quot;</span>
-    <span class="k">return</span> <span class="s2">&quot;non-positive&quot;</span>
+        <span class="k">return</span> <span class="s2">"positive"</span>
+    <span class="k">return</span> <span class="s2">"non-positive"</span>
 </pre></div>
 </div>
 <p>Complexity: 2 (very simple)</p>
@@ -422,17 +422,17 @@ and maintain:</p>
     <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">200</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">300</span><span class="p">:</span>
-                <span class="k">return</span> <span class="s2">&quot;very high&quot;</span>
-            <span class="k">return</span> <span class="s2">&quot;high&quot;</span>
+                <span class="k">return</span> <span class="s2">"very high"</span>
+            <span class="k">return</span> <span class="s2">"high"</span>
         <span class="k">elif</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">150</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;medium-high&quot;</span>
+            <span class="k">return</span> <span class="s2">"medium-high"</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;medium&quot;</span>
+            <span class="k">return</span> <span class="s2">"medium"</span>
     <span class="k">elif</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">50</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;medium-low&quot;</span>
+        <span class="k">return</span> <span class="s2">"medium-low"</span>
     <span class="k">elif</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;low&quot;</span>
-    <span class="k">return</span> <span class="s2">&quot;non-positive&quot;</span>
+        <span class="k">return</span> <span class="s2">"low"</span>
+    <span class="k">return</span> <span class="s2">"non-positive"</span>
 </pre></div>
 </div>
 <p>Complexity: 8+ (high complexity, consider refactoring)</p>

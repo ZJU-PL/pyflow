@@ -217,7 +217,7 @@ function call structure of your Python programs.</p>
 <section id="filter-by-patterns">
 <h3>Filter by patterns<a class="headerlink" href="#filter-by-patterns" title="Link to this heading"></a></h3>
 <p>Include only specific files:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--include<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--include<span class="w"> </span><span class="s2">"*.py"</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">"test_*"</span>
 </pre></div>
 </div>
 </section>
@@ -247,37 +247,37 @@ value-flow graph.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">analyze_call_graph</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze call graph for potential issues.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Analyze call graph for potential issues."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
     <span class="c1"># Build reverse mapping (who calls whom)</span>
     <span class="n">callers</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;edges&quot;</span><span class="p">,</span> <span class="p">[]):</span>
-        <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span>
-        <span class="n">caller</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"edges"</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">"to"</span><span class="p">]</span>
+        <span class="n">caller</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">"from"</span><span class="p">]</span>
         <span class="n">callers</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">callee</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">caller</span><span class="p">)</span>
 
     <span class="c1"># Find functions with no callers (potentially dead code)</span>
-    <span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nodes&quot;</span><span class="p">,</span> <span class="p">[])}</span>
+    <span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"nodes"</span><span class="p">,</span> <span class="p">[])}</span>
     <span class="n">dead_code</span> <span class="o">=</span> <span class="n">all_functions</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">callers</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
 
     <span class="c1"># Find recursive functions</span>
     <span class="n">recursive</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nodes&quot;</span><span class="p">,</span> <span class="p">[]):</span>
-        <span class="k">if</span> <span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span> <span class="p">[]):</span>
-            <span class="n">recursive</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"nodes"</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="k">if</span> <span class="n">node</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span> <span class="p">[]):</span>
+            <span class="n">recursive</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">"name"</span><span class="p">])</span>
 
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;dead_code&quot;</span><span class="p">:</span> <span class="n">dead_code</span><span class="p">,</span>
-        <span class="s2">&quot;recursive&quot;</span><span class="p">:</span> <span class="n">recursive</span><span class="p">,</span>
-        <span class="s2">&quot;call_counts&quot;</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="s2">"dead_code"</span><span class="p">:</span> <span class="n">dead_code</span><span class="p">,</span>
+        <span class="s2">"recursive"</span><span class="p">:</span> <span class="n">recursive</span><span class="p">,</span>
+        <span class="s2">"call_counts"</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
     <span class="p">}</span>
 
 <span class="c1"># Usage</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">analyze_call_graph</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Potentially dead code:&quot;</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;dead_code&quot;</span><span class="p">])</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Recursive functions:&quot;</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;recursive&quot;</span><span class="p">])</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">analyze_call_graph</span><span class="p">(</span><span class="s2">"callgraph.json"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Potentially dead code:"</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">"dead_code"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Recursive functions:"</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">"recursive"</span><span class="p">])</span>
 </pre></div>
 </div>
 </section>
@@ -297,15 +297,15 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span cla
 <p>Create a custom layout script:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># custom_layout.gv</span>
 <span class="n">graph</span> <span class="p">[</span><span class="n">rankdir</span><span class="o">=</span><span class="n">TB</span><span class="p">,</span> <span class="n">nodesep</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">ranksep</span><span class="o">=</span><span class="mf">0.5</span><span class="p">]</span>
-<span class="n">node</span> <span class="p">[</span><span class="n">shape</span><span class="o">=</span><span class="n">box</span><span class="p">,</span> <span class="n">style</span><span class="o">=</span><span class="s2">&quot;rounded,filled&quot;</span><span class="p">,</span> <span class="n">fontname</span><span class="o">=</span><span class="s2">&quot;Arial&quot;</span><span class="p">]</span>
-<span class="n">edge</span> <span class="p">[</span><span class="n">fontname</span><span class="o">=</span><span class="s2">&quot;Arial&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">10</span><span class="p">]</span>
+<span class="n">node</span> <span class="p">[</span><span class="n">shape</span><span class="o">=</span><span class="n">box</span><span class="p">,</span> <span class="n">style</span><span class="o">=</span><span class="s2">"rounded,filled"</span><span class="p">,</span> <span class="n">fontname</span><span class="o">=</span><span class="s2">"Arial"</span><span class="p">]</span>
+<span class="n">edge</span> <span class="p">[</span><span class="n">fontname</span><span class="o">=</span><span class="s2">"Arial"</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">10</span><span class="p">]</span>
 
 <span class="c1"># Color recursive functions</span>
-<span class="s2">&quot;fibonacci&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
-<span class="s2">&quot;factorial&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
+<span class="s2">"fibonacci"</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
+<span class="s2">"factorial"</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
 
 <span class="c1"># Highlight main entry point</span>
-<span class="s2">&quot;main&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">lightblue</span><span class="p">,</span> <span class="n">penwidth</span><span class="o">=</span><span class="mi">2</span><span class="p">]</span>
+<span class="s2">"main"</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">lightblue</span><span class="p">,</span> <span class="n">penwidth</span><span class="o">=</span><span class="mi">2</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>Then apply it:</p>
@@ -320,40 +320,40 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span cla
 <h3>Task 1: Find unused functions<a class="headerlink" href="#task-1-find-unused-functions" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
-<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"callgraph.json"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
     <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
 <span class="c1"># Functions with no incoming edges are potentially unused</span>
-<span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;nodes&quot;</span><span class="p">]}</span>
-<span class="n">called_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]}</span>
+<span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">"nodes"</span><span class="p">]}</span>
+<span class="n">called_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">edge</span><span class="p">[</span><span class="s2">"to"</span><span class="p">]</span> <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]}</span>
 <span class="n">unused</span> <span class="o">=</span> <span class="n">all_functions</span> <span class="o">-</span> <span class="n">called_functions</span>
 
 <span class="k">if</span> <span class="n">unused</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Potentially unused functions:&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Potentially unused functions:"</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">func</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">unused</span><span class="p">):</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  - </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;All functions are called at least once.&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"All functions are called at least once."</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="task-2-find-critical-functions">
 <h3>Task 2: Find critical functions<a class="headerlink" href="#task-2-find-critical-functions" title="Link to this heading"></a></h3>
 <p>Functions called from many places are critical and should be tested carefully:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"callgraph.json"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
     <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
 <span class="n">caller_counts</span> <span class="o">=</span> <span class="p">{}</span>
-<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]:</span>
-    <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]:</span>
+    <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">"to"</span><span class="p">]</span>
     <span class="n">caller_counts</span><span class="p">[</span><span class="n">callee</span><span class="p">]</span> <span class="o">=</span> <span class="n">caller_counts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">callee</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
 
 <span class="c1"># Sort by number of callers</span>
 <span class="n">critical</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">caller_counts</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Most called functions:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Most called functions:"</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">func</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="n">critical</span><span class="p">[:</span><span class="mi">10</span><span class="p">]:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">: called from </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> places&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">: called from </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> places"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

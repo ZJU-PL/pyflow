@@ -159,25 +159,25 @@ for your specific needs.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomAnalysis</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom analysis pass for specific needs.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom analysis pass for specific needs."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">results</span> <span class="o">=</span> <span class="p">{}</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">analyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the analysis on a program.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Run the analysis on a program."""</span>
         <span class="k">for</span> <span class="n">function</span> <span class="ow">in</span> <span class="n">program</span><span class="o">.</span><span class="n">functions</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">analyze_function</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">analyze_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">function</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Analyze a single function.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Analyze a single function."""</span>
         <span class="n">cfg</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="n">cfg</span>
         <span class="c1"># Custom analysis logic here</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">[</span><span class="n">function</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;num_blocks&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">blocks</span><span class="p">),</span>
-            <span class="s2">&quot;num_edges&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span>
+            <span class="s2">"num_blocks"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">blocks</span><span class="p">),</span>
+            <span class="s2">"num_edges"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span>
         <span class="p">}</span>
 
 <span class="c1"># Register the pass via the pass manager pipeline</span>
@@ -197,10 +197,10 @@ for your specific needs.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">OptimizationPass</span><span class="p">,</span> <span class="n">PassResult</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomOptimization</span><span class="p">(</span><span class="n">OptimizationPass</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom optimization pass.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom optimization pass."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;my_optimization&quot;</span><span class="p">,</span> <span class="s2">&quot;Custom optimization example&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">"my_optimization"</span><span class="p">,</span> <span class="s2">"Custom optimization example"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
         <span class="c1"># Custom optimization logic here</span>
@@ -232,9 +232,9 @@ for your specific needs.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.formats</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_text_output</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">my_custom_formatter</span><span class="p">(</span><span class="n">call_graph</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom output formatter.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom output formatter."""</span>
     <span class="c1"># Custom formatting logic</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Custom: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">())</span><span class="si">}</span><span class="s2"> functions&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"Custom: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">())</span><span class="si">}</span><span class="s2"> functions"</span>
 
 <span class="c1"># Use the formatter with your call graph</span>
 <span class="n">output</span> <span class="o">=</span> <span class="n">my_custom_formatter</span><span class="p">(</span><span class="n">call_graph</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
@@ -258,8 +258,8 @@ for your specific needs.</p>
 <span class="n">context_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 <span class="c1"># Context depth limit (0 = unlimited)</span>
 <span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
-<span class="c1"># Context representation: &quot;k-limiting&quot;, &quot;-object-sensitive&quot;, &quot;call-string&quot;</span>
-<span class="n">context_representation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;k-limiting&quot;</span>
+<span class="c1"># Context representation: "k-limiting", "-object-sensitive", "call-string"</span>
+<span class="n">context_representation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"k-limiting"</span>
 <span class="n">k_value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span>
 </pre></div>
 </div>
@@ -282,7 +282,7 @@ for your specific needs.</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
 <span class="n">flow_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 <span class="c1"># Statement-level vs block-level analysis</span>
-<span class="n">granularity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;statement&quot;</span><span class="w">  </span><span class="c1"># or &quot;block&quot;</span>
+<span class="n">granularity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"statement"</span><span class="w">  </span><span class="c1"># or "block"</span>
 </pre></div>
 </div>
 </section>
@@ -312,24 +312,24 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span cla
 <span class="c1"># Set up compiler and extractor</span>
 <span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-<span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">&quot;input.py&quot;</span><span class="p">])</span>
+<span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">"input.py"</span><span class="p">])</span>
 <span class="n">program</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">program</span>
 
 <span class="c1"># Create analysis context</span>
 <span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;context_sensitive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;flow_sensitive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"context_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"flow_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
 
 <span class="c1"># Run specific analyses</span>
 <span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
 <span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 
-<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s2">&quot;input.py&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
 
 <span class="c1"># Combine results</span>
 <span class="n">combined_results</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;cpa&quot;</span><span class="p">:</span> <span class="n">cpa</span><span class="p">,</span>
-    <span class="s2">&quot;callgraph&quot;</span><span class="p">:</span> <span class="n">graph</span><span class="p">,</span>
+    <span class="s2">"cpa"</span><span class="p">:</span> <span class="n">cpa</span><span class="p">,</span>
+    <span class="s2">"callgraph"</span><span class="p">:</span> <span class="n">graph</span><span class="p">,</span>
 <span class="p">}</span>
 </pre></div>
 </div>

@@ -195,11 +195,11 @@ library export exposure should not be reported.</p>
     <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
     <span class="n">report_public_exports</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span><span class="o">.</span><span class="n">analyze_project</span><span class="p">(</span>
-    <span class="s2">&quot;src/package/__main__.py&quot;</span><span class="p">,</span>
-    <span class="n">project_path</span><span class="o">=</span><span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="s2">"src/package/__main__.py"</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="o">=</span><span class="s2">"."</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">status</span> <span class="o">!=</span> <span class="s2">&quot;complete&quot;</span><span class="p">:</span>
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">status</span> <span class="o">!=</span> <span class="s2">"complete"</span><span class="p">:</span>
     <span class="k">for</span> <span class="n">diagnostic</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">diagnostics</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="n">diagnostic</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">diagnostic</span><span class="o">.</span><span class="n">message</span><span class="p">)</span>
 
@@ -220,20 +220,20 @@ library export exposure should not be reported.</p>
 <code class="docutils literal notranslate"><span class="pre">schema_version</span></code> is currently <code class="docutils literal notranslate"><span class="pre">1</span></code>. <code class="docutils literal notranslate"><span class="pre">patterns</span></code> classify operations by
 access path, while <code class="docutils literal notranslate"><span class="pre">effects</span></code> describe open-world library behavior.</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;patterns&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"schema_version"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"patterns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;capability&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;company.secrets.read&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;category&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;information&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;call&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;access_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;company.vault.read_secret&quot;</span><span class="p">]</span>
+<span class="w">      </span><span class="nt">"capability"</span><span class="p">:</span><span class="w"> </span><span class="s2">"company.secrets.read"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"category"</span><span class="p">:</span><span class="w"> </span><span class="s2">"information"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"operation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"call"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"access_paths"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"company.vault.read_secret"</span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;effects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"effects"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;invoke_callback&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;arguments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;access_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;company.plugins.register&quot;</span><span class="p">]</span>
+<span class="w">      </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"invoke_callback"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"arguments"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"access_paths"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"company.plugins.register"</span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
@@ -262,7 +262,7 @@ or <code class="docutils literal notranslate"><span class="pre">&quot;*&quot;</s
 allow list:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>capability-run<span class="w"> </span>app.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--allow<span class="w"> </span>file.read<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--allow<span class="w"> </span><span class="s1">&#39;network.*&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--allow<span class="w"> </span><span class="s1">'network.*'</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--audit-log<span class="w"> </span>observed-capabilities.json
 </pre></div>
 </div>

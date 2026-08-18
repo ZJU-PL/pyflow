@@ -167,7 +167,7 @@ library by Florent Xicluna, Tarek Ziade, and Ned Batchelder.</p>
 
 <span class="n">tree</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">source_code</span><span class="p">)</span>
 <span class="n">score</span> <span class="o">=</span> <span class="n">mccabe_complexity</span><span class="p">(</span><span class="n">tree</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total complexity: </span><span class="si">{</span><span class="n">score</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total complexity: </span><span class="si">{</span><span class="n">score</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
 <section id="api-reference">
@@ -257,10 +257,10 @@ Performs a name-based match against <code class="docutils literal notranslate"><
 
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.asttools</span><span class="w"> </span><span class="kn">import</span> <span class="n">has_decorator</span>
 
-<span class="n">tree</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;@login_required</span><span class="se">\n</span><span class="s2">def foo(): pass&quot;</span><span class="p">)</span>
+<span class="n">tree</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">"@login_required</span><span class="se">\n</span><span class="s2">def foo(): pass"</span><span class="p">)</span>
 <span class="n">func</span> <span class="o">=</span> <span class="n">tree</span><span class="o">.</span><span class="n">body</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">has_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s2">&quot;login_required&quot;</span><span class="p">)</span>  <span class="c1"># True</span>
-<span class="n">has_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;cache&quot;</span><span class="p">,</span> <span class="s2">&quot;memoize&quot;</span><span class="p">))</span>  <span class="c1"># False</span>
+<span class="n">has_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s2">"login_required"</span><span class="p">)</span>  <span class="c1"># True</span>
+<span class="n">has_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="p">(</span><span class="s2">"cache"</span><span class="p">,</span> <span class="s2">"memoize"</span><span class="p">))</span>  <span class="c1"># False</span>
 </pre></div>
 </div>
 <dl class="py function">

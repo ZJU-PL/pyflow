@@ -41,6 +41,21 @@ Quick Start
    results = analysis.run()
    print(results.points_to("z"))
 
+For project analysis, solver and import-graph budgets are configurable and
+completion is explicit on the returned result:
+
+.. code-block:: python
+
+   analysis = PointerAnalysis.from_project(
+       "package/__main__.py",
+       k=1,
+       max_iterations=50_000,
+       max_import_depth=3,
+   )
+   results = analysis.run()
+   if not results.complete:
+       print(results.stop_reason, results.statistics())
+
 See Also
 --------
 

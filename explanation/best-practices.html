@@ -238,12 +238,12 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cProfile</span>
 
 <span class="c1"># Profile before optimizing</span>
-<span class="n">cProfile</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;your_function()&quot;</span><span class="p">,</span> <span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
+<span class="n">cProfile</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">"your_function()"</span><span class="p">,</span> <span class="s2">"profile.prof"</span><span class="p">)</span>
 
 <span class="c1"># Analyze results</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pstats</span>
-<span class="n">stats</span> <span class="o">=</span> <span class="n">pstats</span><span class="o">.</span><span class="n">Stats</span><span class="p">(</span><span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
-<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s2">&quot;cumulative&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="n">pstats</span><span class="o">.</span><span class="n">Stats</span><span class="p">(</span><span class="s2">"profile.prof"</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s2">"cumulative"</span><span class="p">)</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
 
 <span class="c1"># Then optimize based on results</span>
 <span class="n">pyflow</span> <span class="n">optimize</span> <span class="n">hot_path</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span> <span class="nb">all</span>
@@ -295,15 +295,15 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p><strong>Why</strong>: More context sensitivity means more precise results but slower analysis.</p>
 <p><strong>Example</strong>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fast, context-insensitive</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.context_sensitive"</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
 
 <span class="c1"># Balanced, k-limiting</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.k_value&quot;</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.context_sensitive"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.k_value"</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
 
 <span class="c1"># Precise, full context</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.max_context_depth&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.context_sensitive"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.max_context_depth"</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -315,8 +315,8 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Context</span>
 
 <span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;cpa.field_sensitive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;cpa.max_context_depth&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"cpa.field_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"cpa.max_context_depth"</span><span class="p">]</span> <span class="o">=</span> <span class="mi">5</span>
 
 <span class="p">[</span><span class="n">optimization</span><span class="p">]</span>
 <span class="c1"># Custom optimization settings</span>
@@ -344,7 +344,7 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Set up Python</span>
 <span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/setup-python@v4</span>
 <span class="w">        </span><span class="nt">with</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.10&#39;</span>
+<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">'3.10'</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
 <span class="w">      </span><span class="w w-Error"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Analysis</span>
@@ -533,7 +533,7 @@ Command: <span class="sb">`pyflow callgraph src/ --output docs/callgraph.png`</s
 <p><strong>Why</strong>: Your issue may already be known or have a workaround.</p>
 <p><strong>Example</strong>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Search existing issues</span>
-gh<span class="w"> </span>issue<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span>ZJU-PL/pyflow<span class="w"> </span>--search<span class="w"> </span><span class="s2">&quot;context&quot;</span>
+gh<span class="w"> </span>issue<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span>ZJU-PL/pyflow<span class="w"> </span>--search<span class="w"> </span><span class="s2">"context"</span>
 
 <span class="c1"># Check documentation</span>
 pyflow<span class="w"> </span>optimize<span class="w"> </span>--help

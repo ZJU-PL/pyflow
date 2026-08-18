@@ -285,12 +285,12 @@ findings and analysis completeness in that report</p></li>
 without declaring them as sources or sinks. Propagation ports support
 parameters, receivers, returns, yields, raises, sinks, and access paths:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-  <span class="s2">&quot;call&quot;</span><span class="p">:</span> <span class="s2">&quot;framework.Value.wrap&quot;</span><span class="p">,</span>
-  <span class="s2">&quot;propagations&quot;</span><span class="p">:</span> <span class="p">[</span>
-    <span class="p">{</span><span class="s2">&quot;from&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;parameter&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;payload&quot;</span><span class="p">]},</span>
-     <span class="s2">&quot;to&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;parameter&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;copy&quot;</span><span class="p">]}},</span>
-    <span class="p">{</span><span class="s2">&quot;from&quot;</span><span class="p">:</span> <span class="s2">&quot;receiver&quot;</span><span class="p">,</span> <span class="s2">&quot;to&quot;</span><span class="p">:</span> <span class="s2">&quot;return&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;maps&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;html&quot;</span><span class="p">:</span> <span class="s2">&quot;html_safe&quot;</span><span class="p">}}</span>
+  <span class="s2">"call"</span><span class="p">:</span> <span class="s2">"framework.Value.wrap"</span><span class="p">,</span>
+  <span class="s2">"propagations"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"from"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"parameter"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"path"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"payload"</span><span class="p">]},</span>
+     <span class="s2">"to"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"parameter"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">"path"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"copy"</span><span class="p">]}},</span>
+    <span class="p">{</span><span class="s2">"from"</span><span class="p">:</span> <span class="s2">"receiver"</span><span class="p">,</span> <span class="s2">"to"</span><span class="p">:</span> <span class="s2">"return"</span><span class="p">,</span>
+     <span class="s2">"maps"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"html"</span><span class="p">:</span> <span class="s2">"html_safe"</span><span class="p">}}</span>
   <span class="p">]</span>
 <span class="p">}</span>
 </pre></div>

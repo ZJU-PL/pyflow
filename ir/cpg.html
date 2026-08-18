@@ -189,17 +189,17 @@ fields:</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.pdg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_pdg</span>
 
 <span class="n">cpg</span> <span class="o">=</span> <span class="n">CodePropertyGraph</span><span class="p">()</span>
-<span class="n">cpg</span><span class="o">.</span><span class="n">add_function</span><span class="p">(</span><span class="s2">&quot;my_func&quot;</span><span class="p">,</span> <span class="n">pdg</span><span class="p">)</span>
+<span class="n">cpg</span><span class="o">.</span><span class="n">add_function</span><span class="p">(</span><span class="s2">"my_func"</span><span class="p">,</span> <span class="n">pdg</span><span class="p">)</span>
 <span class="n">cpg</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
 
 <span class="c1"># Iterate nodes</span>
-<span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">nodes</span><span class="p">(</span><span class="s2">&quot;my_func&quot;</span><span class="p">):</span>
+<span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">nodes</span><span class="p">(</span><span class="s2">"my_func"</span><span class="p">):</span>
     <span class="n">meta</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">node_meta</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;node_type&quot;</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;lineno&quot;</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">"node_type"</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"lineno"</span><span class="p">])</span>
 
 <span class="c1"># Traverse edges</span>
 <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">node_id</span><span class="p">,</span> <span class="s2">&quot;-&gt;&quot;</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">node_id</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">node_id</span><span class="p">,</span> <span class="s2">"-&gt;"</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">node_id</span><span class="p">)</span>
 
 <span class="c1"># Export</span>
 <span class="n">dot</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">to_dot</span><span class="p">()</span>
@@ -216,7 +216,7 @@ domain as the IFDS and AST-dataflow engines:</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
 
 <span class="n">registry</span> <span class="o">=</span> <span class="n">load_registry</span><span class="p">()</span>
-<span class="n">registry</span><span class="o">.</span><span class="n">activate</span><span class="p">(</span><span class="s2">&quot;stdlib&quot;</span><span class="p">,</span> <span class="s2">&quot;flask&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;taint&quot;</span><span class="p">)</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">activate</span><span class="p">(</span><span class="s2">"stdlib"</span><span class="p">,</span> <span class="s2">"flask"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">"taint"</span><span class="p">)</span>
 <span class="n">engine</span> <span class="o">=</span> <span class="n">CPGTaintEngine</span><span class="p">(</span><span class="n">cpg</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">registry</span><span class="o">.</span><span class="n">as_taint_policy</span><span class="p">())</span>
 <span class="n">findings</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">find_taint_paths</span><span class="p">()</span>
 </pre></div>

@@ -174,7 +174,7 @@ imports should use the canonical locations shown below.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.ast</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">ast</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">python_ast</span>
 
-<span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;def add(x, y): return x + y&quot;</span>
+<span class="n">source</span> <span class="o">=</span> <span class="s2">"def add(x, y): return x + y"</span>
 <span class="n">tree</span> <span class="o">=</span> <span class="n">python_ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
 <span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
 <span class="n">pyflow_ast</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">([</span><span class="n">tree</span><span class="p">])</span>
@@ -192,9 +192,9 @@ imports should use the canonical locations shown below.</p>
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="c1"># Extract from source, file, or multiple files</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_multiple_files</span><span class="p">({</span><span class="s2">&quot;file1.py&quot;</span><span class="p">:</span> <span class="n">source1</span><span class="p">})</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">"example.py"</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">"example.py"</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_multiple_files</span><span class="p">({</span><span class="s2">"file1.py"</span><span class="p">:</span> <span class="n">source1</span><span class="p">})</span>
 </pre></div>
 </div>
 <dl class="simple">
@@ -215,7 +215,7 @@ imports should use the canonical locations shown below.</p>
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">FunctionExtractor</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">pyflow_code</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">convert_function</span><span class="p">(</span>
     <span class="n">my_function</span><span class="p">,</span>
-    <span class="n">source_code</span><span class="o">=</span><span class="s2">&quot;def my_function(x, y): return x + y&quot;</span>
+    <span class="n">source_code</span><span class="o">=</span><span class="s2">"def my_function(x, y): return x + y"</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -241,8 +241,8 @@ gates:</p>
 <p><strong>Usage:</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.resolution.dependencies</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
 
-<span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">functions</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">extract_functions</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+<span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">functions</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">extract_functions</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">"example.py"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -273,7 +273,7 @@ such as arithmetic, comparison, attribute access, and function calls.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.runtime.intrinsics</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntrinsicManager</span>
 
 <span class="n">manager</span> <span class="o">=</span> <span class="n">IntrinsicManager</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
-<span class="n">add_stub</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">stubs</span><span class="o">.</span><span class="n">exports</span><span class="p">[</span><span class="s2">&quot;interpreter__add__&quot;</span><span class="p">]</span>
+<span class="n">add_stub</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">stubs</span><span class="o">.</span><span class="n">exports</span><span class="p">[</span><span class="s2">"interpreter__add__"</span><span class="p">]</span>
 </pre></div>
 </div>
 </section>
@@ -295,12 +295,12 @@ such as arithmetic, comparison, attribute access, and function calls.</p>
 <span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-<span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="n">source</span> <span class="o">=</span> <span class="s2">"""</span>
 <span class="s2">def add(x, y):</span>
 <span class="s2">    return x + y</span>
-<span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">"""</span>
 
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">"example.py"</span><span class="p">)</span>
 <span class="n">code</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">convertFunction</span><span class="p">(</span><span class="n">add_func</span><span class="p">)</span>
 </pre></div>
 </div>

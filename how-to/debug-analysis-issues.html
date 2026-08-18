@@ -316,7 +316,7 @@ x = )  # Missing operand
 <h3>Solution<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
 <ol class="arabic">
 <li><p>Limit analysis scope:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--recursive<span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--recursive<span class="w"> </span>--exclude<span class="w"> </span><span class="s2">"test_*"</span>
 </pre></div>
 </div>
 </li>
@@ -419,7 +419,7 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p>The analysis ran out of memory.</p>
 <p>Solution:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Limit scope or run on smaller subsets of code</span>
-pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--include<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*,*_test.py&quot;</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--include<span class="w"> </span><span class="s2">"*.py"</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">"test_*,*_test.py"</span>
 </pre></div>
 </div>
 </section>

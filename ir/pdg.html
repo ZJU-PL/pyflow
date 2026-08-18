@@ -149,7 +149,7 @@ into a single graph that supports dependency queries and program slicing.</p>
 <span class="n">pdg</span> <span class="o">=</span> <span class="n">construct_pdg</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">run_ssa</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">include_control</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">include_data</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="c1"># Backward slice from a seed node</span>
-<span class="n">seeds</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">pdg</span><span class="o">.</span><span class="n">nodes</span> <span class="k">if</span> <span class="n">n</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;stmt&quot;</span><span class="p">]</span>
+<span class="n">seeds</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">pdg</span><span class="o">.</span><span class="n">nodes</span> <span class="k">if</span> <span class="n">n</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">"stmt"</span><span class="p">]</span>
 <span class="n">slice_nodes</span> <span class="o">=</span> <span class="n">pdg</span><span class="o">.</span><span class="n">backward_slice</span><span class="p">(</span><span class="n">seeds</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -168,10 +168,10 @@ into a single graph that supports dependency queries and program slicing.</p>
 <p>The PDG supports a small in-memory Cypher-like query language (no Neo4j) for
 interactive exploration.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">rows</span> <span class="o">=</span> <span class="n">pdg</span><span class="o">.</span><span class="n">cypher</span><span class="p">(</span>
-    <span class="s1">&#39;MATCH (a:stmt)-[e:data]-&gt;(b:stmt) &#39;</span>
-    <span class="s1">&#39;WHERE e.label = &quot;y&quot; &#39;</span>
-    <span class="s1">&#39;RETURN a.node_id AS src, b.node_id AS dst &#39;</span>
-    <span class="s1">&#39;LIMIT 20&#39;</span>
+    <span class="s1">'MATCH (a:stmt)-[e:data]-&gt;(b:stmt) '</span>
+    <span class="s1">'WHERE e.label = "y" '</span>
+    <span class="s1">'RETURN a.node_id AS src, b.node_id AS dst '</span>
+    <span class="s1">'LIMIT 20'</span>
 <span class="p">)</span>
 </pre></div>
 </div>

@@ -173,7 +173,7 @@
 </pre></div>
 </div>
 <p><strong>Local</strong>: Represents local variables or function parameters</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">local</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>  <span class="c1"># name can be None for anonymous</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">local</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)</span>  <span class="c1"># name can be None for anonymous</span>
 <span class="c1"># Properties: name, isPure()</span>
 <span class="c1"># Important: Local nodes are shared (same object = same variable)</span>
 </pre></div>
@@ -198,8 +198,8 @@
 </pre></div>
 </div>
 <p><strong>BinaryOp / UnaryPrefixOp</strong>: Arithmetic and logical operations</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">add</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">left_expr</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;+&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">right_expr</span><span class="p">)</span>
-<span class="n">neg</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">UnaryPrefixOp</span><span class="p">(</span><span class="n">op</span><span class="o">=</span><span class="s2">&quot;-&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">expr</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">add</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">left_expr</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="s2">"+"</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">right_expr</span><span class="p">)</span>
+<span class="n">neg</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">UnaryPrefixOp</span><span class="p">(</span><span class="n">op</span><span class="o">=</span><span class="s2">"-"</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">expr</span><span class="p">)</span>
 <span class="c1"># Operators: +, -, *, /, //, %, **, &amp;, |, ^, &lt;&lt;, &gt;&gt;, ==, !=, &lt;, &lt;=, &gt;, &gt;=</span>
 </pre></div>
 </div>
@@ -238,7 +238,7 @@
 </pre></div>
 </div>
 <p><strong>AnnAssign</strong>: Annotated assignment (<code class="docutils literal notranslate"><span class="pre">x:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">5</span></code> or just <code class="docutils literal notranslate"><span class="pre">x:</span> <span class="pre">int</span></code>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ann</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">AnnAssign</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">annotation_expr</span><span class="o">=</span><span class="n">type_expr</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">init_expr</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ann</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">AnnAssign</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">),</span> <span class="n">annotation_expr</span><span class="o">=</span><span class="n">type_expr</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">init_expr</span><span class="p">)</span>
 <span class="c1"># ``annotation_expr`` holds the type expression (distinct from the</span>
 <span class="c1"># inherited ``annotation`` field used for per-node analysis metadata).</span>
 <span class="c1"># ``value`` is optional (annotation-only form).</span>
@@ -294,15 +294,15 @@
 <h2>Code Nodes<a class="headerlink" href="#code-nodes" title="Link to this heading"></a></h2>
 <p><strong>Code</strong>: Function or method definition</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">code</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Code</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;function_name&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"function_name"</span><span class="p">,</span>
     <span class="n">codeparameters</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">CodeParameters</span><span class="p">(</span>
         <span class="n">selfparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)],</span>
-        <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">],</span>
+        <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"y"</span><span class="p">)],</span>
+        <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">"x"</span><span class="p">,</span> <span class="s2">"y"</span><span class="p">],</span>
         <span class="n">defaults</span><span class="o">=</span><span class="p">[],</span>
         <span class="n">vparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="n">kparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;ret0&quot;</span><span class="p">)]</span>
+        <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"ret0"</span><span class="p">)]</span>
     <span class="p">),</span>
     <span class="n">ast</span><span class="o">=</span><span class="n">body_suite</span>
 <span class="p">)</span>
@@ -310,11 +310,11 @@
 </pre></div>
 </div>
 <p><strong>FunctionDef</strong>: Function definition with decorators</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">func_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">FunctionDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;function_name&quot;</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">code_node</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">func_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">FunctionDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"function_name"</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">code_node</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
 </pre></div>
 </div>
 <p><strong>ClassDef</strong>: Class definition</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">class_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">ClassDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;ClassName&quot;</span><span class="p">,</span> <span class="n">bases</span><span class="o">=</span><span class="p">[</span><span class="n">base1</span><span class="p">],</span> <span class="n">body</span><span class="o">=</span><span class="n">body_suite</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">class_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">ClassDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"ClassName"</span><span class="p">,</span> <span class="n">bases</span><span class="o">=</span><span class="p">[</span><span class="n">base1</span><span class="p">],</span> <span class="n">body</span><span class="o">=</span><span class="n">body_suite</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
 </pre></div>
 </div>
 </section>
@@ -349,21 +349,21 @@
 
 <span class="n">params</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">CodeParameters</span><span class="p">(</span>
     <span class="n">selfparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)],</span>
-    <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">],</span>
+    <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"y"</span><span class="p">)],</span>
+    <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">"x"</span><span class="p">,</span> <span class="s2">"y"</span><span class="p">],</span>
     <span class="n">defaults</span><span class="o">=</span><span class="p">[],</span>
     <span class="n">vparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">kparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;ret0&quot;</span><span class="p">)]</span>
+    <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"ret0"</span><span class="p">)]</span>
 <span class="p">)</span>
 
 <span class="n">body</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span>
     <span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span>
-        <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;+&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">))</span>
+        <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">"+"</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"y"</span><span class="p">))</span>
     <span class="p">])</span>
 <span class="p">])</span>
 
-<span class="n">code</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Code</span><span class="p">(</span><span class="s2">&quot;add&quot;</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">body</span><span class="p">)</span>
+<span class="n">code</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Code</span><span class="p">(</span><span class="s2">"add"</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">body</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -371,12 +371,12 @@
 <h3>Creating Control Flow<a class="headerlink" href="#creating-control-flow" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">condition</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Condition</span><span class="p">(</span>
     <span class="n">preamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span>
-    <span class="n">conditional</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;&gt;&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">0</span><span class="p">)))</span>
+    <span class="n">conditional</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">"&gt;"</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">0</span><span class="p">)))</span>
 <span class="p">)</span>
 
 <span class="n">switch</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Switch</span><span class="p">(</span>
     <span class="n">condition</span><span class="o">=</span><span class="n">condition</span><span class="p">,</span>
-    <span class="n">t</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)])]),</span>
+    <span class="n">t</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)])]),</span>
     <span class="n">f</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">0</span><span class="p">))])])</span>
 <span class="p">)</span>
 </pre></div>

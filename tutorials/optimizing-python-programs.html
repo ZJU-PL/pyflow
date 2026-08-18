@@ -285,7 +285,7 @@ with their computed values.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">example</span><span class="p">():</span>
     <span class="n">x</span> <span class="o">=</span> <span class="mi">10</span>  <span class="c1"># Unused variable</span>
     <span class="k">return</span> <span class="mi">5</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;This is unreachable&quot;</span><span class="p">)</span>  <span class="c1"># After return</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"This is unreachable"</span><span class="p">)</span>  <span class="c1"># After return</span>
 </pre></div>
 </div>
 </div>
@@ -433,11 +433,11 @@ already compatible with the specialized arity.</p>
 <span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
 <span class="n">pipeline</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
-    <span class="s2">&quot;ipa&quot;</span><span class="p">,</span>           <span class="c1"># Inter-procedural analysis first</span>
-    <span class="s2">&quot;cpa&quot;</span><span class="p">,</span>           <span class="c1"># Constraint-based analysis</span>
-    <span class="s2">&quot;simplify&quot;</span><span class="p">,</span>      <span class="c1"># Basic simplifications</span>
-    <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span>    <span class="c1"># Method call optimization</span>
-    <span class="s2">&quot;cullprogram&quot;</span><span class="p">,</span>   <span class="c1"># Remove dead code</span>
+    <span class="s2">"ipa"</span><span class="p">,</span>           <span class="c1"># Inter-procedural analysis first</span>
+    <span class="s2">"cpa"</span><span class="p">,</span>           <span class="c1"># Constraint-based analysis</span>
+    <span class="s2">"simplify"</span><span class="p">,</span>      <span class="c1"># Basic simplifications</span>
+    <span class="s2">"methodcall"</span><span class="p">,</span>    <span class="c1"># Method call optimization</span>
+    <span class="s2">"cullprogram"</span><span class="p">,</span>   <span class="c1"># Remove dead code</span>
 <span class="p">])</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">run_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">)</span>
 </pre></div>

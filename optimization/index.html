@@ -207,7 +207,7 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>--list-opt-passes
 <span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
 <span class="n">pipeline</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
-    <span class="s2">&quot;ipa&quot;</span><span class="p">,</span> <span class="s2">&quot;cpa&quot;</span><span class="p">,</span> <span class="s2">&quot;simplify&quot;</span><span class="p">,</span> <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span> <span class="s2">&quot;clone&quot;</span>
+    <span class="s2">"ipa"</span><span class="p">,</span> <span class="s2">"cpa"</span><span class="p">,</span> <span class="s2">"simplify"</span><span class="p">,</span> <span class="s2">"methodcall"</span><span class="p">,</span> <span class="s2">"clone"</span>
 <span class="p">])</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">run_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">)</span>
 </pre></div>

@@ -239,11 +239,11 @@ interactive and CI usage.</p>
 <div class="code-block-caption"><span class="caption-text">Vulnerable code</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># SQL Injection</span>
 <span class="n">user_input</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
-<span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM users WHERE id = &quot;</span> <span class="o">+</span> <span class="n">user_input</span>
+<span class="n">query</span> <span class="o">=</span> <span class="s2">"SELECT * FROM users WHERE id = "</span> <span class="o">+</span> <span class="n">user_input</span>
 
 <span class="c1"># Command Injection</span>
 <span class="n">user_file</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
-<span class="n">os</span><span class="o">.</span><span class="n">system</span><span class="p">(</span><span class="s2">&quot;cat &quot;</span> <span class="o">+</span> <span class="n">user_file</span><span class="p">)</span>
+<span class="n">os</span><span class="o">.</span><span class="n">system</span><span class="p">(</span><span class="s2">"cat "</span> <span class="o">+</span> <span class="n">user_file</span><span class="p">)</span>
 
 <span class="c1"># Code Injection</span>
 <span class="n">user_code</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
@@ -258,7 +258,7 @@ interactive and CI usage.</p>
 <div class="literal-block-wrapper docutils container" id="id2">
 <div class="code-block-caption"><span class="caption-text">Vulnerable code</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Hardcoded password</span>
-<span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">&quot;sk-1234567890abcdef&quot;</span>
+<span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">"sk-1234567890abcdef"</span>
 
 <span class="c1"># Weak cryptography</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">md5</span>
@@ -297,10 +297,10 @@ interactive and CI usage.</p>
 ───────────────────────────────────────
 
 [HIGH] SQL Injection (line 15)
-  query = &quot;SELECT * FROM users WHERE id = &quot; + user_input
+  query = "SELECT * FROM users WHERE id = " + user_input
 
 [MEDIUM] Hardcoded API Key (line 23)
-  API_KEY = &quot;sk-1234567890abcdef&quot;
+  API_KEY = "sk-1234567890abcdef"
 
 [LOW] Use of deprecated md5 (line 31)
   hashed = md5(password).hexdigest()
@@ -315,26 +315,26 @@ interactive and CI usage.</p>
 </div>
 <p>Output:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;findings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"findings"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;severity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;HIGH&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sql_injection&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Potential SQL injection vulnerability&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;query = \&quot;SELECT * FROM users WHERE id = \&quot; + user_input&quot;</span>
+<span class="w">      </span><span class="nt">"severity"</span><span class="p">:</span><span class="w"> </span><span class="s2">"HIGH"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sql_injection"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"line"</span><span class="p">:</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Potential SQL injection vulnerability"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"query = \"SELECT * FROM users WHERE id = \" + user_input"</span>
 <span class="w">    </span><span class="p">},</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;severity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MEDIUM&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hardcoded_credentials&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hardcoded API key detected&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;API_KEY = \&quot;sk-1234567890abcdef\&quot;&quot;</span>
+<span class="w">      </span><span class="nt">"severity"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MEDIUM"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hardcoded_credentials"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"line"</span><span class="p">:</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Hardcoded API key detected"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"API_KEY = \"sk-1234567890abcdef\""</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;high&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;medium&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;low&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">  </span><span class="nt">"summary"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"high"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"medium"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"low"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
@@ -366,32 +366,32 @@ interactive and CI usage.</p>
 <section id="sql-injection">
 <h3>SQL Injection<a class="headerlink" href="#sql-injection" title="Link to this heading"></a></h3>
 <p><strong>Vulnerable:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
-<span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM users WHERE id = &quot;</span> <span class="o">+</span> <span class="n">user_id</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"id"</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="s2">"SELECT * FROM users WHERE id = "</span> <span class="o">+</span> <span class="n">user_id</span>
 </pre></div>
 </div>
 <p><strong>Fixed:</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
-<span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
-<span class="n">conn</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;database.db&quot;</span><span class="p">)</span>
+<span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"id"</span><span class="p">)</span>
+<span class="n">conn</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">"database.db"</span><span class="p">)</span>
 <span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
-<span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM users WHERE id = ?&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">user_id</span><span class="p">,))</span>
+<span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">"SELECT * FROM users WHERE id = ?"</span><span class="p">,</span> <span class="p">(</span><span class="n">user_id</span><span class="p">,))</span>
 </pre></div>
 </div>
 </section>
 <section id="hardcoded-credentials">
 <h3>Hardcoded Credentials<a class="headerlink" href="#hardcoded-credentials" title="Link to this heading"></a></h3>
 <p><strong>Vulnerable:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">&quot;sk-1234567890abcdef&quot;</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">"sk-1234567890abcdef"</span>
 </pre></div>
 </div>
 <p><strong>Fixed:</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="n">API_KEY</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;API_KEY&quot;</span><span class="p">)</span>
+<span class="n">API_KEY</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"API_KEY"</span><span class="p">)</span>
 <span class="k">if</span> <span class="ow">not</span> <span class="n">API_KEY</span><span class="p">:</span>
-    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;API_KEY not configured&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"API_KEY not configured"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -430,7 +430,7 @@ interactive and CI usage.</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Set up Python</span>
 <span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/setup-python@v4</span>
 <span class="w">        </span><span class="nt">with</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.10&#39;</span>
+<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">'3.10'</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Security Analysis</span>
