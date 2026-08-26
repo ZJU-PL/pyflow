@@ -11,12 +11,14 @@ evolving.
 
 If you use pyflow in your research or work, please cite the following:
 ~~~~
-@misc{pyflow2025,
-  title = {pyflow: A Program Analysis Framework for Python},
-  author = {ZJU Programming Languages and Automated Reasoning Group},
-  year = {2025},
-  url = {https://github.com/ZJU-PL/pyflow},
-  note = {Program analysis, compiler}
+@misc{pyflow2026,
+  title         = {PyFlow: An Inter-procedural Static Analysis Framework for Python},
+  author        = {Gu, Zinan and Yan, Haoxiang and Yao, Peisen},
+  year          = {2026},
+  eprint        = {2608.07026},
+  archivePrefix = {arXiv},
+  doi           = {10.48550/arXiv.2608.07026},
+  url           = {https://arxiv.org/abs/2608.07026}
 }
 ~~~~
 
