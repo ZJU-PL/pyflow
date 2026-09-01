@@ -8,6 +8,7 @@ from typing import Dict, Set, Sequence, Tuple, List
 
 from .model import (
     AbstractValue,
+    BOOL_VALUE,
     CONTAINER_KIND,
     COROUTINE_KIND,
     GENERATOR_KIND,
@@ -129,7 +130,7 @@ class _ExpressionAnalysisMixin:
                 scope, generator.target, iter_members, comp_env, weak=True
             )
             for cond in generator.ifs:
-                self._eval_expr(
+                condition_values = self._eval_expr(
                     scope,
                     scope_context,
                     cond,
@@ -137,7 +138,51 @@ class _ExpressionAnalysisMixin:
                     callees,
                     input_changed_scope_contexts,
                 )
+                self._eval_truth_test(
+                    scope,
+                    scope_context,
+                    cond,
+                    condition_values,
+                    comp_env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
         return comp_env
+
+    def _eval_truth_test(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        expression: ast.AST,
+        values: Set[AbstractValue],
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> None:
+        """Record Python's implicit ``__bool__``/``__len__`` protocol calls."""
+        for value in values:
+            truth_targets = self._resolve_attribute({value}, "__bool__")
+            if not truth_targets:
+                truth_targets = self._resolve_attribute({value}, "__len__")
+            if not truth_targets:
+                continue
+            synthetic_call = ast.copy_location(
+                ast.Call(
+                    func=ast.Name(id="bool", ctx=ast.Load()),
+                    args=[],
+                    keywords=[],
+                ),
+                expression,
+            )
+            self._invoke_targets(
+                caller_scope=scope,
+                caller_context=scope_context,
+                target_values=truth_targets,
+                call_node=synthetic_call,
+                env=env,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
 
     def _eval_expr(
         self,
@@ -159,6 +204,8 @@ class _ExpressionAnalysisMixin:
             return set(self._lookup_name(scope.module, expr.id, env))
 
         if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, bool):
+                return {BOOL_VALUE}
             if isinstance(expr.value, str):
                 return {make_string(expr.value)}
             if isinstance(expr.value, int):
@@ -733,43 +780,88 @@ class _ExpressionAnalysisMixin:
             return {container}
 
         if isinstance(expr, ast.IfExp):
-            out3 = self._eval_expr(
+            condition_values = self._eval_expr(
                 scope,
                 scope_context,
-                expr.body,
+                expr.test,
                 env,
                 callees,
                 input_changed_scope_contexts,
             )
-            out3.update(
-                self._eval_expr(
-                    scope,
-                    scope_context,
-                    expr.orelse,
-                    env,
-                    callees,
-                    input_changed_scope_contexts,
-                )
+            self._eval_truth_test(
+                scope,
+                scope_context,
+                expr.test,
+                condition_values,
+                env,
+                callees,
+                input_changed_scope_contexts,
             )
-            return out3
-
-        if isinstance(expr, ast.BoolOp):
-            out4: Set[AbstractValue] = set()
-            for value in expr.values:
-                out4.update(
+            truth = self._static_truthiness(expr.test, env)
+            out3: Set[AbstractValue] = set()
+            if truth is not False:
+                out3.update(
                     self._eval_expr(
                         scope,
                         scope_context,
-                        value,
+                        expr.body,
                         env,
                         callees,
                         input_changed_scope_contexts,
                     )
                 )
+            if truth is not True:
+                out3.update(
+                    self._eval_expr(
+                        scope,
+                        scope_context,
+                        expr.orelse,
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                )
+            return out3
+
+        if isinstance(expr, ast.BoolOp):
+            out4: Set[AbstractValue] = set()
+            last_index = len(expr.values) - 1
+            for index, value in enumerate(expr.values):
+                value_out = self._eval_expr(
+                    scope,
+                    scope_context,
+                    value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                if index == last_index:
+                    out4.update(value_out)
+                    break
+                self._eval_truth_test(
+                    scope,
+                    scope_context,
+                    value,
+                    value_out,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                truth = self._static_truthiness(value, env)
+                if isinstance(expr.op, ast.And):
+                    if truth is not True:
+                        out4.update(value_out)
+                    if truth is False:
+                        break
+                else:
+                    if truth is not False:
+                        out4.update(value_out)
+                    if truth is True:
+                        break
             return out4
 
         if isinstance(expr, ast.UnaryOp):
-            return self._eval_expr(
+            operand_values = self._eval_expr(
                 scope,
                 scope_context,
                 expr.operand,
@@ -777,6 +869,18 @@ class _ExpressionAnalysisMixin:
                 callees,
                 input_changed_scope_contexts,
             )
+            if isinstance(expr.op, ast.Not):
+                self._eval_truth_test(
+                    scope,
+                    scope_context,
+                    expr.operand,
+                    operand_values,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                return {BOOL_VALUE}
+            return operand_values
 
         if isinstance(expr, ast.BinOp):
             left_values = self._eval_expr(

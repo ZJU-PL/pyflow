@@ -44,6 +44,7 @@ from ..core.runtime import (
     _SummaryModule,
     _SuppressContext,
     _TupleValue,
+    _TargetException,
     _URLParseValue,
 )
 
@@ -310,7 +311,12 @@ class _SemanticMixin:
             method_with_owner = self._method_with_owner(value.class_value, "__bool__")
             if method_with_owner is not None:
                 method, owner = method_with_owner
-                return self._truthy(self._call_method(method, owner, value, [], {}))
+                result = self._call_method(method, owner, value, [], {})
+                if not isinstance(result, _BoolValue):
+                    raise _TargetException(
+                        "TypeError", "__bool__ should return bool"
+                    )
+                return result
             method_with_owner = self._method_with_owner(value.class_value, "__len__")
             if method_with_owner is not None:
                 return self._truthy(self._length(value))

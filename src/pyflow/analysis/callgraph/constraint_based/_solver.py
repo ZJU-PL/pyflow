@@ -393,9 +393,11 @@ class _FixpointSolverMixin:
     ) -> bool | None:
         """Best-effort static truthiness for simple boolean guards."""
         if isinstance(expr, ast.Constant):
-            if isinstance(expr.value, bool):
-                return expr.value
-            return None
+            return bool(expr.value)
+        if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
+            return bool(expr.elts)
+        if isinstance(expr, ast.Dict):
+            return bool(expr.keys)
         if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
             inner = self._static_truthiness(expr.operand, env)
             return None if inner is None else not inner

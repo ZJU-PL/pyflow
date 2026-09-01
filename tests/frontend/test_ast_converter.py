@@ -2,6 +2,7 @@
 
 import unittest
 import ast as python_ast
+from io import StringIO
 from unittest.mock import Mock, patch
 
 from pyflow.frontend.conversion.ast import ASTConverter
@@ -10,6 +11,7 @@ from pyflow.language.python.ir_metadata import (
     code_closure_cells,
 )
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.language.python.simplecodegen import SimpleCodeGen
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
 
@@ -342,6 +344,18 @@ while x > 0:
         result = self.converter._convert_expression(tree.body)
         self.assertIsInstance(result, pyflow_ast.ShortCircutAnd)
         self.assertEqual(len(result.terms), 3)
+        self.assertFalse(result.alwaysReturnsBoolean())
+
+    def test_simple_codegen_accepts_value_producing_boolean_operands(self):
+        tree = python_ast.parse("x = a and b\ny = a or b")
+        suite = self.converter.convert_python_ast_to_pyflow(tree.body)
+        output = StringIO()
+
+        SimpleCodeGen(output).process(suite)
+
+        generated = output.getvalue()
+        self.assertIn("x = a and b", generated)
+        self.assertIn(" or ", generated)
 
     def test_convert_ifexp(self):
         """Ternary expressions retain explicit branch structure."""

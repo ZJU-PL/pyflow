@@ -880,22 +880,36 @@ class GirEmitter:
         if isinstance(node, python_ast.BoolOp):
             values = list(node.values)
             result = self._emit_python_expression(values[0], statements)
-            operator = "and" if isinstance(node.op, python_ast.And) else "or"
             for value_node in values[1:]:
-                right = self._emit_python_expression(value_node, statements)
                 target = tmp_variable(self.counter)
+                branch: List[Dict[str, Any]] = []
+                right = self._emit_python_expression(value_node, branch)
+                branch.append(
+                    {"assign_stmt": {"target": target, "operand": right}}
+                )
+                if isinstance(node.op, python_ast.And):
+                    then_body, else_body = branch, []
+                else:
+                    then_body, else_body = [], branch
                 self._append_python_stmt(
                     statements,
                     node,
                     {
-                        "assign_stmt": {
-                            "target": target,
-                            "operator": operator,
-                            "operand": result,
-                            "operand2": right,
+                        "if_stmt": {
+                            "condition": result,
+                            "then_body": then_body,
+                            "else_body": else_body,
                         }
                     },
                 )
+                if isinstance(node.op, python_ast.And):
+                    else_body.append(
+                        {"assign_stmt": {"target": target, "operand": result}}
+                    )
+                else:
+                    then_body.append(
+                        {"assign_stmt": {"target": target, "operand": result}}
+                    )
                 result = target
             return result
         if isinstance(node, python_ast.IfExp):
@@ -2191,8 +2205,18 @@ class GirEmitter:
         return target
 
     def _emit_ConvertToBool(self, expr, statements: List[Dict[str, Any]]) -> str:
-        # Truthiness conversion is implicit in Lian; unwrap the operand.
-        return self.emit_expression(expr.expr, statements)
+        operand = self.emit_expression(expr.expr, statements)
+        negated = tmp_variable(self.counter)
+        target = tmp_variable(self.counter)
+        self._emit_variable_decl(negated, statements)
+        statements.append(
+            {"assign_stmt": {"target": negated, "operator": "not", "operand": operand}}
+        )
+        self._emit_variable_decl(target, statements)
+        statements.append(
+            {"assign_stmt": {"target": target, "operator": "not", "operand": negated}}
+        )
+        return target
 
     def _emit_ShortCircutAnd(self, expr, statements: List[Dict[str, Any]]) -> str:
         terms = list(getattr(expr, "terms", ()) or ())
@@ -2207,14 +2231,17 @@ class GirEmitter:
             {"assign_stmt": {"target": target, "operand": operand}}
         )
         for term in terms[1:]:
-            operand2 = self.emit_expression(term, statements)
+            then_body: List[Dict[str, Any]] = []
+            operand2 = self.emit_expression(term, then_body)
+            then_body.append(
+                {"assign_stmt": {"target": target, "operand": operand2}}
+            )
             statements.append(
                 {
-                    "assign_stmt": {
-                        "target": target,
-                        "operator": "and",
-                        "operand": target,
-                        "operand2": operand2,
+                    "if_stmt": {
+                        "condition": target,
+                        "then_body": then_body,
+                        "else_body": [],
                     }
                 }
             )
@@ -2233,14 +2260,17 @@ class GirEmitter:
             {"assign_stmt": {"target": target, "operand": operand}}
         )
         for term in terms[1:]:
-            operand2 = self.emit_expression(term, statements)
+            else_body: List[Dict[str, Any]] = []
+            operand2 = self.emit_expression(term, else_body)
+            else_body.append(
+                {"assign_stmt": {"target": target, "operand": operand2}}
+            )
             statements.append(
                 {
-                    "assign_stmt": {
-                        "target": target,
-                        "operator": "or",
-                        "operand": target,
-                        "operand2": operand2,
+                    "if_stmt": {
+                        "condition": target,
+                        "then_body": [],
+                        "else_body": else_body,
                     }
                 }
             )

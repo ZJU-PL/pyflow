@@ -9,6 +9,7 @@ from .model import (
     AbstractValue,
     BOUND_CLASS_METHOD_KIND,
     BOUND_METHOD_KIND,
+    BOOL_KIND,
     CLASS_KIND,
     CONTAINER_KIND,
     COROUTINE_KIND,
@@ -1319,8 +1320,14 @@ class _CallTargetMixin:
                 )
                 out.update(partial_result or {UNKNOWN_VALUE})
 
-            elif target.kind in {CONTAINER_KIND, STRING_KIND, UNKNOWN_KIND, NONE_KIND}:
-                if target.kind != NONE_KIND:
+            elif target.kind in {
+                BOOL_KIND,
+                CONTAINER_KIND,
+                STRING_KIND,
+                UNKNOWN_KIND,
+                NONE_KIND,
+            }:
+                if target.kind not in {BOOL_KIND, NONE_KIND}:
                     unresolved_dynamic = True
                     unresolved_reasons.add("unknown_callable")
                 out.add(UNKNOWN_VALUE)

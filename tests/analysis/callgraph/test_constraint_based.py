@@ -22,6 +22,61 @@ from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions
 
 
 class TestConstraintBasedPrecisionRecall(unittest.TestCase):
+    def test_not_result_does_not_preserve_callable_operand(self):
+        source = textwrap.dedent("""
+            def target():
+                return 1
+
+            value = not target
+            value()
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertNotIn("main.target", graph.get("main", set()))
+
+    def test_boolean_operator_skips_statically_unreachable_rhs(self):
+        source = textwrap.dedent("""
+            def unreachable():
+                return 1
+
+            False and unreachable()
+            True or unreachable()
+            [] and unreachable()
+            [1] or unreachable()
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertNotIn("main.unreachable", graph.get("main", set()))
+
+    def test_boolean_context_calls_truthiness_protocol_methods(self):
+        source = textwrap.dedent("""
+            class WithBool:
+                def __bool__(self):
+                    return True
+
+            class WithLen:
+                def __len__(self):
+                    return 1
+
+            def check_bool(value):
+                if value:
+                    pass
+
+            def check_len(value):
+                while value:
+                    break
+
+            check_bool(WithBool())
+            check_len(WithLen())
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertIn("main.WithBool.__bool__", graph.get("main.check_bool", set()))
+        self.assertIn("main.WithLen.__len__", graph.get("main.check_len", set()))
+
     def test_assignment_without_call_reduces_false_positive(self):
         source = textwrap.dedent("""
             def foo():

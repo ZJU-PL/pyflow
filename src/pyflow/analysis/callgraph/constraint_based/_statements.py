@@ -349,10 +349,19 @@ class _StatementAnalysisMixin:
         nonlocal_writes = state.nonlocal_writes
         falls_through = state.falls_through
 
-        self._eval_expr(
+        test_values = self._eval_expr(
             scope,
             scope_context,
             stmt.test,
+            env,
+            callees,
+            input_changed_scope_contexts,
+        )
+        self._eval_truth_test(
+            scope,
+            scope_context,
+            stmt.test,
+            test_values,
             env,
             callees,
             input_changed_scope_contexts,
@@ -587,10 +596,19 @@ class _StatementAnalysisMixin:
         global_writes = state.global_writes
         nonlocal_writes = state.nonlocal_writes
 
-        self._eval_expr(
+        test_values = self._eval_expr(
             scope,
             scope_context,
             stmt.test,
+            env,
+            callees,
+            input_changed_scope_contexts,
+        )
+        self._eval_truth_test(
+            scope,
+            scope_context,
+            stmt.test,
+            test_values,
             env,
             callees,
             input_changed_scope_contexts,
@@ -1018,10 +1036,19 @@ class _StatementAnalysisMixin:
                     case_env.setdefault(bound_name, set()).add(UNKNOWN_VALUE)
             guard_truth: bool | None = True if case.guard is None else None
             if case.guard is not None:
-                self._eval_expr(
+                guard_values = self._eval_expr(
                     scope,
                     scope_context,
                     case.guard,
+                    case_env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                self._eval_truth_test(
+                    scope,
+                    scope_context,
+                    case.guard,
+                    guard_values,
                     case_env,
                     callees,
                     input_changed_scope_contexts,
@@ -1151,10 +1178,19 @@ class _StatementAnalysisMixin:
         callees = state.callees
         input_changed_scope_contexts = state.input_changed_scope_contexts
 
-        self._eval_expr(
+        test_values = self._eval_expr(
             scope,
             scope_context,
             stmt.test,
+            env,
+            callees,
+            input_changed_scope_contexts,
+        )
+        self._eval_truth_test(
+            scope,
+            scope_context,
+            stmt.test,
+            test_values,
             env,
             callees,
             input_changed_scope_contexts,

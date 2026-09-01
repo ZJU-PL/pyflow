@@ -77,6 +77,20 @@ class TestGirEmitter(unittest.TestCase):
         self.assertEqual(row["assign_stmt"]["operand"], "a")
         self.assertEqual(row["assign_stmt"]["operand2"], "b")
 
+    def test_boolean_operators_keep_rhs_effects_inside_short_circuit_branches(self):
+        and_tree = emit_tree("x = False and boom()")
+        or_tree = emit_tree("x = True or boom()")
+
+        self.assertNotIn("call_stmt", and_tree[0])
+        and_branch = next(row["if_stmt"] for row in and_tree if "if_stmt" in row)
+        self.assertIn("call_stmt", and_branch["then_body"][0])
+        self.assertFalse(any("call_stmt" in row for row in and_branch["else_body"]))
+
+        self.assertNotIn("call_stmt", or_tree[0])
+        or_branch = next(row["if_stmt"] for row in or_tree if "if_stmt" in row)
+        self.assertFalse(any("call_stmt" in row for row in or_branch["then_body"]))
+        self.assertIn("call_stmt", or_branch["else_body"][0])
+
     def test_augassign_unwraps_tagged_suite(self):
         tree, _ = emit("x += 1")
         row = tree[-1]
@@ -217,12 +231,14 @@ class TestGirEmitter(unittest.TestCase):
             if "assign_stmt" in row and row["assign_stmt"]["target"] == "folded"
         )
         self.assertEqual(folded["operand"], "3")
+        boolean_branch = next(row["if_stmt"] for row in tree if "if_stmt" in row)
+        self.assertEqual(boolean_branch["condition"], "left")
+        self.assertTrue(boolean_branch["then_body"])
         operators = [
             row["assign_stmt"].get("operator")
             for row in tree
             if "assign_stmt" in row
         ]
-        self.assertIn("and", operators)
         self.assertIn("not", operators)
         set_allocations = [
             row["new_array"] for row in tree if "new_array" in row

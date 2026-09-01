@@ -114,6 +114,20 @@ class TestFoldRewrite(unittest.TestCase):
         result = fr.visitOK(node)
         self.assertEqual(result, node)
 
+    def test_convert_to_bool_keeps_value_producing_short_circuit_and(self):
+        expression = ast.ShortCircutAnd(
+            [
+                ast.Existing(program.Object(1)),
+                ast.Existing(program.Object(2)),
+            ]
+        )
+        conversion = ast.ConvertToBool(expression)
+        rewrite = FoldRewrite(MockExtractor(), None, MockCode())
+
+        result = rewrite.visitConvertToBool(conversion)
+
+        self.assertIs(result, conversion)
+
     def test_getObjects_unsupported_ref_is_conservative(self):
         fr = FoldRewrite(MockExtractor(), None, MockCode())
         self.assertEqual(fr.getObjects(object()), ())

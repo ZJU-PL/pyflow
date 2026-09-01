@@ -1,8 +1,70 @@
 from __future__ import annotations
 
+import pytest
+
 from pyflow.concolic import explore_file
 
 from .helpers import target_file as _target
+
+
+def test_chained_comparison_short_circuits_comparator_evaluation(tmp_path):
+    target = _target(
+        tmp_path,
+        "def boom(state):\n"
+        "    state.append('called')\n"
+        "    return 2\n"
+        "\n"
+        "def main(value):\n"
+        "    state = []\n"
+        "    result = 0 > 1 < boom(state)\n"
+        "    return (len(state), result)\n",
+    )
+
+    result = explore_file(target, initial_inputs=[0], max_iterations=1)
+
+    assert result.runs[0].result == (0, False)
+
+
+def test_rich_comparison_preserves_non_boolean_return_value(tmp_path):
+    target = _target(
+        tmp_path,
+        "class Token:\n"
+        "    def __eq__(self, other):\n"
+        "        return [42]\n"
+        "\n"
+        "def main(value):\n"
+        "    return Token() == value\n",
+    )
+
+    result = explore_file(target, initial_inputs=[0], max_iterations=1)
+
+    assert result.runs[0].result == [42]
+
+
+@pytest.mark.parametrize(
+    ("method", "return_value", "exception_type"),
+    [
+        ("__bool__", "123", "TypeError"),
+        ("__len__", "-1", "ValueError"),
+    ],
+)
+def test_truthiness_protocol_rejects_invalid_results(
+    tmp_path, method, return_value, exception_type
+):
+    target = _target(
+        tmp_path,
+        "class Invalid:\n"
+        f"    def {method}(self):\n"
+        f"        return {return_value}\n"
+        "\n"
+        "def main(value):\n"
+        "    return bool(Invalid())\n",
+    )
+
+    result = explore_file(target, initial_inputs=[0], max_iterations=1)
+
+    assert result.runs[0].outcome.kind.value == "target_exception"
+    assert result.runs[0].outcome.exception_type == exception_type
 
 
 def test_explorer_supports_iter_and_next_consumption(tmp_path):

@@ -33,6 +33,7 @@ BOUND_CLASS_METHOD_KIND = "bound_class_method"
 COROUTINE_KIND = "coroutine"
 GENERATOR_KIND = "generator"
 STRING_KIND = "string"
+BOOL_KIND = "bool"
 NONE_KIND = "none"
 UNKNOWN_KIND = "unknown"
 
@@ -50,6 +51,7 @@ class AbstractValue:
 
 UNKNOWN_VALUE = AbstractValue(UNKNOWN_KIND, "<unknown>")
 NONE_VALUE = AbstractValue(NONE_KIND, "None")
+BOOL_VALUE = AbstractValue(BOOL_KIND, "bool")
 
 
 @dataclass(frozen=True)

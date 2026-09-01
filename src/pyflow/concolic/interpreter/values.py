@@ -45,6 +45,7 @@ from ..core.runtime import (
     _StringValue,
     _TimedeltaValue,
     _TupleValue,
+    _TargetException,
     _Yielded,
 )
 
@@ -241,13 +242,65 @@ class _ValueMixin:
             return _IntValue(concrete, self._z3.IntVal(concrete))
         raise UnsupportedSyntaxError(f"unsupported binary operator {type(operator).__name__}")
 
-    def _compare(self, comparison: ast.Compare) -> _BoolValue:
+    def _compare(self, comparison: ast.Compare) -> Any:
         left = self._evaluate(comparison.left)
-        pairs = [
-            (operator, self._evaluate(node))
-            for operator, node in zip(comparison.ops, comparison.comparators)
-        ]
-        return self._compare_values(left, pairs)
+        last_index = len(comparison.ops) - 1
+        for index, (operator, node) in enumerate(
+            zip(comparison.ops, comparison.comparators)
+        ):
+            right = self._evaluate(node)
+            result = self._compare_pair(left, operator, right)
+            if index == last_index:
+                return result
+            condition = self._truthy(result)
+            self._record_branch(
+                condition.symbolic,
+                condition.concrete,
+                node,
+                "comparison_operand",
+            )
+            if not condition.concrete:
+                return result
+            left = right
+        raise UnsupportedSyntaxError("comparison requires at least one operator")
+
+    def _compare_pair(self, left: Any, operator: ast.cmpop, right: Any) -> Any:
+        if not isinstance(operator, (ast.In, ast.NotIn, ast.Is, ast.IsNot)):
+            left = self._enum_scalar(left)
+            right = self._enum_scalar(right)
+            if isinstance(left, _InstanceValue):
+                methods = {
+                    ast.Eq: "__eq__",
+                    ast.NotEq: "__ne__",
+                    ast.Lt: "__lt__",
+                    ast.LtE: "__le__",
+                    ast.Gt: "__gt__",
+                    ast.GtE: "__ge__",
+                }
+                method_name = next(
+                    (name for kind, name in methods.items() if isinstance(operator, kind)),
+                    None,
+                )
+                method_with_owner = (
+                    self._method_with_owner(left.class_value, method_name)
+                    if method_name is not None
+                    else None
+                )
+                used_equality_fallback = False
+                if method_with_owner is None and isinstance(operator, ast.NotEq):
+                    method_with_owner = self._method_with_owner(left.class_value, "__eq__")
+                    used_equality_fallback = method_with_owner is not None
+                if method_with_owner is not None:
+                    method, owner = method_with_owner
+                    result = self._call_method(method, owner, left, [right], {})
+                    if used_equality_fallback:
+                        boolean = self._truthy(result)
+                        return _BoolValue(
+                            not boolean.concrete,
+                            self._z3.Not(boolean.symbolic),
+                        )
+                    return result
+        return self._compare_values(left, [(operator, right)])
 
     def _compare_values(self, left: Any, pairs: list[tuple[ast.cmpop, Any]]) -> _BoolValue:
         concrete_parts: list[bool] = []
@@ -835,7 +888,18 @@ class _ValueMixin:
             method_with_owner = self._method_with_owner(value.class_value, "__len__")
             if method_with_owner is not None:
                 method, owner = method_with_owner
-                return self._as_int(self._call_method(method, owner, value, [], {}))
+                result = self._call_method(method, owner, value, [], {})
+                if isinstance(result, _BoolValue):
+                    result = self._to_int(result)
+                if not isinstance(result, _IntValue):
+                    raise _TargetException(
+                        "TypeError", "__len__() should return an integer"
+                    )
+                if result.concrete < 0:
+                    raise _TargetException(
+                        "ValueError", "__len__() should return >= 0"
+                    )
+                return result
         raise UnsupportedSyntaxError("len() requires a supported container")
 
     def _to_int(self, value: Any) -> _IntValue:

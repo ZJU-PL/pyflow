@@ -453,9 +453,6 @@ class ShortCircutAnd(Expression):
     # TODO type?
     __fields__ = "terms*"
 
-    def alwaysReturnsBoolean(self):
-        return True
-
 
 class ShortCircutOr(Expression):
     # TODO type?

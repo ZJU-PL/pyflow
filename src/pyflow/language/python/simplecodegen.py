@@ -434,8 +434,10 @@ class SimpleExprGen(TypeDispatcher):
         partial = []
 
         for i, term in enumerate(node.terms):
-            assert isinstance(term, ast.Condition), term
-            text, inner = self.parent.process(term)
+            if isinstance(term, ast.Condition):
+                text, inner = self.parent.process(term)
+            else:
+                text, inner = self.visitCached(term)
             partial.append(protect(text, inner, prec))
 
             if i == 0:
@@ -449,8 +451,10 @@ class SimpleExprGen(TypeDispatcher):
         prec = 21
         partial = []
         for i, term in enumerate(node.terms):
-            assert isinstance(term, ast.Condition), term
-            text, inner = self.parent.process(term)
+            if isinstance(term, ast.Condition):
+                text, inner = self.parent.process(term)
+            else:
+                text, inner = self.visitCached(term)
             partial.append(protect(text, inner, prec))
             if i == 0:
                 self.parent.enterSupress()
