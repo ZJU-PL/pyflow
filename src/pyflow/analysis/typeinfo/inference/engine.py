@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import builtins
 import collections.abc as cabc
+import operator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, cast
@@ -1230,7 +1231,14 @@ class StaticTypeInferenceEngine:
             value = (
                 AbstractTypeValue.from_type(NEVER)
                 if self._is_never_value(left) or self._is_never_value(right)
-                else self._binary_result(left, right, node.op)
+                else self._operator_result(
+                    node,
+                    left,
+                    right,
+                    self._binary_protocol_names(node.op),
+                    environment,
+                )
+                or self._binary_result(left, right, node.op)
             )
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate_expression(
@@ -1239,25 +1247,41 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
-            value = (
-                operand
-                if self._is_never_value(operand)
-                else self._instance(bool) if isinstance(node.op, ast.Not) else operand
-            )
-        elif isinstance(node, ast.Compare):
-            operands = [
-                self._evaluate_expression(
-                    child,
-                    environment,
-                    scope=scope,
-                    current_function=current_function,
+            if self._is_never_value(operand):
+                value = operand
+            elif isinstance(node.op, ast.Not):
+                value = self._instance(bool)
+            else:
+                unary_methods = {
+                    ast.UAdd: "__pos__",
+                    ast.USub: "__neg__",
+                    ast.Invert: "__invert__",
+                }
+                method = next(
+                    (
+                        name
+                        for kind, name in unary_methods.items()
+                        if isinstance(node.op, kind)
+                    ),
+                    None,
                 )
-                for child in (node.left, *node.comparators)
-            ]
-            value = (
-                AbstractTypeValue.from_type(NEVER)
-                if any(self._is_never_value(item) for item in operands)
-                else self._instance(bool)
+                value = (
+                    self._operator_result(
+                        node,
+                        operand,
+                        None,
+                        (method, None),
+                        environment,
+                    )
+                    if method is not None
+                    else None
+                ) or operand
+        elif isinstance(node, ast.Compare):
+            value = self._comparison_result(
+                node,
+                environment,
+                scope,
+                current_function,
             )
         elif isinstance(node, ast.BoolOp):
             first = self._evaluate_expression(
@@ -1849,6 +1873,175 @@ class StaticTypeInferenceEngine:
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
+
+    @staticmethod
+    def _binary_protocol_names(operator: ast.operator) -> tuple[str | None, str | None]:
+        methods = {
+            ast.Add: ("__add__", "__radd__"),
+            ast.Sub: ("__sub__", "__rsub__"),
+            ast.Mult: ("__mul__", "__rmul__"),
+            ast.MatMult: ("__matmul__", "__rmatmul__"),
+            ast.Div: ("__truediv__", "__rtruediv__"),
+            ast.FloorDiv: ("__floordiv__", "__rfloordiv__"),
+            ast.Mod: ("__mod__", "__rmod__"),
+            ast.Pow: ("__pow__", "__rpow__"),
+            ast.LShift: ("__lshift__", "__rlshift__"),
+            ast.RShift: ("__rshift__", "__rrshift__"),
+            ast.BitOr: ("__or__", "__ror__"),
+            ast.BitXor: ("__xor__", "__rxor__"),
+            ast.BitAnd: ("__and__", "__rand__"),
+        }
+        return next(
+            (names for kind, names in methods.items() if isinstance(operator, kind)),
+            (None, None),
+        )
+
+    def _operator_result(
+        self,
+        node: ast.expr,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue | None,
+        methods: tuple[str | None, str | None],
+        environment: dict[str, AbstractTypeValue],
+    ) -> AbstractTypeValue | None:
+        results: list[AbstractTypeValue] = []
+        direct, reflected = methods
+        if direct is not None:
+            attribute = ast.copy_location(
+                ast.Attribute(value=node, attr=direct, ctx=ast.Load()), node
+            )
+            result = self._call_attribute(
+                attribute,
+                left,
+                [] if right is None else [right],
+                {},
+                environment,
+            )
+            if result is not None:
+                results.append(result)
+        if reflected is not None and right is not None:
+            attribute = ast.copy_location(
+                ast.Attribute(value=node, attr=reflected, ctx=ast.Load()), node
+            )
+            result = self._call_attribute(
+                attribute,
+                right,
+                [left],
+                {},
+                environment,
+            )
+            if result is not None:
+                results.append(result)
+        if not results:
+            return None
+        return join_all(
+            results,
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+
+    @staticmethod
+    def _comparison_protocol_names(
+        operator: ast.cmpop,
+    ) -> tuple[str | None, str | None]:
+        methods = {
+            ast.Eq: ("__eq__", "__eq__"),
+            ast.NotEq: ("__ne__", "__ne__"),
+            ast.Lt: ("__lt__", "__gt__"),
+            ast.LtE: ("__le__", "__ge__"),
+            ast.Gt: ("__gt__", "__lt__"),
+            ast.GtE: ("__ge__", "__le__"),
+        }
+        return next(
+            (names for kind, names in methods.items() if isinstance(operator, kind)),
+            (None, None),
+        )
+
+    @staticmethod
+    def _static_comparison_truth(
+        left: ast.expr, operator_node: ast.cmpop, right: ast.expr
+    ) -> bool | None:
+        try:
+            left_value = ast.literal_eval(left)
+            right_value = ast.literal_eval(right)
+        except (TypeError, ValueError):
+            return None
+        operations = {
+            ast.Eq: operator.eq,
+            ast.NotEq: operator.ne,
+            ast.Lt: operator.lt,
+            ast.LtE: operator.le,
+            ast.Gt: operator.gt,
+            ast.GtE: operator.ge,
+            ast.Is: operator.is_,
+            ast.IsNot: operator.is_not,
+            ast.In: lambda left, right: operator.contains(right, left),
+            ast.NotIn: lambda left, right: not operator.contains(right, left),
+        }
+        operation = next(
+            (fn for kind, fn in operations.items() if isinstance(operator_node, kind)),
+            None,
+        )
+        if operation is None:
+            return None
+        try:
+            return bool(operation(left_value, right_value))
+        except (TypeError, ValueError):
+            return None
+
+    def _comparison_result(
+        self,
+        node: ast.Compare,
+        environment: dict[str, AbstractTypeValue],
+        scope: str,
+        current_function: _FunctionInfo | None,
+    ) -> AbstractTypeValue:
+        left_node = node.left
+        left = self._evaluate_expression(
+            left_node,
+            environment,
+            scope=scope,
+            current_function=current_function,
+        )
+        if self._is_never_value(left):
+            return left
+        results: list[AbstractTypeValue] = []
+        last_index = len(node.ops) - 1
+        for index, (operator_node, right_node) in enumerate(
+            zip(node.ops, node.comparators)
+        ):
+            right = self._evaluate_expression(
+                right_node,
+                environment,
+                scope=scope,
+                current_function=current_function,
+            )
+            if self._is_never_value(right):
+                results.append(right)
+                break
+            if isinstance(operator_node, (ast.Is, ast.IsNot, ast.In, ast.NotIn)):
+                pair = self._instance(bool)
+            else:
+                pair = self._operator_result(
+                    node,
+                    left,
+                    right,
+                    self._comparison_protocol_names(operator_node),
+                    environment,
+                ) or self._instance(bool)
+            if index == last_index:
+                results.append(pair)
+                break
+            truth = self._static_comparison_truth(
+                left_node, operator_node, right_node
+            )
+            if truth is not True:
+                results.append(pair)
+            if truth is False:
+                break
+            left_node = right_node
+            left = right
+        return self._join_normal_results(results)
 
     def _numeric_join(
         self, values: Iterable[AbstractTypeValue]

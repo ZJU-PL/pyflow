@@ -624,6 +624,49 @@ reachable = 1
     assert result.type_of("reachable") is not None
 
 
+def test_operator_protocol_return_types_flow_to_expression_results() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+class Value:
+    def __neg__(self):
+        return "negative"
+
+    def __add__(self, other):
+        return "sum"
+
+    def __eq__(self, other):
+        return [42]
+
+unary = -Value()
+binary = Value() + 1
+compared = Value() == 1
+""",
+    )
+
+    assert str in _raw_types(result.type_of("unary"))
+    assert str in _raw_types(result.type_of("binary"))
+    assert list in _raw_types(result.type_of("compared"))
+
+
+def test_chained_comparison_does_not_evaluate_statically_unreachable_never_rhs() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        """
+from typing import Never
+
+def fail() -> Never:
+    raise RuntimeError()
+
+compared = 0 > 1 < fail()
+reachable = 1
+""",
+    )
+
+    assert _raw_types(result.type_of("compared")) == {bool}
+    assert _raw_types(result.type_of("reachable")) == {int}
+
+
 def test_builtin_min_max_sum_and_iter_overloads() -> None:
     result = StaticTypeInferenceEngine().infer_source(
         "sample",

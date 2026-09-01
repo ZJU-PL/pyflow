@@ -137,6 +137,23 @@ class PythonExpressionSemantics:
             )
         if isinstance(expression, ast.IfExp):
             tested = self.evaluate(expression.test, state)
+            truth = self._static_truthiness(expression.test)
+            if truth is True:
+                body = self.evaluate(expression.body, tested.state)
+                return ExpressionResult(
+                    body.state,
+                    body.facts,
+                    body.location,
+                    tested.events | body.events,
+                )
+            if truth is False:
+                alternate = self.evaluate(expression.orelse, tested.state)
+                return ExpressionResult(
+                    alternate.state,
+                    alternate.facts,
+                    alternate.location,
+                    tested.events | alternate.events,
+                )
             body = self.evaluate(expression.body, tested.state)
             alternate = self.evaluate(expression.orelse, tested.state)
             return ExpressionResult(
@@ -145,7 +162,9 @@ class PythonExpressionSemantics:
                 events=tested.events | body.events | alternate.events,
             )
         if isinstance(expression, ast.BoolOp):
-            return self._evaluate_many(expression.values, state)
+            return self._evaluate_boolean_values(
+                expression.values, expression.op, state
+            )
         if isinstance(expression, ast.BinOp):
             return self._evaluate_many((expression.left, expression.right), state)
         if isinstance(expression, ast.UnaryOp):
@@ -196,6 +215,58 @@ class PythonExpressionSemantics:
             operation=type(expression).__name__,
         )
         return ExpressionResult(state.with_uncertainty(uncertainty))
+
+    @staticmethod
+    def _static_truthiness(expression: ast.AST) -> bool | None:
+        if isinstance(expression, ast.Constant):
+            return bool(expression.value)
+        if isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
+            return bool(expression.elts)
+        if isinstance(expression, ast.Dict):
+            return bool(expression.keys)
+        if isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.Not):
+            inner = PythonExpressionSemantics._static_truthiness(expression.operand)
+            return None if inner is None else not inner
+        return None
+
+    def _evaluate_boolean_values(
+        self,
+        values: list[ast.expr],
+        operator: ast.boolop,
+        state: TaintState,
+    ) -> ExpressionResult:
+        current = self.evaluate(values[0], state)
+        if len(values) == 1:
+            return current
+
+        truth = self._static_truthiness(values[0])
+        short_circuits = (
+            isinstance(operator, ast.And) and truth is False
+        ) or (
+            isinstance(operator, ast.Or) and truth is True
+        )
+        if short_circuits:
+            return current
+
+        remainder = self._evaluate_boolean_values(values[1:], operator, current.state)
+        events = current.events | remainder.events
+        must_continue = (
+            isinstance(operator, ast.And) and truth is True
+        ) or (
+            isinstance(operator, ast.Or) and truth is False
+        )
+        if must_continue:
+            return ExpressionResult(
+                remainder.state,
+                remainder.facts,
+                remainder.location,
+                events,
+            )
+        return ExpressionResult(
+            current.state.join(remainder.state),
+            current.facts | remainder.facts,
+            events=events,
+        )
 
     def location_of(self, expression: ast.AST) -> TaintLocation | None:
         if isinstance(expression, ast.Name):

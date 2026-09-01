@@ -158,6 +158,31 @@ def f():
     assert _sink_events(result) == []
 
 
+def test_formal_semantics_prunes_short_circuited_expression_source():
+    for expression in ("False and input()", "True or input()"):
+        result = _analyze(
+            f"""
+def f():
+    value = {expression}
+    eval(value)
+"""
+        )
+
+        assert _sink_events(result) == []
+
+
+def test_formal_semantics_prunes_unselected_conditional_expression_source():
+    result = _analyze(
+        """
+def f():
+    value = "safe" if True else input()
+    eval(value)
+"""
+    )
+
+    assert _sink_events(result) == []
+
+
 def test_formal_semantics_iterates_loops_and_keeps_zero_iteration_path():
     result = _analyze(
         """

@@ -77,6 +77,69 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.WithBool.__bool__", graph.get("main.check_bool", set()))
         self.assertIn("main.WithLen.__len__", graph.get("main.check_len", set()))
 
+    def test_operator_results_do_not_reuse_callable_operands(self):
+        source = textwrap.dedent("""
+            def target():
+                return 1
+
+            compared = target == 0
+            combined = target + 1
+            negated = -target
+            compared()
+            combined()
+            negated()
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertNotIn("main.target", graph.get("main", set()))
+
+    def test_operator_protocol_calls_and_returned_callables_are_tracked(self):
+        source = textwrap.dedent("""
+            def callback():
+                return 1
+
+            class Value:
+                def __neg__(self):
+                    return callback
+
+                def __add__(self, other):
+                    return callback
+
+                def __eq__(self, other):
+                    return callback
+
+            def run():
+                unary = -Value()
+                binary = Value() + 1
+                compared = Value() == 1
+                unary()
+                binary()
+                compared()
+
+            run()
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+        run_edges = graph.get("main.run", set())
+
+        self.assertIn("main.Value.__neg__", run_edges)
+        self.assertIn("main.Value.__add__", run_edges)
+        self.assertIn("main.Value.__eq__", run_edges)
+        self.assertIn("main.callback", run_edges)
+
+    def test_chained_comparison_skips_statically_unreachable_comparator(self):
+        source = textwrap.dedent("""
+            def unreachable():
+                return 1
+
+            0 > 1 < unreachable()
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertNotIn("main.unreachable", graph.get("main", set()))
+
     def test_assignment_without_call_reduces_false_positive(self):
         source = textwrap.dedent("""
             def foo():

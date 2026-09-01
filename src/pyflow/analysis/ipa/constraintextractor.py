@@ -583,9 +583,13 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
     def visitShortCircutBool(self, node, targets=None):
+        result = None
+        if targets is None:
+            result = self._freshLocal("short_circuit")
+            targets = [result]
         for term in node.terms:
-            self(term)
-        return None
+            self(term, targets)
+        return result
 
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):

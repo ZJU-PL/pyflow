@@ -336,6 +336,25 @@ result = first(*items)
         assert len(pts_y) > 0
         assert pts_x != pts_y
 
+    def test_not_produces_boolean_without_propagating_bool_method_return(self) -> None:
+        source = """
+def target():
+    pass
+
+class Value:
+    def __bool__(self):
+        return target
+
+result = not Value()
+result()
+"""
+
+        analysis = PointerAnalysis(source).run()
+
+        assert any("AllocKind.CONSTANT" in obj for obj in analysis.points_to("result"))
+        assert any("__bool__" in callee for _, callee in analysis.call_edges())
+        assert not any("target" in callee for _, callee in analysis.call_edges())
+
     def test_class_instance(self) -> None:
         source = """
 class Point:

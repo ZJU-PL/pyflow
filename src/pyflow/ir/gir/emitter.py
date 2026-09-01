@@ -818,20 +818,12 @@ class GirEmitter:
                 }
             self._append_python_stmt(statements, node, operation)
             return target
-        if isinstance(node, (python_ast.BinOp, python_ast.Compare)):
+        if isinstance(node, python_ast.BinOp):
             evaluated = self._evaluated_literal_expression(node)
             if evaluated is not None:
                 return evaluated
-            if isinstance(node, python_ast.BinOp):
-                left_node, right_node, operator_node = node.left, node.right, node.op
-                operator_text = self._python_operator(operator_node)
-            else:
-                left_node = node.left
-                right_node = node.comparators[-1]
-                operator_node = node.ops[0]
-                operator_text = " ".join(
-                    self._python_operator(operator) for operator in node.ops
-                )
+            left_node, right_node, operator_node = node.left, node.right, node.op
+            operator_text = self._python_operator(operator_node)
             target = tmp_variable(self.counter)
             left = self._emit_python_expression(left_node, statements)
             right = self._emit_python_expression(right_node, statements)
@@ -847,6 +839,51 @@ class GirEmitter:
                     }
                 },
             )
+            return target
+        if isinstance(node, python_ast.Compare):
+            evaluated = self._evaluated_literal_expression(node)
+            if evaluated is not None:
+                return evaluated
+            left = self._emit_python_expression(node.left, statements)
+            right = self._emit_python_expression(node.comparators[0], statements)
+            target = tmp_variable(self.counter)
+            self._append_python_stmt(
+                statements,
+                node,
+                {
+                    "assign_stmt": {
+                        "target": target,
+                        "operator": self._python_operator(node.ops[0]),
+                        "operand": left,
+                        "operand2": right,
+                    }
+                },
+            )
+            for operator, comparator in zip(node.ops[1:], node.comparators[1:]):
+                then_body: List[Dict[str, Any]] = []
+                next_right = self._emit_python_expression(comparator, then_body)
+                then_body.append(
+                    {
+                        "assign_stmt": {
+                            "target": target,
+                            "operator": self._python_operator(operator),
+                            "operand": right,
+                            "operand2": next_right,
+                        }
+                    }
+                )
+                self._append_python_stmt(
+                    statements,
+                    node,
+                    {
+                        "if_stmt": {
+                            "condition": target,
+                            "then_body": then_body,
+                            "else_body": [],
+                        }
+                    },
+                )
+                right = next_right
             return target
         if isinstance(node, python_ast.UnaryOp):
             operand = self._emit_python_expression(node.operand, statements)

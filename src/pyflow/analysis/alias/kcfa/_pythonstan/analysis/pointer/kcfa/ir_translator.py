@@ -469,12 +469,14 @@ class IRTranslator:
             lvar = self._make_variable(rval.left.id)
             rvar = self._make_variable(rval.right.id)
             target = self._make_variable(lval.id)
-            self._translate_binary_op(lvar, rvar, target, rval.op)
+            constraints.extend(self._translate_binary_op(lvar, rvar, target, rval.op))
         
         elif isinstance(rval, ast.UnaryOp):
             operand = self._make_variable(rval.operand.id)
             target = self._make_variable(lval.id)
-            self._translate_unary_op(operand, target, rval.op)
+            constraints.extend(
+                self._translate_unary_op(operand, target, rval.op, stmt)
+            )
             
         elif isinstance(rval, ast.Dict):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.DICT)
@@ -1312,9 +1314,57 @@ class IRTranslator:
         self, 
         operand_var: 'Variable', 
         target_var: 'Variable',
-        op: ast.unaryop
+        op: ast.unaryop,
+        stmt: 'IRAssign',
     ) -> List['Constraint']:
         constraints = []
+
+        if isinstance(op, ast.Not):
+            for method_name in ("__bool__", "__len__"):
+                method_var = self._make_variable(
+                    f"${method_name}_{stable_token(operand_var)}"
+                )
+                constraints.append(
+                    LoadConstraint(
+                        base=operand_var,
+                        field=attr(method_name),
+                        target=method_var,
+                    )
+                )
+                call_stmt = IRCall(
+                    ast.Call(
+                        func=ast.Name(id=method_name, ctx=ast.Load()),
+                        args=[],
+                        keywords=[],
+                    )
+                )
+                constraints.append(
+                    CallConstraint(
+                        callee=method_var,
+                        args=(),
+                        kwargs=(),
+                        target=None,
+                        call_site=CallSite(
+                            statement=call_stmt,
+                            scope_name=self._get_current_scope_label(),
+                        ),
+                    )
+                )
+            bool_assign = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=target_var.name, ctx=ast.Store())],
+                    value=ast.Constant(value=False),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=target_var,
+                    alloc_site=AllocSite.from_ir_node(
+                        bool_assign, AllocKind.CONSTANT
+                    ),
+                )
+            )
+            return constraints
 
         op_name = UNARYOP_TABLE.get(op, None)
         if not op_name:

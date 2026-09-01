@@ -290,14 +290,22 @@ class _LiteralFolder(ast.NodeTransformer):
                     for prefix in node.values[:index]
                 ) and isinstance(node.op, ast.And):
                     self.boolean_simplifications += 1
-                    return value_node
+                    remaining = node.values[index:]
+                    if len(remaining) == 1:
+                        return remaining[0]
+                    node.values = remaining
+                    return node
                 if index and all(
                     self._literal_value(prefix)[0]
                     and not bool(self._literal_value(prefix)[1])
                     for prefix in node.values[:index]
                 ) and isinstance(node.op, ast.Or):
                     self.boolean_simplifications += 1
-                    return value_node
+                    remaining = node.values[index:]
+                    if len(remaining) == 1:
+                        return remaining[0]
+                    node.values = remaining
+                    return node
                 return self._try_fold_expression(node)
 
             short_circuits = (isinstance(node.op, ast.And) and not value) or (

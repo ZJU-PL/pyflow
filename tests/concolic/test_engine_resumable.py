@@ -42,6 +42,43 @@ def test_resumable_cfg_records_suspension_and_resume_edges():
     assert any(label == "true" for _, _, label in cfg.edges)
 
 
+def test_resumable_chained_comparison_short_circuits_awaited_rhs(tmp_path):
+    target = _target(
+        tmp_path,
+        "async def boom(state):\n"
+        "    state.append(1)\n"
+        "    return 2\n"
+        "\n"
+        "async def main(value):\n"
+        "    state = []\n"
+        "    result = 0 > 1 < await boom(state)\n"
+        "    return (len(state), result)\n",
+    )
+
+    result = explore_file(target, initial_inputs=[0], max_iterations=1)
+
+    assert result.runs[0].result == (0, False)
+
+
+def test_resumable_rich_comparison_preserves_return_value(tmp_path):
+    target = _target(
+        tmp_path,
+        "class Token:\n"
+        "    def __eq__(self, other):\n"
+        "        return [42]\n"
+        "\n"
+        "async def identity(value):\n"
+        "    return value\n"
+        "\n"
+        "async def main(value):\n"
+        "    return Token() == await identity(value)\n",
+    )
+
+    result = explore_file(target, initial_inputs=[0], max_iterations=1)
+
+    assert result.runs[0].result == [42]
+
+
 def test_generators_are_lazy_and_delay_post_yield_exceptions(tmp_path):
     target = _target(
         tmp_path,

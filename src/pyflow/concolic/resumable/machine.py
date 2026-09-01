@@ -339,11 +339,25 @@ class _ResumableMachineMixin:
                 return _BoolValue(not boolean.concrete, self._z3.Not(boolean.symbolic))
         if isinstance(expression, ast.Compare):
             left = yield from self._resumable_evaluate(expression.left)
-            pairs = []
-            for operator, comparator in zip(expression.ops, expression.comparators):
+            last_index = len(expression.ops) - 1
+            for index, (operator, comparator) in enumerate(
+                zip(expression.ops, expression.comparators)
+            ):
                 right = yield from self._resumable_evaluate(comparator)
-                pairs.append((operator, right))
-            return self._compare_values(left, pairs)
+                result = self._compare_pair(left, operator, right)
+                if index == last_index:
+                    return result
+                condition = self._truthy(result)
+                self._record_branch(
+                    condition.symbolic,
+                    condition.concrete,
+                    comparator,
+                    "comparison_operand",
+                )
+                if not condition.concrete:
+                    return result
+                left = right
+            raise UnsupportedSyntaxError("comparison requires at least one operator")
         if isinstance(expression, ast.Call):
             args = []
             for argument in expression.args:

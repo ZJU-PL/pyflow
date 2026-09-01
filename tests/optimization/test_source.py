@@ -156,6 +156,21 @@ def calculate():
     assert _run(result.source, "calculate")() == (False, True)
 
 
+def test_optimize_source_keeps_tail_after_leading_boolean_identity():
+    result = optimize_source(
+        """\
+def calculate(first, second):
+    return True and first and second, False or first or second
+"""
+    )
+
+    optimized = _run(result.source, "calculate")
+    for first, second in ((0, 2), (1, 2), (1, 0)):
+        assert optimized(first, second) == (first and second, first or second)
+    assert "first and second" in result.source
+    assert "first or second" in result.source
+
+
 def test_short_circuit_is_preserved_when_skipped_operand_binds_a_name():
     source = """\
 def calculate():

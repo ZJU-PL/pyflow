@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import heapq
+import operator
 import warnings
 from collections import deque
 from typing import Dict, Mapping, Sequence, Set, Tuple, List
@@ -398,6 +399,38 @@ class _FixpointSolverMixin:
             return bool(expr.elts)
         if isinstance(expr, ast.Dict):
             return bool(expr.keys)
+        if (
+            isinstance(expr, ast.Compare)
+            and len(expr.ops) == 1
+            and len(expr.comparators) == 1
+        ):
+            try:
+                left = ast.literal_eval(expr.left)
+                right = ast.literal_eval(expr.comparators[0])
+            except (TypeError, ValueError):
+                return None
+            comparisons = {
+                ast.Eq: operator.eq,
+                ast.NotEq: operator.ne,
+                ast.Lt: operator.lt,
+                ast.LtE: operator.le,
+                ast.Gt: operator.gt,
+                ast.GtE: operator.ge,
+                ast.Is: operator.is_,
+                ast.IsNot: operator.is_not,
+                ast.In: lambda left, right: operator.contains(right, left),
+                ast.NotIn: lambda left, right: not operator.contains(right, left),
+            }
+            operation = next(
+                (fn for kind, fn in comparisons.items() if isinstance(expr.ops[0], kind)),
+                None,
+            )
+            if operation is None:
+                return None
+            try:
+                return bool(operation(left, right))
+            except (TypeError, ValueError):
+                return None
         if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
             inner = self._static_truthiness(expr.operand, env)
             return None if inner is None else not inner

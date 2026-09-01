@@ -597,9 +597,13 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
     def visitShortCircutBool(self, node, targets=None):
+        result = None
+        if targets is None:
+            result = self._freshLocalSlot("short_circuit")
+            targets = [result]
         for term in node.terms:
-            self(term)
-        return None
+            self(term, targets)
+        return result
 
     @dispatch(ast.MakeFunction)
     def visitMakeFunction(self, node, targets=None):

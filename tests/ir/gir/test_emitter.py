@@ -91,6 +91,19 @@ class TestGirEmitter(unittest.TestCase):
         self.assertFalse(any("call_stmt" in row for row in or_branch["then_body"]))
         self.assertIn("call_stmt", or_branch["else_body"][0])
 
+    def test_chained_comparison_evaluates_middle_once_and_short_circuits_tail(self):
+        tree = emit_tree("result = left() < middle() < right()")
+
+        top_level_calls = [
+            row["call_stmt"]["name"] for row in tree if "call_stmt" in row
+        ]
+        self.assertEqual(top_level_calls, ["left", "middle"])
+        first_compare = next(row["assign_stmt"] for row in tree if "assign_stmt" in row)
+        self.assertEqual(first_compare["operator"], "<")
+        branch = next(row["if_stmt"] for row in tree if "if_stmt" in row)
+        self.assertEqual(branch["then_body"][0]["call_stmt"]["name"], "right")
+        self.assertEqual(branch["then_body"][1]["assign_stmt"]["operator"], "<")
+
     def test_augassign_unwraps_tagged_suite(self):
         tree, _ = emit("x += 1")
         row = tree[-1]

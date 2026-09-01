@@ -184,6 +184,128 @@ class _ExpressionAnalysisMixin:
                 input_changed_scope_contexts=input_changed_scope_contexts,
             )
 
+    def _eval_operator_protocol(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        expression: ast.AST,
+        receiver_values: Set[AbstractValue],
+        method_name: str,
+        arguments: Sequence[ast.expr],
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Set[AbstractValue]:
+        targets = self._resolve_attribute(receiver_values, method_name)
+        if not targets:
+            return set()
+        synthetic_call = ast.copy_location(
+            ast.Call(
+                func=ast.Name(id=method_name, ctx=ast.Load()),
+                args=list(arguments),
+                keywords=[],
+            ),
+            expression,
+        )
+        return self._invoke_targets(
+            caller_scope=scope,
+            caller_context=scope_context,
+            target_values=targets,
+            call_node=synthetic_call,
+            env=env,
+            callees=callees,
+            input_changed_scope_contexts=input_changed_scope_contexts,
+        )
+
+    def _eval_comparison_pair(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        expression: ast.Compare,
+        operator: ast.cmpop,
+        left_node: ast.expr,
+        left_values: Set[AbstractValue],
+        right_node: ast.expr,
+        right_values: Set[AbstractValue],
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Set[AbstractValue]:
+        if isinstance(operator, (ast.Is, ast.IsNot)):
+            return {BOOL_VALUE}
+        if isinstance(operator, (ast.In, ast.NotIn)):
+            self._eval_operator_protocol(
+                scope,
+                scope_context,
+                expression,
+                right_values,
+                "__contains__",
+                (left_node,),
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            return {BOOL_VALUE}
+
+        direct_methods = {
+            ast.Eq: "__eq__",
+            ast.NotEq: "__ne__",
+            ast.Lt: "__lt__",
+            ast.LtE: "__le__",
+            ast.Gt: "__gt__",
+            ast.GtE: "__ge__",
+        }
+        reflected_methods = {
+            ast.Eq: "__eq__",
+            ast.NotEq: "__ne__",
+            ast.Lt: "__gt__",
+            ast.LtE: "__ge__",
+            ast.Gt: "__lt__",
+            ast.GtE: "__le__",
+        }
+        direct_name = next(
+            (name for kind, name in direct_methods.items() if isinstance(operator, kind)),
+            None,
+        )
+        reflected_name = next(
+            (
+                name
+                for kind, name in reflected_methods.items()
+                if isinstance(operator, kind)
+            ),
+            None,
+        )
+        results: Set[AbstractValue] = {BOOL_VALUE}
+        if direct_name is not None:
+            results.update(
+                self._eval_operator_protocol(
+                    scope,
+                    scope_context,
+                    expression,
+                    left_values,
+                    direct_name,
+                    (right_node,),
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+            )
+        if reflected_name is not None:
+            results.update(
+                self._eval_operator_protocol(
+                    scope,
+                    scope_context,
+                    expression,
+                    right_values,
+                    reflected_name,
+                    (left_node,),
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+            )
+        return results
+
     def _eval_expr(
         self,
         scope: ScopeInfo,
@@ -880,7 +1002,29 @@ class _ExpressionAnalysisMixin:
                     input_changed_scope_contexts,
                 )
                 return {BOOL_VALUE}
-            return operand_values
+            unary_methods = {
+                ast.UAdd: "__pos__",
+                ast.USub: "__neg__",
+                ast.Invert: "__invert__",
+            }
+            method_name = next(
+                (name for kind, name in unary_methods.items() if isinstance(expr.op, kind)),
+                None,
+            )
+            if method_name is None:
+                return {UNKNOWN_VALUE}
+            results = self._eval_operator_protocol(
+                scope,
+                scope_context,
+                expr,
+                operand_values,
+                method_name,
+                (),
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            return results or {UNKNOWN_VALUE}
 
         if isinstance(expr, ast.BinOp):
             left_values = self._eval_expr(
@@ -899,32 +1043,122 @@ class _ExpressionAnalysisMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            out5 = set(left_values)
-            out5.update(right_values)
-            if isinstance(expr.op, ast.Add):
-                out5.update(self._combine_string_values(left_values, right_values))
-            return out5
-
-        if isinstance(expr, ast.Compare):
-            out6 = self._eval_expr(
-                scope,
-                scope_context,
-                expr.left,
-                env,
-                callees,
-                input_changed_scope_contexts,
+            direct_methods = {
+                ast.Add: "__add__",
+                ast.Sub: "__sub__",
+                ast.Mult: "__mul__",
+                ast.MatMult: "__matmul__",
+                ast.Div: "__truediv__",
+                ast.FloorDiv: "__floordiv__",
+                ast.Mod: "__mod__",
+                ast.Pow: "__pow__",
+                ast.LShift: "__lshift__",
+                ast.RShift: "__rshift__",
+                ast.BitOr: "__or__",
+                ast.BitXor: "__xor__",
+                ast.BitAnd: "__and__",
+            }
+            method_name = next(
+                (name for kind, name in direct_methods.items() if isinstance(expr.op, kind)),
+                None,
             )
-            for comparator in expr.comparators:
-                out6.update(
-                    self._eval_expr(
+            reflected_name = f"__r{method_name[2:]}" if method_name else None
+            out5: Set[AbstractValue] = set()
+            if method_name is not None:
+                out5.update(
+                    self._eval_operator_protocol(
                         scope,
                         scope_context,
-                        comparator,
+                        expr,
+                        left_values,
+                        method_name,
+                        (expr.right,),
                         env,
                         callees,
                         input_changed_scope_contexts,
                     )
                 )
+            if reflected_name is not None:
+                out5.update(
+                    self._eval_operator_protocol(
+                        scope,
+                        scope_context,
+                        expr,
+                        right_values,
+                        reflected_name,
+                        (expr.left,),
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                )
+            if isinstance(expr.op, ast.Add):
+                out5.update(self._combine_string_values(left_values, right_values))
+            return out5 or {UNKNOWN_VALUE}
+
+        if isinstance(expr, ast.Compare):
+            left_node = expr.left
+            left_values = self._eval_expr(
+                scope,
+                scope_context,
+                left_node,
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            out6: Set[AbstractValue] = set()
+            last_index = len(expr.ops) - 1
+            for index, (operator, comparator) in enumerate(
+                zip(expr.ops, expr.comparators)
+            ):
+                right_values = self._eval_expr(
+                    scope,
+                    scope_context,
+                    comparator,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                pair_values = self._eval_comparison_pair(
+                    scope,
+                    scope_context,
+                    expr,
+                    operator,
+                    left_node,
+                    left_values,
+                    comparator,
+                    right_values,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                if index == last_index:
+                    out6.update(pair_values)
+                    break
+                self._eval_truth_test(
+                    scope,
+                    scope_context,
+                    comparator,
+                    pair_values,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                pair_expr = ast.copy_location(
+                    ast.Compare(
+                        left=left_node,
+                        ops=[operator],
+                        comparators=[comparator],
+                    ),
+                    expr,
+                )
+                truth = self._static_truthiness(pair_expr, env)
+                if truth is not True:
+                    out6.update(pair_values)
+                if truth is False:
+                    break
+                left_node = comparator
+                left_values = right_values
             return out6
 
         if isinstance(expr, ast.Subscript):
