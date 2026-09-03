@@ -65,6 +65,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#analysis-commands">Analysis Commands</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-callgraph"><strong>pyflow callgraph</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-ir"><strong>pyflow ir</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-concolic"><strong>pyflow concolic</strong></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#optimization-commands">Optimization Commands</a><ul>
@@ -140,7 +141,8 @@
   <p>Command Line Interface
 ========    ==============</p>
 <p>PyFlow provides a CLI for static analysis, optimization, IR inspection,
-security checking, and alias analysis of Python code.</p>
+security checking, concolic test-input generation, and alias analysis of
+Python code.</p>
 <p>This page summarizes the most important commands. For the authoritative option
 reference used by the repository today, also see <code class="docutils literal notranslate"><span class="pre">CLI.md</span></code> in the project root.</p>
 <section id="main-commands">
@@ -199,6 +201,30 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories
 - <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
+</section>
+<section id="pyflow-concolic">
+<h3><strong>pyflow concolic</strong><a class="headerlink" href="#pyflow-concolic" title="Link to this heading"></a></h3>
+<p>Generate branch-covering inputs for a single function by replaying concrete
+inputs and using Z3 to flip each observed branch. The default entry function
+is <code class="docutils literal notranslate"><span class="pre">main</span></code>. Requires the optional <code class="docutils literal notranslate"><span class="pre">z3-solver</span></code> dependency
+(<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">&quot;.[concolic]&quot;</span></code>).</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">concolic</span> <span class="n">target</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">entry</span> <span class="n">parse</span> <span class="o">--</span><span class="n">inputs</span> <span class="s1">'[0, 0]'</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">concolic</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">scan</span><span class="o">-</span><span class="n">project</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">functions</span> <span class="mi">20</span>
+<span class="n">pyflow</span> <span class="n">concolic</span> <span class="n">target</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">emit</span><span class="o">-</span><span class="n">pytest</span> <span class="n">tests</span><span class="o">/</span><span class="n">test_target_gen</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--entry</span> <span class="pre">NAME</span></code>: Function to explore (default: <code class="docutils literal notranslate"><span class="pre">main</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--inputs</span> <span class="pre">JSON_ARRAY</span></code>: Initial arguments as a JSON array (default: zero for each parameter)
+- <code class="docutils literal notranslate"><span class="pre">--max-iterations</span> <span class="pre">N</span></code>: Maximum concrete executions (default: 50)
+- <code class="docutils literal notranslate"><span class="pre">--max-loop-iterations</span> <span class="pre">N</span></code>: Concrete loop cap per <code class="docutils literal notranslate"><span class="pre">while</span></code> statement (default: 100)
+- <code class="docutils literal notranslate"><span class="pre">--check-contracts</span></code>: Solve supported PEP 316 <code class="docutils literal notranslate"><span class="pre">post:</span></code> clauses for a counterexample
+- <code class="docutils literal notranslate"><span class="pre">--refine-opaque-calls</span></code>: Execute safe unsupported library calls concretely and refine symbolic relations from observations
+- <code class="docutils literal notranslate"><span class="pre">--scan-project</span></code>: Discover and measure functions beneath the input path (with <code class="docutils literal notranslate"><span class="pre">--max-functions</span></code>, <code class="docutils literal notranslate"><span class="pre">--input-complexity</span></code>, <code class="docutils literal notranslate"><span class="pre">--function-timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">--allow-side-effects</span></code>, <code class="docutils literal notranslate"><span class="pre">--include-private</span></code>, <code class="docutils literal notranslate"><span class="pre">--json-output</span> <span class="pre">PATH</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--emit-pytest</span> <span class="pre">PATH</span></code>: Write a minimized, CPython-replay-validated pytest module
+- <code class="docutils literal notranslate"><span class="pre">--search-strategy</span></code>: Pending-state selection (<code class="docutils literal notranslate"><span class="pre">fifo</span></code>, <code class="docutils literal notranslate"><span class="pre">breadth_first</span></code>, <code class="docutils literal notranslate"><span class="pre">coverage</span></code>; default: <code class="docutils literal notranslate"><span class="pre">coverage</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--total-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--per-run-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-rlimit</span></code> / <code class="docutils literal notranslate"><span class="pre">--max-solver-calls</span></code>: Wall-clock and solver budgets
+- <code class="docutils literal notranslate"><span class="pre">--json</span></code>: Emit generated inputs and execution results as JSON</p>
 </section>
 </section>
 <section id="optimization-commands">

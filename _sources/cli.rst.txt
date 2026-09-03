@@ -2,7 +2,8 @@ Command Line Interface
 ========    ==============
 
 PyFlow provides a CLI for static analysis, optimization, IR inspection,
-security checking, and alias analysis of Python code.
+security checking, concolic test-input generation, and alias analysis of
+Python code.
 
 This page summarizes the most important commands. For the authoritative option
 reference used by the repository today, also see ``CLI.md`` in the project root.
@@ -71,6 +72,33 @@ Options:
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
 - ``--verbose, -v``: Enable verbose output
+
+**pyflow concolic**
+~~~~~~~~~~~~~~~~~~~
+
+Generate branch-covering inputs for a single function by replaying concrete
+inputs and using Z3 to flip each observed branch. The default entry function
+is ``main``. Requires the optional ``z3-solver`` dependency
+(``pip install -e ".[concolic]"``).
+
+::
+
+  pyflow concolic target.py --entry parse --inputs '[0, 0]' --json
+  pyflow concolic src/ --scan-project --max-functions 20
+  pyflow concolic target.py --emit-pytest tests/test_target_gen.py
+
+Options:
+- ``--entry NAME``: Function to explore (default: ``main``)
+- ``--inputs JSON_ARRAY``: Initial arguments as a JSON array (default: zero for each parameter)
+- ``--max-iterations N``: Maximum concrete executions (default: 50)
+- ``--max-loop-iterations N``: Concrete loop cap per ``while`` statement (default: 100)
+- ``--check-contracts``: Solve supported PEP 316 ``post:`` clauses for a counterexample
+- ``--refine-opaque-calls``: Execute safe unsupported library calls concretely and refine symbolic relations from observations
+- ``--scan-project``: Discover and measure functions beneath the input path (with ``--max-functions``, ``--input-complexity``, ``--function-timeout``, ``--allow-side-effects``, ``--include-private``, ``--json-output PATH``)
+- ``--emit-pytest PATH``: Write a minimized, CPython-replay-validated pytest module
+- ``--search-strategy``: Pending-state selection (``fifo``, ``breadth_first``, ``coverage``; default: ``coverage``)
+- ``--total-timeout`` / ``--per-run-timeout`` / ``--solver-timeout`` / ``--solver-rlimit`` / ``--max-solver-calls``: Wall-clock and solver budgets
+- ``--json``: Emit generated inputs and execution results as JSON
 
 Optimization Commands
 ---------------------
