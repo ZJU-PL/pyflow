@@ -30,8 +30,10 @@ from pyflow.language.python.ir_metadata import (
 )
 
 from .scope import (
+    body_contains_zero_arg_super,
     collect_descendant_scope_directives,
     collect_direct_scope_directives,
+    collect_function_scope,
     collect_scope_names,
     direct_child_captures,
 )
@@ -68,6 +70,10 @@ class ASTConverter:
         ] = {}
         self._descendant_scope_cache: Dict[
             tuple[int, ...], tuple[frozenset[str], frozenset[str]]
+        ] = {}
+        self._function_scope_cache: Dict[
+            tuple[int, ...],
+            tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]],
         ] = {}
 
     def _with_source_origin(
@@ -178,6 +184,7 @@ class ASTConverter:
         self._direct_scope_cache.clear()
         self._scope_names_cache.clear()
         self._descendant_scope_cache.clear()
+        self._function_scope_cache.clear()
 
     def get_telemetry(self) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(self._telemetry)
@@ -292,6 +299,30 @@ class ASTConverter:
             cached = (frozenset(global_names), frozenset(nonlocal_names))
             self._descendant_scope_cache[key] = cached
         return set(cached[0]), set(cached[1])
+
+    def _collect_function_scope(
+        self,
+        body_nodes: List[python_ast.AST],
+    ) -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
+        """Collect direct directives and scope names in one traversal.
+
+        Equivalent to ``_collect_direct_scope_directives`` plus
+        ``_collect_scope_names`` over the same body, but visits the body once.
+        """
+        key = tuple(map(id, body_nodes))
+        cached = self._function_scope_cache.get(key)
+        if cached is None:
+            global_names, nonlocal_names, bound, loaded = collect_function_scope(
+                body_nodes
+            )
+            cached = (
+                frozenset(global_names),
+                frozenset(nonlocal_names),
+                frozenset(bound),
+                frozenset(loaded),
+            )
+            self._function_scope_cache[key] = cached
+        return set(cached[0]), set(cached[1]), set(cached[2]), set(cached[3])
 
     def _name_constant(self, name: str) -> pyflow_ast.Existing:
         return pyflow_ast.Existing(Object(name))
@@ -1021,10 +1052,9 @@ class ASTConverter:
         codeparams = self._convert_function_args(
             node.args, ensure_return=True, type_params_node=type_params_node
         )
-        direct_global, direct_nonlocal = self._collect_direct_scope_directives(
-            list(node.body)
+        direct_global, direct_nonlocal, body_bound, body_loaded = (
+            self._collect_function_scope(list(node.body))
         )
-        body_bound, body_loaded = self._collect_scope_names(list(node.body))
         parameter_names = {
             argument.arg
             for argument in (
@@ -1038,15 +1068,7 @@ class ASTConverter:
         if getattr(node.args, "kwarg", None) is not None:
             parameter_names.add(node.args.kwarg.arg)
         bound_names = (body_bound | parameter_names) - direct_global - direct_nonlocal
-        uses_zero_arg_super = any(
-            isinstance(candidate, python_ast.Call)
-            and isinstance(candidate.func, python_ast.Name)
-            and candidate.func.id == "super"
-            and not candidate.args
-            and not candidate.keywords
-            for statement in node.body
-            for candidate in python_ast.walk(statement)
-        )
+        uses_zero_arg_super = body_contains_zero_arg_super(node.body)
         if uses_zero_arg_super:
             body_loaded.add("__class__")
         implicit_free = self._enclosing_cell_names(
@@ -2197,7 +2219,7 @@ class ASTConverter:
         else_body = self.convert_python_ast_to_pyflow(node.orelse)
         finally_body = self.convert_python_ast_to_pyflow(node.finalbody)
 
-        return pyflow_ast.TryExceptFinally(
+        return pyflow_ast.TryStar(
             body=try_body,
             handlers=handlers,
             defaultHandler=None,

@@ -553,6 +553,29 @@ except* ValueError as err:
         self.assertEqual(handler.value.name, "__exc_group__")
         self.assertNotIsInstance(handler.body.blocks[-1], pyflow_ast.Raise)
 
+    @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
+    def test_try_star_is_marked_as_exception_group(self):
+        """except* converts to a TryStar node; plain except does not."""
+        star_source = """
+try:
+    body()
+except* ValueError as err:
+    handle(err)
+"""
+        star = self.converter._convert_node(python_ast.parse(star_source).body[0])
+        self.assertIsInstance(star, pyflow_ast.TryStar)
+        self.assertIsInstance(star, pyflow_ast.TryExceptFinally)
+
+        plain_source = """
+try:
+    body()
+except ValueError as err:
+    handle(err)
+"""
+        plain = self.converter._convert_node(python_ast.parse(plain_source).body[0])
+        self.assertIsInstance(plain, pyflow_ast.TryExceptFinally)
+        self.assertNotIsInstance(plain, pyflow_ast.TryStar)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -341,6 +341,58 @@ def outer2():
         code = self.extractor.convert_function(inner, source_code=source)
         self.assertEqual(code.ast.blocks[0].exprs[0].object.pyobj, 2)
 
+    @unittest.skipUnless(
+        hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)"
+    )
+    def test_convert_function_preserves_type_params(self):
+        """PEP 695 type parameters survive the FunctionExtractor path."""
+        source = "def test_func[T](x: T) -> T: return x"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        code = self.extractor._convert_python_function_to_pyflow(
+            func_node, None, filename="m.py"
+        )
+        type_params = code.codeparameters.type_params
+        self.assertIsNotNone(type_params)
+        self.assertEqual(len(type_params.params), 1)
+        self.assertEqual(type_params.params[0].name, "T")
+
+    @unittest.skipUnless(
+        hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)"
+    )
+    def test_extract_module_body_preserves_generic_class_type_params(self):
+        """Generic classes keep type_params through the module extraction path."""
+        source = (
+            "def f[T](x: T) -> T:\n"
+            "    return x\n"
+            "\n"
+            "class Box[T]:\n"
+            "    def get(self) -> T:\n"
+            "        return self.value\n"
+        )
+        tree = python_ast.parse(source)
+        program = Program()
+        code, _definitions = self.extractor.extract_module_body(
+            tree.body, program, module_name="m", filename="m.py"
+        )
+
+        def find_defs(node):
+            found = []
+            for block in getattr(node, "blocks", ()) or ():
+                if hasattr(block, "name"):
+                    found.append(block)
+                found.extend(find_defs(getattr(block, "body", None)))
+            return found
+
+        defs = find_defs(code.ast)
+        fn = next(d for d in defs if d.name == "f")
+        box = next(d for d in defs if d.name == "Box")
+        self.assertIsNotNone(fn.code.codeparameters.type_params)
+        self.assertEqual(fn.code.codeparameters.type_params.params[0].name, "T")
+        self.assertIsNotNone(box.type_params)
+        self.assertEqual(box.type_params.params[0].name, "T")
+
 
 if __name__ == "__main__":
     unittest.main()

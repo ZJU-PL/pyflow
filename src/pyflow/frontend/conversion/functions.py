@@ -288,7 +288,12 @@ class FunctionExtractor:
     ) -> pyflow_ast.Code:
         """Convert a Python AST FunctionDef to a pyflow AST Code node."""
         # Convert function parameters
-        codeparams = self._convert_function_args(func_node.args, func)
+        codeparams = self._convert_function_args(
+            func_node.args,
+            func,
+            type_params_node=getattr(func_node, "type_params", None),
+            filename=filename,
+        )
 
         # Convert function body
         body = self._convert_body(func_node.body, filename)
@@ -431,7 +436,12 @@ class FunctionExtractor:
         return code, definitions
 
     def _convert_function_args(
-        self, args_node: python_ast.arguments, func: Any
+        self,
+        args_node: python_ast.arguments,
+        func: Any,
+        *,
+        type_params_node=None,
+        filename: Optional[str] = None,
     ) -> pyflow_ast.CodeParameters:
         """Convert Python AST arguments to pyflow AST CodeParameters."""
         from pyflow.language.python.program import Object
@@ -547,6 +557,15 @@ class FunctionExtractor:
                     d if d is not None else pyflow_ast.Existing(Object(MISSING_DEFAULT))
                 )
 
+        type_params = None
+        if type_params_node:
+            previous_filename = self.ast_converter.current_filename
+            self.ast_converter.current_filename = filename
+            try:
+                type_params = self.ast_converter._convert_type_params(type_params_node)
+            finally:
+                self.ast_converter.current_filename = previous_filename
+
         return pyflow_ast.CodeParameters(
             selfparam=None,
             posonlyparams=posonly_params,
@@ -557,7 +576,7 @@ class FunctionExtractor:
             vparam=vararg,
             kparam=kwarg,
             returnparams=[pyflow_ast.Local("ret0")],
-            type_params=None,
+            type_params=type_params,
         )
 
     def extract_function(

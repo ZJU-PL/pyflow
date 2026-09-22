@@ -39,6 +39,11 @@ from .runtime.intrinsics import IntrinsicManager
 from .runtime.objects import ObjectManager
 
 
+# Cap for the per-instance filename normalization cache.  A run touches at most
+# one entry per distinct source path, so this only guards long-lived processes.
+_MAX_NORMALIZED_FILENAMES = 8192
+
+
 def _is_synthetic_entry_code(code: Any) -> bool:
     annotation = getattr(code, "annotation", None)
     origin = getattr(annotation, "origin", ()) or ()
@@ -111,6 +116,9 @@ class Extractor:
         self._current_file_path: Optional[str] = None  # Current file being processed
         self._batch_extraction = False  # Batch mode defers per-file IR indexing
         self._code_by_source: Dict[tuple[str, str, int], pyflow_ast.Code] = {}
+        self._normalized_filename_cache: Dict[str, str] = {}
+        self._module_source_map_cache: Optional[Dict[str, str]] = None
+        self._module_source_map_cache_source: object = None
 
         # Initialize desc attribute (program description)
         from pyflow.language.python.program import ProgramDescription
@@ -438,7 +446,15 @@ class Extractor:
         """Build module-name -> source mapping from in-memory source_code dict."""
         if not isinstance(self.source_code, dict):
             return {}
-        return build_module_source_map(self.source_code, self._get_module_name)
+        if (
+            self._module_source_map_cache is not None
+            and self._module_source_map_cache_source is self.source_code
+        ):
+            return self._module_source_map_cache
+        mapping = build_module_source_map(self.source_code, self._get_module_name)
+        self._module_source_map_cache = mapping
+        self._module_source_map_cache_source = self.source_code
+        return mapping
 
     def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
         """Register a class in the class hierarchy with enhanced MRO support."""
@@ -514,11 +530,17 @@ class Extractor:
         # Provide source_code mapping so downstream conversion can resolve bodies
         return self.object_manager.get_object_call(func, self.source_code)
 
-    @staticmethod
-    def _normalize_source_filename(filename: str) -> str:
+    def _normalize_source_filename(self, filename: str) -> str:
         if not filename or filename.startswith("<"):
             return filename
-        return os.path.realpath(filename)
+        cached = self._normalized_filename_cache.get(filename)
+        if cached is not None:
+            return cached
+        resolved = os.path.realpath(filename)
+        if len(self._normalized_filename_cache) >= _MAX_NORMALIZED_FILENAMES:
+            self._normalized_filename_cache.clear()
+        self._normalized_filename_cache[filename] = resolved
+        return resolved
 
     def _register_extracted_code(
         self,

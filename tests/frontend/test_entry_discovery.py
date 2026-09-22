@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from pyflow.frontend.entry_discovery import (
+    EntryCandidate,
     detect_entry_file,
     discover_entry_files,
     resolve_entry_file,
@@ -158,3 +163,186 @@ def test_resolve_entry_file_rejects_paths_outside_project(tmp_path):
         assert "outside project root" in str(error)
     else:
         raise AssertionError("Expected an out-of-project entry to be rejected")
+
+
+def test_setuptools_packages_list_form_does_not_crash(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.setuptools]\npackages = ["demo"]\n\n'
+        '[project.scripts]\ndemo = "demo.cli:main"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_setuptools_packages_list_entries_are_search_bases(tmp_path):
+    package = tmp_path / "source" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.setuptools]\npackages = ["source/demo"]\n\n'
+        '[project.scripts]\ndemo = "demo.cli:main"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_setuptools_packages_find_table_keeps_working(tmp_path):
+    package = tmp_path / "custom" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.setuptools.packages.find]\nwhere = ["custom"]\n\n'
+        '[project.scripts]\ndemo = "demo.cli:main"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_detect_entry_file_supports_poetry_string_scripts(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.poetry.scripts]\ndemo = "demo.cli:main"\n', encoding="utf-8"
+    )
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert candidates == [
+        EntryCandidate(entry.relative_to(tmp_path), "tool.poetry.scripts", "demo")
+    ]
+
+
+def test_detect_entry_file_supports_poetry_reference_tables(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.poetry.scripts]\n"
+        'demo = { reference = "demo.cli:main", type = "console" }\n',
+        encoding="utf-8",
+    )
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert candidates == [
+        EntryCandidate(entry.relative_to(tmp_path), "tool.poetry.scripts", "demo")
+    ]
+
+
+def test_detect_entry_file_supports_project_entry_points(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project.entry-points.console_scripts]\ndemo = "demo.cli:main"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_discover_entry_files_reports_project_entry_point_group(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project.entry-points."console_scripts"]\ndemo = "demo.cli:main"\n',
+        encoding="utf-8",
+    )
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert candidates == [
+        EntryCandidate(
+            entry.relative_to(tmp_path),
+            'project.entry-points."console_scripts"',
+            "demo",
+        )
+    ]
+
+
+def test_detect_entry_file_supports_setup_cfg_entry_points(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "setup.cfg").write_text(
+        "[options.entry_points]\n"
+        "console_scripts =\n"
+        "    demo = demo.cli:main\n",
+        encoding="utf-8",
+    )
+
+    assert detect_entry_file(tmp_path) == entry.relative_to(tmp_path)
+
+
+def test_discover_entry_files_reports_setup_cfg_entry_points(tmp_path):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    entry = package / "cli.py"
+    entry.write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "setup.cfg").write_text(
+        "[options.entry_points]\n"
+        "console_scripts =\n"
+        "    demo = demo.cli:main\n"
+        "    demo-extra = demo.cli:extra\n",
+        encoding="utf-8",
+    )
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert candidates == [
+        EntryCandidate(entry.relative_to(tmp_path), "setup.cfg entry_points", "demo"),
+        EntryCandidate(
+            entry.relative_to(tmp_path), "setup.cfg entry_points", "demo-extra"
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "pyproject_text",
+    [
+        pytest.param('[tool]\nsetuptools = "not-a-table"\n', id="tool-setuptools-string"),
+        pytest.param('[tool.setuptools]\npackages = ["demo"]\n', id="packages-list"),
+        pytest.param(
+            '[tool.setuptools.packages]\nfind = ["oops"]\n', id="packages-find-list"
+        ),
+        pytest.param('project = "not-a-table"\n', id="project-string"),
+        pytest.param('[tool.poetry]\nscripts = "oops"\n', id="poetry-scripts-string"),
+        pytest.param(
+            '[project.entry-points.console_scripts]\ndemo = 42\n',
+            id="entry-point-value-int",
+        ),
+        pytest.param("this is not = = valid toml [[[", id="malformed-toml"),
+    ],
+)
+def test_discover_entry_files_tolerates_malformed_shapes(tmp_path, pyproject_text):
+    (tmp_path / "main.py").write_text("print('fallback')\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(pyproject_text, encoding="utf-8")
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert [candidate.path for candidate in candidates] == [Path("main.py")]
+
+
+def test_discover_entry_files_tolerates_malformed_setup_cfg(tmp_path):
+    (tmp_path / "main.py").write_text("print('fallback')\n", encoding="utf-8")
+    (tmp_path / "setup.cfg").write_text("not an ini file = = =\n", encoding="utf-8")
+
+    candidates = discover_entry_files(tmp_path)
+
+    assert [candidate.path for candidate in candidates] == [Path("main.py")]

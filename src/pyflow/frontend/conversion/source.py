@@ -29,23 +29,23 @@ class FunctionSpan:
 
 # Each entry point lookup re-parses and re-walks a full file AST unless the
 # spans are cached; a source map of N files x M callables is the frontend's
-# dominant cost.  Keyed by ``id(source)``: the cache holds a strong reference
-# to the source string, so the id can never alias a recycled object.  The cap
-# keeps long-running processes (LSP) from accumulating stale entries.
-_SPAN_CACHE: "Dict[int, Tuple[str, List[FunctionSpan]]]" = {}
+# dominant cost.  Keyed by the source *content* (strings hash by value), so a
+# ``textwrap.dedent``-ed copy of a module shares the entry with the original
+# instead of missing an ``id(source)``-keyed cache on every conversion.  The
+# cap keeps long-running processes (LSP) from accumulating stale entries.
+_SPAN_CACHE: "Dict[str, List[FunctionSpan]]" = {}
 _MAX_SPAN_CACHE_ENTRIES = 8192
 
 
 def _cached_spans(source: str) -> List[FunctionSpan]:
-    key = id(source)
-    cached = _SPAN_CACHE.get(key)
+    cached = _SPAN_CACHE.get(source)
     if cached is not None:
-        return cached[1]
+        return cached
     tree = ast.parse(source)
     spans = list(_iter_function_spans(tree))
     if len(_SPAN_CACHE) >= _MAX_SPAN_CACHE_ENTRIES:
         _SPAN_CACHE.clear()
-    _SPAN_CACHE[key] = (source, spans)
+    _SPAN_CACHE[source] = spans
     return spans
 
 
@@ -101,6 +101,78 @@ def _slice_lines(source: str, lineno: int, end_lineno: int) -> str:
     return "\n".join(lines[start:end])
 
 
+# ``best_source_for_callable`` runs for every callable the frontend converts.
+# When a callable's ``co_filename`` is absent from the source map (external or
+# unresolved functions) the fallback linearly scans every source file; memoize
+# the result -- including the ``None`` miss -- per source set so a repeated
+# lookup for the same callable scans at most once.  The source map is keyed by
+# identity with a strong reference (mirroring ``_SPAN_CACHE``) so the id can
+# never alias a recycled object and a rebuilt source set starts a fresh bucket.
+_LookupKey = Tuple[Optional[str], Optional[int], Optional[str], Optional[str]]
+_SOURCE_LOOKUP_CACHE: "Dict[int, Tuple[Dict[str, str], Dict[_LookupKey, Optional[str]]]]" = {}
+_MAX_SOURCE_LOOKUP_SETS = 4
+
+
+def _source_lookup_cache(
+    sources_by_filename: Dict[str, str],
+) -> Dict[_LookupKey, Optional[str]]:
+    key = id(sources_by_filename)
+    entry = _SOURCE_LOOKUP_CACHE.get(key)
+    if entry is not None and entry[0] is sources_by_filename:
+        return entry[1]
+    if len(_SOURCE_LOOKUP_CACHE) >= _MAX_SOURCE_LOOKUP_SETS:
+        _SOURCE_LOOKUP_CACHE.clear()
+    lookup: Dict[_LookupKey, Optional[str]] = {}
+    _SOURCE_LOOKUP_CACHE[key] = (sources_by_filename, lookup)
+    return lookup
+
+
+def _resolve_best_source(
+    filename: Optional[str],
+    firstlineno: Optional[int],
+    name: Optional[str],
+    qualname: Optional[str],
+    sources_by_filename: Dict[str, str],
+) -> Optional[str]:
+    # Exact filename lookup first.
+    if filename and filename in sources_by_filename:
+        src = sources_by_filename[filename]
+        seg = find_function_source_segment(
+            src, name=name, qualname=qualname, lineno=firstlineno
+        )
+        return seg or src
+
+    # Fallback: search all sources by qualname/name/lineno.
+    for src in sources_by_filename.values():
+        seg = find_function_source_segment(
+            src, name=name, qualname=qualname, lineno=firstlineno
+        )
+        if seg:
+            return seg
+
+    return None
+
+
+def best_source_for_callable(
+    func: object, sources_by_filename: Dict[str, str]
+) -> Optional[str]:
+    filename = getattr(getattr(func, "__code__", None), "co_filename", None)
+    firstlineno = getattr(getattr(func, "__code__", None), "co_firstlineno", None)
+    name = getattr(func, "__name__", None)
+    qualname = getattr(func, "__qualname__", None)
+
+    cache = _source_lookup_cache(sources_by_filename)
+    cache_key = (filename, firstlineno, name, qualname)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    result = _resolve_best_source(
+        filename, firstlineno, name, qualname, sources_by_filename
+    )
+    cache[cache_key] = result
+    return result
+
+
 def find_function_source_segment(
     source: str,
     *,
@@ -152,32 +224,5 @@ def find_function_source_segment(
         if candidates:
             best = min(candidates, key=lambda s: (s.lineno, s.end_lineno - s.lineno))
             return _slice_lines(source, best.lineno, best.end_lineno)
-
-    return None
-
-
-def best_source_for_callable(
-    func: object, sources_by_filename: Dict[str, str]
-) -> Optional[str]:
-    filename = getattr(getattr(func, "__code__", None), "co_filename", None)
-    firstlineno = getattr(getattr(func, "__code__", None), "co_firstlineno", None)
-    name = getattr(func, "__name__", None)
-    qualname = getattr(func, "__qualname__", None)
-
-    # Exact filename lookup first.
-    if filename and filename in sources_by_filename:
-        src = sources_by_filename[filename]
-        seg = find_function_source_segment(
-            src, name=name, qualname=qualname, lineno=firstlineno
-        )
-        return seg or src
-
-    # Fallback: search all sources by qualname/name/lineno.
-    for src in sources_by_filename.values():
-        seg = find_function_source_segment(
-            src, name=name, qualname=qualname, lineno=firstlineno
-        )
-        if seg:
-            return seg
 
     return None

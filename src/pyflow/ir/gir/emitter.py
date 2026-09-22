@@ -2767,6 +2767,9 @@ class GirEmitter:
         }
         statements.append(self.add_col_row_info(stmt, gir))
 
+    def _emit_TryStar(self, stmt, statements: List[Dict[str, Any]]) -> None:
+        self._emit_TryExceptFinally(stmt, statements)
+
     # ------------------------------------------------------------------
     # Functions / classes
     # ------------------------------------------------------------------

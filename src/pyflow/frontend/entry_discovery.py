@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import importlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 
 KNOWN_ENTRY_NAMES = ("main.py", "app.py", "manage.py", "cli.py", "run.py", "launch.py")
@@ -29,6 +33,22 @@ class EntryCandidate:
     command: str | None = None
 
 
+def _as_table(value: Any) -> dict[str, Any]:
+    """Return *value* when it is a mapping, otherwise an empty mapping.
+
+    Configuration files are user-controlled, so any TOML/INI field may legally
+    hold a list, string, number or ``None`` where a table is expected.
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def _nested_table(data: Any, *keys: str) -> dict[str, Any]:
+    current: Any = data
+    for key in keys:
+        current = _as_table(current).get(key)
+    return _as_table(current)
+
+
 def _read_pyproject(project_root: Path) -> dict[str, Any]:
     pyproject = project_root / "pyproject.toml"
     if not pyproject.is_file():
@@ -44,9 +64,11 @@ def _read_pyproject(project_root: Path) -> dict[str, Any]:
 
     try:
         with pyproject.open("rb") as handle:
-            return cast(dict[str, Any], toml_reader.load(handle))
-    except (OSError, ValueError):
+            loaded = toml_reader.load(handle)
+    except (OSError, ValueError) as error:
+        _LOGGER.debug("Could not parse %s: %s", pyproject, error)
         return {}
+    return _as_table(loaded)
 
 
 def _is_application_package_root(relative: Path) -> bool:
@@ -55,21 +77,34 @@ def _is_application_package_root(relative: Path) -> bool:
 
 def _module_search_bases(project_root: Path, data: dict[str, Any]) -> list[Path]:
     relative_bases = [Path(), Path("src"), Path("lib")]
-    setuptools = data.get("tool", {}).get("setuptools", {})
+    setuptools = _nested_table(data, "tool", "setuptools")
 
-    package_dir = setuptools.get("package-dir", {})
-    if isinstance(package_dir, dict):
-        for value in package_dir.values():
-            if isinstance(value, str):
-                relative_bases.append(Path(value))
+    package_dir = _as_table(setuptools.get("package-dir"))
+    for value in package_dir.values():
+        if isinstance(value, str):
+            relative_bases.append(Path(value))
 
-    find_where = setuptools.get("packages", {}).get("find", {}).get("where", [])
-    if isinstance(find_where, str):
-        find_where = [find_where]
-    if isinstance(find_where, list):
-        relative_bases.extend(
-            Path(value) for value in find_where if isinstance(value, str)
-        )
+    packages = setuptools.get("packages")
+    if isinstance(packages, dict):
+        find_where = _as_table(packages.get("find")).get("where", [])
+        if isinstance(find_where, str):
+            find_where = [find_where]
+        if isinstance(find_where, list):
+            relative_bases.extend(
+                Path(value) for value in find_where if isinstance(value, str)
+            )
+    elif isinstance(packages, list):
+        # Explicit package names: a declared package directory and its parent
+        # are both plausible import roots (e.g. "demo" or "source/demo").
+        for package in packages:
+            if not isinstance(package, str) or not package.strip():
+                continue
+            parts = [part for part in package.split(".") if part]
+            if not parts:
+                continue
+            package_path = Path(*parts)
+            relative_bases.append(package_path)
+            relative_bases.append(package_path.parent)
 
     bases: list[Path] = []
     for relative in relative_bases:
@@ -97,21 +132,25 @@ def _module_to_path(module: str, project_root: Path, bases: list[Path]) -> Path 
 def _entries_from_pyproject(
     project_root: Path, data: dict[str, Any], bases: list[Path]
 ) -> list[EntryCandidate]:
-    script_groups = [
-        ("project.scripts", data.get("project", {}).get("scripts", {})),
-        ("project.gui-scripts", data.get("project", {}).get("gui-scripts", {})),
+    project = _nested_table(data, "project")
+    script_groups: list[tuple[str, Any]] = [
+        ("project.scripts", project.get("scripts", {})),
+        ("project.gui-scripts", project.get("gui-scripts", {})),
     ]
-    poetry_scripts = data.get("tool", {}).get("poetry", {}).get("scripts", {})
+
+    entry_point_groups = _nested_table(data, "project", "entry-points")
+    for group, scripts in entry_point_groups.items():
+        script_groups.append((f'project.entry-points."{group}"', scripts))
+
+    poetry_scripts = _nested_table(data, "tool", "poetry").get("scripts", {})
     if poetry_scripts:
         script_groups.append(("tool.poetry.scripts", poetry_scripts))
 
     candidates: list[EntryCandidate] = []
     for source, scripts in script_groups:
-        if not isinstance(scripts, dict):
-            continue
-        for command, reference in scripts.items():
+        for command, reference in _as_table(scripts).items():
             if isinstance(reference, dict):
-                reference = reference.get("callable")
+                reference = reference.get("reference") or reference.get("callable")
             if not isinstance(command, str) or not isinstance(reference, str):
                 continue
             module = reference.split(":", 1)[0].strip()
@@ -175,6 +214,43 @@ def _entries_from_setup_py(
     return candidates
 
 
+def _entries_from_setup_cfg(
+    project_root: Path, bases: list[Path]
+) -> list[EntryCandidate]:
+    setup_cfg = project_root / "setup.cfg"
+    if not setup_cfg.is_file():
+        return []
+
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        with setup_cfg.open("r", encoding="utf-8", errors="replace") as handle:
+            parser.read_file(handle)
+    except (configparser.Error, OSError, UnicodeError) as error:
+        _LOGGER.debug("Could not parse %s: %s", setup_cfg, error)
+        return []
+
+    section = "options.entry_points"
+    if not parser.has_section(section):
+        return []
+
+    candidates: list[EntryCandidate] = []
+    for _group, value in parser.items(section):
+        for line in value.splitlines():
+            declaration = line.strip()
+            if not declaration or declaration[0] in "#;":
+                continue
+            command, separator, reference = declaration.partition("=")
+            if not separator:
+                continue
+            module = reference.split(":", 1)[0].strip()
+            entry = _module_to_path(module, project_root, bases)
+            if entry is not None:
+                candidates.append(
+                    EntryCandidate(entry, "setup.cfg entry_points", command.strip())
+                )
+    return candidates
+
+
 def _deduplicate(candidates: list[EntryCandidate]) -> list[EntryCandidate]:
     unique: list[EntryCandidate] = []
     seen: set[tuple[Path, str | None]] = set()
@@ -194,6 +270,7 @@ def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
 
     metadata = _entries_from_pyproject(root, data, bases)
     metadata.extend(_entries_from_setup_py(root, bases))
+    metadata.extend(_entries_from_setup_cfg(root, bases))
     metadata = _deduplicate(metadata)
     if metadata:
         return metadata

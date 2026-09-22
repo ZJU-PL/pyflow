@@ -592,6 +592,23 @@ class TryExceptFinally(CompoundStatement):
     )
 
 
+class TryStar(TryExceptFinally):
+    """Exception-group ``try/except*`` (PEP 654) statement.
+
+    Structurally identical to :class:`TryExceptFinally`; the distinct type is
+    the faithful marker that ``except*`` semantics (partial matching, residual
+    re-raise of the unmatched group) apply.
+    """
+
+    __fields__ = (
+        "body:Suite",
+        "handlers:ExceptionHandler*",
+        "defaultHandler?",
+        "else_:Suite?",
+        "finally_:Suite?",
+    )
+
+
 class Loop(CompoundStatement):
     __slots__ = ()
 

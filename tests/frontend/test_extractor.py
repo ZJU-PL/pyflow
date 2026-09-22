@@ -2,6 +2,7 @@
 
 import unittest
 import ast
+import io
 import tempfile
 from unittest.mock import Mock, patch
 
@@ -15,6 +16,7 @@ from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
     build_interface_from_paths,
 )
+from pyflow.language.modules.imports import build_module_source_map
 
 
 def _build_interface(python_files, args):
@@ -166,6 +168,55 @@ class MyClass:
         self.assertIsNotNone(func_obj)
         # code_obj might be None if source code is not available
         self.assertIsNotNone(func_obj)
+
+    def test_normalize_source_filename_caches_realpath(self):
+        """Repeated normalization must not re-invoke realpath."""
+        with patch(
+            "pyflow.frontend.extractor.os.path.realpath", return_value="/tmp/x.py"
+        ) as realpath:
+            self.assertEqual(
+                self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py"
+            )
+            self.assertEqual(
+                self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py"
+            )
+        self.assertEqual(realpath.call_count, 1)
+
+    def test_normalize_source_filename_skips_synthetic_names(self):
+        """Synthetic/empty filenames bypass realpath entirely."""
+        with patch("pyflow.frontend.extractor.os.path.realpath") as realpath:
+            self.assertEqual(
+                self.extractor._normalize_source_filename("<string>"), "<string>"
+            )
+            self.assertEqual(self.extractor._normalize_source_filename(""), "")
+        realpath.assert_not_called()
+
+    def test_build_module_source_map_is_cached_per_source_set(self):
+        """Repeated star-import expansion must build the source map once."""
+        sources = {"pkg/mod.py": "def exposed():\n    return 1\n"}
+        extractor = Extractor(self.compiler, verbose=False, source_code=sources)
+        with patch(
+            "pyflow.frontend.extractor.build_module_source_map",
+            wraps=build_module_source_map,
+        ) as spy:
+            first = extractor._build_module_source_map()
+            second = extractor._build_module_source_map()
+        self.assertIs(first, second)
+        self.assertEqual(spy.call_count, 1)
+
+    def test_build_module_source_map_invalidates_on_new_source_set(self):
+        """A reassigned source_code dict must rebuild the source map."""
+        sources_a = {"pkg/mod.py": "def f():\n    return 1\n"}
+        sources_b = {"pkg/other.py": "def g():\n    return 2\n"}
+        extractor = Extractor(self.compiler, verbose=False, source_code=sources_a)
+        with patch(
+            "pyflow.frontend.extractor.build_module_source_map",
+            wraps=build_module_source_map,
+        ) as spy:
+            extractor._build_module_source_map()
+            extractor.source_code = sources_b
+            extractor._build_module_source_map()
+        self.assertEqual(spy.call_count, 2)
 
     def test_get_object_call_with_source_code(self):
         """Test getting object call with source code."""
@@ -981,6 +1032,95 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
             "    return x\n"
         )
         ipa.evaluate(compiler, program)
+
+
+class TestEntryPointFailureTolerance(unittest.TestCase):
+    """A failing entry point must be skipped with a warning, not abort extraction."""
+
+    def setUp(self):
+        self.console = Console(out=io.StringIO())
+        self.compiler = CompilerContext(self.console)
+        self.program = Program()
+
+    def _build_program(self, source):
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(source, encoding="utf-8")
+
+            interface, sources = _build_interface([sample], Args())
+            self.program.interface = interface
+            self.compiler.extractor = Extractor(
+                self.compiler, verbose=False, source_code=sources
+            )
+
+    def test_extract_program_skips_failed_function_entry(self):
+        """A function entry that cannot bind should be skipped with a warning."""
+        self._build_program(
+            "def good():\n"
+            "    return 1\n\n"
+            "def bad():\n"
+            "    return 2\n"
+        )
+
+        real_create = InterfaceDeclaration.createEntryPoint
+
+        def flaky_create(
+            self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None
+        ):
+            if getattr(code, "codeName", lambda: "")() == "bad":
+                raise ValueError(
+                    "Unsupported keyword arguments for entry point: _source"
+                )
+            return real_create(self_, code, selfarg, args, kwds, varg, karg, group)
+
+        with patch.object(InterfaceDeclaration, "createEntryPoint", flaky_create):
+            extract_program(self.compiler, self.program)
+
+        entry_names = {ep.code.codeName() for ep in self.program.entryPoints}
+        self.assertIn("good", entry_names)
+        self.assertNotIn("bad", entry_names)
+        output = self.console.out.getvalue()
+        self.assertIn("skipping entry point bad", output)
+        self.assertIn("Unsupported keyword arguments for entry point: _source", output)
+
+    def test_extract_program_skips_failed_method_entry(self):
+        """A method entry that cannot bind should be skipped with a warning."""
+        self._build_program(
+            "class Sample:\n"
+            "    def good(self):\n"
+            "        return 1\n\n"
+            "    def bad(self):\n"
+            "        return 2\n"
+        )
+
+        real_create = InterfaceDeclaration.createEntryPoint
+
+        def flaky_create(
+            self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None
+        ):
+            if getattr(code, "codeName", lambda: "")().endswith(".bad"):
+                raise ValueError(
+                    "Unsupported keyword arguments for entry point: _source"
+                )
+            return real_create(self_, code, selfarg, args, kwds, varg, karg, group)
+
+        with patch.object(InterfaceDeclaration, "createEntryPoint", flaky_create):
+            extract_program(self.compiler, self.program)
+
+        entry_names = {ep.code.codeName() for ep in self.program.entryPoints}
+        self.assertIn("sample.Sample.good", entry_names)
+        self.assertNotIn("sample.Sample.bad", entry_names)
+        output = self.console.out.getvalue()
+        self.assertIn("skipping entry point Sample.bad", output)
+        self.assertIn("Unsupported keyword arguments for entry point: _source", output)
 
 
 if __name__ == "__main__":

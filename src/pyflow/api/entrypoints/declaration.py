@@ -195,6 +195,12 @@ class InterfaceDeclaration:
         self.entryPoint.append(ep)
         return ep
 
+    def _warn_skipped_entry(self, extractor, name, exc):
+        """Warn that an entry point was skipped; extraction must not abort."""
+        console = getattr(getattr(extractor, "compiler", None), "console", None)
+        if console is not None:
+            console.output(f"WARNING: skipping entry point {name}: {exc}")
+
     def _extractFunc(self, extractor):
         for item in self.func:
             if len(item) == 3:
@@ -219,9 +225,18 @@ class InterfaceDeclaration:
                     num_params = 0
                 args = [ExistingWrapper(None) for _ in range(num_params)]
 
-            self.createEntryPoint(
-                code, selfarg, tuple(args), kwds, nullWrapper, nullWrapper, None
-            )
+            try:
+                self.createEntryPoint(
+                    code, selfarg, tuple(args), kwds, nullWrapper, nullWrapper, None
+                )
+            except Exception as exc:
+                self._warn_skipped_entry(
+                    extractor,
+                    getattr(
+                        expr, "__qualname__", getattr(expr, "__name__", repr(expr))
+                    ),
+                    exc,
+                )
 
     def _detect_method_kind(self, cls_type, name):
         for base in getattr(cls_type, "__mro__", ()):
@@ -305,15 +320,23 @@ class InterfaceDeclaration:
                         call_args = (ExistingWrapper(cls.typeobj),) + args
                     else:
                         call_args = (inst,) + args
-                    ep = self.createEntryPoint(
-                        code,
-                        selfarg,
-                        call_args,
-                        kwds,
-                        nullWrapper,
-                        nullWrapper,
-                        group,
-                    )
+                    try:
+                        ep = self.createEntryPoint(
+                            code,
+                            selfarg,
+                            call_args,
+                            kwds,
+                            nullWrapper,
+                            nullWrapper,
+                            group,
+                        )
+                    except Exception as exc:
+                        self._warn_skipped_entry(
+                            extractor,
+                            f"{getattr(cls.typeobj, '__name__', '<class>')}.{name}",
+                            exc,
+                        )
+                        continue
                     if group is None:
                         group = ep
 

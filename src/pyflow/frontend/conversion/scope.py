@@ -35,6 +35,103 @@ def collect_direct_scope_directives(
     return global_names, nonlocal_names
 
 
+def collect_function_scope(
+    body_nodes: Sequence[ast.AST],
+) -> tuple[set[str], set[str], set[str], set[str]]:
+    """Collect direct scope directives and names in a single traversal.
+
+    This is the combined equivalent of running ``collect_direct_scope_directives``
+    and ``collect_scope_names`` over the same ``body_nodes``.  The two collectors
+    share the same traversal scope (top-level statements of one lexical scope,
+    stopping at nested function/class/lambda bodies) and neither can observe
+    ``global``/``nonlocal`` directives inside the expression-only regions the
+    other visits (decorators, defaults, bases, keywords), so merging them is
+    result-identical.
+
+    Returns ``(global_names, nonlocal_names, bound, loaded)``.
+    """
+
+    global_names: set[str] = set()
+    nonlocal_names: set[str] = set()
+    bound: set[str] = set()
+    loaded: set[str] = set()
+
+    class ScopeVisitor(ast.NodeVisitor):
+        def visit_Global(self, node: ast.Global) -> None:
+            global_names.update(node.names)
+
+        def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+            nonlocal_names.update(node.names)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                bound.add(node.id)
+            else:
+                loaded.add(node.id)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            bound.add(node.name)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    self.visit(default)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            bound.add(node.name)
+            for base in node.bases:
+                self.visit(base)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+        def visit_Import(self, node: ast.Import) -> None:
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            for alias in node.names:
+                if alias.name != "*":
+                    bound.add(alias.asname or alias.name)
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.name:
+                bound.add(node.name)
+            if node.type is not None:
+                self.visit(node.type)
+            for statement in node.body:
+                self.visit(statement)
+
+        def visit_MatchAs(self, node: ast.MatchAs) -> None:
+            if node.name:
+                bound.add(node.name)
+            if node.pattern is not None:
+                self.visit(node.pattern)
+
+        def visit_MatchStar(self, node: ast.MatchStar) -> None:
+            if node.name:
+                bound.add(node.name)
+
+        def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+            if node.rest:
+                bound.add(node.rest)
+            for key in node.keys:
+                self.visit(key)
+            for pattern in node.patterns:
+                self.visit(pattern)
+
+    visitor = ScopeVisitor()
+    for statement in body_nodes:
+        visitor.visit(statement)
+    return global_names, nonlocal_names, bound, loaded
+
+
 def collect_scope_names(
     body_nodes: Sequence[ast.AST],
 ) -> tuple[set[str], set[str]]:
@@ -217,9 +314,35 @@ def collect_descendant_scope_directives(
     return global_names, nonlocal_names
 
 
+def body_contains_zero_arg_super(body_nodes: Sequence[ast.AST]) -> bool:
+    """Return True if any ``super()`` call with no arguments appears in ``body_nodes``.
+
+    Equivalent to ``any(... for statement in body_nodes for candidate in
+    ast.walk(statement))`` but performs a single breadth-first walk over the
+    whole body instead of one walk per statement.
+    """
+    from collections import deque
+
+    queue = deque(body_nodes)
+    while queue:
+        candidate = queue.popleft()
+        if (
+            isinstance(candidate, ast.Call)
+            and isinstance(candidate.func, ast.Name)
+            and candidate.func.id == "super"
+            and not candidate.args
+            and not candidate.keywords
+        ):
+            return True
+        queue.extend(ast.iter_child_nodes(candidate))
+    return False
+
+
 __all__ = [
+    "body_contains_zero_arg_super",
     "collect_descendant_scope_directives",
     "collect_direct_scope_directives",
+    "collect_function_scope",
     "collect_scope_names",
     "direct_child_captures",
 ]
