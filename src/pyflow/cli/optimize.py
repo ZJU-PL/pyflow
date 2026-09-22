@@ -205,12 +205,18 @@ def run_analysis(input_path, args):
     """Run PyFlow analysis on the input path (file or directory)."""
     try:
         # Get Python files to analyze
+        if not input_path.exists():
+            print(f"Error: '{input_path}' not found", file=sys.stderr)
+            sys.exit(1)
         if input_path.is_file():
             python_files = [input_path]
         elif input_path.is_dir():
             python_files = find_python_files(input_path, args)
             if not python_files:
-                print("No Python files found to analyze")
+                print(
+                    "No Python files found to analyze "
+                    "(hint: pass -r/--recursive to search subdirectories)"
+                )
                 return
         else:
             print(

@@ -214,15 +214,23 @@ def build_interface_from_paths(
         try:
             source = overrides.get(str(file_path))
             if source is None:
+                # utf-8-sig strips a leading BOM (plain utf-8 keeps it and
+                # ast.parse then rejects the whole file).
                 source = Path(file_path).read_text(
-                    encoding="utf-8", errors="replace"
+                    encoding="utf-8-sig", errors="replace"
                 )
             source_files[str(file_path)] = source
-        except Exception:
-            pass
+        except Exception as error:
+            print(f"Warning: Could not read {file_path}: {error}")
     resolver.source_files.update(source_files)
     resolver.project_context.source_files.update(source_files)
-    resolver.preload_sources(source_files)
+    try:
+        resolver.preload_sources(source_files)
+    except Exception as error:
+        print(
+            f"Warning: Source preloading failed; continuing without "
+            f"prebuilt class proxies: {error}"
+        )
 
     for file_path in paths:
         try:
@@ -237,8 +245,7 @@ def build_interface_from_paths(
                     f"classes in {file_path}"
                 )
         except Exception as error:
-            if options.verbose:
-                print(f"Warning: Could not parse file {file_path}: {error}")
+            print(f"Warning: Could not parse file {file_path}: {error}")
 
     _report_resolver_state(resolver, options)
     return interface, source_files

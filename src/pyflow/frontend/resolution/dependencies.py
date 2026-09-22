@@ -456,7 +456,19 @@ class DependencyResolver:
             self._index_ast_module(source, file_path, resolve_proxies=False)
 
         for file_path in source_files:
-            self._ensure_module_class_proxies(str(file_path))
+            try:
+                self._ensure_module_class_proxies(str(file_path))
+            except Exception as error:
+                failed_path = str(file_path)
+                self._record_diagnostic(
+                    "class_proxy_build",
+                    failed_path,
+                    f"{type(error).__name__}: {error}",
+                )
+                print(
+                    f"Warning: Could not build class proxies for "
+                    f"{failed_path}: {error}"
+                )
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
@@ -604,8 +616,7 @@ class DependencyResolver:
             self._record_diagnostic(
                 "ast_extract", file_path, f"{type(e).__name__}: {e}"
             )
-            if self.verbose:
-                print(f"DEBUG: AST extraction failed for {file_path}: {e}")
+            print(f"Warning: Could not parse {file_path}: {type(e).__name__}: {e}")
             return {}
 
     def _extract_class_info(
@@ -901,7 +912,20 @@ class DependencyResolver:
                 attrs[method_name] = proxy
 
         attrs["__pyflow_public_methods__"] = public_methods
-        proxy_cls = type(cls_info["name"], bases or (object,), attrs)
+        try:
+            proxy_cls = type(cls_info["name"], bases or (object,), attrs)
+        except TypeError as error:
+            # AST-inferred bases (flattened generics, cycle placeholders) can
+            # conflict; degrade to object instead of aborting extraction.
+            qualified_name = cls_info.get("qualname", cls_info["name"])
+            self._record_diagnostic(
+                "class_proxy_mro", file_path, f"{qualified_name}: {error}"
+            )
+            print(
+                f"Warning: Inconsistent MRO while building proxy for "
+                f"{qualified_name}; falling back to object base: {error}"
+            )
+            proxy_cls = type(cls_info["name"], (object,), attrs)
         proxy_cls.__qualname__ = cls_info.get("qualname", cls_info["name"])
         return proxy_cls
 

@@ -373,3 +373,26 @@ def test_dump_ipa_results_refreshes_missing_analysis(monkeypatch, tmp_path, caps
     assert dumped[0][0] == "init"
     assert dumped[1][0] == "index"
     assert "IPA analysis results dumped to:" in capsys.readouterr().out
+
+
+def test_run_analysis_nonexistent_path_exits_nonzero(tmp_path, capsys):
+    import pytest
+
+    missing = tmp_path / "definitely_missing.py"
+    args = SimpleNamespace(recursive=False, include=["*.py"], exclude=[])
+
+    with pytest.raises(SystemExit) as excinfo:
+        optimize.run_analysis(missing, args)
+
+    assert excinfo.value.code == 1
+    assert "not found" in capsys.readouterr().err
+
+
+def test_run_analysis_empty_directory_hints_recursive_flag(tmp_path, capsys):
+    args = SimpleNamespace(recursive=False, include=["*.py"], exclude=[])
+
+    optimize.run_analysis(tmp_path, args)
+
+    output = capsys.readouterr().out
+    assert "No Python files found" in output
+    assert "-r/--recursive" in output
