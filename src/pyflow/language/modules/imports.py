@@ -63,15 +63,40 @@ def base_name_from_expr(node: ast.AST) -> Optional[str]:
 def iter_import_nodes_in_scope(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
     """Yield imports executed in a scope without entering nested definitions."""
 
+    def type_checking_guard(node: ast.AST) -> Optional[bool]:
+        """Return the guard's runtime truth value when it is TYPE_CHECKING."""
+        negated = isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+        target = node.operand if negated else node
+        is_guard = (
+            isinstance(target, ast.Name) and target.id == "TYPE_CHECKING"
+        ) or (
+            isinstance(target, ast.Attribute)
+            and target.attr == "TYPE_CHECKING"
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "typing"
+        )
+        if not is_guard:
+            return None
+        # typing.TYPE_CHECKING is always False at runtime.
+        return bool(negated)
+
     for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             yield node
             continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        if isinstance(
-            node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)
-        ):
+        if isinstance(node, ast.If):
+            guard_value = type_checking_guard(node.test)
+            if guard_value is True:
+                yield from iter_import_nodes_in_scope(node.body)
+            elif guard_value is False:
+                yield from iter_import_nodes_in_scope(node.orelse)
+            else:
+                yield from iter_import_nodes_in_scope(node.body)
+                yield from iter_import_nodes_in_scope(node.orelse)
+            continue
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
             yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
             yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
             continue

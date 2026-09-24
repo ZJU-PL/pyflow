@@ -78,9 +78,33 @@ class _ExpressionAnalysisMixin:
         """Build concrete string abstractions when both operands are string-like."""
         left_strings = self._string_constants(left)
         right_strings = self._string_constants(right)
-        return {
-            make_string(f"{lhs}{rhs}") for lhs in left_strings for rhs in right_strings
-        }
+        if not left_strings or not right_strings:
+            return set()
+        if not self.options.strict_precision_mode and any(
+            value.startswith("#") for value in (*left_strings, *right_strings)
+        ):
+            # Integer literals use ``#n`` tokens in the lightweight domain.
+            # Treat arithmetic over those tokens as a widened numeric value;
+            # concatenating them as strings creates an unbounded ``#1#1...``
+            # sequence in loops and does not model Python integer addition.
+            return {make_string("#int")}
+        if not self.options.strict_precision_mode:
+            combination_cap = max(1, int(self.options.max_values_per_binding))
+            if len(left_strings) * len(right_strings) > combination_cap:
+                return {UNKNOWN_VALUE}
+        result: Set[AbstractValue] = set()
+        max_length = max(1, int(self.options.max_concrete_string_length))
+        for lhs in left_strings:
+            for rhs in right_strings:
+                combined = f"{lhs}{rhs}"
+                if (
+                    not self.options.strict_precision_mode
+                    and len(combined) > max_length
+                ):
+                    result.add(UNKNOWN_VALUE)
+                else:
+                    result.add(make_string(combined))
+        return result
 
     def _subscript_keys(self, subscript: ast.Subscript) -> Set[str]:
         """Return normalized key tokens used in container key-value maps."""
@@ -1289,7 +1313,18 @@ class _ExpressionAnalysisMixin:
                 combination_count *= len(strings)
                 if combination_count > combination_cap:
                     return {make_string("<joined>")}
-            return {make_string("".join(parts)) for parts in product(*pieces)}
+            result: Set[AbstractValue] = set()
+            max_length = max(1, int(self.options.max_concrete_string_length))
+            for parts in product(*pieces):
+                combined = "".join(parts)
+                if (
+                    not self.options.strict_precision_mode
+                    and len(combined) > max_length
+                ):
+                    result.add(UNKNOWN_VALUE)
+                else:
+                    result.add(make_string(combined))
+            return result
 
         if isinstance(expr, ast.NamedExpr):
             values = self._eval_expr(

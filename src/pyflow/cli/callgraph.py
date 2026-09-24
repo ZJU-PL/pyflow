@@ -34,6 +34,8 @@ def _validate_algorithm_options(args) -> bool:
         incompatible_flags.append("--no-fixpoint-warning")
     if getattr(args, "allocation_site_sensitive_instances", False):
         incompatible_flags.append("--allocation-site-sensitive-instances")
+    if getattr(args, "all_scopes", False):
+        incompatible_flags.append("--all-scopes")
     if getattr(args, "as_graph_output", None):
         incompatible_flags.append("--as-graph-output")
 
@@ -47,7 +49,9 @@ def _validate_algorithm_options(args) -> bool:
     return True
 
 
-def _analyze_file(file_path: Path, args) -> int:
+def _analyze_file(
+    file_path: Path, args, *, project_entry: bool = False
+) -> int:
     if file_path.suffix != ".py":
         print(f"Error: '{file_path}' is not a valid Python file", file=sys.stderr)
         return 1
@@ -58,6 +62,9 @@ def _analyze_file(file_path: Path, args) -> int:
     if args.algorithm == "simple":
         output = analyze_file_ast(str(file_path))
     elif args.algorithm == "constraint":
+        analyze_reachable_only = project_entry and not getattr(
+            args, "all_scopes", False
+        )
         output = analyze_file_constraint(
             str(file_path),
             verbose=args.verbose,
@@ -69,6 +76,8 @@ def _analyze_file(file_path: Path, args) -> int:
                 args.allocation_site_sensitive_instances
             ),
             skip_stdlib_modules=args.skip_stdlib,
+            analyze_reachable_only=analyze_reachable_only,
+            seed_entry_file_scopes=analyze_reachable_only,
         )
     elif args.algorithm == "pycg":
         try:
@@ -105,6 +114,8 @@ def _analyze_file(file_path: Path, args) -> int:
                 args.allocation_site_sensitive_instances
             ),
             skip_stdlib_modules=args.skip_stdlib,
+            analyze_reachable_only=analyze_reachable_only,
+            seed_entry_file_scopes=analyze_reachable_only,
         )
         with open(args.as_graph_output, "w", encoding="utf-8") as handle:
             json.dump(as_graph, handle, indent=2, sort_keys=True)
@@ -178,7 +189,7 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         )
         return 1
     assert full_path is not None
-    return _analyze_file(full_path, args)
+    return _analyze_file(full_path, args, project_entry=True)
 
 
 def run_callgraph(input_path, args):
@@ -280,6 +291,14 @@ def add_callgraph_parser(subparsers):
         "--allocation-site-sensitive-instances",
         action="store_true",
         help="Track per-allocation instance identities (constraint algorithm only)",
+    )
+    parser.add_argument(
+        "--all-scopes",
+        action="store_true",
+        help=(
+            "Analyze every loaded top-level scope instead of entry-reachable "
+            "scopes when the input is a project directory"
+        ),
     )
     parser.add_argument(
         "--skip-stdlib",

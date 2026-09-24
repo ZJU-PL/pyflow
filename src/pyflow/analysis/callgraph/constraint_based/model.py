@@ -61,16 +61,19 @@ class AnalysisOptions:
     context_sensitive: bool = False
     context_depth: int = 1
     fixpoint_max_iterations: Optional[int] = None
+    default_fixpoint_iteration_budget: int = 10000
     warn_on_fixpoint_truncation: bool = True
     allocation_site_sensitive_instances: bool = False
     use_type_hints: bool = True
     refine_type_guards: bool = True
     allow_fixture_graph_loading: bool = True
     max_values_per_binding: int = 128
+    max_concrete_string_length: int = 256
     max_contexts_per_scope: int = 64
     requeue_policy: Literal["fifo", "priority"] = "priority"
     emit_solver_stats: bool = False
     strict_precision_mode: bool = False
+    semi_naive_presolve: bool = True
     skip_stdlib_modules: bool = True
     skip_external_modules: bool = False
     analyze_reachable_only: bool = False
@@ -82,6 +85,7 @@ class SolverStats:
     """Fixpoint/scheduling telemetry for diagnostics and tuning."""
 
     iterations: int = 0
+    iteration_budget: int = 0
     states_analyzed: int = 0
     states_requeued: int = 0
     max_queue_size: int = 0
@@ -89,6 +93,9 @@ class SolverStats:
     contexts_capped: int = 0
     dynamic_summary_edges: int = 0
     closure_context_fallbacks: int = 0
+    semi_naive_constraints: int = 0
+    semi_naive_facts: int = 0
+    semi_naive_edges: int = 0
 
 
 @dataclass
@@ -185,6 +192,7 @@ class ScopeResult:
     changed_container_keys: Set[Tuple[str, str]]
     nonlocal_binding_changed: bool
     singledispatch_changed: bool
+    flow_binding_changed: bool
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,109 @@ import unittest
 
 from pyflow.analysis.callgraph.constraint_based.engine import ConstraintCallGraphBuilder
 from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions
+from pyflow.analysis.callgraph.constraint_based.model import (
+    UNKNOWN_VALUE,
+    make_string,
+)
 
 
 class TestConstraintBasedPerfSmoke(unittest.TestCase):
+    def test_semi_naive_presolve_batches_deep_direct_call_chains(self):
+        depth = 120
+        lines = ["def target(): return 1", "def f0(value): return value"]
+        lines.extend(
+            f"def f{index}(value): return f{index - 1}(value)"
+            for index in range(1, depth)
+        )
+        lines.append(f"f{depth - 1}(target)")
+        source = "\n".join(lines)
+
+        legacy = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                analyze_reachable_only=True,
+                semi_naive_presolve=False,
+            ),
+        )
+        legacy_graph = legacy.build().get()
+        semi_naive = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                analyze_reachable_only=True,
+                semi_naive_presolve=True,
+            ),
+        )
+        semi_naive_graph = semi_naive.build().get()
+
+        self.assertEqual(semi_naive_graph, legacy_graph)
+        self.assertLess(
+            semi_naive.fixpoint_iterations, legacy.fixpoint_iterations
+        )
+        self.assertGreater(semi_naive.solver_stats.semi_naive_constraints, 0)
+        self.assertGreater(semi_naive.solver_stats.semi_naive_facts, 0)
+
+    def test_default_fixpoint_budget_is_globally_bounded(self):
+        builder = ConstraintCallGraphBuilder("def run():\n    return 1\n")
+
+        builder.build()
+
+        self.assertLessEqual(builder.solver_stats.iteration_budget, 10000)
+
+        explicit = ConstraintCallGraphBuilder(
+            "def run():\n    return 1\n",
+            options=AnalysisOptions(fixpoint_max_iterations=12000),
+        )
+        explicit.build()
+        self.assertEqual(explicit.solver_stats.iteration_budget, 12000)
+
+    def test_unchanged_binding_does_not_reprocess_existing_values(self):
+        builder = ConstraintCallGraphBuilder(
+            "",
+            options=AnalysisOptions(max_values_per_binding=3),
+        )
+        current = {make_string("a")}
+
+        changed = builder._merge_value_set(current, {make_string("a")})
+
+        self.assertFalse(changed)
+        self.assertEqual(current, {make_string("a")})
+
+    def test_long_string_concatenation_widens_to_unknown(self):
+        builder = ConstraintCallGraphBuilder(
+            "",
+            options=AnalysisOptions(max_concrete_string_length=4),
+        )
+
+        combined = builder._combine_string_values(
+            {make_string("abcd")}, {make_string("e")}
+        )
+
+        self.assertEqual(combined, {UNKNOWN_VALUE})
+
+        strict_builder = ConstraintCallGraphBuilder(
+            "",
+            options=AnalysisOptions(
+                max_concrete_string_length=4,
+                strict_precision_mode=True,
+            ),
+        )
+        self.assertEqual(
+            strict_builder._combine_string_values(
+                {make_string("abcd")}, {make_string("e")}
+            ),
+            {make_string("abcde")},
+        )
+
+    def test_integer_tokens_widen_instead_of_string_concatenating(self):
+        builder = ConstraintCallGraphBuilder("")
+
+        self.assertEqual(
+            builder._combine_string_values(
+                {make_string("#1")}, {make_string("#2")}
+            ),
+            {make_string("#int")},
+        )
+
     def test_high_fanout_callsites_converge(self):
         source = textwrap.dedent(
             """

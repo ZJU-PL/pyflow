@@ -284,11 +284,12 @@ class _TypeAnalysisMixin:
         dispatch_types: Set[AbstractValue],
     ) -> None:
         registrations = self.singledispatch_registrations[generic_name]
-        for index, (existing_name, _existing_types) in enumerate(registrations):
+        for index, (existing_name, existing_types) in enumerate(registrations):
             if existing_name == function_name:
-                replacement = (function_name, set(dispatch_types))
-                if registrations[index] != replacement:
-                    registrations[index] = replacement
+                merged_types = set(existing_types)
+                merged_types.update(dispatch_types)
+                if merged_types != existing_types:
+                    registrations[index] = (function_name, merged_types)
                     self._active_singledispatch_changed = True
                 return
         registrations.append((function_name, set(dispatch_types)))

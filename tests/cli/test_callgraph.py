@@ -63,3 +63,40 @@ server = "demo.server:main"
     assert "src/demo/client.py [project.scripts] (command: client)" in error
     assert "src/demo/server.py [project.scripts] (command: server)" in error
     assert "Use --entry to select one" in error
+
+
+def test_constraint_project_entry_defaults_to_reachable_scopes(
+    monkeypatch, tmp_path, capsys
+):
+    sample = tmp_path / "main.py"
+    sample.write_text("def main():\n    return 1\n", encoding="utf-8")
+    captured = []
+
+    def fake_analyze(_path, **kwargs):
+        captured.append(kwargs)
+        return "graph"
+
+    monkeypatch.setattr(callgraph_cli, "analyze_file_constraint", fake_analyze)
+    args = SimpleNamespace(
+        algorithm="constraint",
+        verbose=False,
+        context_sensitive=False,
+        context_depth=1,
+        fixpoint_max_iterations=None,
+        no_fixpoint_warning=False,
+        allocation_site_sensitive_instances=False,
+        all_scopes=False,
+        skip_stdlib=True,
+        as_graph_output=None,
+        output=None,
+    )
+
+    assert callgraph_cli._analyze_file(sample, args, project_entry=True) == 0
+    assert captured[-1]["analyze_reachable_only"] is True
+    assert captured[-1]["seed_entry_file_scopes"] is True
+    capsys.readouterr()
+
+    args.all_scopes = True
+    assert callgraph_cli._analyze_file(sample, args, project_entry=True) == 0
+    assert captured[-1]["analyze_reachable_only"] is False
+    assert captured[-1]["seed_entry_file_scopes"] is False

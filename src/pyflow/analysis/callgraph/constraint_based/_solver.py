@@ -14,7 +14,6 @@ from .model import (
     CLASS_KIND,
     ContextKey,
     FUNC_KIND,
-    GLOBAL_CONTEXT,
     NONE_VALUE,
     ScopeInfo,
     ScopeResult,
@@ -22,7 +21,6 @@ from .model import (
     copy_env,
     join_envs,
     make_class,
-    make_func,
     make_instance,
 )
 
@@ -141,6 +139,8 @@ class _FixpointSolverMixin:
             class_info.bases = resolved
             self._mro_cache.clear()
             self._invalid_mro_classes.discard(class_name)
+            if self._active_changed_class_fields is not None:
+                self._active_changed_class_fields.add((class_name, "*"))
 
     def _pattern_bound_names(self, pattern: ast.pattern) -> Set[str]:
         if isinstance(pattern, ast.MatchAs):
@@ -747,16 +747,20 @@ class _FixpointSolverMixin:
         queue_priority: List[
             Tuple[Tuple[int, int, int, str, str], Tuple[str, ContextKey]]
         ] = []
-        queued_reason: Dict[Tuple[str, ContextKey], str] = {}
+        queued_reasons: Dict[Tuple[str, ContextKey], Set[str]] = {}
         in_queue: Set[Tuple[str, ContextKey]] = set()
         iterations = 0
         configured_max = self.options.fixpoint_max_iterations
         max_iterations = (
             max(1, int(configured_max))
             if configured_max is not None
-            else max(256, len(self.scopes) * 256)
+            else min(
+                max(256, len(self.scopes) * 256),
+                max(256, int(self.options.default_fixpoint_iteration_budget)),
+            )
         )
         self.solver_stats = type(self.solver_stats)()
+        self.solver_stats.iteration_budget = max_iterations
         self._state_input_fingerprints.clear()
         self._global_module_stamp = 0
         self._global_heap_stamp = 0
@@ -771,9 +775,10 @@ class _FixpointSolverMixin:
             normalized = self._normalize_context_for_scope(scope_name, scope_context)
             key = (scope_name, normalized)
             if key in in_queue:
+                queued_reasons.setdefault(key, set()).add(reason_tag)
                 return
             in_queue.add(key)
-            queued_reason[key] = reason_tag
+            queued_reasons[key] = {reason_tag}
             self.solver_stats.states_requeued += 1
             if self.options.requeue_policy == "fifo":
                 queue_fifo.append(key)
@@ -834,14 +839,16 @@ class _FixpointSolverMixin:
                 scope_name, scope_context = queue_fifo.popleft()
             else:
                 _priority, (scope_name, scope_context) = heapq.heappop(queue_priority)
-            reason_tag = queued_reason.pop((scope_name, scope_context), "unknown")
+            reasons = queued_reasons.pop(
+                (scope_name, scope_context), {"unknown"}
+            )
             in_queue.discard((scope_name, scope_context))
             self._analyzed_scope_contexts.add((scope_name, scope_context))
             scope = self.scopes[scope_name]
 
             fingerprint = self._scope_state_fingerprint(scope, scope_context)
             if (
-                reason_tag == "inputs_changed"
+                reasons == {"inputs_changed"}
                 and self._state_input_fingerprints.get((scope_name, scope_context))
                 == fingerprint
             ):
@@ -849,22 +856,26 @@ class _FixpointSolverMixin:
             self._state_input_fingerprints[(scope_name, scope_context)] = fingerprint
             self.solver_stats.states_analyzed += 1
 
-            result = self._analyze_scope(scope, scope_context)
             scope_ctx_key = (scope_name, scope_context)
+            result = self._analyze_scope(scope, scope_context)
 
             previous_returns = self.scope_returns.get(scope_ctx_key, set())
             previous_callees = self.scope_callees.get(scope_ctx_key, set())
+            merged_returns = set(previous_returns)
+            merged_returns.update(result.returns)
             capped_returns = self._cap_values(
-                set(result.returns),
+                merged_returns,
                 preserve_callables=True,
             )
             returns_changed = previous_returns != capped_returns
-            callees_changed = previous_callees != result.callees
+            merged_callees = set(previous_callees)
+            merged_callees.update(result.callees)
+            callees_changed = previous_callees != merged_callees
             if returns_changed:
                 self.scope_returns[scope_ctx_key] = set(capped_returns)
                 self._global_return_stamp += 1
             if callees_changed:
-                self.scope_callees[scope_ctx_key] = set(result.callees)
+                self.scope_callees[scope_ctx_key] = merged_callees
 
             for callee_scope, callee_context in result.input_changed_scope_contexts:
                 _enqueue(
@@ -872,6 +883,13 @@ class _FixpointSolverMixin:
                     callee_context,
                     reason_weight=5,
                     reason_tag="inputs_changed",
+                )
+            if result.flow_binding_changed:
+                _enqueue(
+                    scope_name,
+                    scope_context,
+                    reason_weight=5,
+                    reason_tag="flow_changed",
                 )
 
             changed = (
@@ -902,7 +920,9 @@ class _FixpointSolverMixin:
                         self.instance_field_dependents.get(field_key, set())
                     )
                 for field_key in result.changed_class_fields:
-                    impacted.update(self.class_field_dependents.get(field_key, set()))
+                    impacted.update(
+                        self._class_impacted_scope_contexts(field_key)
+                    )
                 if (
                     result.changed_instance_fields
                     or result.changed_class_fields
@@ -957,7 +977,9 @@ class _FixpointSolverMixin:
             )
 
     def _analyze_scope(
-        self, scope: ScopeInfo, scope_context: ContextKey
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
     ) -> ScopeResult:
         """
         Analyze one scope instance under one context and return delta summary.
@@ -1039,8 +1061,15 @@ class _FixpointSolverMixin:
             input_changed_scope_contexts.update(self._active_changed_closure_scopes)
 
             flow_bindings = self.scope_flow_bindings.setdefault(scope_ctx_key, {})
-            if self._merge_bindings(flow_bindings, env):
-                input_changed_scope_contexts.add(scope_ctx_key)
+            input_names = set(scope.params) | set(scope.closure_vars)
+            derived_bindings = {
+                name: values
+                for name, values in env.items()
+                if name not in input_names
+            }
+            flow_binding_changed = self._merge_bindings(
+                flow_bindings, derived_bindings
+            )
 
             if scope.class_owner is not None:
                 class_info = self.classes.get(scope.class_owner)
@@ -1078,16 +1107,18 @@ class _FixpointSolverMixin:
                     or module_binding_changed
                 )
 
-            previous_global_writes = self.scope_global_writes.get(scope_ctx_key, {})
-            previous_nonlocal_writes = self.scope_nonlocal_writes.get(scope_ctx_key, {})
-            global_changed = previous_global_writes != block_global_writes
-            nonlocal_changed = previous_nonlocal_writes != block_nonlocal_writes
-            self.scope_global_writes[scope_ctx_key] = {
-                name: set(values) for name, values in block_global_writes.items()
-            }
-            self.scope_nonlocal_writes[scope_ctx_key] = {
-                name: set(values) for name, values in block_nonlocal_writes.items()
-            }
+            stored_global_writes = self.scope_global_writes.setdefault(
+                scope_ctx_key, {}
+            )
+            stored_nonlocal_writes = self.scope_nonlocal_writes.setdefault(
+                scope_ctx_key, {}
+            )
+            global_changed = self._merge_bindings(
+                stored_global_writes, block_global_writes
+            )
+            nonlocal_changed = self._merge_bindings(
+                stored_nonlocal_writes, block_nonlocal_writes
+            )
 
             return ScopeResult(
                 callees=callees,
@@ -1099,6 +1130,7 @@ class _FixpointSolverMixin:
                 changed_container_keys=set(self._active_changed_container_state),
                 nonlocal_binding_changed=global_changed or nonlocal_changed,
                 singledispatch_changed=self._active_singledispatch_changed,
+                flow_binding_changed=flow_binding_changed,
             )
         finally:
             self._active_scope_context = previous_active_scope_context

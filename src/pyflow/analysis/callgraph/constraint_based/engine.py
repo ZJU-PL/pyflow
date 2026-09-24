@@ -253,7 +253,22 @@ class ConstraintCallGraphBuilder(
         self._resolve_class_bases()
         self._initialize_scopes()
         self._index_call_sites()
+        semi_naive_stats = (0, 0, 0)
+        if self.options.semi_naive_presolve and not self.options.context_sensitive:
+            from ._semi_naive import run_semi_naive_presolve
+
+            semi_naive = run_semi_naive_presolve(self)
+            semi_naive_stats = (
+                semi_naive.constraints,
+                semi_naive.propagated_facts,
+                sum(len(callees) for callees in semi_naive.edges.values()),
+            )
         self._run_fixpoint()
+        (
+            self.solver_stats.semi_naive_constraints,
+            self.solver_stats.semi_naive_facts,
+            self.solver_stats.semi_naive_edges,
+        ) = semi_naive_stats
         return self._materialize_graph()
 
     def call_site_edge_index(self) -> CallSiteEdgeIndex:
@@ -461,6 +476,11 @@ class ConstraintCallGraphBuilder(
         incoming: Set[AbstractValue],
         preserve_callables: bool = False,
     ) -> bool:
+        # Fixpoint iterations frequently rediscover values already present in
+        # a binding.  Avoid copying, sorting, and re-hashing a capped set when
+        # the union is provably unchanged.
+        if not incoming or incoming.issubset(current):
+            return False
         before = set(current)
         merged = set(current)
         merged.update(incoming)
@@ -587,6 +607,22 @@ class ConstraintCallGraphBuilder(
                 self.container_dependents.get((container_name, key_name), set())
             )
             impacted.update(self.container_dependents.get((container_name, "*"), set()))
+        return impacted
+
+    def _class_impacted_scope_contexts(
+        self, changed_field: Tuple[str, str]
+    ) -> Set[Tuple[str, ContextKey]]:
+        class_name, attr_name = changed_field
+        if attr_name != "*":
+            return set(
+                self.class_field_dependents.get((class_name, attr_name), set())
+            ) | set(self.class_field_dependents.get((class_name, "*"), set()))
+        impacted: Set[Tuple[str, ContextKey]] = set()
+        for (dependency_class, _dependency_attr), dependents in (
+            self.class_field_dependents.items()
+        ):
+            if dependency_class == class_name:
+                impacted.update(dependents)
         return impacted
 
     def _format_value_for_debug(self, value: AbstractValue) -> str:

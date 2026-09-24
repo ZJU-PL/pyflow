@@ -109,29 +109,11 @@ class _StateAnalysisMixin:
         target_values: Iterable[AbstractValue],
         key_names: Set[str],
     ) -> None:
-        if not key_names:
-            return
-        changed = False
-        for target_value in target_values:
-            if target_value.kind != CONTAINER_KIND:
-                continue
-            missing_keys = self.container_maybe_missing_keys.get(target_value.name)
-            if not missing_keys:
-                continue
-            for key_name in key_names:
-                if key_name in missing_keys:
-                    missing_keys.discard(key_name)
-                    changed = True
-            if "*" in missing_keys:
-                missing_keys.discard("*")
-                changed = True
-        if changed:
-            for target_value in target_values:
-                if target_value.kind != CONTAINER_KIND:
-                    continue
-                for key_name in key_names:
-                    self._note_container_state_changed(target_value.name, key_name)
-                self._note_container_state_changed(target_value.name, "*")
+        # This is a flow-insensitive may-analysis.  Once a key may be missing,
+        # a write on another path cannot prove that it is always present.
+        # Keeping the flag monotone also prevents delete/write cycles from
+        # oscillating the global heap state.
+        return
 
     def _container_key_maybe_missing(
         self,
@@ -525,27 +507,14 @@ class _StateAnalysisMixin:
                     self._note_container_state_changed(base_value.name, "*")
                 for key_name in key_names:
                     keyed_current = self.container_key_values[base_value.name][key_name]
-                    if weak:
-                        key_changed = self._merge_value_set(
-                            keyed_current, set(values), preserve_callables=True
+                    key_changed = self._merge_value_set(
+                        keyed_current, set(values), preserve_callables=True
+                    )
+                    changed = key_changed or changed
+                    if key_changed:
+                        self._note_container_state_changed(
+                            base_value.name, key_name
                         )
-                        changed = key_changed or changed
-                        if key_changed:
-                            self._note_container_state_changed(
-                                base_value.name, key_name
-                            )
-                    else:
-                        replacement = self._cap_values(
-                            set(values), preserve_callables=True
-                        )
-                        if keyed_current != replacement:
-                            self.container_key_values[base_value.name][
-                                key_name
-                            ] = replacement
-                            changed = True
-                            self._note_container_state_changed(
-                                base_value.name, key_name
-                            )
             if key_names:
                 self._clear_container_key_maybe_missing(base_values, key_names)
             return changed

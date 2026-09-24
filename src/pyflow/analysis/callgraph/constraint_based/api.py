@@ -39,6 +39,8 @@ def extract_call_graph_constraint(
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
     skip_stdlib_modules: bool = True,
+    analyze_reachable_only: bool = False,
+    seed_entry_file_scopes: bool = False,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -79,6 +81,8 @@ def extract_call_graph_constraint(
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
         skip_stdlib_modules=skip_stdlib_modules,
+        analyze_reachable_only=analyze_reachable_only,
+        seed_entry_file_scopes=seed_entry_file_scopes,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -106,6 +110,8 @@ def analyze_file_constraint(
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
     skip_stdlib_modules: bool = True,
+    analyze_reachable_only: bool = False,
+    seed_entry_file_scopes: bool = False,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
@@ -129,6 +135,8 @@ def analyze_file_constraint(
             emit_solver_stats=emit_solver_stats,
             strict_precision_mode=strict_precision_mode,
             skip_stdlib_modules=skip_stdlib_modules,
+            analyze_reachable_only=analyze_reachable_only,
+            seed_entry_file_scopes=seed_entry_file_scopes,
         )
         return generate_text_output(graph, None)
     except Exception as exc:
@@ -153,6 +161,8 @@ def extract_value_flow_graph_constraint(
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
     skip_stdlib_modules: bool = True,
+    analyze_reachable_only: bool = False,
+    seed_entry_file_scopes: bool = False,
 ) -> Dict[str, List[str]]:
     """
     Extract a debug value-flow graph from the constraint analyser.
@@ -176,6 +186,8 @@ def extract_value_flow_graph_constraint(
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
         skip_stdlib_modules=skip_stdlib_modules,
+        analyze_reachable_only=analyze_reachable_only,
+        seed_entry_file_scopes=seed_entry_file_scopes,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
