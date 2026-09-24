@@ -25,9 +25,13 @@ _KWONLY_PARAM_PREFIX = "kwonly:"
 class FunctionExtractor:
     """Extracts and converts Python functions to PyFlow AST."""
 
-    def __init__(self, verbose: bool = True):
+    def __init__(
+        self, verbose: bool = True, *, retain_source_syntax: bool = True
+    ):
         self.verbose = verbose
-        self.ast_converter = ASTConverter(verbose)
+        self.ast_converter = ASTConverter(
+            verbose, retain_source_syntax=retain_source_syntax
+        )
         self.diagnostics: list[str] = []
 
     def _callable_name(self, func: Any) -> str:

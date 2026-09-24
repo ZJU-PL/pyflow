@@ -31,6 +31,7 @@ from .index import (
     index_cfg,
     index_code,
     index_program,
+    register_program_procedures,
     rebuild_program_ir,
 )
 from .semantics import CallSite, ControlEffects, IRSemantics, OperationSemantics
@@ -116,6 +117,7 @@ __all__ = [
     "verify_catalog",
     "index_code",
     "index_program",
+    "register_program_procedures",
     "rebuild_program_ir",
     "ensure_code_indexed",
     "ensure_codes_indexed",

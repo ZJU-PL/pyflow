@@ -46,8 +46,11 @@ _KWONLY_PARAM_PREFIX = "kwonly:"
 class ASTConverter:
     """Converts Python AST nodes to PyFlow AST nodes."""
 
-    def __init__(self, verbose: bool = True):
+    def __init__(
+        self, verbose: bool = True, *, retain_source_syntax: bool = True
+    ):
         self.verbose = verbose
+        self.retain_source_syntax = retain_source_syntax
         # Collected approximation notes for debugging and tests.
         self.approximation_warnings: List[str] = []
         self._telemetry: Dict[str, int] = {
@@ -79,7 +82,8 @@ class ASTConverter:
     ) -> Optional[PythonASTNode]:
         if converted is None:
             return converted
-        register_gir_source_node(converted, source)
+        if self.retain_source_syntax:
+            register_gir_source_node(converted, source)
         if isinstance(converted, pyflow_ast.Suite) and isinstance(
             source,
             (
@@ -1068,7 +1072,8 @@ class ASTConverter:
             self._pop_scope()
 
         code = pyflow_ast.Code(node.name, codeparams, body)
-        register_gir_source_node(code, node)
+        if self.retain_source_syntax:
+            register_gir_source_node(code, node)
         register_code_definition_metadata(
             code,
             annotations=tuple(definition_annotations),

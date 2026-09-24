@@ -12,6 +12,8 @@ from pyflow.ir.core import (
     SyntheticOrigin,
     TransformationFrame,
     index_cfg,
+    index_program,
+    register_program_procedures,
     rebuild_program_ir,
     verify_catalog,
 )
@@ -68,6 +70,34 @@ def test_frontend_ir_ids_are_deterministic_across_extractions():
         )
 
     assert extract_ids() == extract_ids()
+
+
+def test_lazy_procedure_registration_preserves_eager_node_ids():
+    source = (
+        "def main(values):\n"
+        "    def inner(value):\n"
+        "        return value\n"
+        "    mapper = lambda value: inner(value)\n"
+        "    result = [mapper(value) for value in values]\n"
+        "    return result\n"
+    )
+    eager = Extractor(context.CompilerContext(None), verbose=False).extract_from_source(
+        source, "same.py"
+    )
+
+    extractor = Extractor(context.CompilerContext(None), verbose=False)
+    extractor._batch_extraction = True
+    lazy = extractor.extract_from_source(source, "same.py")
+    extractor._batch_extraction = False
+    register_program_procedures(lazy, filename="same.py")
+    assert lazy.ir.nodes() == ()
+
+    index_program(lazy, filename="same.py")
+
+    assert tuple(eager.ir.procedures()) == tuple(lazy.ir.procedures())
+    assert tuple(node_id for node_id, _node in eager.ir.nodes()) == tuple(
+        node_id for node_id, _node in lazy.ir.nodes()
+    )
 
 
 def test_cfg_index_assigns_deterministic_block_and_edge_ids():

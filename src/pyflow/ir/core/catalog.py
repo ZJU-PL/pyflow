@@ -67,6 +67,7 @@ class IRCatalog:
         self.facts = FactStore(revision)
 
         self._procedures: dict[CodeId, ProcedureIR] = {}
+        self._indexed_procedures: set[CodeId] = set()
         self._code_objects: dict[_IdentityKey, CodeId] = {}
         self._codes: dict[CodeId, object] = {}
         self._code_keys: dict[tuple[str, str, SourceAnchor], int] = {}
@@ -151,6 +152,46 @@ class IRCatalog:
             return code_or_id in self._procedures
         return _identity(code_or_id) in self._code_objects
 
+    def is_procedure_indexed(self, code_or_id: object | CodeId) -> bool:
+        """Return whether node and symbol registration completed for a procedure."""
+        if isinstance(code_or_id, CodeId):
+            code_id = code_or_id
+        else:
+            code_id = self._code_objects.get(_identity(code_or_id))
+            if code_id is None:
+                return False
+        return code_id in self._indexed_procedures
+
+    def mark_procedure_indexed(self, code_or_id: object | CodeId) -> None:
+        code_id = (
+            code_or_id
+            if isinstance(code_or_id, CodeId)
+            else self.procedure(code_or_id).code_id
+        )
+        self._indexed_procedures.add(code_id)
+
+    def _ensure_procedure_indexed(self, code_or_id: object | CodeId) -> None:
+        if self.is_procedure_indexed(code_or_id):
+            return
+        procedure = self.procedure(code_or_id)
+        code = self.code(procedure.code_id)
+        from pyflow.language.python import ast
+
+        # Tests and low-level clients may use opaque owner objects and bind
+        # their nodes/symbols manually.  Automatic indexing applies only to
+        # real Python IR procedures.
+        if not isinstance(code, ast.Code):
+            return
+        from .index import index_code
+
+        index_code(
+            self,
+            code,
+            module=procedure.code_id.module,
+            qualname=procedure.code_id.qualname,
+            filename=procedure.code_id.anchor.filename or None,
+        )
+
     def code(self, code_id: CodeId) -> object:
         return self._codes[code_id]
 
@@ -213,7 +254,12 @@ class IRCatalog:
     def node_id(self, node: object, code: object | CodeId | None = None) -> NodeId:
         if code is not None:
             code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
-            return self._node_ids[(code_id, _identity(node))]
+            key = (code_id, _identity(node))
+            existing = self._node_ids.get(key)
+            if existing is not None:
+                return existing
+            self._ensure_procedure_indexed(code_id)
+            return self._node_ids[key]
         occurrences = self._node_occurrences[_identity(node)]
         if isinstance(occurrences, list):
             raise KeyError(
@@ -433,9 +479,13 @@ class IRCatalog:
         self, reference: object, code: object | CodeId | None = None
     ) -> SymbolId:
         if code is not None:
-            return self._reference_symbols[
-                (self.procedure(code).root_scope, _identity(reference))
-            ]
+            scope = self.procedure(code).root_scope
+            key = (scope, _identity(reference))
+            existing = self._reference_symbols.get(key)
+            if existing is not None:
+                return existing
+            self._ensure_procedure_indexed(scope.code)
+            return self._reference_symbols[key]
         occurrences = self._reference_occurrences[_identity(reference)]
         if isinstance(occurrences, list):
             raise KeyError(

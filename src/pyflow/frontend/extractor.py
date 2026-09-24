@@ -103,6 +103,7 @@ class Extractor:
         source_code: str = None,
         analysis_root: Optional[str] = None,
         defer_semantics: bool = True,
+        retain_source_syntax: bool = False,
     ):
         """Initialize the program extractor.
 
@@ -113,6 +114,8 @@ class Extractor:
                         dict mapping filenames to source code.
             defer_semantics: Build IR semantics lazily on first access. Disable
                         only when eager semantics construction is required.
+            retain_source_syntax: Retain full CPython AST nodes for GIR emission.
+                        Compact source spans remain available when disabled.
         """
         self.compiler = compiler
         self.verbose = verbose
@@ -146,7 +149,9 @@ class Extractor:
 
         # Initialize component managers
         self.intrinsic_manager = IntrinsicManager(compiler)
-        self.function_extractor = FunctionExtractor(verbose)
+        self.function_extractor = FunctionExtractor(
+            verbose, retain_source_syntax=retain_source_syntax
+        )
         self.object_manager = ObjectManager(
             verbose, self.function_extractor, self.intrinsic_manager
         )
@@ -869,12 +874,17 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
         program.entryPoints = program.interface.entryPoint
 
     # ``extract_from_*`` may build an intermediate Program and then merge its
-    # code objects into the caller-owned Program.  Identity/source metadata
-    # must be indexed on the object that clients actually receive.
-    from pyflow.ir.core import index_program
+    # code objects into the caller-owned Program.  Register stable procedure
+    # identities now; node/symbol indexing remains lazy until an analysis asks
+    # for a concrete procedure.
+    if compiler.extractor.defer_semantics:
+        from pyflow.ir.core import register_program_procedures
 
-    index_program(program)
-    if not compiler.extractor.defer_semantics:
+        register_program_procedures(program)
+    else:
+        from pyflow.ir.core import index_program
+
+        index_program(program)
         from pyflow.ir.core import build_program_semantics
 
         # index_program just registered every reachable node, so the closure

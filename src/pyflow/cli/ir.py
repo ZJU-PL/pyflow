@@ -442,7 +442,10 @@ def run_ir_dump(input_path: Path, args):
             python_files, InterfaceBuildOptions.from_namespace(args)
         )
         compiler.extractor = Extractor(
-            compiler, verbose=args.verbose, source_code=all_source_code
+            compiler,
+            verbose=args.verbose,
+            source_code=all_source_code,
+            retain_source_syntax=bool(args.dump_gir),
         )
 
         with console.scope("extraction"):

@@ -22,6 +22,8 @@ from pyflow.frontend.interface_builder import (
     build_interface_from_paths,
 )
 from pyflow.language.modules.imports import build_module_source_map
+from pyflow.language.python.ir_metadata import gir_source_node
+from pyflow.ir.core import ensure_code_indexed
 
 
 def _build_interface(python_files, args):
@@ -63,6 +65,23 @@ class TestExtractor(unittest.TestCase):
         source_dict = {"file1.py": "def func1(): pass", "file2.py": "def func2(): pass"}
         extractor = Extractor(self.compiler, verbose=False, source_code=source_dict)
         self.assertEqual(extractor.source_code, source_dict)
+
+    def test_source_syntax_retention_is_opt_in_for_gir(self):
+        source = "def helper():\n    return 1\n"
+        compact = self.extractor.extract_from_source(source, "sample.py")
+        compact_code = next(
+            code for code in compact.liveCode if code.codeName() == "helper"
+        )
+        self.assertIsNone(gir_source_node(compact_code))
+
+        retained_extractor = Extractor(
+            self.compiler, verbose=False, retain_source_syntax=True
+        )
+        retained = retained_extractor.extract_from_source(source, "sample.py")
+        retained_code = next(
+            code for code in retained.liveCode if code.codeName() == "helper"
+        )
+        self.assertIsNotNone(gir_source_node(retained_code))
 
     def test_extract_from_source_simple_function(self):
         """Test extracting a simple function from source."""
@@ -809,6 +828,26 @@ class TestExtractProgram(unittest.TestCase):
         self.assertIs(self.program.class_hierarchy, extractor.class_hierarchy)
         self.assertIs(self.program.cross_module_resolver, extractor.cross_module_resolver)
         self.assertIsNotNone(self.program.frontend_telemetry)
+
+    def test_extract_program_defers_node_indexing_until_code_is_requested(self):
+        self.compiler.extractor = Extractor(
+            self.compiler,
+            verbose=False,
+            source_code={"sample.py": "def f(value):\n    return value\n"},
+        )
+
+        extract_program(self.compiler, self.program)
+
+        code = next(code for code in self.program.liveCode if code.codeName() == "f")
+        self.assertTrue(self.program.ir.has_procedure(code))
+        self.assertFalse(self.program.ir.is_procedure_indexed(code))
+        self.assertEqual(self.program.ir.nodes(), ())
+
+        catalog = ensure_code_indexed(code, rebuild_semantics=False)
+
+        self.assertIs(catalog, self.program.ir)
+        self.assertTrue(catalog.is_procedure_indexed(code))
+        self.assertTrue(catalog.has_node(code.ast, code))
 
     def test_extract_program_with_interface(self):
         """Test extract_program with interface."""

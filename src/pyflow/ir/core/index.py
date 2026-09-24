@@ -147,7 +147,7 @@ def index_code(
         return
     seen_codes.add(code_marker)
 
-    new_procedure = not catalog.has_procedure(code)
+    first_index = not catalog.is_procedure_indexed(code)
     procedure = catalog.register_code(
         code,
         module=module,
@@ -199,7 +199,7 @@ def index_code(
         reference_marker = id(local)
         if reference_marker in bound_references:
             return
-        if not new_procedure and catalog.has_symbol(local, code):
+        if not first_index and catalog.has_symbol(local, code):
             bound_references.add(reference_marker)
             return
         name = local.name
@@ -224,7 +224,7 @@ def index_code(
             )
         catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
         bound_references.add(reference_marker)
-        if new_procedure:
+        if first_index:
             missing_declaration = symbol.id not in declared_symbols
         else:
             missing_declaration = catalog.source_map.declaration(symbol.id) is None
@@ -267,7 +267,7 @@ def index_code(
                 seen_codes=seen_codes,
             )
             continue
-        if new_procedure:
+        if first_index:
             catalog.register_new_node(
                 procedure.code_id,
                 node,
@@ -297,20 +297,10 @@ def index_code(
             continue
         for child in reversed(node.children()):
             pending.append((child, origin))
+    catalog.mark_procedure_indexed(procedure.code_id)
 
 
-def index_program(
-    program,
-    *,
-    module: str = "__main__",
-    filename: str | None = None,
-) -> IRCatalog:
-    """Index every live procedure in deterministic source/name order."""
-    catalog = getattr(program, "ir", None)
-    if catalog is None:
-        catalog = IRCatalog()
-        program.ir = catalog
-    seen_codes: set[int] = set()
+def _program_live_code(program, filename: str | None) -> list[ast.Code]:
     candidate_codes = list(getattr(program, "liveCode", ()))
     candidate_codes.extend(
         code
@@ -326,20 +316,111 @@ def index_program(
             for code in (getattr(entry_point, "code", None),)
             if isinstance(code, ast.Code)
         )
-    live_code = sorted(
+    return sorted(
         _identity_unique(candidate_codes),
         key=lambda code: (
             _source_anchor(code, filename),
             code.codeName(),
         ),
     )
-    for code in live_code:
-        code_module = module
-        anchor = _source_anchor(code, filename)
-        if anchor.filename and module == "__main__":
-            stem = os.path.splitext(os.path.basename(anchor.filename))[0]
-            if stem and stem != "__init__":
-                code_module = stem
+
+
+def _code_module(
+    code: ast.Code, module: str, filename: str | None
+) -> tuple[str, SourceAnchor]:
+    code_module = module
+    anchor = _source_anchor(code, filename)
+    if anchor.filename and module == "__main__":
+        stem = os.path.splitext(os.path.basename(anchor.filename))[0]
+        if stem and stem != "__init__":
+            code_module = stem
+    return code_module, anchor
+
+
+def register_program_procedures(
+    program,
+    *,
+    module: str = "__main__",
+    filename: str | None = None,
+) -> IRCatalog:
+    """Register stable procedure identities without indexing every IR node."""
+    catalog = getattr(program, "ir", None)
+    if catalog is None:
+        catalog = IRCatalog()
+        program.ir = catalog
+    seen_codes: set[int] = set()
+
+    def register_tree(
+        code: ast.Code,
+        *,
+        code_module: str,
+        qualname: str,
+        fallback_filename: str | None,
+    ) -> None:
+        marker = id(code)
+        if marker in seen_codes:
+            return
+        seen_codes.add(marker)
+        catalog.register_code(
+            code,
+            module=code_module,
+            qualname=qualname,
+            anchor=_source_anchor(code, fallback_filename),
+            **_procedure_metadata(code),
+        )
+        code.ir_catalog = catalog
+
+        pending: list[object] = [code]
+        while pending:
+            node = pending.pop()
+            if node is None or isinstance(node, ast.leafTypes):
+                continue
+            if isinstance(node, (list, tuple)):
+                pending.extend(reversed(node))
+                continue
+            if not isinstance(node, ast.PythonASTNode):
+                continue
+            if isinstance(node, ast.Code) and node is not code:
+                nested_name = node.codeName()
+                nested_qualname = (
+                    nested_name
+                    if "." in nested_name
+                    else f"{qualname}.<locals>.{nested_name}"
+                )
+                register_tree(
+                    node,
+                    code_module=code_module,
+                    qualname=nested_qualname,
+                    fallback_filename=fallback_filename,
+                )
+                continue
+            pending.extend(reversed(node.children()))
+
+    for code in _program_live_code(program, filename):
+        code_module, anchor = _code_module(code, module, filename)
+        register_tree(
+            code,
+            code_module=code_module,
+            qualname=code.codeName(),
+            fallback_filename=anchor.filename or filename,
+        )
+    return catalog
+
+
+def index_program(
+    program,
+    *,
+    module: str = "__main__",
+    filename: str | None = None,
+) -> IRCatalog:
+    """Index every live procedure in deterministic source/name order."""
+    catalog = getattr(program, "ir", None)
+    if catalog is None:
+        catalog = IRCatalog()
+        program.ir = catalog
+    seen_codes: set[int] = set()
+    for code in _program_live_code(program, filename):
+        code_module, _anchor = _code_module(code, module, filename)
         index_code(
             catalog,
             code,
@@ -417,6 +498,20 @@ def ensure_code_indexed(
     """Return the mandatory catalog for a standalone code object."""
     catalog = getattr(code, "ir_catalog", None)
     if isinstance(catalog, IRCatalog):
+        if catalog.is_procedure_indexed(code):
+            return catalog
+        procedure = catalog.procedure(code)
+        index_code(
+            catalog,
+            code,
+            module=procedure.code_id.module,
+            qualname=procedure.code_id.qualname,
+            filename=procedure.code_id.anchor.filename or None,
+        )
+        if rebuild_semantics:
+            from .build_semantics import build_semantics
+
+            build_semantics(catalog)
         return catalog
     catalog = IRCatalog()
     index_code(
