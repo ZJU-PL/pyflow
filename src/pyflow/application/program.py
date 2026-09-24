@@ -47,6 +47,7 @@ class Program(object):
         "class_hierarchy",
         "cross_module_resolver",
         "frontend_telemetry",
+        "frontend_diagnostics",
         "analysis_results",
         "ir",
     )
@@ -72,6 +73,7 @@ class Program(object):
         self.class_hierarchy = None
         self.cross_module_resolver = None
         self.frontend_telemetry = None
+        self.frontend_diagnostics = ()
         from pyflow.ir.core import IRCatalog
 
         self.ir = IRCatalog()

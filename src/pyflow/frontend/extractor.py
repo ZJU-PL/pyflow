@@ -14,6 +14,8 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 import ast
 import os
 import re
+import traceback
+from dataclasses import asdict, dataclass
 from time import monotonic
 from typing import Any, Dict, List, Optional, Set
 
@@ -42,6 +44,22 @@ from .runtime.objects import ObjectManager
 # Cap for the per-instance filename normalization cache.  A run touches at most
 # one entry per distinct source path, so this only guards long-lived processes.
 _MAX_NORMALIZED_FILENAMES = 8192
+
+
+@dataclass(frozen=True)
+class FileExtractionDiagnostic:
+    """Structured details for one file that could not be extracted."""
+
+    filename: str
+    stage: str
+    exception_type: str
+    message: str
+    line: Optional[int] = None
+    column: Optional[int] = None
+    traceback: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 def _is_synthetic_entry_code(code: Any) -> bool:
@@ -111,6 +129,7 @@ class Extractor:
         self.builtin = 0
         self.errors = 0
         self.failures = 0
+        self.diagnostics: List[FileExtractionDiagnostic] = []
         self._source_files = {}  # Track source files for better error reporting
         self._module_imports: Dict[str, Dict[str, str]] = {}  # module -> {name -> qualified}
         self._current_file_path: Optional[str] = None  # Current file being processed
@@ -138,6 +157,27 @@ class Extractor:
             self.class_hierarchy, verbose=verbose
         )
 
+    def _record_file_diagnostic(
+        self, filename: str, stage: str, error: BaseException
+    ) -> FileExtractionDiagnostic:
+        diagnostic = FileExtractionDiagnostic(
+            filename=filename,
+            stage=stage,
+            exception_type=type(error).__name__,
+            message=str(error),
+            line=getattr(error, "lineno", None),
+            column=getattr(error, "offset", None),
+            traceback="".join(
+                traceback.format_exception(type(error), error, error.__traceback__)
+            ),
+        )
+        self.diagnostics.append(diagnostic)
+        return diagnostic
+
+    def get_diagnostics(self) -> List[FileExtractionDiagnostic]:
+        """Return a snapshot of file-level extraction failures."""
+        return list(self.diagnostics)
+
     def extract_from_source(
         self, source: str, filename: str = "<string>", *, reset_telemetry: bool = True
     ) -> Program:
@@ -150,6 +190,7 @@ class Extractor:
         Returns:
             Program: Program object containing extracted information.
         """
+        diagnostic_start = len(self.diagnostics)
         try:
             if reset_telemetry:
                 self.function_extractor.ast_converter.reset_telemetry()
@@ -161,14 +202,17 @@ class Extractor:
                 if normalized == source:
                     raise
                 tree = ast.parse(normalized, filename)
-            return self._extract_from_ast(tree, filename)
+            program = self._extract_from_ast(tree, filename)
         except SyntaxError as e:
             if self.verbose:
                 print(f"Syntax error in {filename}: {e}")
             self.errors += 1
-            return Program()
+            self._record_file_diagnostic(filename, "parse", e)
+            program = Program()
         finally:
             self.function_extractor.ast_converter.clear_scope_caches()
+        program.frontend_diagnostics = tuple(self.diagnostics[diagnostic_start:])
+        return program
 
     def extract_from_file(self, filename: str) -> Program:
         """Extract program information from a Python file.
@@ -179,20 +223,26 @@ class Extractor:
         Returns:
             Program: Program object containing extracted information.
         """
+        diagnostic_start = len(self.diagnostics)
         try:
             with open(filename, "r", encoding="utf-8", errors="replace") as f:
                 source = f.read()
-            return self.extract_from_source(source, filename)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             if self.verbose:
                 print(f"File not found: {filename}")
             self.errors += 1
-            return Program()
+            self._record_file_diagnostic(filename, "read", e)
+            program = Program()
         except Exception as e:
             if self.verbose:
                 print(f"Error reading {filename}: {e}")
             self.errors += 1
-            return Program()
+            self._record_file_diagnostic(filename, "read", e)
+            program = Program()
+        else:
+            return self.extract_from_source(source, filename)
+        program.frontend_diagnostics = tuple(self.diagnostics[diagnostic_start:])
+        return program
 
     def extract_from_multiple_files(
         self, source_files: dict, *, deadline: float | None = None
@@ -205,6 +255,7 @@ class Extractor:
         the batch.
         """
         combined_program = Program()
+        diagnostic_start = len(self.diagnostics)
         self._source_files = source_files
         self.function_extractor.ast_converter.reset_telemetry()
 
@@ -236,11 +287,15 @@ class Extractor:
                     if self.verbose:
                         print(f"Error processing {filename}: {e}")
                     self.errors += 1
+                    self._record_file_diagnostic(filename, "extract", e)
         finally:
             self._batch_extraction = previous_batch
 
         combined_program.frontend_telemetry = (
             self.function_extractor.ast_converter.get_telemetry()
+        )
+        combined_program.frontend_diagnostics = tuple(
+            self.diagnostics[diagnostic_start:]
         )
         combined_program.class_hierarchy = self.class_hierarchy
         combined_program.cross_module_resolver = self.cross_module_resolver
@@ -279,11 +334,7 @@ class Extractor:
         if self.cross_module_resolver:
             self.cross_module_resolver.register_module(
                 module_name=module_name,
-                classes={
-                    cls_info.name: cls_info
-                    for cls_info in self.class_hierarchy.classes.values()
-                    if cls_info.module == module_name
-                },
+                classes=self.class_hierarchy.get_classes_for_module(module_name),
                 imports=self._module_imports.get(module_name, {}),
             )
 
@@ -754,6 +805,7 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
         program.class_hierarchy = extracted_program.class_hierarchy
         program.cross_module_resolver = extracted_program.cross_module_resolver
         program.frontend_telemetry = extracted_program.frontend_telemetry
+        program.frontend_diagnostics = extracted_program.frontend_diagnostics
 
         # Add extracted functions to program's liveCode
         if hasattr(extracted_program, "liveCode") and extracted_program.liveCode:
@@ -777,6 +829,7 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
             program.class_hierarchy = extracted_program.class_hierarchy
             program.cross_module_resolver = extracted_program.cross_module_resolver
             program.frontend_telemetry = extracted_program.frontend_telemetry
+            program.frontend_diagnostics = extracted_program.frontend_diagnostics
             if extracted_program.liveCode:
                 program.liveCode.update(extracted_program.liveCode)
         if compiler.console:

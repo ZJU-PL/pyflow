@@ -30,12 +30,11 @@ from pyflow.language.python.ir_metadata import (
 )
 
 from .scope import (
-    body_contains_zero_arg_super,
+    FunctionBodyAnalysis,
+    analyze_function_body,
     collect_descendant_scope_directives,
     collect_direct_scope_directives,
-    collect_function_scope,
     collect_scope_names,
-    direct_child_captures,
 )
 
 HAS_MATCH = sys.version_info >= (3, 10)
@@ -71,9 +70,8 @@ class ASTConverter:
         self._descendant_scope_cache: Dict[
             tuple[int, ...], tuple[frozenset[str], frozenset[str]]
         ] = {}
-        self._function_scope_cache: Dict[
-            tuple[int, ...],
-            tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]],
+        self._function_analysis_cache: Dict[
+            tuple[int, ...], FunctionBodyAnalysis
         ] = {}
 
     def _with_source_origin(
@@ -184,7 +182,7 @@ class ASTConverter:
         self._direct_scope_cache.clear()
         self._scope_names_cache.clear()
         self._descendant_scope_cache.clear()
-        self._function_scope_cache.clear()
+        self._function_analysis_cache.clear()
 
     def get_telemetry(self) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(self._telemetry)
@@ -275,18 +273,6 @@ class ASTConverter:
                     break
         return captured
 
-    def _direct_child_captures(
-        self,
-        body_nodes: List[python_ast.AST],
-        parent_bound: Set[str],
-    ) -> Set[str]:
-        return direct_child_captures(
-            body_nodes,
-            parent_bound,
-            scope_names=self._collect_scope_names,
-            scope_directives=self._collect_direct_scope_directives,
-        )
-
     def _collect_descendant_scope_directives(
         self, body_nodes: List[python_ast.AST]
     ) -> Tuple[Set[str], Set[str]]:
@@ -300,29 +286,15 @@ class ASTConverter:
             self._descendant_scope_cache[key] = cached
         return set(cached[0]), set(cached[1])
 
-    def _collect_function_scope(
-        self,
-        body_nodes: List[python_ast.AST],
-    ) -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
-        """Collect direct directives and scope names in one traversal.
-
-        Equivalent to ``_collect_direct_scope_directives`` plus
-        ``_collect_scope_names`` over the same body, but visits the body once.
-        """
+    def _analyze_function_body(
+        self, body_nodes: List[python_ast.AST]
+    ) -> FunctionBodyAnalysis:
         key = tuple(map(id, body_nodes))
-        cached = self._function_scope_cache.get(key)
+        cached = self._function_analysis_cache.get(key)
         if cached is None:
-            global_names, nonlocal_names, bound, loaded = collect_function_scope(
-                body_nodes
-            )
-            cached = (
-                frozenset(global_names),
-                frozenset(nonlocal_names),
-                frozenset(bound),
-                frozenset(loaded),
-            )
-            self._function_scope_cache[key] = cached
-        return set(cached[0]), set(cached[1]), set(cached[2]), set(cached[3])
+            cached = analyze_function_body(body_nodes)
+            self._function_analysis_cache[key] = cached
+        return cached
 
     def _name_constant(self, name: str) -> pyflow_ast.Existing:
         return pyflow_ast.Existing(Object(name))
@@ -1052,9 +1024,11 @@ class ASTConverter:
         codeparams = self._convert_function_args(
             node.args, ensure_return=True, type_params_node=type_params_node
         )
-        direct_global, direct_nonlocal, body_bound, body_loaded = (
-            self._collect_function_scope(list(node.body))
-        )
+        function_analysis = self._analyze_function_body(list(node.body))
+        direct_global = set(function_analysis.global_names)
+        direct_nonlocal = set(function_analysis.nonlocal_names)
+        body_bound = set(function_analysis.bound)
+        body_loaded = set(function_analysis.loaded)
         parameter_names = {
             argument.arg
             for argument in (
@@ -1068,20 +1042,15 @@ class ASTConverter:
         if getattr(node.args, "kwarg", None) is not None:
             parameter_names.add(node.args.kwarg.arg)
         bound_names = (body_bound | parameter_names) - direct_global - direct_nonlocal
-        uses_zero_arg_super = body_contains_zero_arg_super(node.body)
+        uses_zero_arg_super = function_analysis.has_zero_arg_super
         if uses_zero_arg_super:
             body_loaded.add("__class__")
         implicit_free = self._enclosing_cell_names(
             body_loaded - bound_names - direct_global
         )
         free_names = direct_nonlocal | implicit_free
-        _descendant_global, descendant_nonlocal = (
-            self._collect_descendant_scope_directives(list(node.body))
-        )
-        captured_by_children = self._direct_child_captures(
-            list(node.body),
-            bound_names,
-        )
+        descendant_nonlocal = set(function_analysis.descendant_nonlocal_names)
+        captured_by_children = function_analysis.direct_child_captures(bound_names)
         self._push_scope(
             "function",
             global_names=direct_global,
@@ -1109,7 +1078,7 @@ class ASTConverter:
         origin_tags: list[Any] = [f"converted_function({node.name})"]
         if isinstance(node, python_ast.AsyncFunctionDef):
             origin_tags.append("converted_async_function")
-        if self._function_contains_yield(node):
+        if function_analysis.has_yield:
             origin_tags.append("converted_generator")
         origin_tags.append(
             SourceOrigin(
@@ -1144,32 +1113,6 @@ class ASTConverter:
             ],
             type_params,
         )
-
-    @staticmethod
-    def _function_contains_yield(node: python_ast.AST) -> bool:
-        class YieldVisitor(python_ast.NodeVisitor):
-            found = False
-
-            def visit_Yield(self, child):
-                self.found = True
-
-            def visit_YieldFrom(self, child):
-                self.found = True
-
-            def visit_FunctionDef(self, child):
-                if child is node:
-                    self.generic_visit(child)
-
-            def visit_AsyncFunctionDef(self, child):
-                if child is node:
-                    self.generic_visit(child)
-
-            def visit_Lambda(self, child):
-                return None
-
-        visitor = YieldVisitor()
-        visitor.visit(node)
-        return visitor.found
 
     def _convert_class_def(self, node: python_ast.ClassDef) -> Optional[PythonASTNode]:
         """Convert Python AST ClassDef to pyflow AST.
@@ -2433,7 +2376,7 @@ class ASTConverter:
                                 condition=pyflow_ast.Condition(
                                     pyflow_ast.Suite([]), cond
                                 ),
-                                t=inner_body,
+                                t=self._ensure_suite(inner_body),
                                 f=pyflow_ast.Suite([]),
                             )
                         ]
@@ -2551,7 +2494,7 @@ class ASTConverter:
                                 condition=pyflow_ast.Condition(
                                     pyflow_ast.Suite([]), cond
                                 ),
-                                t=inner_body,
+                                t=self._ensure_suite(inner_body),
                                 f=pyflow_ast.Suite([]),
                             )
                         ]

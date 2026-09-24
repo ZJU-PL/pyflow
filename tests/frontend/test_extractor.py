@@ -8,7 +8,12 @@ from unittest.mock import Mock, patch
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.api.entrypoints import InterfaceDeclaration, ExistingWrapper, nullWrapper
+from pyflow.api.entrypoints import (
+    ClassDeclaration,
+    InterfaceDeclaration,
+    ExistingWrapper,
+    nullWrapper,
+)
 from pyflow.analysis import ipa
 from pyflow.util.application.console import Console
 from pyflow.frontend.extractor import Extractor, extract_program
@@ -86,6 +91,14 @@ class MyClass:
         program = self.extractor.extract_from_source(source, "test.py")
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 1)
+        self.assertEqual(len(program.frontend_diagnostics), 1)
+        diagnostic = program.frontend_diagnostics[0]
+        self.assertEqual(diagnostic.filename, "test.py")
+        self.assertEqual(diagnostic.stage, "parse")
+        self.assertEqual(diagnostic.exception_type, "SyntaxError")
+        self.assertEqual(diagnostic.line, 1)
+        self.assertIn("SyntaxError", diagnostic.traceback)
+        self.assertEqual(diagnostic.to_dict()["filename"], "test.py")
 
     def test_extract_from_file_existing(self):
         """Test extracting from an existing file."""
@@ -130,6 +143,28 @@ class MyClass:
         program = self.extractor.extract_from_multiple_files(source_files)
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 1)
+        self.assertEqual(len(program.frontend_diagnostics), 1)
+        self.assertEqual(program.frontend_diagnostics[0].filename, "file2.py")
+        self.assertEqual(self.extractor.get_diagnostics(), list(program.frontend_diagnostics))
+
+    def test_extract_from_multiple_files_records_unexpected_failure(self):
+        source_files = {"broken.py": "def f():\n    return 1\n"}
+
+        with patch.object(
+            self.extractor,
+            "_extract_from_ast",
+            side_effect=RuntimeError("conversion failed"),
+        ):
+            program = self.extractor.extract_from_multiple_files(source_files)
+
+        self.assertEqual(self.extractor.errors, 1)
+        self.assertEqual(len(program.frontend_diagnostics), 1)
+        diagnostic = program.frontend_diagnostics[0]
+        self.assertEqual(diagnostic.filename, "broken.py")
+        self.assertEqual(diagnostic.stage, "extract")
+        self.assertEqual(diagnostic.exception_type, "RuntimeError")
+        self.assertEqual(diagnostic.message, "conversion failed")
+        self.assertIn("RuntimeError: conversion failed", diagnostic.traceback)
 
     @patch("pyflow.frontend.extractor.monotonic", side_effect=[1.0, 3.0])
     def test_extract_from_multiple_files_honors_deadline(self, _monotonic):
@@ -704,6 +739,40 @@ def outer2():
         self.assertEqual(len(ep.args), 1)
         self.assertFalse(ep.kwds)
 
+    def test_get_method_code_reuses_inherited_function_conversion(self):
+        class Base:
+            def inherited(self):
+                return 1
+
+        class First(Base):
+            pass
+
+        class Second(Base):
+            pass
+
+        class Aliased(Base):
+            renamed = Base.inherited
+
+        code = Mock()
+        extractor = Mock()
+        extractor.getObjectCall.return_value = (Base.inherited, code)
+        interface = InterfaceDeclaration()
+
+        first = interface.getMethCode(
+            ClassDeclaration(First), "inherited", extractor
+        )
+        second = interface.getMethCode(
+            ClassDeclaration(Second), "inherited", extractor
+        )
+        aliased = interface.getMethCode(
+            ClassDeclaration(Aliased), "renamed", extractor
+        )
+
+        self.assertIs(first[2], code)
+        self.assertIs(second[2], code)
+        self.assertIs(aliased[2], code)
+        extractor.getObjectCall.assert_called_once_with(Base.inherited)
+
 
 class TestExtractProgram(unittest.TestCase):
     """Test cases for the extract_program function."""
@@ -1060,6 +1129,37 @@ class TestEntryPointFailureTolerance(unittest.TestCase):
             self.compiler.extractor = Extractor(
                 self.compiler, verbose=False, source_code=sources
             )
+
+    def test_signature_mismatch_keeps_conservative_entry_point(self):
+        interface = InterfaceDeclaration()
+        code = Mock()
+        code.codeparameters = Mock(
+            posonlyparams=[],
+            posonlynames=[],
+            params=[Mock()],
+            paramnames=["actual"],
+        )
+        extractor = Mock()
+        extractor.compiler = self.compiler
+
+        entry = interface._create_auto_entry(
+            extractor,
+            "decorated",
+            code,
+            nullWrapper,
+            (),
+            [("exposed", ExistingWrapper("value"))],
+            None,
+        )
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(len(entry.args), 1)
+        self.assertIsNone(entry.args[0].pyobj)
+        self.assertFalse(entry.kwds)
+        self.assertIn(
+            "approximating entry point decorated with unknown arguments",
+            self.console.out.getvalue(),
+        )
 
     def test_extract_program_skips_failed_function_entry(self):
         """A function entry that cannot bind should be skipped with a warning."""

@@ -4,7 +4,323 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Callable
+
+
+@dataclass
+class _MutableScopeFacts:
+    global_names: set[str] = field(default_factory=set)
+    nonlocal_names: set[str] = field(default_factory=set)
+    bound: set[str] = field(default_factory=set)
+    loaded: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class FunctionBodyAnalysis:
+    """Facts needed before converting one function body."""
+
+    global_names: frozenset[str]
+    nonlocal_names: frozenset[str]
+    bound: frozenset[str]
+    loaded: frozenset[str]
+    descendant_global_names: frozenset[str]
+    descendant_nonlocal_names: frozenset[str]
+    child_capture_candidates: tuple[frozenset[str], ...]
+    has_zero_arg_super: bool
+    has_yield: bool
+
+    def direct_child_captures(self, parent_bound: set[str]) -> set[str]:
+        captures: set[str] = set()
+        for candidates in self.child_capture_candidates:
+            captures.update(candidates & parent_bound)
+        return captures
+
+
+def _argument_names(arguments: ast.arguments) -> set[str]:
+    names = {
+        argument.arg
+        for argument in (
+            *getattr(arguments, "posonlyargs", ()),
+            *getattr(arguments, "args", ()),
+            *getattr(arguments, "kwonlyargs", ()),
+        )
+    }
+    if getattr(arguments, "vararg", None) is not None:
+        names.add(arguments.vararg.arg)
+    if getattr(arguments, "kwarg", None) is not None:
+        names.add(arguments.kwarg.arg)
+    return names
+
+
+def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis:
+    """Collect function pre-conversion facts in one recursive traversal.
+
+    The legacy implementation independently walked a function for direct
+    scope names, descendant directives, child captures, zero-argument
+    ``super()``, and ``yield``.  This scanner retains those collectors'
+    lexical-boundary behavior while visiting each relevant AST subtree once.
+    """
+
+    root = _MutableScopeFacts()
+    direct_children: list[_MutableScopeFacts] = []
+    descendant_global: set[str] = set()
+    descendant_nonlocal: set[str] = set()
+    has_zero_arg_super = False
+    has_yield = False
+
+    def zero_only(node: ast.AST | None) -> None:
+        nonlocal has_zero_arg_super
+        if node is None:
+            return
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "super"
+            and not node.args
+            and not node.keywords
+        ):
+            has_zero_arg_super = True
+        for child in ast.iter_child_nodes(node):
+            zero_only(child)
+
+    def scan_arguments_for_zero(arguments: ast.arguments) -> None:
+        for argument in (
+            *getattr(arguments, "posonlyargs", ()),
+            *getattr(arguments, "args", ()),
+            *getattr(arguments, "kwonlyargs", ()),
+        ):
+            zero_only(getattr(argument, "annotation", None))
+        if getattr(arguments, "vararg", None) is not None:
+            zero_only(getattr(arguments.vararg, "annotation", None))
+        if getattr(arguments, "kwarg", None) is not None:
+            zero_only(getattr(arguments.kwarg, "annotation", None))
+
+    def scan_function(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        facts: _MutableScopeFacts | None,
+        *,
+        in_descendant: bool,
+        allow_direct_child: bool,
+    ) -> None:
+        if facts is not None:
+            facts.bound.add(node.name)
+            # Defaults and decorators execute in the enclosing lexical scope.
+            # The legacy direct-child collector deliberately does not descend
+            # into these expressions, hence ``allow_direct_child=False``.
+            for expression in (
+                *node.decorator_list,
+                *node.args.defaults,
+                *(
+                    default
+                    for default in node.args.kw_defaults
+                    if default is not None
+                ),
+            ):
+                scan(
+                    expression,
+                    facts,
+                    in_descendant=in_descendant,
+                    allow_direct_child=False,
+                    yield_enabled=False,
+                )
+        else:
+            for expression in (
+                *node.decorator_list,
+                *node.args.defaults,
+                *(
+                    default
+                    for default in node.args.kw_defaults
+                    if default is not None
+                ),
+            ):
+                zero_only(expression)
+
+        scan_arguments_for_zero(node.args)
+        zero_only(getattr(node, "returns", None))
+        for type_param in getattr(node, "type_params", ()):
+            zero_only(type_param)
+
+        if facts is root and allow_direct_child:
+            child_facts = _MutableScopeFacts()
+            child_facts.bound.update(_argument_names(node.args))
+            direct_children.append(child_facts)
+        else:
+            child_facts = None
+        for statement in node.body:
+            scan(
+                statement,
+                child_facts,
+                in_descendant=True,
+                allow_direct_child=False,
+                yield_enabled=False,
+            )
+
+    def scan_class(
+        node: ast.ClassDef,
+        facts: _MutableScopeFacts | None,
+        *,
+        in_descendant: bool,
+        yield_enabled: bool,
+    ) -> None:
+        if facts is not None:
+            facts.bound.add(node.name)
+            for expression in (
+                *node.bases,
+                *(keyword.value for keyword in node.keywords),
+                *node.decorator_list,
+            ):
+                scan(
+                    expression,
+                    facts,
+                    in_descendant=in_descendant,
+                    allow_direct_child=False,
+                    yield_enabled=yield_enabled,
+                )
+        else:
+            for expression in (
+                *node.bases,
+                *(keyword.value for keyword in node.keywords),
+                *node.decorator_list,
+            ):
+                zero_only(expression)
+        for type_param in getattr(node, "type_params", ()):
+            zero_only(type_param)
+        # Class bodies are opaque to lexical scope/capture discovery, but the
+        # previous super() probe walked them recursively.
+        for statement in node.body:
+            zero_only(statement)
+
+    def scan(
+        node: ast.AST | None,
+        facts: _MutableScopeFacts | None,
+        *,
+        in_descendant: bool,
+        allow_direct_child: bool,
+        yield_enabled: bool,
+    ) -> None:
+        nonlocal has_zero_arg_super, has_yield
+        if node is None:
+            return
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "super"
+            and not node.args
+            and not node.keywords
+        ):
+            has_zero_arg_super = True
+        if yield_enabled and isinstance(node, (ast.Yield, ast.YieldFrom)):
+            has_yield = True
+
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scan_function(
+                node,
+                facts,
+                in_descendant=in_descendant,
+                allow_direct_child=allow_direct_child,
+            )
+            return
+        if isinstance(node, ast.ClassDef):
+            scan_class(
+                node,
+                facts,
+                in_descendant=in_descendant,
+                yield_enabled=yield_enabled,
+            )
+            return
+        if isinstance(node, ast.Lambda):
+            # Lambda defaults/annotations are ignored by the old lexical
+            # collectors but remain visible to the broad super() probe.
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                zero_only(default)
+            scan_arguments_for_zero(node.args)
+            if facts is root and allow_direct_child:
+                child_facts = _MutableScopeFacts()
+                child_facts.bound.update(_argument_names(node.args))
+                direct_children.append(child_facts)
+                scan(
+                    node.body,
+                    child_facts,
+                    in_descendant=in_descendant,
+                    allow_direct_child=False,
+                    yield_enabled=False,
+                )
+            else:
+                zero_only(node.body)
+            return
+
+        if isinstance(node, ast.Global):
+            if facts is not None:
+                facts.global_names.update(node.names)
+            if in_descendant:
+                descendant_global.update(node.names)
+            return
+        if isinstance(node, ast.Nonlocal):
+            if facts is not None:
+                facts.nonlocal_names.update(node.names)
+            if in_descendant:
+                descendant_nonlocal.update(node.names)
+            return
+        if isinstance(node, ast.Name) and facts is not None:
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                facts.bound.add(node.id)
+            else:
+                facts.loaded.add(node.id)
+            return
+        if isinstance(node, ast.Import) and facts is not None:
+            for alias in node.names:
+                facts.bound.add(alias.asname or alias.name.split(".")[0])
+            return
+        if isinstance(node, ast.ImportFrom) and facts is not None:
+            for alias in node.names:
+                if alias.name != "*":
+                    facts.bound.add(alias.asname or alias.name)
+            return
+        if isinstance(node, ast.ExceptHandler) and facts is not None and node.name:
+            facts.bound.add(node.name)
+        if isinstance(node, ast.MatchAs) and facts is not None and node.name:
+            facts.bound.add(node.name)
+        if isinstance(node, ast.MatchStar) and facts is not None and node.name:
+            facts.bound.add(node.name)
+        if isinstance(node, ast.MatchMapping) and facts is not None and node.rest:
+            facts.bound.add(node.rest)
+
+        for child in ast.iter_child_nodes(node):
+            scan(
+                child,
+                facts,
+                in_descendant=in_descendant,
+                allow_direct_child=allow_direct_child,
+                yield_enabled=yield_enabled,
+            )
+
+    for statement in body_nodes:
+        scan(
+            statement,
+            root,
+            in_descendant=False,
+            allow_direct_child=True,
+            yield_enabled=True,
+        )
+
+    child_candidates = []
+    for child in direct_children:
+        candidates = (
+            child.loaded - child.bound - child.global_names
+        ) | child.nonlocal_names
+        child_candidates.append(frozenset(candidates))
+    return FunctionBodyAnalysis(
+        frozenset(root.global_names),
+        frozenset(root.nonlocal_names),
+        frozenset(root.bound),
+        frozenset(root.loaded),
+        frozenset(descendant_global),
+        frozenset(descendant_nonlocal),
+        tuple(child_candidates),
+        has_zero_arg_super,
+        has_yield,
+    )
 
 
 def collect_direct_scope_directives(
@@ -339,6 +655,8 @@ def body_contains_zero_arg_super(body_nodes: Sequence[ast.AST]) -> bool:
 
 
 __all__ = [
+    "FunctionBodyAnalysis",
+    "analyze_function_body",
     "body_contains_zero_arg_super",
     "collect_descendant_scope_directives",
     "collect_direct_scope_directives",

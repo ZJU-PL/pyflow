@@ -217,6 +217,14 @@ class ClassHierarchy:
 
         return None
 
+    def get_classes_for_module(self, module: str) -> Dict[str, ClassInfo]:
+        names = self.name_to_qualified.get(module, {})
+        return {
+            name: self.classes[qual]
+            for name, qual in names.items()
+            if qual in self.classes
+        }
+
     def resolve_bases(
         self,
         bases: List[str],

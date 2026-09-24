@@ -192,6 +192,21 @@ class TestClassHierarchy(unittest.TestCase):
         result = self.hierarchy.resolve_method("mod.A", "nonexistent")
         self.assertIsNone(result)
 
+    def test_get_classes_for_module(self):
+        self.hierarchy.register_class("Alpha", [], "mod_a")
+        self.hierarchy.register_class("Beta", [], "mod_a")
+        self.hierarchy.register_class("Gamma", [], "mod_b")
+
+        classes_a = self.hierarchy.get_classes_for_module("mod_a")
+        self.assertEqual(set(classes_a.keys()), {"Alpha", "Beta"})
+        self.assertEqual(classes_a["Alpha"].qualified_name, "mod_a.Alpha")
+        self.assertEqual(classes_a["Beta"].qualified_name, "mod_a.Beta")
+
+        classes_b = self.hierarchy.get_classes_for_module("mod_b")
+        self.assertEqual(set(classes_b.keys()), {"Gamma"})
+
+        self.assertEqual(self.hierarchy.get_classes_for_module("nonexistent"), {})
+
     def test_get_all_subclasses(self):
         """Test getting all subclasses."""
         self.hierarchy.register_class("A", [], "mod")

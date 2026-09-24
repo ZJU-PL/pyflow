@@ -66,13 +66,17 @@ class InterfaceDeclaration:
         translated: Whether translate() has been called
     """
 
-    __slots__ = "func", "cls", "entryPoint", "translated"
+    __slots__ = "func", "cls", "entryPoint", "translated", "_method_code_cache"
 
     def __init__(self):
         self.func = []
         self.cls = []
         self.entryPoint = []
         self.translated = False
+        # Inherited methods expose the same underlying function object on
+        # every derived class.  Cache per function/defining-name pair so an
+        # external base method (including aliases) is converted only once.
+        self._method_code_cache = {}
 
     def translate(self, extractor):
         assert not self.translated
@@ -201,6 +205,70 @@ class InterfaceDeclaration:
         if console is not None:
             console.output(f"WARNING: skipping entry point {name}: {exc}")
 
+    def _warn_approximated_entry(self, extractor, name, exc):
+        console = getattr(getattr(extractor, "compiler", None), "console", None)
+        if console is not None:
+            console.output(
+                f"WARNING: approximating entry point {name} with unknown "
+                f"arguments: {exc}"
+            )
+
+    @staticmethod
+    def _placeholder_args(code, existing_args):
+        """Fill the converted code's formal slots with conservative values."""
+        try:
+            parameters = code.codeparameters
+            count = len(parameters.posonlyparams) + len(parameters.params)
+        except Exception:
+            return None
+        args = list(existing_args[:count])
+        args.extend(ExistingWrapper(None) for _ in range(count - len(args)))
+        return tuple(args)
+
+    def _create_auto_entry(
+        self,
+        extractor,
+        name,
+        code,
+        selfarg,
+        args,
+        kwds,
+        group,
+    ):
+        """Create a discovered entry, retaining it on signature mismatches."""
+        try:
+            return self.createEntryPoint(
+                code, selfarg, args, kwds, nullWrapper, nullWrapper, group
+            )
+        except ValueError as exc:
+            if not str(exc).startswith(
+                "Unsupported keyword arguments for entry point:"
+            ):
+                self._warn_skipped_entry(extractor, name, exc)
+                return None
+            placeholder_args = self._placeholder_args(code, args)
+            if placeholder_args is None:
+                self._warn_skipped_entry(extractor, name, exc)
+                return None
+            try:
+                entry = self.createEntryPoint(
+                    code,
+                    selfarg,
+                    placeholder_args,
+                    [],
+                    nullWrapper,
+                    nullWrapper,
+                    group,
+                )
+            except Exception as retry_exc:
+                self._warn_skipped_entry(extractor, name, retry_exc)
+                return None
+            self._warn_approximated_entry(extractor, name, exc)
+            return entry
+        except Exception as exc:
+            self._warn_skipped_entry(extractor, name, exc)
+            return None
+
     def _extractFunc(self, extractor):
         for item in self.func:
             if len(item) == 3:
@@ -225,18 +293,15 @@ class InterfaceDeclaration:
                     num_params = 0
                 args = [ExistingWrapper(None) for _ in range(num_params)]
 
-            try:
-                self.createEntryPoint(
-                    code, selfarg, tuple(args), kwds, nullWrapper, nullWrapper, None
-                )
-            except Exception as exc:
-                self._warn_skipped_entry(
-                    extractor,
-                    getattr(
-                        expr, "__qualname__", getattr(expr, "__name__", repr(expr))
-                    ),
-                    exc,
-                )
+            self._create_auto_entry(
+                extractor,
+                getattr(expr, "__qualname__", getattr(expr, "__name__", repr(expr))),
+                code,
+                selfarg,
+                tuple(args),
+                kwds,
+                None,
+            )
 
     def _detect_method_kind(self, cls_type, name):
         for base in getattr(cls_type, "__mro__", ()):
@@ -254,16 +319,28 @@ class InterfaceDeclaration:
     def getMethCode(self, cls, name, extractor):
         meth = getattr(cls.typeobj, name)
         func = getattr(meth, "__func__", getattr(meth, "im_func", meth))
-        fobj, code = extractor.getObjectCall(func)
         qualname = getattr(func, "__qualname__", name).replace(".<locals>", "")
         module = getattr(func, "__module__", "")
         qualified_class = qualname.rsplit(".", 1)[0] if "." in qualname else ""
+        defining_name = qualname.rsplit(".", 1)[-1]
         if module and not qualified_class.startswith(f"{module}."):
             qualified_class = (
                 f"{module}.{qualified_class}" if qualified_class else module
             )
+        code_name = (
+            f"{qualified_class}.{defining_name}"
+            if qualified_class
+            else defining_name
+        )
+        cache_key = (id(func), code_name)
+        cached = self._method_code_cache.get(cache_key)
+        if cached is not None and cached[0] is func:
+            code = cached[1]
+        else:
+            _fobj, code = extractor.getObjectCall(func)
+            self._method_code_cache[cache_key] = (func, code)
         if code is not None and hasattr(code, "setCodeName"):
-            code.setCodeName(f"{qualified_class}.{name}")
+            code.setCodeName(code_name)
         selfarg = ExistingWrapper(func)
         kind = cls._method_kind.get(name) if hasattr(cls, "_method_kind") else None
         if kind is None:
@@ -320,22 +397,16 @@ class InterfaceDeclaration:
                         call_args = (ExistingWrapper(cls.typeobj),) + args
                     else:
                         call_args = (inst,) + args
-                    try:
-                        ep = self.createEntryPoint(
-                            code,
-                            selfarg,
-                            call_args,
-                            kwds,
-                            nullWrapper,
-                            nullWrapper,
-                            group,
-                        )
-                    except Exception as exc:
-                        self._warn_skipped_entry(
-                            extractor,
-                            f"{getattr(cls.typeobj, '__name__', '<class>')}.{name}",
-                            exc,
-                        )
+                    ep = self._create_auto_entry(
+                        extractor,
+                        f"{getattr(cls.typeobj, '__name__', '<class>')}.{name}",
+                        code,
+                        selfarg,
+                        call_args,
+                        kwds,
+                        group,
+                    )
+                    if ep is None:
                         continue
                     if group is None:
                         group = ep

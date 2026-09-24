@@ -14,6 +14,7 @@ from pyflow.frontend.conversion.source import (
     _SPAN_CACHE,
     _SOURCE_LOOKUP_CACHE,
     _cached_spans,
+    _is_external_runtime_file,
     best_source_for_callable,
 )
 
@@ -61,20 +62,52 @@ def _external_func():
     return 1
 
 
-def test_best_source_for_callable_scans_missing_filename_once():
-    """Repeated lookups for an external callable must scan the sources once."""
+def test_best_source_for_callable_indexes_missing_filename_once():
+    """Repeated fallback lookups reuse one source-set reverse index."""
     _clear_caches()
     sources = {"pkg/mod.py": "def other():\n    return 2\n"}
     with patch.object(
         source_module,
-        "find_function_source_segment",
-        wraps=source_module.find_function_source_segment,
-    ) as spy:
+        "_cached_spans",
+        wraps=source_module._cached_spans,
+    ) as spans:
         assert best_source_for_callable(_external_func, sources) is None
-        first = spy.call_count
+        first = spans.call_count
         assert first == 1
         assert best_source_for_callable(_external_func, sources) is None
-        assert spy.call_count == first
+        assert spans.call_count == first
+
+
+def test_best_source_fallback_uses_reverse_index_for_multiple_callables():
+    _clear_caches()
+    sources = {
+        f"pkg/mod_{index}.py": f"def helper_{index}():\n    return {index}\n"
+        for index in range(20)
+    }
+    namespace = {}
+    exec(
+        compile(
+            "def helper_19():\n    return 19\n"
+            "def helper_3():\n    return 3\n",
+            "generated/missing.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    with patch.object(
+        source_module,
+        "_cached_spans",
+        wraps=source_module._cached_spans,
+    ) as spans:
+        assert "def helper_19" in best_source_for_callable(
+            namespace["helper_19"], sources
+        )
+        assert "def helper_3" in best_source_for_callable(
+            namespace["helper_3"], sources
+        )
+
+    assert spans.call_count == len(sources)
 
 
 def test_best_source_for_callable_memoizes_exact_hit():
@@ -112,3 +145,23 @@ def test_best_source_for_callable_invalidates_on_new_source_set():
         best_source_for_callable(helper, sources_a)
         best_source_for_callable(helper, sources_b)
     assert spy.call_count == 2
+
+
+def test_best_source_for_callable_skips_external_runtime_callable():
+    import os
+    _clear_caches()
+    sources = {"pkg/mod.py": "def helper():\n    return 1\n"}
+    with patch.object(
+        source_module,
+        "find_function_source_segment",
+        wraps=source_module.find_function_source_segment,
+    ) as spy:
+        result = best_source_for_callable(os.path.join, sources)
+    assert result is None
+    assert spy.call_count == 0
+
+
+def test_external_runtime_detection_uses_path_components():
+    assert not _is_external_runtime_file(
+        "/tmp/not-site-packages-project/pkg/module.py"
+    )

@@ -896,6 +896,18 @@ class TestClass:
         self.assertIsInstance(call.expr, pyflow_ast.Existing)
         self.assertEqual(call.expr.object.pyobj, "interpreter_delitem")
 
+    def test_convert_multi_clause_comprehension_with_outer_if(self):
+        for code in (
+            "[x for row in matrix if row for x in row]",
+            "{x for row in matrix if row for x in row}",
+            "{x: x for row in matrix if row for x in row}",
+            "(x for row in matrix if row for x in row)",
+        ):
+            tree = python_ast.parse(code)
+            node = tree.body[0].value
+            result = self.converter._convert_expression_safe(node)
+            self.assertIsNotNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()
