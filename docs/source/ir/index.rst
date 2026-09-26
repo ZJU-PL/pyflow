@@ -16,6 +16,7 @@ Package Layout
 * :doc:`pdg` — Program Dependence Graphs
 * :doc:`cpg` — Code Property Graphs and CPG-backed taint infrastructure
 * :doc:`storegraph` — Shared heap and points-to representation
+* :doc:`gir` — Graph IR (Lian-compatible intermediate representation)
 * :doc:`revision` — IR revision summary (completed)
 
 The corresponding source and test trees mirror this organization under
@@ -32,4 +33,5 @@ The corresponding source and test trees mirror this organization under
    pdg
    cpg
    storegraph
+   gir
    revision

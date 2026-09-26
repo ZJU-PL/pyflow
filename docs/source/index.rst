@@ -41,11 +41,14 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     cli
     lsp
     api
+    concolic
     ir/index
     analysis/index
     optimization/index
     lang/index
     checker/sec
+    checker/capability
+    checker/class-pollution
 
 ================================================================================
 
