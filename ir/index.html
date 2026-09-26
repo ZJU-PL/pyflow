@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Control Flow Graph (CFG)" href="cfg.html" />
-    <link rel="prev" title="PyFlow API" href="../api.html" /> 
+    <link rel="prev" title="Concolic Execution" href="../concolic.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -66,6 +66,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../lsp.html">Editor and Agent Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concolic.html">Concolic Execution</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="#package-layout">Package Layout</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG)</a></li>
@@ -75,6 +76,7 @@
 <li class="toctree-l2"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="storegraph.html">Store Graph Intermediate Representation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gir.html">Graph Intermediate Representation (GIR)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="revision.html">IR Revision</a></li>
 </ul>
 </li>
@@ -94,6 +96,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/class-pollution.html">Class Pollution Analysis</a></li>
 </ul>
 
         </div>
@@ -137,6 +141,7 @@ with the algorithms that operate on them.</p>
 <li><p><a class="reference internal" href="pdg.html"><span class="doc">Program Dependence Graph (PDG)</span></a> — Program Dependence Graphs</p></li>
 <li><p><a class="reference internal" href="cpg.html"><span class="doc">Code Property Graph (CPG)</span></a> — Code Property Graphs and CPG-backed taint infrastructure</p></li>
 <li><p><a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Intermediate Representation</span></a> — Shared heap and points-to representation</p></li>
+<li><p><a class="reference internal" href="gir.html"><span class="doc">Graph Intermediate Representation (GIR)</span></a> — Graph IR (Lian-compatible intermediate representation)</p></li>
 <li><p><a class="reference internal" href="revision.html"><span class="doc">IR Revision</span></a> — IR revision summary (completed)</p></li>
 </ul>
 <p>The corresponding source and test trees mirror this organization under
@@ -191,6 +196,12 @@ with the algorithms that operate on them.</p>
 <li class="toctree-l2"><a class="reference internal" href="storegraph.html#relationship-to-other-modules">Relationship to Other Modules</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="gir.html">Graph Intermediate Representation (GIR)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="gir.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gir.html#command-line-usage">Command-Line Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gir.html#python-api">Python API</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="revision.html">IR Revision</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="revision.html#key-changes">Key changes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="revision.html#status">Status</a></li>
@@ -204,7 +215,7 @@ with the algorithms that operate on them.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../api.html" class="btn btn-neutral float-left" title="PyFlow API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../concolic.html" class="btn btn-neutral float-left" title="Concolic Execution" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="cfg.html" class="btn btn-neutral float-right" title="Control Flow Graph (CFG)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

@@ -66,6 +66,7 @@ Options:
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
 - ``--dump-cdg FUNCTION``: Dump Control Dependence Graph for a named function
 - ``--dump-ddg FUNCTION``: Dump Data Dependence Graph for a named function
+- ``--dump-gir FUNCTION``: Dump Graph IR (GIR) for a named function
 - ``--dump-format``: Output format (text, dot, json)
 - ``--dump-output``: Directory for emitted artifacts
 - ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
@@ -128,6 +129,9 @@ Options:
 - ``--apply-optimizations``: Explicitly run optimization passes (also the default)
 - ``--no-opt-passes``: Run analysis without optimization passes
 - ``--experimental-inlining``: Enable experimental inlining pass
+- ``--emit-optimized PATH``: Write a syntax-valid optimized Python copy to PATH (output directory for directory input)
+- ``--opt-level {0,1,2}``: Source optimization level (0=format only, 1=safe local rewrites, 2=guarded propagation; default: 1)
+- ``--report-optimizations PATH``: Write JSON source-optimization report to PATH (requires ``--emit-optimized``)
 - ``--opt-passes``: Space-separated list of optimization passes
 - ``--list-opt-passes``: List available optimization passes
 - ``--verbose, -v``: Enable verbose output
@@ -170,16 +174,13 @@ Options:
 - ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
-- ``--ifds-unknown-call-policy``: Handle unresolved calls with ``drop``,
-  ``preserve`` (the CLI default), or ``havoc`` semantics
+- ``--ifds-unknown-call-policy``: Handle unresolved calls with ``drop``, ``preserve`` (the CLI default), or ``havoc`` semantics
 - ``--cpg-max-seconds`` / ``--cpg-max-states``: CPG time and state budgets; exhaustion is reported as ``partial``
 - ``--cpg-context-depth``: Maximum CPG call-string depth (default: 3)
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
-- ``--exit-code-policy``: ``findings`` preserves scanner-style exit codes;
-  ``report`` returns zero after a report is successfully emitted and records
-  findings and analysis completeness in that report
+- ``--exit-code-policy``: ``findings`` preserves scanner-style exit codes; ``report`` returns zero after a report is successfully emitted and records findings and analysis completeness in that report
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
@@ -299,6 +300,102 @@ Options:
 - ``--recursive, -r``: Recursively analyze Python files in a directory
 - ``--json``: Output machine-readable JSON instead of human-friendly text
 - ``--verbose, -v``: Include per-entry details
+
+Capability Commands
+-------------------
+
+**pyflow capabilities**
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Report security-sensitive capabilities exercised or exposed by Python code using context-sensitive pointer analysis.
+
+::
+
+  pyflow capabilities app.py
+  pyflow capabilities project/ --entry app.py --format json
+  pyflow capabilities project/ --entry app.py --context-depth 2
+  pyflow capabilities project/ --entry app.py --format sarif --output capabilities.sarif
+
+Options:
+
+- ``--entry``: Entry file relative to project root
+- ``--context-depth {0,1,2,3}``: Context sensitivity depth (default: 1)
+- ``--context-policy POLICY``: Specific context policy (e.g. ``1-cfa``, ``2-cfa``, ``1c1o``, ``1-param``)
+- ``--capability-model PATH``: Custom capability model JSON file (repeatable)
+- ``--no-public-exports``: Do not report capabilities exposed as public module globals
+- ``--format {text,json,sarif}``: Output format (default: ``text``)
+- ``--output, -o PATH``: Write output to file
+
+**pyflow capability-run**
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Run Python scripts under a fail-closed capability audit guard that enforces runtime policies.
+
+::
+
+  pyflow capability-run script.py --allow file.read --allow network
+  pyflow capability-run script.py --audit-log audit.json
+
+Options:
+
+- ``--allow CAPABILITY``: Allowed capability or glob pattern (repeatable)
+- ``--audit-log PATH``: Write observed audit events to JSON log
+
+Server and Query Commands
+-------------------------
+
+**pyflow lsp**
+~~~~~~~~~~~~~~
+
+Start the Language Server Protocol (LSP) server over stdio using Content-Length framed JSON-RPC 2.0.
+
+::
+
+  pyflow lsp --root /path/to/project --mode full
+
+Options:
+
+- ``--root PATH``: Project root directory
+- ``--mode {basic,full,advanced}``: Analysis depth mode (default: ``full``)
+
+**pyflow mcp**
+~~~~~~~~~~~~~~
+
+Start the Model Context Protocol (MCP) server over stdio using newline-delimited JSON-RPC 2.0.
+
+::
+
+  pyflow mcp --root /path/to/project --mode full
+
+Options:
+
+- ``--root PATH``: Project root directory
+- ``--mode {basic,full,advanced}``: Analysis depth mode (default: ``full``)
+
+**pyflow query**
+~~~~~~~~~~~~~~~~
+
+Run one-shot semantic queries against Python code without starting a daemon.
+
+::
+
+  pyflow query . --get-callgraph --pretty
+  pyflow query . --get-callers package.module.function
+  pyflow query module.py --get-type module 12 8
+  pyflow query . --mode advanced --get-aliases variable_name
+
+Options:
+
+- ``--list-functions``: List functions in source index
+- ``--get-cfg FUNCTION``: Extract CFG for a function
+- ``--get-callgraph``: Compute call graph
+- ``--get-callers SYMBOL``: Find callers of a function
+- ``--get-callees SYMBOL``: Find callees of a function
+- ``--get-type MODULE LINE COL``: Query inferred type at source location
+- ``--get-aliases SYMBOL``: Query aliases and points-to information
+- ``--mode {basic,full,advanced}``: Analysis mode (default: ``full``)
+- ``--pretty``: Pretty-print JSON output
+- ``--output, -o PATH``: Write query result to file
 
 Global Options
 ==============

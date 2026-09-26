@@ -66,6 +66,7 @@
 <li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lsp.html">Editor and Agent Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concolic.html">Concolic Execution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
@@ -84,6 +85,8 @@
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a></li>
 </ul>
 
         </div>
@@ -182,6 +185,8 @@ and documentation are still evolving.</p>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#security-commands">Security Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#supply-chain-command">Supply Chain Command</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#alias-command">Alias Command</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#capability-commands">Capability Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#server-and-query-commands">Server and Query Commands</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
@@ -200,9 +205,16 @@ and documentation are still evolving.</p>
 <li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api.html#quick-start">Quick Start</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#entry-points">Entry Points</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api.html#query-service">Query Service</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api.html#mcp-server-integration">MCP Server Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#query-components">Query Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#editor-agent-protocol-integration">Editor &amp; Agent Protocol Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="concolic.html">Concolic Execution</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="concolic.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concolic.html#features">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concolic.html#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concolic.html#python-api">Python API</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
@@ -214,6 +226,7 @@ and documentation are still evolving.</p>
 <li class="toctree-l2"><a class="reference internal" href="ir/pdg.html">Program Dependence Graph (PDG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ir/cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ir/storegraph.html">Store Graph Intermediate Representation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ir/gir.html">Graph Intermediate Representation (GIR)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ir/revision.html">IR Revision</a></li>
 </ul>
 </li>
@@ -288,6 +301,24 @@ and documentation are still evolving.</p>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-reference">Checker Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#capability-reports">Capability Reports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#analysis-architecture">Analysis Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#command-line-usage">Command-Line Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#programmatic-api">Programmatic API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#capability-configuration">Capability Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#protected-runtime">Protected Runtime</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#output-contract">Output Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/capability.html#soundness-boundary">Soundness Boundary</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="checker/class-pollution.html#architecture">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/class-pollution.html#programmatic-use">Programmatic use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/class-pollution.html#command-line">Command line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/class-pollution.html#evaluation-plan">Evaluation plan</a></li>
 </ul>
 </li>
 </ul>

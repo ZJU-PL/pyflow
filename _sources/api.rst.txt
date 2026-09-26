@@ -5,7 +5,7 @@ The PyFlow API provides programmatic access to PyFlow's analysis capabilities.
 The API is organized into two main packages:
 
 - **Entry Points** (``pyflow.api.entrypoints``): Define what code to analyze
-- **Query Service** (``pyflow.api.queries``): Query analysis results
+- **Query Components** (``pyflow.api.queries``): Query analysis results
 
 Quick Start
 -----------
@@ -15,7 +15,7 @@ Quick Start
    from pyflow.api import (
        InterfaceDeclaration,
        ClassDeclaration,
-       SemanticQueryService,
+       create_query_components,
    )
    from pyflow.frontend.extractor import Extractor
    from pyflow.application.context import CompilerContext
@@ -38,10 +38,10 @@ Quick Start
    interface.translate(extractor)
    program = extractor.extract_from_file("my_file.py")
 
-   # Query analysis results
-   service = SemanticQueryService(compiler, program)
-   callgraph = service.get_callgraph()
-   cfg = service.get_cfg("function_name")
+   # Query analysis results via composable query components
+   queries = create_query_components(compiler, program)
+   callgraph = queries.call_graph.get_callgraph()
+   cfg = queries.control_flow.get_cfg("function_name")
 
 Entry Points
 ------------
@@ -101,31 +101,33 @@ The ``wrappers`` module provides wrappers for different argument types:
 - ``InstanceWrapper``: Wrap an instance creation
 - ``NullWrapper``: Represent null/no argument
 
-Query Service
--------------
+Query Components
+----------------
 
-The query service module (``pyflow.api.queries``) provides access to
-analysis results.
+The query module (``pyflow.api.queries``) provides composable, protocol-neutral
+semantic query components for analysis results.
 
-SemanticQueryService
-~~~~~~~~~~~~~~~~~~~~
+QueryComponents and create_query_components
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The main facade for querying analysis results.
+Query components are created for an analyzed program snapshot via
+``create_query_components``:
 
 .. code-block:: python
 
-   from pyflow.api import SemanticQueryService
+   from pyflow.api import create_query_components
 
-   service = SemanticQueryService(compiler, program)
+   queries = create_query_components(compiler, program)
 
-   # Get various analysis results
-   cfg = service.get_cfg("function_name")
-   callgraph = service.get_callgraph()
-   data_flow = service.get_dataflow("function_name")
-   callers = service.get_callers("function_name")
-   callees = service.get_callees("function_name")
+   # Access domain-specific queries
+   cfg = queries.control_flow.get_cfg("function_name")
+   callgraph = queries.call_graph.get_callgraph()
+   callers = queries.call_graph.get_callers("function_name")
+   callees = queries.call_graph.get_callees("function_name")
+   reaching_defs = queries.data_flow.get_reaching_definitions("function_name")
+   aliases = queries.data_flow.get_aliases("function_name", "variable_name")
 
-**Control Flow Queries:**
+**Control Flow Queries (``queries.control_flow``):**
 
 - ``get_cfg(function)``: Get Control Flow Graph
 - ``get_cfg_structure(function)``: Get CFG as dictionary
@@ -133,19 +135,22 @@ The main facade for querying analysis results.
 - ``get_cdg(function)``: Get Control Dependence Graph
 - ``get_pdg(function)``: Get Program Dependence Graph
 
-**Call Graph Queries:**
+**Call Graph Queries (``queries.call_graph``):**
 
 - ``get_callgraph()``: Get complete call graph
 - ``get_callers(function)``: Get functions that call the given function
 - ``get_callees(function)``: Get functions called by the given function
-- ``get_method_resolution_order(class)``: Get class MRO
 
-**Data Flow Queries:**
+**Data Flow Queries (``queries.data_flow``):**
 
-- ``get_dataflow(function)``: Get data flow analysis results
-- ``get_aliases(variable)``: Get alias information
-- ``get_points_to(variable)``: Get points-to information
-- ``get_reaching_defs(variable)``: Get reaching definitions
+- ``get_reaching_definitions(function)``: Get reaching definitions
+- ``get_aliases(function, variable)``: Get alias and points-to information
+- ``compute_backward_slice(target)``: Compute backward program slice
+- ``compute_forward_slice(target)``: Compute forward program slice
+
+**Type Information Queries (``queries.type_info``):**
+
+- ``get_type(module, line, column)``: Query inferred type at a source position
 
 Query Context
 ~~~~~~~~~~~~~
@@ -217,71 +222,52 @@ The API exposes typed result models for programmatic consumption:
    # TaintFlowReport: taint flow from source to sink with code flow
    # IpaFunctionSummary: inter-procedural function summary
 
-Server Modes
-~~~~~~~~~~~~
+Server Modes and Snapshots
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-PyFlow supports different server modes for different use cases:
+PyFlow provides immutable analysis snapshots (``AnalysisSnapshot``) and protocol modes
+defined in ``pyflow.lsp.mcp_config``:
 
-- ``DEFAULT_MODE``: Standard analysis
-- ``MCPServerMode``: Mode optimized for MCP tooling (supports ``BASIC``, ``FULL``, ``ADVANCED`` levels)
+- ``MCPServerMode.BASIC``: Lightweight graph and CFG facts
+- ``MCPServerMode.FULL``: Default mode, includes CPA and lifetime analysis
+- ``MCPServerMode.ADVANCED``: Includes heap analysis for alias and points-to queries
 
 .. code-block:: python
 
-   from pyflow.api.queries import MCPServerMode, DEFAULT_MODE
-   from pyflow.api.queries.capabilities import (
-       get_server_mode_description,
-       resolve_capabilities,
-   )
+   from pyflow.lsp.mcp_config import MCPServerMode
+   from pyflow.application.analysis_snapshot import AnalysisSnapshot
 
-   # Set server mode
-   service = SemanticQueryService(compiler, program, server_mode=DEFAULT_MODE)
-   
-   # Check capabilities
-   caps = service.capabilities()
+   # Create a snapshot from compiler context and program
+   snapshot = AnalysisSnapshot.from_program(compiler, program)
 
-   # Resolve and describe server mode capabilities
-   resolved = resolve_capabilities(MCPServerMode)
-   description = get_server_mode_description(MCPServerMode)
+   # Query snapshot properties and query components
+   queries = snapshot.queries
+   callgraph = queries.call_graph.get_callgraph()
 
 Localization Queries
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
-Query for code localization (finding where variables are defined/used).
+Query for code localization (finding where variables are defined/used):
 
 .. code-block:: python
 
-   from pyflow.api.queries import LocalizationQueries
-
-   loc_queries = LocalizationQueries(context, engine)
-   definitions = loc_queries.get_definitions(variable)
-   uses = loc_queries.get_uses(variable)
+   loc_queries = queries.localization
+   definitions = loc_queries.get_definitions("variable_name")
 
 Test Generation Queries
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Query for test generation support.
+Query for test generation support:
 
 .. code-block:: python
 
-   from pyflow.api.queries import TestGenerationQueries
+   test_queries = queries.test_generation
 
-   test_queries = TestGenerationQueries(context)
-   scenarios = test_queries.get_test_scenarios(function)
+Editor & Agent Protocol Integration
+-----------------------------------
 
-MCP Server Integration
-----------------------
-
-PyFlow can be used as an MCP (Model Context Protocol) server for AI tooling.
-
-.. code-block:: python
-
-   from pyflow.api.queries import MCPServerMode
-
-   service = SemanticQueryService(compiler, program, server_mode=MCPServerMode)
-   
-   # MCP-compatible methods
-   capabilities = service.capabilities()
-   # Returns available query capabilities
+PyFlow provides ready-to-use LSP and MCP servers for integration with editors and agents.
+See :doc:`lsp` for detailed instructions on configuring the LSP and MCP servers or using the ``pyflow query`` CLI.
 
 See Also
 --------

@@ -1,0 +1,210 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Concolic Execution &mdash; pyflow 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Intermediate Representations" href="ir/index.html" />
+    <link rel="prev" title="PyFlow API" href="api.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lsp.html">Editor and Agent Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Concolic Execution</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#features">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#python-api">Python API</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ir/index.html#package-layout">Package Layout</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Concolic Execution</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/concolic.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="concolic-execution">
+<h1>Concolic Execution<a class="headerlink" href="#concolic-execution" title="Link to this heading"></a></h1>
+<p>PyFlow includes an AST-level dynamic symbolic execution (concolic testing) engine inspired by Py-Conbyte and CrossHair.
+It generates branch-covering test inputs, searches for contract counterexamples, refines library behaviors from real executions, and synthesizes replay-validated pytest suites.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The concolic engine pairs concrete Python execution with symbolic execution over an AST interpreter, tracking path constraints and employing Z3 to flip branches toward unexplored code paths.</p>
+</section>
+<section id="features">
+<h2>Features<a class="headerlink" href="#features" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Type &amp; Expression Modeling</strong>: Integers, floats, strings, byte-strings, lists, dictionaries, sets, tuples, f-strings, comprehensions, and pattern matching.</p></li>
+<li><p><strong>Python Semantics</strong>: Classes, inheritance, properties, descriptors, decorators, generators with suspension (<code class="docutils literal notranslate"><span class="pre">send</span></code>, <code class="docutils literal notranslate"><span class="pre">throw</span></code>, <code class="docutils literal notranslate"><span class="pre">close</span></code>), coroutines, and async scheduling.</p></li>
+<li><p><strong>Search Strategies</strong>: Coverage-guided search (default), breadth-first, and FIFO queue exploration.</p></li>
+<li><p><strong>Contract Checking</strong>: Verification of PEP 316-style precondition and postcondition contracts (<code class="docutils literal notranslate"><span class="pre">--check-contracts</span></code>) with automatic counterexample generation.</p></li>
+<li><p><strong>Observation-Refined Library Calls</strong>: Safe standard library calls are executed concretely to observe input/output relations and guide symbolic reasoning (<code class="docutils literal notranslate"><span class="pre">--refine-opaque-calls</span></code>).</p></li>
+<li><p><strong>Test Generation</strong>: Generates minimized, CPython-replay-validated test suites directly in <code class="docutils literal notranslate"><span class="pre">pytest</span></code> format (<code class="docutils literal notranslate"><span class="pre">--emit-pytest</span></code>).</p></li>
+<li><p><strong>Project Scanning</strong>: Static discovery of eligible functions across entire codebases with side-effect hazard filtering and automated input generation (<code class="docutils literal notranslate"><span class="pre">--scan-project</span></code>).</p></li>
+</ul>
+</section>
+<section id="cli-usage">
+<h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
+<p>Explore a single target function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate branch-covering inputs for a function</span>
+pyflow<span class="w"> </span>concolic<span class="w"> </span>target.py<span class="w"> </span>--entry<span class="w"> </span>parse<span class="w"> </span>--inputs<span class="w"> </span><span class="s1">'[0, 0]'</span><span class="w"> </span>--json
+
+<span class="c1"># Check contracts and seek counterexamples</span>
+pyflow<span class="w"> </span>concolic<span class="w"> </span>target.py<span class="w"> </span>--entry<span class="w"> </span>process<span class="w"> </span>--check-contracts
+
+<span class="c1"># Emit replay-validated pytest test suite</span>
+pyflow<span class="w"> </span>concolic<span class="w"> </span>target.py<span class="w"> </span>--entry<span class="w"> </span>parse<span class="w"> </span>--emit-pytest<span class="w"> </span>tests/test_generated.py
+</pre></div>
+</div>
+<p>Scan an entire project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>concolic<span class="w"> </span>./src<span class="w"> </span>--scan-project<span class="w"> </span>--json<span class="w"> </span>--json-output<span class="w"> </span>report.json
+</pre></div>
+</div>
+</section>
+<section id="python-api">
+<h2>Python API<a class="headerlink" href="#python-api" title="Link to this heading"></a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">explore_file</span></code> or <code class="docutils literal notranslate"><span class="pre">explore_function</span></code> for programmatic exploration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.concolic</span><span class="w"> </span><span class="kn">import</span> <span class="n">explore_file</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">explore_file</span><span class="p">(</span>
+    <span class="s2">"target.py"</span><span class="p">,</span>
+    <span class="n">entry</span><span class="o">=</span><span class="s2">"parse"</span><span class="p">,</span>
+    <span class="n">initial_inputs</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>
+    <span class="n">max_iterations</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">runs</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Input:"</span><span class="p">,</span> <span class="n">run</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span> <span class="s2">"Coverage:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">run</span><span class="o">.</span><span class="n">coverage</span><span class="o">.</span><span class="n">nodes</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="api.html" class="btn btn-neutral float-left" title="PyFlow API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="ir/index.html" class="btn btn-neutral float-right" title="Intermediate Representations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

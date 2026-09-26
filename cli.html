@@ -84,6 +84,17 @@
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-alias"><strong>pyflow alias</strong></a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#capability-commands">Capability Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-capabilities"><strong>pyflow capabilities</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-capability-run"><strong>pyflow capability-run</strong></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#server-and-query-commands">Server and Query Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-lsp"><strong>pyflow lsp</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-mcp"><strong>pyflow mcp</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-query"><strong>pyflow query</strong></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#global-options">Global Options</a></li>
@@ -94,6 +105,7 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="lsp.html">Editor and Agent Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concolic.html">Concolic Execution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
@@ -112,6 +124,8 @@
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a></li>
 </ul>
 
         </div>
@@ -195,6 +209,7 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-gir</span> <span class="pre">FUNCTION</span></code>: Dump Graph IR (GIR) for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
 - <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Directory for emitted artifacts
 - <code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)
@@ -251,6 +266,9 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 - <code class="docutils literal notranslate"><span class="pre">--apply-optimizations</span></code>: Explicitly run optimization passes (also the default)
 - <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes
 - <code class="docutils literal notranslate"><span class="pre">--experimental-inlining</span></code>: Enable experimental inlining pass
+- <code class="docutils literal notranslate"><span class="pre">--emit-optimized</span> <span class="pre">PATH</span></code>: Write a syntax-valid optimized Python copy to PATH (output directory for directory input)
+- <code class="docutils literal notranslate"><span class="pre">--opt-level</span> <span class="pre">{0,1,2}</span></code>: Source optimization level (0=format only, 1=safe local rewrites, 2=guarded propagation; default: 1)
+- <code class="docutils literal notranslate"><span class="pre">--report-optimizations</span> <span class="pre">PATH</span></code>: Write JSON source-optimization report to PATH (requires <code class="docutils literal notranslate"><span class="pre">--emit-optimized</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--opt-passes</span></code>: Space-separated list of optimization passes
 - <code class="docutils literal notranslate"><span class="pre">--list-opt-passes</span></code>: List available optimization passes
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
@@ -289,24 +307,17 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets
 - <code class="docutils literal notranslate"><span class="pre">--ifds-context-depth</span></code>: Maximum call-string depth
 - <code class="docutils literal notranslate"><span class="pre">--ifds-trace-mode</span></code>: Retain no traces, finding traces, or all traces
-- <code class="docutils literal notranslate"><span class="pre">--ifds-unknown-call-policy</span></code>: Handle unresolved calls with <code class="docutils literal notranslate"><span class="pre">drop</span></code>,</p>
-<blockquote>
-<div><p><code class="docutils literal notranslate"><span class="pre">preserve</span></code> (the CLI default), or <code class="docutils literal notranslate"><span class="pre">havoc</span></code> semantics</p>
-</div></blockquote>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets; exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes;
-<code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records
-findings and analysis completeness in that report</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p></li>
-</ul>
+- <code class="docutils literal notranslate"><span class="pre">--ifds-unknown-call-policy</span></code>: Handle unresolved calls with <code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">preserve</span></code> (the CLI default), or <code class="docutils literal notranslate"><span class="pre">havoc</span></code> semantics
+- <code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets; exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code>
+- <code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)
+- <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
+- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
+- <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes; <code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records findings and analysis completeness in that report
+- <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
+- <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
+- <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
+- <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
 <p>IFDS taint rule packs may model library calls that preserve or transform taint
 without declaring them as sources or sinks. Propagation ports support
 parameters, receivers, returns, yields, raises, sinks, and access paths:</p>
@@ -414,6 +425,92 @@ evidence; absence of an import is explicitly not treated as proof of safety</p><
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p></li>
+</ul>
+</section>
+</section>
+<section id="capability-commands">
+<h2>Capability Commands<a class="headerlink" href="#capability-commands" title="Link to this heading"></a></h2>
+<section id="pyflow-capabilities">
+<h3><strong>pyflow capabilities</strong><a class="headerlink" href="#pyflow-capabilities" title="Link to this heading"></a></h3>
+<p>Report security-sensitive capabilities exercised or exposed by Python code using context-sensitive pointer analysis.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
+<span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">sarif</span> <span class="o">--</span><span class="n">output</span> <span class="n">capabilities</span><span class="o">.</span><span class="n">sarif</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry file relative to project root</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span> <span class="pre">{0,1,2,3}</span></code>: Context sensitivity depth (default: 1)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--context-policy</span> <span class="pre">POLICY</span></code>: Specific context policy (e.g. <code class="docutils literal notranslate"><span class="pre">1-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">2-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">1c1o</span></code>, <code class="docutils literal notranslate"><span class="pre">1-param</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--capability-model</span> <span class="pre">PATH</span></code>: Custom capability model JSON file (repeatable)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-public-exports</span></code>: Do not report capabilities exposed as public module globals</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json,sarif}</span></code>: Output format (default: <code class="docutils literal notranslate"><span class="pre">text</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write output to file</p></li>
+</ul>
+</section>
+<section id="pyflow-capability-run">
+<h3><strong>pyflow capability-run</strong><a class="headerlink" href="#pyflow-capability-run" title="Link to this heading"></a></h3>
+<p>Run Python scripts under a fail-closed capability audit guard that enforces runtime policies.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">allow</span> <span class="n">file</span><span class="o">.</span><span class="n">read</span> <span class="o">--</span><span class="n">allow</span> <span class="n">network</span>
+<span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">audit</span><span class="o">-</span><span class="n">log</span> <span class="n">audit</span><span class="o">.</span><span class="n">json</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--allow</span> <span class="pre">CAPABILITY</span></code>: Allowed capability or glob pattern (repeatable)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--audit-log</span> <span class="pre">PATH</span></code>: Write observed audit events to JSON log</p></li>
+</ul>
+</section>
+</section>
+<section id="server-and-query-commands">
+<h2>Server and Query Commands<a class="headerlink" href="#server-and-query-commands" title="Link to this heading"></a></h2>
+<section id="pyflow-lsp">
+<h3><strong>pyflow lsp</strong><a class="headerlink" href="#pyflow-lsp" title="Link to this heading"></a></h3>
+<p>Start the Language Server Protocol (LSP) server over stdio using Content-Length framed JSON-RPC 2.0.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">lsp</span> <span class="o">--</span><span class="n">root</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span> <span class="o">--</span><span class="n">mode</span> <span class="n">full</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--root</span> <span class="pre">PATH</span></code>: Project root directory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{basic,full,advanced}</span></code>: Analysis depth mode (default: <code class="docutils literal notranslate"><span class="pre">full</span></code>)</p></li>
+</ul>
+</section>
+<section id="pyflow-mcp">
+<h3><strong>pyflow mcp</strong><a class="headerlink" href="#pyflow-mcp" title="Link to this heading"></a></h3>
+<p>Start the Model Context Protocol (MCP) server over stdio using newline-delimited JSON-RPC 2.0.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">mcp</span> <span class="o">--</span><span class="n">root</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span> <span class="o">--</span><span class="n">mode</span> <span class="n">full</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--root</span> <span class="pre">PATH</span></code>: Project root directory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{basic,full,advanced}</span></code>: Analysis depth mode (default: <code class="docutils literal notranslate"><span class="pre">full</span></code>)</p></li>
+</ul>
+</section>
+<section id="pyflow-query">
+<h3><strong>pyflow query</strong><a class="headerlink" href="#pyflow-query" title="Link to this heading"></a></h3>
+<p>Run one-shot semantic queries against Python code without starting a daemon.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">query</span> <span class="o">.</span> <span class="o">--</span><span class="n">get</span><span class="o">-</span><span class="n">callgraph</span> <span class="o">--</span><span class="n">pretty</span>
+<span class="n">pyflow</span> <span class="n">query</span> <span class="o">.</span> <span class="o">--</span><span class="n">get</span><span class="o">-</span><span class="n">callers</span> <span class="n">package</span><span class="o">.</span><span class="n">module</span><span class="o">.</span><span class="n">function</span>
+<span class="n">pyflow</span> <span class="n">query</span> <span class="n">module</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">get</span><span class="o">-</span><span class="nb">type</span> <span class="n">module</span> <span class="mi">12</span> <span class="mi">8</span>
+<span class="n">pyflow</span> <span class="n">query</span> <span class="o">.</span> <span class="o">--</span><span class="n">mode</span> <span class="n">advanced</span> <span class="o">--</span><span class="n">get</span><span class="o">-</span><span class="n">aliases</span> <span class="n">variable_name</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--list-functions</span></code>: List functions in source index</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-cfg</span> <span class="pre">FUNCTION</span></code>: Extract CFG for a function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-callgraph</span></code>: Compute call graph</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-callers</span> <span class="pre">SYMBOL</span></code>: Find callers of a function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-callees</span> <span class="pre">SYMBOL</span></code>: Find callees of a function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-type</span> <span class="pre">MODULE</span> <span class="pre">LINE</span> <span class="pre">COL</span></code>: Query inferred type at source location</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-aliases</span> <span class="pre">SYMBOL</span></code>: Query aliases and points-to information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{basic,full,advanced}</span></code>: Analysis mode (default: <code class="docutils literal notranslate"><span class="pre">full</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--pretty</span></code>: Pretty-print JSON output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p></li>
 </ul>
 </section>
 </section>

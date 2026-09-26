@@ -19,7 +19,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Intermediate Representations" href="ir/index.html" />
+    <link rel="next" title="Concolic Execution" href="concolic.html" />
     <link rel="prev" title="Editor and Agent Integration" href="lsp.html" /> 
 </head>
 
@@ -73,21 +73,22 @@
 <li class="toctree-l3"><a class="reference internal" href="#argument-wrappers">Argument Wrappers</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#query-service">Query Service</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#semanticqueryservice">SemanticQueryService</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#query-components">Query Components</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#querycomponents-and-create-query-components">QueryComponents and create_query_components</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#query-context">Query Context</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#graph-query-engine">Graph Query Engine</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#query-helper-classes">Query Helper Classes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#analysis-result-models">Analysis Result Models</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#server-modes">Server Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#server-modes-and-snapshots">Server Modes and Snapshots</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#localization-queries">Localization Queries</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#test-generation-queries">Test Generation Queries</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#mcp-server-integration">MCP Server Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#editor-agent-protocol-integration">Editor &amp; Agent Protocol Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="concolic.html">Concolic Execution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
@@ -106,6 +107,8 @@
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/class-pollution.html">Class Pollution Analysis</a></li>
 </ul>
 
         </div>
@@ -138,14 +141,14 @@
 The API is organized into two main packages:</p>
 <ul class="simple">
 <li><p><strong>Entry Points</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.entrypoints</span></code>): Define what code to analyze</p></li>
-<li><p><strong>Query Service</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>): Query analysis results</p></li>
+<li><p><strong>Query Components</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>): Query analysis results</p></li>
 </ul>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">InterfaceDeclaration</span><span class="p">,</span>
     <span class="n">ClassDeclaration</span><span class="p">,</span>
-    <span class="n">SemanticQueryService</span><span class="p">,</span>
+    <span class="n">create_query_components</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
@@ -168,10 +171,10 @@ The API is organized into two main packages:</p>
 <span class="n">interface</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">extractor</span><span class="p">)</span>
 <span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">"my_file.py"</span><span class="p">)</span>
 
-<span class="c1"># Query analysis results</span>
-<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
-<span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="c1"># Query analysis results via composable query components</span>
+<span class="n">queries</span> <span class="o">=</span> <span class="n">create_query_components</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">control_flow</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -228,26 +231,28 @@ declaring what code should be analyzed.</p>
 </ul>
 </section>
 </section>
-<section id="query-service">
-<h2>Query Service<a class="headerlink" href="#query-service" title="Link to this heading"></a></h2>
-<p>The query service module (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>) provides access to
-analysis results.</p>
-<section id="semanticqueryservice">
-<h3>SemanticQueryService<a class="headerlink" href="#semanticqueryservice" title="Link to this heading"></a></h3>
-<p>The main facade for querying analysis results.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">SemanticQueryService</span>
+<section id="query-components">
+<h2>Query Components<a class="headerlink" href="#query-components" title="Link to this heading"></a></h2>
+<p>The query module (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>) provides composable, protocol-neutral
+semantic query components for analysis results.</p>
+<section id="querycomponents-and-create-query-components">
+<h3>QueryComponents and create_query_components<a class="headerlink" href="#querycomponents-and-create-query-components" title="Link to this heading"></a></h3>
+<p>Query components are created for an analyzed program snapshot via
+<code class="docutils literal notranslate"><span class="pre">create_query_components</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_query_components</span>
 
-<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">queries</span> <span class="o">=</span> <span class="n">create_query_components</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
 
-<span class="c1"># Get various analysis results</span>
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
-<span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
-<span class="n">data_flow</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_dataflow</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
-<span class="n">callers</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
-<span class="n">callees</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callees</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="c1"># Access domain-specific queries</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">control_flow</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">callees</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get_callees</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">reaching_defs</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">data_flow</span><span class="o">.</span><span class="n">get_reaching_definitions</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">)</span>
+<span class="n">aliases</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">data_flow</span><span class="o">.</span><span class="n">get_aliases</span><span class="p">(</span><span class="s2">"function_name"</span><span class="p">,</span> <span class="s2">"variable_name"</span><span class="p">)</span>
 </pre></div>
 </div>
-<p><strong>Control Flow Queries:</strong></p>
+<p><strong>Control Flow Queries (``queries.control_flow``):</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cfg(function)</span></code>: Get Control Flow Graph</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cfg_structure(function)</span></code>: Get CFG as dictionary</p></li>
@@ -255,19 +260,22 @@ analysis results.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cdg(function)</span></code>: Get Control Dependence Graph</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_pdg(function)</span></code>: Get Program Dependence Graph</p></li>
 </ul>
-<p><strong>Call Graph Queries:</strong></p>
+<p><strong>Call Graph Queries (``queries.call_graph``):</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">get_callgraph()</span></code>: Get complete call graph</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_callers(function)</span></code>: Get functions that call the given function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_callees(function)</span></code>: Get functions called by the given function</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_method_resolution_order(class)</span></code>: Get class MRO</p></li>
 </ul>
-<p><strong>Data Flow Queries:</strong></p>
+<p><strong>Data Flow Queries (``queries.data_flow``):</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">get_dataflow(function)</span></code>: Get data flow analysis results</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_aliases(variable)</span></code>: Get alias information</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_points_to(variable)</span></code>: Get points-to information</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_reaching_defs(variable)</span></code>: Get reaching definitions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_reaching_definitions(function)</span></code>: Get reaching definitions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_aliases(function,</span> <span class="pre">variable)</span></code>: Get alias and points-to information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">compute_backward_slice(target)</span></code>: Compute backward program slice</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">compute_forward_slice(target)</span></code>: Compute forward program slice</p></li>
+</ul>
+<p><strong>Type Information Queries (``queries.type_info``):</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_type(module,</span> <span class="pre">line,</span> <span class="pre">column)</span></code>: Query inferred type at a source position</p></li>
 </ul>
 </section>
 <section id="query-context">
@@ -332,65 +340,47 @@ analysis results.</p>
 </pre></div>
 </div>
 </section>
-<section id="server-modes">
-<h3>Server Modes<a class="headerlink" href="#server-modes" title="Link to this heading"></a></h3>
-<p>PyFlow supports different server modes for different use cases:</p>
+<section id="server-modes-and-snapshots">
+<h3>Server Modes and Snapshots<a class="headerlink" href="#server-modes-and-snapshots" title="Link to this heading"></a></h3>
+<p>PyFlow provides immutable analysis snapshots (<code class="docutils literal notranslate"><span class="pre">AnalysisSnapshot</span></code>) and protocol modes
+defined in <code class="docutils literal notranslate"><span class="pre">pyflow.lsp.mcp_config</span></code>:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">DEFAULT_MODE</span></code>: Standard analysis</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode</span></code>: Mode optimized for MCP tooling (supports <code class="docutils literal notranslate"><span class="pre">BASIC</span></code>, <code class="docutils literal notranslate"><span class="pre">FULL</span></code>, <code class="docutils literal notranslate"><span class="pre">ADVANCED</span></code> levels)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode.BASIC</span></code>: Lightweight graph and CFG facts</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode.FULL</span></code>: Default mode, includes CPA and lifetime analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode.ADVANCED</span></code>: Includes heap analysis for alias and points-to queries</p></li>
 </ul>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span><span class="p">,</span> <span class="n">DEFAULT_MODE</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries.capabilities</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">get_server_mode_description</span><span class="p">,</span>
-    <span class="n">resolve_capabilities</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.lsp.mcp_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.analysis_snapshot</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisSnapshot</span>
 
-<span class="c1"># Set server mode</span>
-<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">DEFAULT_MODE</span><span class="p">)</span>
+<span class="c1"># Create a snapshot from compiler context and program</span>
+<span class="n">snapshot</span> <span class="o">=</span> <span class="n">AnalysisSnapshot</span><span class="o">.</span><span class="n">from_program</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
 
-<span class="c1"># Check capabilities</span>
-<span class="n">caps</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">capabilities</span><span class="p">()</span>
-
-<span class="c1"># Resolve and describe server mode capabilities</span>
-<span class="n">resolved</span> <span class="o">=</span> <span class="n">resolve_capabilities</span><span class="p">(</span><span class="n">MCPServerMode</span><span class="p">)</span>
-<span class="n">description</span> <span class="o">=</span> <span class="n">get_server_mode_description</span><span class="p">(</span><span class="n">MCPServerMode</span><span class="p">)</span>
+<span class="c1"># Query snapshot properties and query components</span>
+<span class="n">queries</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">queries</span>
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
 <section id="localization-queries">
 <h3>Localization Queries<a class="headerlink" href="#localization-queries" title="Link to this heading"></a></h3>
-<p>Query for code localization (finding where variables are defined/used).</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalizationQueries</span>
-
-<span class="n">loc_queries</span> <span class="o">=</span> <span class="n">LocalizationQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
-<span class="n">definitions</span> <span class="o">=</span> <span class="n">loc_queries</span><span class="o">.</span><span class="n">get_definitions</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span>
-<span class="n">uses</span> <span class="o">=</span> <span class="n">loc_queries</span><span class="o">.</span><span class="n">get_uses</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span>
+<p>Query for code localization (finding where variables are defined/used):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">loc_queries</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">localization</span>
+<span class="n">definitions</span> <span class="o">=</span> <span class="n">loc_queries</span><span class="o">.</span><span class="n">get_definitions</span><span class="p">(</span><span class="s2">"variable_name"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="test-generation-queries">
 <h3>Test Generation Queries<a class="headerlink" href="#test-generation-queries" title="Link to this heading"></a></h3>
-<p>Query for test generation support.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestGenerationQueries</span>
-
-<span class="n">test_queries</span> <span class="o">=</span> <span class="n">TestGenerationQueries</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-<span class="n">scenarios</span> <span class="o">=</span> <span class="n">test_queries</span><span class="o">.</span><span class="n">get_test_scenarios</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+<p>Query for test generation support:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">test_queries</span> <span class="o">=</span> <span class="n">queries</span><span class="o">.</span><span class="n">test_generation</span>
 </pre></div>
 </div>
 </section>
 </section>
-<section id="mcp-server-integration">
-<h2>MCP Server Integration<a class="headerlink" href="#mcp-server-integration" title="Link to this heading"></a></h2>
-<p>PyFlow can be used as an MCP (Model Context Protocol) server for AI tooling.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span>
-
-<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">MCPServerMode</span><span class="p">)</span>
-
-<span class="c1"># MCP-compatible methods</span>
-<span class="n">capabilities</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">capabilities</span><span class="p">()</span>
-<span class="c1"># Returns available query capabilities</span>
-</pre></div>
-</div>
+<section id="editor-agent-protocol-integration">
+<h2>Editor &amp; Agent Protocol Integration<a class="headerlink" href="#editor-agent-protocol-integration" title="Link to this heading"></a></h2>
+<p>PyFlow provides ready-to-use LSP and MCP servers for integration with editors and agents.
+See <a class="reference internal" href="lsp.html"><span class="doc">Editor and Agent Integration</span></a> for detailed instructions on configuring the LSP and MCP servers or using the <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">query</span></code> CLI.</p>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
@@ -407,7 +397,7 @@ analysis results.</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="lsp.html" class="btn btn-neutral float-left" title="Editor and Agent Integration" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ir/index.html" class="btn btn-neutral float-right" title="Intermediate Representations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="concolic.html" class="btn btn-neutral float-right" title="Concolic Execution" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

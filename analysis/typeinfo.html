@@ -66,6 +66,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../lsp.html">Editor and Agent Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concolic.html">Concolic Execution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
@@ -111,6 +112,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/class-pollution.html">Class Pollution Analysis</a></li>
 </ul>
 
         </div>
@@ -148,8 +151,9 @@ exposing a flat collection of unrelated modules.</p>
 <ul class="simple">
 <li><p><strong>Type Evidence Collection</strong>: Gathers type annotations, assignments, and
 usage patterns from Python source code</p></li>
-<li><p><strong>Type Inference</strong>: Infers types from usage context when explicit
-annotations are unavailable</p></li>
+<li><p><strong>Standalone Static Type Inference</strong>: Deterministic abstract interpreter for
+Python source that infers types across functions and projects with argument-sensitive
+call summaries, independently of CPA/IPA</p></li>
 <li><p><strong>String Subtype Analysis</strong>: Specialized inference for string subtypes
 (e.g., URLs, file paths, SQL queries)</p></li>
 <li><p><strong>Usage Tracing</strong>: Records operations performed on proxied values for
@@ -166,8 +170,8 @@ different analysis precision trade-offs</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">core</span></code> — Proper-type representations, subtype relations, signatures, and
 the class hierarchy</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">resolution</span></code> — Annotation, generic, docstring, and <code class="docutils literal notranslate"><span class="pre">.pyi</span></code> resolution</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">inference</span></code> — Core providers, optional external providers, usage tracing,
-and string specialization</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">inference</span></code> — Standalone static type inference engine, core providers,
+optional external providers, usage tracing, and string specialization</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">generation</span></code> — Type-guided constant and value generation helpers</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">TypeEvidenceIndex</span></code> stores source-level evidence.  <code class="docutils literal notranslate"><span class="pre">ClassDescriptor</span></code> is the
@@ -175,6 +179,8 @@ separate core representation of a runtime Python class.</p>
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="evidence-collection">
+<h3>Evidence Collection<a class="headerlink" href="#evidence-collection" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">collect_pyflow_type_info</span>
 
 <span class="n">type_info</span> <span class="o">=</span> <span class="n">collect_pyflow_type_info</span><span class="p">(</span><span class="n">program_codes</span><span class="p">)</span>
@@ -182,6 +188,38 @@ separate core representation of a runtime Python class.</p>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">var</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">evidence</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="static-type-inference-engine">
+<h3>Static Type Inference Engine<a class="headerlink" href="#static-type-inference-engine" title="Link to this heading"></a></h3>
+<p>PyFlow includes a standalone static type inference engine (<code class="docutils literal notranslate"><span class="pre">StaticTypeInferenceEngine</span></code>)
+and project-level orchestrator (<code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code>):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">StaticTypeInferenceEngine</span>
+
+<span class="n">engine</span> <span class="o">=</span> <span class="n">StaticTypeInferenceEngine</span><span class="p">()</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">infer_source</span><span class="p">(</span>
+    <span class="s2">"example.module"</span><span class="p">,</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">def compute(x):</span>
+<span class="sd">    return x * 2</span>
+
+<span class="sd">res = compute(21)</span>
+<span class="sd">"""</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">type_of</span><span class="p">(</span><span class="s2">"res"</span><span class="p">))</span>  <span class="c1"># Inferred as int</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">converged</span>
+</pre></div>
+</div>
+<p>For multi-module projects, <code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code> resolves import closures and handles cyclic dependencies:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectTypeInferenceEngine</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.modules.project_resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectContext</span>
+
+<span class="n">project_engine</span> <span class="o">=</span> <span class="n">ProjectTypeInferenceEngine</span><span class="p">(</span><span class="n">ProjectContext</span><span class="p">(</span><span class="s2">"/path/to/project"</span><span class="p">))</span>
+<span class="n">project_result</span> <span class="o">=</span> <span class="n">project_engine</span><span class="o">.</span><span class="n">infer_project</span><span class="p">([</span><span class="s2">"package.entrypoint"</span><span class="p">])</span>
+<span class="k">assert</span> <span class="n">project_result</span><span class="o">.</span><span class="n">converged</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
