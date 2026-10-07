@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import List, Optional
 from pathlib import Path
 
-from ...pattern.core import constants as b_constants
-from ...pattern.core.metrics import Metrics
+from ...common import constants as b_constants
+from ...common.metrics import Metrics
 from .runner import StaticBugFinder, BugFinderConfig
-from .issue import Issue
+from ...common.issue import Issue
 
 
 class ASTDataflowManager:

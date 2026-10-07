@@ -1,5 +1,5 @@
 from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
-from pyflow.analysis.taint import TaintPolicy
+from pyflow.analysis.taint_policy import TaintPolicy
 from pyflow.checker.ast_dataflow.solver.interprocedural import (
     ASTInterproceduralAnalyzer,
 )

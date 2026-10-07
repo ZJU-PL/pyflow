@@ -10,7 +10,7 @@ import re
 import string
 import sys
 
-from ..pattern.core.test_properties import accepts_baseline
+from ..ast_rules.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)

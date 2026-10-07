@@ -11,7 +11,7 @@ from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.formatters import sarif as sarif_formatter
 from pyflow.checker.formatters import utils as formatter_utils
-from pyflow.checker.pattern.core import constants
+from pyflow.checker.common import constants
 
 
 class MockCwe:

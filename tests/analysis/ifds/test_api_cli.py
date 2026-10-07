@@ -9,18 +9,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pyflow.analysis.ifds.api as ifds_api
+import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.analysis.callgraph.publication as callgraph_publication
 from pyflow.analysis.ifds.api import (
     load_analysis_session,
     run_nullness_analysis,
-    run_taint_analysis,
     run_typestate_analysis,
 )
-from pyflow.checker.class_pollution.api import run_class_pollution_analysis
+from pyflow.checker.ifds.api import run_taint_analysis
+from pyflow.checker.ifds.class_pollution.api import run_class_pollution_analysis
 from pyflow.cli.security import run_security
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.ifds.modeling.calls import TaintModelPort, TaintPropagation
-from pyflow.analysis.taint import TaintRule
+from pyflow.analysis.taint_policy import TaintRule
 from pyflow.ir.core import Capabilities
 
 
@@ -48,9 +49,7 @@ def main():
 
 
 def test_run_taint_analysis_defaults_to_drop_unknown_calls():
-    parameter = inspect.signature(run_taint_analysis).parameters[
-        "unknown_call_policy"
-    ]
+    parameter = inspect.signature(run_taint_analysis).parameters["unknown_call_policy"]
     assert parameter.default == "drop"
 
 
@@ -58,18 +57,9 @@ def _taint_setup(sources, sinks, sanitizers=()):
     return {
         "call_models": CallModelRegistry(
             [
-                *(
-                    CallModel(name, source_kinds=frozenset({"test.source"}))
-                    for name in sources
-                ),
-                *(
-                    CallModel(name, sink_kinds=frozenset({"test.sink"}))
-                    for name in sinks
-                ),
-                *(
-                    CallModel(name, sanitizer_kinds=frozenset({"*"}))
-                    for name in sanitizers
-                ),
+                *(CallModel(name, source_kinds=frozenset({"test.source"})) for name in sources),
+                *(CallModel(name, sink_kinds=frozenset({"test.sink"})) for name in sinks),
+                *(CallModel(name, sanitizer_kinds=frozenset({"*"})) for name in sanitizers),
             ]
         ),
         "rules": (
@@ -171,8 +161,7 @@ def test_run_taint_analysis_uses_stdlib_getoutput_model(tmp_path):
     )
 
     assert any(
-        finding.sink_name == "subprocess.getoutput"
-        and finding.cwe == "CWE-78"
+        finding.sink_name == "subprocess.getoutput" and finding.cwe == "CWE-78"
         for finding in result.findings
     )
 
@@ -203,17 +192,14 @@ def test_odoo_template_context_shape_distinguishes_allowlist_rebuild(tmp_path):
     _session, vulnerable_result, _ = run_taint_analysis(
         [vulnerable], function="main", **configuration
     )
-    _session, fixed_result, _ = run_taint_analysis(
-        [fixed], function="main", **configuration
-    )
+    _session, fixed_result, _ = run_taint_analysis([fixed], function="main", **configuration)
 
     assert any(
         finding.rule.rule_id == "PYFLOW-ODOO-TEMPLATE-CONTEXT"
         for finding in vulnerable_result.findings
     )
     assert not any(
-        finding.rule.rule_id == "PYFLOW-ODOO-TEMPLATE-CONTEXT"
-        for finding in fixed_result.findings
+        finding.rule.rule_id == "PYFLOW-ODOO-TEMPLATE-CONTEXT" for finding in fixed_result.findings
     )
 
 
@@ -237,8 +223,7 @@ def test_run_taint_analysis_uses_archive_member_models(tmp_path):
     )
 
     assert any(
-        finding.sink_name.endswith("extract")
-        and finding.cwe == "CWE-22"
+        finding.sink_name.endswith("extract") and finding.cwe == "CWE-22"
         for finding in result.findings
     )
 
@@ -269,8 +254,7 @@ def test_run_taint_analysis_propagates_modeled_source_into_nested_for(tmp_path):
     )
 
     assert any(
-        finding.sink_name == "os.remove" and finding.cwe == "CWE-22"
-        for finding in result.findings
+        finding.sink_name == "os.remove" and finding.cwe == "CWE-22" for finding in result.findings
     )
 
 
@@ -304,12 +288,8 @@ def test_run_taint_analysis_models_tortoise_like_and_escape_like(tmp_path):
         "rules": registry.as_taint_policy().rules,
     }
 
-    _session, vulnerable_result, _ = run_taint_analysis(
-        [vulnerable], function="main", **setup
-    )
-    _session, fixed_result, _ = run_taint_analysis(
-        [fixed], function="main", **setup
-    )
+    _session, vulnerable_result, _ = run_taint_analysis([vulnerable], function="main", **setup)
+    _session, fixed_result, _ = run_taint_analysis([fixed], function="main", **setup)
 
     assert any(
         finding.sink_name.endswith("like") and finding.cwe == "CWE-89"
@@ -350,9 +330,7 @@ def test_run_taint_analysis_applies_parameter_to_return_propagation(tmp_path):
         )
     )
 
-    _session, result, _ = run_taint_analysis(
-        [target], function="main", **setup
-    )
+    _session, result, _ = run_taint_analysis([target], function="main", **setup)
 
     assert any(finding.sink_name == "sink" for finding in result.findings)
 
@@ -389,9 +367,7 @@ def test_run_taint_analysis_applies_parameter_to_receiver_propagation(tmp_path):
         )
     )
 
-    _session, result, _ = run_taint_analysis(
-        [target], function="main", **setup
-    )
+    _session, result, _ = run_taint_analysis([target], function="main", **setup)
 
     assert any(finding.sink_name == "sink" for finding in result.findings)
 
@@ -451,26 +427,20 @@ def main():
     apply_call_nodes = [
         node
         for node in session.adapter.supergraph.nodes()
-        if node.procedure is apply_cfg
-        and session.adapter.call_expression_of(node) is not None
+        if node.procedure is apply_cfg and session.adapter.call_expression_of(node) is not None
     ]
 
     assert len(apply_call_nodes) == 1
     assert [
-        callee.code.codeName()
-        for callee in session.adapter.callees_of(apply_call_nodes[0])
+        callee.code.codeName() for callee in session.adapter.callees_of(apply_call_nodes[0])
     ] == ["target"]
 
 
-def test_load_analysis_session_runs_one_entry_rooted_constraint_solve(
-    tmp_path, monkeypatch
-):
+def test_load_analysis_session_runs_one_entry_rooted_constraint_solve(tmp_path, monkeypatch):
     entry = tmp_path / "entry.py"
     helper = tmp_path / "helper.py"
     entry.write_text("from helper import apply, target\napply(target)\n")
-    helper.write_text(
-        "def target():\n    return 1\n\ndef apply(fn):\n    return fn()\n"
-    )
+    helper.write_text("def target():\n    return 1\n\ndef apply(fn):\n    return fn()\n")
 
     calls = []
     original = callgraph_publication.ConstraintCallGraphBuilder.build
@@ -498,9 +468,9 @@ def test_load_analysis_session_runs_one_entry_rooted_constraint_solve(
     )
 
     assert calls == [str(entry.resolve())]
-    assert [
-        callee.code.codeName() for callee in session.adapter.callees_of(call_node)
-    ] == ["target"]
+    assert [callee.code.codeName() for callee in session.adapter.callees_of(call_node)] == [
+        "target"
+    ]
 
 
 def test_load_analysis_session_finalizes_semantics_once(tmp_path, monkeypatch):
@@ -569,12 +539,12 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
     expected_result = object()
 
     monkeypatch.setattr(
-        ifds_api,
+        checker_ifds_api,
         "load_analysis_session",
         lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
     )
     monkeypatch.setattr(
-        ifds_api,
+        checker_ifds_api,
         "_entry_nodes_from_program",
         lambda *_args, **_kwargs: ("entry",),
     )
@@ -584,7 +554,7 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
         captured["entry_nodes"] = entry_nodes
         return expected_result
 
-    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+    monkeypatch.setattr(checker_ifds_api, "analyze_taint", fake_analyze_taint)
 
     _session, result, _ = run_taint_analysis(
         ["sample.py"],
@@ -616,12 +586,12 @@ def test_run_taint_analysis_enables_entry_parameter_sources_for_file_scans(
 ):
     captured = {}
     monkeypatch.setattr(
-        ifds_api,
+        checker_ifds_api,
         "load_analysis_session",
         lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
     )
     monkeypatch.setattr(
-        ifds_api,
+        checker_ifds_api,
         "_entry_nodes_from_program",
         lambda *_args, **_kwargs: ("entry",),
     )
@@ -630,7 +600,7 @@ def test_run_taint_analysis_enables_entry_parameter_sources_for_file_scans(
         captured["configuration"] = configuration
         return object()
 
-    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+    monkeypatch.setattr(checker_ifds_api, "analyze_taint", fake_analyze_taint)
 
     run_taint_analysis(
         ["sample.py"],
@@ -650,7 +620,7 @@ def test_run_taint_analysis_forwards_shared_entrypoint_options(monkeypatch):
         taint_parameters=True,
     )
     monkeypatch.setattr(
-        ifds_api,
+        checker_ifds_api,
         "load_analysis_session",
         lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
     )
@@ -659,13 +629,13 @@ def test_run_taint_analysis_forwards_shared_entrypoint_options(monkeypatch):
         captured["entry_point_options"] = kwargs["entry_point_options"]
         return ("entry",)
 
-    monkeypatch.setattr(ifds_api, "_entry_nodes_from_program", fake_entries)
+    monkeypatch.setattr(checker_ifds_api, "_entry_nodes_from_program", fake_entries)
 
     def fake_analyze_taint(adapter, configuration, *, entry_nodes):
         captured["configuration"] = configuration
         return object()
 
-    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+    monkeypatch.setattr(checker_ifds_api, "analyze_taint", fake_analyze_taint)
 
     run_taint_analysis(
         ["sample.py"],
@@ -785,9 +755,7 @@ def test_run_typestate_analysis_forwards_registry_models(monkeypatch):
         def active_models(self, *, type=None):
             return "registry-models"
 
-    monkeypatch.setattr(
-        ifds_api, "load_registry", lambda: FakeRegistry(), raising=False
-    )
+    monkeypatch.setattr(ifds_api, "load_registry", lambda: FakeRegistry(), raising=False)
 
     def fake_analyze_typestate(adapter, configuration, *, entry_nodes):
         captured["configuration"] = configuration
@@ -861,9 +829,7 @@ def test_load_analysis_session_with_entry_file_keeps_only_that_module_root(tmp_p
 
     session = load_analysis_session([entry, other], entry_file=entry)
 
-    assert [ep.code.codeName() for ep in session.program.entryPoints] == [
-        "entry.<module>"
-    ]
+    assert [ep.code.codeName() for ep in session.program.entryPoints] == ["entry.<module>"]
 
 
 def test_entry_file_ignores_inferred_function_invocation_arguments(tmp_path):
@@ -877,9 +843,7 @@ def test_entry_file_ignores_inferred_function_invocation_arguments(tmp_path):
 
     session = load_analysis_session([entry], entry_file=entry)
 
-    assert [ep.code.codeName() for ep in session.program.entryPoints] == [
-        "entry.<module>"
-    ]
+    assert [ep.code.codeName() for ep in session.program.entryPoints] == ["entry.<module>"]
 
 
 def test_load_analysis_session_uses_constraint_callgraph_without_ipa_cpa(tmp_path):
@@ -952,9 +916,7 @@ def test_entry_file_public_handler_follows_cross_module_calls(tmp_path):
     helper = tmp_path / "helper.py"
     unused = tmp_path / "unused.py"
     entry.write_text(
-        "from helper import flow\n"
-        "def route_handler():\n"
-        "    flow()\n",
+        "from helper import flow\n" "def route_handler():\n" "    flow()\n",
         encoding="utf-8",
     )
     helper.write_text(
@@ -976,8 +938,7 @@ def test_entry_file_public_handler_follows_cross_module_calls(tmp_path):
 
     assert len(result.findings) == 1
     analyzed_names = {
-        procedure.code.codeName()
-        for procedure in session.adapter.supergraph.procedures()
+        procedure.code.codeName() for procedure in session.adapter.supergraph.procedures()
     }
     assert "dead" not in analyzed_names
 

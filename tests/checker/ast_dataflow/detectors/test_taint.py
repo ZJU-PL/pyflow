@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
 from pyflow.checker.ast_dataflow.core.context import AnalysisSession
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 from pyflow.application.program import Program
 
 

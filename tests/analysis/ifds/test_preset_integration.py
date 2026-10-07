@@ -3,13 +3,12 @@ from __future__ import annotations
 from pyflow.application import context
 from pyflow.analysis.ifds import (
     NullnessConfiguration,
-    TaintConfiguration,
     TypestateConfiguration,
     analyze_nullness,
-    analyze_taint,
     analyze_typestate,
     build_supergraph_from_cfgs,
 )
+from pyflow.checker.ifds import TaintConfiguration, analyze_taint
 from pyflow.analysis.ifds.modeling.presets import (
     LOCK_TYPESTATE_CLOSE,
     LOCK_TYPESTATE_OPEN,
@@ -19,7 +18,7 @@ from pyflow.analysis.ifds.modeling.presets import (
     TAINT_SANITIZER_PRESETS,
     TAINT_SINK_PRESETS,
 )
-from pyflow.analysis.taint import TaintRule
+from pyflow.analysis.taint_policy import TaintRule
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, make_code
@@ -38,9 +37,7 @@ def test_preset_nullable_return_detected():
                 ast.Call(ast.Local("get"), [value, ast.Local("key")], [], None, None),
                 [result],
             ),
-            ast.Discard(
-                ast.GetAttr(result, ast.Existing(ast.program.Object("payload")))
-            ),
+            ast.Discard(ast.GetAttr(result, ast.Existing(ast.program.Object("payload")))),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -105,9 +102,7 @@ def test_preset_taint_source_sink_with_sanitizer():
             ),
         ),
     )
-    result = analyze_taint(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_taint(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert len(result.findings) == 0
 
@@ -152,9 +147,7 @@ def test_preset_taint_without_sanitizer_reports_sink():
             ),
         ),
     )
-    result = analyze_taint(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_taint(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert len(result.findings) == 1
 
@@ -171,12 +164,8 @@ def test_preset_typestate_detects_double_close():
                 ast.Call(ast.Local("open"), [ast.Local("name")], [], None, None),
                 [file_var],
             ),
-            ast.Discard(
-                ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)
-            ),
-            ast.Discard(
-                ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)
-            ),
+            ast.Discard(ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)),
+            ast.Discard(ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -196,9 +185,7 @@ def test_preset_typestate_detects_double_close():
         close_names=TYPESTATE_CLOSE_PRESETS.as_mapping().keys(),
         use_names=TYPESTATE_USE_PRESETS.as_mapping().keys(),
     )
-    result = analyze_typestate(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert any(f.kind == "double_close" for f in result.findings)
 
@@ -215,12 +202,8 @@ def test_preset_typestate_detects_use_after_close():
                 ast.Call(ast.Local("open"), [ast.Local("name")], [], None, None),
                 [file_var],
             ),
-            ast.Discard(
-                ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)
-            ),
-            ast.Discard(
-                ast.MethodCall(file_var, ast.Local("read"), [], [], None, None)
-            ),
+            ast.Discard(ast.MethodCall(file_var, ast.Local("close"), [], [], None, None)),
+            ast.Discard(ast.MethodCall(file_var, ast.Local("read"), [], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -240,9 +223,7 @@ def test_preset_typestate_detects_use_after_close():
         close_names=TYPESTATE_CLOSE_PRESETS.as_mapping().keys(),
         use_names=TYPESTATE_USE_PRESETS.as_mapping().keys(),
     )
-    result = analyze_typestate(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert any(f.kind == "use_after_close" for f in result.findings)
 
@@ -255,9 +236,7 @@ def test_preset_lock_detects_release_without_acquire():
         "main",
         [],
         [
-            ast.Assign(
-                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
-            ),
+            ast.Assign(ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]),
             ast.Discard(ast.MethodCall(lock, ast.Local("release"), [], [], None, None)),
             ast.Return([]),
         ],
@@ -273,9 +252,7 @@ def test_preset_lock_detects_release_without_acquire():
         close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
         use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
     )
-    result = analyze_typestate(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert any(f.kind == "release_without_acquire" for f in result.findings)
 
@@ -288,15 +265,9 @@ def test_preset_lock_context_manager_releases_lock():
         "main",
         [],
         [
-            ast.Assign(
-                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
-            ),
-            ast.Discard(
-                ast.MethodCall(lock, ast.Local("__enter__"), [], [], None, None)
-            ),
-            ast.Discard(
-                ast.MethodCall(lock, ast.Local("__exit__"), [], [], None, None)
-            ),
+            ast.Assign(ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]),
+            ast.Discard(ast.MethodCall(lock, ast.Local("__enter__"), [], [], None, None)),
+            ast.Discard(ast.MethodCall(lock, ast.Local("__exit__"), [], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -311,8 +282,6 @@ def test_preset_lock_context_manager_releases_lock():
         close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
         use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
     )
-    result = analyze_typestate(
-        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
-    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert not any(f.kind == "lock_leak" for f in result.findings)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
-from .issue import Issue
+from ...common.issue import Issue
 from .context import AnalysisSession
 
 

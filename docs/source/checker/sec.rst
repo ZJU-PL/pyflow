@@ -3,9 +3,9 @@ Security Analysis and Checking
 
 PyFlow's security checker identifies potential security vulnerabilities and unsafe coding patterns in Python applications.
 
-PyFlow provides two distinct checker engines:
+PyFlow provides several checking subsystems:
 
-**Pattern-based checker** (``pyflow.checker.pattern``)
+**Pattern-based checker** (``pyflow.checker.ast_rules``)
   A lightweight AST pattern matching engine, similar to Bandit, that uses
   simple pattern matching to identify common security vulnerabilities.
   Fast and suitable for quick scans.
@@ -16,13 +16,45 @@ PyFlow provides two distinct checker engines:
   summaries, explicit uncertainty diagnostics, and bounded source-to-sink
   witnesses. More thorough but slower than pattern matching.
 
-**Class-pollution checker** (``pyflow.checker.class_pollution``)
+**IFDS checker** (``pyflow.checker.ifds``)
+  Interprocedural security checking using the general IFDS solver, including
+  taint and class-pollution analysis.
+
+**CPG checker** (``pyflow.checker.cpg``)
+  Security analysis over Code Property Graphs, with rule loading and
+  framework-specific models.
+
+**Class-pollution checker** (``pyflow.checker.ifds.class_pollution``)
   An independent relational IFDS checker for attacker-controlled reflective
   object traversal and writes into class or namespace state.
 
 **Capability checker** (``pyflow.checker.capability``)
   A context-sensitive pointer-based checker for security-sensitive authority,
   capability escape, external effects, and runtime enforcement policy.
+
+**Supply-chain checker** (``pyflow.checker.supply_chain``)
+  Package inventory, integrity, vulnerability, and policy analysis.
+
+Package Layout
+--------------
+
+``ast_rules/`` and ``ast_dataflow/`` keep their execution frameworks and
+detection rules together. ``ifds/`` contains the complete IFDS taint analysis,
+file-analysis entry point, reporting adapter, shadow scanning, and class
+pollution checking. ``cpg/`` contains the complete CPG taint analysis, rule
+loading, and framework profiles. ``capability/`` and ``supply_chain/`` remain
+self-contained checking subsystems.
+
+``common/`` contains shared issue/CWE types, rankings, and scan metrics.
+``formatters/`` handles report output, and ``llm/`` handles LLM-assisted report
+analysis. General IFDS solving, CFG adaptation, session loading, and non-security
+analyses remain in ``pyflow.analysis.ifds``. CPG/PDG representation, construction,
+queries, and export remain in ``pyflow.ir``.
+
+The former ``pattern`` package, ``checker.detectors`` grouping, IFDS taint
+exports under ``analysis.ifds``, and security analysis modules under
+``ir.cpg`` have been removed without compatibility modules. Use the checking
+subsystems directly and import shared types from ``pyflow.checker.common``.
 
 Checker Categories
 ==================
@@ -182,29 +214,29 @@ Analysis Framework
 Pattern-Based Checker Infrastructure
 ------------------------------------
 
-**pattern/core/manager.py**: Pattern checker management system
+**ast_rules/core/manager.py**: Pattern checker management system
 - Orchestrates AST-based security analysis
 - Manages checker registration and execution
 - Handles analysis configuration
 
-**pattern/core/context.py**: Pattern checker context management
+**ast_rules/core/context.py**: Pattern checker context management
 - Maintains analysis state during checking
 - Tracks file and module information
 - Manages issue reporting
 
-**pattern/core/issue.py**: Issue representation
+**common/issue.py**: Issue representation
 - Standardizes security issue reporting
 - Provides severity levels and categories
 - Supports issue metadata and location tracking
 
-**pattern/checkers/**: Individual pattern-based security checkers
+**ast_rules/checkers/**: Individual pattern-based security checkers
 - AST pattern matching rules for various vulnerability types
 - Configurable blacklists and pattern definitions
 
 AST Dataflow Checker Infrastructure
 -----------------------------------
 
-**ast_dataflow/runner.py**: AST dataflow checker orchestration
+**ast_dataflow/core/runner.py**: AST dataflow checker orchestration
 - Runs the full PyFlow analysis pipeline
 - Runs its standalone AST dataflow engine without IPA/CPA/lifetime preparation
 - Feeds analysis results to detectors
@@ -305,12 +337,12 @@ claims until the exact attestation has passed Sigstore identity verification.
 Configuration and Testing
 -------------------------
 
-**pattern/core/config.py**: Configuration management
+**ast_rules/core/config.py**: Configuration management
 - Checker enable/disable settings
 - Severity threshold configuration
 - Custom rule definitions
 
-**pattern/core/test_loader.py**: Test case management
+**ast_rules/core/test_loader.py**: Test case management
 - Loads security test cases
 - Manages false positive/negative testing
 - Benchmarking and validation

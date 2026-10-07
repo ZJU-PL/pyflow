@@ -1,7 +1,7 @@
 """
 Static bug finder built on PyFlow analyses.
 
-  core/     - session, runner, manager, issue, detector base
+  core/     - session, runner, manager, detector base
   detectors/ - AST dataflow taint detection
 """
 

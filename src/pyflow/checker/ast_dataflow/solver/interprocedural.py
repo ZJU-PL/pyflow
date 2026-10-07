@@ -14,7 +14,7 @@ from pyflow.analysis.entrypoints import (
     ProcedureDescriptor,
     select_entry_points,
 )
-from pyflow.analysis.taint import TaintPolicy
+from pyflow.analysis.taint_policy import TaintPolicy
 
 from ..domain import AnalysisUncertainty, PrecisionLevel, TaintFact
 from ..frontend import find_function

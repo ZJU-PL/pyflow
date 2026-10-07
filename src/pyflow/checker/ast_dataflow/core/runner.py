@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
 from ..detectors.taint import ASTDataflowTaintDetector
-from .issue import Issue
+from ...common.issue import Issue
 
 
 @dataclass

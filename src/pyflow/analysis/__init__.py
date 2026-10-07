@@ -12,3 +12,4 @@ from . import cpa
 from . import fsdf
 from . import alias
 from . import ifds
+from . import taint_policy

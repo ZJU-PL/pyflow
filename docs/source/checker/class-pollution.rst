@@ -55,7 +55,7 @@ Programmatic use
 
 .. code-block:: python
 
-   from pyflow.checker.class_pollution import (
+   from pyflow.checker.ifds.class_pollution import (
        ClassPollutionConfiguration,
        analyze_class_pollution,
    )

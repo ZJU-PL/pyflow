@@ -15,8 +15,8 @@ from pyflow.checker.ast_dataflow.detectors._taint_models import (
 )
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
-from pyflow.checker.pattern.core import constants as b_constants
-from pyflow.checker.pattern.core.issue import Issue
+from pyflow.checker.common import constants as b_constants
+from pyflow.checker.common.issue import Issue
 from pyflow.cli.security.reporting import (
     _ast_dataflow_payload,
     _result_to_json,

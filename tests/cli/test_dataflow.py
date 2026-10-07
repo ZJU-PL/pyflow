@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import pyflow.analysis.ifds.api as ifds_api
+import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.cli.security as security_cli
 
 
@@ -110,7 +111,7 @@ def main():
         )
         return session, fake_result, None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args(output_format)
     args.targets = [target]
@@ -162,7 +163,7 @@ def main():
         )
         return session, fake_result, None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args("json")
     args.targets = [target]
@@ -186,7 +187,7 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
         session = SimpleNamespace(compiler=object(), diagnostics=())
         return session, fake_result, None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args("json")
     args.collection_mutators = ["append_safe"]
@@ -218,7 +219,7 @@ def test_security_cli_defaults_to_dropping_unknown_call_results(
         session = SimpleNamespace(compiler=object(), diagnostics=())
         return session, _EmptyResult(), None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
     args = _make_args("json")
     args.targets = [target]
 
@@ -240,7 +241,7 @@ def test_security_cli_auto_detects_directory_entry(monkeypatch, tmp_path, capsys
         session = SimpleNamespace(compiler=object(), diagnostics=())
         return session, _EmptyResult(), None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args("json")
     args.targets = [project]
@@ -264,7 +265,7 @@ def test_security_cli_accepts_explicit_directory_entry(monkeypatch, tmp_path, ca
         session = SimpleNamespace(compiler=object(), diagnostics=())
         return session, _EmptyResult(), None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args("json")
     args.targets = [project]
@@ -347,7 +348,7 @@ def test_security_cli_emits_session_diagnostics(
         )
         return session, fake_result, None
 
-    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(checker_ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
     args = _make_args(output_format)
     args.targets = [target]

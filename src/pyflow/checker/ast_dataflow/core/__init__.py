@@ -5,7 +5,7 @@ This package holds shared types, session/context, runner, manager,
 and the detector base used by concrete detectors in ast_dataflow.detectors.
 """
 
-from .issue import Issue, Cwe
+from ...common.issue import Issue, Cwe
 from .context import AnalysisSession
 from .runner import StaticBugFinder, BugFinderConfig
 from .manager import ASTDataflowManager

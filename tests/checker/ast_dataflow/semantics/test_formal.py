@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 
-from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 from pyflow.checker.ast_dataflow.semantics import TaintSinkEvent, analyze_ast_function
 
 POLICY = TaintPolicy(

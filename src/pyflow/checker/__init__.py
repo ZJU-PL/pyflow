@@ -1,13 +1,14 @@
 """Security checkers built on PyFlow's syntax and semantic engines.
 
-Specialized semantic checkers are exposed from ``checker.class_pollution``
-and ``checker.capability``; the top-level package keeps its lightweight legacy
-exports for pattern and AST-dataflow clients.
+Each checking subsystem keeps its execution mechanisms and detection logic
+together: ``ast_rules``, ``ast_dataflow``, ``ifds``, ``cpg``, ``capability``,
+and ``supply_chain``. Shared finding types, rankings, and metrics live in
+``checker.common``.
 """
 
-from .pattern.core.manager import SecurityManager
-from .pattern.core.config import SecurityConfig
-from .pattern.core.issue import Issue, Cwe
+from .ast_rules.core.manager import SecurityManager
+from .ast_rules.core.config import SecurityConfig
+from .common.issue import Issue, Cwe
 from .ast_dataflow import StaticBugFinder, BugFinderConfig
 
 __all__ = [

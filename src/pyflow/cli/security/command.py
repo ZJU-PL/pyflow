@@ -19,9 +19,9 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from pyflow.analysis.entrypoints import EntryPointDefaults
-from pyflow.checker.pattern.core.manager import SecurityManager
-from pyflow.checker.pattern.core.config import SecurityConfig
-from pyflow.checker.pattern.core import constants as b_constants
+from pyflow.checker.ast_rules.core.manager import SecurityManager
+from pyflow.checker.ast_rules.core.config import SecurityConfig
+from pyflow.checker.common import constants as b_constants
 from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
 from pyflow.frontend.entry_discovery import resolve_entry_file
 from .reporting import (
@@ -35,7 +35,7 @@ from .reporting import (
 
 if TYPE_CHECKING:
     from pyflow.analysis.ifds.modeling.calls import CallModelRegistry
-    from pyflow.analysis.taint import TaintRule
+    from pyflow.analysis.taint_policy import TaintRule
 
 # ── Engine dispatchers ────────────────────────────────────────────────────
 
@@ -198,11 +198,8 @@ def _run_ast_dataflow(
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
-    from pyflow.analysis.ifds.api import (
-        run_nullness_analysis,
-        run_taint_analysis,
-        run_typestate_analysis,
-    )
+    from pyflow.analysis.ifds.api import run_nullness_analysis, run_typestate_analysis
+    from pyflow.checker.ifds.api import run_taint_analysis
 
     solver_options = _ifds_solver_options(args)
 
@@ -224,8 +221,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     entry_label = _entry_label(entry_file, targets)
 
     if getattr(args, "analysis", "taint") == "class-pollution":
-        from pyflow.checker.class_pollution import ClassPollutionConfiguration
-        from pyflow.checker.class_pollution.api import run_class_pollution_analysis
+        from pyflow.checker.ifds.class_pollution import ClassPollutionConfiguration
+        from pyflow.checker.ifds.class_pollution.api import run_class_pollution_analysis
 
         try:
             _session, pollution_result = run_class_pollution_analysis(
@@ -447,8 +444,8 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
         build_cpg,
         build_cpg_from_directory,
     )
-    from pyflow.ir.cpg.taint import CPGTaintEngine
-    from pyflow.ir.cpg.rules import load_rules, detect_frameworks
+    from pyflow.checker.cpg.taint import CPGTaintEngine
+    from pyflow.checker.cpg.rules import load_rules, detect_frameworks
 
     findings: List[Dict[str, Any]] = []
     diagnostics: List[Dict[str, Any]] = []
@@ -688,7 +685,7 @@ def _build_taint_configuration(
 ) -> tuple[CallModelRegistry, tuple[TaintRule, ...], EntryPointDefaults]:
     """Build typed CLI models and policies from names and v2 rule packs."""
     from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-    from pyflow.analysis.taint import TaintRule
+    from pyflow.analysis.taint_policy import TaintRule
 
     sources = list(getattr(args, "sources", []) or [])
     sinks = list(getattr(args, "sinks", []) or [])
@@ -727,6 +724,7 @@ def _build_taint_configuration(
 
     try:
         from pyflow.analysis.ifds.modeling.registry import load_registry
+        from pyflow.checker.ifds import TaintConfiguration
 
         registry = load_registry()
         if given_frameworks is not None:
@@ -747,7 +745,7 @@ def _build_taint_configuration(
             registry.activate("stdlib", type="taint")
         if custom_paths:
             registry.load_custom(*custom_paths)
-        config = registry.as_config()
+        config = TaintConfiguration.from_registry(registry)
         entry_point_defaults = registry.as_taint_policy().entry_point_defaults
         models.extend(config.call_models.as_mapping().values())
         rules.extend(config.rules)

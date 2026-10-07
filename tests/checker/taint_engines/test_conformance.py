@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from pyflow.analysis.ifds.api import run_taint_analysis
+from pyflow.checker.ifds.api import run_taint_analysis
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.ifds.modeling.registry import load_registry
-from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
 from pyflow.ir.cpg.build import build_cpg
-from pyflow.ir.cpg.taint import CPGTaintEngine
+from pyflow.checker.cpg.taint import CPGTaintEngine
 
 
 class _NoQueries:

@@ -36,7 +36,7 @@ from pyflow.analysis.entrypoints import (
     EntryPointDefaults,
     EntryPointMode,
 )
-from pyflow.analysis.taint import (
+from pyflow.analysis.taint_policy import (
     SUPPORTED_SINK_BEHAVIORS,
     TaintPolicy,
     TaintRule,
@@ -1137,16 +1137,6 @@ class Registry:
             rules.extend(pack.taint_rules())
         return tuple(rules)
 
-    def as_config(
-        self,
-    ):
-        """Build a ``TaintConfiguration`` from active taint models."""
-        from ...analyses.taint import TaintConfiguration
-
-        return TaintConfiguration(
-            call_models=self.active_models(type="taint"),
-            rules=self.active_taint_rules(),
-        )
 
     def as_taint_policy(self) -> TaintPolicy:
         """Project active strict-v2 taint packs into an engine-neutral policy."""

@@ -6,7 +6,7 @@ import json
 import sys
 from typing import Any, Dict, List
 
-from pyflow.checker.pattern.core import constants as b_constants
+from pyflow.checker.common import constants as b_constants
 from pyflow.util.cwe import cwe_ancestors, cwe_identifiers, normalize_cwe
 
 _SARIF_SCHEMA = (
@@ -186,7 +186,7 @@ def _output_results(engine: str, result, args) -> None:
 
 def _output_via_formatter(engine: str, result, args, fmt: str) -> None:
     """Route scanner-based results through the appropriate checker formatter."""
-    from pyflow.checker.pattern.core import constants as b_constants
+    from pyflow.checker.common import constants as b_constants
 
     sev_level = getattr(args, "severity", b_constants.LOW)
     conf_level = getattr(args, "confidence", b_constants.LOW)
@@ -550,7 +550,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
         }
 
     if engine == "cpg":
-        from pyflow.ir.cpg.taint import CPGTaintEngine
+        from pyflow.checker.cpg.taint import CPGTaintEngine
 
         findings = result.get("findings", [])
         artifact_uri = (
@@ -712,7 +712,7 @@ def _statistics_to_dict(statistics) -> dict[str, Any]:
 def _ifds_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
     """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
     from collections import defaultdict, deque
-    from pyflow.analysis.ifds.reporting import normalized_taint_findings
+    from pyflow.checker.ifds.reporting import normalized_taint_findings
 
     problem = getattr(taint_result, "_problem", None)
     adapter = getattr(problem, "adapter", None)

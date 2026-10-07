@@ -13,6 +13,7 @@ from pyflow.analysis.ifds.modeling.registry import (
     validate_rule_pack_data,
 )
 from pyflow.analysis.ifds.modeling.registry.loader import _discover_pack_paths
+from pyflow.checker.ifds import TaintConfiguration
 
 
 class TestRegistryLoading:
@@ -165,9 +166,7 @@ class TestRegistryLoading:
         models = registry.active_models(type="taint")
 
         assert "twisted" in detected
-        assert models.model_for_name("request.getHeader").source_kinds == frozenset(
-            {"user_input"}
-        )
+        assert models.model_for_name("request.getHeader").source_kinds == frozenset({"user_input"})
         no_resource = models.model_for_name("resource.NoResource")
         assert no_resource is not None
         assert no_resource.cwe == "CWE-79"
@@ -176,9 +175,7 @@ class TestRegistryLoading:
     def test_cloudpickle_deserialization_models(self):
         registry = Registry()
         detected = registry.detect(["import cloudpickle"], type="taint")
-        model = registry.active_models(type="taint").model_for_name(
-            "cloudpickle.load"
-        )
+        model = registry.active_models(type="taint").model_for_name("cloudpickle.load")
 
         assert "serialization" in detected
         assert model is not None
@@ -221,10 +218,7 @@ class TestRegistryLoading:
         models = registry.active_models(type="taint")
 
         assert "odoo" in detected
-        assert (
-            registry.as_taint_policy().entry_point_defaults.taint_parameters
-            is False
-        )
+        assert registry.as_taint_policy().entry_point_defaults.taint_parameters is False
         source = models.model_for_name("request.params.copy")
         assert source is not None
         assert source.source_kinds == frozenset({"template_context_shape"})
@@ -289,9 +283,7 @@ class TestRegistryLoading:
 
         registry = Registry()
         registry.load_custom(pack)
-        model = registry.active_models(type="taint").model_for_name(
-            "render_payload"
-        )
+        model = registry.active_models(type="taint").model_for_name("render_payload")
 
         assert model is not None
         assert model.sink_return is True
@@ -356,9 +348,7 @@ class TestRegistryLoading:
         assert from_string.cwe == "CWE-94"
         assert from_string.sink_arg_positions == frozenset({0})
 
-        dynamic_eval = injection_registry.active_models(type="taint").model_for_name(
-            "eval"
-        )
+        dynamic_eval = injection_registry.active_models(type="taint").model_for_name("eval")
         assert dynamic_eval is not None
         assert dynamic_eval.cwe == "CWE-95"
 
@@ -366,9 +356,7 @@ class TestRegistryLoading:
         registry = Registry()
         registry.activate("stdlib", type="taint")
 
-        model = registry.active_models(type="taint").model_for_name(
-            "secure_filename"
-        )
+        model = registry.active_models(type="taint").model_for_name("secure_filename")
 
         assert model is not None
         assert model.sanitizer_kinds == frozenset({"*"})
@@ -392,10 +380,9 @@ class TestRegistryLoading:
             ("all", None, "return"),
         }
         assert join_model is not None
-        assert {
-            (edge.source.kind, edge.target.kind)
-            for edge in join_model.taint_propagations
-        } == {("all", "return")}
+        assert {(edge.source.kind, edge.target.kind) for edge in join_model.taint_propagations} == {
+            ("all", "return")
+        }
 
     def test_tortoise_models_like_criteria_and_wildcard_escaping(self):
         registry = Registry()
@@ -456,9 +443,7 @@ class TestRegistryLoading:
             ("sanic", "sanic.request.Request.args.get", "html"),
         ],
     )
-    def test_web_framework_packs_expose_input_and_html_models(
-        self, framework, source, sink
-    ):
+    def test_web_framework_packs_expose_input_and_html_models(self, framework, source, sink):
         r = Registry()
         r.activate(framework)
         models = r.active_models().as_mapping()
@@ -479,9 +464,7 @@ class TestRegistryLoading:
         registry.activate("flask", type="taint")
 
         defaults = registry.as_taint_policy().entry_point_defaults
-        resolved = defaults.resolve(
-            EntryPointOptions(mode=EntryPointMode.ALL_PROCEDURES)
-        )
+        resolved = defaults.resolve(EntryPointOptions(mode=EntryPointMode.ALL_PROCEDURES))
 
         assert resolved.mode is EntryPointMode.ALL_PROCEDURES
         assert resolved.taint_parameters is True
@@ -562,9 +545,7 @@ class TestStrictV2Validation:
         registry = Registry()
 
         registry.load_custom(pack)
-        model = registry.active_models(type="taint").model_for_name(
-            "framework.copy"
-        )
+        model = registry.active_models(type="taint").model_for_name("framework.copy")
 
         assert model is not None
         propagation = next(iter(model.taint_propagations))
@@ -641,9 +622,7 @@ class TestStrictV2Validation:
                     {
                         "call": "qualified.source",
                         "aliases": ["", 42],
-                        "sources": [
-                            {"kind": "user_input", "port": "return"}
-                        ],
+                        "sources": [{"kind": "user_input", "port": "return"}],
                     }
                 ],
                 "rules": [],
@@ -667,9 +646,7 @@ class TestStrictV2Validation:
                     {
                         "call": "render",
                         "sink_behavior": "unknown-behavior",
-                        "sinks": [
-                            {"kind": "xss", "port": {"parameter": 0}}
-                        ],
+                        "sinks": [{"kind": "xss", "port": {"parameter": 0}}],
                     }
                 ],
             }
@@ -681,18 +658,14 @@ class TestStrictV2Validation:
                     {
                         "call": "source",
                         "sink_behavior": "jinja-autoescape",
-                        "sources": [
-                            {"kind": "user_input", "port": "return"}
-                        ],
+                        "sources": [{"kind": "user_input", "port": "return"}],
                     }
                 ],
             }
         )
 
         assert any("must be one of" in issue.message for issue in unsupported)
-        assert any(
-            "requires at least one sink" in issue.message for issue in missing_sink
-        )
+        assert any("requires at least one sink" in issue.message for issue in missing_sink)
 
     def test_sink_kind_requires_flow_rule(self):
         issues = validate_rule_pack_data(
@@ -722,9 +695,7 @@ class TestStrictV2Validation:
                 "models": [
                     {
                         "call": "source",
-                        "sources": [
-                            {"kind": "user_input", "port": "return", "extra": True}
-                        ],
+                        "sources": [{"kind": "user_input", "port": "return", "extra": True}],
                     }
                 ],
                 "rules": [],
@@ -802,29 +773,24 @@ class TestFrameworkDetection:
 
 
 class TestTaintConfiguration:
-    def test_as_config_basic(self):
+    def test_from_registry_basic(self):
         r = Registry()
         r.activate("flask")
-        tc = r.as_config()
+        tc = TaintConfiguration.from_registry(r)
         mapping = tc.call_models.as_mapping()
         assert mapping["flask.request.args"].source_kinds == frozenset({"user_input"})
         assert "xss" in mapping["flask.render_template_string"].sink_kinds
-        assert (
-            mapping["flask.render_template_string"].sink_behavior
-            == "jinja-autoescape"
-        )
+        assert mapping["flask.render_template_string"].sink_behavior == "jinja-autoescape"
         assert mapping["flask.escape"].sanitizer_kinds == frozenset({"*"})
         assert tc.rules
 
-    def test_as_config_preserves_typed_sanitizers(self):
+    def test_from_registry_preserves_typed_sanitizers(self):
         r = Registry()
         r.activate("stdlib")
-        tc = r.as_config()
+        tc = TaintConfiguration.from_registry(r)
         mapping = tc.call_models.as_mapping()
         assert mapping["html.escape"].sanitizer_kinds == frozenset({"user_input"})
-        assert mapping["os.path.basename"].sanitizer_kinds == frozenset(
-            {"file", "user_input"}
-        )
+        assert mapping["os.path.basename"].sanitizer_kinds == frozenset({"file", "user_input"})
 
 
 class TestNullnessPack:

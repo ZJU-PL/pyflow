@@ -7,11 +7,11 @@ import textwrap
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 
 from ..core.base import Detector
 from ..core.context import AnalysisSession
-from ..core.issue import Issue
+from ...common.issue import Issue
 from ..domain import ProvenanceEdge, ProvenanceNode, TaintFact
 from ._taint_local import _LocalTaintAnalyzer
 from ._taint_models import (

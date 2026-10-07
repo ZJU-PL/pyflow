@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Iterable, Mapping, cast
 
-from pyflow.analysis.taint import TaintPolicy
+from pyflow.analysis.taint_policy import TaintPolicy
 
 from ..domain import (
     AnalysisUncertainty,

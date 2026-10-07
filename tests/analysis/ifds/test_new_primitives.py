@@ -2,21 +2,8 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ifds import (
-    CATEGORY_DATABASE,
-    CATEGORY_ENVIRONMENT,
-    CATEGORY_FILE,
-    CATEGORY_NETWORK,
-    CATEGORY_USER_INPUT,
-    CallContext,
-    GenFlow,
-    IdentityFlow,
-    KillFlow,
-    PathEdge,
-    Supergraph,
-    ZERO,
-    ZeroFact,
-)
+from pyflow.checker.ifds import CATEGORY_DATABASE, CATEGORY_ENVIRONMENT, CATEGORY_FILE, CATEGORY_NETWORK, CATEGORY_USER_INPUT
+from pyflow.analysis.ifds import CallContext, GenFlow, IdentityFlow, KillFlow, PathEdge, Supergraph, ZERO, ZeroFact
 from pyflow.analysis.ifds.core.problem import IFDSProblem
 from pyflow.analysis.ifds.core.solver import IDESolver, IFDSSolver
 

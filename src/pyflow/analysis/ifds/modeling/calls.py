@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import FrozenSet, Iterable, Literal, Mapping
 
-from pyflow.analysis.taint.policy import call_name_suffix_matches
+from pyflow.analysis.taint_policy.policy import call_name_suffix_matches
 
 
 STATE_OPEN = "open"

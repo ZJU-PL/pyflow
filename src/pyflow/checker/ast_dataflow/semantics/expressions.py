@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from pyflow.analysis.taint import TaintPolicy, sink_behavior_is_active
+from pyflow.analysis.taint_policy import TaintPolicy, sink_behavior_is_active
 
 from ..domain import (
     AccessSelector,

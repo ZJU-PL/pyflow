@@ -6,8 +6,8 @@ import datetime
 import logging
 import sys
 
-from ..pattern.core import constants
-from ..pattern.core.test_properties import accepts_baseline
+from ..common import constants
+from ..ast_rules.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)

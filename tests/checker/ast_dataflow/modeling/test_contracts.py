@@ -7,7 +7,7 @@ from pyflow.checker.ast_dataflow.modeling import (
 )
 import ast
 
-from pyflow.analysis.taint import TaintPolicy
+from pyflow.analysis.taint_policy import TaintPolicy
 from pyflow.checker.ast_dataflow.semantics import TaintSinkEvent, analyze_ast_function
 
 

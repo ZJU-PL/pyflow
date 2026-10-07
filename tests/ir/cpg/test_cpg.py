@@ -12,7 +12,7 @@ from pyflow.analysis.callgraph.callgraph import CallGraph
 from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
 from pyflow.ir.cpg.build import build_cpg, build_cpg_from_directory
 from pyflow.ir.cpg.dump import to_dot
-from pyflow.ir.cpg.taint import (
+from pyflow.checker.cpg.taint import (
     CPGTaintEngine,
     MemoryLayout,
     TaintFinding,
@@ -834,7 +834,7 @@ class TestCPGConstruction(unittest.TestCase):
     # ── CPGTaintEngine ────────────────────────────────────────────────
 
     def test_taint_engine_uses_explicit_strict_policy(self):
-        from pyflow.ir.cpg.rules import load_rules
+        from pyflow.checker.cpg.rules import load_rules
 
         cpg = self.build_cpg(simple_assignment)
         cpg.build()
@@ -1324,7 +1324,7 @@ class TestCPGConstruction(unittest.TestCase):
         import json
         import tempfile
         from pathlib import Path
-        from pyflow.ir.cpg.rules import load_rules
+        from pyflow.checker.cpg.rules import load_rules
 
         cpg = self.build_cpg(simple_assignment)
         cpg.build()
@@ -1765,7 +1765,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertTrue(any(m.get("yield_kind") == "YieldFrom" for m in metas))
 
     def test_detect_frameworks_uses_pack_markers(self):
-        from pyflow.ir.cpg.rules import detect_frameworks
+        from pyflow.checker.cpg.rules import detect_frameworks
 
         detected = detect_frameworks(
             "import requests\nimport subprocess\nrequests.get(url)\n"

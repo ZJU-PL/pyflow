@@ -44,12 +44,6 @@ from .analyses.nullness import (
 )
 from .modeling.registry import load_registry
 from .modeling.calls import CallModelRegistry
-from .analyses.taint import (
-    TaintAnalysisResult,
-    TaintConfiguration,
-    UnknownCallPolicy,
-    analyze_taint,
-)
 from .analyses.typestate import (
     TypestateAnalysisResult,
     TypestateConfiguration,
@@ -75,16 +69,12 @@ class AnalysisSession:
         return tuple(str(diagnostic) for diagnostic in self.diagnostics)
 
 
-def _path_options(
-    verbose: bool, dependency_strategy: str, search_paths
-) -> InterfaceBuildOptions:
+def _path_options(verbose: bool, dependency_strategy: str, search_paths) -> InterfaceBuildOptions:
     return InterfaceBuildOptions(
         verbose=verbose,
         dependency_strategy=dependency_strategy,
         search_paths=(
-            tuple(str(path) for path in search_paths)
-            if search_paths is not None
-            else None
+            tuple(str(path) for path in search_paths) if search_paths is not None else None
         ),
         include_main_entry_points=True,
     )
@@ -128,18 +118,14 @@ def _entry_nodes_from_program(
                     continue
                 if _source_filename_from_code(code) == target_source:
                     declared_codes.add(code)
-        options = entry_point_options or EntryPointOptions(
-            mode=EntryPointMode.DECLARED_ONLY
-        )
+        options = entry_point_options or EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
     else:
         declared_codes.update(
             code
             for entry_point in getattr(session.program, "entryPoints", ())
             if (code := getattr(entry_point, "code", None)) is not None
         )
-        options = entry_point_options or EntryPointOptions(
-            mode=EntryPointMode.DECLARED_ONLY
-        )
+        options = entry_point_options or EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
 
     supergraph = session.adapter.supergraph
     descriptors = []
@@ -157,9 +143,7 @@ def _entry_nodes_from_program(
                 filename=_source_filename_from_code(code) if code is not None else None,
                 callees=frozenset(callees),
                 declared=code in declared_codes,
-                synthetic_module=(
-                    _is_synthetic_module_code(code) if code is not None else False
-                ),
+                synthetic_module=(_is_synthetic_module_code(code) if code is not None else False),
             )
         )
     selected = select_entry_points(descriptors, options)
@@ -198,8 +182,7 @@ def _code_display_name(code) -> str:
 def _is_synthetic_module_code(code) -> bool:
     catalog = getattr(code, "ir_catalog", None)
     return bool(
-        catalog is not None
-        and catalog.procedure(code).construct_kind == "synthetic_module"
+        catalog is not None and catalog.procedure(code).construct_kind == "synthetic_module"
     )
 
 
@@ -220,10 +203,7 @@ def _restrict_program_entry_points(
         if not _is_synthetic_module_code(code):
             entry_points.append(ep)
             continue
-        if (
-            target_source is not None
-            and _source_filename_from_code(code) == target_source
-        ):
+        if target_source is not None and _source_filename_from_code(code) == target_source:
             entry_points.append(ep)
             target_module_present = True
 
@@ -261,9 +241,7 @@ def _restrict_program_entry_points_to_file(
     source_codes = tuple(
         code for code in live_codes if _source_filename_from_code(code) == target_source
     )
-    matching_codes = tuple(
-        code for code in source_codes if _is_synthetic_module_code(code)
-    )
+    matching_codes = tuple(code for code in source_codes if _is_synthetic_module_code(code))
     if not matching_codes:
         raise ValueError(f"Entry file '{entry_file}' has no executable module body.")
 
@@ -310,12 +288,9 @@ def _restrict_live_codes_to_published_callgraph(
     selected.update(
         code
         for code in getattr(program, "liveCode", ())
-        if _is_synthetic_module_code(code)
-        and _source_filename_from_code(code) in selected_files
+        if _is_synthetic_module_code(code) and _source_filename_from_code(code) in selected_files
     )
-    ordered = tuple(
-        code for code in getattr(program, "liveCode", ()) if code in selected
-    )
+    ordered = tuple(code for code in getattr(program, "liveCode", ()) if code in selected)
     return ordered
 
 
@@ -353,8 +328,7 @@ def _resolve_requested_entry_code(program: Program, queries, function_name: str)
         return interface_matches[0]
     if len(interface_matches) > 1:
         raise ValueError(
-            f"Function name '{function_name}' is ambiguous among "
-            "interface entry points."
+            f"Function name '{function_name}' is ambiguous among " "interface entry points."
         )
     return queries.context.resolve_function(function_name)
 
@@ -375,9 +349,7 @@ def load_analysis_session(
         raise ValueError("Specify either root_function or entry_file, not both.")
 
     files = [Path(path) for path in python_files]
-    compiler = CompilerContext(
-        Console(out=None if verbose else io.StringIO(), verbose=verbose)
-    )
+    compiler = CompilerContext(Console(out=None if verbose else io.StringIO(), verbose=verbose))
     program = Program()
 
     options = _path_options(verbose, dependency_strategy, search_paths)
@@ -415,9 +387,7 @@ def load_analysis_session(
         if root_function is not None:
             _restrict_program_entry_points(compiler, program, root_function)
         elif entry_file is not None:
-            preserved_codes = _restrict_program_entry_points_to_file(
-                program, entry_file
-            )
+            preserved_codes = _restrict_program_entry_points_to_file(program, entry_file)
         callgraph_entry = entry_file or target_source or (files[0] if files else None)
         callgraph_analysis = analyze_constraint_callgraph_edges(
             files,
@@ -427,15 +397,11 @@ def load_analysis_session(
         )
         callgraph_edges = callgraph_analysis.edges
         if entry_file is not None:
-            constraint_targets = target_codes_for_constraint_edges(
-                program.ir, callgraph_edges
-            )
+            constraint_targets = target_codes_for_constraint_edges(program.ir, callgraph_edges)
             fallback_targets = _direct_callgraph_target_codes(
                 (*preserved_codes, *constraint_targets)
             )
-            fallback_additions = fallback_targets.difference(
-                preserved_codes, constraint_targets
-            )
+            fallback_additions = fallback_targets.difference(preserved_codes, constraint_targets)
             preserved_codes = _restrict_live_codes_to_published_callgraph(
                 program,
                 preserved_codes,
@@ -460,9 +426,9 @@ def load_analysis_session(
         prepared = prepare_program_for_ifds(
             compiler,
             program,
-            get_cfg=lambda code: create_query_components(
-                compiler, program
-            ).graph_engine.get_cfg(code, commit_revision=False),
+            get_cfg=lambda code: create_query_components(compiler, program).graph_engine.get_cfg(
+                code, commit_revision=False
+            ),
             supplemental_live_codes=preserved_codes,
             analysis_codes=(preserved_codes if entry_file is not None else None),
         )
@@ -485,113 +451,6 @@ def load_analysis_session(
         adapter,
         diagnostics=(*prepared.diagnostics, *callgraph_diagnostics),
     )
-
-
-def run_taint_analysis(
-    python_files: Sequence[str | Path],
-    *,
-    function: str | None = None,
-    entry_file: str | Path | None = None,
-    call_models=None,
-    rules=(),
-    collection_mutator_names: Iterable[str] | None = None,
-    collection_accessor_names: Iterable[str] | None = None,
-    unknown_call_policy: UnknownCallPolicy = "drop",
-    conservative_unresolved_call_side_effects: bool = False,
-    entry_point_options: EntryPointOptions | None = None,
-    entry_point_defaults: EntryPointDefaults | None = None,
-    verbose: bool = False,
-    dependency_strategy: str = "auto",
-    search_paths: Sequence[str] | None = None,
-    include_exceptional_edges: bool = True,
-    shadow_scan: bool = False,
-    solver_options: SolverOptions | None = None,
-    callgraph_max_iterations: int = 256,
-) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
-    """Load files and run taint analysis from a function or module entry.
-
-    When *shadow_scan* is ``True``, returns a third element: a list of
-    :class:`~pyflow.analysis.ifds.shadow_scan.ShadowMatch` from a
-    lightweight regex-only scan run alongside the IFDS analysis.  This
-    provides an independent signal for failure attribution.
-    """
-    session = load_analysis_session(
-        python_files,
-        verbose=verbose,
-        dependency_strategy=dependency_strategy,
-        search_paths=search_paths,
-        include_exceptional_edges=include_exceptional_edges,
-        root_function=function,
-        entry_file=entry_file,
-        callgraph_max_iterations=callgraph_max_iterations,
-    )
-    resolved_entry_options = entry_point_options
-    if resolved_entry_options is None and entry_point_defaults is not None:
-        if entry_file is not None:
-            fallback = EntryPointOptions(
-                mode=EntryPointMode.FILE_PUBLIC,
-                files=(str(entry_file),),
-                taint_parameters=True,
-            )
-        elif function is not None:
-            fallback = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
-        else:
-            fallback = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
-        resolved_entry_options = entry_point_defaults.resolve(fallback)
-
-    result = analyze_taint(
-        session.adapter,
-        TaintConfiguration(
-            call_models=(
-                call_models if call_models is not None else CallModelRegistry()
-            ),
-            rules=tuple(rules),
-            collection_mutator_names=(
-                frozenset(collection_mutator_names)
-                if collection_mutator_names is not None
-                else TaintConfiguration().collection_mutator_names
-            ),
-            collection_accessor_names=(
-                frozenset(collection_accessor_names)
-                if collection_accessor_names is not None
-                else TaintConfiguration().collection_accessor_names
-            ),
-            unknown_call_policy=unknown_call_policy,
-            conservative_unresolved_call_side_effects=(
-                conservative_unresolved_call_side_effects
-            ),
-            entry_point_options=(
-                resolved_entry_options
-                or EntryPointOptions(
-                    mode=(
-                        EntryPointMode.FILE_PUBLIC
-                        if entry_file is not None
-                        else EntryPointMode.DECLARED_ONLY
-                    ),
-                    files=((str(entry_file),) if entry_file is not None else ()),
-                    taint_parameters=entry_file is not None,
-                )
-            ),
-        ),
-        entry_nodes=_entry_nodes_from_program(
-            session,
-            function_name=function,
-            entry_file=entry_file,
-            entry_point_options=resolved_entry_options,
-        ),
-        **({"solver_options": solver_options} if solver_options is not None else {}),
-    )
-
-    if not shadow_scan:
-        return session, result, None
-
-    from .shadow_scan import run_shadow_scan as _run_shadow_scan
-
-    shadow_matches: list = []
-    for f in python_files:
-        code = Path(f).read_text(encoding="utf-8", errors="replace")
-        shadow_matches.extend(_run_shadow_scan(code))
-    return session, result, shadow_matches
 
 
 def run_nullness_analysis(
@@ -759,6 +618,4 @@ def _normalize_typestate_protocols(protocols: Iterable[str]) -> frozenset[str]:
     names = frozenset(protocols)
     if "python-builtins" not in names:
         return names
-    return (names - {"python-builtins"}) | frozenset(
-        {"file", "socket", "lock", "transaction"}
-    )
+    return (names - {"python-builtins"}) | frozenset({"file", "socket", "lock", "transaction"})

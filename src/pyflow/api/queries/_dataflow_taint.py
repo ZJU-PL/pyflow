@@ -4,9 +4,8 @@ Helpers for IFDS-backed taint query reporting.
 
 from typing import Optional, Set
 
-from pyflow.analysis.ifds import TaintConfiguration, analyze_taint
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-from pyflow.analysis.taint import TaintRule
+from pyflow.analysis.taint_policy import TaintRule
 
 from ._models import TaintFlowReport
 
@@ -24,6 +23,8 @@ class TaintAnalyzer:
         sink_names: Set[str],
         sanitizer_names: Optional[Set[str]] = None,
     ) -> TaintFlowReport:
+        from pyflow.checker.ifds import TaintConfiguration, analyze_taint
+
         sanitizer_names = sanitizer_names or set()
         code = context.resolve_function(function)
         cfg = graph_engine.get_cfg(code)

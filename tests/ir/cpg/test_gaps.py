@@ -18,7 +18,7 @@ from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
 from pyflow.ir.cpg.build import build_cpg
 from pyflow.ir.cpg.graph import PDGNode
 from pyflow.ir.cpg.persist import CPGStore
-from pyflow.ir.cpg.taint import CPGTaintEngine
+from pyflow.checker.cpg.taint import CPGTaintEngine
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ class TestGap5TypedPolicy:
 
     def test_policy_preserves_typed_models(self):
         from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-        from pyflow.analysis.taint import TaintPolicy, TaintRule
+        from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 
         cpg = CodePropertyGraph()
         cpg.build()
@@ -183,7 +183,7 @@ class TestGap5TypedPolicy:
         assert engine.rules == (rule,)
 
     def test_kind_scoped_sanitizer_preserves_other_kinds(self):
-        from pyflow.ir.cpg.taint import TaintState
+        from pyflow.checker.cpg.taint import TaintState
 
         state = TaintState(tags=frozenset({"user_input", "network"}))
         sanitized = state.sanitize("clean_input", frozenset({"user_input"}))
@@ -192,7 +192,7 @@ class TestGap5TypedPolicy:
 
     def test_equivalent_qualified_sink_models_match_short_receiver_call(self):
         from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-        from pyflow.analysis.taint import TaintPolicy, TaintRule
+        from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 
         source = """
 def source():
@@ -235,7 +235,7 @@ def search(cursor):
 
     def test_rules_reject_nonmatching_source_kinds(self):
         from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-        from pyflow.analysis.taint import TaintPolicy, TaintRule
+        from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 
         engine = CPGTaintEngine(CodePropertyGraph())
         rule = TaintRule(
