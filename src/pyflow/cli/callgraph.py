@@ -12,6 +12,7 @@ from pyflow.analysis.callgraph.constraint_based import (
     extract_value_flow_graph_constraint,
 )
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
+from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
 from pyflow.frontend.entry_discovery import (
     detect_entry_file,
     discover_entry_files,
@@ -50,7 +51,7 @@ def _validate_algorithm_options(args) -> bool:
 
 
 def _analyze_file(
-    file_path: Path, args, *, project_entry: bool = False
+    file_path: Path, args, *, project_entry: bool = False, project_root: Path | None = None
 ) -> int:
     if file_path.suffix != ".py":
         print(f"Error: '{file_path}' is not a valid Python file", file=sys.stderr)
@@ -88,6 +89,12 @@ def _analyze_file(
                 file=sys.stderr,
             )
             return 1
+    elif args.algorithm == "pycg-mir":
+        output = analyze_file_pycg_mir(
+            str(file_path),
+            verbose=args.verbose,
+            project_root=str(project_root) if project_root is not None else None,
+        )
     else:
         print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
         return 1
@@ -189,7 +196,7 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         )
         return 1
     assert full_path is not None
-    return _analyze_file(full_path, args, project_entry=True)
+    return _analyze_file(full_path, args, project_entry=True, project_root=repo_path)
 
 
 def run_callgraph(input_path, args):
@@ -252,9 +259,12 @@ def add_callgraph_parser(subparsers):
     parser.add_argument(
         "--algorithm",
         "-a",
-        choices=["simple", "constraint", "pycg"],
+        choices=["simple", "constraint", "pycg", "pycg-mir"],
         default="simple",
-        help="Call graph algorithm to use (default: simple)",
+        help=(
+            "Call graph algorithm (default: simple; pycg-mir uses native MIR "
+            "analysis without the optional pycg package)"
+        ),
     )
 
     parser.add_argument(
@@ -305,13 +315,13 @@ def add_callgraph_parser(subparsers):
         action="store_true",
         default=True,
         dest="skip_stdlib",
-        help="Skip loading standard library modules (default: on)",
+        help="Skip standard library modules (constraint algorithm only; default: on)",
     )
     parser.add_argument(
         "--no-skip-stdlib",
         action="store_false",
         dest="skip_stdlib",
-        help="Include standard library modules in the call graph",
+        help="Include standard library modules (constraint algorithm only)",
     )
     parser.add_argument(
         "--as-graph-output",

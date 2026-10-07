@@ -25,8 +25,8 @@ If you use pyflow in your research or work, please cite the following:
 
 ## What PyFlow includes
 
-- **Intermediate representations**: CFG, CDG, DDG, PDG, CPG, lowered data
-  flow IR, and a shared store graph model
+- **Intermediate representations**: seven-instruction MIR, CFG, CDG, DDG, PDG,
+  CPG, lowered data flow IR, and a shared store graph model
 - **Program analysis**: call graph, IFDS, alias, IPA, CPA, shape, lifetime,
   and type-analysis infrastructure
 - **Optimization pipeline**: modular passes such as simplify, method-call
@@ -71,7 +71,8 @@ For development, install the dev extras:
 pip install -e ".[dev]"
 ```
 
-If you want the optional PyCG-backed call-graph algorithm, install:
+The native MIR-based PyCG algorithm is included in the standard installation.
+If you want the optional upstream PyCG-backed call-graph algorithm, install:
 ```bash
 pip install -e ".[dev,callgraph]"
 ```
@@ -84,10 +85,16 @@ pip install -e ".[dev,callgraph]"
 # Dump IR for a specific function
 pyflow ir input.py --dump-ast function_name
 
+# Lower source to the seven-instruction MIR without executing the source
+pyflow ir input.py --dump-mir --dump-format json --dump-output out/
+
 # Generate a call graph
 pyflow callgraph input.py
 
-# Generate a PyCG-backed call graph
+# Generate a native PyCG-style call graph from MIR
+pyflow callgraph input.py --algorithm pycg-mir
+
+# Generate a call graph with the optional upstream PyCG package
 pyflow callgraph input.py --algorithm pycg
 
 # Run security analysis (fast AST scan)
@@ -122,6 +129,8 @@ pyflow supply-chain sbom package/
 ```
 
 See [CLI.md](CLI.md) for the command reference,
+[docs/source/ir/mir.rst](docs/source/ir/mir.rst) for MIR, the native PyCG API,
+and implementation limits,
 [docs/source/lsp.rst](docs/source/lsp.rst) for LSP, MCP, and semantic-query
 integration, and `docs/` for broader project
 documentation.

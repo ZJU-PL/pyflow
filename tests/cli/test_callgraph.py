@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 
 import pyflow.cli.callgraph as callgraph_cli
+
+
+def parse_callgraph_args(*arguments):
+    parser = argparse.ArgumentParser()
+    callgraph_cli.add_callgraph_parser(parser.add_subparsers())
+    return parser.parse_args(["callgraph", *map(str, arguments)])
 
 
 def test_callgraph_rejects_constraint_only_flags_for_simple_algorithm(
@@ -100,3 +107,70 @@ def test_constraint_project_entry_defaults_to_reachable_scopes(
     assert callgraph_cli._analyze_file(sample, args, project_entry=True) == 0
     assert captured[-1]["analyze_reachable_only"] is False
     assert captured[-1]["seed_entry_file_scopes"] is False
+
+
+def test_native_pycg_mir_cli_resolves_callback_without_external_pycg(
+    tmp_path, monkeypatch, capsys
+):
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        "def chosen():\n    pass\n"
+        "def use(callback):\n    callback()\n"
+        "use(chosen)\n",
+        encoding="utf-8",
+    )
+
+    def external_pycg_must_not_run(*_args, **_kwargs):
+        raise AssertionError("native MIR analysis must not invoke external PyCG")
+
+    monkeypatch.setattr(callgraph_cli, "analyze_file_pycg", external_pycg_must_not_run)
+    args = parse_callgraph_args(sample, "--algorithm", "pycg-mir")
+
+    assert callgraph_cli.run_callgraph(sample, args) == 0
+    output = capsys.readouterr().out
+    assert "sample.use -> sample.chosen" in output
+
+
+def test_native_pycg_mir_cli_passes_project_root(tmp_path, monkeypatch, capsys):
+    entry = tmp_path / "src" / "app.py"
+    entry.parent.mkdir()
+    entry.write_text("def run(): pass\nrun()\n", encoding="utf-8")
+    captured = {}
+
+    def analyze(filepath, *, verbose=False, project_root=None):
+        captured.update(filepath=filepath, verbose=verbose, project_root=project_root)
+        return "native graph"
+
+    monkeypatch.setattr(callgraph_cli, "analyze_file_pycg_mir", analyze)
+    args = parse_callgraph_args(
+        tmp_path, "--entry", "src/app.py", "--algorithm", "pycg-mir"
+    )
+    assert callgraph_cli.run_callgraph(tmp_path, args) == 0
+    assert captured == {
+        "filepath": str(entry),
+        "verbose": False,
+        "project_root": str(tmp_path),
+    }
+    assert "native graph" in capsys.readouterr().out
+
+
+def test_native_pycg_mir_cli_reports_invalid_source(tmp_path, capsys):
+    sample = tmp_path / "broken.py"
+    sample.write_text("def broken(: pass\n", encoding="utf-8")
+    output = tmp_path / "graph.txt"
+    args = parse_callgraph_args(sample, "--algorithm", "pycg-mir", "-o", output)
+
+    assert callgraph_cli.run_callgraph(sample, args) == 1
+    assert "Error:" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_native_pycg_mir_cli_rejects_context_sensitive_flag(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text("pass\n", encoding="utf-8")
+    args = parse_callgraph_args(
+        sample, "--algorithm", "pycg-mir", "--context-sensitive"
+    )
+
+    assert callgraph_cli.run_callgraph(sample, args) == 1
+    assert "--context-sensitive" in capsys.readouterr().err

@@ -6,7 +6,7 @@ This document matches the current `pyflow` command surface.
 
 - `optimize`: Run the analysis and optimization pipeline
 - `callgraph`: Build a call graph from a Python file or project directory
-- `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
+- `ir`: Dump MIR programs or AST, CFG, SSA, CDG, DDG, and GIR functions
 - `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - `concolic`: Generate branch-covering inputs and check simple postconditions
 - `security`: Unified security analysis (dispatches to any of four engines)
@@ -50,11 +50,13 @@ pyflow ir [OPTIONS] INPUT_PATH
 `INPUT_PATH` may be a Python file or directory.
 
 Key options:
+- `--dump-mir [SCOPE]`: Dump the seven-instruction MIR program, optionally selecting a scope
 - `--dump-ast FUNCTION`
 - `--dump-cfg FUNCTION`
 - `--dump-ssa FUNCTION`
 - `--dump-cdg FUNCTION`
 - `--dump-ddg FUNCTION`
+- `--dump-gir FUNCTION`
 - `--dump-format`, choices: `text`, `dot`, `json`
 - `--dump-output DIRECTORY`
 - `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
@@ -62,6 +64,18 @@ Key options:
 - `--include PATTERN [PATTERN ...]`
 - `--exclude PATTERN [PATTERN ...]`
 - `--verbose`, `-v`
+
+MIR dumps lower source directly without executing target modules. Omitting
+`SCOPE` dumps the entire lowered program, including compiler-generated protocol
+functions. A scope can be a qualified name or an unambiguous function name.
+MIR supports `text`, `json`, and `dot` output. For recursive directory input,
+output paths preserve the source directory structure.
+
+```bash
+pyflow ir input.py --dump-mir --dump-output out/
+pyflow ir input.py --dump-mir input.worker --dump-format json --dump-output out/
+pyflow ir project/ --dump-mir --recursive --dump-format dot --dump-output out/
+```
 
 ## Callgraph
 
@@ -79,16 +93,17 @@ pyflow callgraph input.py
 pyflow callgraph /path/to/project/
 pyflow callgraph /path/to/project/ --entry src/main.py
 pyflow callgraph /path/to/project/ --dry-run
+pyflow callgraph input.py --algorithm pycg-mir
 ```
 
 Key options:
 - `--entry`: Entry point file relative to project root (directory input only)
 - `--dry-run`: Print detected entry point without running analysis
-- `--algorithm`, `-a`: `simple`, `constraint`, or `pycg`
+- `--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir` (default: `simple`)
 - `--output`, `-o`
 - `--verbose`, `-v`
 - `--skip-stdlib`: Skip standard library modules in constraint analysis (default: on)
-- `--no-skip-stdlib`: Include standard library modules
+- `--no-skip-stdlib`: Include standard library modules in constraint analysis
 - `--context-sensitive`
 - `--context-depth`
 - `--fixpoint-max-iterations`
@@ -97,6 +112,16 @@ Key options:
 - `--as-graph-output PATH`
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
+
+`pycg-mir` is the native PyCG-style assignment-graph fixed-point analysis over
+MIR. It is flow-, path-, and context-insensitive, and requires no optional
+upstream `pycg` package. The separate `pycg` algorithm continues to use that
+optional package. Context-sensitivity and fixed-point control options, including
+`--context-sensitive` and `--fixpoint-max-iterations`, are rejected for
+`pycg-mir`; direct MIR analysis APIs expose convergence information and iteration
+limits. See [the MIR documentation](docs/source/ir/mir.rst) for details and limitations.
+The stdlib flags affect only constraint analysis and do not extend MIR's
+supported import graph.
 
 ## Alias
 

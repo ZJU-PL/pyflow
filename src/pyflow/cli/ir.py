@@ -1,8 +1,8 @@
 """
 IR dumping command for PyFlow CLI.
 
-This module provides functionality to dump AST, CFG, SSA, CDG, and DDG forms
-for specific functions in Python code.
+This module provides functionality to dump MIR programs and AST, CFG, SSA,
+CDG, DDG, and GIR forms for specific functions in Python code.
 """
 
 import sys
@@ -34,7 +34,7 @@ import pyflow.util.pydot as pydot
 def add_ir_parser(subparsers):
     """Add IR dumping command parser to the main CLI."""
     parser = subparsers.add_parser(
-        "ir", help="Dump AST, CFG, SSA, CDG, and DDG forms for specific functions"
+        "ir", help="Dump MIR programs or AST, CFG, SSA, CDG, DDG, and GIR functions"
     )
 
     # Input arguments
@@ -67,6 +67,16 @@ def add_ir_parser(subparsers):
     )
 
     # Dump arguments
+    parser.add_argument(
+        "--dump-mir",
+        nargs="?",
+        const="*",
+        metavar="SCOPE",
+        help=(
+            "Dump the seven-instruction MIR program; optionally select a "
+            "qualified scope or an unambiguous function name"
+        ),
+    )
     parser.add_argument(
         "--dump-ast",
         metavar="FUNCTION",
@@ -418,6 +428,63 @@ def find_python_files(directory, args):
         )
 
 
+def _select_mir_programs(compiled, scope):
+    """Resolve scopes across files, deduplicating shared imported definitions."""
+    if scope in (None, "*"):
+        return [(source, program, None) for source, program in compiled]
+    exact, suffix = {}, {}
+    for source, program in compiled:
+        for name, cfg in program.cfgs.items():
+            identity = (name, cfg.filename or str(source.resolve()))
+            if name == scope:
+                exact.setdefault(identity, (source, program, name))
+            elif name.endswith(f".{scope}"):
+                suffix.setdefault(identity, (source, program, name))
+    matches = exact or suffix
+    if len(matches) == 1:
+        return list(matches.values())
+    if not matches:
+        raise ValueError(f"MIR scope '{scope}' was not found")
+    choices = ", ".join(f"{name} ({filename})" for name, filename in sorted(matches))
+    raise ValueError(f"MIR scope '{scope}' is ambiguous; choose one of: {choices}")
+
+
+def _dump_mir_files(python_files, input_path: Path, args):
+    """Lower source directly, so MIR inspection never imports target modules."""
+    from pyflow.ir.mir import format_program, lower_file
+
+    output_dir = Path(args.dump_output or ".")
+    project_root = str(input_path.resolve()) if input_path.is_dir() else None
+    compiled = [
+        (source, lower_file(str(source), project_root=project_root))
+        for source in python_files
+    ]
+    prepared = []
+    for source_path, program, scope in _select_mir_programs(compiled, args.dump_mir):
+        content = format_program(program, format=args.dump_format, scope=scope)
+        if input_path.is_dir():
+            relative = source_path.relative_to(input_path).with_suffix("")
+            relative_dir = relative.parent
+        else:
+            relative_dir = Path()
+        stem = source_path.stem
+        if scope is not None:
+            # Qualified names may contain compiler-generated markers; keep
+            # emitted filenames portable and confined to the output directory.
+            safe_scope = "".join(
+                char if char.isalnum() or char in "._-" else "_" for char in scope
+            )
+            stem = f"{stem}.{safe_scope}"
+        prepared.append(
+            (output_dir / relative_dir / f"{stem}_mir.{args.dump_format}", content)
+        )
+
+    for output_file, content in prepared:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(content, encoding="utf-8")
+        print(f"MIR dumped to: {output_file}")
+
+
 def run_ir_dump(input_path: Path, args):
     """Run IR dumping for the specified function."""
     try:
@@ -434,6 +501,17 @@ def run_ir_dump(input_path: Path, args):
                 file=sys.stderr,
             )
             sys.exit(1)
+
+        if getattr(args, "dump_mir", None):
+            _dump_mir_files(python_files, input_path, args)
+            if not any(
+                getattr(args, name, None)
+                for name in (
+                    "dump_ast", "dump_cfg", "dump_ssa", "dump_cdg", "dump_ddg", "dump_gir"
+                )
+            ):
+                print("IR dumping complete!")
+                return
 
         console = Console(verbose=args.verbose)
         compiler = CompilerContext(console)
