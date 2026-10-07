@@ -86,10 +86,16 @@ The CPG engine is a monotone fixed-point analysis over an immutable product
 lattice. It consumes the same strict-v2 typed taint policy and shared access-path
 domain as the IFDS and AST-dataflow engines:
 
+The complete security-analysis implementation, rule loading, and framework
+profiles live in ``pyflow.checker.cpg``. The graph package retains graph
+representation, construction, queries, persistence, and export. Former
+security-analysis modules and exports under ``pyflow.ir.cpg`` are removed
+without compatibility modules.
+
 .. code-block:: python
 
     from pyflow.analysis.ifds.modeling.registry import load_registry
-    from pyflow.ir.cpg.taint import CPGTaintEngine
+    from pyflow.checker.cpg.taint import CPGTaintEngine
 
     registry = load_registry()
     registry.activate("stdlib", "flask", type="taint")

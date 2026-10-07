@@ -184,27 +184,38 @@ paths for demand-driven explanations</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">core</span></code> — IFDS/IDE problems, forward and backward solvers, supergraphs,
 and reusable transfer helpers</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">frontend</span></code> — CFG adaptation, annotation synthesis, and preparation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">analyses</span></code> — Taint, nullness, typestate, and flow-path analyses</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">analyses</span></code> — Nullness, typestate, flow-path analyses, and reusable problem
+infrastructure</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">modeling</span></code> — Call models, library presets, typestate protocols, and model
 registries</p></li>
-<li><p>Package-root modules — Public API orchestration, diagnostics, queries,
-reporting, and shadow scanning</p></li>
+<li><p>Package-root modules — Session loading, non-security analysis orchestration,
+diagnostics, queries, and common finding/trace representation</p></li>
 </ul>
+<p>Complete security checks live in <code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds</span></code>. They use this
+framework directly; the checker package does not wrap or duplicate the solver.</p>
 </section>
 <section id="built-in-analyses">
 <h2>Built-in Analyses<a class="headerlink" href="#built-in-analyses" title="Link to this heading"></a></h2>
 <p>The IFDS engine ships with several ready-to-use analyses:</p>
 <ul class="simple">
-<li><p><strong>Taint Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/taint.py</span></code>): Interprocedural taint tracking
-from sources to sinks via flow functions</p></li>
+<li><p><strong>Taint Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.taint</span></code>): Interprocedural taint
+tracking from sources to sinks via flow functions. File analysis starts at
+<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.api.run_taint_analysis</span></code>.</p></li>
 <li><p><strong>Nullness Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/nullness.py</span></code>): Null pointer and
 <code class="docutils literal notranslate"><span class="pre">None</span></code>-related bug detection</p></li>
 <li><p><strong>Typestate Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/typestate.py</span></code>,
 <code class="docutils literal notranslate"><span class="pre">modeling/typestate.py</span></code>): Resource lifecycle protocol verification
 (file descriptors, locks, sockets, transactions)</p></li>
-<li><p><strong>Shadow Scan</strong> (<code class="docutils literal notranslate"><span class="pre">shadow_scan.py</span></code>): Differential analysis comparing two
-analysis runs</p></li>
+<li><p><strong>Class Pollution</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.class_pollution</span></code>): Reflective
+object traversal and writes into class or namespace state</p></li>
+<li><p><strong>Shadow Scan</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.shadow_scan</span></code>): Independent regex
+scanning and comparison with IFDS findings</p></li>
 </ul>
+<p>The former taint and shadow-scan exports from <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.ifds</span></code> have
+been removed. Build taint configurations with
+<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.TaintConfiguration.from_registry(registry)</span></code> rather than
+the former registry <code class="docutils literal notranslate"><span class="pre">as_config()</span></code> method; registry loading and its
+engine-neutral policy projection remain in the framework.</p>
 </section>
 <section id="cli-usage">
 <h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>

@@ -80,7 +80,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Security Analysis and Checking</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Security Analysis and Checking</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#package-layout">Package Layout</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="#checker-categories">Checker Categories</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#web-framework-security">Web Framework Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#aws-cloud-security">AWS Cloud Security</a></li>
@@ -142,9 +145,9 @@
   <section id="security-analysis-and-checking">
 <h1>Security Analysis and Checking<a class="headerlink" href="#security-analysis-and-checking" title="Link to this heading"></a></h1>
 <p>PyFlow’s security checker identifies potential security vulnerabilities and unsafe coding patterns in Python applications.</p>
-<p>PyFlow provides two distinct checker engines:</p>
+<p>PyFlow provides several checking subsystems:</p>
 <dl class="simple">
-<dt><strong>Pattern-based checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.pattern</span></code>)</dt><dd><p>A lightweight AST pattern matching engine, similar to Bandit, that uses
+<dt><strong>Pattern-based checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ast_rules</span></code>)</dt><dd><p>A lightweight AST pattern matching engine, similar to Bandit, that uses
 simple pattern matching to identify common security vulnerabilities.
 Fast and suitable for quick scans.</p>
 </dd>
@@ -153,13 +156,39 @@ heap access paths, strong/weak updates, outcome-sensitive relational
 summaries, explicit uncertainty diagnostics, and bounded source-to-sink
 witnesses. More thorough but slower than pattern matching.</p>
 </dd>
-<dt><strong>Class-pollution checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.class_pollution</span></code>)</dt><dd><p>An independent relational IFDS checker for attacker-controlled reflective
+<dt><strong>IFDS checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds</span></code>)</dt><dd><p>Interprocedural security checking using the general IFDS solver, including
+taint and class-pollution analysis.</p>
+</dd>
+<dt><strong>CPG checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.cpg</span></code>)</dt><dd><p>Security analysis over Code Property Graphs, with rule loading and
+framework-specific models.</p>
+</dd>
+<dt><strong>Class-pollution checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.class_pollution</span></code>)</dt><dd><p>An independent relational IFDS checker for attacker-controlled reflective
 object traversal and writes into class or namespace state.</p>
 </dd>
 <dt><strong>Capability checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.capability</span></code>)</dt><dd><p>A context-sensitive pointer-based checker for security-sensitive authority,
 capability escape, external effects, and runtime enforcement policy.</p>
 </dd>
+<dt><strong>Supply-chain checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.supply_chain</span></code>)</dt><dd><p>Package inventory, integrity, vulnerability, and policy analysis.</p>
+</dd>
 </dl>
+<section id="package-layout">
+<h2>Package Layout<a class="headerlink" href="#package-layout" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ast_rules/</span></code> and <code class="docutils literal notranslate"><span class="pre">ast_dataflow/</span></code> keep their execution frameworks and
+detection rules together. <code class="docutils literal notranslate"><span class="pre">ifds/</span></code> contains the complete IFDS taint analysis,
+file-analysis entry point, reporting adapter, shadow scanning, and class
+pollution checking. <code class="docutils literal notranslate"><span class="pre">cpg/</span></code> contains the complete CPG taint analysis, rule
+loading, and framework profiles. <code class="docutils literal notranslate"><span class="pre">capability/</span></code> and <code class="docutils literal notranslate"><span class="pre">supply_chain/</span></code> remain
+self-contained checking subsystems.</p>
+<p><code class="docutils literal notranslate"><span class="pre">common/</span></code> contains shared issue/CWE types, rankings, and scan metrics.
+<code class="docutils literal notranslate"><span class="pre">formatters/</span></code> handles report output, and <code class="docutils literal notranslate"><span class="pre">llm/</span></code> handles LLM-assisted report
+analysis. General IFDS solving, CFG adaptation, session loading, and non-security
+analyses remain in <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.ifds</span></code>. CPG/PDG representation, construction,
+queries, and export remain in <code class="docutils literal notranslate"><span class="pre">pyflow.ir</span></code>.</p>
+<p>The former <code class="docutils literal notranslate"><span class="pre">pattern</span></code> package, <code class="docutils literal notranslate"><span class="pre">checker.detectors</span></code> grouping, IFDS taint
+exports under <code class="docutils literal notranslate"><span class="pre">analysis.ifds</span></code>, and security analysis modules under
+<code class="docutils literal notranslate"><span class="pre">ir.cpg</span></code> have been removed without compatibility modules. Use the checking
+subsystems directly and import shared types from <code class="docutils literal notranslate"><span class="pre">pyflow.checker.common</span></code>.</p>
+</section>
 </section>
 <section id="checker-categories">
 <h1>Checker Categories<a class="headerlink" href="#checker-categories" title="Link to this heading"></a></h1>
@@ -305,25 +334,25 @@ Object-Oriented Safety
 <h1>Analysis Framework<a class="headerlink" href="#analysis-framework" title="Link to this heading"></a></h1>
 <section id="pattern-based-checker-infrastructure">
 <h2>Pattern-Based Checker Infrastructure<a class="headerlink" href="#pattern-based-checker-infrastructure" title="Link to this heading"></a></h2>
-<p><strong>pattern/core/manager.py</strong>: Pattern checker management system
+<p><strong>ast_rules/core/manager.py</strong>: Pattern checker management system
 - Orchestrates AST-based security analysis
 - Manages checker registration and execution
 - Handles analysis configuration</p>
-<p><strong>pattern/core/context.py</strong>: Pattern checker context management
+<p><strong>ast_rules/core/context.py</strong>: Pattern checker context management
 - Maintains analysis state during checking
 - Tracks file and module information
 - Manages issue reporting</p>
-<p><strong>pattern/core/issue.py</strong>: Issue representation
+<p><strong>common/issue.py</strong>: Issue representation
 - Standardizes security issue reporting
 - Provides severity levels and categories
 - Supports issue metadata and location tracking</p>
-<p><strong>pattern/checkers/</strong>: Individual pattern-based security checkers
+<p><strong>ast_rules/checkers/</strong>: Individual pattern-based security checkers
 - AST pattern matching rules for various vulnerability types
 - Configurable blacklists and pattern definitions</p>
 </section>
 <section id="ast-dataflow-checker-infrastructure">
 <h2>AST Dataflow Checker Infrastructure<a class="headerlink" href="#ast-dataflow-checker-infrastructure" title="Link to this heading"></a></h2>
-<p><strong>ast_dataflow/runner.py</strong>: AST dataflow checker orchestration
+<p><strong>ast_dataflow/core/runner.py</strong>: AST dataflow checker orchestration
 - Runs the full PyFlow analysis pipeline
 - Runs its standalone AST dataflow engine without IPA/CPA/lifetime preparation
 - Feeds analysis results to detectors</p>
@@ -418,11 +447,11 @@ claims until the exact attestation has passed Sigstore identity verification.</p
 </section>
 <section id="configuration-and-testing">
 <h2>Configuration and Testing<a class="headerlink" href="#configuration-and-testing" title="Link to this heading"></a></h2>
-<p><strong>pattern/core/config.py</strong>: Configuration management
+<p><strong>ast_rules/core/config.py</strong>: Configuration management
 - Checker enable/disable settings
 - Severity threshold configuration
 - Custom rule definitions</p>
-<p><strong>pattern/core/test_loader.py</strong>: Test case management
+<p><strong>ast_rules/core/test_loader.py</strong>: Test case management
 - Loads security test cases
 - Manages false positive/negative testing
 - Benchmarking and validation</p>

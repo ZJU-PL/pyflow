@@ -217,8 +217,13 @@ fields:</p>
 <p>The CPG engine is a monotone fixed-point analysis over an immutable product
 lattice. It consumes the same strict-v2 typed taint policy and shared access-path
 domain as the IFDS and AST-dataflow engines:</p>
+<p>The complete security-analysis implementation, rule loading, and framework
+profiles live in <code class="docutils literal notranslate"><span class="pre">pyflow.checker.cpg</span></code>. The graph package retains graph
+representation, construction, queries, persistence, and export. Former
+security-analysis modules and exports under <code class="docutils literal notranslate"><span class="pre">pyflow.ir.cpg</span></code> are removed
+without compatibility modules.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ifds.modeling.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_registry</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.checker.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
 
 <span class="n">registry</span> <span class="o">=</span> <span class="n">load_registry</span><span class="p">()</span>
 <span class="n">registry</span><span class="o">.</span><span class="n">activate</span><span class="p">(</span><span class="s2">"stdlib"</span><span class="p">,</span> <span class="s2">"flask"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">"taint"</span><span class="p">)</span>

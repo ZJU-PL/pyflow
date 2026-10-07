@@ -38,26 +38,39 @@ The implementation is grouped by responsibility:
 - ``core`` — IFDS/IDE problems, forward and backward solvers, supergraphs,
   and reusable transfer helpers
 - ``frontend`` — CFG adaptation, annotation synthesis, and preparation
-- ``analyses`` — Taint, nullness, typestate, and flow-path analyses
+- ``analyses`` — Nullness, typestate, flow-path analyses, and reusable problem
+  infrastructure
 - ``modeling`` — Call models, library presets, typestate protocols, and model
   registries
-- Package-root modules — Public API orchestration, diagnostics, queries,
-  reporting, and shadow scanning
+- Package-root modules — Session loading, non-security analysis orchestration,
+  diagnostics, queries, and common finding/trace representation
+
+Complete security checks live in ``pyflow.checker.ifds``. They use this
+framework directly; the checker package does not wrap or duplicate the solver.
 
 Built-in Analyses
 -----------------
 
 The IFDS engine ships with several ready-to-use analyses:
 
-- **Taint Analysis** (``analyses/taint.py``): Interprocedural taint tracking
-  from sources to sinks via flow functions
+- **Taint Analysis** (``pyflow.checker.ifds.taint``): Interprocedural taint
+  tracking from sources to sinks via flow functions. File analysis starts at
+  ``pyflow.checker.ifds.api.run_taint_analysis``.
 - **Nullness Analysis** (``analyses/nullness.py``): Null pointer and
   ``None``-related bug detection
 - **Typestate Analysis** (``analyses/typestate.py``,
   ``modeling/typestate.py``): Resource lifecycle protocol verification
   (file descriptors, locks, sockets, transactions)
-- **Shadow Scan** (``shadow_scan.py``): Differential analysis comparing two
-  analysis runs
+- **Class Pollution** (``pyflow.checker.ifds.class_pollution``): Reflective
+  object traversal and writes into class or namespace state
+- **Shadow Scan** (``pyflow.checker.ifds.shadow_scan``): Independent regex
+  scanning and comparison with IFDS findings
+
+The former taint and shadow-scan exports from ``pyflow.analysis.ifds`` have
+been removed. Build taint configurations with
+``pyflow.checker.ifds.TaintConfiguration.from_registry(registry)`` rather than
+the former registry ``as_config()`` method; registry loading and its
+engine-neutral policy projection remain in the framework.
 
 CLI Usage
 ---------
