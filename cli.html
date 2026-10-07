@@ -174,6 +174,7 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <code class="docutils literal notranslate"><span class="pre">--entry</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">txt</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">sensitive</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>               <span class="c1"># native MIR analysis</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span>                            <span class="c1"># auto-detect entry</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">app</span><span class="o">.</span><span class="n">py</span>         <span class="c1"># explicit entry</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">dry</span><span class="o">-</span><span class="n">run</span>                  <span class="c1"># print entry only</span>
@@ -182,17 +183,22 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <p>Options:
 - <code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis
-- <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output
 - <code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)
-- <code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules
+- <code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis
 - <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)
 - <code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)
 - <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)
 - <code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - <code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)
 - <code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p>
+<p><code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> runs native flow-, path-, and context-insensitive PyCG-style
+analysis over MIR and does not require the optional upstream <code class="docutils literal notranslate"><span class="pre">pycg</span></code> package.
+The stdlib flags affect only constraint analysis and do not extend MIR’s
+supported import graph.
+See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal Intermediate Representation (MIR)</span></a> for its APIs and supported scope.</p>
 </section>
 <section id="pyflow-ir">
 <h3><strong>pyflow ir</strong><a class="headerlink" href="#pyflow-ir" title="Link to this heading"></a></h3>
@@ -201,9 +207,12 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="n">main</span>
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cdg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ddg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">json</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">output</span> <span class="n">out</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="nb">input</span><span class="o">.</span><span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 </pre></div>
 </div>
 <p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump the whole MIR program or an unambiguous scope
 - <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
@@ -216,6 +225,9 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories
 - <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
+<p>MIR dumps lower source directly without importing or executing analyzed
+modules. They support text, JSON, and DOT output. With directory input,
+the output directory preserves the source directory structure.</p>
 </section>
 <section id="pyflow-concolic">
 <h3><strong>pyflow concolic</strong><a class="headerlink" href="#pyflow-concolic" title="Link to this heading"></a></h3>

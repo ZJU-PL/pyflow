@@ -172,17 +172,20 @@ checking (in order):</p>
 
 <span class="c1"># Include standard library modules</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">skip</span><span class="o">-</span><span class="n">stdlib</span>
+
+<span class="c1"># Native PyCG-style assignment analysis over MIR (no pycg extra required)</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>
 </pre></div>
 </div>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)</p></li>
@@ -193,8 +196,8 @@ checking (in order):</p>
 </section>
 <section id="analysis-approaches">
 <h2>Analysis Approaches<a class="headerlink" href="#analysis-approaches" title="Link to this heading"></a></h2>
-<section id="constraint-based-analysis-default">
-<h3>Constraint-Based Analysis (Default)<a class="headerlink" href="#constraint-based-analysis-default" title="Link to this heading"></a></h3>
+<section id="constraint-based-analysis-public-api-default">
+<h3>Constraint-Based Analysis (Public API Default)<a class="headerlink" href="#constraint-based-analysis-public-api-default" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p><strong>Abstract Value Propagation</strong>: Propagates abstract values (functions, classes, instances, bound methods, modules) through assignments, calls, and returns</p></li>
 <li><p><strong>Context Sensitivity</strong>: Optional call-site context sensitivity with configurable depth for improved precision</p></li>
@@ -226,12 +229,43 @@ checking (in order):</p>
 <li><p><strong>Conservative</strong>: May include spurious edges</p></li>
 </ul>
 </section>
-<section id="pycg-based-analysis">
-<h3>PyCG-Based Analysis<a class="headerlink" href="#pycg-based-analysis" title="Link to this heading"></a></h3>
+<section id="native-mir-based-pycg-analysis">
+<h3>Native MIR-Based PyCG Analysis<a class="headerlink" href="#native-mir-based-pycg-analysis" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> lowers Python source into the seven-instruction MIR and performs
+flow-, path-, and context-insensitive assignment-graph propagation to a fixed
+point. The analysis consumes MIR directly, including explicit closure,
+environment, field, container, and call operations. It does not require the
+optional upstream PyCG package.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_pycg_mir</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">lower_source</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.pycg_mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">analyze_program</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_pycg_mir</span><span class="p">(</span><span class="n">source_code</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">analyze_program</span><span class="p">(</span><span class="n">lower_source</span><span class="p">(</span><span class="n">source_code</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">converged</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">iterations</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>The direct API exposes an assignment graph, call sites, diagnostics, and
+convergence information. The native graph preserves recursive self-edges.
+Compiler-generated protocol helpers can be retained with
+<code class="docutils literal notranslate"><span class="pre">include_synthetic=True</span></code>. See <a class="reference internal" href="../ir/mir.html"><span class="doc">Minimal Intermediate Representation (MIR)</span></a> for the representation, complete
+examples, and implementation limitations.</p>
+<p>The CLI rejects constraint context-sensitivity, fixed-point control,
+allocation-sensitivity, scope-selection, and assignment-graph options for this
+backend. The stdlib flags affect only constraint analysis and do not extend
+MIR’s supported import graph. The native backend does not change the existing
+public API default or the <code class="docutils literal notranslate"><span class="pre">simple</span></code> CLI default.</p>
+</section>
+<section id="upstream-pycg-adapter">
+<h3>Upstream PyCG Adapter<a class="headerlink" href="#upstream-pycg-adapter" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p><strong>Framework Support</strong>: Better handling of popular Python frameworks</p></li>
 <li><p><strong>Comprehensive</strong>: Captures more call relationships than pure AST analysis</p></li>
 </ul>
+<p>The existing <code class="docutils literal notranslate"><span class="pre">pycg</span></code> option uses the separately installed upstream package
+(<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">'.[callgraph]'</span></code>). It remains available independently from
+the native <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> implementation.</p>
 </section>
 </section>
 <section id="applications">

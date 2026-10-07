@@ -1,0 +1,600 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minimal Intermediate Representation (MIR) &mdash; pyflow 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="IR Revision" href="revision.html" />
+    <link rel="prev" title="Graph Intermediate Representation (GIR)" href="gir.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lsp.html">Editor and Agent Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concolic.html">Concolic Execution</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Intermediate Representations</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#package-layout">Package Layout</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="storegraph.html">Store Graph Intermediate Representation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gir.html">Graph Intermediate Representation (GIR)</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Minimal Intermediate Representation (MIR)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#quick-start">Quick Start</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#runnable-example">Runnable Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#python-api">Python API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#core-representation">Core Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#reloading-and-analyzing-mir-json">Reloading and Analyzing MIR JSON</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#concrete-reference-semantics">Concrete Reference Semantics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pycg-analysis-over-mir">PyCG Analysis Over MIR</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scope-and-limitations">Scope and Limitations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#validation">Validation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#references">References</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="revision.html">IR Revision</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/class-pollution.html">Class Pollution Analysis</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Intermediate Representations</a></li>
+      <li class="breadcrumb-item active">Minimal Intermediate Representation (MIR)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/ir/mir.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="minimal-intermediate-representation-mir">
+<h1>Minimal Intermediate Representation (MIR)<a class="headerlink" href="#minimal-intermediate-representation-mir" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">pyflow.ir.mir</span></code> implements the seven-instruction intermediate representation
+presented in <em>MIR: A Formal and Minimal Intermediate Representation for Rigorous
+Python Program Analysis</em>, Hakjoo Oh’s IFIP WG 2.4 presentation, March 2026
+(<code class="docutils literal notranslate"><span class="pre">ifip26.pdf</span></code>, especially slides 8–10). A native PyCG-style call-graph engine
+consumes this representation in <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.callgraph.pycg_mir</span></code>.</p>
+<p>This implementation adds a separate representation to PyFlow. Existing CFG,
+GIR, constraint-based call-graph analysis, and the optional upstream PyCG
+adapter retain their APIs and defaults. The command-line default is still
+<code class="docutils literal notranslate"><span class="pre">--algorithm</span> <span class="pre">simple</span></code>; select <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> explicitly to use the new engine.</p>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<p>Install the regular PyFlow package; no optional <code class="docutils literal notranslate"><span class="pre">pycg</span></code> dependency is needed:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">.</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="n">example</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">output</span> <span class="n">out</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="n">example</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">json</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">output</span> <span class="n">out</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">example</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>
+</pre></div>
+</div>
+<p>The IR command writes <code class="docutils literal notranslate"><span class="pre">out/example_mir.text</span></code> or
+<code class="docutils literal notranslate"><span class="pre">out/example_mir.json</span></code>. A qualified scope can be selected with
+<code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">example.worker</span></code>. An unqualified name is accepted when it resolves
+to exactly one scope; an ambiguous name produces an error listing the matches.
+DOT output is available with <code class="docutils literal notranslate"><span class="pre">--dump-format</span> <span class="pre">dot</span></code>. Recursive directory dumps
+preserve relative source directories beneath <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>.</p>
+<p>MIR-only dumps lower source directly. They do not execute target code or invoke
+PyFlow’s runtime extraction pipeline. Local dependencies are read as source
+when the lowering front end resolves imports.</p>
+</section>
+<section id="runnable-example">
+<h2>Runnable Example<a class="headerlink" href="#runnable-example" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">examples/mir/callbacks.py</span></code> combines a higher-order <code class="docutils literal notranslate"><span class="pre">apply</span></code> function with
+<code class="docutils literal notranslate"><span class="pre">Callback.__add__</span></code> and a subclass’s <code class="docutils literal notranslate"><span class="pre">PreferredCallback.__radd__</span></code>. Running it
+with CPython checks that the computed result is 5. The MIR compiler exposes
+the implicit operator dispatch as calls. The operator returns a function value,
+which the native solver propagates through <code class="docutils literal notranslate"><span class="pre">apply</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">examples</span><span class="o">/</span><span class="n">mir</span><span class="o">/</span><span class="n">callbacks</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">examples</span><span class="o">/</span><span class="n">mir</span><span class="o">/</span><span class="n">callbacks</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="n">examples</span><span class="o">/</span><span class="n">mir</span><span class="o">/</span><span class="n">callbacks</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="n">callbacks</span><span class="o">.</span><span class="n">PreferredCallback</span><span class="o">.</span><span class="fm">__radd__</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">output</span> <span class="n">out</span><span class="o">/</span>
+</pre></div>
+</div>
+<p>The call graph includes <code class="docutils literal notranslate"><span class="pre">callbacks.apply</span> <span class="pre">-&gt;</span> <span class="pre">callbacks.leaf</span></code> and
+relationships from module code to the operator methods. The chosen
+flow-, path-, and context-insensitive abstraction can include additional
+edges. Selecting one scope for a dump helps inspect user code separately from
+the larger set of explicit runtime helper CFGs in a whole-program dump.</p>
+</section>
+<section id="python-api">
+<h2>Python API<a class="headerlink" href="#python-api" title="Link to this heading"></a></h2>
+<p>The source-to-MIR and MIR-to-analysis stages can be used independently:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">lower_source</span><span class="p">,</span> <span class="n">format_program</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.pycg_mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">analyze_program</span>
+
+<span class="n">source</span> <span class="o">=</span> <span class="s2">"""</span>
+<span class="s2">def leaf():</span>
+<span class="s2">    pass</span>
+
+<span class="s2">def apply(callback):</span>
+<span class="s2">    return callback()</span>
+
+<span class="s2">apply(leaf)</span>
+<span class="s2">"""</span>
+
+<span class="n">program</span> <span class="o">=</span> <span class="n">lower_source</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">module_name</span><span class="o">=</span><span class="s2">"example"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">format_program</span><span class="p">(</span><span class="n">program</span><span class="p">))</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">program</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>  <span class="c1"># JSON-serializable MIR, not Python AST nodes</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">analyze_program</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">raise_on_truncation</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+<span class="k">assert</span> <span class="s2">"example.leaf"</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">"example.apply"</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">converged</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">iterations</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">diagnostics</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>For file input, use <code class="docutils literal notranslate"><span class="pre">lower_file(path,</span> <span class="pre">project_root=None)</span></code>. The optional project
+root supplies the import-resolution boundary. For the existing PyFlow
+<code class="docutils literal notranslate"><span class="pre">CallGraph</span></code> interface, the convenience wrappers are also exported at package
+level:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">extract_call_graph_pycg_mir</span><span class="p">,</span>
+    <span class="n">analyze_file_pycg_mir</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_pycg_mir</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+<span class="n">report</span> <span class="o">=</span> <span class="n">analyze_file_pycg_mir</span><span class="p">(</span><span class="s2">"example.py"</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">lower_source</span></code> uses <code class="docutils literal notranslate"><span class="pre">__main__</span></code> as its default module name.
+<code class="docutils literal notranslate"><span class="pre">lower_file</span></code> derives a module name from the file and project layout. Calls,
+methods, and nested functions are reported using qualified scope names.
+<code class="docutils literal notranslate"><span class="pre">extract_call_graph_pycg_mir</span></code> accepts <code class="docutils literal notranslate"><span class="pre">source_path</span></code> for source context;
+the supplied <code class="docutils literal notranslate"><span class="pre">source_code</span></code> remains the authoritative entry source.</p>
+</section>
+<section id="core-representation">
+<h2>Core Representation<a class="headerlink" href="#core-representation" title="Link to this heading"></a></h2>
+<p>A <code class="docutils literal notranslate"><span class="pre">Program</span></code> has an entry CFG name and a mapping <code class="docutils literal notranslate"><span class="pre">cfgs</span></code> from names to CFGs.
+Each CFG has instruction nodes, explicit successor edges, and entry/exit
+nodes. Python control flow becomes graph structure; it does not add an eighth
+instruction. Source filenames and locations remain attached for diagnostics.</p>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">The seven core instructions</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 23.0%" />
+<col style="width: 77.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Instruction</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Skip</span></code></p></td>
+<td><p>Leave the state unchanged; useful for CFG joins and exits.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Assume(condition)</span></code></p></td>
+<td><p>Constrain a CFG path using a side-effect-free expression.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Alloc(target,</span> <span class="pre">value)</span></code></p></td>
+<td><p>Allocate a value in a fresh memory location and bind the target name.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Bind(target,</span> <span class="pre">source)</span></code></p></td>
+<td><p>Make the target l-value refer to the same location as the source l-value.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Env(target)</span></code></p></td>
+<td><p>Expose the current environment as a first-class value.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Delete(target)</span></code></p></td>
+<td><p>Delete a variable, object field, or container reference.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Call(target,</span> <span class="pre">function,</span> <span class="pre">args,</span> <span class="pre">kwargs)</span></code></p></td>
+<td><p>Invoke a closure with explicit positional and keyword argument containers.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Allocation and binding are distinct. For example, a Python assignment of a new
+literal allocates storage, while assigning an existing object aliases that
+storage. Lists and dictionaries store references, so copying a reference does
+not copy the object. Attribute references use an l-value plus a key expression.</p>
+<p>Expressions are side-effect-free and include primitive literals, l-values,
+object/list/dictionary construction, lambdas, logical negation, length, and
+primitive operations. Operations that can invoke Python user code must be
+lowered into explicit <code class="docutils literal notranslate"><span class="pre">Call</span></code> instructions. In particular, Python operator
+dispatch and ordinary calls are not left as nested Python AST expressions for
+the analysis to reinterpret.</p>
+<p>A lambda refers to its CFG and names the packed positional arguments, packed
+keyword arguments, parent environment, and return binding. The closure captures
+the parent environment; a call creates the callee environment. This supports
+function values and lexical captures without an AST-specific callback resolver
+in the analysis engine.</p>
+<p>Class method-resolution order is computed by an emitted C3 merge. The direct
+bases and existing base MROs are runtime references, so aliases and dynamically
+selected bases participate in the same generated CFG. The merge keeps separate
+head indices and does not mutate inherited MRO lists. Duplicate bases, class
+cycles, and inconsistent local precedence set the modeled <code class="docutils literal notranslate"><span class="pre">TypeError</span></code> state.
+No host <code class="docutils literal notranslate"><span class="pre">type.mro</span></code> call supplies an MRO to the interpreter or analyzer.</p>
+<p>Text, JSON, and DOT dumps are deterministic. JSON dumps expose the core program
+model and CFG edges, so the output can be inspected without importing Python
+objects from the analyzed project. A scoped dump is an inspection view of that
+CFG; references to other CFGs may point outside the selected view.</p>
+</section>
+<section id="reloading-and-analyzing-mir-json">
+<h2>Reloading and Analyzing MIR JSON<a class="headerlink" href="#reloading-and-analyzing-mir-json" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">program_from_dict</span></code> and <code class="docutils literal notranslate"><span class="pre">program_from_json</span></code> reconstruct a program without
+access to its Python source. For example, after producing a whole-program JSON
+dump with <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">--dump-format</span> <span class="pre">json</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">program_from_json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.pycg_mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">analyze_program</span>
+
+<span class="n">program</span> <span class="o">=</span> <span class="n">program_from_json</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"out/example_mir.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">analyze_program</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">raise_on_truncation</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>The decoder accepts the exact version-1 schema emitted by <code class="docutils literal notranslate"><span class="pre">Program.to_dict</span></code>.
+It checks instruction and expression kinds, field types, primitive operators,
+node identifiers, CFG edges, and lambda-body references. Unknown fields,
+duplicate JSON object keys, unsupported versions, and malformed graphs raise
+<code class="docutils literal notranslate"><span class="pre">MIRValidationError</span></code>. A fixed constructor table decodes the data; no named
+class or payload supplied in the JSON is imported or executed. A scoped CFG
+dump is an inspection artifact and is not a complete reloadable program.</p>
+</section>
+<section id="concrete-reference-semantics">
+<h2>Concrete Reference Semantics<a class="headerlink" href="#concrete-reference-semantics" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">MIRInterpreter</span></code> and <code class="docutils literal notranslate"><span class="pre">interpret</span></code> execute the core memory semantics. They
+maintain explicit addresses, reference containers, environments, and captured
+closures. MIR list indices are one-based, as in the presentation; Python
+indexing therefore has to be translated by the source front end.</p>
+<p>The following directly constructed program illustrates why <code class="docutils literal notranslate"><span class="pre">Alloc</span></code> and
+<code class="docutils literal notranslate"><span class="pre">Bind</span></code> are separate instructions:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.mir</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Alloc</span><span class="p">,</span> <span class="n">Bind</span><span class="p">,</span> <span class="n">CFG</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Node</span><span class="p">,</span> <span class="n">Program</span><span class="p">,</span> <span class="n">Skip</span><span class="p">,</span> <span class="n">Var</span><span class="p">,</span> <span class="n">interpret</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">CFG</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"example"</span><span class="p">,</span>
+    <span class="n">nodes</span><span class="o">=</span><span class="p">{</span>
+        <span class="mi">0</span><span class="p">:</span> <span class="n">Node</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">Skip</span><span class="p">(),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,)),</span>
+        <span class="mi">1</span><span class="p">:</span> <span class="n">Node</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">Alloc</span><span class="p">(</span><span class="s2">"x"</span><span class="p">,</span> <span class="n">Literal</span><span class="p">(</span><span class="mi">7</span><span class="p">)),</span> <span class="p">(</span><span class="mi">2</span><span class="p">,)),</span>
+        <span class="mi">2</span><span class="p">:</span> <span class="n">Node</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">Bind</span><span class="p">(</span><span class="n">Var</span><span class="p">(</span><span class="s2">"alias"</span><span class="p">),</span> <span class="n">Var</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)),</span> <span class="p">(</span><span class="mi">3</span><span class="p">,)),</span>
+        <span class="mi">3</span><span class="p">:</span> <span class="n">Node</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">Alloc</span><span class="p">(</span><span class="s2">"copy"</span><span class="p">,</span> <span class="n">Var</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)),</span> <span class="p">(</span><span class="mi">4</span><span class="p">,)),</span>
+        <span class="mi">4</span><span class="p">:</span> <span class="n">Node</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="n">Skip</span><span class="p">()),</span>
+    <span class="p">},</span>
+    <span class="n">entry</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">exit</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">Program</span><span class="p">(</span><span class="n">cfgs</span><span class="o">=</span><span class="p">{</span><span class="s2">"example"</span><span class="p">:</span> <span class="n">cfg</span><span class="p">},</span> <span class="n">entry</span><span class="o">=</span><span class="s2">"example"</span><span class="p">)</span>
+<span class="n">program</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<span class="n">execution</span> <span class="o">=</span> <span class="n">interpret</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">execution</span><span class="o">.</span><span class="n">address</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)</span> <span class="o">==</span> <span class="n">execution</span><span class="o">.</span><span class="n">address</span><span class="p">(</span><span class="s2">"alias"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">execution</span><span class="o">.</span><span class="n">address</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)</span> <span class="o">!=</span> <span class="n">execution</span><span class="o">.</span><span class="n">address</span><span class="p">(</span><span class="s2">"copy"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">execution</span><span class="o">.</span><span class="n">value</span><span class="p">(</span><span class="s2">"copy"</span><span class="p">)</span> <span class="o">==</span> <span class="mi">7</span>
+</pre></div>
+</div>
+<p>The interpreter checks graph structure before execution. Missing references,
+invalid primitive operations, invalid list indices, and infeasible paths have
+explicit error types. More than one feasible successor raises
+<code class="docutils literal notranslate"><span class="pre">NondeterministicControlFlow</span></code> instead of selecting an arbitrary branch.
+Instruction and call-depth limits bound execution. This is a reference
+interpreter for the core MIR language, not a replacement for CPython or an
+implicit implementation of all Python builtins.</p>
+</section>
+<section id="pycg-analysis-over-mir">
+<h2>PyCG Analysis Over MIR<a class="headerlink" href="#pycg-analysis-over-mir" title="Link to this heading"></a></h2>
+<p>The native engine follows the assignment-graph approach described by PyCG:
+collect value-flow relationships, repeatedly propagate possible definitions
+through assignments and calls, and derive call edges from resolved callable
+values. This corresponds to the flow-, path-, and context-insensitive pointer
+analysis used for MirCG in slide 14 of the supplied presentation.</p>
+<p>The analysis operates on MIR instructions and expressions. It does not delegate
+to the legacy Python-AST call-graph engine, import the optional PyCG package, or
+read expected <code class="docutils literal notranslate"><span class="pre">callgraph.json</span></code> fixture files. Keeping the solver independent
+of the Python AST also permits analysis of MIR built directly by clients.</p>
+<p>The fixed point accounts for the following relationships:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Alloc</span></code> introduces abstract values for allocation sites, including closures
+and reference containers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Bind</span></code> propagates references between names and fields. Aliases share the
+abstract objects reached through those references.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Env</span></code> and closure values connect lexical environments and captured names.</p></li>
+<li><p>Calls propagate packed actual arguments into callee environments and return
+values back to the caller. Newly discovered callable values can add call
+edges in later iterations.</p></li>
+<li><p>Field and container accesses propagate callable values stored in objects,
+lists, and dictionaries.</p></li>
+</ul>
+<p>Flow insensitivity deliberately merges assignments from different program
+points. Path insensitivity merges alternative CFG paths. Context insensitivity
+shares each function’s abstract state across callers. These choices can
+produce extra edges; they are algorithm properties, not a promise that all
+Python behaviors have been modeled. Deletion cannot generally remove old
+points-to facts in a monotone, flow-insensitive analysis.</p>
+<p>Generated protocol helpers are subject to the same approximation. For example,
+merging callable-object and bound-method dispatch branches can join receiver
+arguments into ordinary callback arguments, introducing extra edges or apparent
+self-calls. The engine does not use hidden Python-AST refinements to remove
+such edges. The returned graph therefore needs to be interpreted together with
+the selected abstraction and available library models.</p>
+<p>Compiler-generated helper CFGs carry Python protocol dispatch in MIR. The
+default call graph reports user-visible relationships across these helpers;
+<code class="docutils literal notranslate"><span class="pre">analyze_program(program,</span> <span class="pre">include_synthetic=True)</span></code> can retain them for
+inspection. Recursive calls remain present as self-edges in the native result.</p>
+<p>As in PyCG, encountered source function definitions are analyzed even if no
+caller has yet resolved to them. Set <code class="docutils literal notranslate"><span class="pre">analyze_all_functions=False</span></code> to analyze
+only the entry CFG and resolved callees. Synthetic helper bodies always
+require an actual MIR call.</p>
+<p><code class="docutils literal notranslate"><span class="pre">analyze_program</span></code> returns a <code class="docutils literal notranslate"><span class="pre">PyCGMIRResult</span></code> containing <code class="docutils literal notranslate"><span class="pre">call_graph</span></code>,
+<code class="docutils literal notranslate"><span class="pre">assignment_graph</span></code>, <code class="docutils literal notranslate"><span class="pre">call_sites</span></code>, <code class="docutils literal notranslate"><span class="pre">reachable_cfgs</span></code>, <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>,
+<code class="docutils literal notranslate"><span class="pre">unresolved_calls</span></code>, <code class="docutils literal notranslate"><span class="pre">iterations</span></code>, and <code class="docutils literal notranslate"><span class="pre">converged</span></code>. Its <code class="docutils literal notranslate"><span class="pre">truncated</span></code>
+property reports whether
+the iteration bound was reached before a fixed point. The default bound is
+256 iterations; pass <code class="docutils literal notranslate"><span class="pre">max_iterations</span></code> to change it, <code class="docutils literal notranslate"><span class="pre">None</span></code> to iterate
+without a fixed iteration bound, or
+<code class="docutils literal notranslate"><span class="pre">raise_on_truncation=True</span></code> when a partial result is unacceptable. The source
+wrapper attaches the result to <code class="docutils literal notranslate"><span class="pre">graph.analysis_result</span></code> for callers that need
+these details alongside the usual <code class="docutils literal notranslate"><span class="pre">CallGraph</span></code> interface.</p>
+<p>A bounded run that does not converge emits <code class="docutils literal notranslate"><span class="pre">PyCGMIRConvergenceWarning</span></code>.
+Strict mode raises <code class="docutils literal notranslate"><span class="pre">PyCGMIRConvergenceError</span></code> and exposes the partial analysis
+on the exception’s <code class="docutils literal notranslate"><span class="pre">result</span></code> attribute.</p>
+<p>Assignment-graph edges point from a reference to its possible sources or
+values: for example, <code class="docutils literal notranslate"><span class="pre">scope::name</span></code> may point to an allocation label such as
+<code class="docutils literal notranslate"><span class="pre">&#64;alloc:scope:node</span></code>. Binding dependencies point from the assigned target to
+the source reference. Field references have their own labels. The graph also
+contains saturated points-to and closure-target edges; container containment
+does not turn the container itself into an alias of its elements.</p>
+</section>
+<section id="scope-and-limitations">
+<h2>Scope and Limitations<a class="headerlink" href="#scope-and-limitations" title="Link to this heading"></a></h2>
+<p>The current Python front end covers the following areas. Support for a syntax
+form does not imply that every builtin, library call, or Python protocol used
+inside it has a complete model.</p>
+<table class="docutils align-default" id="id2">
+<caption><span class="caption-text">Source lowering coverage</span><a class="headerlink" href="#id2" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 76.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Area</p></th>
+<th class="head"><p>Implemented lowering</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Values and containers</p></td>
+<td><p>Boolean, integer, and string literals; <code class="docutils literal notranslate"><span class="pre">None</span></code> and <code class="docutils literal notranslate"><span class="pre">NotImplemented</span></code>;
+lists, tuples, sets, dictionaries, references, and sequence/assignment
+unpacking.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Functions</p></td>
+<td><p>Functions, lambdas, closures, decorators, default arguments,
+positional-only and keyword-only parameters, and packed <code class="docutils literal notranslate"><span class="pre">*args</span></code> /
+<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code> calls.</p></td>
+</tr>
+<tr class="row-even"><td><p>Control flow</p></td>
+<td><p>Conditional expressions and statements, short-circuit Boolean
+operations, loops, <code class="docutils literal notranslate"><span class="pre">break</span></code> / <code class="docutils literal notranslate"><span class="pre">continue</span></code>, returns, exceptions,
+<code class="docutils literal notranslate"><span class="pre">try</span></code> / <code class="docutils literal notranslate"><span class="pre">except</span></code> / <code class="docutils literal notranslate"><span class="pre">finally</span></code>, <code class="docutils literal notranslate"><span class="pre">with</span></code>, and container comprehensions.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Objects and dispatch</p></td>
+<td><p>Classes, C3 inheritance order, callable objects, ordinary and reflected
+operators, attribute access, method binding, descriptors, and supported
+special-method protocols.</p></td>
+</tr>
+<tr class="row-even"><td><p>Generators</p></td>
+<td><p>Lazy generator functions and expressions, persistent suspended frames,
+<code class="docutils literal notranslate"><span class="pre">yield</span></code>, <code class="docutils literal notranslate"><span class="pre">yield</span> <span class="pre">from</span></code>, <code class="docutils literal notranslate"><span class="pre">send</span></code>, and generator return values carried
+by <code class="docutils literal notranslate"><span class="pre">StopIteration.value</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Modules</p></td>
+<td><p>Statically resolved local Python modules and package imports, including
+cyclic imports, read from source without execution.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Explicitly unsupported source includes float/bytes/complex literals, slices,
+dictionary-display unpacking (<code class="docutils literal notranslate"><span class="pre">{**mapping}</span></code>), async syntax, f-strings,
+pattern matching, custom metaclasses, and class-definition keyword arguments.
+Imports outside the supported local module graph require a model and otherwise
+raise <code class="docutils literal notranslate"><span class="pre">LoweringError</span></code>. These errors include source filenames and locations
+where available. Lowering is intentionally separate from core MIR: the core
+can represent additional behavior when a client supplies an appropriate
+explicit translation.</p>
+<p>Some accepted syntax has omitted runtime effects. Type annotation expressions
+and <code class="docutils literal notranslate"><span class="pre">__annotations__</span></code> storage are not modeled: annotations do not trigger
+calls in the lowered program. <code class="docutils literal notranslate"><span class="pre">__future__</span></code> directives are accepted but do not
+select alternate language semantics.</p>
+<p>Builtin models also have deliberate limits:</p>
+<ul class="simple">
+<li><p>Generator <code class="docutils literal notranslate"><span class="pre">throw</span></code> and <code class="docutils literal notranslate"><span class="pre">close</span></code> methods are not modeled. Ordinary
+iteration, suspension, <code class="docutils literal notranslate"><span class="pre">send</span></code>, and <code class="docutils literal notranslate"><span class="pre">yield</span> <span class="pre">from</span></code> delegation are supported.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">print</span></code> is a no-output model returning <code class="docutils literal notranslate"><span class="pre">None</span></code>. Output behavior and
+implicit string-conversion callbacks are not represented by this stub.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">range</span></code> materializes its values eagerly. Large ranges can therefore cost
+substantially more memory and interpreter steps than CPython’s lazy range
+objects.</p></li>
+<li><p>Dictionaries use equality-based key lookup instead of a hash table. This
+does not reproduce hashing callbacks or every hashability rule. Dictionary
+views are materialized eagerly rather than remaining live views.</p></li>
+<li><p>Only installed explicit models populate the MIR builtin environment. A
+Python builtin without a model can currently appear as a modeled
+<code class="docutils literal notranslate"><span class="pre">NameError</span></code> at runtime; successful lowering alone does not establish that
+all of the program’s builtin behavior was modeled.</p></li>
+</ul>
+<p>The interpreter’s exception state is part of the MIR program memory. A
+modeled Python exception is not necessarily a host Python exception raised by
+<code class="docutils literal notranslate"><span class="pre">interpret</span></code>. Clients inspecting concrete runs must check that state in
+addition to MIR structural or execution errors.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.mir</span><span class="w"> </span><span class="kn">import</span> <span class="n">interpret</span><span class="p">,</span> <span class="n">lower_source</span>
+
+<span class="n">execution</span> <span class="o">=</span> <span class="n">interpret</span><span class="p">(</span><span class="n">lower_source</span><span class="p">(</span><span class="s2">"value = 7"</span><span class="p">))</span>
+<span class="n">builtins</span> <span class="o">=</span> <span class="n">execution</span><span class="o">.</span><span class="n">value</span><span class="p">(</span><span class="s2">"$builtins"</span><span class="p">)</span><span class="o">.</span><span class="n">fields</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">execution</span><span class="o">.</span><span class="n">memory</span><span class="p">[</span><span class="n">builtins</span><span class="p">[</span><span class="s2">"$state"</span><span class="p">]]</span><span class="o">.</span><span class="n">fields</span>
+<span class="k">assert</span> <span class="n">state</span><span class="p">[</span><span class="s2">"exception"</span><span class="p">]</span> <span class="o">==</span> <span class="n">builtins</span><span class="p">[</span><span class="s2">"None"</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>The instruction model follows the supplied MIR syntax and separation of
+memory, references, environments, and closures. The Python lowering front end
+and library models are an implementation of selected Python behavior; the
+presentation does not supply the authors’ full compiler, runtime, or benchmark
+suite. This implementation does not claim to reproduce their published
+benchmark results or to prove soundness for all Python programs.</p>
+<p>The frontend reports explicit lowering diagnostics for syntax it rejects.
+Accepted syntax remains subject to the modeling boundaries above. Native
+extension behavior, runtime code generation, arbitrary reflection, and external
+libraries require additional models. Dynamic keys, merged heap objects, and context-insensitive callbacks
+can reduce precision. Review <code class="docutils literal notranslate"><span class="pre">result.diagnostics</span></code> and convergence before
+using a graph as evidence of completeness.</p>
+<p>Explicit runtime expansion can produce large MIR programs even from short
+source files. Interactions between operator, attribute, and higher-order call
+helpers can substantially increase the assignment graph and analysis time.
+This implementation does not claim performance parity with upstream PyCG;
+use the convergence and iteration information when evaluating a workload.</p>
+<p>The existing <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>, <code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>, <code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>, <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code> flags remain specific to the constraint algorithm.
+They are rejected with <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>. MIR analysis exposes its own result and
+iteration options through the direct API. The <code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code> flags affect only constraint analysis; they do not extend
+MIR’s supported import graph.</p>
+</section>
+<section id="validation">
+<h2>Validation<a class="headerlink" href="#validation" title="Link to this heading"></a></h2>
+<p>Focused regression suites cover the MIR model and lowering, native MIR
+analysis, and command-line integration:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pytest</span> <span class="n">tests</span><span class="o">/</span><span class="n">ir</span><span class="o">/</span><span class="n">mir</span><span class="o">/</span> <span class="n">tests</span><span class="o">/</span><span class="n">analysis</span><span class="o">/</span><span class="n">callgraph</span><span class="o">/</span><span class="n">test_pycg_mir</span><span class="o">*.</span><span class="n">py</span>
+<span class="n">pytest</span> <span class="n">tests</span><span class="o">/</span><span class="n">cli</span><span class="o">/</span><span class="n">test_ir</span><span class="o">.</span><span class="n">py</span> <span class="n">tests</span><span class="o">/</span><span class="n">cli</span><span class="o">/</span><span class="n">test_callgraph</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>Tests use source programs and directly constructed MIR as inputs. Expected
+graphs are assertions in the tests; they are never inputs to the native solver.</p>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Hakjoo Oh, <em>MIR: A Formal and Minimal Intermediate Representation for Rigorous
+Python Program Analysis</em>, IFIP WG 2.4, March 2026. The supplied attachment is
+also available as <a class="reference external" href="https://prl.korea.ac.kr/slides/ifip26.pdf">the public presentation</a>. Slides 9–10 specify the core
+grammar and operational semantics; slide 14 identifies the analysis used by
+MirCG.</p></li>
+<li><p>Vitalis Salis et al., <a class="reference external" href="https://arxiv.org/abs/2103.00587">PyCG: Practical Call Graph Generation in Python</a>, ICSE 2021. The assignment-graph algorithm
+motivates the native MIR analysis.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gir.html" class="btn btn-neutral float-left" title="Graph Intermediate Representation (GIR)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="revision.html" class="btn btn-neutral float-right" title="IR Revision" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -37,15 +37,18 @@ CLI Usage
     # Include standard library modules
     pyflow callgraph input.py --algorithm constraint --no-skip-stdlib
 
+    # Native PyCG-style assignment analysis over MIR (no pycg extra required)
+    pyflow callgraph input.py --algorithm pycg-mir
+
 Options:
 
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
-- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, or ``pycg``; default: ``simple``)
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``simple``)
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
 - ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
-- ``--no-skip-stdlib``: Include standard library modules
+- ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
 - ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
@@ -56,8 +59,8 @@ Options:
 Analysis Approaches
 -------------------
 
-Constraint-Based Analysis (Default)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Constraint-Based Analysis (Public API Default)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Abstract Value Propagation**: Propagates abstract values (functions, classes, instances, bound methods, modules) through assignments, calls, and returns
 - **Context Sensitivity**: Optional call-site context sensitivity with configurable depth for improved precision
@@ -88,11 +91,47 @@ AST-Based Analysis
 - **Fast Construction**: Quick analysis suitable for large codebases
 - **Conservative**: May include spurious edges
 
-PyCG-Based Analysis
-~~~~~~~~~~~~~~~~~~~
+Native MIR-Based PyCG Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``pycg-mir`` lowers Python source into the seven-instruction MIR and performs
+flow-, path-, and context-insensitive assignment-graph propagation to a fixed
+point. The analysis consumes MIR directly, including explicit closure,
+environment, field, container, and call operations. It does not require the
+optional upstream PyCG package.
+
+.. code-block:: python
+
+   from pyflow.analysis.callgraph import extract_call_graph_pycg_mir
+   from pyflow.ir.mir import lower_source
+   from pyflow.analysis.callgraph.pycg_mir import analyze_program
+
+   graph = extract_call_graph_pycg_mir(source_code)
+   result = analyze_program(lower_source(source_code))
+   print(result.converged, result.iterations)
+   print(result.call_graph.get())
+
+The direct API exposes an assignment graph, call sites, diagnostics, and
+convergence information. The native graph preserves recursive self-edges.
+Compiler-generated protocol helpers can be retained with
+``include_synthetic=True``. See :doc:`/ir/mir` for the representation, complete
+examples, and implementation limitations.
+
+The CLI rejects constraint context-sensitivity, fixed-point control,
+allocation-sensitivity, scope-selection, and assignment-graph options for this
+backend. The stdlib flags affect only constraint analysis and do not extend
+MIR's supported import graph. The native backend does not change the existing
+public API default or the ``simple`` CLI default.
+
+Upstream PyCG Adapter
+~~~~~~~~~~~~~~~~~~~~
 
 - **Framework Support**: Better handling of popular Python frameworks
 - **Comprehensive**: Captures more call relationships than pure AST analysis
+
+The existing ``pycg`` option uses the separately installed upstream package
+(``pip install -e '.[callgraph]'``). It remains available independently from
+the native ``pycg-mir`` implementation.
 
 
 

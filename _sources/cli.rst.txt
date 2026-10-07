@@ -29,6 +29,7 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 
   pyflow callgraph input.py --algorithm constraint --output callgraph.txt
   pyflow callgraph input.py --algorithm constraint --context-sensitive --context-depth 2
+  pyflow callgraph input.py --algorithm pycg-mir               # native MIR analysis
   pyflow callgraph /path/to/project/                            # auto-detect entry
   pyflow callgraph /path/to/project/ --entry src/app.py         # explicit entry
   pyflow callgraph /path/to/project/ --dry-run                  # print entry only
@@ -36,17 +37,23 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 Options:
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
-- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, or ``pycg``; default: ``simple``)
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``simple``)
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
 - ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
-- ``--no-skip-stdlib``: Include standard library modules
+- ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
 - ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
 - ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
 - ``--as-graph-output``: Write constraint value-flow assignment graph JSON (constraint algorithm only)
+
+``pycg-mir`` runs native flow-, path-, and context-insensitive PyCG-style
+analysis over MIR and does not require the optional upstream ``pycg`` package.
+The stdlib flags affect only constraint analysis and do not extend MIR's
+supported import graph.
+See :doc:`ir/mir` for its APIs and supported scope.
 
 **pyflow ir**
 ~~~~~~~~~~~~~
@@ -59,8 +66,11 @@ Visualize intermediate representations and analysis results.
   pyflow ir input.py --dump-ssa main
   pyflow ir input.py --dump-cdg main --dump-format text
   pyflow ir input.py --dump-ddg main --dump-format text
+  pyflow ir input.py --dump-mir --dump-format json --dump-output out/
+  pyflow ir input.py --dump-mir input.main --dump-format text
 
 Options:
+- ``--dump-mir [SCOPE]``: Dump the whole MIR program or an unambiguous scope
 - ``--dump-ast FUNCTION``: Dump AST for a named function
 - ``--dump-cfg FUNCTION``: Dump CFG for a named function
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
@@ -73,6 +83,10 @@ Options:
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
 - ``--verbose, -v``: Enable verbose output
+
+MIR dumps lower source directly without importing or executing analyzed
+modules. They support text, JSON, and DOT output. With directory input,
+the output directory preserves the source directory structure.
 
 **pyflow concolic**
 ~~~~~~~~~~~~~~~~~~~

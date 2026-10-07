@@ -77,6 +77,7 @@
 <li class="toctree-l2"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="storegraph.html">Store Graph Intermediate Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gir.html">Graph Intermediate Representation (GIR)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html">Minimal Intermediate Representation (MIR)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="revision.html">IR Revision</a></li>
 </ul>
 </li>
@@ -142,6 +143,7 @@ with the algorithms that operate on them.</p>
 <li><p><a class="reference internal" href="cpg.html"><span class="doc">Code Property Graph (CPG)</span></a> — Code Property Graphs and CPG-backed taint infrastructure</p></li>
 <li><p><a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Intermediate Representation</span></a> — Shared heap and points-to representation</p></li>
 <li><p><a class="reference internal" href="gir.html"><span class="doc">Graph Intermediate Representation (GIR)</span></a> — Graph IR (Lian-compatible intermediate representation)</p></li>
+<li><p><a class="reference internal" href="mir.html"><span class="doc">Minimal Intermediate Representation (MIR)</span></a> — Minimal seven-instruction MIR and native PyCG analysis</p></li>
 <li><p><a class="reference internal" href="revision.html"><span class="doc">IR Revision</span></a> — IR revision summary (completed)</p></li>
 </ul>
 <p>The corresponding source and test trees mirror this organization under
@@ -200,6 +202,19 @@ with the algorithms that operate on them.</p>
 <li class="toctree-l2"><a class="reference internal" href="gir.html#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gir.html#command-line-usage">Command-Line Usage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gir.html#python-api">Python API</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mir.html">Minimal Intermediate Representation (MIR)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#runnable-example">Runnable Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#python-api">Python API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#core-representation">Core Representation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#reloading-and-analyzing-mir-json">Reloading and Analyzing MIR JSON</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#concrete-reference-semantics">Concrete Reference Semantics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#pycg-analysis-over-mir">PyCG Analysis Over MIR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#scope-and-limitations">Scope and Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#validation">Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mir.html#references">References</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="revision.html">IR Revision</a><ul>
