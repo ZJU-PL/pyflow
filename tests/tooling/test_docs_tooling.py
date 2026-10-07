@@ -46,7 +46,7 @@ def test_cli_reference_matches_current_commands() -> None:
         "--opt-passes PASS1 [PASS2 ...]",
         "--dump-cdg FUNCTION",
         "--dump-ddg FUNCTION",
-        "--algorithm`, `-a`: `simple`, `constraint`, or `pycg`",
+        "--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir`",
         "--engine ast-scanner",
         "``--engine ast-dataflow``",
         "``--engine ifds``",
