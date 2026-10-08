@@ -35,7 +35,6 @@ from .graph import (
     CPGNodeView,
     CPGStats,
 )
-from .build import build_cpg, build_cpg_with_callgraph, build_cpg_from_directory
 from .dump import to_dot, to_dot_file
 from .persist import CPGStore
 
@@ -45,9 +44,6 @@ __all__ = [
     "CPGEdgeKind",
     "CPGNodeView",
     "CPGStats",
-    "build_cpg",
-    "build_cpg_with_callgraph",
-    "build_cpg_from_directory",
     "to_dot",
     "to_dot_file",
     "CPGStore",

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
-from pyflow.ir.cpg.build import build_cpg
+from pyflow.application.cpg import build_cpg
 from pyflow.ir.cpg.graph import PDGNode
 from pyflow.ir.cpg.persist import CPGStore
 from pyflow.checker.cpg.taint import CPGTaintEngine

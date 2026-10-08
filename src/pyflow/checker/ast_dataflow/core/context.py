@@ -37,7 +37,6 @@ class AnalysisSession:
         cls,
         paths: Sequence[Union[str, Path]],
         *,
-        use_pass_manager: bool = True,
         verbose: bool = False,
         recursive: bool = False,
         include: Optional[Iterable[str]] = None,
@@ -64,7 +63,6 @@ class AnalysisSession:
         with console.scope("extraction"):
             extract_program(compiler, program)
 
-        del use_pass_manager
         compiler.program = program
 
         queries = create_query_components(compiler, program)

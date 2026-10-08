@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from pyflow.application import context
 from pyflow.ir.core import IRCatalog, SourceAnchor, SymbolKind
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 from pyflow.ir.cdg import construct_cdg
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import (

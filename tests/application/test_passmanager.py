@@ -4,8 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from pyflow.application.program import Program
-from pyflow.application.passmanager import AnalysisPass, PassManager, PassResult
-from pyflow.application.passes import register_standard_passes
+from pyflow.application.passes.base import AnalysisPass, PassResult
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.registry import register_standard_passes
 
 
 class _DummyPass(AnalysisPass):
@@ -173,15 +174,18 @@ def test_changed_transform_clears_program_level_analysis_results():
     register_standard_passes(manager)
     program = Program()
 
-    with patch("pyflow.application.passes.ipa.evaluate", return_value=SimpleNamespace()), patch(
-        "pyflow.application.passes.cpa.evaluate", return_value=SimpleNamespace()
-    ), patch(
-        "pyflow.application.passes.lifetimeanalysis.evaluate",
-        return_value=SimpleNamespace(),
-    ), patch("pyflow.application.passes.simplify.evaluate", return_value=True):
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=SimpleNamespace()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=SimpleNamespace()),
+        patch(
+            "pyflow.application.passes.builtin.lifetimeanalysis.evaluate",
+            return_value=SimpleNamespace(),
+        ),
+        patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True),
+    ):
         manager.run_passes(None, program, ["ipa", "cpa", "lifetime", "simplify"])
 
-    assert program.get_analysis_result("ipa") is None
-    assert program.get_analysis_result("cpa") is None
-    assert program.get_analysis_result("lifetime") is None
-    assert program.analysis_results == {}
+    assert program.session.get_result("ipa") is None
+    assert program.session.get_result("cpa") is None
+    assert program.session.get_result("lifetime") is None
+    assert program.session.results == {}

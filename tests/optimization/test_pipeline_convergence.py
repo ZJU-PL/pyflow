@@ -9,8 +9,8 @@ import pytest
 from unittest.mock import Mock, patch
 from pyflow.application.program import Program
 from pyflow.application.pipeline import Pipeline
-from pyflow.application.passmanager import PassManager
-from pyflow.application.passes import register_standard_passes
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.registry import register_standard_passes
 
 
 def test_two_pass_pipeline_includes_path_sensitive_cpa():
@@ -121,19 +121,19 @@ def test_pipeline_invalidates_analysis_between_passes():
     compiler.console.output = Mock()
 
     # Mock all passes
-    with patch("pyflow.application.passes.ipa.evaluate", return_value=Mock()) as mock_ipa, \
-         patch("pyflow.application.passes.cpa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.lifetimeanalysis.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.simplify.evaluate", return_value=True), \
-         patch("pyflow.application.passes.clone.evaluate", return_value=True):
+    with patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()) as mock_ipa, \
+         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()), \
+         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()), \
+         patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True), \
+         patch("pyflow.application.passes.builtin.clone.evaluate", return_value=True):
 
         # Run first pass with transformation
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime", "simplify", "clone"])
 
         # Analysis should be cleared after transformation
-        assert program.get_analysis_result("ipa") is None
-        assert program.get_analysis_result("cpa") is None
-        assert program.get_analysis_result("lifetime") is None
+        assert program.session.get_result("ipa") is None
+        assert program.session.get_result("cpa") is None
+        assert program.session.get_result("lifetime") is None
 
         # Run ipa_refresh - should actually call IPA again
         mock_ipa.reset_mock()
@@ -145,7 +145,7 @@ def test_pipeline_invalidates_analysis_between_passes():
 
 def test_default_pipeline_matches_legacy_pipeline_structure():
     """Test that default pipeline structure matches legacy pipeline."""
-    pipeline = Pipeline(use_pass_manager=True)
+    pipeline = Pipeline()
 
     default_passes = pipeline.default_pass_names(include_experimental_inlining=False)
 
@@ -181,7 +181,7 @@ def test_default_pipeline_matches_legacy_pipeline_structure():
 
 def test_experimental_inlining_inserted_correctly():
     """Test that experimental inlining is inserted in correct position."""
-    pipeline = Pipeline(use_pass_manager=True)
+    pipeline = Pipeline()
 
     passes_with_inlining = pipeline.default_pass_names(include_experimental_inlining=True)
 
@@ -197,7 +197,8 @@ def test_experimental_inlining_inserted_correctly():
 def test_pass_manager_pipeline_is_default():
     """Test that pass manager is the default pipeline mode."""
     pipeline = Pipeline()
-    assert pipeline.use_pass_manager is True
+    program = Program()
+    assert isinstance(program.session.pass_manager, PassManager)
 
 
 def test_two_pass_pipeline_convergence():
@@ -227,14 +228,14 @@ def test_two_pass_pipeline_convergence():
         call_counts["clone"] += 1
         return call_counts["clone"] == 1
 
-    with patch("pyflow.application.passes.ipa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.cpa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.lifetimeanalysis.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.simplify.evaluate", side_effect=mock_simplify), \
-         patch("pyflow.application.passes.clone.evaluate", side_effect=mock_clone), \
-         patch("pyflow.application.passes.argumentnormalization.evaluate", return_value=False), \
-         patch("pyflow.application.passes.cullprogram.evaluate", return_value=False), \
-         patch("pyflow.application.passes.storeelimination.evaluate", return_value=False):
+    with patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()), \
+         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()), \
+         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()), \
+         patch("pyflow.application.passes.builtin.simplify.evaluate", side_effect=mock_simplify), \
+         patch("pyflow.application.passes.builtin.clone.evaluate", side_effect=mock_clone), \
+         patch("pyflow.application.passes.builtin.argumentnormalization.evaluate", return_value=False), \
+         patch("pyflow.application.passes.builtin.cullprogram.evaluate", return_value=False), \
+         patch("pyflow.application.passes.builtin.storeelimination.evaluate", return_value=False):
 
         # Run pipeline twice
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime", "simplify", "clone"])

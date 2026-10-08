@@ -278,6 +278,31 @@ class FactStore:
         if changed:
             self._revision += 1
 
+    def invalidate_producers(self, producers: Iterable[str]) -> None:
+        """Retire producer-owned facts without removing another producer's facts."""
+        removed = frozenset(producers)
+        self.retain_producers(
+            producer
+            for snapshots in self._snapshots.values()
+            for producer in snapshots
+            if producer not in removed
+        )
+
+    def retain_producers(self, producers: Iterable[str]) -> None:
+        retained = frozenset(producers)
+        snapshots = {
+            capability: {
+                producer: snapshot
+                for producer, snapshot in published.items()
+                if producer in retained
+            }
+            for capability, published in self._snapshots.items()
+        }
+        snapshots = {capability: published for capability, published in snapshots.items() if published}
+        if snapshots != self._snapshots:
+            self._snapshots = snapshots
+            self._revision += 1
+
     def clear(self) -> None:
         if self._snapshots:
             self._snapshots.clear()

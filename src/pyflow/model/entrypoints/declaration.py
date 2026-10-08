@@ -85,9 +85,7 @@ class InterfaceDeclaration:
         self._extractCls(extractor)
         self.translated = True
 
-    def createEntryPoint(
-        self, code, selfarg, args, kwds=None, varg=None, karg=None, group=None
-    ):
+    def createEntryPoint(self, code, selfarg, args, kwds=None, varg=None, karg=None, group=None):
         if selfarg is None:
             selfarg = nullWrapper
         if args is None:
@@ -103,13 +101,9 @@ class InterfaceDeclaration:
         args, unresolved_kwds = self._apply_kwds_to_args(code, args, kwds)
         if unresolved_kwds:
             unresolved_names = ", ".join(name for name, _ in unresolved_kwds)
-            raise ValueError(
-                f"Unsupported keyword arguments for entry point: {unresolved_names}"
-            )
+            raise ValueError(f"Unsupported keyword arguments for entry point: {unresolved_names}")
 
-        return self._createEntryPoint(
-            code, selfarg, args, unresolved_kwds, varg, karg, group
-        )
+        return self._createEntryPoint(code, selfarg, args, unresolved_kwds, varg, karg, group)
 
     def _normalize_kwds(self, kwds):
         if isinstance(kwds, dict):
@@ -170,9 +164,7 @@ class InterfaceDeclaration:
             consumed.add(name)
 
             if name in posonly_names:
-                raise ValueError(
-                    f"Positional-only argument '{name}' cannot be passed by keyword."
-                )
+                raise ValueError(f"Positional-only argument '{name}' cannot be passed by keyword.")
 
             index = None
             if name in regular_map:
@@ -184,9 +176,7 @@ class InterfaceDeclaration:
                 continue
 
             if index < original_len:
-                raise ValueError(
-                    f"Argument '{name}' passed by both position and keyword."
-                )
+                raise ValueError(f"Argument '{name}' passed by both position and keyword.")
             while len(mapped_args) <= index:
                 mapped_args.append(ExistingWrapper(None))
             mapped_args[index] = value
@@ -209,8 +199,7 @@ class InterfaceDeclaration:
         console = getattr(getattr(extractor, "compiler", None), "console", None)
         if console is not None:
             console.output(
-                f"WARNING: approximating entry point {name} with unknown "
-                f"arguments: {exc}"
+                f"WARNING: approximating entry point {name} with unknown " f"arguments: {exc}"
             )
 
     @staticmethod
@@ -237,13 +226,9 @@ class InterfaceDeclaration:
     ):
         """Create a discovered entry, retaining it on signature mismatches."""
         try:
-            return self.createEntryPoint(
-                code, selfarg, args, kwds, nullWrapper, nullWrapper, group
-            )
+            return self.createEntryPoint(code, selfarg, args, kwds, nullWrapper, nullWrapper, group)
         except ValueError as exc:
-            if not str(exc).startswith(
-                "Unsupported keyword arguments for entry point:"
-            ):
+            if not str(exc).startswith("Unsupported keyword arguments for entry point:"):
                 self._warn_skipped_entry(extractor, name, exc)
                 return None
             placeholder_args = self._placeholder_args(code, args)
@@ -324,14 +309,8 @@ class InterfaceDeclaration:
         qualified_class = qualname.rsplit(".", 1)[0] if "." in qualname else ""
         defining_name = qualname.rsplit(".", 1)[-1]
         if module and not qualified_class.startswith(f"{module}."):
-            qualified_class = (
-                f"{module}.{qualified_class}" if qualified_class else module
-            )
-        code_name = (
-            f"{qualified_class}.{defining_name}"
-            if qualified_class
-            else defining_name
-        )
+            qualified_class = f"{module}.{qualified_class}" if qualified_class else module
+        code_name = f"{qualified_class}.{defining_name}" if qualified_class else defining_name
         cache_key = (id(func), code_name)
         cached = self._method_code_cache.get(cache_key)
         if cached is not None and cached[0] is func:
@@ -411,10 +390,8 @@ class InterfaceDeclaration:
                     if group is None:
                         group = ep
 
-    def __nonzero__(self):
+    def __bool__(self):
         return bool(self.func) or bool(self.cls)
-
-    __bool__ = __nonzero__
 
     def entryCode(self):
         return frozenset([point.code for point in self.entryPoint])

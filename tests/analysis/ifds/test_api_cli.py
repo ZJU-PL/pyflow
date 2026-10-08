@@ -8,10 +8,10 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-import pyflow.analysis.ifds.api as ifds_api
+import pyflow.api.ifds as ifds_api
 import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.analysis.callgraph.publication as callgraph_publication
-from pyflow.analysis.ifds.api import (
+from pyflow.api.ifds import (
     load_analysis_session,
     run_nullness_analysis,
     run_typestate_analysis,

@@ -8,7 +8,7 @@ implementation details to focused internal helpers.
 import logging
 from typing import Dict, List, Optional, Set, Union
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 
 from ._dataflow_ipa import IpaAnalyzer
 from ._dataflow_reaching_defs import ReachingDefsAnalyzer

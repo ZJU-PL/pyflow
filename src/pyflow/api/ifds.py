@@ -33,29 +33,29 @@ from pyflow.frontend.interface_builder import (
 from pyflow.language.python import ast as py_ast
 from pyflow.util.application.console import Console
 
-from .frontend.cfg_adapter import (
+from pyflow.analysis.ifds.frontend.cfg_adapter import (
     CFGSupergraphAdapter,
     build_supergraph_from_cfgs,
 )
-from .analyses.nullness import (
+from pyflow.analysis.ifds.analyses.nullness import (
     NullnessAnalysisResult,
     NullnessConfiguration,
     analyze_nullness,
 )
-from .modeling.registry import load_registry
-from .modeling.calls import CallModelRegistry
-from .analyses.typestate import (
+from pyflow.analysis.ifds.modeling.registry import load_registry
+from pyflow.analysis.ifds.modeling.calls import CallModelRegistry
+from pyflow.analysis.ifds.analyses.typestate import (
     TypestateAnalysisResult,
     TypestateConfiguration,
     analyze_typestate,
 )
-from .diagnostics import IFDSDiagnostic
-from .frontend.preparation import prepare_program_for_ifds
-from .core.solver import SolverOptions
+from pyflow.analysis.ifds.diagnostics import IFDSDiagnostic
+from pyflow.analysis.ifds.frontend.preparation import prepare_program_for_ifds
+from pyflow.analysis.ifds.core.solver import SolverOptions
 
 
 @dataclass(frozen=True)
-class AnalysisSession:
+class PreparedIFDSProgram:
     """Loaded program plus IFDS-ready CFG supergraph and non-fatal preparation notes."""
 
     compiler: CompilerContext
@@ -81,7 +81,7 @@ def _path_options(verbose: bool, dependency_strategy: str, search_paths) -> Inte
 
 
 def _entry_nodes_from_program(
-    session: AnalysisSession,
+    session: PreparedIFDSProgram,
     *,
     function_name: str | None = None,
     entry_file: str | Path | None = None,
@@ -207,7 +207,7 @@ def _restrict_program_entry_points(
             entry_points.append(ep)
             target_module_present = True
 
-    from pyflow.api.entrypoints import nullWrapper
+    from pyflow.model.entrypoints import nullWrapper
 
     if target_source is not None and not target_module_present:
         for code in getattr(program, "liveCode", ()):
@@ -245,7 +245,7 @@ def _restrict_program_entry_points_to_file(
     if not matching_codes:
         raise ValueError(f"Entry file '{entry_file}' has no executable module body.")
 
-    from pyflow.api.entrypoints import nullWrapper
+    from pyflow.model.entrypoints import nullWrapper
 
     entry_points = []
     existing_by_code = {
@@ -343,7 +343,7 @@ def load_analysis_session(
     root_function: str | None = None,
     entry_file: str | Path | None = None,
     callgraph_max_iterations: int = 256,
-) -> AnalysisSession:
+) -> PreparedIFDSProgram:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     if root_function is not None and entry_file is not None:
         raise ValueError("Specify either root_function or entry_file, not both.")
@@ -445,7 +445,7 @@ def load_analysis_session(
         catalog=prepared.catalog,
         cfgs_indexed=True,
     )
-    return AnalysisSession(
+    return PreparedIFDSProgram(
         compiler,
         program,
         adapter,
@@ -469,7 +469,7 @@ def run_nullness_analysis(
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
     callgraph_max_iterations: int = 256,
-) -> tuple[AnalysisSession, NullnessAnalysisResult]:
+) -> tuple[PreparedIFDSProgram, NullnessAnalysisResult]:
     """Load files and run nullness analysis from a function or module entry."""
     files = [Path(path) for path in python_files]
     session = load_analysis_session(
@@ -530,7 +530,7 @@ def run_typestate_analysis(
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
     callgraph_max_iterations: int = 256,
-) -> tuple[AnalysisSession, TypestateAnalysisResult]:
+) -> tuple[PreparedIFDSProgram, TypestateAnalysisResult]:
     """Load files and run typestate analysis from a function or module entry."""
     files = [Path(path) for path in python_files]
     session = load_analysis_session(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generic, Iterable, Sequence, TypeVar
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.core import LocalStorage, ensure_code_indexed
 from pyflow.language.python import ast as py_ast

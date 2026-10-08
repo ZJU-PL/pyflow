@@ -182,7 +182,7 @@ def _run_default_pipeline(
     compiler, program, name, *, include_experimental_inlining: bool = False
 ):
     """Run the default optimization pipeline through the pass manager."""
-    return Pipeline(use_pass_manager=True).run(
+    return Pipeline().run(
         program,
         compiler=compiler,
         name=name,
@@ -294,7 +294,7 @@ def run_analysis(input_path, args):
                 with console.scope("ipa-only"):
                     result = ipa_module.evaluate(compiler, program)
                     if result:
-                        program.set_analysis_result("ipa", result)
+                        program.session.record_result("ipa", result)
             else:
                 run_analysis_passes(compiler, program, args.analysis)
 
@@ -456,12 +456,12 @@ def run_analysis_passes(compiler, program, analysis_type):
 
     # For IPA and Shape analysis, run the full pipeline to ensure proper setup
     if analysis_type in ["ipa", "shape"]:
-        from pyflow.application.pipeline import evaluate as pipeline_evaluate
+        from pyflow.application.pipeline import Pipeline
 
-        pipeline_evaluate(compiler, program, f"dummy_{analysis_type}")
+        Pipeline().run(program, compiler=compiler, name=f"dummy_{analysis_type}")
         print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
 
-        if analysis_type == "ipa" and program.get_analysis_result("ipa") is None:
+        if analysis_type == "ipa" and program.session.get_result("ipa") is None:
             print("Warning: IPA analysis results not available from pipeline run")
     else:
         module_name, func_name = ANALYSIS_MODULES[analysis_type]
@@ -469,14 +469,14 @@ def run_analysis_passes(compiler, program, analysis_type):
         func = getattr(module, func_name)
 
         if analysis_type == "shape":
-            from pyflow.application.pipeline import evaluate as pipeline_evaluate
+            from pyflow.application.pipeline import Pipeline
 
-            pipeline_evaluate(compiler, program, "shape_analysis")
+            Pipeline().run(program, compiler=compiler, name="shape_analysis")
         else:
             # Store analysis result in program for later dumping
             analysis_result = func(compiler, program)
             if analysis_result and hasattr(analysis_result, "contexts"):
-                program.set_analysis_result(analysis_type, analysis_result)
+                program.session.record_result(analysis_type, analysis_result)
 
 
 def dump_specific_results(compiler, program, input_path, args):
@@ -496,11 +496,11 @@ def dump_ipa_results(compiler, program, input_path, output_file):
         from pyflow.analysis.ipa.dump import Dumper
         from pyflow.analysis import ipa as ipa_module
 
-        analysis = program.get_analysis_result("ipa")
+        analysis = program.session.get_result("ipa")
         if analysis is None:
             result = ipa_module.evaluate(compiler, program)
             if result:
-                program.set_analysis_result("ipa", result)
+                program.session.record_result("ipa", result)
                 analysis = result
 
         if analysis is None:
@@ -581,7 +581,7 @@ def dump_results(compiler, program, input_path, output_file):
 def run_analysis_only(compiler, program):
     """Run only analysis passes, no optimization."""
     with compiler.console.scope("analysis-only"):
-        results = Pipeline(use_pass_manager=True).run_custom_pipeline(
+        results = Pipeline().run_custom_pipeline(
             compiler, program, ["ipa", "cpa", "lifetime"]
         )
         compiler.console.output("Analysis-only mode completed")
@@ -605,11 +605,11 @@ def run_suggestions(compiler, program):
         # Run full IPA analysis first
         ipa_result = ipa.evaluate(compiler, program)
         if ipa_result:
-            program.set_analysis_result("ipa", ipa_result)
+            program.session.record_result("ipa", ipa_result)
 
         # Capture initial metrics
         initial_code_count = len(getattr(program, "liveCode", []))
-        ipa_analysis = program.get_analysis_result("ipa")
+        ipa_analysis = program.session.get_result("ipa")
         initial_funcs = set()
         for code in getattr(program, "liveCode", []):
             if code and hasattr(code, "name") and code.name:
@@ -632,15 +632,15 @@ def run_suggestions(compiler, program):
         contexts_before_clone = len(ipa_analysis.contexts) if ipa_analysis else 0
 
         with compiler.console.scope("analyzing"):
-            Pipeline(use_pass_manager=True).run_custom_pipeline(
+            Pipeline().run_custom_pipeline(
                 compiler,
                 program,
-                Pipeline(use_pass_manager=True).default_pass_names(),
+                Pipeline().default_pass_names(),
             )
 
         refreshed_ipa = ipa.evaluate(compiler, program)
         if refreshed_ipa:
-            program.set_analysis_result("ipa", refreshed_ipa)
+            program.session.record_result("ipa", refreshed_ipa)
 
         # Capture final metrics
         final_code_count = len(getattr(program, "liveCode", []))
@@ -649,7 +649,7 @@ def run_suggestions(compiler, program):
             if code and hasattr(code, "name") and code.name:
                 final_funcs.add(code.name)
 
-        ipa_analysis = program.get_analysis_result("ipa")
+        ipa_analysis = program.session.get_result("ipa")
         contexts_after_clone = len(ipa_analysis.contexts) if ipa_analysis else 0
 
         # Find removed functions
@@ -678,7 +678,7 @@ def run_suggestions(compiler, program):
             )
 
         # Check for unresolved calls (type hints needed)
-        cpa_analysis = program.get_analysis_result("cpa")
+        cpa_analysis = program.session.get_result("cpa")
         if cpa_analysis is not None:
             if hasattr(cpa_analysis, "unresolved"):
                 unresolved = getattr(cpa_analysis, "unresolved", [])
@@ -760,7 +760,7 @@ def run_optimization_passes(compiler, program, passes, args=None):
             compiler.console.output("No optimization passes selected")
             return {}
 
-        results = Pipeline(use_pass_manager=True).run_custom_pipeline(
+        results = Pipeline().run_custom_pipeline(
             compiler, program, normalized
         )
         compiler.console.output(f"Completed {len(normalized)} optimization passes")

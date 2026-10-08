@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
-from pyflow.api.entrypoints import (
+from pyflow.model.entrypoints import (
     ClassDeclaration,
     ExistingWrapper,
     InterfaceDeclaration,

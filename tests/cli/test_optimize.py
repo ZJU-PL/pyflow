@@ -30,8 +30,8 @@ def test_run_optimization_passes_always_skips_public_inlining(monkeypatch, capsy
     calls = []
 
     class _Pipeline:
-        def __init__(self, *, use_pass_manager):
-            assert use_pass_manager is True
+        def __init__(self):
+            pass
 
         def run_custom_pipeline(self, _compiler, _program, pass_names):
             calls.append(tuple(pass_names))
@@ -54,8 +54,8 @@ def test_run_optimization_passes_skips_inlining_even_with_experimental_flag(
     calls = []
 
     class _Pipeline:
-        def __init__(self, *, use_pass_manager):
-            assert use_pass_manager is True
+        def __init__(self):
+            pass
 
         def run_custom_pipeline(self, _compiler, _program, pass_names):
             calls.append(tuple(pass_names))
@@ -82,8 +82,8 @@ def test_run_optimization_passes_all_expands_to_default_pipeline(monkeypatch):
     )
 
     class _Pipeline:
-        def __init__(self, *, use_pass_manager):
-            assert use_pass_manager is True
+        def __init__(self):
+            pass
 
         def run_custom_pipeline(self, _compiler, _program, pass_names):
             seen["custom"].append(tuple(pass_names))
@@ -110,8 +110,8 @@ def test_run_optimization_passes_all_includes_experimental_inlining(monkeypatch)
     )
 
     class _Pipeline:
-        def __init__(self, *, use_pass_manager):
-            assert use_pass_manager is True
+        def __init__(self):
+            pass
 
         def run_custom_pipeline(self, _compiler, _program, pass_names):
             seen["custom"].append(tuple(pass_names))
@@ -312,14 +312,14 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
     initial_ipa = SimpleNamespace(contexts={"a": object()})
     refreshed_ipa = SimpleNamespace(contexts={"a": object(), "b": object()})
     program = Program()
-    program.set_analysis_result(
+    program.session.record_result(
         "cpa", SimpleNamespace(unresolved=["call1", "call2"])
     )
     seen = []
 
     class _Pipeline:
-        def __init__(self, *, use_pass_manager):
-            assert use_pass_manager is True
+        def __init__(self):
+            pass
 
         def default_pass_names(self):
             return ["ipa", "cpa", "simplify"]
@@ -332,7 +332,7 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
         ipa_module,
         "evaluate",
         lambda _compiler, _program: initial_ipa
-        if _program.get_analysis_result("ipa") is None
+        if _program.session.get_result("ipa") is None
         else refreshed_ipa,
     )
     monkeypatch.setattr(optimize, "Pipeline", _Pipeline)
@@ -341,7 +341,7 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert seen == [("ipa", "cpa", "simplify")]
-    assert program.get_analysis_result("ipa") is refreshed_ipa
+    assert program.session.get_result("ipa") is refreshed_ipa
     assert "2 unresolved calls" in output
 
 
@@ -369,7 +369,7 @@ def test_dump_ipa_results_refreshes_missing_analysis(monkeypatch, tmp_path, caps
 
     optimize.dump_ipa_results(compiler, program, tmp_path / "sample.py", None)
 
-    assert program.get_analysis_result("ipa") is analysis
+    assert program.session.get_result("ipa") is analysis
     assert dumped[0][0] == "init"
     assert dumped[1][0] == "index"
     assert "IPA analysis results dumped to:" in capsys.readouterr().out

@@ -15,7 +15,8 @@ from pyflow.checker.ast_dataflow.domain import (
     TaintState as FormalTaintState,
 )
 from pyflow.checker.ast_dataflow.semantics import UpdateDecision
-from pyflow.ir.cpg import CodePropertyGraph, build_cpg
+from pyflow.ir.cpg import CodePropertyGraph
+from pyflow.application.cpg import build_cpg
 from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.checker.cpg.taint import CPGTaintEngine
 from pyflow.checker.cpg.taint.formal import CPGAbstractState, FormalCPGTaintAnalysis
@@ -796,7 +797,7 @@ def test_empty_graph_is_explicitly_incomplete() -> None:
 
 
 def test_cpg_construction_failures_are_not_silently_dropped(monkeypatch) -> None:
-    build_module = importlib.import_module("pyflow.ir.cpg.build")
+    build_module = importlib.import_module("pyflow.application.cpg")
 
     def fail_cfg(*_args, **_kwargs):
         raise RuntimeError("synthetic CFG failure")

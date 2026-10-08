@@ -14,8 +14,9 @@ The pass manager provides:
 """
 
 from pyflow.application.pipeline import Pipeline
-from pyflow.application.passmanager import PassManager, AnalysisPass, OptimizationPass, PassResult, PassKind
-from pyflow.application.passes import register_standard_passes
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.base import AnalysisPass, OptimizationPass, PassResult, PassKind
+from pyflow.application.passes.registry import register_standard_passes
 
 
 def demo_basic_usage():
@@ -95,19 +96,18 @@ def demo_pipeline_execution():
     print("\n=== Pipeline Execution Demo ===")
 
     # Create pipeline with pass manager
-    pipeline = Pipeline(use_pass_manager=True)
+    pipeline = Pipeline()
 
-    print(f"Pass manager enabled: {pipeline.use_pass_manager}")
-    print(f"Available passes: {pipeline.list_available_passes()}")
+    print(f"Default passes: {pipeline.default_pass_names()}")
 
     # In a real scenario, you would:
     # 1. Create a compiler and program
-    # 2. Run the pipeline: results = pipeline.run(compiler, program)
+    # 2. Run the pipeline: results = pipeline.run(program, compiler=compiler)
 
     print("To run the pipeline:")
     print("  compiler = create_compiler()")
     print("  program = create_program()")
-    print("  results = pipeline.run(compiler, program)")
+    print("  results = pipeline.run(program, compiler=compiler)")
     print("  # results contains PassResult objects for each pass")
 
 

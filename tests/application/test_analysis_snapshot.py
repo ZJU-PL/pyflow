@@ -1,11 +1,11 @@
 from types import SimpleNamespace
 
-from pyflow.application.analysis_snapshot import AnalysisFeatures, AnalysisSnapshot
+from pyflow.api.snapshot import AnalysisFeatures, AnalysisSnapshot
 from pyflow.api.queries import create_query_components
 
 
 def _program():
-    return SimpleNamespace(liveCode=[], analysis_results={}, interface=None, ir=None)
+    return SimpleNamespace(liveCode=[], session=SimpleNamespace(results={}), interface=None, ir=None)
 
 
 def test_query_components_are_constructed_without_protocol_or_manager():
@@ -39,7 +39,7 @@ def test_snapshots_are_revision_pinned_and_do_not_share_query_components():
 
 def test_features_describe_analysis_facts_not_protocol_tools():
     program = _program()
-    program.analysis_results = {"ipa": object(), "heap": object()}
+    program.session.results = {"ipa": object(), "heap": object()}
 
     features = AnalysisFeatures.from_program(program, type_info=True)
 

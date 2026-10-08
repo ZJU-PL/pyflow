@@ -16,7 +16,7 @@ import unittest
 
 from pyflow.application import context
 from pyflow.application.program import Program
-from pyflow.application.pipeline import evaluate as pipeline_evaluate
+from pyflow.application.pipeline import Pipeline
 from pyflow.frontend.extractor import Extractor
 from pyflow.frontend.extractor import extract_program
 from pyflow.ir.dataflow import convert
@@ -99,7 +99,7 @@ class TestDDG(unittest.TestCase):
             program = Program()
             program.interface.func.append((func, []))
             extract_program(self.compiler, program)
-            pipeline_evaluate(self.compiler, program, "ddg_tests")
+            Pipeline().run(program, compiler=self.compiler, name="ddg_tests")
 
             code = next(
                 c for c in program.liveCode if hasattr(c, "codeName") and c.codeName() == func.__name__

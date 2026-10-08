@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.application.pipeline import evaluate
+from pyflow.application.pipeline import Pipeline
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -547,7 +547,7 @@ def run_ir_dump(input_path: Path, args):
             or args.dump_gir
         ):
             with console.scope("analysis"):
-                evaluate(compiler, program, str(input_path))
+                Pipeline().run(program, compiler=compiler, name=str(input_path))
 
         liveCode = program.liveCode if program.liveCode else findLiveCode(program)[0]
         output_dir = args.dump_output or "."

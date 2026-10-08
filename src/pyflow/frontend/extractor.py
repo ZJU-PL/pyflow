@@ -845,7 +845,7 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
         if not program.interface.translated:
             program.interface.translate(compiler.extractor)
 
-        from pyflow.api.entrypoints import nullWrapper
+        from pyflow.model.entrypoints import nullWrapper
 
         existing_codes = set(program.interface.entryCode())
         synthetic_codes = sorted(

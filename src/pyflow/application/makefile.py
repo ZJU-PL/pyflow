@@ -26,12 +26,12 @@ import sys
 import os.path
 
 from pyflow.frontend.extractor import extract_program
-import pyflow.application.pipeline as pipeline
+from pyflow.application.pipeline import Pipeline
 from pyflow.util.application.console import Console
 
 from pyflow.application import context
 from pyflow.application.program import Program
-from pyflow.api.entrypoints import (
+from pyflow.model.entrypoints import (
     ExistingWrapper,
     InstanceWrapper,
     ClassDeclaration,
@@ -210,4 +210,4 @@ class Makefile(object):
 
         extract_program(compiler, prgm)
 
-        pipeline.evaluate(compiler, prgm, self.moduleName)
+        Pipeline().run(prgm, compiler=compiler, name=self.moduleName)

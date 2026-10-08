@@ -133,7 +133,7 @@ def test_store_elimination_checks_aliasing():
     compiler.console.output = Mock()
 
     program = Program()
-    program.set_analysis_result("lifetime", Mock())
+    program.session.record_result("lifetime", Mock())
 
     # Create a code object with a store
     code = Mock()
@@ -272,7 +272,8 @@ def test_cli_pass_name_normalization():
 
 def test_pass_manager_validates_optimization_metadata():
     """Test that pass manager validates optimization passes have invalidation metadata."""
-    from pyflow.application.passmanager import PassManager, OptimizationPass, PassResult, PassKind
+    from pyflow.application.passes.manager import PassManager
+    from pyflow.application.passes.base import OptimizationPass, PassResult, PassKind
 
     manager = PassManager()
 
@@ -299,7 +300,8 @@ def test_pass_manager_validates_optimization_metadata():
 
 def test_optimization_pass_with_preserves_allowed():
     """Test that optimization passes with preserves metadata are allowed."""
-    from pyflow.application.passmanager import PassManager, OptimizationPass, PassResult
+    from pyflow.application.passes.manager import PassManager
+    from pyflow.application.passes.base import OptimizationPass, PassResult
 
     manager = PassManager()
 

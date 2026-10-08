@@ -2,13 +2,13 @@ from unittest.mock import patch
 
 from pyflow.application.program import Program
 from pyflow.application.pipeline import Pipeline
-from pyflow.application.passmanager import PassManager
-from pyflow.application.passes import (
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.builtin import (
     CPAAnalysisPass,
     MethodCallOptimizationPass,
     SimplifyOptimizationPass,
-    register_standard_passes,
 )
+from pyflow.application.passes.registry import register_standard_passes
 
 
 def test_store_elimination_dependencies_registered():
@@ -29,9 +29,7 @@ def test_store_elimination_pipeline_includes_lifetime_before_execution():
 
     assert "lifetime" in pipeline.passes
     assert pipeline.passes.index("cpa") < pipeline.passes.index("lifetime")
-    assert pipeline.passes.index("lifetime") < pipeline.passes.index(
-        "store_elimination"
-    )
+    assert pipeline.passes.index("lifetime") < pipeline.passes.index("store_elimination")
 
 
 def test_standard_pass_aliases_resolve_to_registered_passes():
@@ -46,12 +44,12 @@ def test_standard_pass_aliases_resolve_to_registered_passes():
 
 def test_methodcall_pass_reports_changed_from_optimizer_result():
     p = MethodCallOptimizationPass()
-    with patch("pyflow.application.passes.methodcall.evaluate", return_value=False):
+    with patch("pyflow.application.passes.builtin.methodcall.evaluate", return_value=False):
         result = p.run(None, None)
     assert result.success is True
     assert result.changed is False
 
-    with patch("pyflow.application.passes.methodcall.evaluate", return_value=True):
+    with patch("pyflow.application.passes.builtin.methodcall.evaluate", return_value=True):
         result = p.run(None, None)
     assert result.success is True
     assert result.changed is True
@@ -59,12 +57,12 @@ def test_methodcall_pass_reports_changed_from_optimizer_result():
 
 def test_simplify_pass_reports_changed_from_optimizer_result():
     p = SimplifyOptimizationPass()
-    with patch("pyflow.application.passes.simplify.evaluate", return_value=False):
+    with patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=False):
         result = p.run(None, None)
     assert result.success is True
     assert result.changed is False
 
-    with patch("pyflow.application.passes.simplify.evaluate", return_value=True):
+    with patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True):
         result = p.run(None, None)
     assert result.success is True
     assert result.changed is True
@@ -75,7 +73,7 @@ def test_cpa_analysis_pass_is_cacheable_for_same_program():
     manager.register_pass(CPAAnalysisPass())
     program = Program()
 
-    with patch("pyflow.application.passes.cpa.evaluate", return_value=object()) as mocked:
+    with patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=object()) as mocked:
         manager.run_passes(None, program, ["cpa"])
         manager.run_passes(None, program, ["cpa"])
 
@@ -87,22 +85,18 @@ def test_path_sensitive_cpa_pass_uses_legacy_second_pass_settings():
     register_standard_passes(manager)
     program = Program()
 
-    with patch("pyflow.application.passes.ipa.evaluate", return_value=object()), patch(
-        "pyflow.application.passes.cpa.evaluate", return_value=object()
-    ) as mocked, patch(
-        "pyflow.application.passes.methodcall.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.simplify.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.clone.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.argumentnormalization.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.cullprogram.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.storeelimination.evaluate", return_value=False
-    ), patch(
-        "pyflow.application.passes.lifetimeanalysis.evaluate", return_value=object()
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=object()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=object()) as mocked,
+        patch("pyflow.application.passes.builtin.methodcall.evaluate", return_value=False),
+        patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=False),
+        patch("pyflow.application.passes.builtin.clone.evaluate", return_value=False),
+        patch(
+            "pyflow.application.passes.builtin.argumentnormalization.evaluate", return_value=False
+        ),
+        patch("pyflow.application.passes.builtin.cullprogram.evaluate", return_value=False),
+        patch("pyflow.application.passes.builtin.storeelimination.evaluate", return_value=False),
+        patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=object()),
     ):
         manager.run_passes(None, program, ["cpa_path_sensitive"])
 
@@ -118,15 +112,9 @@ def test_path_sensitive_cpa_pipeline_requires_refreshed_first_pass_conditioning(
     pipeline = manager.build_pipeline(["cpa_path_sensitive"])
 
     assert pipeline.passes.index("simplify") < pipeline.passes.index("cull_program")
-    assert pipeline.passes.index("cull_program") < pipeline.passes.index(
-        "first_pass_complete"
-    )
-    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
-        "ipa_refresh"
-    )
-    assert pipeline.passes.index("ipa_refresh") < pipeline.passes.index(
-        "cpa_path_sensitive"
-    )
+    assert pipeline.passes.index("cull_program") < pipeline.passes.index("first_pass_complete")
+    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index("ipa_refresh")
+    assert pipeline.passes.index("ipa_refresh") < pipeline.passes.index("cpa_path_sensitive")
     assert "store_elimination" not in pipeline.passes
 
 
@@ -137,12 +125,8 @@ def test_path_sensitive_pipeline_preserves_refreshed_stage_order():
     pipeline = manager.build_pipeline(["cpa_path_sensitive"])
 
     assert pipeline.passes.index("simplify") < pipeline.passes.index("cull_program")
-    assert pipeline.passes.index("cull_program") < pipeline.passes.index(
-        "first_pass_complete"
-    )
-    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
-        "ipa_refresh"
-    )
+    assert pipeline.passes.index("cull_program") < pipeline.passes.index("first_pass_complete")
+    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index("ipa_refresh")
     assert pipeline.passes.index("ipa_refresh") < pipeline.passes.index("cpa_path_sensitive")
 
 
@@ -163,13 +147,11 @@ def test_inlining_pipeline_requires_argument_normalization():
     pipeline = manager.build_pipeline(["inlining"])
 
     assert "argument_normalization" in pipeline.passes
-    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
-        "inlining"
-    )
+    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index("inlining")
 
 
 def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
-    pipeline = Pipeline(use_pass_manager=True)
+    pipeline = Pipeline()
     program = Program()
     captured = {}
 
@@ -177,7 +159,7 @@ def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
         captured["passes"] = list(pass_pipeline.passes)
         return {}
 
-    monkeypatch.setattr(pipeline.pass_manager, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(program.session.pass_manager, "run_pipeline", fake_run_pipeline)
 
     class _Compiler:
         class _Console:
@@ -189,18 +171,14 @@ def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
     pipeline.run(program, compiler=_Compiler())
 
     assert captured["passes"][:4] == ["ipa", "cpa", "methodcall", "simplify"]
-    assert captured["passes"].index("simplify") < captured["passes"].index(
-        "ipa_after_simplify"
-    )
+    assert captured["passes"].index("simplify") < captured["passes"].index("ipa_after_simplify")
     assert captured["passes"].index("ipa_after_simplify") < captured["passes"].index(
         "cpa_after_simplify"
     )
     assert captured["passes"].index("cpa_after_simplify") < captured["passes"].index(
         "lifetime_after_simplify"
     )
-    assert captured["passes"].index("lifetime_after_simplify") < captured[
-        "passes"
-    ].index("clone")
+    assert captured["passes"].index("lifetime_after_simplify") < captured["passes"].index("clone")
     assert captured["passes"].index("clone") < captured["passes"].index("cull_program")
     assert captured["passes"].index("argument_normalization") < captured["passes"].index(
         "cull_program"
@@ -215,7 +193,7 @@ def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
 
 
 def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):
-    pipeline = Pipeline(use_pass_manager=True)
+    pipeline = Pipeline()
     program = Program()
     captured = {}
 
@@ -223,7 +201,7 @@ def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):
         captured["passes"] = list(pass_pipeline.passes)
         return {}
 
-    monkeypatch.setattr(pipeline.pass_manager, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(program.session.pass_manager, "run_pipeline", fake_run_pipeline)
 
     class _Compiler:
         class _Console:
@@ -234,9 +212,5 @@ def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):
 
     pipeline.run(program, compiler=_Compiler(), include_experimental_inlining=True)
 
-    assert captured["passes"].index("argument_normalization") < captured["passes"].index(
-        "inlining"
-    )
-    assert captured["passes"].index("inlining") < captured["passes"].index(
-        "cull_program"
-    )
+    assert captured["passes"].index("argument_normalization") < captured["passes"].index("inlining")
+    assert captured["passes"].index("inlining") < captured["passes"].index("cull_program")

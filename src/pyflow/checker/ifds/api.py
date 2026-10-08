@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from pyflow.analysis.entrypoints import EntryPointDefaults, EntryPointMode, EntryPointOptions
-from pyflow.analysis.ifds.api import (
-    AnalysisSession,
+from pyflow.api.ifds import (
+    PreparedIFDSProgram,
     _entry_nodes_from_program,
     load_analysis_session,
 )
@@ -37,7 +37,7 @@ def run_taint_analysis(
     shadow_scan: bool = False,
     solver_options: SolverOptions | None = None,
     callgraph_max_iterations: int = 256,
-) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
+) -> tuple[PreparedIFDSProgram, TaintAnalysisResult, list | None]:
     """Load files and run taint analysis from a function or module entry.
 
     When *shadow_scan* is ``True``, returns a third element: a list of

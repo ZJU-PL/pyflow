@@ -198,7 +198,7 @@ def _run_ast_dataflow(
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
-    from pyflow.analysis.ifds.api import run_nullness_analysis, run_typestate_analysis
+    from pyflow.api.ifds import run_nullness_analysis, run_typestate_analysis
     from pyflow.checker.ifds.api import run_taint_analysis
 
     solver_options = _ifds_solver_options(args)
@@ -439,7 +439,7 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
 
 def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     """Run the CPG-based context-sensitive security analysis."""
-    from pyflow.ir.cpg.build import (
+    from pyflow.application.cpg import (
         SECURITY_CPG_EXCLUDE_DIRS,
         build_cpg,
         build_cpg_from_directory,

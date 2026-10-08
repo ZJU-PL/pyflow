@@ -55,7 +55,7 @@ Create custom optimization passes:
 
 .. code-block:: python
 
-   from pyflow.application.passmanager import OptimizationPass, PassResult
+   from pyflow.application.passes.base import OptimizationPass, PassResult
 
    class MyCustomOptimization(OptimizationPass):
        """Custom optimization pass."""
@@ -74,7 +74,7 @@ Create custom optimization passes:
            return False
 
    # Register the pass
-   from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes.manager import PassManager
 
    manager = PassManager()
    manager.register_pass(MyCustomOptimization())
@@ -179,33 +179,22 @@ Use PyFlow programmatically for fine-grained control:
 
 .. code-block:: python
 
-   from pyflow import Context
+   from pyflow.application.context import CompilerContext
+   from pyflow.application.pipeline import Pipeline
+   from pyflow.application.session import AnalysisOptions
    from pyflow.frontend.extractor import Extractor
-   from pyflow.analysis.cpa import InterproceduralDataflow
    from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 
-   # Set up compiler and extractor
-   context = Context()
-   extractor = Extractor(context)
-   extractor.process(["input.py"])
-   program = context.program
+   compiler = CompilerContext()
+   compiler.extractor = Extractor(compiler)
+   program = compiler.extractor.extract_from_file("input.py")
+   program.session.configure(AnalysisOptions(cpa_path_length=5))
 
-   # Create analysis context
-   context = Context()
-   context.slots["context_sensitive"] = True
-   context.slots["flow_sensitive"] = True
-
-   # Run specific analyses
-   cpa = InterproceduralDataflow()
-   cpa.run(program)
-
+   results = Pipeline().run_custom_pipeline(compiler, program, ["ipa", "cpa"])
+   cpa = program.session.get_result("cpa")
    graph = extract_call_graph_constraint(open("input.py").read())
 
-   # Combine results
-   combined_results = {
-       "cpa": cpa,
-       "callgraph": graph,
-   }
+   combined_results = {"cpa": cpa, "callgraph": graph}
 
 Troubleshooting
 ===============

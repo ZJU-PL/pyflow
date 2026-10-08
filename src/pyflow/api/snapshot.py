@@ -49,10 +49,8 @@ class AnalysisFeatures:
     type_info: bool = False
 
     @classmethod
-    def from_program(
-        cls, program: object, *, type_info: bool = False
-    ) -> "AnalysisFeatures":
-        results = getattr(program, "analysis_results", {})
+    def from_program(cls, program: object, *, type_info: bool = False) -> "AnalysisFeatures":
+        results = getattr(getattr(program, "session", None), "results", {})
         return cls(
             call_graph="ipa" in results,
             control_flow=bool(getattr(program, "liveCode", ())),
@@ -133,18 +131,12 @@ class AnalysisSnapshot:
                 program, type_info=type_info_service is not None
             ),
             revision=revision,
-            semantic_revision=(
-                revision if semantic_revision is None else semantic_revision
-            ),
+            semantic_revision=(revision if semantic_revision is None else semantic_revision),
             source_revision=source_revision,
             semantic_stale=semantic_stale,
-            queries=create_query_components(
-                compiler, program, type_info_service=type_info_service
-            ),
+            queries=create_query_components(compiler, program, type_info_service=type_info_service),
             source_files=(
-                MappingProxyType(dict(source_files))
-                if source_files is not None
-                else None
+                MappingProxyType(dict(source_files)) if source_files is not None else None
             ),
             type_info_service=type_info_service,
         )

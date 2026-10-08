@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pyflow.application.analysis_snapshot import AnalysisConfig
+from pyflow.api.snapshot import AnalysisConfig
 from pyflow.lsp import server as server_module
 from pyflow.lsp import workspace as workspace_module
 from pyflow.lsp.server import AnalysisManager

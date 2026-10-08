@@ -1,39 +1,5 @@
-"""
-PyFlow API - Entry point declarations and query services.
+"""Public semantic query services. Declarations live in pyflow.model.entrypoints."""
 
-This module provides the public API for:
-- Declaring program entry points for analysis (entrypoints package)
-- Querying analysis results (queries package)
-
-Example usage:
-
-    from pyflow.api import (
-        InterfaceDeclaration,
-        ClassDeclaration,
-        QueryComponents,
-    )
-
-    # Declare entry points
-    interface = InterfaceDeclaration()
-    cls_decl = ClassDeclaration(MyClass)
-    cls_decl.init(arg1, arg2)
-    interface.cls.append(cls_decl)
-
-    # Query analysis results
-    queries = create_query_components(compiler, program)
-    callers = queries.call_graph.get_callers("my_function")
-"""
-
-from .entrypoints import (
-    ArgumentWrapper,
-    ClassDeclaration,
-    EntryPoint,
-    ExistingWrapper,
-    InstanceWrapper,
-    InterfaceDeclaration,
-    NullWrapper,
-    nullWrapper,
-)
 from .queries import (
     AliasInfo,
     CallGraphQueries,
@@ -55,15 +21,6 @@ from .queries import (
 )
 
 __all__ = [
-    # Entrypoints
-    "ClassDeclaration",
-    "EntryPoint",
-    "InterfaceDeclaration",
-    "ArgumentWrapper",
-    "InstanceWrapper",
-    "ExistingWrapper",
-    "NullWrapper",
-    "nullWrapper",
     # Queries - core
     "QueryContext",
     "GraphQueryEngine",

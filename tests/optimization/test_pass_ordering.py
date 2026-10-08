@@ -8,8 +8,8 @@ dependencies are properly enforced.
 import pytest
 from unittest.mock import Mock, patch
 from pyflow.application.program import Program
-from pyflow.application.passmanager import PassManager
-from pyflow.application.passes import register_standard_passes
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.registry import register_standard_passes
 
 
 def test_lifetime_always_runs_after_cpa():
@@ -104,7 +104,7 @@ def test_circular_dependency_detection():
     manager = PassManager()
 
     # Create passes with circular dependency
-    from pyflow.application.passmanager import AnalysisPass, PassResult
+    from pyflow.application.passes.base import AnalysisPass, PassResult
 
     class PassA(AnalysisPass):
         def __init__(self):
@@ -139,7 +139,7 @@ def test_missing_dependency_detection():
     """Test that missing dependencies are detected."""
     manager = PassManager()
 
-    from pyflow.application.passmanager import AnalysisPass, PassResult
+    from pyflow.application.passes.base import AnalysisPass, PassResult
 
     class PassWithMissingDep(AnalysisPass):
         def __init__(self):
@@ -177,9 +177,9 @@ def test_pass_execution_order_matches_pipeline():
             return Mock()
         return tracker
 
-    with patch("pyflow.application.passes.ipa.evaluate", side_effect=make_tracker("ipa")), \
-         patch("pyflow.application.passes.cpa.evaluate", side_effect=make_tracker("cpa")), \
-         patch("pyflow.application.passes.lifetimeanalysis.evaluate", side_effect=make_tracker("lifetime")):
+    with patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=make_tracker("ipa")), \
+         patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=make_tracker("cpa")), \
+         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", side_effect=make_tracker("lifetime")):
 
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime"])
 
@@ -214,9 +214,9 @@ def test_pass_failure_stops_pipeline():
         execution_order.append("lifetime")
         return Mock()
 
-    with patch("pyflow.application.passes.ipa.evaluate", side_effect=ipa_success), \
-         patch("pyflow.application.passes.cpa.evaluate", side_effect=cpa_failure), \
-         patch("pyflow.application.passes.lifetimeanalysis.evaluate", side_effect=lifetime_should_not_run):
+    with patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=ipa_success), \
+         patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=cpa_failure), \
+         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", side_effect=lifetime_should_not_run):
 
         results = manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime"])
 

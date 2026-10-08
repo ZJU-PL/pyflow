@@ -5,7 +5,7 @@ Task-oriented code localization queries built on analysis facts.
 import logging
 from typing import Any, Dict, List, Optional, Set, Union
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 
 from .._models import (
     ChangeImpactReport,

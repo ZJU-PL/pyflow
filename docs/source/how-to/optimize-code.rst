@@ -85,8 +85,8 @@ For programmatic optimization:
 
 .. code-block:: python
 
-   from pyflow.application.passmanager import PassManager
-   from pyflow.application.passes import register_standard_passes
+   from pyflow.application.passes.manager import PassManager
+   from pyflow.application.passes.registry import register_standard_passes
 
    pass_manager = PassManager()
    register_standard_passes(pass_manager)
@@ -104,8 +104,8 @@ For complex optimization pipelines:
 
 .. code-block:: python
 
-   from pyflow.application.passmanager import PassManager
-   from pyflow.application.passes import register_standard_passes
+   from pyflow.application.passes.manager import PassManager
+   from pyflow.application.passes.registry import register_standard_passes
 
    pass_manager = PassManager()
    register_standard_passes(pass_manager)

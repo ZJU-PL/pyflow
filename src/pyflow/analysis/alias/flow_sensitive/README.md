@@ -171,7 +171,7 @@ metrics = graph.analysis_metrics()
 The application pass registers the result under the `"heap"` analysis key:
 
 ```python
-from pyflow.application.passes import HeapAnalysisPass
+from pyflow.application.passes.builtin import HeapAnalysisPass
 ```
 
 CLI-oriented inspection lives in `pyflow.cli.alias`.

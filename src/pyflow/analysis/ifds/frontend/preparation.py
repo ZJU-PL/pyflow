@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 
 from ..diagnostics import IFDSDiagnostic
 

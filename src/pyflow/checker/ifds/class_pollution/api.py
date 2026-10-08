@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Sequence
 
 from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
-from pyflow.analysis.ifds.api import (
-    AnalysisSession,
+from pyflow.api.ifds import (
+    PreparedIFDSProgram,
     _entry_nodes_from_program,
     load_analysis_session,
 )
@@ -33,7 +33,7 @@ def run_class_pollution_analysis(
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
     callgraph_max_iterations: int = 256,
-) -> tuple[AnalysisSession, ClassPollutionAnalysisResult]:
+) -> tuple[PreparedIFDSProgram, ClassPollutionAnalysisResult]:
     session = load_analysis_session(
         python_files,
         verbose=verbose,

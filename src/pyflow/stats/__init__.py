@@ -36,8 +36,6 @@ from pyflow import config
 from pyflow.ir.core import AnalysisFacts, Capabilities
 from pyflow.util.io.filesystem import ensureDirectoryExists
 from pyflow.util.io.report import *
-from pyflow.optimization import cullprogram
-from pyflow import config
 
 
 def classifyCode(code):
@@ -339,10 +337,8 @@ def generateIndex(collect):
 
 
 def contextStats(compiler, prgm, name, classOK=False):
-    if not config.dumpStats:
+    if not prgm.session.options.dump_stats:
         return
-
-    cullprogram.evaluate(compiler, prgm)
 
     reportdir = os.path.join(config.outputDirectory, "stats", name)
     ensureDirectoryExists(reportdir)

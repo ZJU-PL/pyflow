@@ -21,7 +21,7 @@ def _reachable_nodes(adapter, start):
 
 
 def test_direct_callgraph_fallback_follows_frontend_resolved_edges():
-    from pyflow.analysis.ifds.api import _direct_callgraph_target_codes
+    from pyflow.api.ifds import _direct_callgraph_target_codes
 
     leaf, _ = make_code("leaf", [], [ast.Return([])])
     middle, _ = make_code(
@@ -163,7 +163,7 @@ def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
 
 
 def test_context_manager_calls_are_classified_semantically(tmp_path):
-    from pyflow.analysis.ifds.api import load_analysis_session
+    from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "ctx.py"
     target.write_text("""
@@ -183,7 +183,7 @@ def main():
 
 
 def test_async_and_generator_procedure_semantics_are_retained(tmp_path):
-    from pyflow.analysis.ifds.api import load_analysis_session
+    from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "async_gen.py"
     target.write_text("""
@@ -229,7 +229,7 @@ def generate(values):
 
 
 def test_constraint_callgraph_publishes_same_class_method_targets(tmp_path):
-    from pyflow.analysis.ifds.api import load_analysis_session
+    from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "methods.py"
     target.write_text(

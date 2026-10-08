@@ -8,7 +8,7 @@ from typing import Optional
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.application.analysis_snapshot import AnalysisConfig, AnalysisSnapshot
+from pyflow.api.snapshot import AnalysisConfig, AnalysisSnapshot
 from pyflow.application.pipeline import Pipeline
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
@@ -217,7 +217,7 @@ class AnalysisManager:
 
             if run_pipeline:
                 with console.scope("analysis"):
-                    pipeline = Pipeline(use_pass_manager=True)
+                    pipeline = Pipeline()
                     pipeline.run_custom_pipeline(
                         compiler,
                         program,

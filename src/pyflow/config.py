@@ -12,18 +12,6 @@ import os.path
 base, junk = os.path.split(__file__)
 outputDirectory = os.path.normpath(os.path.join(base, "..", "..", "tmp", "summaries"))
 
-doDump = False
-maskDumpErrors = False
-doThreadCleanup = False
-
-dumpStats = False
-
-
-# Pointer analysis testing
-useXTypes = True
-useControlSensitivity = True
-useCPA = True
-
 # Shape argument transfer caps used by shape constraint construction.
 # These defaults preserve historical behavior while allowing callers to override.
 shape_max_varg_transfer = 3

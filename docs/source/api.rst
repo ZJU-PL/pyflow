@@ -4,7 +4,7 @@ PyFlow API
 The PyFlow API provides programmatic access to PyFlow's analysis capabilities.
 The API is organized into two main packages:
 
-- **Entry Points** (``pyflow.api.entrypoints``): Define what code to analyze
+- **Entry Points** (``pyflow.model.entrypoints``): Define what code to analyze
 - **Query Components** (``pyflow.api.queries``): Query analysis results
 
 Quick Start
@@ -12,16 +12,13 @@ Quick Start
 
 .. code-block:: python
 
-   from pyflow.api import (
-       InterfaceDeclaration,
-       ClassDeclaration,
-       create_query_components,
-   )
+   from pyflow.model.entrypoints import InterfaceDeclaration, ClassDeclaration
+   from pyflow.api.queries import create_query_components
    from pyflow.frontend.extractor import Extractor
    from pyflow.application.context import CompilerContext
 
    # Set up the compiler and extractor
-   compiler = CompilerContext()
+   compiler = CompilerContext(None)
    extractor = Extractor(compiler)
 
    # Declare entry points
@@ -46,7 +43,7 @@ Quick Start
 Entry Points
 ------------
 
-The entry points module (``pyflow.api.entrypoints``) provides classes for
+The entry points module (``pyflow.model.entrypoints``) provides classes for
 declaring what code should be analyzed.
 
 InterfaceDeclaration
@@ -56,7 +53,7 @@ The main entry point for declaring analysis targets.
 
 .. code-block:: python
 
-   from pyflow.api import InterfaceDeclaration
+   from pyflow.model.entrypoints import InterfaceDeclaration
 
    interface = InterfaceDeclaration()
    
@@ -79,7 +76,7 @@ Declares a class with its initialization, attributes, and methods.
 
 .. code-block:: python
 
-   from pyflow.api import ClassDeclaration
+   from pyflow.model.entrypoints import ClassDeclaration
 
    class_decl = ClassDeclaration(MyClass)
    class_decl.init(arg1, arg2)  # Constructor arguments
@@ -235,10 +232,12 @@ defined in ``pyflow.lsp.mcp_config``:
 .. code-block:: python
 
    from pyflow.lsp.mcp_config import MCPServerMode
-   from pyflow.application.analysis_snapshot import AnalysisSnapshot
+   from pyflow.api.snapshot import AnalysisSnapshot
 
    # Create a snapshot from compiler context and program
-   snapshot = AnalysisSnapshot.from_program(compiler, program)
+   snapshot = AnalysisSnapshot.create(
+       compiler=compiler, program=program, source_index=source_index, revision=1
+   )
 
    # Query snapshot properties and query components
    queries = snapshot.queries

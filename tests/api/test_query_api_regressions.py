@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pyflow.api.entrypoints import ExistingWrapper, InterfaceDeclaration, nullWrapper
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.entrypoints import ExistingWrapper, InterfaceDeclaration, nullWrapper
+from pyflow.model.errors import TemporaryLimitation
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.analysis.typeinfo.core.typesystem import Instance
 from pyflow.api.queries.call_graph import CallGraphQueries
@@ -27,9 +27,7 @@ from pyflow.ir.core import (
 class DummyCode:
     def __init__(self, name, filename=None, lineno=None):
         self.name = name
-        self.annotation = SimpleNamespace(
-            origin=SimpleNamespace(filename=filename, lineno=lineno)
-        )
+        self.annotation = SimpleNamespace(origin=SimpleNamespace(filename=filename, lineno=lineno))
 
     def codeName(self):
         return self.name
@@ -85,7 +83,9 @@ def test_test_scenarios_do_not_break_on_cfg_cycles():
 
     cfg = SimpleNamespace(entryTerminal=entry)
     queries = _TestGenerationQueries(
-        context=SimpleNamespace(resolve_function_name=lambda _: "f", resolve_function=lambda _: None),
+        context=SimpleNamespace(
+            resolve_function_name=lambda _: "f", resolve_function=lambda _: None
+        ),
         graph_engine=None,
         call_graph_queries=SimpleNamespace(get_callees=lambda _: [], get_callers=lambda _: []),
         control_flow_queries=SimpleNamespace(get_cfg=lambda _: cfg),
@@ -314,14 +314,18 @@ def test_trace_data_flow_returns_richer_backward_compatible_shape():
         ),
         control_flow_queries=SimpleNamespace(get_ssa=lambda _: None),
         data_flow_queries=SimpleNamespace(
-            get_reaching_defs=lambda *_: {"x": [SimpleNamespace(def_location=3, def_value="var:y")]},
+            get_reaching_defs=lambda *_: {
+                "x": [SimpleNamespace(def_location=3, def_value="var:y")]
+            },
             get_aliases=lambda *_: {},
             get_points_to=lambda *_: {},
             get_variable_uses=lambda *_: ["line 4"],
         ),
     )
     queries.get_localization_candidates = lambda *_args, **_kwargs: [
-        LocalizationCandidate("u1", 0.7, "match", [], [], evidence=SimpleNamespace(variable_match=True))
+        LocalizationCandidate(
+            "u1", 0.7, "match", [], [], evidence=SimpleNamespace(variable_match=True)
+        )
     ]
 
     trace = queries.trace_data_flow("target", "x")
@@ -360,9 +364,7 @@ def test_change_impact_includes_downstream_dependencies():
 
 def test_entrypoint_maps_keyword_arguments_to_positional():
     interface = InterfaceDeclaration()
-    code = SimpleNamespace(
-        codeParameters=lambda: SimpleNamespace(paramnames=["x", "y"])
-    )
+    code = SimpleNamespace(codeParameters=lambda: SimpleNamespace(paramnames=["x", "y"]))
 
     ep = interface.createEntryPoint(
         code=code,
@@ -394,9 +396,7 @@ def test_resolve_function_errors_on_ambiguous_short_name():
     )
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(
-            liveCode=[code_a, code_b], interface=None, ir=catalog
-        ),
+        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None, ir=catalog),
     )
 
     with pytest.raises(ValueError, match="ambiguous"):
@@ -424,9 +424,7 @@ def test_get_all_cfgs_raises_when_any_cfg_construction_fails(monkeypatch):
     )
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(
-            liveCode=[code_a, code_b], interface=None, ir=catalog
-        ),
+        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None, ir=catalog),
     )
     engine = GraphQueryEngine(context)
 
@@ -528,3 +526,36 @@ def test_query_components_expose_typeinfo_service():
     assert fact is not None
     assert fact.raw_annotation == "int"
     assert queries.type_info.available is True
+
+
+def test_query_callgraph_cache_tracks_fact_publication_and_ir_changes():
+    from pyflow.application.program import Program
+
+    program = Program()
+    queries = create_query_components(object(), program)
+    program.ir.facts.publish(Capabilities.CALL_TARGET_CODES, "callgraph", {})
+    first = queries.call_graph.get_callgraph()
+    program.ir.facts.publish(Capabilities.CALL_TARGET_CODES, "callgraph", {})
+    second = queries.call_graph.get_callgraph()
+    assert second is not first
+
+    program.session.mark_changed()
+    with pytest.raises(TemporaryLimitation, match="Call-target facts"):
+        queries.call_graph.get_callgraph()
+
+
+def test_query_cfg_cache_tracks_ir_revisions(monkeypatch):
+    from pyflow.application.program import Program
+    from pyflow.api.queries import engine as engine_module
+
+    program = Program()
+    code = DummyCode("f")
+    program.liveCode.add(code)
+    queries = create_query_components(object(), program)
+    cfgs = iter([object(), object()])
+    monkeypatch.setattr(engine_module.cfg_transform, "evaluate", lambda *_: next(cfgs))
+
+    first = queries.control_flow.get_cfg("f")
+    assert queries.control_flow.get_cfg("f") is first
+    program.ir.commit_revision()
+    assert queries.control_flow.get_cfg("f") is not first

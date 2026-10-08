@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.api.entrypoints import (
+from pyflow.model.entrypoints import (
     ClassDeclaration,
     InterfaceDeclaration,
     ExistingWrapper,
@@ -851,7 +851,7 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_extract_program_with_interface(self):
         """Test extract_program with interface."""
-        from pyflow.api.entrypoints import InterfaceDeclaration
+        from pyflow.model.entrypoints import InterfaceDeclaration
         
         interface_decl = InterfaceDeclaration()
         self.program.interface = interface_decl

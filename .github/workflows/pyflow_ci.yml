@@ -34,7 +34,7 @@ jobs:
         run: |
           flake8 tests/tooling
 
-      - name: Run tooling tests
+      - name: Run tooling and architecture contract tests
         run: |
           pytest tests/tooling -q
 

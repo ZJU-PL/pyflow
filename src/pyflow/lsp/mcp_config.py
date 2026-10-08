@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pyflow.application.analysis_snapshot import AnalysisConfig
+from pyflow.api.snapshot import AnalysisConfig
 
 
 class MCPServerMode(Enum):

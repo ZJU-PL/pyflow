@@ -10,7 +10,7 @@ from pyflow.ir.cfg import transform
 from pyflow.ir.pdg import construct_pdg
 from pyflow.analysis.callgraph.callgraph import CallGraph
 from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
-from pyflow.ir.cpg.build import build_cpg, build_cpg_from_directory
+from pyflow.application.cpg import build_cpg, build_cpg_from_directory
 from pyflow.ir.cpg.dump import to_dot
 from pyflow.checker.cpg.taint import (
     CPGTaintEngine,
@@ -1486,7 +1486,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertGreater(cpg.stats().nodes, 0)
 
     def test_syntax_error_returns_empty_cpg(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         cpg = build_cpg("def broken(", "bad.py")
         self.assertEqual(len(cpg.functions), 0)
@@ -1652,7 +1652,7 @@ class TestCPGConstruction(unittest.TestCase):
     # ── Statement-type metadata builders (Gap #2) ─────────────────────
 
     def test_annassign_metadata(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def f(x: int) -> None:\n    y: int = x\n"
         cpg = build_cpg(source, "test.py")
@@ -1667,7 +1667,7 @@ class TestCPGConstruction(unittest.TestCase):
             self.assertIn("ann_type", meta)
 
     def test_annassign_annotation_only_no_value(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def f():\n    x: int\n"
         cpg = build_cpg(source, "test.py")
@@ -1677,7 +1677,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertIsInstance(ann_nodes, list)
 
     def test_delete_metadata(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def f():\n    x = 1\n    del x\n"
         cpg = build_cpg(source, "test.py")
@@ -1688,7 +1688,7 @@ class TestCPGConstruction(unittest.TestCase):
             self.assertTrue(meta.get("is_delete"))
 
     def test_raise_metadata(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def f():\n    raise ValueError('bad')\n"
         with warnings.catch_warnings(record=True) as caught:
@@ -1707,7 +1707,7 @@ class TestCPGConstruction(unittest.TestCase):
             self.assertTrue(meta.get("is_raise"))
 
     def test_assert_metadata(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def f(x):\n    assert x > 0\n    return x\n"
         cpg = build_cpg(source, "test.py")
@@ -1718,7 +1718,7 @@ class TestCPGConstruction(unittest.TestCase):
             self.assertTrue(meta.get("is_assert"))
 
     def test_additional_statement_metadata_best_effort(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = (
             "def f(xs):\n"
@@ -1750,7 +1750,7 @@ class TestCPGConstruction(unittest.TestCase):
         )
 
     def test_yield_from_source_ast_backfill(self):
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def gen(xs):\n    yield xs\n    yield from xs\n"
         cpg = build_cpg(source, "test.py")
@@ -1803,7 +1803,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_annassign_propagates_taint(self):
         """Taint from a source flows through AnnAssign to the target."""
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         cpg = build_cpg("", "empty.py")
         cpg.build()
@@ -1822,7 +1822,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_annassign_no_value_no_propagation(self):
         """Annotation-only declarations (no value) should not propagate."""
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         cpg = build_cpg("", "empty.py")
         cpg.build()
@@ -1840,7 +1840,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_annassign_propagator_preserves_state_on_clean_rhs(self):
         """_propagate_annassign with a clean RHS returns tstate unchanged."""
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         cpg = build_cpg("", "empty.py")
         cpg.build()
@@ -1858,7 +1858,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_get_callee_param_names(self):
         """Extract parameter names from a FunctionDef AST."""
-        from pyflow.ir.cpg.build import build_cpg
+        from pyflow.application.cpg import build_cpg
 
         source = "def add(a, b):\n    return a + b\n"
         cpg = build_cpg(source, "test.py")

@@ -37,11 +37,11 @@ class HeapAnalysis:
 
         analysis = HeapAnalysis()
         graph = analysis.analyze(compiler, program)
-        program.set_analysis_result("heap", graph)
+        program.session.record_result("heap", graph)
 
     Typical query usage::
 
-        graph = program.get_analysis_result("heap")
+        graph = program.session.get_result("heap")
         if graph.never_escapes(location):
             ...  # safe to stack-allocate / eliminate
         if graph.must_alias(a, b):

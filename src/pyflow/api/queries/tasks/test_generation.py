@@ -5,7 +5,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 from pyflow.language.asttools import mccabe_complexity
 
 from .._models import FunctionTestProfile, TestScenario

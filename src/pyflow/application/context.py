@@ -85,7 +85,7 @@ class CompilerContext(object):
 
     __slots__ = "console", "extractor", "slots", "stats", "program"
 
-    def __init__(self, console):
+    def __init__(self, console=None):
         """
         Initialize the compiler context.
 
@@ -102,15 +102,3 @@ class CompilerContext(object):
         self.slots = Slots()
         self.stats = collections.defaultdict(dict)
         self.program = None
-
-
-class Context(CompilerContext):
-    """Backward-compatible alias for ``CompilerContext``.
-
-    Older call sites imported ``Context`` as a minimal shell object. Keeping it
-    as a thin subclass preserves that API while ensuring all contexts expose the
-    same console/slot/stat interfaces.
-    """
-
-    def __init__(self, console=None):
-        super().__init__(console)

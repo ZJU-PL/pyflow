@@ -8,8 +8,8 @@ and produce equivalent results.
 import pytest
 from unittest.mock import Mock, patch
 from pyflow.cli.optimize import _normalize_opt_pass_name, OPTIMIZATION_PASSES, OPT_PASS_ALIASES
-from pyflow.application.passmanager import PassManager
-from pyflow.application.passes import register_standard_passes, PASS_ALIASES
+from pyflow.application.passes.manager import PassManager
+from pyflow.application.passes.registry import register_standard_passes, PASS_ALIASES
 
 
 def test_cli_aliases_match_pass_manager():
@@ -20,7 +20,9 @@ def test_cli_aliases_match_pass_manager():
     # All CLI aliases should resolve to valid pass names
     for cli_name, canonical_name in OPT_PASS_ALIASES.items():
         # CLI alias should map to a registered pass
-        assert canonical_name in manager.passes, f"CLI alias '{cli_name}' maps to unregistered pass '{canonical_name}'"
+        assert (
+            canonical_name in manager.passes
+        ), f"CLI alias '{cli_name}' maps to unregistered pass '{canonical_name}'"
 
 
 def test_cli_pass_names_are_registered():
@@ -132,10 +134,7 @@ def test_pass_ordering_is_deterministic():
     register_standard_passes(manager)
 
     # Build the same pipeline multiple times
-    pipelines = [
-        manager.build_pipeline(["simplify", "clone", "cull_program"])
-        for _ in range(5)
-    ]
+    pipelines = [manager.build_pipeline(["simplify", "clone", "cull_program"]) for _ in range(5)]
 
     # All pipelines should have the same order
     first_order = pipelines[0].passes
@@ -150,14 +149,25 @@ def test_cli_help_text_matches_registered_passes():
 
     # Internal passes that are not exposed in CLI
     internal_passes = {
-        "first_pass_methodcall", "first_pass_lifetime", "first_pass_simplify",
-        "first_pass_clone", "first_pass_argument_normalization",
-            "first_pass_cull_program", "first_pass_store_elimination",
-            "first_pass_complete", "ipa_refresh", "cpa_path_sensitive",
-            "lifetime_refresh", "ipa_after_simplify", "cpa_after_simplify",
-            "lifetime_after_simplify", "simplify_final", "store_elimination_final",
-            "inlining",
-        }
+        "stats",  # Reporting is selected by session options.
+        "first_pass_methodcall",
+        "first_pass_lifetime",
+        "first_pass_simplify",
+        "first_pass_clone",
+        "first_pass_argument_normalization",
+        "first_pass_cull_program",
+        "first_pass_store_elimination",
+        "first_pass_complete",
+        "ipa_refresh",
+        "cpa_path_sensitive",
+        "lifetime_refresh",
+        "ipa_after_simplify",
+        "cpa_after_simplify",
+        "lifetime_after_simplify",
+        "simplify_final",
+        "store_elimination_final",
+        "inlining",
+    }
 
     # All registered optimization passes should be in CLI
     for pass_name in manager.passes:
@@ -168,9 +178,9 @@ def test_cli_help_text_matches_registered_passes():
         # Should be in OPTIMIZATION_PASSES or have an alias
         normalized = _normalize_opt_pass_name(pass_name)
         assert (
-            pass_name in OPTIMIZATION_PASSES or
-            normalized in OPTIMIZATION_PASSES or
-            pass_name in ["ipa", "cpa", "lifetime", "heap"]  # Analysis passes
+            pass_name in OPTIMIZATION_PASSES
+            or normalized in OPTIMIZATION_PASSES
+            or pass_name in ["ipa", "cpa", "lifetime", "heap"]  # Analysis passes
         ), f"Pass '{pass_name}' not exposed in CLI"
 
 

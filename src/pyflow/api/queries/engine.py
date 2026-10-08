@@ -5,7 +5,7 @@ Graph query engine for PyFlow.
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Union
 
-from pyflow.application.errors import TemporaryLimitation
+from pyflow.model.errors import TemporaryLimitation
 from pyflow.analysis.callgraph import CallGraph
 from pyflow.ir.cfg import ssa as cfg_ssa
 from pyflow.ir.cfg import transform as cfg_transform
@@ -30,6 +30,22 @@ class GraphQueryEngine:
         self._ifds_supergraph_cache = None
         self._callgraph_cache: Optional[CallGraph] = None
         self._callgraph_aliases: Dict[str, Set[str]] = {}
+        self._ir_token = None
+        self._facts_token = None
+        self._sync_cache()
+
+    def _sync_cache(self):
+        catalog = getattr(self.context.program, "ir", None)
+        ir_token = (catalog, getattr(catalog, "revision", None))
+        facts_token = getattr(getattr(catalog, "facts", None), "revision", None)
+        if ir_token != self._ir_token:
+            self.reset_cache()
+        elif facts_token != self._facts_token:
+            self._callgraph_cache = None
+            self._callgraph_aliases = {}
+            self._ifds_supergraph_cache = None
+        self._ir_token = ir_token
+        self._facts_token = facts_token
 
     def reset_cache(self):
         """Clear all internal caches."""
@@ -40,35 +56,37 @@ class GraphQueryEngine:
         self._callgraph_cache = None
         self._callgraph_aliases = {}
 
-    def get_cfg(
-        self, function: Union[str, object], *, commit_revision: bool = True
-    ):
+    def get_cfg(self, function: Union[str, object], *, commit_revision: bool = True):
         """Return a CFG for the given function."""
+        self._sync_cache()
         code = self.context.resolve_function(function)
         if code not in self._cfg_cache:
             if commit_revision:
-                self._cfg_cache[code] = cfg_transform.evaluate(
-                    self.context.compiler, code
-                )
+                cfg = cfg_transform.evaluate(self.context.compiler, code)
             else:
-                self._cfg_cache[code] = cfg_transform.evaluate(
+                cfg = cfg_transform.evaluate(
                     self.context.compiler,
                     code,
                     commit_revision=False,
                 )
+            self._sync_cache()
+            self._cfg_cache[code] = cfg
         return self._cfg_cache[code]
 
     def get_ssa(self, function: Union[str, object]):
         """Return a CFG annotated with SSA form."""
+        self._sync_cache()
         code = self.context.resolve_function(function)
         if code not in self._ssa_cache:
             cfg = cfg_transform.evaluate(self.context.compiler, code)
             cfg_ssa.evaluate(self.context.compiler, cfg)
+            self._sync_cache()
             self._ssa_cache[code] = cfg
         return self._ssa_cache[code]
 
     def get_cdg(self, function: Union[str, object]):
         """Return a CDG for the given function."""
+        self._sync_cache()
         code = self.context.resolve_function(function)
         if code not in self._cdg_cache:
             cfg = self.get_cfg(code)
@@ -77,6 +95,7 @@ class GraphQueryEngine:
 
     def get_callgraph(self) -> CallGraph:
         """Return a callgraph derived from revision-aware published facts."""
+        self._sync_cache()
         if self._callgraph_cache is None:
             catalog = getattr(self.context.program, "ir", None)
             if catalog is None:
@@ -112,9 +131,7 @@ class GraphQueryEngine:
                 edges.update((key.entity.code, target.code) for target in result.values)
 
             for source_id, target_id in sorted(edges):
-                if not catalog.has_procedure(source_id) or not catalog.has_procedure(
-                    target_id
-                ):
+                if not catalog.has_procedure(source_id) or not catalog.has_procedure(target_id):
                     continue
                 src_name = str(source_id)
                 dst_name = str(target_id)
@@ -127,9 +144,7 @@ class GraphQueryEngine:
         self.get_callgraph()
         return {alias: set(nodes) for alias, nodes in self._callgraph_aliases.items()}
 
-    def get_all_cfgs(
-        self, *, ignore_failures: bool = False
-    ) -> Dict[object, object]:
+    def get_all_cfgs(self, *, ignore_failures: bool = False) -> Dict[object, object]:
         """Return CFGs for all known live code objects."""
         cfgs: Dict[object, object] = {}
         failures: List[str] = []
@@ -137,7 +152,9 @@ class GraphQueryEngine:
             try:
                 cfgs[code] = self.get_cfg(code)
             except Exception as exc:
-                name = self.context.code_identifier(code) or self.context.code_name(code) or repr(code)
+                name = (
+                    self.context.code_identifier(code) or self.context.code_name(code) or repr(code)
+                )
                 failures.append(f"{name}: {exc}")
         if failures and not ignore_failures:
             raise TemporaryLimitation(
@@ -147,6 +164,7 @@ class GraphQueryEngine:
 
     def get_ifds_supergraph(self):
         """Return a cached CFG-backed IFDS supergraph adapter."""
+        self._sync_cache()
         if self._ifds_supergraph_cache is None:
             prepared = prepare_program_for_ifds(
                 self.context.compiler,

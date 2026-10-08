@@ -893,7 +893,7 @@ def test_generator_yield_taint_reaches_for_loop_target():
 
 
 def test_legacy_source_nested_call_result_reaches_assignment_in_while(tmp_path):
-    from pyflow.analysis.ifds.api import load_analysis_session
+    from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "legacy_while.py"
     target.write_text(

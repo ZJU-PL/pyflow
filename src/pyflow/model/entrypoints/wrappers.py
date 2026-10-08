@@ -74,10 +74,8 @@ class NullWrapper(ArgumentWrapper):
     def get(self, dataflow):
         return None
 
-    def __nonzero__(self):
+    def __bool__(self):
         return False
-
-    __bool__ = __nonzero__
 
 
 nullWrapper = NullWrapper()

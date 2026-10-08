@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import pyflow.analysis.ifds.api as ifds_api
+import pyflow.api.ifds as ifds_api
 import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.cli.security as security_cli
 
