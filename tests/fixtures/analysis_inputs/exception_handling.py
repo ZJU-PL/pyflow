@@ -6,8 +6,8 @@ This example demonstrates exception handling, error flows, and control flow
 that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize exception_handling.py --analysis cpa
-    pyflow callgraph exception_handling.py
+    pyflow optimize tests/fixtures/analysis_inputs/exception_handling.py --analysis cpa
+    pyflow callgraph tests/fixtures/analysis_inputs/exception_handling.py
 """
 
 def safe_divide(a, b):

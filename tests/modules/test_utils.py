@@ -5,8 +5,8 @@ from pyflow.language.modules.project_handler import _is_python_file
 
 def get_modules_and_packages(path):
     """Return a list containing tuples of
-    e.g. ('folder', 'example/test_project/folder', '.folder')
-         ('test_project.utils', 'example/test_project/utils.py')
+    e.g. ('folder', 'tests/fixtures/test_project/folder', '.folder')
+         ('test_project.utils', 'tests/fixtures/test_project/utils.py')
     """
     module_root = os.path.split(path)[1]
     modules = list()

@@ -6,8 +6,8 @@ This example demonstrates advanced OOP patterns including abstract classes,
 mixins, descriptors, and metaclasses for static analysis testing.
 
 Usage:
-    pyflow optimize advanced_oop.py --analysis ipa
-    pyflow callgraph advanced_oop.py
+    pyflow optimize tests/fixtures/analysis_inputs/advanced_oop.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/advanced_oop.py
 """
 
 from abc import ABC, abstractmethod

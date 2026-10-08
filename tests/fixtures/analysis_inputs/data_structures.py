@@ -6,8 +6,8 @@ This example demonstrates data structure operations including lists, tuples,
 classes, and object manipulation that can be analyzed by PyFlow's shape analysis.
 
 Usage:
-    pyflow optimize data_structures.py --analysis shape
-    pyflow callgraph data_structures.py
+    pyflow optimize tests/fixtures/analysis_inputs/data_structures.py --analysis shape
+    pyflow callgraph tests/fixtures/analysis_inputs/data_structures.py
 """
 
 class Point:

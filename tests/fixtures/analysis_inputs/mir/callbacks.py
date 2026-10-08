@@ -2,8 +2,8 @@
 
 Run with CPython to check the result, or inspect it using:
 
-    pyflow ir examples/mir/callbacks.py --dump-mir --dump-output out/
-    pyflow callgraph examples/mir/callbacks.py --algorithm pycg-mir
+    pyflow ir tests/fixtures/analysis_inputs/mir/callbacks.py --dump-mir --dump-output out/
+    pyflow callgraph tests/fixtures/analysis_inputs/mir/callbacks.py --algorithm pycg-mir
 """
 
 

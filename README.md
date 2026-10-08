@@ -37,6 +37,14 @@ If you use pyflow in your research or work, please cite the following:
 - **CLI tooling**: commands for optimization, call graph generation, IR dumps,
   security, supply-chain, alias analysis, and concolic test-input generation
 
+## Examples and test inputs
+
+- [`examples/`](examples/README.md): runnable examples of using PyFlow's Python
+  APIs and extending analyses.
+- [`tests/fixtures/`](tests/fixtures/README.md): Python inputs for analysis and
+  module-discovery tests. Small test-specific snippets also live alongside
+  their suites.
+
 ## Evaluation results
 
 Security analysis engines evaluated on the PySASTBench microbenchmark

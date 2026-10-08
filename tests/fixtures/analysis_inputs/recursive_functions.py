@@ -6,8 +6,8 @@ This example demonstrates recursive function calls and algorithms
 that can be analyzed by PyFlow's inter-procedural analysis (IPA).
 
 Usage:
-    pyflow optimize recursive_functions.py --analysis ipa
-    pyflow callgraph recursive_functions.py
+    pyflow optimize tests/fixtures/analysis_inputs/recursive_functions.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/recursive_functions.py
 """
 
 def factorial(n):

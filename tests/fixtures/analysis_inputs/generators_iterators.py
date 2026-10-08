@@ -6,8 +6,8 @@ This example demonstrates Python generators, iterators, and iteration protocols
 that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize generators_iterators.py --analysis ipa
-    pyflow callgraph generators_iterators.py
+    pyflow optimize tests/fixtures/analysis_inputs/generators_iterators.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/generators_iterators.py
 """
 
 def simple_generator(n):

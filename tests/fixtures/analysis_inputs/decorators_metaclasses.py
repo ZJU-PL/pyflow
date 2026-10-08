@@ -6,8 +6,8 @@ This example demonstrates Python decorators, metaclasses, and advanced
 object-oriented features that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize decorators_metaclasses.py --analysis ipa
-    pyflow callgraph decorators_metaclasses.py
+    pyflow optimize tests/fixtures/analysis_inputs/decorators_metaclasses.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/decorators_metaclasses.py
 """
 
 import functools

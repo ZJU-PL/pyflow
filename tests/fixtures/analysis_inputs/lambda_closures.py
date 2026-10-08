@@ -6,8 +6,8 @@ This example demonstrates lambda functions, closures, and functional programming
 concepts that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize lambda_closures.py --analysis ipa
-    pyflow callgraph lambda_closures.py
+    pyflow optimize tests/fixtures/analysis_inputs/lambda_closures.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/lambda_closures.py
 """
 
 import functools

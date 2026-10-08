@@ -37,15 +37,15 @@ when the lowering front end resolves imports.
 Runnable Example
 ----------------
 
-``examples/mir/callbacks.py`` combines a higher-order ``apply`` function with
+``tests/fixtures/analysis_inputs/mir/callbacks.py`` combines a higher-order ``apply`` function with
 ``Callback.__add__`` and a subclass's ``PreferredCallback.__radd__``. Running it
 with CPython checks that the computed result is 5. The MIR compiler exposes
 the implicit operator dispatch as calls. The operator returns a function value,
 which the native solver propagates through ``apply``::
 
-    python examples/mir/callbacks.py
-    pyflow callgraph examples/mir/callbacks.py --algorithm pycg-mir
-    pyflow ir examples/mir/callbacks.py --dump-mir callbacks.PreferredCallback.__radd__ --dump-output out/
+    python tests/fixtures/analysis_inputs/mir/callbacks.py
+    pyflow callgraph tests/fixtures/analysis_inputs/mir/callbacks.py --algorithm pycg-mir
+    pyflow ir tests/fixtures/analysis_inputs/mir/callbacks.py --dump-mir callbacks.PreferredCallback.__radd__ --dump-output out/
 
 The call graph includes ``callbacks.apply -> callbacks.leaf`` and
 relationships from module code to the operator methods. The chosen

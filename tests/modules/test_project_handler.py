@@ -1,5 +1,6 @@
 import os
 import unittest
+from pathlib import Path
 
 from tests.modules.test_utils import get_modules_and_packages
 
@@ -17,7 +18,7 @@ class ProjectHandlerTest(unittest.TestCase):
         self.assertEqual(_is_python_file(not_python_module), False)
 
     def test_get_modules(self):
-        project_folder = os.path.normpath(os.path.join("examples", "test_project"))
+        project_folder = str(Path(__file__).resolve().parents[1] / "fixtures" / "test_project")
 
         project_namespace = "test_project"
         folder = "folder"
@@ -57,7 +58,7 @@ class ProjectHandlerTest(unittest.TestCase):
         self.assertEqual(len(modules), 6)
 
     def test_get_modules_no_prepend_root(self):
-        project_folder = os.path.normpath(os.path.join("examples", "test_project"))
+        project_folder = str(Path(__file__).resolve().parents[1] / "fixtures" / "test_project")
 
         folder = "folder"
         directory = "directory"
@@ -83,7 +84,7 @@ class ProjectHandlerTest(unittest.TestCase):
         self.assertEqual(len(modules), 6)
 
     def test_get_modules_and_packages(self):
-        project_folder = os.path.normpath(os.path.join("examples", "test_project"))
+        project_folder = str(Path(__file__).resolve().parents[1] / "fixtures" / "test_project")
 
         project_namespace = "test_project"
         folder = "folder"

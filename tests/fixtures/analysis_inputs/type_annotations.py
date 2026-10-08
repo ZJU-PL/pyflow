@@ -6,8 +6,8 @@ This example demonstrates Python type annotations, type hints, and type checking
 that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize type_annotations.py --analysis ipa
-    pyflow callgraph type_annotations.py
+    pyflow optimize tests/fixtures/analysis_inputs/type_annotations.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/type_annotations.py
 """
 
 from typing import (

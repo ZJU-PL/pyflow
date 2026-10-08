@@ -6,8 +6,8 @@ This example demonstrates control flow structures including conditionals,
 loops, and branching that can be analyzed by PyFlow's control flow analysis.
 
 Usage:
-    pyflow optimize control_flow.py --analysis cpa
-    pyflow callgraph control_flow.py
+    pyflow optimize tests/fixtures/analysis_inputs/control_flow.py --analysis cpa
+    pyflow callgraph tests/fixtures/analysis_inputs/control_flow.py
 """
 
 def is_even(number):

@@ -15,7 +15,7 @@ def add_security_parser(subparsers):
             "Run security analysis using one of four engines. "
             "Use --engine to choose: 'ast-scanner' (fast AST matching, default), "
             "'ast-dataflow' (taint dataflow over the Python AST), "
-            "'ifds' (interprocedural dataflow rooted at an entry file), or "
+            "'ifds' (interprocedural dataflow over discovered entries), or "
             "'cpg' (CPG-based context-sensitive analysis)."
         ),
     )
@@ -33,7 +33,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--config",
         type=Path,
-        help="JSON config file for IFDS analysis parameters",
+        help="JSON config file for IFDS parameters (default: project pyflow.json)",
     )
     p.add_argument(
         "--analysis",
@@ -68,9 +68,11 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--entry",
         type=Path,
+        action="append",
+        default=argparse.SUPPRESS,
         help=(
             "Entry point file relative to the project root for --engine ifds "
-            "(auto-detected for directory targets; a file target is its own entry)"
+            "(repeatable; all discovered directory entries are analyzed by default)"
         ),
     )
     p.add_argument(
@@ -124,14 +126,16 @@ def add_security_parser(subparsers):
             "as the bundled rule-packs under pyflow/config/."
         ),
     )
-    p.add_argument("--ifds-max-seconds", type=_positive_float)
-    p.add_argument("--ifds-max-path-edges", type=_positive_int)
-    p.add_argument("--ifds-max-queue-size", type=_positive_int)
-    p.add_argument("--ifds-max-incoming-records", type=_positive_int)
-    p.add_argument("--ifds-max-summary-entries", type=_positive_int)
-    p.add_argument("--ifds-max-facts-per-node", type=_positive_int)
-    p.add_argument("--ifds-max-contexts-per-procedure", type=_positive_int)
-    p.add_argument("--ifds-max-memory-bytes", type=_positive_int)
+    p.add_argument("--ifds-max-seconds", type=_positive_float, default=argparse.SUPPRESS)
+    p.add_argument("--ifds-max-path-edges", type=_positive_int, default=argparse.SUPPRESS)
+    p.add_argument("--ifds-max-queue-size", type=_positive_int, default=argparse.SUPPRESS)
+    p.add_argument("--ifds-max-incoming-records", type=_positive_int, default=argparse.SUPPRESS)
+    p.add_argument("--ifds-max-summary-entries", type=_positive_int, default=argparse.SUPPRESS)
+    p.add_argument("--ifds-max-facts-per-node", type=_positive_int, default=argparse.SUPPRESS)
+    p.add_argument(
+        "--ifds-max-contexts-per-procedure", type=_positive_int, default=argparse.SUPPRESS
+    )
+    p.add_argument("--ifds-max-memory-bytes", type=_positive_int, default=argparse.SUPPRESS)
     p.add_argument(
         "--ifds-callgraph-max-iterations",
         type=_positive_int,
@@ -236,6 +240,8 @@ def add_security_parser(subparsers):
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p.add_argument("--debug", "-d", action="store_true", help="Debug output")
+
+    return p
 
 
 # ── argparse type validators ───────────────────────────────────────────────

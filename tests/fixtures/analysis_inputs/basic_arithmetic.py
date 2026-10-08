@@ -6,8 +6,8 @@ This example demonstrates basic arithmetic operations and function calls
 that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize basic_arithmetic.py
-    pyflow callgraph basic_arithmetic.py
+    pyflow optimize tests/fixtures/analysis_inputs/basic_arithmetic.py
+    pyflow callgraph tests/fixtures/analysis_inputs/basic_arithmetic.py
 """
 
 def add_numbers(a, b):

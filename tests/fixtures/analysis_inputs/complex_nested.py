@@ -6,8 +6,8 @@ This example demonstrates complex nested structures, edge cases, and advanced
 Python features that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize complex_nested.py --analysis all
-    pyflow callgraph complex_nested.py
+    pyflow optimize tests/fixtures/analysis_inputs/complex_nested.py --analysis all
+    pyflow callgraph tests/fixtures/analysis_inputs/complex_nested.py
 """
 
 import sys

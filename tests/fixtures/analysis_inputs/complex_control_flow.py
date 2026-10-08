@@ -11,8 +11,8 @@ This example demonstrates complex control flow patterns including:
 - Function calls within control structures
 
 Usage:
-    pyflow ir complex_control_flow.py --dump-cfg complex_algorithm
-    pyflow callgraph complex_control_flow.py
+    pyflow ir tests/fixtures/analysis_inputs/complex_control_flow.py --dump-cfg complex_algorithm
+    pyflow callgraph tests/fixtures/analysis_inputs/complex_control_flow.py
 """
 
 import random

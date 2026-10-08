@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from copy import copy
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
@@ -23,7 +24,7 @@ from pyflow.checker.ast_rules.core.manager import SecurityManager
 from pyflow.checker.ast_rules.core.config import SecurityConfig
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
-from pyflow.frontend.entry_discovery import resolve_entry_file
+from pyflow.frontend.entry_discovery import discover_entry_files, resolve_entry_file
 from .reporting import _output_results
 from pyflow.checker.common.reporting import result_status, statistics_to_dict
 from pyflow.checker.common.diagnostics import diagnostics_to_dicts, affects_completeness
@@ -60,6 +61,7 @@ def _ifds_solver_options(args):
 
 _CONFIG_SCALAR_MAP: dict[str, str] = {
     "analysis": "analysis",
+    "entry": "entry",
     "function": "function",
     "ifds_trace_mode": "ifds_trace_mode",
     "ifds_context_depth": "ifds_context_depth",
@@ -85,14 +87,23 @@ _CONFIG_SOLVER_MAP: dict[str, str] = {
     "max_facts_per_node": "ifds_max_facts_per_node",
     "max_contexts_per_procedure": "ifds_max_contexts_per_procedure",
     "max_memory_bytes": "ifds_max_memory_bytes",
-    "max_call_string_depth": "ifds_max_call_string_depth",
+    "max_call_string_depth": "ifds_context_depth",
 }
 
 
 def _apply_ifds_config(args) -> None:
     config_path = getattr(args, "config", None)
     if config_path is None:
-        return
+        if getattr(args, "engine", None) != "ifds":
+            return
+        targets = getattr(args, "targets", ()) or ["."]
+        if len(targets) != 1:
+            return
+        root = Path(targets[0])
+        root = root if root.is_dir() else root.parent
+        config_path = root / "pyflow.json"
+        if not config_path.is_file():
+            return
     path = Path(config_path)
     if not path.exists():
         print(f"Error: config file not found: {config_path}", file=sys.stderr)
@@ -100,10 +111,18 @@ def _apply_ifds_config(args) -> None:
 
     try:
         config_data = json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
+    except (OSError, ValueError) as exc:
         print(f"Error: invalid JSON in config file {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(2)
 
+    if not isinstance(config_data, dict):
+        print("Error: IFDS config must be a JSON object", file=sys.stderr)
+        raise SystemExit(2)
+    _validate_ifds_config(config_data)
+    if "registry_path" in config_data:
+        config_data["registry_path"] = [
+            str((path.parent / item).resolve()) for item in config_data["registry_path"]
+        ]
     unknown = set(config_data) - {
         "solver_options",
         "frameworks",
@@ -111,6 +130,7 @@ def _apply_ifds_config(args) -> None:
         "sinks",
         "sanitizers",
         "analysis",
+        "entry",
         "function",
         "ifds_trace_mode",
         "ifds_context_depth",
@@ -126,18 +146,72 @@ def _apply_ifds_config(args) -> None:
         )
 
     for config_key, attr_name in _CONFIG_SCALAR_MAP.items():
-        if config_key in config_data and not hasattr(args, attr_name):
+        if config_key in config_data and getattr(args, attr_name, None) is None:
             setattr(args, attr_name, config_data[config_key])
 
     for config_key, attr_name in _CONFIG_LIST_MAP.items():
-        if config_key in config_data and not hasattr(args, attr_name):
+        if config_key in config_data and getattr(args, attr_name, None) is None:
             setattr(args, attr_name, config_data[config_key])
 
     solver_opts = config_data.get("solver_options")
     if isinstance(solver_opts, dict):
         for config_key, attr_name in _CONFIG_SOLVER_MAP.items():
-            if config_key in solver_opts and not hasattr(args, attr_name):
+            if config_key in solver_opts and getattr(args, attr_name, None) is None:
                 setattr(args, attr_name, solver_opts[config_key])
+
+
+def _validate_ifds_config(data) -> None:
+    """Use the CLI's validators and choices for project defaults too."""
+    import argparse
+    from .parser import add_security_parser
+
+    parser = argparse.ArgumentParser()
+    security = add_security_parser(parser.add_subparsers())
+    actions = {action.dest: action for action in security._actions}
+    try:
+        solver = data.get("solver_options", {})
+        if not isinstance(solver, dict):
+            raise ValueError("solver_options must be an object")
+        values = [
+            (key, value, _CONFIG_SCALAR_MAP[key])
+            for key, value in data.items()
+            if key in _CONFIG_SCALAR_MAP
+        ]
+        for key, attr in _CONFIG_LIST_MAP.items():
+            if key in data:
+                value = data[key]
+                if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                    raise ValueError(f"{key} must be an array of strings")
+                values.extend((key, item, attr) for item in value)
+        values.extend(
+            (key, value, _CONFIG_SOLVER_MAP[key])
+            for key, value in solver.items()
+            if key in _CONFIG_SOLVER_MAP
+        )
+        for key, value, attr in values:
+            if attr == "function":
+                if not isinstance(value, str):
+                    raise ValueError("function must be a string")
+                continue
+            action = actions[attr]
+            if attr == "entry":
+                if not (
+                    isinstance(value, str)
+                    or isinstance(value, list)
+                    and value
+                    and all(isinstance(item, str) for item in value)
+                ):
+                    raise ValueError("entry must be a path or a nonempty array of paths")
+                continue
+            if action.choices and value not in action.choices:
+                raise ValueError(f"invalid {key}: {value!r}")
+            if action.type:
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{key} must be a number")
+                action.type(str(value))
+    except (ValueError, argparse.ArgumentTypeError) as error:
+        print(f"Error: invalid IFDS config: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
 
 
 def _run_ast_scanner(
@@ -193,6 +267,76 @@ def _run_ast_dataflow(
 
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
+    """Analyze each discovered entry independently, preserving single-entry reports."""
+    try:
+        entries = _resolve_ifds_entry_files(targets, getattr(args, "entry", None))
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return {
+            "entry": "<unknown>",
+            "findings": [],
+            "diagnostics": [str(error)],
+            "status": "invalid",
+            "termination_reason": str(error),
+        }
+    reports = []
+    for entry in entries:
+        entry_args = copy(args)
+        entry_args.entry = entry if Path(targets[0]).is_dir() else None
+        reports.append(_run_ifds_entry(targets, entry_args))
+    if len(reports) == 1:
+        return reports[0]
+    # A failed entry must never disappear into a successful project report.
+    statuses = {report.get("status", "failed") for report in reports}
+    status = next(
+        (value for value in ("failed", "invalid", "partial") if value in statuses),
+        "complete",
+    )
+    findings = []
+    seen = set()
+    for report in reports:
+        for finding in report.get("findings", ()):
+            key = json.dumps(finding, sort_keys=True)
+            if key not in seen:
+                seen.add(key)
+                findings.append(finding)
+    return {
+        "entry": str(targets[0]),
+        "entries": [report["entry"] for report in reports],
+        "analysis": getattr(args, "analysis", "taint"),
+        "findings": findings,
+        "diagnostics": [item for report in reports for item in report.get("diagnostics", ())],
+        "status": status,
+        "termination_reason": "; ".join(
+            f"{report['entry']}: {report['termination_reason']}"
+            for report in reports
+            if report.get("termination_reason")
+        )
+        or None,
+        "entry_results": reports,
+    }
+
+
+def _resolve_ifds_entry_files(targets, entry) -> tuple[Path, ...]:
+    if len(targets) != 1:
+        raise ValueError("IFDS analysis requires exactly one file or project directory.")
+    target = Path(targets[0])
+    if isinstance(entry, (str, Path)):
+        entry = [entry]
+    if entry:
+        return tuple(dict.fromkeys(_resolve_ifds_entry_file(targets, item) for item in entry))
+    if target.is_dir():
+        candidates = discover_entry_files(target)
+        if candidates:
+            return tuple(
+                dict.fromkeys(
+                    _resolve_ifds_entry_file(targets, candidate.path) for candidate in candidates
+                )
+            )
+    return (_resolve_ifds_entry_file(targets, None),)
+
+
+def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
     from pyflow.api.ifds import run_nullness_analysis, run_typestate_analysis
     from pyflow.checker.ifds.api import run_taint_analysis

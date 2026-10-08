@@ -6,8 +6,8 @@ This example demonstrates advanced Python typing features including TypedDict,
 NewType, ParamSpec, and other modern typing constructs for static analysis testing.
 
 Usage:
-    pyflow optimize advanced_typing.py --analysis ipa
-    pyflow callgraph advanced_typing.py
+    pyflow optimize tests/fixtures/analysis_inputs/advanced_typing.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/advanced_typing.py
 """
 
 import sys

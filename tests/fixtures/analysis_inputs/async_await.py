@@ -6,8 +6,8 @@ This example demonstrates Python async/await, coroutines, and concurrency
 that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize async_await.py --analysis ipa
-    pyflow callgraph async_await.py
+    pyflow optimize tests/fixtures/analysis_inputs/async_await.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/async_await.py
 """
 
 import asyncio

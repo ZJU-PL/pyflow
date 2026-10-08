@@ -6,8 +6,8 @@ This example demonstrates Python import system, module loading, and dynamic
 imports that can be analyzed by PyFlow's static analysis tools.
 
 Usage:
-    pyflow optimize imports_modules.py --analysis ipa
-    pyflow callgraph imports_modules.py
+    pyflow optimize tests/fixtures/analysis_inputs/imports_modules.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/imports_modules.py
 """
 
 import sys

@@ -6,8 +6,8 @@ This example demonstrates Python threading, synchronization primitives,
 and concurrent programming patterns for static analysis testing.
 
 Usage:
-    pyflow optimize concurrency_threading.py --analysis ipa
-    pyflow callgraph concurrency_threading.py
+    pyflow optimize tests/fixtures/analysis_inputs/concurrency_threading.py --analysis ipa
+    pyflow callgraph tests/fixtures/analysis_inputs/concurrency_threading.py
 """
 
 import threading
