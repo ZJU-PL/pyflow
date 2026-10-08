@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from pyflow.application.program import Program
+from pyflow.application.passes.base import PipelineResult
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.passes.manager import PassManager
 from pyflow.application.passes.builtin import (
@@ -157,7 +158,7 @@ def test_default_pipeline_refreshes_lifetime_after_simplification(monkeypatch):
 
     def fake_run_pipeline(_compiler, _program, pass_pipeline):
         captured["passes"] = list(pass_pipeline.passes)
-        return {}
+        return PipelineResult()
 
     monkeypatch.setattr(program.session.pass_manager, "run_pipeline", fake_run_pipeline)
 
@@ -199,7 +200,7 @@ def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):
 
     def fake_run_pipeline(_compiler, _program, pass_pipeline):
         captured["passes"] = list(pass_pipeline.passes)
-        return {}
+        return PipelineResult()
 
     monkeypatch.setattr(program.session.pass_manager, "run_pipeline", fake_run_pipeline)
 

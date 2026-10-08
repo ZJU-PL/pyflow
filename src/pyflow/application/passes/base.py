@@ -1,6 +1,7 @@
 """Pass interfaces and execution metadata."""
 
 import time
+from collections.abc import Mapping
 from abc import ABC, abstractmethod
 from enum import Enum
 from dataclasses import dataclass, field
@@ -53,6 +54,71 @@ class PassResult:
         )
 
 
+@dataclass(frozen=True)
+class ExecutionRecord:
+    """One invocation, including automatic refreshes and cache hits."""
+
+    run_id: int
+    sequence: int
+    stage_name: str
+    pass_name: str
+    success: bool
+    changed: bool
+    time: float
+    cached: bool
+    revision_before: object
+    revision_after: object
+    result: PassResult
+    timestamp: float
+    error: Optional[str] = None
+    exception_type: Optional[str] = None
+    automatic: bool = False
+    requested_by: Optional[str] = None
+
+    def as_dict(self):
+        """Return log metadata without serializing internal solver objects."""
+        return {
+            "run_id": self.run_id,
+            "sequence": self.sequence,
+            "stage": self.stage_name,
+            "pass": self.pass_name,
+            "success": self.success,
+            "changed": self.changed,
+            "time": self.time,
+            "cached": self.cached,
+            "revision_before": (
+                str(self.revision_before) if self.revision_before is not None else None
+            ),
+            "revision_after": str(self.revision_after) if self.revision_after is not None else None,
+            "timestamp": self.timestamp,
+            "error": self.error,
+            "exception_type": self.exception_type,
+            "automatic": self.automatic,
+            "requested_by": self.requested_by,
+        }
+
+
+class PipelineResult(Mapping):
+    """Ordered invocation history with latest-result lookup by pass name."""
+
+    def __init__(self, records=()):
+        self.records = tuple(records)
+        self._latest = {record.pass_name: record.result for record in self.records}
+
+    def __getitem__(self, name):
+        return self._latest[name]
+
+    def __iter__(self):
+        return iter(self._latest)
+
+    def __len__(self):
+        return len(self._latest)
+
+    @property
+    def total_time(self):
+        return sum(record.time for record in self.records)
+
+
 @dataclass
 class PassInfo:
     """Metadata for a registered pass."""
@@ -61,7 +127,7 @@ class PassInfo:
     kind: PassKind
     description: str = ""
     dependencies: Set[str] = field(default_factory=set)
-    requirements: Set[str] = field(default_factory=set)  # What analyses must be run first
+    requirements: Set[str] = field(default_factory=set)  # Analyses that must be valid at invocation
     invalidates: Set[str] = field(default_factory=set)  # What analyses this invalidates
     preserves: Set[str] = field(default_factory=set)  # What analyses this preserves
 

@@ -82,7 +82,7 @@ also commit their own revisions. Results and caches check catalog identity as
 well as revision, so replacing a catalog cannot make an old result valid again.
 Preservation cannot revive a result that was already stale before the pass.
 
-Cache keys also track fact publication, result invalidation, and run options.
+Result cache keys also track fact publication, result invalidation, and run options.
 This is deliberately conservative: publishing new facts can cause an unrelated
 cached pass to run again. Finer capability-specific keys can improve efficiency
 without weakening the current correctness contract.
@@ -95,6 +95,63 @@ Raw external IR edits must call `program.session.mark_changed()` or commit an
 IRCatalog revision. Edits without a version update cannot be detected by the
 cache. Calling `invalidate_results` also removes the corresponding producers'
 published facts without removing other producers of a shared capability.
+
+
+## Runtime prerequisite scheduling and execution records
+
+Pipeline construction expands prerequisites to establish an initial stage order.
+Its `available` set denotes inclusion in that plan; it is not evidence that an
+analysis is still valid during execution. Immediately before each invocation,
+PassManager checks the availability of its analysis prerequisites and refreshes
+any that are missing or stale. This check runs before result-cache lookup.
+
+`requirements` must name registered analysis passes. Dependencies on analysis
+passes also require current analysis results. Dependencies on transformations
+and utility stages establish execution order; refreshing an analysis does not
+replay those already completed stages. Explicit repeated stage requests remain
+separate invocations, including consecutive repetitions.
+
+Analysis availability is independent of result caching. Its markers track catalog
+identity, IR revision, options, solver-result invalidation, and explicit fact
+invalidation. Ordinary fact publication does not retire unrelated analysis
+markers. A newly executed analysis retires its declared dependent analyses and
+cached consumers, even if the IR revision is unchanged. This includes analysis
+stage instances sharing a Session solver identity. Preservation metadata rebases
+only previously valid markers; stale results cannot become valid by preservation.
+
+The scheduler checks the whole required analysis set after each refresh because
+one analysis can invalidate another. A refresh failure stops the consumer and
+remaining pipeline. Requirements that cannot stabilize fail explicitly after
+`max_analysis_refreshes` attempts per missing prerequisite (32 by default),
+rather than executing a consumer with stale inputs or refreshing forever.
+
+This implementation still identifies requirements by registered analysis pass
+names; a separate PassDefinition/PassInvocation and arbitrary capability-provider
+model remain future work. Changing analyses or adding prerequisites must be
+reflected in their metadata; the scheduler cannot infer undeclared data inputs.
+
+A run returns `PipelineResult`. Its ordered `records` retain every invocation,
+including automatic prerequisite refreshes, repeated passes, and cache hits.
+Each immutable `ExecutionRecord` includes the run ID, sequence, stage/pass name,
+success, mutation flag, body duration, cache hit, IR revisions before/after,
+and the pass result. Automatic records name the consumer that requested them.
+`result["ipa"]` still selects that pass's latest result; `len(result)` counts
+unique pass names, while `len(result.records)` counts invocations.
+
+```python
+results = Pipeline().run_custom_pipeline(
+    compiler, program, ["type_analysis", "rewrite", "consumer"]
+)
+for record in results.records:
+    print(record.sequence, record.stage_name, record.cached,
+          record.revision_before, record.revision_after)
+latest_types = results["type_analysis"]
+```
+
+Pipeline summaries use invocation records and their actual body time. Cache hits
+have zero body time instead of reusing the original analysis's historical duration.
+Execution-log dictionaries include the same scheduling metadata and keep solver
+objects out of the serialized log.
 
 ## Pass implementation
 

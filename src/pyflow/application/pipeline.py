@@ -69,9 +69,11 @@ class Pipeline:
                 if not options.mask_dump_errors:
                     raise
                 compiler.console.output(f"Exception dumping the report: {exc}")
-        total_time = sum(result.time or 0.0 for result in results.values())
+        total_time = results.total_time
+        successful = sum(record.success for record in results.records)
         compiler.console.output(
-            f"Pass Manager: {len(results)}/{len(results)} passes successful in {total_time:.3f}s"
+            f"Pass Manager: {successful}/{len(results.records)} passes successful "
+            f"in {total_time:.3f}s"
         )
         return results
 

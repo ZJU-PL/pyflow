@@ -78,6 +78,8 @@ class PassCache:
 
     def invalidate(self, program, pass_name: Optional[str] = None) -> None:
         """Invalidate cached results for a program or specific pass."""
+        if not self._is_hashable(program):
+            return
         if self._supports_weakrefs(program):
             if program in self._cache:
                 if pass_name is None:
@@ -95,6 +97,8 @@ class PassCache:
 
     def pass_names(self, program) -> Set[str]:
         """Return cached pass names for a program."""
+        if not self._is_hashable(program):
+            return set()
         if self._supports_weakrefs(program):
             return set(self._cache.get(program, ()))
         if not self._is_hashable(program):
@@ -105,3 +109,25 @@ class PassCache:
         """Clear all cached results."""
         self._cache.clear()
         self._fallback_cache.clear()
+
+
+class AnalysisAvailability(PassCache):
+    """Proof of successful analysis at the current model/invalidation version.
+
+    This stores markers, not solver objects, and is used even without result
+    caching. Publishing another analysis's facts does not invalidate a marker.
+    """
+
+    _VALID = PassResult()
+
+    def version_token(self, program):
+        token = super().version_token(program)
+        catalog = getattr(program, "ir", None)
+        invalidation = getattr(getattr(catalog, "facts", None), "invalidation_revision", None)
+        return token[:2] + token[3:] + (invalidation,)
+
+    def mark_valid(self, program, name):
+        self.put(program, name, self._VALID)
+
+    def is_valid(self, program, name):
+        return self.get(program, name) is not None

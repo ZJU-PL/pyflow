@@ -44,9 +44,7 @@ class FactResult(Generic[T]):
         )
 
     @classmethod
-    def unknown(
-        cls, producer: str, diagnostics: Iterable[object] = ()
-    ) -> "FactResult[T]":
+    def unknown(cls, producer: str, diagnostics: Iterable[object] = ()) -> "FactResult[T]":
         return cls(frozenset(), Precision.UNKNOWN, producer, tuple(diagnostics))
 
 
@@ -63,6 +61,7 @@ class FactStore:
 
     def __init__(self, ir_revision: IRRevision = IRRevision()) -> None:
         self._revision = 0
+        self._invalidation_revision = 0
         self._ir_revision = ir_revision
         self._snapshots: dict[str, dict[str, _Snapshot]] = {}
 
@@ -73,6 +72,11 @@ class FactStore:
     @property
     def revision(self) -> int:
         return self._revision
+
+    @property
+    def invalidation_revision(self) -> int:
+        """Epoch for explicit invalidation, separate from ordinary publication."""
+        return self._invalidation_revision
 
     def publish(
         self,
@@ -132,23 +136,14 @@ class FactStore:
         if not snapshots:
             return FactResult.unknown("fact-store", (f"missing {capability}",))
         stale = tuple(
-            snapshot
-            for snapshot in snapshots.values()
-            if snapshot.ir_revision != self._ir_revision
+            snapshot for snapshot in snapshots.values() if snapshot.ir_revision != self._ir_revision
         )
         if stale:
             return FactResult.unknown(
                 "+".join(sorted(snapshot.producer for snapshot in stale)),
-                (
-                    f"stale {capability} snapshot; current IR is "
-                    f"{self._ir_revision}",
-                ),
+                (f"stale {capability} snapshot; current IR is " f"{self._ir_revision}",),
             )
-        results = [
-            snapshot.facts[key]
-            for snapshot in snapshots.values()
-            if key in snapshot.facts
-        ]
+        results = [snapshot.facts[key] for snapshot in snapshots.values() if key in snapshot.facts]
         if not results:
             producers = "+".join(sorted(snapshots))
             return FactResult.unknown(producers, (f"missing fact for {key}",))
@@ -165,22 +160,14 @@ class FactStore:
             values,
             precision,
             "+".join(sorted({result.producer for result in results})),
-            tuple(
-                diagnostic
-                for result in results
-                for diagnostic in result.diagnostics
-            ),
+            tuple(diagnostic for result in results for diagnostic in result.diagnostics),
         )
 
-    def query_producer(
-        self, capability: str, producer: str, key: Hashable
-    ) -> FactResult:
+    def query_producer(self, capability: str, producer: str, key: Hashable) -> FactResult:
         """Query one designated producer without manufacturing a joined view."""
         snapshot = self._snapshots.get(capability, {}).get(producer)
         if snapshot is None:
-            return FactResult.unknown(
-                producer, (f"missing {capability} producer {producer}",)
-            )
+            return FactResult.unknown(producer, (f"missing {capability} producer {producer}",))
         if snapshot.ir_revision != self._ir_revision:
             return FactResult.unknown(
                 producer,
@@ -199,11 +186,7 @@ class FactStore:
 
     def snapshot_revision(self, capability: str) -> int | None:
         snapshots = self._snapshots.get(capability)
-        return (
-            max(snapshot.revision for snapshot in snapshots.values())
-            if snapshots
-            else None
-        )
+        return max(snapshot.revision for snapshot in snapshots.values()) if snapshots else None
 
     def snapshot_ir_revision(self, capability: str) -> IRRevision | None:
         snapshots = self._snapshots.get(capability)
@@ -236,6 +219,7 @@ class FactStore:
         }
         self._ir_revision = revision
         self._revision += 1
+        self._invalidation_revision += 1
 
     def items(self, capability: str):
         snapshots = self._snapshots.get(capability)
@@ -245,8 +229,7 @@ class FactStore:
         for snapshot in snapshots.values():
             keys.update(snapshot.facts)
         return tuple(
-            (key, self.query(capability, key))
-            for key in sorted(keys, key=lambda item: str(item))
+            (key, self.query(capability, key)) for key in sorted(keys, key=lambda item: str(item))
         )
 
     def import_producer(
@@ -277,6 +260,7 @@ class FactStore:
             changed |= self._snapshots.pop(capability, None) is not None
         if changed:
             self._revision += 1
+            self._invalidation_revision += 1
 
     def invalidate_producers(self, producers: Iterable[str]) -> None:
         """Retire producer-owned facts without removing another producer's facts."""
@@ -298,12 +282,16 @@ class FactStore:
             }
             for capability, published in self._snapshots.items()
         }
-        snapshots = {capability: published for capability, published in snapshots.items() if published}
+        snapshots = {
+            capability: published for capability, published in snapshots.items() if published
+        }
         if snapshots != self._snapshots:
             self._snapshots = snapshots
             self._revision += 1
+            self._invalidation_revision += 1
 
     def clear(self) -> None:
         if self._snapshots:
             self._snapshots.clear()
             self._revision += 1
+            self._invalidation_revision += 1
