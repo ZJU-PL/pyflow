@@ -33,14 +33,36 @@ fields:
 - ``value`` — human-readable AST value
 - ``func_name`` — enclosing function name
 - ``kind`` — PDG node kind
-- ``ssa_defs`` / ``ssa_uses`` — SSA version entries (``var``, ``name``,
-  ``version``) recorded from DATA edge labels
+- ``ssa_defs`` / ``ssa_uses`` — definition/use entries from shared IR semantics;
+  ``var`` and ``name`` retain the source spelling, while actual SSA values add
+  ``version`` and ``value_id``
 - ``phi_vars`` — list of variables merged at phi nodes
-- ``isinstance_guard`` — flag for isinstance-based type narrowing
+- ``isinstance_guard`` / ``guarded_var`` — syntactic type-predicate metadata;
+  ``guard_kind="type_check"`` and ``sanitizes_taint=False`` distinguish this
+  from content sanitization
 - ``lambda_name`` — synthetic name for lambda expressions
+
+SSA identity comes from ``SymbolId`` and ``ValueId``, not from parsing names
+such as ``user_name`` or ``version_1``. A phi defines its target and uses its
+incoming operands. Definitions with no outgoing DATA edges still receive
+metadata. Hand-built PDGs without an IR catalog retain label-based metadata
+without inferred SSA versions.
+
+``isinstance(value, str)`` does not remove taint: a string may still contain
+untrusted content. The public taint engine preserves that flow. The former
+private ``_isinstance_guard_strip`` helper remains callable as a no-op.
+Only explicit sanitizer policy models remove configured taint kinds from
+sanitizer results; the original argument and its aliases remain tainted.
 
 Edge Kinds
 ----------
+
+An edge's identity is ``(source ID, target ID, kind, label)``. Exact duplicates
+are collapsed, while parallel DATA edges carrying different variable labels
+are preserved in queries, JSON, DOT, and SQLite. PDG labels pass through
+unchanged; CPG assembly does not assign every edge the last definition's SSA
+version. Edge objects remain mutable for compatibility, but changing an edge
+or endpoint ID while it is used as a dictionary or set key is unsupported.
 
 .. code-block:: python
 
@@ -53,6 +75,28 @@ Edge Kinds
     CPGEdgeKind.CFG_EXCEPT      # Exception edge
     CPGEdgeKind.CALL            # Caller → callee entry
     CPGEdgeKind.RETURN_EDGE     # Callee exit → call site
+
+Rebuild and Export Invariants
+-----------------------------
+
+Rebuilding an unchanged graph retains node IDs, synthetic AST nodes, phi and
+guard metadata, and all labeled edges. Failed or interrupted assembly leaves
+the graph unbuilt, so subsequent queries retry assembly. Adding PDGs with
+colliding function-local IDs promotes their nodes to graph-global IDs and
+rebuilds the internal PDG edge sets. External sets keyed by those mutable IDs
+must be recreated after promotion.
+
+Node metadata queries and exported node metadata are detached snapshots;
+mutating their nested lists or dictionaries does not change the graph. JSON node
+``func`` fields use registered function names. SQLite graph replacement is
+transactional: an export failure rolls back to the previous complete snapshot.
+The existing output fields and SQLite schema remain unchanged.
+
+These contracts do not provide a graph deserializer or make exported graphs
+executable analysis inputs. SQLite persists graph records, not the original
+AST/CFG or a reconstruction of the taint solver state. Rebuilds also do not
+validate arbitrary external edits to PDG internals or prove that the front-end
+and policy model every Python behavior.
 
 Programmatic Usage
 ------------------
