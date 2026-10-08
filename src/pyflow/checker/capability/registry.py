@@ -97,7 +97,11 @@ class CapabilityRegistry:
         )
 
     def reachable(self, access_path: str) -> tuple[CapabilityPattern, ...]:
-        """Return capabilities obtainable from a sensitive or carrier object."""
+        """Approximate potential capabilities using access-path prefixes.
+
+        This is a syntactic over-approximation, not proof that a member exists
+        or that the recipient can exercise the corresponding operation.
+        """
         prefix = access_path.removesuffix(".<return>")
         matches = []
         for pattern in self._patterns:

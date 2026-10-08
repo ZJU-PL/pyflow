@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -47,3 +48,16 @@ def test_guarded_runner_denies_import(tmp_path):
     completed = _run_guard(script)
     assert completed.returncode == 126
     assert "denied capability 'module.dynamic_import'" in completed.stderr
+
+
+def test_observe_only_runner_logs_without_denying(tmp_path):
+    script = tmp_path / "observe.py"
+    script.write_text("assert eval('1 + 1') == 2\n")
+    audit_log = tmp_path / "events.json"
+    completed = _run_guard(script, "--observe-only", "--audit-log", str(audit_log))
+    assert completed.returncode == 0, completed.stderr
+    events = json.loads(audit_log.read_text())
+    assert any(
+        event["capability"] == "code.execute" and event["audit_event"] == "compile"
+        for event in events
+    )

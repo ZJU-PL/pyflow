@@ -321,7 +321,9 @@ Capability Commands
 **pyflow capabilities**
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Report security-sensitive capabilities exercised or exposed by Python code using context-sensitive pointer analysis.
+Report potential use or exposure of security-sensitive capabilities using
+context-sensitive pointer analysis. Findings do not establish an authorization
+policy violation.
 
 ::
 
@@ -337,23 +339,27 @@ Options:
 - ``--context-policy POLICY``: Specific context policy (e.g. ``1-cfa``, ``2-cfa``, ``1c1o``, ``1-param``)
 - ``--capability-model PATH``: Custom capability model JSON file (repeatable)
 - ``--no-public-exports``: Do not report capabilities exposed as public module globals
+- ``--report-callable-boundaries``: Include potential transfers through returns, yields, and exceptions (default: off)
 - ``--format {text,json,sarif}``: Output format (default: ``text``)
 - ``--output, -o PATH``: Write output to file
 
 **pyflow capability-run**
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Run Python scripts under a fail-closed capability audit guard that enforces runtime policies.
+Observe classified CPython audit events and optionally deny operations outside
+a capability allow list. Python-level audit hooks do not sandbox malicious
+code, and unclassified events are ignored.
 
 ::
 
-  pyflow capability-run script.py --allow file.read --allow network
-  pyflow capability-run script.py --audit-log audit.json
+  pyflow capability-run --allow file.read --allow 'network.*' script.py
+  pyflow capability-run --observe-only --audit-log audit.json script.py
 
 Options:
 
 - ``--allow CAPABILITY``: Allowed capability or glob pattern (repeatable)
 - ``--audit-log PATH``: Write observed audit events to JSON log
+- ``--observe-only``: Record classified events without denying operations
 
 Server and Query Commands
 -------------------------

@@ -1,7 +1,8 @@
-"""Fail-closed runtime backstop for operations outside static Python semantics.
+"""Optional observation and denial of classified CPython audit events.
 
-The guard uses CPython audit events, which are emitted below most Python-level
-monkey-patching.  Audit hooks are process-global and cannot be removed; install
+Python-level audit hooks are not a sandbox for malicious code. Unclassified
+events are ignored, and the hook does not validate static capability transfers.
+Hooks are process-global and cannot be removed through the public API; install
 one only in a dedicated child process or at application startup.
 """
 
@@ -16,7 +17,7 @@ from typing import Any, Callable, Iterable
 
 
 class CapabilityViolation(PermissionError):
-    """Raised when protected execution attempts a denied capability."""
+    """Raised when the hook observes a classified, denied operation."""
 
     def __init__(self, capability: str, event: str) -> None:
         super().__init__(f"denied capability {capability!r} at audit event {event!r}")

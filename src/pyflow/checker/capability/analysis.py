@@ -56,11 +56,13 @@ class DefensiveCapabilityAnalysis:
         k: int = 1,
         context_policy: str | None = None,
         report_public_exports: bool = True,
+        report_callable_boundaries: bool = False,
     ) -> None:
         self.registry = registry or default_capability_registry()
         self.k = k
         self.context_policy = context_policy
         self.report_public_exports = report_public_exports
+        self.report_callable_boundaries = report_callable_boundaries
 
     def analyze_source(self, source: str) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis(
@@ -99,6 +101,7 @@ class DefensiveCapabilityAnalysis:
     ) -> CapabilityAnalysisResult:
         result = CapabilityAnalysisResult()
         state = pointer_result.state
+        reachability = _CapabilityReachability(state, self.registry)
 
         for event in pointer_result.semantic_events:
             operation, access_path = self._event_operation_path(event)
@@ -111,15 +114,17 @@ class DefensiveCapabilityAnalysis:
                 result.findings.append(self._direct_finding(event, access_path, operation, pattern))
 
             if event.kind is PointerEventKind.CALL:
-                result.findings.extend(self._indirect_call_findings(event, state))
+                result.findings.extend(self._indirect_call_findings(event, reachability))
             elif event.kind is PointerEventKind.STORE:
-                result.findings.extend(self._indirect_store_findings(event, state))
+                result.findings.extend(self._indirect_store_findings(event, reachability))
 
         result.diagnostics.extend(self._unknown_diagnostics(pointer_result))
-        result.findings.extend(self._unresolved_call_findings(pointer_result))
-        result.findings.extend(self._return_and_yield_findings(pointer_result))
+        result.diagnostics.extend(self._unresolved_call_diagnostics(pointer_result))
+        result.findings.extend(self._unresolved_call_findings(pointer_result, reachability))
+        if self.report_callable_boundaries:
+            result.findings.extend(self._return_and_yield_findings(pointer_result, reachability))
         if self.report_public_exports:
-            result.findings.extend(self._public_export_findings(pointer_result))
+            result.findings.extend(self._public_export_findings(pointer_result, reachability))
         return result.finalize()
 
     @staticmethod
@@ -182,8 +187,9 @@ class DefensiveCapabilityAnalysis:
             trace=(access_path,),
         )
 
-    def _indirect_call_findings(self, event: PointerEvent, state) -> list[CapabilityFinding]:
+    def _indirect_call_findings(self, event: PointerEvent, reachability) -> list[CapabilityFinding]:
         """Report relevant objects passed into unanalyzed external code."""
+        state = reachability.state
         callee_path = self._object_path(event.abstract_object)
         if callee_path is None:
             return []
@@ -223,7 +229,7 @@ class DefensiveCapabilityAnalysis:
                             reason=reason,
                             trace_step=trace_step,
                         ),
-                        state,
+                        reachability,
                     )
                 )
         return findings
@@ -252,8 +258,11 @@ class DefensiveCapabilityAnalysis:
             return EscapeKind.SERIALIZATION, "may be serialized"
         return EscapeKind.ARGUMENT, "may be retained"
 
-    def _indirect_store_findings(self, event: PointerEvent, state) -> list[CapabilityFinding]:
+    def _indirect_store_findings(
+        self, event: PointerEvent, reachability
+    ) -> list[CapabilityFinding]:
         """Report relevant objects written into unanalyzed external carriers."""
+        state = reachability.state
         carrier_path = self._object_path(event.abstract_object)
         if carrier_path is None:
             return []
@@ -272,12 +281,13 @@ class DefensiveCapabilityAnalysis:
                 reason=f"is stored into unanalyzed carrier {carrier_path}",
                 trace_step=f"store into {carrier_path}",
             ),
-            state,
+            reachability,
         )
 
     def _return_and_yield_findings(
         self,
         pointer_result: PointerAnalysisResult,
+        reachability,
     ) -> list[CapabilityFinding]:
         """Report relevant values crossing callable return/yield boundaries."""
         findings: list[CapabilityFinding] = []
@@ -312,7 +322,7 @@ class DefensiveCapabilityAnalysis:
                                 reason="escapes through exception propagation",
                                 trace_step="raised exception or cause",
                             ),
-                            state,
+                            reachability,
                         )
                     )
                 continue
@@ -334,7 +344,7 @@ class DefensiveCapabilityAnalysis:
                         reason=suffix,
                         trace_step=trace,
                     ),
-                    state,
+                    reachability,
                 )
             )
         return findings
@@ -342,11 +352,11 @@ class DefensiveCapabilityAnalysis:
     def _escape_findings(
         self,
         event: CapabilityEscapeEvent,
-        state,
+        reachability,
     ) -> list[CapabilityFinding]:
         findings = []
-        for access_path, carrier_trace in self._relevant_reachable(event.objects, state):
-            for pattern in self.registry.reachable(access_path):
+        for access_path, patterns, carrier_trace in reachability.relevant(event.objects):
+            for pattern in patterns:
                 findings.append(
                     CapabilityFinding(
                         location=event.location,
@@ -355,7 +365,7 @@ class DefensiveCapabilityAnalysis:
                         operation=event.operation,
                         access_path=access_path,
                         report_kind=CapabilityReportKind.INDIRECT,
-                        reason=f"relevant object {access_path} {event.reason}",
+                        reason=f"potential capability transfer: relevant object {access_path} {event.reason}",
                         context=event.context,
                         trace=(access_path, *carrier_trace, event.trace_step),
                         escape_kind=event.kind.value,
@@ -364,37 +374,10 @@ class DefensiveCapabilityAnalysis:
                 )
         return findings
 
-    def _relevant_reachable(self, roots, state):
-        """Find relevant objects transitively reachable through heap carriers."""
-        worklist = [(obj, ()) for obj in roots]
-        seen = set()
-        while worklist:
-            obj, trace = worklist.pop()
-            if obj in seen:
-                continue
-            seen.add(obj)
-            access_path = self._object_path(obj)
-            if access_path is not None and self.registry.reachable(access_path):
-                yield access_path, trace
-            closure_owner = obj
-            if isinstance(obj, (GeneratorObject, CoroutineObject)):
-                closure_owner = obj.func_obj
-            if isinstance(closure_owner, FunctionObject):
-                for name, captured_var in state.get_cell_vars(closure_owner).items():
-                    worklist.extend(
-                        (child, (*trace, f"closure cell {name}"))
-                        for child in state.get_points_to(captured_var)
-                    )
-            for ctx_field, points_to in state._env.items():
-                field_access = getattr(ctx_field, "content", ctx_field)
-                if not isinstance(field_access, FieldAccess) or field_access.obj != obj:
-                    continue
-                label = str(field_access.field)
-                worklist.extend((child, (*trace, f"carrier field {label}")) for child in points_to)
-
     def _public_export_findings(
         self,
         pointer_result: PointerAnalysisResult,
+        reachability,
     ) -> list[CapabilityFinding]:
         """Report relevant values exposed as public Python module globals."""
         findings: list[CapabilityFinding] = []
@@ -421,7 +404,7 @@ class DefensiveCapabilityAnalysis:
                         reason=f"is exposed by public module binding {name}",
                         trace_step=f"module export {name}",
                     ),
-                    state,
+                    reachability,
                 )
             )
         return findings
@@ -429,6 +412,7 @@ class DefensiveCapabilityAnalysis:
     def _unresolved_call_findings(
         self,
         pointer_result: PointerAnalysisResult,
+        reachability,
     ) -> list[CapabilityFinding]:
         """Conservatively report relevant arguments at calls with no target."""
         findings: list[CapabilityFinding] = []
@@ -459,18 +443,22 @@ class DefensiveCapabilityAnalysis:
                             reason="escapes through an unresolved call target",
                             trace_step="argument to unresolved call",
                         ),
-                        state,
+                        reachability,
                     )
                 )
         return findings
 
     def _filter_open_patterns(self, event, patterns, state):
         """Use the constant mode argument when available; otherwise report both."""
-        args = event.constraint.args
-        if len(args) < 2:
-            mode = "r"
-        else:
-            mode = self._constant_string(state, event.scope, event.context, args[1])
+        constraint = event.constraint
+        # Expanded arguments may contain the mode at an unknown position/key.
+        if any(constraint.starred) or any(name is None for name, _ in constraint.kwargs):
+            return patterns
+        modes = [constraint.args[1]] if len(constraint.args) >= 2 else []
+        modes.extend(var for name, var in constraint.kwargs if name == "mode")
+        if len(modes) > 1:
+            return patterns
+        mode = self._constant_string(state, event.scope, event.context, modes[0]) if modes else "r"
         if mode is None:
             return patterns
         wants_write = any(token in mode for token in "wax+")
@@ -485,11 +473,12 @@ class DefensiveCapabilityAnalysis:
     @staticmethod
     def _constant_string(state, scope, context, variable) -> str | None:
         ctx_var = state.get_variable(scope, context, variable)
-        values = {
-            obj.value
-            for obj in state.get_points_to(ctx_var)
-            if isinstance(obj, ConstantObject) and isinstance(obj.value, str)
-        }
+        objects = tuple(state.get_points_to(ctx_var))
+        if not objects or any(
+            not isinstance(obj, ConstantObject) or not isinstance(obj.value, str) for obj in objects
+        ):
+            return None
+        values = {obj.value for obj in objects}
         return next(iter(values)) if len(values) == 1 else None
 
     def _unknown_diagnostics(
@@ -564,6 +553,50 @@ class DefensiveCapabilityAnalysis:
             end_line=int(getattr(ast_node, "end_lineno", 0) or 0),
             end_column=int(getattr(ast_node, "end_col_offset", 0) or 0),
         )
+
+
+class _CapabilityReachability:
+    """Index a solved heap once and reuse it for every potential transfer."""
+
+    def __init__(self, state, registry: CapabilityRegistry) -> None:
+        self.state = state
+        self.registry = registry
+        self.fields = {}
+        self.patterns = {}
+        for ctx_field, points_to in state._env.items():
+            field_access = getattr(ctx_field, "content", ctx_field)
+            if isinstance(field_access, FieldAccess):
+                self.fields.setdefault(field_access.obj, []).append(
+                    (str(field_access.field), points_to)
+                )
+
+    def relevant(self, roots):
+        """Follow heap fields and closure cells, retaining an explanatory path."""
+        worklist = [(obj, ()) for obj in roots]
+        seen = set()
+        while worklist:
+            obj, trace = worklist.pop()
+            if obj in seen:
+                continue
+            seen.add(obj)
+            access_path = DefensiveCapabilityAnalysis._object_path(obj)
+            if access_path is not None:
+                if access_path not in self.patterns:
+                    self.patterns[access_path] = self.registry.reachable(access_path)
+                patterns = self.patterns[access_path]
+                if patterns:
+                    yield access_path, patterns, trace
+            closure_owner = obj
+            if isinstance(obj, (GeneratorObject, CoroutineObject)):
+                closure_owner = obj.func_obj
+            if isinstance(closure_owner, FunctionObject):
+                for name, captured_var in self.state.get_cell_vars(closure_owner).items():
+                    worklist.extend(
+                        (child, (*trace, f"closure cell {name}"))
+                        for child in self.state.get_points_to(captured_var)
+                    )
+            for label, points_to in self.fields.get(obj, ()):
+                worklist.extend((child, (*trace, f"carrier field {label}")) for child in points_to)
 
 
 __all__ = ["DefensiveCapabilityAnalysis"]

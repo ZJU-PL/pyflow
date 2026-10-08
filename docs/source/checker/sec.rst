@@ -30,7 +30,8 @@ PyFlow provides several checking subsystems:
 
 **Capability checker** (``pyflow.checker.capability``)
   A context-sensitive pointer-based checker for security-sensitive authority,
-  capability escape, external effects, and runtime enforcement policy.
+  potential capability transfer, external effects, and optional runtime audit
+  observation or denial of classified events.
 
 **Supply-chain checker** (``pyflow.checker.supply_chain``)
   Package inventory, integrity, vulnerability, and policy analysis.

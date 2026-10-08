@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace
 
-from pyflow.cli.capabilities import run_capabilities
+import pytest
+
+from pyflow.cli.capabilities import add_capabilities_parser, run_capabilities
 
 
 def test_capabilities_cli_json(tmp_path, capsys) -> None:
@@ -131,3 +133,48 @@ def test_capabilities_cli_applies_external_effect_model(tmp_path, capsys) -> Non
         and finding["location"]["line"] == 4
         for finding in payload["findings"]
     )
+
+
+@pytest.mark.parametrize("include_boundaries", [False, True])
+def test_callable_boundary_reports_are_opt_in(tmp_path, capsys, include_boundaries) -> None:
+    target = tmp_path / "main.py"
+    target.write_text(
+        "from subprocess import run\n"
+        "def factory():\n"
+        "    return run\n"
+        "_callback = factory()\n",
+        encoding="utf-8",
+    )
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers(dest="command"))
+    argv = ["capabilities", str(target), "--format", "json", "--no-public-exports"]
+    if include_boundaries:
+        argv.append("--report-callable-boundaries")
+
+    assert run_capabilities(parser.parse_args(argv)) == int(include_boundaries)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "complete"
+    assert any(finding["escape_kind"] == "return" for finding in payload["findings"]) == (
+        include_boundaries
+    )
+
+
+def test_indirect_sarif_reports_potential_transfer_as_note(tmp_path, capsys) -> None:
+    target = tmp_path / "main.py"
+    target.write_text(
+        "from subprocess import run\nimport plugin_api\nplugin_api.register(run)\n",
+        encoding="utf-8",
+    )
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(["capabilities", str(target), "--format", "sarif"])
+    assert run_capabilities(args) == 1
+    payload = json.loads(capsys.readouterr().out)
+    indirect = [
+        result
+        for result in payload["runs"][0]["results"]
+        if result["properties"]["reportKind"] == "indirect"
+    ]
+    assert indirect
+    assert all(result["level"] == "note" for result in indirect)
+    assert all("potential capability transfer" in result["message"]["text"] for result in indirect)

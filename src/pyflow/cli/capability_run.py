@@ -16,7 +16,7 @@ from pyflow.checker.capability import (
 def add_capability_run_parser(subparsers) -> None:
     parser = subparsers.add_parser(
         "capability-run",
-        help="Run Python code with a fail-closed capability allow list",
+        help="Observe or deny classified CPython audit events",
     )
     parser.add_argument("script", help="Python script to execute")
     parser.add_argument(
@@ -27,7 +27,12 @@ def add_capability_run_parser(subparsers) -> None:
         help="Allowed capability or glob (repeatable, for example file.read)",
     )
     parser.add_argument("--audit-log", type=Path, help="Write observed audit events as JSON")
-    parser.add_argument("args", nargs="*", help="Arguments passed to the protected script")
+    parser.add_argument(
+        "--observe-only",
+        action="store_true",
+        help="Record classified audit events without denying operations",
+    )
+    parser.add_argument("args", nargs="*", help="Arguments passed to the script")
 
 
 def run_capability_guard(args) -> int:
@@ -39,7 +44,9 @@ def run_capability_guard(args) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
-    policy = RuntimeCapabilityPolicy.allowing(args.allow)
+    policy = RuntimeCapabilityPolicy.allowing(
+        args.allow, enforce=not getattr(args, "observe_only", False)
+    )
     install_runtime_guard(policy)
     old_argv = sys.argv
     old_path = list(sys.path)

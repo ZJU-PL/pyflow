@@ -1,17 +1,21 @@
 # Defensive capability analysis
 
 This subsystem adapts defensive capability analysis to Python on top of
-PyFlow's context-sensitive pointer analysis. It treats security-relevant
-functions, objects, and fields as abstract objects and follows their identity
+PyFlow's context-sensitive pointer analysis. It is a static security-auditing
+tool with optional runtime observation and denial of classified audit events.
+It treats security-relevant functions, objects, and fields as abstract objects
+and follows their identity
 through assignments, imports, calls, returns, containers, and heap fields.
 
 ## Reports
 
-- `direct`: analyzed code invokes, reads, or writes a modeled capability.
-- `indirect`: analyzed code exposes a capability to another component through
-  an argument, external carrier, public module binding, return, or yield.
-- `runtime_guarded`: the operation is found statically but Python reflection or
-  code loading also requires the protected-runtime backstop.
+- `direct`: an analyzed operation may invoke, read, or write a modeled capability.
+- `indirect`: a potential capability transfer through an argument, external
+  carrier, public module binding, or callback. Callable returns, yields, and
+  exceptions are included only with `report_callable_boundaries=True`.
+- `runtime_guarded`: a compatibility label for modeled reflection or code
+  loading operations that need further review. It does not mean a runtime
+  guard is installed or that the operation is securely confined.
 - `unsupported`: reserved for constructs whose semantics are explicitly
   rejected rather than silently approximated.
 
@@ -20,9 +24,33 @@ The unified escape vocabulary covers arguments, returns, yields, raised values,
 public exports, field stores, closure capture, callback registration, spawned
 tasks/processes, and serialization.
 
-An empty result is authoritative only when `status` is `complete`. Unresolved
-call targets, translation failures, and exhausted fixpoint budgets make the
-result `partial` and are emitted as diagnostics.
+`complete` means that no unknown, unsupported, or budget diagnostic was emitted
+by this analysis. It does not certify absence of vulnerabilities or unmodeled
+authority. Unresolved call targets, translation failures, and exhausted
+fixpoint budgets make the result `partial` and are emitted as diagnostics.
+
+## Security interpretation
+
+Findings inventory potential authority use and transfer. The checker does not
+assign trust to callers or callees, compare transfers against an authorization
+policy, or establish that a recipient exercises the capability. A callable
+boundary alone is not a trust boundary; reporting returns, yields, and
+exceptions is therefore opt-in. Pointer propagation through them always
+remains active, including when their transfer reports are disabled.
+
+A transfer matters when, for example, a host shares a secret-bearing object or
+resource handle with a plugin that otherwise cannot acquire that resource.
+Reviewers must supply the trusted components, restricted resources, allowed
+transfers, and independent confinement mechanism. Ordinary Python code can
+usually import `os` itself; receiving `os.system` does not by itself increase
+its ambient authority. Public exports and unanalyzed calls remain potential
+exposure reports, not findings of an unauthorized transfer. Indirect SARIF
+results use level `note` for this reason.
+
+Native access-path prefix reachability is conservative. It can associate an
+object with sensitive descendants without proving that those descendants
+exist or are accessible. Heap fields are indexed once per analysis result;
+closure cells and reachable fields are then traversed for each transfer.
 
 ## API
 
@@ -65,12 +93,16 @@ opaque external return object.
 ```text
 pyflow capabilities PROJECT --entry app.py --format sarif
 pyflow capabilities app.py --capability-model company-capabilities.json
-pyflow capability-run app.py --allow file.read --allow 'network.*'
+pyflow capabilities app.py --report-callable-boundaries
+pyflow capability-run --observe-only --audit-log observed.json app.py
+pyflow capability-run --allow file.read --allow 'network.*' app.py
 ```
 
-`capability-run` installs a permanent CPython audit hook in the child process.
-It uses an allow list and exits with status 126 on a denied known operation.
-Run untrusted code in a separate OS process; audit hooks are process-global.
+`capability-run` installs a permanent CPython audit hook in the CLI process.
+It observes classified events and, by default, uses an allow list to deny known
+operations. An uncaught denial exits with status 126. `--observe-only` records without denying.
+Unclassified events are ignored. Python-level audit hooks are not suitable for
+sandboxing malicious code, as the [Python documentation](https://docs.python.org/3/library/sys.html#sys.addaudithook)
+explains. A fresh process does not itself supply an OS security boundary.
 
-See `SOUNDNESS.md` for the guarantee boundary and deliberately unsupported
-execution environments.
+See `SOUNDNESS.md` for the analysis scope, deployment assumptions, and limitations.

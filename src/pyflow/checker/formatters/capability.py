@@ -19,14 +19,18 @@ def capability_sarif(result) -> dict:
             {
                 "id": finding.capability,
                 "name": finding.capability.replace(".", "_"),
-                "shortDescription": {"text": f"Use of {finding.capability} capability"},
+                "shortDescription": {"text": f"Potential use or exposure of {finding.capability}"},
             },
         )
         loc = finding.location
         sarif_results.append(
             {
                 "ruleId": finding.capability,
-                "level": level_by_category.get(finding.category, "note"),
+                "level": (
+                    "note"
+                    if finding.report_kind.value == "indirect"
+                    else level_by_category.get(finding.category, "note")
+                ),
                 "message": {"text": finding.reason},
                 "locations": [
                     physical_location(

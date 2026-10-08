@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from pyflow.analysis.alias.kcfa import PointerAnalysis
 from pyflow.checker.capability import (
     CapabilityRegistry,
     CapabilityOperation,
@@ -12,8 +15,8 @@ from pyflow.checker.capability import (
 )
 
 
-def _findings(source: str):
-    return DefensiveCapabilityAnalysis().analyze_source(source).findings
+def _findings(source: str, **options):
+    return DefensiveCapabilityAnalysis(**options).analyze_source(source).findings
 
 
 def test_reports_sensitive_callable_after_aliasing() -> None:
@@ -49,6 +52,43 @@ def test_open_mode_distinguishes_read_and_write() -> None:
 
     assert {finding.capability for finding in read} == {"file.read"}
     assert {finding.capability for finding in write} == {"file.write"}
+
+
+@pytest.mark.parametrize("callee", ["open", "io.open"])
+@pytest.mark.parametrize(
+    "mode, expected",
+    [
+        ("r", {"file.read"}),
+        ("w", {"file.write"}),
+        ("a", {"file.write"}),
+        ("x", {"file.write"}),
+        ("r+", {"file.read", "file.write"}),
+        ("w+", {"file.read", "file.write"}),
+    ],
+)
+def test_open_keyword_modes(callee, mode, expected) -> None:
+    findings = _findings(f"import io\n{callee}('out.txt', mode={mode!r})\n")
+    assert {finding.capability for finding in findings if finding.location.line == 2} == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def use(mode):\n    open('out.txt', mode=mode)\nuse('r')\nuse('w')\n",
+        "import vendor\nopen('out.txt', mode=vendor.mode)\n",
+        "import vendor\nopen('out.txt', **vendor.options)\n",
+        "open(*('out.txt', 'w'))\n",
+        "import vendor\nmode = 'r' if vendor.flag else vendor.mode\nopen('out.txt', mode=mode)\n",
+    ],
+)
+def test_uncertain_open_modes_report_read_and_write(source) -> None:
+    findings = _findings(source, k=0, report_public_exports=False)
+    assert {
+        finding.capability
+        for finding in findings
+        if finding.access_path == "builtins.open"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    } == {"file.read", "file.write"}
 
 
 def test_reports_escape_into_unanalyzed_external_call() -> None:
@@ -112,7 +152,8 @@ def test_reports_sensitive_callable_returned_from_function() -> None:
         "from subprocess import run\n"
         "def make_runner():\n"
         "    return run\n"
-        "exported = make_runner()\n"
+        "exported = make_runner()\n",
+        report_callable_boundaries=True,
     )
     assert any(
         finding.capability == "process.execute"
@@ -130,6 +171,83 @@ def test_unresolved_call_makes_result_partial() -> None:
     assert any(diagnostic.kind == "unknown" for diagnostic in result.diagnostics)
 
 
+def test_unresolved_call_diagnostic_includes_source_location() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source("missing()\n")
+    diagnostic = next(
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.message.startswith("unresolved call target:")
+    )
+    assert result.status == "partial"
+    assert diagnostic.kind == "unknown"
+    assert diagnostic.location is not None
+    assert diagnostic.location.line == 1
+
+
+def test_local_return_preserves_identity_without_callable_boundary_report() -> None:
+    findings = _findings(
+        "from subprocess import run\n"
+        "def make_runner():\n"
+        "    return run\n"
+        "_execute = make_runner()\n"
+        "_execute(['id'])\n",
+        report_public_exports=False,
+    )
+    assert any(
+        finding.capability == "process.execute"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+        and finding.location.line == 5
+        for finding in findings
+    )
+    assert not any(finding.escape_kind == "return" for finding in findings)
+
+
+def test_external_transfer_is_reported_after_internal_return() -> None:
+    findings = _findings(
+        "from subprocess import run\n"
+        "import plugin_api\n"
+        "def make_runner():\n"
+        "    return run\n"
+        "plugin_api.register(make_runner())\n",
+        report_public_exports=False,
+    )
+    assert any(
+        finding.escape_kind == "argument"
+        and finding.boundary == "plugin_api.register"
+        and finding.capability == "process.execute"
+        for finding in findings
+    )
+    assert not any(finding.escape_kind == "return" for finding in findings)
+
+
+def test_heap_is_indexed_once_for_multiple_cyclic_carrier_transfers() -> None:
+    pointer = PointerAnalysis(
+        "from subprocess import run\n"
+        "import plugin_api\n"
+        "carrier = {'task': run}\n"
+        "carrier['self'] = carrier\n"
+        "plugin_api.first(carrier)\n"
+        "plugin_api.second(carrier)\n"
+    ).run()
+
+    class CountingEnvironment(dict):
+        scans = 0
+
+        def items(self):
+            self.scans += 1
+            return super().items()
+
+    environment = CountingEnvironment(pointer.state._env)
+    pointer.state._env = environment
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_pointer_result(
+        pointer
+    )
+    transfers = [finding for finding in result.findings if finding.escape_kind == "argument"]
+    assert {finding.boundary for finding in transfers} == {"plugin_api.first", "plugin_api.second"}
+    assert all(any("carrier field" in step for step in finding.trace) for finding in transfers)
+    assert environment.scans == 1
+
+
 def test_supports_hybrid_context_policy() -> None:
     result = DefensiveCapabilityAnalysis(context_policy="1c1o").analyze_source(
         "from subprocess import run\nrun(['id'])\n"
@@ -138,7 +256,7 @@ def test_supports_hybrid_context_policy() -> None:
 
 
 def test_reports_capability_escaping_through_raise() -> None:
-    findings = _findings("from subprocess import run\nraise run\n")
+    findings = _findings("from subprocess import run\nraise run\n", report_callable_boundaries=True)
     assert any(
         finding.capability == "process.execute"
         and "exception propagation" in finding.reason
@@ -152,7 +270,8 @@ def test_reports_capability_yielded_by_generator() -> None:
         "from subprocess import run\n"
         "def callbacks():\n"
         "    yield run\n"
-        "values = callbacks()\n"
+        "values = callbacks()\n",
+        report_callable_boundaries=True,
     )
     assert any(
         finding.capability == "process.execute"

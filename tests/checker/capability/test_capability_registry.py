@@ -66,3 +66,9 @@ def test_runtime_guard_records_and_denies_known_events():
     with pytest.raises(CapabilityViolation):
         guard("subprocess.Popen", ("id",))
     assert [event.capability for event in policy.events] == ["file.read", "process.execute"]
+
+
+def test_runtime_guard_ignores_unclassified_events():
+    policy = RuntimeCapabilityPolicy()
+    RuntimeCapabilityGuard(policy)("unclassified.operation", ())
+    assert policy.events == []

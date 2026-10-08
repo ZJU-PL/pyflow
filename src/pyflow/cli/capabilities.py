@@ -63,6 +63,11 @@ def add_capabilities_parser(subparsers) -> None:
         action="store_true",
         help="Do not report sensitive values exposed as public module globals",
     )
+    parser.add_argument(
+        "--report-callable-boundaries",
+        action="store_true",
+        help="Include potential transfers through returns, yields, and exceptions (default: off)",
+    )
 
 
 def run_capabilities(args) -> int:
@@ -95,6 +100,7 @@ def run_capabilities(args) -> int:
         k=args.context_depth,
         context_policy=getattr(args, "context_policy", None),
         report_public_exports=not getattr(args, "no_public_exports", False),
+        report_callable_boundaries=getattr(args, "report_callable_boundaries", False),
     ).analyze_project(
         entry,
         project_path=project_root,
