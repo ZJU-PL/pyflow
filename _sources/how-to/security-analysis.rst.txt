@@ -390,3 +390,60 @@ SARIF severity conversion now agrees across engines: low maps to ``note``,
 medium to ``warning``, and high/critical to ``error``. Unknown source lines in
 native CPG exports use line 1. CLI exit policy, report completion status,
 JSON/YAML Issue fields, and engine-specific evidence are preserved.
+
+IFDS project defaults and multiple entries
+-----------------------------------------
+
+Analyze a project without selecting a function:
+
+.. code-block:: bash
+
+   pyflow security project/ --engine ifds --format json
+   pyflow security project/ --engine ifds --entry app.py --entry cli.py --format sarif
+
+IFDS entry discovery uses the strongest available evidence tier: packaging
+metadata (``project.scripts``, GUI scripts, entry-point groups, Poetry scripts,
+``setup.py`` or ``setup.cfg``), then package ``__main__.py`` files, then root
+filename conventions such as ``main.py`` and ``app.py``. All distinct files in
+that tier are analyzed. It does not import the project to discover entries.
+Projects without candidates must provide ``--entry``. A file target is its own
+entry; ``--entry`` is reserved for directory targets.
+
+Each entry receives an independent analysis session and solver budget. Analysis
+includes its module body and file-local procedures under the existing file
+entry policy. Packaging metadata identifies files rather than selecting just
+the function named by a console script. Cross-file callees are followed through
+the call graph; ``--recursive`` includes nested source files in the input set.
+
+Put reusable defaults in ``project/pyflow.json``:
+
+.. code-block:: json
+
+   {
+     "entry": ["app.py", "cli.py"],
+     "analysis": "taint",
+     "frameworks": ["stdlib"],
+     "sources": ["input"],
+     "sinks": ["eval"],
+     "solver_options": {
+       "max_seconds": 30,
+       "max_path_edges": 100000,
+       "max_call_string_depth": 3
+     }
+   }
+
+Omit ``entry`` to discover entries automatically. CLI options override the
+corresponding configuration values. ``--config other.json`` replaces the
+automatically loaded file. File targets load ``pyflow.json`` from their parent;
+directory targets load it from the target root. There is no ancestor search.
+Entry paths are relative to the project root, while ``registry_path`` entries
+are relative to the configuration file. Automatic loading applies to IFDS.
+
+Single-entry reports retain their existing structure. Multi-entry JSON adds
+``entries`` and ``entry_results`` with each entry's findings, statistics, and
+completion status. Top-level findings are deduplicated, while the aggregate
+status retains failures, invalid configurations, and partial analyses. JSON,
+text, SARIF and existing exit-code policies use that aggregate result. Budgets
+apply per entry, so total project analysis can take longer than ``max_seconds``.
+
+For an executable custom analysis example, see :ref:`ifds-plugin`.

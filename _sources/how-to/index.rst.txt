@@ -17,6 +17,7 @@ familiar with PyFlow's basic functionality.
     optimize-code
     security-analysis
     customize-analysis
+    ifds-plugin
     integrate-with-build-systems
     visualize-results
     debug-analysis-issues

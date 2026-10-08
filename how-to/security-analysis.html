@@ -100,10 +100,14 @@
 <li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues">Issue: Performance issues</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#shared-checker-infrastructure">Shared checker infrastructure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#shared-checker-infrastructure">Shared checker infrastructure</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#ifds-project-defaults-and-multiple-entries">IFDS project defaults and multiple entries</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ifds-plugin.html">Write your first IFDS analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
 <li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
 <li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
@@ -523,6 +527,54 @@ and <code class="docutils literal notranslate"><span class="pre">checker.common.
 medium to <code class="docutils literal notranslate"><span class="pre">warning</span></code>, and high/critical to <code class="docutils literal notranslate"><span class="pre">error</span></code>. Unknown source lines in
 native CPG exports use line 1. CLI exit policy, report completion status,
 JSON/YAML Issue fields, and engine-specific evidence are preserved.</p>
+<section id="ifds-project-defaults-and-multiple-entries">
+<h3>IFDS project defaults and multiple entries<a class="headerlink" href="#ifds-project-defaults-and-multiple-entries" title="Link to this heading"></a></h3>
+<p>Analyze a project without selecting a function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>project/<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--format<span class="w"> </span>json
+pyflow<span class="w"> </span>security<span class="w"> </span>project/<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--entry<span class="w"> </span>app.py<span class="w"> </span>--entry<span class="w"> </span>cli.py<span class="w"> </span>--format<span class="w"> </span>sarif
+</pre></div>
+</div>
+<p>IFDS entry discovery uses the strongest available evidence tier: packaging
+metadata (<code class="docutils literal notranslate"><span class="pre">project.scripts</span></code>, GUI scripts, entry-point groups, Poetry scripts,
+<code class="docutils literal notranslate"><span class="pre">setup.py</span></code> or <code class="docutils literal notranslate"><span class="pre">setup.cfg</span></code>), then package <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code> files, then root
+filename conventions such as <code class="docutils literal notranslate"><span class="pre">main.py</span></code> and <code class="docutils literal notranslate"><span class="pre">app.py</span></code>. All distinct files in
+that tier are analyzed. It does not import the project to discover entries.
+Projects without candidates must provide <code class="docutils literal notranslate"><span class="pre">--entry</span></code>. A file target is its own
+entry; <code class="docutils literal notranslate"><span class="pre">--entry</span></code> is reserved for directory targets.</p>
+<p>Each entry receives an independent analysis session and solver budget. Analysis
+includes its module body and file-local procedures under the existing file
+entry policy. Packaging metadata identifies files rather than selecting just
+the function named by a console script. Cross-file callees are followed through
+the call graph; <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> includes nested source files in the input set.</p>
+<p>Put reusable defaults in <code class="docutils literal notranslate"><span class="pre">project/pyflow.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"entry"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"app.py"</span><span class="p">,</span><span class="w"> </span><span class="s2">"cli.py"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"analysis"</span><span class="p">:</span><span class="w"> </span><span class="s2">"taint"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"frameworks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"stdlib"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"input"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"sinks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"eval"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"solver_options"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"max_seconds"</span><span class="p">:</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"max_path_edges"</span><span class="p">:</span><span class="w"> </span><span class="mi">100000</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"max_call_string_depth"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Omit <code class="docutils literal notranslate"><span class="pre">entry</span></code> to discover entries automatically. CLI options override the
+corresponding configuration values. <code class="docutils literal notranslate"><span class="pre">--config</span> <span class="pre">other.json</span></code> replaces the
+automatically loaded file. File targets load <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code> from their parent;
+directory targets load it from the target root. There is no ancestor search.
+Entry paths are relative to the project root, while <code class="docutils literal notranslate"><span class="pre">registry_path</span></code> entries
+are relative to the configuration file. Automatic loading applies to IFDS.</p>
+<p>Single-entry reports retain their existing structure. Multi-entry JSON adds
+<code class="docutils literal notranslate"><span class="pre">entries</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_results</span></code> with each entry’s findings, statistics, and
+completion status. Top-level findings are deduplicated, while the aggregate
+status retains failures, invalid configurations, and partial analyses. JSON,
+text, SARIF and existing exit-code policies use that aggregate result. Budgets
+apply per entry, so total project analysis can take longer than <code class="docutils literal notranslate"><span class="pre">max_seconds</span></code>.</p>
+<p>For an executable custom analysis example, see <a class="reference internal" href="ifds-plugin.html#ifds-plugin"><span class="std std-ref">Write your first IFDS analysis</span></a>.</p>
+</section>
 </section>
 </section>
 

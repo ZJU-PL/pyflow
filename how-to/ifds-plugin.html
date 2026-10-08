@@ -1,0 +1,253 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Write your first IFDS analysis &mdash; pyflow 0.1.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=92734c54"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Integrate with Build Systems" href="integrate-with-build-systems.html" />
+    <link rel="prev" title="How to Customize Analysis" href="customize-analysis.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Write your first IFDS analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#read-the-example-from-top-to-bottom">Read the example from top to bottom</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#add-the-analysis-to-a-pass-pipeline">Add the analysis to a pass pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interpret-and-test-the-result">Interpret and test the result</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lsp.html">Editor and Agent Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concolic.html">Concolic Execution</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-reference">Checker Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/class-pollution.html">Class Pollution Analysis</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">Write your first IFDS analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/ifds-plugin.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="write-your-first-ifds-analysis">
+<span id="ifds-plugin"></span><h1>Write your first IFDS analysis<a class="headerlink" href="#write-your-first-ifds-analysis" title="Link to this heading"></a></h1>
+<p>Run <code class="docutils literal notranslate"><span class="pre">examples/ifds_plugin.py</span></code> after installing PyFlow:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>examples/ifds_plugin.py
+</pre></div>
+</div>
+<p>It analyzes a bundled program containing <code class="docutils literal notranslate"><span class="pre">helper()</span></code>, an unused function, and
+one call to <code class="docutils literal notranslate"><span class="pre">helper</span></code>. Expected output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Analyzed: ifds_demo.py
+Reachable functions: helper
+</pre></div>
+</div>
+<p>To analyze your own file, pass its path:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>examples/ifds_plugin.py<span class="w"> </span>your_program.py
+</pre></div>
+</div>
+<section id="read-the-example-from-top-to-bottom">
+<h2>Read the example from top to bottom<a class="headerlink" href="#read-the-example-from-top-to-bottom" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">VisitedFunctions</span></code> defines the analysis. Its domain consists of immutable,
+hashable function-name strings and a separate <code class="docutils literal notranslate"><span class="pre">ZERO</span></code> sentinel. The domain is
+finite because the loaded graph has finitely many function names.</p>
+<p><code class="docutils literal notranslate"><span class="pre">initial_seeds</span></code> starts <code class="docutils literal notranslate"><span class="pre">ZERO</span></code> at the file’s declared module entry. The four
+flow functions describe what happens to one fact at a time:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">normal_flow</span></code> keeps facts across local CFG edges.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">call_flow</span></code> generates the callee’s name from <code class="docutils literal notranslate"><span class="pre">ZERO</span></code> and keeps <code class="docutils literal notranslate"><span class="pre">ZERO</span></code>
+so later calls can generate more names.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">return_flow</span></code> brings the callee’s facts back to the matching return site.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">call_to_return_flow</span></code> preserves existing facts through the call bypass.</p></li>
+</ul>
+<p>Returning <code class="docutils literal notranslate"><span class="pre">()</span></code> would kill a fact. The base class does this by default, so
+omitting a flow function can stop propagation. These facts describe path
+history; an analysis of local variables needs argument and return-value binding
+instead. Helpers are available in <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.ifds.core.transfers</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">analyze_file</span></code> loads the source, prepares the graph, and runs the solver.
+<code class="docutils literal notranslate"><span class="pre">main</span></code> collects function-name facts with <code class="docutils literal notranslate"><span class="pre">result.facts_at(node)</span></code> and prints
+them, excluding <code class="docutils literal notranslate"><span class="pre">ZERO</span></code>. This separation lets tests run the analysis without
+using its command-line interface.</p>
+</section>
+<section id="add-the-analysis-to-a-pass-pipeline">
+<h2>Add the analysis to a pass pipeline<a class="headerlink" href="#add-the-analysis-to-a-pass-pipeline" title="Link to this heading"></a></h2>
+<p>Once the standalone analysis is clear, wrap it in an <code class="docutils literal notranslate"><span class="pre">AnalysisPass</span></code>. With
+<code class="docutils literal notranslate"><span class="pre">VisitedFunctions</span></code> imported from your plugin module:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ifds.core.solver</span><span class="w"> </span><span class="kn">import</span> <span class="n">IFDSSolver</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPass</span><span class="p">,</span> <span class="n">PassResult</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">VisitedFunctionsPass</span><span class="p">(</span><span class="n">AnalysisPass</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">"visited_functions"</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session</span> <span class="o">=</span> <span class="n">session</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">IFDSSolver</span><span class="p">()</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">VisitedFunctions</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">PassResult</span><span class="p">(</span>
+            <span class="n">success</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">is_complete</span><span class="p">,</span> <span class="n">changed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">result</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">termination_reason</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<span class="n">manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">(</span><span class="n">enable_caching</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">manager</span><span class="o">.</span><span class="n">register_pass</span><span class="p">(</span><span class="n">VisitedFunctionsPass</span><span class="p">(</span><span class="n">session</span><span class="p">))</span>
+<span class="n">passes</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">run_passes</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">compiler</span><span class="p">,</span> <span class="n">session</span><span class="o">.</span><span class="n">program</span><span class="p">,</span> <span class="p">[</span><span class="s2">"visited_functions"</span><span class="p">])</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">passes</span><span class="p">[</span><span class="s2">"visited_functions"</span><span class="p">]</span><span class="o">.</span><span class="n">data</span>
+</pre></div>
+</div>
+<p>Here <code class="docutils literal notranslate"><span class="pre">session</span></code> is the prepared session returned by <code class="docutils literal notranslate"><span class="pre">analyze_file</span></code>. This
+wrapper uses that session’s graph; construct a fresh session and pass after
+source or IR changes. Production passes should declare analysis dependencies
+and rebuild their adapters when inputs are invalidated.</p>
+</section>
+<section id="interpret-and-test-the-result">
+<h2>Interpret and test the result<a class="headerlink" href="#interpret-and-test-the-result" title="Link to this heading"></a></h2>
+<p>A reported name means some modeled path can call the function, not that every
+execution will. Unresolved calls cannot reveal their callees; duplicate display
+names share one fact in this teaching example. Use stable procedure identities
+for a production domain.</p>
+<p>Inspect <code class="docutils literal notranslate"><span class="pre">result.is_complete</span></code>, <code class="docutils literal notranslate"><span class="pre">result.termination_reason</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">session.diagnostics</span></code> before treating an absent name as meaningful. Solver
+completion alone does not certify complete source modeling.</p>
+<p>Run the example’s regression tests:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>tests/analysis/ifds/test_plugin_tutorial.py
+</pre></div>
+</div>
+<p>They check reachable and unused functions, facts returned to the module exit,
+the default command-line output, and the pass wrapper above. When extending the
+analysis, add cases for branches, nested calls, recursion, and killed facts.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="customize-analysis.html" class="btn btn-neutral float-left" title="How to Customize Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="integrate-with-build-systems.html" class="btn btn-neutral float-right" title="Integrate with Build Systems" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
