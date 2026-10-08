@@ -6,14 +6,14 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Main Commands &mdash; pyflow 0.1.1 documentation</title>
+  <title>Main Commands &mdash; pyflow 0.1.2 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="_static/documentation_options.js?v=92734c54"></script>
       <script src="_static/doctools.js?v=9bcbadda"></script>
       <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/js/theme.js"></script>
@@ -444,7 +444,9 @@ evidence; absence of an import is explicitly not treated as proof of safety</p><
 <h2>Capability Commands<a class="headerlink" href="#capability-commands" title="Link to this heading"></a></h2>
 <section id="pyflow-capabilities">
 <h3><strong>pyflow capabilities</strong><a class="headerlink" href="#pyflow-capabilities" title="Link to this heading"></a></h3>
-<p>Report security-sensitive capabilities exercised or exposed by Python code using context-sensitive pointer analysis.</p>
+<p>Report potential use or exposure of security-sensitive capabilities using
+context-sensitive pointer analysis. Findings do not establish an authorization
+policy violation.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span>
 <span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">json</span>
 <span class="n">pyflow</span> <span class="n">capabilities</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
@@ -458,21 +460,25 @@ evidence; absence of an import is explicitly not treated as proof of safety</p><
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-policy</span> <span class="pre">POLICY</span></code>: Specific context policy (e.g. <code class="docutils literal notranslate"><span class="pre">1-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">2-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">1c1o</span></code>, <code class="docutils literal notranslate"><span class="pre">1-param</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--capability-model</span> <span class="pre">PATH</span></code>: Custom capability model JSON file (repeatable)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-public-exports</span></code>: Do not report capabilities exposed as public module globals</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--report-callable-boundaries</span></code>: Include potential transfers through returns, yields, and exceptions (default: off)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json,sarif}</span></code>: Output format (default: <code class="docutils literal notranslate"><span class="pre">text</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write output to file</p></li>
 </ul>
 </section>
 <section id="pyflow-capability-run">
 <h3><strong>pyflow capability-run</strong><a class="headerlink" href="#pyflow-capability-run" title="Link to this heading"></a></h3>
-<p>Run Python scripts under a fail-closed capability audit guard that enforces runtime policies.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">allow</span> <span class="n">file</span><span class="o">.</span><span class="n">read</span> <span class="o">--</span><span class="n">allow</span> <span class="n">network</span>
-<span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">audit</span><span class="o">-</span><span class="n">log</span> <span class="n">audit</span><span class="o">.</span><span class="n">json</span>
+<p>Observe classified CPython audit events and optionally deny operations outside
+a capability allow list. Python-level audit hooks do not sandbox malicious
+code, and unclassified events are ignored.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="o">--</span><span class="n">allow</span> <span class="n">file</span><span class="o">.</span><span class="n">read</span> <span class="o">--</span><span class="n">allow</span> <span class="s1">'network.*'</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">capability</span><span class="o">-</span><span class="n">run</span> <span class="o">--</span><span class="n">observe</span><span class="o">-</span><span class="n">only</span> <span class="o">--</span><span class="n">audit</span><span class="o">-</span><span class="n">log</span> <span class="n">audit</span><span class="o">.</span><span class="n">json</span> <span class="n">script</span><span class="o">.</span><span class="n">py</span>
 </pre></div>
 </div>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--allow</span> <span class="pre">CAPABILITY</span></code>: Allowed capability or glob pattern (repeatable)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--audit-log</span> <span class="pre">PATH</span></code>: Write observed audit events to JSON log</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--observe-only</span></code>: Record classified events without denying operations</p></li>
 </ul>
 </section>
 </section>

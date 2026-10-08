@@ -6,14 +6,14 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Security Analysis and Checking &mdash; pyflow 0.1.1 documentation</title>
+  <title>Security Analysis and Checking &mdash; pyflow 0.1.2 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../_static/documentation_options.js?v=92734c54"></script>
       <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
@@ -166,7 +166,8 @@ framework-specific models.</p>
 object traversal and writes into class or namespace state.</p>
 </dd>
 <dt><strong>Capability checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.capability</span></code>)</dt><dd><p>A context-sensitive pointer-based checker for security-sensitive authority,
-capability escape, external effects, and runtime enforcement policy.</p>
+potential capability transfer, external effects, and optional runtime audit
+observation or denial of classified events.</p>
 </dd>
 <dt><strong>Supply-chain checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.supply_chain</span></code>)</dt><dd><p>Package inventory, integrity, vulnerability, and policy analysis.</p>
 </dd>
@@ -493,7 +494,7 @@ claims until the exact attestation has passed Sigstore identity verification.</p
 <li class="toctree-l2"><a class="reference internal" href="capability.html#command-line-usage">Command-Line Usage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html#programmatic-api">Programmatic API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html#capability-configuration">Capability Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="capability.html#protected-runtime">Protected Runtime</a></li>
+<li class="toctree-l2"><a class="reference internal" href="capability.html#runtime-observation">Runtime Observation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html#output-contract">Output Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html#soundness-boundary">Soundness Boundary</a></li>
 </ul>
