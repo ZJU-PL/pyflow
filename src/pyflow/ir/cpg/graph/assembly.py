@@ -5,6 +5,7 @@ from collections import deque
 from time import monotonic
 from typing import Any, Dict, Iterator, List, Optional, Set
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed
 from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
 from pyflow.language.python import ast as py_ast
 from .model import (
@@ -60,12 +61,14 @@ class _GraphAssemblyMixin:
         for ast_node in self._iter_source_statement_nodes(root):
             if not self._needs_synthetic_statement_node(ast_node):
                 continue
-            if pdg.get_node_for_ast(ast_node) is not None:
+            node = pdg.get_node_for_ast(ast_node)
+            if node is not None and node.cfg_node is not None:
                 continue
 
             label = self._ast_value(ast_node) or _safe_type_name(ast_node)
-            node = pdg.add_node("stmt", ast_node=ast_node, label=label)
-            self._promote_new_node_id(node, pdg)
+            if node is None:
+                node = pdg.add_node("stmt", ast_node=ast_node, label=label)
+                self._promote_new_node_id(node, pdg)
             pdg_ast_ids.add(id(ast_node))
 
             meta = self._meta_for(node)
@@ -181,44 +184,61 @@ class _GraphAssemblyMixin:
         return str(ast_node)
 
     def _build_pdg_edges(self, pdg: ProgramDependenceGraph) -> None:
-        """Mirror PDG ``control`` and ``data`` edges as CPG edges.
+        """Mirror PDG edges verbatim; derive def/use metadata from IR identities."""
+        code = getattr(pdg.cfg, "code", None)
+        catalog = ensure_code_indexed(code) if isinstance(code, py_ast.Code) else None
+        if catalog is not None:
+            for node in pdg.nodes:
+                if node.ast_node is None:
+                    continue
+                try:
+                    semantics = catalog.semantics.operation(catalog.node_id(node.ast_node, code))
+                except KeyError:
+                    continue
+                for key, identities in (
+                    ("ssa_defs", semantics.definitions),
+                    ("ssa_uses", semantics.uses),
+                ):
+                    for identity in identities:
+                        self._append_meta_entry(
+                            node, key, self._semantic_name_entry(catalog, identity)
+                        )
 
-        When SSA is active, DATA edge labels carry the SSA-renamed variable
-        name (e.g. ``"x_1"`` instead of ``"x"``).  This is detected by
-        inspecting Merge-block phi nodes that carry ``"x_1"`` style names.
-        """
-        # Pre-scan: detect SSA versions from Merge phi nodes
-        ssa_versions: Dict[str, str] = {}
-        for node in pdg.nodes:
-            if node.kind != "stmt" or node.ast_node is None:
-                continue
-            if hasattr(node.ast_node, "toStr"):
-                s = node.ast_node.toStr()
-                if "=" in s and "_" in s:
-                    for part in s.replace(" ", "").split(";"):
-                        if "=" in part and "_" in part.split("=")[0]:
-                            lhs = part.split("=")[0]
-                            if "_" in lhs:
-                                base = lhs.rsplit("_", 1)[0]
-                                ssa_versions[base] = lhs
+            if pdg.entry is not None:
+                scope = catalog.procedure(code).root_scope
+                initial_values = {
+                    value.id.symbol: value.id
+                    for value in catalog.values
+                    if value.definition is None
+                }
+                for symbol in catalog.symbols:
+                    if symbol.id.scope == scope and symbol.kind is SymbolKind.PARAMETER:
+                        identity = initial_values.get(symbol.id, symbol.id)
+                        self._append_meta_entry(
+                            pdg.entry, "ssa_defs", self._semantic_name_entry(catalog, identity)
+                        )
+
         for node in pdg.nodes:
             for pe in node.edges_out:
                 kind = CPGEdgeKind(pe.kind)
                 label = pe.label
-                if kind == CPGEdgeKind.DATA and label:
-                    versioned = ssa_versions.get(label, label)
-                    if versioned != label:
-                        label = versioned
-                    source_entry = {"var": label.rsplit("_", 1)[0], "name": label}
-                    target_entry = {"var": label.rsplit("_", 1)[0], "name": label}
-                    if "_" in label.rsplit(".", 1)[-1]:
-                        suffix = label.rsplit("_", 1)[-1]
-                        if suffix.isdigit():
-                            source_entry["version"] = int(suffix)
-                            target_entry["version"] = int(suffix)
-                    self._append_meta_entry(pe.source, "ssa_defs", source_entry)
-                    self._append_meta_entry(pe.target, "ssa_uses", target_entry)
+                if catalog is None and kind == CPGEdgeKind.DATA and label:
+                    # Hand-built PDGs without an IR catalog retain label-based
+                    # metadata, without guessing versions from source spelling.
+                    entry = {"var": label, "name": label}
+                    self._append_meta_entry(pe.source, "ssa_defs", dict(entry))
+                    self._append_meta_entry(pe.target, "ssa_uses", dict(entry))
                 self._add_edge(pe.source, pe.target, kind, label)
+
+    @staticmethod
+    def _semantic_name_entry(catalog, identity) -> Dict[str, Any]:
+        symbol = identity.symbol if isinstance(identity, ValueId) else identity
+        name = catalog.symbols[symbol].display_name
+        entry: Dict[str, Any] = {"var": name, "name": name}
+        if isinstance(identity, ValueId):
+            entry["version"] = identity.version
+            entry["value_id"] = str(identity)
+        return entry
 
     def _build_ast_edges(self, pdg: ProgramDependenceGraph, pdg_ast_ids: Set[int]) -> None:
         """Derive AST_CHILD edges from ``PDGNode.ast_node`` references.

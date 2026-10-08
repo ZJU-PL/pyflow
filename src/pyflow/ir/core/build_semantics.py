@@ -74,6 +74,8 @@ def _dedupe(values: Iterable[H]) -> tuple[H, ...]:
 def _definition_references(node) -> tuple[object, ...]:
     if isinstance(node, ast.Assign):
         return tuple(node.lcls)
+    if isinstance(node, ast.Phi):
+        return (node.target,)
     if isinstance(node, ast.UnpackSequence):
         return tuple(node.targets)
     if isinstance(node, ast.NamedExpr):

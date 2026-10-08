@@ -28,6 +28,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         "_next_node_id",
         "_data_definitions_by_label",
         "_node_meta",
+        "_lambda_nodes",
         "_construction_diagnostics",
     )
 
@@ -48,6 +49,8 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         self._next_node_id: int = 0
         self._data_definitions_by_label: Dict[str, List[Tuple[str, PDGNode]]] = {}
         self._node_meta: Dict[int, Dict[str, Any]] = {}
+        # Stable AST/PDG identities survive node-ID promotion and rebuilds.
+        self._lambda_nodes: Dict[Tuple[ProgramDependenceGraph, Any], PDGNode] = {}
         self._construction_diagnostics: List[Dict[str, Any]] = []
 
     def add_function(self, name: str, pdg: ProgramDependenceGraph) -> None:
@@ -110,8 +113,8 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         every index from scratch. Return ``False`` when an optional monotonic
         *deadline* expires before assembly is complete.
         """
+        self._built = False
         if deadline is not None and monotonic() >= deadline:
-            self._built = False
             return False
         self._ensure_unique_node_ids()
         self._cpg_edges_out.clear()
@@ -121,6 +124,9 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         self._cfg_node_to_pdg.clear()
         self._nodes_by_id.clear()
         self._node_meta.clear()
+        self._lambda_nodes = {
+            key: node for key, node in self._lambda_nodes.items() if key[0] in self._pdgs.values()
+        }
         self._data_definitions_by_label.clear()
         self._next_node_id = (
             max(

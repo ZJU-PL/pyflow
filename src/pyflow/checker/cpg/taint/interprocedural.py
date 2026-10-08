@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.language.python import ast as py_ast
-from .model import MemoryLayout, TaintState, _CLEAN, _USER_CONTROLLED
+from .model import MemoryLayout, TaintState
 
 
 class _TaintInterproceduralMixin:
@@ -218,19 +218,7 @@ class _TaintInterproceduralMixin:
         return tstate, new_mem
 
     def _isinstance_guard_strip(self, ast_node: Any, mem: MemoryLayout) -> bool:
-        if not isinstance(ast_node, py_ast.Call):
-            return False
-        call_name = self._extract_call_name(ast_node)
-        if call_name == "isinstance":
-            args = getattr(ast_node, "args", None)
-            if args is not None and len(args) >= 1:
-                first_arg = args[0]
-                if isinstance(first_arg, py_ast.Local):
-                    var_name = getattr(first_arg, "name", "") or ""
-                    if var_name:
-                        mem.mark_tainted(var_name, _CLEAN)
-                        return True
-            return False
+        """Compatibility no-op: type membership does not remove content taint."""
         return False
 
     def _is_validating_regex(self, call_node: py_ast.Call) -> bool:

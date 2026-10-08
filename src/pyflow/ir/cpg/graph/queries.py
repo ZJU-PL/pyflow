@@ -1,6 +1,7 @@
 """Traversal, slicing, search, and serialization queries."""
 
 from __future__ import annotations
+from copy import deepcopy
 from collections import deque
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set
 from pyflow.ir.pdg.graph import PDGNode
@@ -110,7 +111,7 @@ class _GraphQueryMixin:
     def node_meta(self, node: PDGNode) -> Dict[str, Any]:
         """Return Ansede-style metadata for *node*."""
         self._ensure_built()
-        return dict(self._node_meta.get(node.node_id, {}))
+        return deepcopy(self._node_meta.get(node.node_id, {}))
 
     def node_type(self, node: PDGNode) -> str:
         """Return the AST type name for *node* (e.g. ``"Assign"``, ``"Call"``).
@@ -144,7 +145,7 @@ class _GraphQueryMixin:
         ``func``).
         """
         self._ensure_built()
-        meta = dict(self._node_meta.get(node.node_id, {}))
+        meta = deepcopy(self._node_meta.get(node.node_id, {}))
         return {
             "id": node.node_id,
             "kind": node.kind,
@@ -478,7 +479,7 @@ class _GraphQueryMixin:
         self._ensure_built()
         nodes: List[Dict[str, Any]] = []
         node_index: Dict[int, int] = {}  # PDG node_id → array index
-        for pdg in self._pdgs.values():
+        for fname, pdg in self._pdgs.items():
             for n in pdg.nodes:
                 node_index[n.node_id] = len(nodes)
                 nodes.append(
@@ -486,8 +487,8 @@ class _GraphQueryMixin:
                         "id": n.node_id,
                         "kind": n.kind,
                         "label": n.label,
-                        "func": getattr(pdg.cfg, "codeName", lambda: "")() or "",
-                        "meta": dict(self._node_meta.get(n.node_id, {})),
+                        "func": fname,
+                        "meta": deepcopy(self._node_meta.get(n.node_id, {})),
                     }
                 )
         edges: List[Dict[str, Any]] = []

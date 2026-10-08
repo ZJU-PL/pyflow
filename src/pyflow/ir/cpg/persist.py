@@ -214,41 +214,44 @@ class CPGStore:
         file_path: str,
         sha256: str = "",
     ) -> int:
+        """Atomically replace a file's graph, retaining the old snapshot on failure."""
         cpg._ensure_built()
-        file_id = self._ensure_file(file_path, sha256)
-        cur = self._conn.cursor()
-        cur.execute("DELETE FROM cpg_nodes WHERE file_id = ?", (file_id,))
-        cur.execute("DELETE FROM cpg_edges WHERE file_id = ?", (file_id,))
-        for node in cpg.nodes():
-            meta = cpg.node_meta(node) if hasattr(cpg, "node_meta") else {}
-            cur.execute(
-                "INSERT INTO cpg_nodes "
-                "(file_id, node_id, kind, label, func_name, lineno, meta_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    file_id,
-                    node.node_id,
-                    node.kind,
-                    node.label or "",
-                    meta.get("func_name", ""),
-                    meta.get("lineno", getattr(node.ast_node, "lineno", 0) if node.ast_node else 0),
-                    json.dumps(meta, default=str),
-                ),
-            )
-        for edge in cpg.all_edges():
-            cur.execute(
-                "INSERT INTO cpg_edges "
-                "(file_id, source_id, target_id, kind, label) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (
-                    file_id,
-                    edge.source.node_id,
-                    edge.target.node_id,
-                    edge.kind.value,
-                    edge.label,
-                ),
-            )
-        self._conn.commit()
+        with self._conn:
+            file_id = self._ensure_file(file_path, sha256)
+            cur = self._conn.cursor()
+            cur.execute("DELETE FROM cpg_nodes WHERE file_id = ?", (file_id,))
+            cur.execute("DELETE FROM cpg_edges WHERE file_id = ?", (file_id,))
+            for node in cpg.nodes():
+                meta = cpg.node_meta(node) if hasattr(cpg, "node_meta") else {}
+                cur.execute(
+                    "INSERT INTO cpg_nodes "
+                    "(file_id, node_id, kind, label, func_name, lineno, meta_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        file_id,
+                        node.node_id,
+                        node.kind,
+                        node.label or "",
+                        meta.get("func_name", ""),
+                        meta.get(
+                            "lineno", getattr(node.ast_node, "lineno", 0) if node.ast_node else 0
+                        ),
+                        json.dumps(meta, default=str),
+                    ),
+                )
+            for edge in cpg.all_edges():
+                cur.execute(
+                    "INSERT INTO cpg_edges "
+                    "(file_id, source_id, target_id, kind, label) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        file_id,
+                        edge.source.node_id,
+                        edge.target.node_id,
+                        edge.kind.value,
+                        edge.label,
+                    ),
+                )
         return file_id
 
     def save_findings(

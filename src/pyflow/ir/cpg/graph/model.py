@@ -1,6 +1,7 @@
 """Value objects and AST helpers for the Code Property Graph."""
 
 from __future__ import annotations
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Iterator, Optional, Set
@@ -46,6 +47,9 @@ class CPGEdge:
     ``label`` carries extra context: branch direction for CFG edges
     (``"true"`` / ``"false"``), variable name for data edges, callee name
     for CALL edges, or the empty string.
+
+    Identity includes the label, matching PDGEdge. Do not mutate an edge or
+    its endpoint IDs while it is stored in a set or graph index.
     """
 
     source: PDGNode
@@ -54,7 +58,7 @@ class CPGEdge:
     label: str = ""
 
     def __hash__(self) -> int:
-        return hash((self.source.node_id, self.target.node_id, self.kind))
+        return hash((self.source.node_id, self.target.node_id, self.kind, self.label))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CPGEdge):
@@ -63,6 +67,7 @@ class CPGEdge:
             self.source.node_id == other.source.node_id
             and self.target.node_id == other.target.node_id
             and self.kind == other.kind
+            and self.label == other.label
         )
 
     def __repr__(self) -> str:
@@ -103,7 +108,7 @@ class CPGNodeView:
             "col": self.col,
             "value": self.value,
             "func_name": self.func_name,
-            "meta": dict(self.meta),
+            "meta": deepcopy(self.meta),
         }
 
 

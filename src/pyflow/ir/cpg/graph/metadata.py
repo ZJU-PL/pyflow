@@ -13,8 +13,8 @@ class _GraphMetadataMixin:
 
     def _build_guard_metadata(self, pdg: ProgramDependenceGraph) -> None:
         """Detect ``isinstance`` guards in ``Switch.condition`` and mark the
-        corresponding PDG anchor nodes with metadata consumed by the taint
-        engine to strip taint on ``CFG_BRANCH_TRUE`` edges.
+        corresponding PDG anchor nodes as type predicates. A type check does
+        not validate content or sanitize a tainted value.
         """
         cfg = pdg.cfg
         entry_term = getattr(cfg, "entryTerminal", None)
@@ -45,6 +45,8 @@ class _GraphMetadataMixin:
                     meta = self._meta_for(anchor)
                     meta["isinstance_guard"] = True
                     meta["guarded_var"] = guarded_var
+                    meta["guard_kind"] = "type_check"
+                    meta["sanitizes_taint"] = False
                     break
 
     @staticmethod
@@ -72,8 +74,8 @@ class _GraphMetadataMixin:
     def _build_phi_metadata(self, pdg: ProgramDependenceGraph) -> None:
         """Mark PDG nodes that correspond to Merge-block phi operations.
 
-        Sets the node kind to ``"phi"`` and extracts the merged variable
-        name into the node label.
+        Def/use identities are supplied by IR semantics, including the phi
+        target definition. Source names need not contain SSA suffixes.
         """
         cfg = pdg.cfg
         entry_term = getattr(cfg, "entryTerminal", None)
@@ -87,25 +89,14 @@ class _GraphMetadataMixin:
                 continue
             contents = pdg.get_cfg_contents(block)
             for n in contents:
-                if n.kind == "stmt" and n.ast_node in phis:
+                if isinstance(n.ast_node, py_ast.Phi) and n.ast_node in phis:
                     n.kind = "phi"
-                    if hasattr(n.ast_node, "toStr"):
-                        s = n.ast_node.toStr().replace(" ", "")
-                        if "=" in s:
-                            var = s.split("=")[0]
-                            if "_" in var:
-                                n.label = var
-                                base, _, suffix = var.rpartition("_")
-                                meta = self._meta_for(n)
-                                meta["node_type"] = "Phi"
-                                meta["phi_vars"] = [base or var]
-                                entry: Dict[str, Any] = {
-                                    "var": base or var,
-                                    "name": var,
-                                }
-                                if suffix.isdigit():
-                                    entry["version"] = int(suffix)
-                                self._append_meta_entry(n, "ssa_defs", entry)
+                    meta = self._meta_for(n)
+                    meta["kind"] = "phi"
+                    meta["node_type"] = "Phi"
+                    meta["phi_vars"] = [entry["var"] for entry in meta.get("ssa_defs", [])] or [
+                        n.ast_node.target.name or str(n.ast_node.target)
+                    ]
 
     def _build_lambda_nodes(self, pdg: ProgramDependenceGraph) -> None:
         """Create synthetic PDG nodes for Lambda expressions discovered
@@ -121,12 +112,15 @@ class _GraphMetadataMixin:
             if body is None:
                 continue
             lambda_label = f"<lambda@{getattr(ast_node, 'lineno', 0)}>"
-            l_node = pdg.add_node(
-                "entry",
-                cfg_node=node.cfg_node,
-                label=lambda_label,
-            )
-            self._promote_new_node_id(l_node, pdg)
+            key = (pdg, ast_node)
+            l_node = self._lambda_nodes.get(key)
+            if l_node is None or l_node not in pdg.nodes:
+                # This is an AST entry, not an executable statement in the
+                # enclosing CFG block. Sharing that block changes CFG order
+                # on the next build, when the synthetic node already exists.
+                l_node = pdg.add_node("entry", label=lambda_label)
+                self._promote_new_node_id(l_node, pdg)
+                self._lambda_nodes[key] = l_node
             self._node_meta[l_node.node_id] = {
                 "node_type": "Lambda",
                 "lineno": getattr(ast_node, "lineno", 0) or 0,
