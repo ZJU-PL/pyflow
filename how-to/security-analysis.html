@@ -100,6 +100,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues">Issue: Performance issues</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="#shared-checker-infrastructure">Shared checker infrastructure</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
@@ -490,6 +491,38 @@ interactive and CI usage.</p>
 <li><p>Use incremental analysis for large projects</p></li>
 </ul>
 </section>
+</section>
+<section id="shared-checker-infrastructure">
+<h2>Shared checker infrastructure<a class="headerlink" href="#shared-checker-infrastructure" title="Link to this heading"></a></h2>
+<p>Engine-independent taint domains and refinement policies live in
+<code class="docutils literal notranslate"><span class="pre">pyflow.checker.common.taint</span></code>. AST dataflow and CPG use
+<code class="docutils literal notranslate"><span class="pre">pyflow.checker.common.diagnostics.CheckerDiagnostic</span></code> for precision and
+completion diagnostics. Native IFDS findings retain their solver-specific
+witnesses and are normalized in <code class="docutils literal notranslate"><span class="pre">pyflow.checker.ifds.reporting</span></code>.</p>
+<p>Formatting is separate from detection. Shared JSON/YAML report collection,
+ordering, and SARIF severity/location/document utilities live in
+<code class="docutils literal notranslate"><span class="pre">pyflow.checker.formatters</span></code>. These modules can be imported without loading
+an engine. Engine-specific fields and code-flow evidence remain available.</p>
+<p>For native CPG finding exports, use the formatter functions directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.checker.formatters.cpg</span><span class="w"> </span><span class="kn">import</span> <span class="n">findings_to_sarif</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.checker.formatters.json</span><span class="w"> </span><span class="kn">import</span> <span class="n">findings_json</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">analyze</span><span class="p">()</span>
+<span class="n">document</span> <span class="o">=</span> <span class="n">findings_to_sarif</span><span class="p">(</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">findings</span><span class="p">,</span> <span class="n">artifact_uri</span><span class="o">=</span><span class="s2">"input.py"</span><span class="p">,</span> <span class="n">tool_name</span><span class="o">=</span><span class="s2">"my-analysis"</span>
+<span class="p">)</span>
+<span class="n">serialized_findings</span> <span class="o">=</span> <span class="n">findings_json</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">findings</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>These functions replace <code class="docutils literal notranslate"><span class="pre">CPGTaintEngine.to_sarif</span></code> and <code class="docutils literal notranslate"><span class="pre">to_json</span></code>.
+<code class="docutils literal notranslate"><span class="pre">finding_to_sarif</span></code> and <code class="docutils literal notranslate"><span class="pre">rule_to_sarif</span></code> in the same CPG formatter module
+replace the SARIF methods on native finding and rule objects. Imports of the
+former AST-local domain/refinement types should use <code class="docutils literal notranslate"><span class="pre">checker.common.taint</span></code>
+and <code class="docutils literal notranslate"><span class="pre">checker.common.taint.refinement</span></code>. No compatibility modules are retained.</p>
+<p>SARIF severity conversion now agrees across engines: low maps to <code class="docutils literal notranslate"><span class="pre">note</span></code>,
+medium to <code class="docutils literal notranslate"><span class="pre">warning</span></code>, and high/critical to <code class="docutils literal notranslate"><span class="pre">error</span></code>. Unknown source lines in
+native CPG exports use line 1. CLI exit policy, report completion status,
+JSON/YAML Issue fields, and engine-specific evidence are preserved.</p>
 </section>
 </section>
 
