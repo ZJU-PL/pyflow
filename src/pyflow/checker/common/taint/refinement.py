@@ -6,7 +6,8 @@ from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Callable, Mapping, Protocol, Sequence, cast
 
-from ..domain import AnalysisUncertainty, TaintLocation
+from .uncertainty import AnalysisUncertainty
+from .locations import TaintLocation
 
 
 @dataclass(frozen=True)
@@ -113,9 +114,7 @@ class HeapGraphRefinementProvider:
     ) -> UpdateDecision:
         heap_location = self.location_adapter(location, program_point)
         if heap_location is None:
-            return SyntacticRefinementProvider().update_decision(
-                location, program_point
-            )
+            return SyntacticRefinementProvider().update_decision(location, program_point)
         try:
             strong = bool(self.graph.strong_update_possible(heap_location))
         except Exception as error:
@@ -146,9 +145,7 @@ def heap_location_adapter(
 
     def adapt(location: TaintLocation, program_point: object | None):
         root = location.root
-        if not (
-            isinstance(root, tuple) and len(root) == 2 and isinstance(root[1], str)
-        ):
+        if not (isinstance(root, tuple) and len(root) == 2 and isinstance(root[1], str)):
             return None
         candidates = {
             candidate.root_location()

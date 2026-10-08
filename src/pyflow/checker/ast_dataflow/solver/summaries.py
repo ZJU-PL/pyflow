@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Mapping
 
-from ..domain import AccessSelector, AnalysisUncertainty
+from pyflow.checker.common.taint import AccessSelector, AnalysisUncertainty
 
 
 class SummaryPortKind(str, Enum):

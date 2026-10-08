@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Generic, Hashable, Mapping, TypeVar
 
-from ..domain import (
+from pyflow.checker.common.taint import (
     AnalysisUncertainty,
     PrecisionLevel,
     TaintFact,

@@ -5,7 +5,6 @@ from .formal import CPGAbstractState, CPGProcedureSummary
 from .model import (
     MemoryCell,
     MemoryLayout,
-    CPGTaintDiagnostic,
     CPGTaintResult,
     RuleMetadata,
     TaintFinding,
@@ -15,7 +14,6 @@ from .model import (
 
 __all__ = [
     "CPGTaintEngine",
-    "CPGTaintDiagnostic",
     "CPGTaintResult",
     "CPGAbstractState",
     "CPGProcedureSummary",

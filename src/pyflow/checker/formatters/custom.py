@@ -4,13 +4,13 @@ Outputs issues using a user-defined template string.
 
 Default template: ``{abspath}:{line}: {test_id}[pyflow]: {severity}: {msg}``
 """
+
 import logging
 import os
 import re
 import string
 import sys
 
-from ..ast_rules.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)
@@ -24,7 +24,6 @@ class SafeMapper(dict):
         return "{%s}" % key
 
 
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, template=None):
     """Write issues to fileobj in custom format.
 
@@ -40,9 +39,7 @@ def report(manager, fileobj, sev_level, conf_level, template=None):
 
     msg_template = template
     if template is None:
-        msg_template = (
-            "{abspath}:{line}: {test_id}[pyflow]: {severity}: {msg}"
-        )
+        msg_template = "{abspath}:{line}: {test_id}[pyflow]: {severity}: {msg}"
 
     # Dictionary of non-terminal tags that will be expanded
     tag_mapper = {
@@ -79,9 +76,7 @@ def report(manager, fileobj, sev_level, conf_level, template=None):
         sys.exit(2)
 
     def get_similar_tag(tag):
-        similarity_list = [
-            (len(set(tag) & t_set), t) for t, t_set in tag_sim_dict.items()
-        ]
+        similarity_list = [(len(set(tag) & t_set), t) for t, t_set in tag_sim_dict.items()]
         return sorted(similarity_list)[-1][1]
 
     tag_blacklist = []
@@ -90,8 +85,7 @@ def report(manager, fileobj, sev_level, conf_level, template=None):
         if tag not in tag_mapper:
             similar_tag = get_similar_tag(tag)
             LOG.warning(
-                "Tag '%s' was not recognized and will be skipped, "
-                "did you mean to use '%s'?",
+                "Tag '%s' was not recognized and will be skipped, " "did you mean to use '%s'?",
                 tag,
                 similar_tag,
             )
@@ -117,16 +111,11 @@ def report(manager, fileobj, sev_level, conf_level, template=None):
                 ["{"] + [f"{m + p}" if p else "" for m, p in zip(markers, params)] + ["}"]
             )
 
-    msg_parsed_template = (
-        "".join([item for lst in msg_parsed_template_list for item in lst])
-        + "\n"
-    )
+    msg_parsed_template = "".join([item for lst in msg_parsed_template_list for item in lst]) + "\n"
 
     writer = wrap_file_object(fileobj)
     for defect in results:
-        evaluated_tags = SafeMapper(
-            (k, v(defect)) for k, v in tag_mapper.items()
-        )
+        evaluated_tags = SafeMapper((k, v(defect)) for k, v in tag_mapper.items())
         output = msg_parsed_template.format(**evaluated_tags)
         writer.write(output)
 

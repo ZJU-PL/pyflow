@@ -5,7 +5,7 @@ from pyflow.checker.ast_dataflow.solver.interprocedural import (
     ASTInterproceduralAnalyzer,
 )
 from pyflow.checker.ast_dataflow.solver import SummaryPort, SummaryPortKind
-from pyflow.checker.ast_dataflow.semantics import UpdateDecision
+from pyflow.checker.common.taint.refinement import UpdateDecision
 
 POLICY = TaintPolicy(
     source_kinds_by_call={"input": frozenset({"user_input"})},

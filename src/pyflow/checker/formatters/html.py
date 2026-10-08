@@ -2,11 +2,11 @@
 
 Outputs issues as a styled HTML report.
 """
+
 import logging
 import sys
 from html import escape as html_escape
 
-from ..ast_rules.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)
@@ -101,7 +101,6 @@ METRICS_BLOCK = """<div id="metrics">
 """
 
 
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """Write issues to fileobj in HTML format.
 
@@ -117,8 +116,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
 
     # build the skipped string
     skipped_str = "".join(
-        f"{fname} <b>reason:</b> {reason}<br>"
-        for fname, reason in manager.get_skipped()
+        f"{fname} <b>reason:</b> {reason}<br>" for fname, reason in manager.get_skipped()
     )
     if skipped_str:
         skipped_text = SKIPPED_BLOCK.format(files_list=skipped_str)
@@ -133,9 +131,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
             safe_code = ""
             if getattr(issue, "lineno", None) is not None:
                 try:
-                    safe_code = html_escape(
-                        issue.get_code(lines, True).strip("\n").lstrip(" ")
-                    )
+                    safe_code = html_escape(issue.get_code(lines, True).strip("\n").lstrip(" "))
                 except (TypeError, AttributeError):
                     pass
             code = CODE_BLOCK.format(code=safe_code)

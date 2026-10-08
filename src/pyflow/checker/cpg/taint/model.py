@@ -1,6 +1,8 @@
 """Taint state, memory, finding, and reporting value objects."""
 
 from __future__ import annotations
+
+from pyflow.checker.common.diagnostics import CheckerDiagnostic
 from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, List, Tuple
 from pyflow.ir.pdg.graph import PDGNode
@@ -33,9 +35,7 @@ class TaintState:
 
         return self.tags <= other.tags and self.sanitized_by >= other.sanitized_by
 
-    def sanitize(
-        self, sanitizer_name: str, kinds: FrozenSet[str] = frozenset({"*"})
-    ) -> TaintState:
+    def sanitize(self, sanitizer_name: str, kinds: FrozenSet[str] = frozenset({"*"})) -> TaintState:
         remaining = frozenset() if "*" in kinds else self.tags - kinds
         if remaining == self.tags:
             return self
@@ -193,26 +193,12 @@ class MemoryLayout:
 
 
 @dataclass(frozen=True)
-class CPGTaintDiagnostic:
-    """One graph or propagation diagnostic."""
-
-    message: str
-    code: str
-    affects_completeness: bool = False
-    function: str | None = None
-    level: str | None = None
-    filename: str | None = None
-    line: int | None = None
-    operation: str | None = None
-
-
-@dataclass(frozen=True)
 class CPGTaintResult:
     """CPG findings with explicit completion and run statistics."""
 
     findings: Tuple[TaintFinding, ...]
     status: str = "complete"
-    diagnostics: Tuple[CPGTaintDiagnostic, ...] = ()
+    diagnostics: Tuple[CheckerDiagnostic, ...] = ()
     statistics: Dict[str, int] = field(default_factory=dict)
 
 
@@ -227,22 +213,6 @@ class RuleMetadata:
     help_uri: str = ""
     precision: str = "medium"
     tags: Tuple[str, ...] = field(default_factory=tuple)
-
-    def to_sarif_rule(self, severity: str) -> Dict[str, Any]:
-        props: Dict[str, Any] = {
-            "precision": self.precision,
-            "tags": list(self.tags),
-        }
-        return {
-            "id": self.rule_id,
-            "name": self.name[:80],
-            "shortDescription": {"text": self.short_description},
-            "fullDescription": {"text": self.short_description},
-            "helpUri": self.help_uri,
-            "help": {"text": self.help_text or self.short_description},
-            "defaultConfiguration": {"level": _severity_to_sarif_level(severity)},
-            "properties": props,
-        }
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -432,11 +402,7 @@ class TaintFinding:
                 self.rule_title,
                 self.suggestion,
                 precision="high",
-                tags=(
-                    ("security", "taint", self.cwe)
-                    if self.cwe
-                    else ("security", "taint")
-                ),
+                tags=(("security", "taint", self.cwe) if self.cwe else ("security", "taint")),
             )
         return _metadata_for_cwe(self.effective_rule_id)
 
@@ -490,86 +456,3 @@ class TaintFinding:
                 for n in self.path_nodes
             ],
         )
-
-    def to_sarif(
-        self,
-        *,
-        rule_index: int = 0,
-        artifact_uri: str = "",
-    ) -> Dict[str, Any]:
-        """Export as a SARIF result object.
-
-        Parameters
-        ----------
-        rule_index:
-            Zero-based index into the SARIF ``rules`` array.
-        """
-        physical_location = {
-            "artifactLocation": {"uri": artifact_uri},
-            "region": {
-                "startLine": self.source_line,
-            },
-        }
-        result: Dict[str, Any] = {
-            "ruleId": self.effective_rule_id,
-            "ruleIndex": rule_index,
-            "level": _severity_to_sarif_level(self.severity),
-            "message": {
-                "text": (
-                    f"Tainted data from {self.source_label} "
-                    f"reaches {self.sink_label} [{self.cwe}]"
-                )
-            },
-            "locations": [
-                {
-                    "physicalLocation": physical_location,
-                }
-            ],
-            "properties": {
-                "cwe": self.cwe,
-                "cwes": list(cwe_identifiers(self.cwe)),
-                "cwe_ancestors": list(cwe_ancestors(self.cwe)),
-                "source_label": self.source_label,
-                "sink_label": self.sink_label,
-                "sink_line": self.sink_line,
-                "path_length": self.path_length,
-                "confidence": round(self.confidence, 2),
-                "tags": sorted(self.tags),
-                "sanitizers": sorted(self.sanitizers),
-                "precision": self.rule_metadata.precision,
-                "rule": self.rule_metadata.to_dict(),
-            },
-        }
-        if self.path_nodes:
-            result["codeFlows"] = [
-                {
-                    "threadFlows": [
-                        {
-                            "locations": [
-                                {
-                                    "location": {
-                                        "physicalLocation": {
-                                            "artifactLocation": {"uri": artifact_uri},
-                                            "region": {
-                                                "startLine": getattr(
-                                                    n.ast_node, "lineno", 0
-                                                )
-                                                or 0
-                                            },
-                                        },
-                                        "message": {"text": (n.label or n.kind)[:120]},
-                                    }
-                                }
-                                for n in self.path_nodes
-                            ]
-                        }
-                    ]
-                }
-            ]
-        return result
-
-
-def _severity_to_sarif_level(severity: str) -> str:
-    return {"critical": "error", "high": "error", "medium": "warning"}.get(
-        severity.lower(), "note"
-    )

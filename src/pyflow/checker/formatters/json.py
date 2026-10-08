@@ -69,28 +69,15 @@ This formatter outputs the issues in JSON format.
     New field `CWE` added to output
 
 """
-import datetime
 import json
 import logging
 import sys
 
-from ..ast_rules.core.test_properties import accepts_baseline
-from .utils import wrap_file_object
+from .utils import wrap_file_object, issue_report
 
 LOG = logging.getLogger(__name__)
 
 
-def _issue_sort_key(data: dict) -> tuple:
-    return (
-        str(data.get("filename", "")),
-        int(data.get("line_number", -1) or -1),
-        str(data.get("test_id", "")),
-        str(data.get("test_name", "")),
-        str(data.get("issue_text", "")),
-    )
-
-
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """Prints issues in JSON format
 
@@ -101,50 +88,10 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     :param lines: Number of lines to report, -1 for all
     """
 
-    machine_output = {"status": "complete", "results": [], "errors": []}
-    for fname, reason in manager.get_skipped():
-        machine_output["errors"].append({"filename": fname, "reason": reason})
-    machine_output["errors"] = sorted(
-        machine_output["errors"], key=lambda x: (x["filename"], x["reason"])
-    )
-    if machine_output["errors"]:
-        machine_output["status"] = "partial"
+    machine_output = issue_report(manager, sev_level, conf_level, lines=lines)
+    machine_output["status"] = "partial" if machine_output["errors"] else "complete"
 
-    results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
-
-    baseline = not isinstance(results, list)
-
-    if baseline:
-        collector = []
-        for r in results:
-            d = r.as_dict(max_lines=lines)
-            d["more_info"] = (
-                "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
-            )
-            if len(results[r]) > 1:
-                d["candidates"] = [c.as_dict(max_lines=lines) for c in results[r]]
-            collector.append(d)
-
-    else:
-        collector = [r.as_dict(max_lines=lines) for r in results]
-        for elem in collector:
-            elem["more_info"] = (
-                "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
-            )
-
-    machine_output["results"] = sorted(collector, key=_issue_sort_key)
-
-    machine_output["metrics"] = manager.metrics.data
-
-    # timezone agnostic format
-    TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-    time_string = datetime.datetime.now(datetime.timezone.utc).strftime(TS_FORMAT)
-    machine_output["generated_at"] = time_string
-
-    result = json.dumps(
-        machine_output, sort_keys=True, indent=2, separators=(",", ": ")
-    )
+    result = json.dumps(machine_output, sort_keys=True, indent=2, separators=(",", ": "))
 
     writer = wrap_file_object(fileobj)
     writer.write(result)
@@ -153,3 +100,8 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
 
     if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info("JSON output written to file: %s", fileobj.name)
+
+
+def findings_json(findings) -> str:
+    """Serialize native finding records without importing their engine."""
+    return json.dumps([finding.to_dict() for finding in findings], indent=2)

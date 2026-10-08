@@ -8,7 +8,7 @@ from typing import Iterable, Mapping, cast
 
 from pyflow.analysis.taint_policy import TaintPolicy
 
-from ..domain import (
+from pyflow.checker.common.taint import (
     AnalysisUncertainty,
     PrecisionLevel,
     ProvenanceOperation,
@@ -30,7 +30,7 @@ from ..solver import (
     TransferResult,
 )
 from .expressions import ExpressionContext, ExpressionResult, PythonExpressionSemantics
-from .refinement import RefinementProvider, SyntacticRefinementProvider
+from pyflow.checker.common.taint.refinement import RefinementProvider, SyntacticRefinementProvider
 
 _TRY_STAR = getattr(ast, "TryStar", None)
 
@@ -170,8 +170,7 @@ class PythonStatementTransfer:
             operation="match",
         )
         outgoing = [
-            (edge, edge_state.with_uncertainty(uncertainty))
-            for edge, edge_state in outgoing
+            (edge, edge_state.with_uncertainty(uncertainty)) for edge, edge_state in outgoing
         ]
         return TransferResult(tuple(outgoing), events=evaluated.events)
 
@@ -185,9 +184,7 @@ class PythonStatementTransfer:
         assert isinstance(statement, ast.Return)
         evaluated = self.expressions.evaluate(statement.value, state)
         exceptional = tuple(
-            (edge, state.join(evaluated.state))
-            for edge in edges
-            if edge.kind is EdgeKind.EXCEPTION
+            (edge, state.join(evaluated.state)) for edge in edges if edge.kind is EdgeKind.EXCEPTION
         )
         if exceptional:
             return TransferResult(exceptional, events=evaluated.events)
@@ -276,9 +273,7 @@ class PythonStatementTransfer:
                 edge_state = self._assign(target, exception_value, edge_state, node)
             outgoing.append((edge, edge_state))
         if len(handler_edges) > len(statement.handlers):
-            outgoing.extend(
-                (edge, state) for edge in handler_edges[len(statement.handlers) :]
-            )
+            outgoing.extend((edge, state) for edge in handler_edges[len(statement.handlers) :])
         return TransferResult(tuple(outgoing))
 
     def _statement(
@@ -306,9 +301,7 @@ class PythonStatementTransfer:
             value = self.expressions.evaluate(statement.value, current)
             current = self._assign(statement.target, value, value.state, node)
             event_set = set(value.events)
-            response_event = self._response_attribute_event(
-                statement.target, value, node
-            )
+            response_event = self._response_attribute_event(statement.target, value, node)
             if response_event is not None:
                 event_set.add(response_event)
             events = frozenset(event_set)
@@ -339,9 +332,7 @@ class PythonStatementTransfer:
                 if location is not None:
                     current = current.kill(location)
         elif isinstance(statement, ast.Assert):
-            value = self.expressions._evaluate_many(
-                (statement.test, statement.msg), current
-            )
+            value = self.expressions._evaluate_many((statement.test, statement.msg), current)
             current, events = value.state, value.events
         elif isinstance(statement, (ast.With, ast.AsyncWith)):
             event_set: set[object] = set()
@@ -367,18 +358,14 @@ class PythonStatementTransfer:
             statement, (ast.Import, ast.ImportFrom, ast.Pass, ast.Global, ast.Nonlocal)
         ):
             pass
-        elif isinstance(
-            statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-        ):
+        elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             # Definitions execute decorators/default expressions, but nested
             # bodies are separate procedures.
             expressions: list[ast.AST] = list(statement.decorator_list)
             if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 expressions.extend(default for default in statement.args.defaults)
                 expressions.extend(
-                    default
-                    for default in statement.args.kw_defaults
-                    if default is not None
+                    default for default in statement.args.kw_defaults if default is not None
                 )
             value = self.expressions._evaluate_many(expressions, current)
             current, events = value.state, value.events
@@ -563,8 +550,7 @@ def analyze_ast_function(
     diagnostics = tuple(sorted(uncertainties, key=repr))
     status = (
         "partial"
-        if cfg_result.status != "complete"
-        or any(item.affects_completeness for item in diagnostics)
+        if cfg_result.status != "complete" or any(item.affects_completeness for item in diagnostics)
         else "complete"
     )
     return ASTFunctionAnalysisResult(procedure, cfg_result, diagnostics, status)

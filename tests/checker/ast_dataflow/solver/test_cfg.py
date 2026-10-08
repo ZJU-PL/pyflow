@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.checker.ast_dataflow.domain import TaintLocation, TaintOrigin, TaintState
+from pyflow.checker.common.taint import TaintLocation, TaintOrigin, TaintState
 from pyflow.checker.ast_dataflow.solver import (
     CFGEdge,
     ControlFlowGraph,

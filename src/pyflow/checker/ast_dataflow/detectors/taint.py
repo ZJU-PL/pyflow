@@ -3,7 +3,6 @@
 from ._taint_detector import ASTDataflowTaintDetector
 from ._taint_models import (
     FunctionSummary,
-    ASTDataflowTaintDiagnostic,
     ASTDataflowTaintFinding,
     ASTDataflowTaintResult,
     ASTDataflowTraceStep,
@@ -11,7 +10,6 @@ from ._taint_models import (
 
 __all__ = [
     "FunctionSummary",
-    "ASTDataflowTaintDiagnostic",
     "ASTDataflowTaintDetector",
     "ASTDataflowTaintFinding",
     "ASTDataflowTaintResult",

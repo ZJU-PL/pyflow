@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pyflow.checker.formatters.cpg import finding_to_sarif, findings_to_sarif
+from pyflow.checker.formatters.json import findings_json
+
 import unittest
 import warnings
 
@@ -1160,7 +1163,7 @@ class TestCPGConstruction(unittest.TestCase):
             source_node=entry,
             sink_node=entry,
         )
-        sarif_result = finding.to_sarif(rule_index=0)
+        sarif_result = finding_to_sarif(finding, rule_index=0)
         self.assertEqual(sarif_result["ruleId"], "CWE-78")
         self.assertEqual(sarif_result["level"], "error")
         json.dumps(sarif_result)
@@ -1245,7 +1248,7 @@ class TestCPGConstruction(unittest.TestCase):
             source_node=None,
             sink_node=None,
         )
-        doc = CPGTaintEngine.to_sarif([finding], tool_name="test")
+        doc = findings_to_sarif([finding], tool_name="test")
         self.assertEqual(doc["version"], "2.1.0")
         self.assertEqual(len(doc["runs"][0]["results"]), 1)
         rule = doc["runs"][0]["tool"]["driver"]["rules"][0]
@@ -1262,7 +1265,7 @@ class TestCPGConstruction(unittest.TestCase):
             source_node=None,
             sink_node=None,
         )
-        s = CPGTaintEngine.to_json([finding])
+        s = findings_json([finding])
         self.assertIn("CWE-78", s)
         import json
 

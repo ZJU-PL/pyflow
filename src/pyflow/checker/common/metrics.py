@@ -63,6 +63,20 @@ class Metrics:
                         if key in self.data["_totals"]:
                             self.data["_totals"][key] += count
 
+    def count_findings(self, findings):
+        """Count native Issue records once, alongside visitor score aggregation."""
+        for finding in findings:
+            self.issues += 1
+            for criterion, level, totals in (
+                ("SEVERITY", finding.severity, self.issues_by_severity),
+                ("CONFIDENCE", finding.confidence, self.issues_by_confidence),
+            ):
+                if level in totals:
+                    totals[level] += 1
+                key = f"{criterion}.{level}"
+                if key in self.data["_totals"]:
+                    self.data["_totals"][key] += 1
+
     def note_nosec(self):
         """Note a nosec comment"""
         self.nosec += 1

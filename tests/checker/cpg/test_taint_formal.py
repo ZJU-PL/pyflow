@@ -9,12 +9,12 @@ import pytest
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.taint_policy import TaintPolicy, TaintRule
 from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
-from pyflow.checker.ast_dataflow.domain import (
+from pyflow.checker.common.taint import (
     TaintLocation,
     TaintOrigin,
     TaintState as FormalTaintState,
 )
-from pyflow.checker.ast_dataflow.semantics import UpdateDecision
+from pyflow.checker.common.taint.refinement import UpdateDecision
 from pyflow.ir.cpg import CodePropertyGraph
 from pyflow.application.cpg import build_cpg
 from pyflow.ir.cpg.graph import CPGEdgeKind

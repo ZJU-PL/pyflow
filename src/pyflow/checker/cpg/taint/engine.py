@@ -1,11 +1,13 @@
 """Worklist orchestration and public configuration for CPG taint analysis."""
 
 from __future__ import annotations
+
+from pyflow.checker.common.diagnostics import CheckerDiagnostic
 from collections import deque
 from dataclasses import replace
 from time import monotonic
 from typing import Dict, FrozenSet, List, Set, Tuple
-from pyflow.checker.ast_dataflow.semantics import (
+from pyflow.checker.common.taint.refinement import (
     AdaptiveRefinementProvider,
     HeapGraphRefinementProvider,
     RefinementProvider,
@@ -17,7 +19,6 @@ from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CodePropertyGraph, CPGEdgeKind
 from .model import (
-    CPGTaintDiagnostic,
     CPGTaintResult,
     MemoryLayout,
     TaintFinding,
@@ -27,14 +28,14 @@ from .model import (
 from .interprocedural import _TaintInterproceduralMixin
 from .matching import _TaintMatchingMixin
 from .propagation import _TaintPropagationMixin
-from .reporting import _TaintReportingMixin
+from .findings import _TaintFindingsMixin
 
 
 class CPGTaintEngine(
     _TaintMatchingMixin,
     _TaintPropagationMixin,
     _TaintInterproceduralMixin,
-    _TaintReportingMixin,
+    _TaintFindingsMixin,
 ):
     """Context-sensitive taint analysis over a CodePropertyGraph."""
 
@@ -73,7 +74,7 @@ class CPGTaintEngine(
         self._max_loop_iterations: int = max_loop_iterations
         self._max_states = max_states
         self._max_seconds = max_seconds
-        self._budget_diagnostic: CPGTaintDiagnostic | None = None
+        self._budget_diagnostic: CheckerDiagnostic | None = None
         self._entry_point_options_explicit = entry_point_options is not None
         self._entry_point_options = entry_point_options or EntryPointOptions(
             mode=EntryPointMode.INFERRED_ROOTS
@@ -84,11 +85,7 @@ class CPGTaintEngine(
             self._refinement = refinement
         elif heap_graph is not None:
             self._refinement = AdaptiveRefinementProvider(
-                (
-                    HeapGraphRefinementProvider(
-                        heap_graph, heap_location_adapter(heap_graph)
-                    ),
-                )
+                (HeapGraphRefinementProvider(heap_graph, heap_location_adapter(heap_graph)),)
             )
         else:
             self._refinement = SyntacticRefinementProvider()
@@ -127,9 +124,7 @@ class CPGTaintEngine(
         self._sink_match_cache.clear()
         self._sinks[name] = cwe or name
         self._sink_kinds[name] = self._sink_kinds.get(name, frozenset()) | {kind}
-        self._sink_positions[name] = (
-            self._sink_positions.get(name, frozenset()) | positions
-        )
+        self._sink_positions[name] = self._sink_positions.get(name, frozenset()) | positions
         if behavior is not None:
             self._sink_behaviors[name] = behavior
         if not any(kind in rule.sink_kinds for rule in self._rules):
@@ -151,9 +146,7 @@ class CPGTaintEngine(
                 )
             )
 
-    def add_sanitizer(
-        self, name: str, kinds: FrozenSet[str] = frozenset({"*"})
-    ) -> None:
+    def add_sanitizer(self, name: str, kinds: FrozenSet[str] = frozenset({"*"})) -> None:
         self._sanitizers[name] = self._sanitizers.get(name, frozenset()) | kinds
 
     def apply_policy(self, policy: TaintPolicy) -> None:
@@ -179,9 +172,7 @@ class CPGTaintEngine(
         for name, kinds in policy.sanitizer_kinds_by_call.items():
             self._sanitizers[name] = self._sanitizers.get(name, frozenset()) | kinds
         known_rule_ids = {rule.rule_id for rule in self._rules}
-        self._rules.extend(
-            rule for rule in policy.rules if rule.rule_id not in known_rule_ids
-        )
+        self._rules.extend(rule for rule in policy.rules if rule.rule_id not in known_rule_ids)
         for name, kinds in policy.sink_kinds_by_call.items():
             matching = [rule for rule in self._rules if rule.sink_kinds & kinds]
             cwe = policy.sink_cwe_by_call.get(name) or next(
@@ -264,27 +255,18 @@ class CPGTaintEngine(
             # Seed statements must execute once so a source assignment binds
             # its target before traversal leaves the source node.
             self._propagate(initial_state, seed_node, seed_node, initial_memory)
-            worklist.append(
-                (seed_node, initial_state, [], initial_memory, initial_call_context)
-            )
+            worklist.append((seed_node, initial_state, [], initial_memory, initial_call_context))
 
             while worklist:
-                if (
-                    self._max_states is not None
-                    and processed_states >= self._max_states
-                ):
-                    self._budget_diagnostic = CPGTaintDiagnostic(
-                        "CPG taint state budget exhausted at "
-                        f"{processed_states} states",
+                if self._max_states is not None and processed_states >= self._max_states:
+                    self._budget_diagnostic = CheckerDiagnostic(
+                        "CPG taint state budget exhausted at " f"{processed_states} states",
                         "cpg-state-budget",
                         True,
                     )
                     return findings, processed_states
-                if (
-                    self._max_seconds is not None
-                    and monotonic() - started_at >= self._max_seconds
-                ):
-                    self._budget_diagnostic = CPGTaintDiagnostic(
+                if self._max_seconds is not None and monotonic() - started_at >= self._max_seconds:
+                    self._budget_diagnostic = CheckerDiagnostic(
                         "CPG taint time budget exhausted",
                         "cpg-time-budget",
                         True,
@@ -316,17 +298,13 @@ class CPGTaintEngine(
                 if (
                     sink_name is not None
                     and tstate.is_tainted()
-                    and self._sink_has_tainted_argument(
-                        node, sink_name, mem, tstate.tags
-                    )
+                    and self._sink_has_tainted_argument(node, sink_name, mem, tstate.tags)
                 ):
                     for rule in self._matching_rules(tstate.tags, sink_name):
                         findings.append(
                             TaintFinding(
                                 cwe=cwe or rule.cwe or "",
-                                severity=self._sink_severity.get(
-                                    sink_name, rule.severity
-                                ),
+                                severity=self._sink_severity.get(sink_name, rule.severity),
                                 source_label=seed_tag,
                                 sink_label=sink_name,
                                 source_node=seed_node,
@@ -361,18 +339,16 @@ class CPGTaintEngine(
                         next_state = self._propagate_return(next_state, node, succ, mem)
                         if call_context:
                             new_call_context = call_context[:-1]
-                    worklist.append(
-                        (succ, next_state, new_ctx_path, new_mem, new_call_context)
-                    )
+                    worklist.append((succ, next_state, new_ctx_path, new_mem, new_call_context))
 
         return findings, processed_states
 
-    def _validate_graph(self) -> List[CPGTaintDiagnostic]:
-        diagnostics: List[CPGTaintDiagnostic] = []
+    def _validate_graph(self) -> List[CheckerDiagnostic]:
+        diagnostics: List[CheckerDiagnostic] = []
         for function, pdg in self._cpg._pdgs.items():
             if pdg.entry is None or not pdg.exit_nodes:
                 diagnostics.append(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         f"Function {function!r} has no complete entry/exit pair",
                         "cpg-missing-entry-exit",
                         True,
@@ -381,7 +357,7 @@ class CPGTaintEngine(
                 )
             if pdg.data_dependence_mode == "ast-fallback":
                 diagnostics.append(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         pdg.data_dependence_reason
                         or f"Function {function!r} uses AST-local data dependence",
                         "cpg-ast-data-fallback",
@@ -403,7 +379,7 @@ class CPGTaintEngine(
         ]
         if call_edges and not return_edges:
             diagnostics.append(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     "CPG contains call edges but no return edges",
                     "cpg-missing-return-edges",
                     True,

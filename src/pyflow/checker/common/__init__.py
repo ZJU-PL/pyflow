@@ -1,1 +1,1 @@
-"""Shared security finding types, rankings, and scan metrics."""
+"""Shared checker domains, diagnostics, finding models, metrics, and report metadata."""

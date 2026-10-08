@@ -16,11 +16,11 @@ from pyflow.analysis.entrypoints import (
 )
 from pyflow.analysis.taint_policy import TaintPolicy
 
-from ..domain import AnalysisUncertainty, PrecisionLevel, TaintFact
+from pyflow.checker.common.taint import AnalysisUncertainty, PrecisionLevel, TaintFact
 from ..frontend import find_function
 from ..modeling import CallShapeContractRegistry, SanitizerContractRegistry
 from ..semantics.events import TaintSinkEvent
-from ..semantics.refinement import RefinementProvider
+from pyflow.checker.common.taint.refinement import RefinementProvider
 from ..semantics.transfer import ASTFunctionAnalysisResult, analyze_ast_function
 from .cfg import SolverOptions
 from .summaries import (
@@ -101,17 +101,13 @@ class ASTInterproceduralAnalyzer:
                 filename = (filenames or {}).get(name)
                 if filename:
                     try:
-                        alias_tree = ast.parse(
-                            Path(filename).read_text(encoding="utf-8")
-                        )
+                        alias_tree = ast.parse(Path(filename).read_text(encoding="utf-8"))
                     except (OSError, SyntaxError, UnicodeError):
                         pass
                 import_aliases[name] = self._import_aliases(alias_tree)
 
         summaries = {
-            name: ProcedureTaintSummary(
-                name, parameters=self._parameter_names(function)
-            )
+            name: ProcedureTaintSummary(name, parameters=self._parameter_names(function))
             for name, function in functions.items()
         }
         analyses: dict[str, ASTFunctionAnalysisResult] = {}
@@ -255,9 +251,7 @@ class ASTInterproceduralAnalyzer:
                         relations,
                         seeds,
                     )
-            parameter_indices = {
-                parameter: index for index, parameter in enumerate(parameters)
-            }
+            parameter_indices = {parameter: index for index, parameter in enumerate(parameters)}
             for location, kind in normal_state.guarantees:
                 root = location.root
                 if not (
@@ -334,14 +328,8 @@ class ASTInterproceduralAnalyzer:
             prefix = "parameter:"
             if symbol.startswith(prefix) and symbol[len(prefix) :] in indices:
                 parameter = symbol[len(prefix) :]
-                source = SummaryPort(
-                    SummaryPortKind.PARAMETER, index=indices[parameter]
-                )
-                mapped = (
-                    ((fact.origin.kind, fact.kind),)
-                    if fact.origin.kind != fact.kind
-                    else ()
-                )
+                source = SummaryPort(SummaryPortKind.PARAMETER, index=indices[parameter])
+                mapped = ((fact.origin.kind, fact.kind),) if fact.origin.kind != fact.kind else ()
                 relations.add(
                     SummaryRelation(
                         source,
@@ -354,11 +342,7 @@ class ASTInterproceduralAnalyzer:
                 seeds.add((target, fact.kind))
 
     def _taint_kind_universe(self) -> frozenset[str]:
-        kinds = {
-            kind
-            for values in self.policy.source_kinds_by_call.values()
-            for kind in values
-        }
+        kinds = {kind for values in self.policy.source_kinds_by_call.values() for kind in values}
         for rule in self.policy.rules:
             kinds.update(rule.source_kinds)
         return frozenset(kinds or {"untrusted"})
@@ -424,8 +408,7 @@ class ASTInterproceduralAnalyzer:
             for name in functions
         )
         roots = {
-            selected.identity
-            for selected in select_entry_points(descriptors, entry_point_options)
+            selected.identity for selected in select_entry_points(descriptors, entry_point_options)
         }
         reachable = set(roots)
         pending = list(roots)

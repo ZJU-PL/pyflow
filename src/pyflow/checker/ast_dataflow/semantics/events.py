@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..domain import TaintFact
+from pyflow.checker.common.taint import TaintFact
 
 
 @dataclass(frozen=True)

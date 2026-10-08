@@ -1,5 +1,7 @@
 """Data models shared by AST dataflow taint components."""
 
+from pyflow.checker.common.diagnostics import CheckerDiagnostic
+
 from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, Set, Tuple
 
@@ -13,20 +15,6 @@ class ASTDataflowTraceStep:
     filename: str | None = None
     line: int | None = None
     detail: str | None = None
-
-
-@dataclass(frozen=True)
-class ASTDataflowTaintDiagnostic:
-    """One precision or completeness diagnostic produced by the detector."""
-
-    message: str
-    code: str
-    affects_completeness: bool = False
-    function: str | None = None
-    level: str | None = None
-    filename: str | None = None
-    line: int | None = None
-    operation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,7 +42,7 @@ class ASTDataflowTaintResult:
 
     findings: Tuple[ASTDataflowTaintFinding, ...]
     status: str = "complete"
-    diagnostics: Tuple[ASTDataflowTaintDiagnostic, ...] = ()
+    diagnostics: Tuple[CheckerDiagnostic, ...] = ()
     statistics: Dict[str, int] = field(default_factory=dict)
 
 

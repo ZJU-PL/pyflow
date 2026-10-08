@@ -1,4 +1,4 @@
-"""Formal abstract domains for AST dataflow analysis."""
+"""Formal taint domains shared by source and graph checking engines."""
 
 from .locations import AccessSelector, SelectorKind, TaintLocation
 from .provenance import (

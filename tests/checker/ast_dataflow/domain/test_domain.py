@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from itertools import product
 
-from pyflow.checker.ast_dataflow.domain import (
+from pyflow.checker.common.taint import (
     AbstractString,
     AnalysisUncertainty,
     PrecisionLevel,

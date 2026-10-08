@@ -12,6 +12,7 @@ from pyflow.checker.capability import (
     default_capability_registry,
 )
 from pyflow.frontend.entry_discovery import resolve_entry_file
+from pyflow.checker.formatters.capability import capability_sarif
 
 
 def add_capabilities_parser(subparsers) -> None:
@@ -25,12 +26,25 @@ def add_capabilities_parser(subparsers) -> None:
     parser.add_argument(
         "--context-policy",
         choices=(
-            "0-cfa", "1-cfa", "2-cfa", "3-cfa",
-            "1-obj", "2-obj", "3-obj",
-            "1-type", "2-type", "3-type",
-            "1-rcv", "2-rcv", "3-rcv",
-            "1-param", "2-param", "3-param",
-            "1c1o", "2c1o", "1c2o",
+            "0-cfa",
+            "1-cfa",
+            "2-cfa",
+            "3-cfa",
+            "1-obj",
+            "2-obj",
+            "3-obj",
+            "1-type",
+            "2-type",
+            "3-type",
+            "1-rcv",
+            "2-rcv",
+            "3-rcv",
+            "1-param",
+            "2-param",
+            "3-param",
+            "1c1o",
+            "2c1o",
+            "1c2o",
         ),
         help="Context sensitivity policy (overrides --context-depth)",
     )
@@ -89,7 +103,7 @@ def run_capabilities(args) -> int:
     if args.format == "json":
         rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True)
     elif args.format == "sarif":
-        rendered = json.dumps(_to_sarif(result), indent=2, sort_keys=True)
+        rendered = json.dumps(capability_sarif(result), indent=2, sort_keys=True)
     else:
         rendered = _to_text(result)
 
@@ -116,73 +130,3 @@ def _to_text(result) -> str:
         f"{result.statistics.get('diagnostics', 0)} diagnostic(s)"
     )
     return "\n".join(lines)
-
-
-def _to_sarif(result) -> dict:
-    rules = {}
-    sarif_results = []
-    level_by_category = {
-        "process": "error",
-        "code": "error",
-        "native": "error",
-        "network": "warning",
-        "file": "warning",
-    }
-    for finding in result.findings:
-        rules.setdefault(
-            finding.capability,
-            {
-                "id": finding.capability,
-                "name": finding.capability.replace(".", "_"),
-                "shortDescription": {"text": f"Use of {finding.capability} capability"},
-            },
-        )
-        loc = finding.location
-        sarif_results.append(
-            {
-                "ruleId": finding.capability,
-                "level": level_by_category.get(finding.category, "note"),
-                "message": {"text": finding.reason},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": loc.filename},
-                            "region": {
-                                "startLine": max(loc.line, 1),
-                                "startColumn": max(loc.column + 1, 1),
-                            },
-                        }
-                    }
-                ],
-                "properties": {
-                    "reportKind": finding.report_kind.value,
-                    "accessPath": finding.access_path,
-                    "category": finding.category,
-                    "trace": list(finding.trace),
-                    "escapeKind": finding.escape_kind,
-                    "boundary": finding.boundary,
-                },
-            }
-        )
-    return {
-        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-        "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "PyFlow Capability Analysis",
-                        "rules": list(rules.values()),
-                    }
-                },
-                "results": sarif_results,
-                "properties": {
-                    "analysisStatus": result.status,
-                    "diagnostics": [d.to_dict() for d in result.diagnostics],
-                },
-            }
-        ],
-    }
-
-
-__all__ = ["add_capabilities_parser", "run_capabilities"]

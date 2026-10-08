@@ -96,3 +96,47 @@ assert not any(name.startswith(('pyflow.analysis', 'pyflow.optimization',
         capture_output=True,
         text=True,
     )
+
+
+def test_shared_checker_utilities_do_not_import_engines_or_transports():
+    violations = set()
+    for package in ("common", "formatters"):
+        allowed = {"common"} if package == "common" else {"common", "formatters"}
+        for path in (SOURCE / "checker" / package).rglob("*.py"):
+            for line, dependency in _imports(path):
+                parts = dependency.split(".")
+                transport = dependency.startswith(("pyflow.cli", "pyflow.lsp"))
+                engine = (
+                    len(parts) > 2
+                    and parts[:2] == ["pyflow", "checker"]
+                    and parts[2] not in allowed
+                )
+                if transport or engine:
+                    relative = path.relative_to(SOURCE)
+                    violations.add(f"{relative}:{line} imports {dependency}")
+    assert not violations, "\n".join(sorted(violations))
+
+
+def test_shared_checker_imports_do_not_load_specific_engines():
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+import pyflow.checker.common.taint.refinement
+import pyflow.checker.formatters.security
+import pyflow.checker.formatters.cpg
+import pyflow.checker.formatters.capability
+assert not any(name.startswith((
+    'pyflow.checker.ast_rules', 'pyflow.checker.ast_dataflow',
+    'pyflow.checker.ifds', 'pyflow.checker.cpg',
+    'pyflow.checker.capability', 'pyflow.checker.supply_chain',
+    'pyflow.cli', 'pyflow.lsp',
+)) for name in sys.modules)
+""",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

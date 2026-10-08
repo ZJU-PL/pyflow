@@ -35,20 +35,9 @@ import logging
 import sys
 
 from ..common import constants
-from ..ast_rules.core.test_properties import accepts_baseline
-from .utils import wrap_file_object
+from .utils import wrap_file_object, issue_sort_key
 
 LOG = logging.getLogger(__name__)
-
-
-def _issue_sort_key(issue) -> tuple:
-    return (
-        str(getattr(issue, "fname", "")),
-        int(getattr(issue, "lineno", -1) or -1),
-        str(getattr(issue, "test_id", "")),
-        str(getattr(issue, "test", "")),
-        str(getattr(issue, "text", "")),
-    )
 
 
 def get_verbose_details(manager):
@@ -111,7 +100,7 @@ def get_results(manager, sev_level, conf_level, lines):
     if not len(issues):
         return "\tNo issues identified."
 
-    ordered_issues = sorted(issues, key=_issue_sort_key)
+    ordered_issues = sorted(issues, key=issue_sort_key)
     for issue in ordered_issues:
         # if not a baseline or only one candidate we know the issue
         if not baseline or len(issues[issue]) == 1:
@@ -119,18 +108,15 @@ def get_results(manager, sev_level, conf_level, lines):
 
         # otherwise show the finding and the candidates
         else:
-            bits.append(
-                _output_issue_str(issue, "", show_lineno=False, show_code=False)
-            )
+            bits.append(_output_issue_str(issue, "", show_lineno=False, show_code=False))
             bits.append("\n-- Candidate Issues --")
-            for candidate in sorted(issues[issue], key=_issue_sort_key):
+            for candidate in sorted(issues[issue], key=issue_sort_key):
                 bits.append(_output_issue_str(candidate, candidate_indent, lines=lines))
                 bits.append("\n")
         bits.append("-" * 50)
     return "\n".join(bits)
 
 
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """Prints discovered issues in the text format
 
@@ -140,7 +126,9 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     :param conf_level: Filtering confidence level
     :param lines: Number of lines to report, -1 for all
     """
-    if getattr(manager, "quiet", False) and not getattr(manager, "results_count", lambda s, c: False)(sev_level, conf_level):
+    if getattr(manager, "quiet", False) and not getattr(
+        manager, "results_count", lambda s, c: False
+    )(sev_level, conf_level):
         return
 
     bits = [f"Run started:{datetime.datetime.now(datetime.timezone.utc)}"]

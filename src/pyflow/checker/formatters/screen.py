@@ -2,12 +2,12 @@
 
 Outputs issues as color-coded text to screen, using VT100 terminal codes.
 """
+
 import datetime
 import logging
 import sys
 
 from ..common import constants
-from ..ast_rules.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)
@@ -121,16 +121,10 @@ def get_results(manager, sev_level, conf_level, lines):
         if not baseline or len(issues[issue]) == 1:
             bits.append(_output_issue_str(issue, "", lines=lines))
         else:
-            bits.append(
-                _output_issue_str(
-                    issue, "", show_lineno=False, show_code=False
-                )
-            )
+            bits.append(_output_issue_str(issue, "", show_lineno=False, show_code=False))
             bits.append("\n-- Candidate Issues --")
             for candidate in issues[issue]:
-                bits.append(
-                    _output_issue_str(candidate, candidate_indent, lines=lines)
-                )
+                bits.append(_output_issue_str(candidate, candidate_indent, lines=lines))
                 bits.append("\n")
         bits.append("-" * 50)
     return "\n".join([bit for bit in bits])
@@ -140,7 +134,6 @@ def do_print(bits):
     print("\n".join([bit for bit in bits]))
 
 
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """Print discovered issues formatted for screen reading.
 
@@ -156,10 +149,10 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         _colorama.init()
 
     bits = []
-    if not getattr(manager, "quiet", False) or getattr(manager, "results_count", lambda s, c: False)(sev_level, conf_level):
-        bits.append(
-            header("Run started:%s", datetime.datetime.now(datetime.timezone.utc))
-        )
+    if not getattr(manager, "quiet", False) or getattr(
+        manager, "results_count", lambda s, c: False
+    )(sev_level, conf_level):
+        bits.append(header("Run started:%s", datetime.datetime.now(datetime.timezone.utc)))
 
         if manager.verbose:
             bits.append(get_verbose_details(manager))
@@ -167,13 +160,9 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         bits.append(header("\nTest results:"))
         bits.append(get_results(manager, sev_level, conf_level, lines))
         bits.append(header("\nCode scanned:"))
+        bits.append("\tTotal lines of code: %i" % (manager.metrics.data["_totals"]["loc"]))
         bits.append(
-            "\tTotal lines of code: %i"
-            % (manager.metrics.data["_totals"]["loc"])
-        )
-        bits.append(
-            "\tTotal lines skipped (#nosec): %i"
-            % (manager.metrics.data["_totals"]["nosec"])
+            "\tTotal lines skipped (#nosec): %i" % (manager.metrics.data["_totals"]["nosec"])
         )
         bits.append(get_metrics(manager))
         skipped = manager.get_skipped()
@@ -183,8 +172,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
 
     if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info(
-            "Screen formatter output was not written to file: %s, "
-            "consider '-f txt'",
+            "Screen formatter output was not written to file: %s, " "consider '-f txt'",
             fileobj.name,
         )
 

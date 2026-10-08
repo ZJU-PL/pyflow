@@ -352,3 +352,41 @@ Issue: Performance issues
 - Use ``--exclude`` to skip test files
 - Analyze specific modules instead of the whole project
 - Use incremental analysis for large projects
+
+Shared checker infrastructure
+=============================
+
+Engine-independent taint domains and refinement policies live in
+``pyflow.checker.common.taint``. AST dataflow and CPG use
+``pyflow.checker.common.diagnostics.CheckerDiagnostic`` for precision and
+completion diagnostics. Native IFDS findings retain their solver-specific
+witnesses and are normalized in ``pyflow.checker.ifds.reporting``.
+
+Formatting is separate from detection. Shared JSON/YAML report collection,
+ordering, and SARIF severity/location/document utilities live in
+``pyflow.checker.formatters``. These modules can be imported without loading
+an engine. Engine-specific fields and code-flow evidence remain available.
+
+For native CPG finding exports, use the formatter functions directly:
+
+.. code-block:: python
+
+   from pyflow.checker.formatters.cpg import findings_to_sarif
+   from pyflow.checker.formatters.json import findings_json
+
+   result = engine.analyze()
+   document = findings_to_sarif(
+       result.findings, artifact_uri="input.py", tool_name="my-analysis"
+   )
+   serialized_findings = findings_json(result.findings)
+
+These functions replace ``CPGTaintEngine.to_sarif`` and ``to_json``.
+``finding_to_sarif`` and ``rule_to_sarif`` in the same CPG formatter module
+replace the SARIF methods on native finding and rule objects. Imports of the
+former AST-local domain/refinement types should use ``checker.common.taint``
+and ``checker.common.taint.refinement``. No compatibility modules are retained.
+
+SARIF severity conversion now agrees across engines: low maps to ``note``,
+medium to ``warning``, and high/critical to ``error``. Unknown source lines in
+native CPG exports use line 1. CLI exit policy, report completion status,
+JSON/YAML Issue fields, and engine-specific evidence are preserved.

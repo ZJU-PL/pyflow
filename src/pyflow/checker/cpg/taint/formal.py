@@ -9,6 +9,8 @@ call stack.
 
 from __future__ import annotations
 
+from pyflow.checker.common.diagnostics import CheckerDiagnostic
+
 from collections import deque
 from dataclasses import dataclass, replace
 from time import monotonic
@@ -20,7 +22,7 @@ from pyflow.analysis.entrypoints import (
     ProcedureDescriptor,
     select_entry_points,
 )
-from pyflow.checker.ast_dataflow.domain import (
+from pyflow.checker.common.taint import (
     AccessSelector,
     AnalysisUncertainty,
     PrecisionLevel,
@@ -30,12 +32,12 @@ from pyflow.checker.ast_dataflow.domain import (
     TaintOrigin,
     TaintState as FormalTaintState,
 )
-from pyflow.checker.ast_dataflow.semantics import RefinementProvider
+from pyflow.checker.common.taint.refinement import RefinementProvider
 from pyflow.ir.cpg.graph import CPGEdgeKind, CodePropertyGraph
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.language.python import ast as py_ast
 
-from .model import CPGTaintDiagnostic, CPGTaintResult, TaintFinding
+from .model import CPGTaintResult, TaintFinding
 
 CFG_KINDS = frozenset(
     {
@@ -107,9 +109,7 @@ _TAINT_DROPPING_PURE_CALLS = frozenset(
         "utcnow",
     }
 )
-_SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
-    {"call", "check_call", "check_output", "popen", "run"}
-)
+_SHELL_OPTION_SUBPROCESS_CALLS = frozenset({"call", "check_call", "check_output", "popen", "run"})
 _SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
 
 
@@ -193,9 +193,7 @@ class CPGAbstractState:
             return other
         if other.leq(self):
             return self
-        return CPGAbstractState(
-            self.taint.join(other.taint), self.may_aliases | other.may_aliases
-        )
+        return CPGAbstractState(self.taint.join(other.taint), self.may_aliases | other.may_aliases)
 
     def with_taint(self, taint: FormalTaintState) -> "CPGAbstractState":
         return replace(self, taint=taint)
@@ -219,9 +217,7 @@ class CPGAbstractState:
                     changed = True
         return frozenset(result)
 
-    def bind_alias(
-        self, destination: TaintLocation, source: TaintLocation
-    ) -> "CPGAbstractState":
+    def bind_alias(self, destination: TaintLocation, source: TaintLocation) -> "CPGAbstractState":
         cleared = self.clear_binding(destination)
         copied = cleared.taint.copy(
             source,
@@ -330,30 +326,24 @@ class FormalCPGTaintAnalysis:
         self.engine = engine
         self.cpg = engine._cpg
         self._deadline = (
-            monotonic() + engine._max_seconds
-            if engine._max_seconds is not None
-            else None
+            monotonic() + engine._max_seconds if engine._max_seconds is not None else None
         )
         self._budget_reported = False
-        self._diagnostics: set[CPGTaintDiagnostic] = set()
+        self._diagnostics: set[CheckerDiagnostic] = set()
         self.cpg._ensure_built()
         self._module_function = next(
             (name for name in self.cpg._pdgs if name.endswith(".<module>")),
             "<module>",
         )
         self._global_declarations = self._collect_scope_declarations(py_ast.GlobalDecl)
-        self._nonlocal_declarations = self._collect_scope_declarations(
-            py_ast.NonlocalDecl
-        )
+        self._nonlocal_declarations = self._collect_scope_declarations(py_ast.NonlocalDecl)
         self._all_nonlocal_names = frozenset(
             name for names in self._nonlocal_declarations.values() for name in names
         )
         self._local_bindings = {
             function: self._defined_local_names(function) for function in self.cpg._pdgs
         }
-        self._module_globals = self._local_bindings.get(
-            self._module_function, frozenset()
-        )
+        self._module_globals = self._local_bindings.get(self._module_function, frozenset())
         self._local_class_names = frozenset(
             ast_node.name
             for node in self.cpg.nodes()
@@ -363,13 +353,9 @@ class FormalCPGTaintAnalysis:
         self._import_aliases = self._collect_import_aliases()
         self._events: list[tuple[PDGNode, str, frozenset[TaintFact]]] = []
         self._states: dict[CPGConfiguration, CPGAbstractState] = {}
-        self._predecessors: dict[
-            tuple[CPGConfiguration, str], tuple[CPGConfiguration, str]
-        ] = {}
+        self._predecessors: dict[tuple[CPGConfiguration, str], tuple[CPGConfiguration, str]] = {}
         self._configurations_by_node: dict[int, tuple[CPGConfiguration, ...]] = {}
-        self._sanitizers_by_origin_kind: dict[
-            tuple[TaintOrigin, str], frozenset[str]
-        ] = {}
+        self._sanitizers_by_origin_kind: dict[tuple[TaintOrigin, str], frozenset[str]] = {}
         self._configured_source_cache: dict[str, str | None] = {}
         self._summaries = self._build_summaries()
         self._processed_states = 0
@@ -401,7 +387,7 @@ class FormalCPGTaintAnalysis:
                 and self._processed_states >= self.engine._max_states
             ):
                 self._diagnostics.add(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         f"CPG fixed point exceeded {self.engine._max_states} states",
                         "cpg-state-budget",
                         True,
@@ -423,9 +409,7 @@ class FormalCPGTaintAnalysis:
             self._events.extend((node, name, facts) for name, facts in events)
 
             for transition in self._successors(config, node, outgoing):
-                previous = self._states.get(
-                    transition.target, CPGAbstractState.bottom()
-                )
+                previous = self._states.get(transition.target, CPGAbstractState.bottom())
                 joined = previous.join(transition.state)
                 if joined == previous:
                     continue
@@ -446,21 +430,9 @@ class FormalCPGTaintAnalysis:
                             "configured reporting threshold; analysis continued "
                             "to convergence",
                             PrecisionLevel.CONSERVATIVE,
-                            (
-                                self.cpg.node_func_name(loop_node)
-                                if loop_node is not None
-                                else None
-                            ),
-                            (
-                                self._filename(loop_node)
-                                if loop_node is not None
-                                else None
-                            ),
-                            (
-                                self.cpg.node_lineno(loop_node)
-                                if loop_node is not None
-                                else None
-                            ),
+                            (self.cpg.node_func_name(loop_node) if loop_node is not None else None),
+                            (self._filename(loop_node) if loop_node is not None else None),
+                            (self.cpg.node_lineno(loop_node) if loop_node is not None else None),
                             "loop",
                         )
                     )
@@ -480,9 +452,7 @@ class FormalCPGTaintAnalysis:
         self._publish_node_taint()
         configurations_by_node: dict[int, list[CPGConfiguration]] = {}
         for configuration in self._states:
-            configurations_by_node.setdefault(configuration.node_id, []).append(
-                configuration
-            )
+            configurations_by_node.setdefault(configuration.node_id, []).append(configuration)
         self._configurations_by_node = {
             node_id: tuple(configurations)
             for node_id, configurations in configurations_by_node.items()
@@ -490,27 +460,18 @@ class FormalCPGTaintAnalysis:
         sanitizer_index: dict[tuple[TaintOrigin, str], set[str]] = {}
         for state in self._states.values():
             for edge in state.taint.provenance:
-                if (
-                    edge.operation is ProvenanceOperation.SANITIZE
-                    and edge.detail
-                ):
-                    sanitizer_index.setdefault(
-                        (edge.target.origin, edge.target.kind), set()
-                    ).add(edge.detail)
+                if edge.operation is ProvenanceOperation.SANITIZE and edge.detail:
+                    sanitizer_index.setdefault((edge.target.origin, edge.target.kind), set()).add(
+                        edge.detail
+                    )
         self._sanitizers_by_origin_kind = {
             key: frozenset(values) for key, values in sanitizer_index.items()
         }
         findings = self._build_findings()
         diagnostics = tuple(sorted(self._diagnostics, key=repr))
-        status = (
-            "partial"
-            if any(item.affects_completeness for item in diagnostics)
-            else "complete"
-        )
+        status = "partial" if any(item.affects_completeness for item in diagnostics) else "complete"
         if status == "partial":
-            reasons = tuple(
-                sorted(item.code for item in diagnostics if item.affects_completeness)
-            )
+            reasons = tuple(sorted(item.code for item in diagnostics if item.affects_completeness))
             for finding in findings:
                 finding.precision_reasons = tuple(
                     sorted(set(finding.precision_reasons) | set(reasons))
@@ -539,7 +500,7 @@ class FormalCPGTaintAnalysis:
         if not self._budget_reported:
             self._budget_reported = True
             self._diagnostics.add(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     f"CPG analysis exceeded its time budget during {operation}",
                     "cpg-time-budget",
                     True,
@@ -625,9 +586,7 @@ class FormalCPGTaintAnalysis:
             if self.cpg._pdgs[identity].entry is not None
         )
 
-    def _seed_entry_parameters(
-        self, entry: PDGNode, state: CPGAbstractState
-    ) -> CPGAbstractState:
+    def _seed_entry_parameters(self, entry: PDGNode, state: CPGAbstractState) -> CPGAbstractState:
         if not self.engine._entry_point_options.taint_parameters:
             return state
         function = self.cpg.node_func_name(entry)
@@ -666,8 +625,7 @@ class FormalCPGTaintAnalysis:
             adjacency[node.node_id] = tuple(
                 edge.target.node_id
                 for edge in self.cpg._cpg_edges_out.get(node.node_id, ())
-                if edge.kind in CFG_KINDS
-                and self.cpg.node_func_name(edge.target) == function
+                if edge.kind in CFG_KINDS and self.cpg.node_func_name(edge.target) == function
             )
         index = 0
         indices: dict[int, int] = {}
@@ -742,9 +700,9 @@ class FormalCPGTaintAnalysis:
         if not self._module_has_local_calls():
             return result
 
-        source_kinds = {
-            kind for kinds in self.engine._source_kinds.values() for kind in kinds
-        } or {"unknown"}
+        source_kinds = {kind for kinds in self.engine._source_kinds.values() for kind in kinds} or {
+            "unknown"
+        }
         taint = result.taint
         for name in self._module_globals:
             location = self._local(self._module_function, name)
@@ -780,9 +738,7 @@ class FormalCPGTaintAnalysis:
             return TaintLocation(("<closure>", name))
         return TaintLocation((function, name))
 
-    def _collect_scope_declarations(
-        self, declaration_type: type[Any]
-    ) -> dict[str, frozenset[str]]:
+    def _collect_scope_declarations(self, declaration_type: type[Any]) -> dict[str, frozenset[str]]:
         result: dict[str, frozenset[str]] = {}
         for function, pdg in self.cpg._pdgs.items():
             if self._budget_exhausted("scope-declaration-index"):
@@ -827,16 +783,12 @@ class FormalCPGTaintAnalysis:
     def _return_location(self, function: str) -> TaintLocation:
         return TaintLocation((function, "<return>"))
 
-    def _call_location(
-        self, node: PDGNode, call: py_ast.Call | None = None
-    ) -> TaintLocation:
+    def _call_location(self, node: PDGNode, call: py_ast.Call | None = None) -> TaintLocation:
         marker = id(call) if call is not None else node.node_id
         return TaintLocation((self.cpg.node_func_name(node), "<call>", marker))
 
     def _expression_location(self, node: PDGNode, expression: Any) -> TaintLocation:
-        return TaintLocation(
-            (self.cpg.node_func_name(node), "<expression>", id(expression))
-        )
+        return TaintLocation((self.cpg.node_func_name(node), "<expression>", id(expression)))
 
     def _filename(self, node: PDGNode) -> str | None:
         code = getattr(
@@ -863,9 +815,7 @@ class FormalCPGTaintAnalysis:
         if isinstance(ast_node, py_ast.Suite):
             current = state
             for statement in ast_node.blocks or ():
-                current, statement_events = self._transfer_node(
-                    node, current, statement
-                )
+                current, statement_events = self._transfer_node(node, current, statement)
                 events.extend(statement_events)
             return current, tuple(events)
 
@@ -899,9 +849,7 @@ class FormalCPGTaintAnalysis:
                 if not isinstance(target, py_ast.Local) or not target.name:
                     continue
                 destination = self._local(function, target.name)
-                if value.location is not None and isinstance(
-                    ast_node.expr, py_ast.Local
-                ):
+                if value.location is not None and isinstance(ast_node.expr, py_ast.Local):
                     current = current.bind_alias(destination, value.location)
                 else:
                     current = current.clear_binding(destination).write(
@@ -961,18 +909,14 @@ class FormalCPGTaintAnalysis:
                 if base_name and attribute
                 else attribute or base_name or ""
             )
-            sink_name = self.engine._match_sink_name(
-                self._qualify_import_alias(symbolic_name)
-            )
+            sink_name = self.engine._match_sink_name(self._qualify_import_alias(symbolic_name))
             if sink_name and value.facts:
                 events.append((sink_name, value.facts))
             return current, tuple(events)
 
         if isinstance(ast_node, py_ast.SetSubscript):
             value = self._evaluate(ast_node.value, state, node)
-            location = self._location_of_subscript(
-                ast_node.expr, ast_node.subscript, function
-            )
+            location = self._location_of_subscript(ast_node.expr, ast_node.subscript, function)
             if location is None:
                 return self._unsupported(state, node, "unresolved-subscript-write"), ()
             decision = self.engine._refinement.update_decision(location, node)
@@ -1065,8 +1009,7 @@ class FormalCPGTaintAnalysis:
             if len(values) == 1 and values[0].location is not None:
                 current = replace(
                     current,
-                    may_aliases=current.may_aliases
-                    | {_ordered_alias(target, values[0].location)},
+                    may_aliases=current.may_aliases | {_ordered_alias(target, values[0].location)},
                 )
             return current, tuple(events)
 
@@ -1134,9 +1077,7 @@ class FormalCPGTaintAnalysis:
             return current, tuple(events)
 
         return (
-            self._unsupported(
-                state, node, f"unsupported-{type(ast_node).__name__.lower()}"
-            ),
+            self._unsupported(state, node, f"unsupported-{type(ast_node).__name__.lower()}"),
             (),
         )
 
@@ -1174,9 +1115,7 @@ class FormalCPGTaintAnalysis:
         head = entry
         converged = False
         for _ in range(32):
-            body_state, body_preamble_events = self._transfer_node(
-                node, head, loop.bodyPreamble
-            )
+            body_state, body_preamble_events = self._transfer_node(node, head, loop.bodyPreamble)
             events.update(body_preamble_events)
             body_state, body_events = self._transfer_node(node, body_state, loop.body)
             events.update(body_events)
@@ -1219,16 +1158,10 @@ class FormalCPGTaintAnalysis:
         self, node: PDGNode, statement: py_ast.Switch, state: CPGAbstractState
     ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
         """Evaluate the condition and conservatively join both branches."""
-        current, preamble_events = self._transfer_node(
-            node, state, statement.condition.preamble
-        )
+        current, preamble_events = self._transfer_node(node, state, statement.condition.preamble)
         condition = self._evaluate(statement.condition.conditional, current, node)
-        true_state, true_events = self._transfer_node(
-            node, condition.state, statement.t
-        )
-        false_state, false_events = self._transfer_node(
-            node, condition.state, statement.f
-        )
+        true_state, true_events = self._transfer_node(node, condition.state, statement.t)
+        false_state, false_events = self._transfer_node(node, condition.state, statement.f)
         result = true_state.join(false_state).with_uncertainty(
             AnalysisUncertainty(
                 "cpg-structured-branch-overapproximation",
@@ -1241,9 +1174,7 @@ class FormalCPGTaintAnalysis:
             )
         )
         events = set(preamble_events) | set(true_events) | set(false_events)
-        events.update(
-            self._sink_events(statement.condition.conditional, condition, node)
-        )
+        events.update(self._sink_events(statement.condition.conditional, condition, node))
         return result, tuple(sorted(events, key=lambda item: item[0]))
 
     def _transfer_structured_while(
@@ -1251,21 +1182,15 @@ class FormalCPGTaintAnalysis:
     ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
         """Compute a fixed point that includes the zero-iteration path."""
         events: set[tuple[str, frozenset[TaintFact]]] = set()
-        current, preamble_events = self._transfer_node(
-            node, state, loop.condition.preamble
-        )
+        current, preamble_events = self._transfer_node(node, state, loop.condition.preamble)
         events.update(preamble_events)
         entry = current
         head = entry
         converged = False
         for _ in range(32):
             condition = self._evaluate(loop.condition.conditional, head, node)
-            events.update(
-                self._sink_events(loop.condition.conditional, condition, node)
-            )
-            body_state, body_events = self._transfer_node(
-                node, condition.state, loop.body
-            )
+            events.update(self._sink_events(loop.condition.conditional, condition, node))
+            body_state, body_events = self._transfer_node(node, condition.state, loop.body)
             events.update(body_events)
             next_head = entry.join(body_state)
             if next_head == head:
@@ -1328,9 +1253,7 @@ class FormalCPGTaintAnalysis:
                 handler_state = handler_type.state
                 events.update(self._sink_events(handler.type, handler_type, node))
             if isinstance(handler.value, py_ast.Local) and handler.value.name:
-                exception_location = self._local(
-                    self.cpg.node_func_name(node), handler.value.name
-                )
+                exception_location = self._local(self.cpg.node_func_name(node), handler.value.name)
                 handler_state = handler_state.clear_binding(exception_location).write(
                     exception_location,
                     handler_entry.taint.facts,
@@ -1340,9 +1263,7 @@ class FormalCPGTaintAnalysis:
                     line=self.cpg.node_lineno(node),
                     detail="caught-exception",
                 )
-            handler_state, handler_events = self._transfer_node(
-                node, handler_state, handler.body
-            )
+            handler_state, handler_events = self._transfer_node(node, handler_state, handler.body)
             events.update(handler_events)
             branches.append(handler_state)
 
@@ -1359,9 +1280,7 @@ class FormalCPGTaintAnalysis:
         joined = branches[0]
         for branch in branches[1:]:
             joined = joined.join(branch)
-        final_state, finally_events = self._transfer_node(
-            node, joined, statement.finally_
-        )
+        final_state, finally_events = self._transfer_node(node, joined, statement.finally_)
         events.update(finally_events)
         final_state = final_state.with_uncertainty(
             AnalysisUncertainty(
@@ -1376,9 +1295,7 @@ class FormalCPGTaintAnalysis:
         )
         return final_state, tuple(sorted(events, key=lambda item: item[0]))
 
-    def _evaluate(
-        self, expression: Any, state: CPGAbstractState, node: PDGNode
-    ) -> CPGValue:
+    def _evaluate(self, expression: Any, state: CPGAbstractState, node: PDGNode) -> CPGValue:
         if expression is None:
             return CPGValue(state)
         function = self.cpg.node_func_name(node)
@@ -1390,20 +1307,14 @@ class FormalCPGTaintAnalysis:
         if isinstance(expression, py_ast.GetGlobal):
             name = self._constant_value(expression.name)
             if not isinstance(name, str):
-                return self._conservative_unresolved_read(
-                    state, node, "unresolved-global-read"
-                )
+                return self._conservative_unresolved_read(state, node, "unresolved-global-read")
             global_location = TaintLocation((self._module_function, name))
-            return CPGValue(
-                state, state.taint.facts_at(global_location), global_location
-            )
+            return CPGValue(state, state.taint.facts_at(global_location), global_location)
         if isinstance(expression, py_ast.Existing):
             return CPGValue(state)
         if isinstance(expression, (py_ast.GetAttr, py_ast.GetSubscript)):
             if location is None:
-                return self._conservative_unresolved_read(
-                    state, node, "unresolved-read"
-                )
+                return self._conservative_unresolved_read(state, node, "unresolved-read")
             current = state
             if isinstance(expression, py_ast.GetAttr):
                 symbolic_name = self.engine._resolve_call_expr(expression) or ""
@@ -1455,9 +1366,7 @@ class FormalCPGTaintAnalysis:
                 AccessSelector.key(key)
                 if isinstance(key, str)
                 else (
-                    AccessSelector.index(key)
-                    if isinstance(key, int)
-                    else AccessSelector.wildcard()
+                    AccessSelector.index(key) if isinstance(key, int) else AccessSelector.wildcard()
                 )
             )
             current = current.write(
@@ -1495,17 +1404,13 @@ class FormalCPGTaintAnalysis:
             )
         return CPGValue(current, current.taint.facts_at(base), base)
 
-    def _evaluate_call(
-        self, call: py_ast.Call, state: CPGAbstractState, node: PDGNode
-    ) -> CPGValue:
+    def _evaluate_call(self, call: py_ast.Call, state: CPGAbstractState, node: PDGNode) -> CPGValue:
         current, arguments = self._evaluate_arguments(call, state, node)
 
         name = self.engine._extract_call_name(call) or "<dynamic>"
         model_name = self._qualify_import_alias(name)
         call_location = self._call_location(node, call)
-        argument_facts = frozenset(
-            fact for argument in arguments for fact in argument.facts
-        )
+        argument_facts = frozenset(fact for argument in arguments for fact in argument.facts)
         source_name = self._configured_source(model_name)
         sanitizer_name = self._configured_sanitizer(model_name)
         sink_name = self.engine._match_sink_name(model_name)
@@ -1566,15 +1471,10 @@ class FormalCPGTaintAnalysis:
             taint = current.taint.write(call_location, (), strong=True)
             return CPGValue(current.with_taint(taint), frozenset(), call_location)
 
-        if (
-            name in {"interpreter_getitem", "operator.getitem"}
-            and len(call.args or ()) >= 2
-        ):
+        if name in {"interpreter_getitem", "operator.getitem"} and len(call.args or ()) >= 2:
             base_location = arguments[0].location if arguments else None
             if base_location is None:
-                base_location = self._location_of(
-                    call.args[0], self.cpg.node_func_name(node)
-                )
+                base_location = self._location_of(call.args[0], self.cpg.node_func_name(node))
             key = self._constant_value(call.args[1])
             location = (
                 base_location.index(key)
@@ -1627,9 +1527,7 @@ class FormalCPGTaintAnalysis:
                 line=self.cpg.node_lineno(node),
                 detail=name,
             )
-            return CPGValue(
-                current.with_taint(taint), taint.facts_at(call_location), call_location
-            )
+            return CPGValue(current.with_taint(taint), taint.facts_at(call_location), call_location)
         if leaf_name in _TAINT_DROPPING_PURE_CALLS:
             taint = current.taint.write(call_location, (), strong=True)
             return CPGValue(current.with_taint(taint), frozenset(), call_location)
@@ -1644,15 +1542,11 @@ class FormalCPGTaintAnalysis:
                 line=self.cpg.node_lineno(node),
                 detail=f"constructor:{name}",
             )
-            return CPGValue(
-                current.with_taint(taint), taint.facts_at(call_location), call_location
-            )
+            return CPGValue(current.with_taint(taint), taint.facts_at(call_location), call_location)
 
         summary = self._summary_for_call(node, name)
         if summary is not None:
-            facts = self._instantiate_summary(
-                summary, arguments, node, call, state=current
-            )
+            facts = self._instantiate_summary(summary, arguments, node, call, state=current)
             taint = current.taint.write(
                 call_location,
                 facts,
@@ -1662,9 +1556,7 @@ class FormalCPGTaintAnalysis:
                 line=self.cpg.node_lineno(node),
                 detail=f"summary:{summary.procedure}",
             )
-            taint = self._havoc_possible_call_side_effects(
-                taint, call, arguments, node, name
-            )
+            taint = self._havoc_possible_call_side_effects(taint, call, arguments, node, name)
             taint = taint.with_uncertainty(
                 AnalysisUncertainty(
                     "cpg-expression-call-summary",
@@ -1678,18 +1570,16 @@ class FormalCPGTaintAnalysis:
                     name,
                 )
             )
-            return CPGValue(
-                current.with_taint(taint), taint.facts_at(call_location), call_location
-            )
+            return CPGValue(current.with_taint(taint), taint.facts_at(call_location), call_location)
 
         # Unknown external calls conservatively taint their return. Existing
         # argument taint has already been propagated to that return above, but
         # do not invent new source facts on clean arguments or the receiver:
         # doing so makes an unrelated observer/lifecycle call contaminate the
         # caller's entire reachable state.
-        source_kinds = {
-            kind for kinds in self.engine._source_kinds.values() for kind in kinds
-        } or {"unknown"}
+        source_kinds = {kind for kinds in self.engine._source_kinds.values() for kind in kinds} or {
+            "unknown"
+        }
         uncertainty = AnalysisUncertainty(
             "cpg-unknown-call-effect",
             f"Unknown call effects for {name}",
@@ -1733,9 +1623,7 @@ class FormalCPGTaintAnalysis:
     ) -> FormalTaintState:
         """Over-approximate side effects omitted by relational summaries."""
         locations = {argument.location for argument in arguments if argument.location}
-        propagated_facts = {
-            fact for argument in arguments for fact in argument.facts
-        }
+        propagated_facts = {fact for argument in arguments for fact in argument.facts}
         receiver = self._call_receiver(call)
         receiver_location = (
             self._location_of(receiver, self.cpg.node_func_name(node))
@@ -1746,8 +1634,7 @@ class FormalCPGTaintAnalysis:
             locations.add(receiver_location)
             propagated_facts.update(taint.facts_at(receiver_location))
         locations.update(
-            self._local(self._module_function, global_name)
-            for global_name in self._module_globals
+            self._local(self._module_function, global_name) for global_name in self._module_globals
         )
         for location in locations:
             taint = taint.write(
@@ -1766,9 +1653,9 @@ class FormalCPGTaintAnalysis:
     ) -> CPGValue:
         """Represent an unresolvable read by a tainted synthetic value."""
         location = self._expression_location(node, node.ast_node)
-        source_kinds = {
-            kind for kinds in self.engine._source_kinds.values() for kind in kinds
-        } or {"unknown"}
+        source_kinds = {kind for kinds in self.engine._source_kinds.values() for kind in kinds} or {
+            "unknown"
+        }
         taint = state.taint.write(location, (), strong=True)
         for kind in source_kinds:
             taint = taint.introduce(
@@ -1805,9 +1692,7 @@ class FormalCPGTaintAnalysis:
         call_edges = self._local_call_edges(node)
         top_call = self._top_level_call(node.ast_node)
         if call_edges and top_call is not None and not self._is_modeled_call(top_call):
-            if len(
-                config.call_context
-            ) >= self.engine._max_call_depth or self._would_recurse(
+            if len(config.call_context) >= self.engine._max_call_depth or self._would_recurse(
                 config, node, call_edges
             ):
                 return self._summary_resume_transitions(config, node, state, call_edges)
@@ -1834,12 +1719,10 @@ class FormalCPGTaintAnalysis:
         )
         if return_edges and config.call_context:
             call_site_id = config.call_context[-1]
-            matched = tuple(
-                edge for edge in return_edges if edge.target.node_id == call_site_id
-            )
+            matched = tuple(edge for edge in return_edges if edge.target.node_id == call_site_id)
             if not matched:
                 self._diagnostics.add(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         "No RETURN_EDGE matches the active call site",
                         "cpg-unmatched-return-edge",
                         True,
@@ -1923,8 +1806,7 @@ class FormalCPGTaintAnalysis:
             if value.location is not None:
                 current = replace(
                     current,
-                    may_aliases=current.may_aliases
-                    | {_ordered_alias(location, value.location)},
+                    may_aliases=current.may_aliases | {_ordered_alias(location, value.location)},
                 )
         for public_name, value in keyword_values.items():
             keyword_parameter = keyword_parameters.get(public_name)
@@ -1935,8 +1817,7 @@ class FormalCPGTaintAnalysis:
             if value.location is not None:
                 current = replace(
                     current,
-                    may_aliases=current.may_aliases
-                    | {_ordered_alias(location, value.location)},
+                    may_aliases=current.may_aliases | {_ordered_alias(location, value.location)},
                 )
         # Keep caller locals in the state; scoped roots prevent collisions and
         # allow exact restoration after the matched return.
@@ -2030,9 +1911,7 @@ class FormalCPGTaintAnalysis:
             if summary is None:
                 continue
             evaluated_state, arguments = self._evaluate_arguments(call, state, node)
-            facts = self._instantiate_summary(
-                summary, arguments, node, call, state=evaluated_state
-            )
+            facts = self._instantiate_summary(summary, arguments, node, call, state=evaluated_state)
             resumed = self._apply_call_result(node, evaluated_state, facts)
             resumed = resumed.with_taint(
                 self._havoc_possible_call_side_effects(
@@ -2095,8 +1974,7 @@ class FormalCPGTaintAnalysis:
         token_bound = (
             1
             + sum(len(summary.parameters) for summary in summaries.values())
-            + sum(1 for _node in self.cpg.nodes())
-            * max(1, len(self.engine._source_kinds))
+            + sum(1 for _node in self.cpg.nodes()) * max(1, len(self.engine._source_kinds))
         )
         callers: dict[str, set[str]] = {function: set() for function in summaries}
         for edges in self.cpg._cpg_edges_out.values():
@@ -2128,7 +2006,7 @@ class FormalCPGTaintAnalysis:
                     pending.append(caller)
         if pending and not self._budget_exhausted("procedure-summary"):
             self._diagnostics.add(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     "CPG procedure summaries exceeded their finite update bound",
                     "cpg-summary-budget",
                     True,
@@ -2151,9 +2029,7 @@ class FormalCPGTaintAnalysis:
             parameter: frozenset({_SummaryToken.parameter(index)})
             for index, parameter in enumerate(parameters)
         }
-        states: dict[int, dict[str, frozenset[_SummaryToken]]] = {
-            pdg.entry.node_id: initial
-        }
+        states: dict[int, dict[str, frozenset[_SummaryToken]]] = {pdg.entry.node_id: initial}
         pending = deque([pdg.entry])
         returns: set[_SummaryToken] = set()
         sinks: dict[tuple[str, int | None, int], set[_SummaryToken]] = {}
@@ -2162,9 +2038,7 @@ class FormalCPGTaintAnalysis:
                 break
             node = pending.popleft()
             incoming = states[node.node_id]
-            outgoing, returned, emitted = self._summary_transfer(
-                node, incoming, summaries
-            )
+            outgoing, returned, emitted = self._summary_transfer(node, incoming, summaries)
             returns.update(returned)
             for sink_name, line, sink_node_id, tokens in emitted:
                 sinks.setdefault((sink_name, line, sink_node_id), set()).update(tokens)
@@ -2189,14 +2063,8 @@ class FormalCPGTaintAnalysis:
         summary_sinks = frozenset(
             CPGSummarySink(
                 sink_name,
-                frozenset(
-                    token.parameter_index
-                    for token in tokens
-                    if token.kind == "parameter"
-                ),
-                frozenset(
-                    token.source_kind for token in tokens if token.kind == "source"
-                ),
+                frozenset(token.parameter_index for token in tokens if token.kind == "parameter"),
+                frozenset(token.source_kind for token in tokens if token.kind == "source"),
                 line,
                 frozenset(
                     (token.source_kind, token.source_node_id, token.source_name)
@@ -2210,9 +2078,7 @@ class FormalCPGTaintAnalysis:
         return CPGProcedureSummary(
             function,
             tuple(parameters),
-            frozenset(
-                token.parameter_index for token in returns if token.kind == "parameter"
-            ),
+            frozenset(token.parameter_index for token in returns if token.kind == "parameter"),
             frozenset(kind for kind, _node_id, _name in source_occurrences),
             summary_sinks,
             source_occurrences,
@@ -2232,24 +2098,18 @@ class FormalCPGTaintAnalysis:
         ast_node = node.ast_node
         returned: frozenset[_SummaryToken] = frozenset()
         if isinstance(ast_node, py_ast.Assign):
-            value = self._summary_expression(
-                ast_node.expr, environment, node, summaries
-            )
+            value = self._summary_expression(ast_node.expr, environment, node, summaries)
             for target in ast_node.lcls or ():
                 if isinstance(target, py_ast.Local) and target.name:
                     environment[target.name] = value
         elif isinstance(ast_node, py_ast.AnnAssign):
-            value = self._summary_expression(
-                ast_node.value, environment, node, summaries
-            )
+            value = self._summary_expression(ast_node.value, environment, node, summaries)
             if isinstance(ast_node.target, py_ast.Local) and ast_node.target.name:
                 environment[ast_node.target.name] = value
         elif isinstance(ast_node, (py_ast.SetAttr, py_ast.SetSubscript)):
             base = self._first_local(ast_node.expr)
             if base:
-                value = self._summary_expression(
-                    ast_node.value, environment, node, summaries
-                )
+                value = self._summary_expression(ast_node.value, environment, node, summaries)
                 environment[base] = environment.get(base, frozenset()) | value
         elif isinstance(ast_node, py_ast.Delete):
             if isinstance(ast_node.lcl, py_ast.Local) and ast_node.lcl.name:
@@ -2258,17 +2118,13 @@ class FormalCPGTaintAnalysis:
             returned = frozenset(
                 token
                 for expression in ast_node.exprs or ()
-                for token in self._summary_expression(
-                    expression, environment, node, summaries
-                )
+                for token in self._summary_expression(expression, environment, node, summaries)
             )
 
         emitted = []
         for call in self._calls_in_statement(ast_node):
             raw_name = self.engine._extract_call_name(call) or ""
-            sink_name = self.engine._match_sink_name(
-                self._qualify_import_alias(raw_name)
-            )
+            sink_name = self.engine._match_sink_name(self._qualify_import_alias(raw_name))
             if not sink_name or not self._shell_sink_is_active(call, sink_name):
                 continue
             positions = self._sink_positions_for_call(sink_name)
@@ -2276,14 +2132,10 @@ class FormalCPGTaintAnalysis:
                 token
                 for index, argument in enumerate(call.args or ())
                 if index in positions
-                for token in self._summary_expression(
-                    argument, environment, node, summaries
-                )
+                for token in self._summary_expression(argument, environment, node, summaries)
             )
             if tokens:
-                emitted.append(
-                    (sink_name, self.cpg.node_lineno(node), node.node_id, tokens)
-                )
+                emitted.append((sink_name, self.cpg.node_lineno(node), node.node_id, tokens))
         return environment, returned, tuple(emitted)
 
     def _summary_expression(
@@ -2338,9 +2190,7 @@ class FormalCPGTaintAnalysis:
                 return frozenset()
             leaf_name = name.rsplit(".", 1)[-1]
             if leaf_name in _TAINT_PRESERVING_PURE_CALLS:
-                return receiver_tokens | frozenset(
-                    token for value in arguments for token in value
-                )
+                return receiver_tokens | frozenset(token for value in arguments for token in value)
             if leaf_name in _TAINT_DROPPING_PURE_CALLS:
                 return frozenset()
             summary = self._summary_for_name(name, summaries)
@@ -2365,9 +2215,7 @@ class FormalCPGTaintAnalysis:
                 if not result and summary.procedure == self.cpg.node_func_name(node):
                     result.update(token for value in arguments for token in value)
                 return frozenset(result)
-            unknown_tokens: set[_SummaryToken] = {
-                token for value in arguments for token in value
-            }
+            unknown_tokens: set[_SummaryToken] = {token for value in arguments for token in value}
             unknown_tokens.update(
                 _SummaryToken.source(kind, node.node_id, name)
                 for kinds in self.engine._source_kinds.values()
@@ -2398,17 +2246,14 @@ class FormalCPGTaintAnalysis:
         candidates = [
             summary
             for procedure, summary in summaries.items()
-            if procedure == name
-            or procedure.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
+            if procedure == name or procedure.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
         ]
         return candidates[0] if len(candidates) == 1 else None
 
     def _calls_in_statement(self, node: Any) -> tuple[py_ast.Call, ...]:
         if isinstance(node, (py_ast.FunctionDef, py_ast.ClassDef)):
             return ()
-        return tuple(
-            item for item in self._walk_ast(node) if isinstance(item, py_ast.Call)
-        )
+        return tuple(item for item in self._walk_ast(node) if isinstance(item, py_ast.Call))
 
     def _first_local(self, node: Any) -> str | None:
         return next(
@@ -2438,11 +2283,7 @@ class FormalCPGTaintAnalysis:
     ) -> frozenset[TaintFact]:
         receiver_value = None
         receiver = self._call_receiver(call)
-        if (
-            summary.parameters
-            and summary.parameters[0] in {"self", "cls"}
-            and receiver is not None
-        ):
+        if summary.parameters and summary.parameters[0] in {"self", "cls"} and receiver is not None:
             receiver_value = self._evaluate(receiver, state, node)
         bound_arguments = self._bind_summary_arguments(
             summary.parameters,
@@ -2560,9 +2401,7 @@ class FormalCPGTaintAnalysis:
         if call is None:
             return ()
         raw_name = self.engine._extract_call_name(call) or ""
-        sink_name = self.engine._match_sink_name(
-            self._qualify_import_alias(raw_name)
-        )
+        sink_name = self.engine._match_sink_name(self._qualify_import_alias(raw_name))
         if (
             not sink_name
             or not self._shell_sink_is_active(call, sink_name)
@@ -2624,9 +2463,7 @@ class FormalCPGTaintAnalysis:
                     findings.append(
                         TaintFinding(
                             cwe=self.engine._sinks.get(sink_name, "") or rule.cwe or "",
-                            severity=self.engine._sink_severity.get(
-                                sink_name, rule.severity
-                            ),
+                            severity=self.engine._sink_severity.get(sink_name, rule.severity),
                             source_label=f"from:{origin.symbol or origin.kind}",
                             sink_label=sink_name,
                             source_node=source_node,
@@ -2641,18 +2478,14 @@ class FormalCPGTaintAnalysis:
                     )
         return sorted(findings, key=lambda finding: finding.dedup_key)
 
-    def _sanitizers_for_origin(
-        self, origin: TaintOrigin, kinds: frozenset[str]
-    ) -> frozenset[str]:
+    def _sanitizers_for_origin(self, origin: TaintOrigin, kinds: frozenset[str]) -> frozenset[str]:
         return frozenset(
             sanitizer
             for kind in kinds
             for sanitizer in self._sanitizers_by_origin_kind.get((origin, kind), ())
         )
 
-    def _witness_path(
-        self, source: PDGNode, sink: PDGNode, origin: TaintOrigin
-    ) -> list[PDGNode]:
+    def _witness_path(self, source: PDGNode, sink: PDGNode, origin: TaintOrigin) -> list[PDGNode]:
         symbol = origin.symbol or ""
         candidates = self._configurations_by_node.get(sink.node_id, ())
         if not candidates:
@@ -2686,8 +2519,7 @@ class FormalCPGTaintAnalysis:
         return all(
             any(edge.target is target for edge in source.edges_out)
             or any(
-                edge.target is target
-                for edge in self.cpg._cpg_edges_out.get(source.node_id, ())
+                edge.target is target for edge in self.cpg._cpg_edges_out.get(source.node_id, ())
             )
             for source, target in zip(path, path[1:])
         )
@@ -2731,9 +2563,7 @@ class FormalCPGTaintAnalysis:
             name = self.engine._resolve_call_expr(expression.name)
             return base.attribute(name) if base is not None and name else None
         if isinstance(expression, py_ast.GetSubscript):
-            return self._location_of_subscript(
-                expression.expr, expression.subscript, function
-            )
+            return self._location_of_subscript(expression.expr, expression.subscript, function)
         return None
 
     def _location_of_setattr(
@@ -2769,19 +2599,14 @@ class FormalCPGTaintAnalysis:
     def _configured_source(self, name: str) -> str | None:
         if name in self._configured_source_cache:
             return self._configured_source_cache[name]
-        exact = [
-            source
-            for source in self.engine._sources
-            if source.lower() == name.lower()
-        ]
+        exact = [source for source in self.engine._sources if source.lower() == name.lower()]
         if len(exact) == 1:
             self._configured_source_cache[name] = exact[0]
             return exact[0]
         matches = {
             source
             for source in self.engine._sources
-            if source.lower().endswith(f".{name.lower()}")
-            or self._name_matches(name, source)
+            if source.lower().endswith(f".{name.lower()}") or self._name_matches(name, source)
         }
         if len(matches) == 1:
             result = next(iter(matches))
@@ -2794,9 +2619,7 @@ class FormalCPGTaintAnalysis:
 
         leaf = name.rsplit(".", 1)[-1].lower()
         leaf_matches = [
-            source
-            for source in self.engine._sources
-            if source.rsplit(".", 1)[-1].lower() == leaf
+            source for source in self.engine._sources if source.rsplit(".", 1)[-1].lower() == leaf
         ]
         if len(leaf_matches) == 1:
             self._configured_source_cache[name] = leaf_matches[0]
@@ -2818,9 +2641,7 @@ class FormalCPGTaintAnalysis:
             if not isinstance(ast_node, py_ast.Assign):
                 continue
             destinations = tuple(ast_node.lcls or ())
-            if len(destinations) != 1 or not isinstance(
-                destinations[0], py_ast.Local
-            ):
+            if len(destinations) != 1 or not isinstance(destinations[0], py_ast.Local):
                 continue
             if isinstance(ast_node.expr, py_ast.Import):
                 local_name = destinations[0].name or ""
@@ -2887,44 +2708,35 @@ class FormalCPGTaintAnalysis:
 
     def _sink_behavior_is_active(self, call: py_ast.Call, sink_name: str) -> bool:
         """Evaluate the context-dependent behavior declared by the sink model."""
-        constants = tuple(
-            self._constant_value(argument) for argument in call.args or ()
-        )
-        return sink_behavior_is_active(
-            self.engine._sink_behaviors.get(sink_name), constants
-        )
+        constants = tuple(self._constant_value(argument) for argument in call.args or ())
+        return sink_behavior_is_active(self.engine._sink_behaviors.get(sink_name), constants)
 
     def _sink_positions_for_call(self, sink_name: str) -> frozenset[int]:
         """Normalize model ports to explicit arguments in source-level calls."""
         if (
             self.engine._sinks.get(sink_name) == "CWE-89"
-            and sink_name.rsplit(".", 1)[-1].lower()
-            in _SQL_QUERY_ARGUMENT_CALLS
+            and sink_name.rsplit(".", 1)[-1].lower() in _SQL_QUERY_ARGUMENT_CALLS
         ):
             return frozenset({0})
         return self.engine._sink_positions.get(sink_name, frozenset({0}))
 
     def _configured_sanitizer(self, name: str) -> str | None:
         exact = [
-            sanitizer
-            for sanitizer in self.engine._sanitizers
-            if sanitizer.lower() == name.lower()
+            sanitizer for sanitizer in self.engine._sanitizers if sanitizer.lower() == name.lower()
         ]
         if len(exact) == 1:
             return exact[0]
         matches = {
             sanitizer
             for sanitizer in self.engine._sanitizers
-            if sanitizer.lower().endswith(f".{name.lower()}")
-            or self._name_matches(name, sanitizer)
+            if sanitizer.lower().endswith(f".{name.lower()}") or self._name_matches(name, sanitizer)
         }
         return next(iter(matches)) if len(matches) == 1 else None
 
     @staticmethod
     def _name_matches(actual: str, configured: str) -> bool:
         return actual.lower() == configured.lower() or (
-            "." not in configured
-            and actual.rsplit(".", 1)[-1].lower() == configured.lower()
+            "." not in configured and actual.rsplit(".", 1)[-1].lower() == configured.lower()
         )
 
     def _top_level_call(self, ast_node: Any) -> py_ast.Call | None:
@@ -2996,10 +2808,7 @@ class FormalCPGTaintAnalysis:
             call_site = self.cpg.node_by_id(call_site_id)
             if call_site is not None:
                 active_functions.add(self.cpg.node_func_name(call_site))
-        return any(
-            self.cpg.node_func_name(edge.target) in active_functions
-            for edge in call_edges
-        )
+        return any(self.cpg.node_func_name(edge.target) in active_functions for edge in call_edges)
 
     def _callee_parameters(self, function: str) -> tuple[list[str], dict[str, str]]:
         pdg = self.cpg._pdgs.get(function)
@@ -3010,11 +2819,7 @@ class FormalCPGTaintAnalysis:
         locals_ = list(getattr(parameters, "posonlyparams", None) or ()) + list(
             getattr(parameters, "params", None) or ()
         )
-        names = [
-            item.name
-            for item in locals_
-            if isinstance(item, py_ast.Local) and item.name
-        ]
+        names = [item.name for item in locals_ if isinstance(item, py_ast.Local) and item.name]
         public = list(getattr(parameters, "posonlynames", None) or ()) + list(
             getattr(parameters, "paramnames", None) or ()
         )
@@ -3058,8 +2863,7 @@ class FormalCPGTaintAnalysis:
         candidates = [
             summary
             for procedure, summary in self._summaries.items()
-            if procedure == name
-            or procedure.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
+            if procedure == name or procedure.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
         ]
         return candidates[0] if len(candidates) == 1 else None
 
@@ -3067,9 +2871,7 @@ class FormalCPGTaintAnalysis:
     def _state_has_taint(state: CPGAbstractState) -> bool:
         return bool(state.taint.facts)
 
-    def _unsupported(
-        self, state: CPGAbstractState, node: PDGNode, code: str
-    ) -> CPGAbstractState:
+    def _unsupported(self, state: CPGAbstractState, node: PDGNode, code: str) -> CPGAbstractState:
         return state.with_uncertainty(
             AnalysisUncertainty(
                 code,
@@ -3086,7 +2888,7 @@ class FormalCPGTaintAnalysis:
         for state in self._states.values():
             for uncertainty in state.taint.uncertainties:
                 self._diagnostics.add(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         uncertainty.message,
                         uncertainty.code,
                         uncertainty.affects_completeness,
@@ -3110,7 +2912,7 @@ class FormalCPGTaintAnalysis:
     def _collect_graph_diagnostics(self) -> None:
         for diagnostic in self.cpg.construction_diagnostics:
             self._diagnostics.add(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     str(diagnostic.get("message") or "CPG construction failed"),
                     str(diagnostic.get("code") or "cpg-construction-failed"),
                     True,
@@ -3121,15 +2923,13 @@ class FormalCPGTaintAnalysis:
                     ),
                     PrecisionLevel.UNSUPPORTED.value,
                     operation=(
-                        str(diagnostic["stage"])
-                        if diagnostic.get("stage") is not None
-                        else None
+                        str(diagnostic["stage"]) if diagnostic.get("stage") is not None else None
                     ),
                 )
             )
         if not self.cpg._pdgs:
             self._diagnostics.add(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     "CPG contains no analyzable procedures",
                     "cpg-empty-graph",
                     True,
@@ -3138,7 +2938,7 @@ class FormalCPGTaintAnalysis:
             )
         if self._module_globals and self._module_has_local_calls():
             self._diagnostics.add(
-                CPGTaintDiagnostic(
+                CheckerDiagnostic(
                     "Import-time local calls may mutate module globals; public "
                     "entries conservatively havoc those globals",
                     "cpg-module-initializer-call-effects",
@@ -3151,7 +2951,7 @@ class FormalCPGTaintAnalysis:
         for function, pdg in self.cpg._pdgs.items():
             if pdg.entry is None or not pdg.exit_nodes:
                 self._diagnostics.add(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         f"Function {function!r} has no complete entry/exit pair",
                         "cpg-missing-entry-exit",
                         True,
@@ -3161,7 +2961,7 @@ class FormalCPGTaintAnalysis:
                 )
             if pdg.data_dependence_mode == "ast-fallback":
                 self._diagnostics.add(
-                    CPGTaintDiagnostic(
+                    CheckerDiagnostic(
                         pdg.data_dependence_reason
                         or f"Function {function!r} uses AST-local data dependence",
                         "cpg-ast-data-fallback",
@@ -3172,9 +2972,7 @@ class FormalCPGTaintAnalysis:
                 )
 
     def _source_nodes(self) -> tuple[PDGNode, ...]:
-        return tuple(
-            node for node in self.cpg.nodes() if self._source_calls(node.ast_node)
-        )
+        return tuple(node for node in self.cpg.nodes() if self._source_calls(node.ast_node))
 
     def _source_node(self, origin: TaintOrigin) -> PDGNode | None:
         symbol = origin.symbol or ""

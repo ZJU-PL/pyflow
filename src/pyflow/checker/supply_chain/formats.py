@@ -11,6 +11,7 @@ from copy import deepcopy
 from typing import Any
 
 from pyflow import __version__
+from pyflow.checker.formatters.sarif import severity_level, sarif_document
 
 from .models import SupplyChainScan
 from .validation import validate_cyclonedx_document, validate_spdx_document
@@ -24,9 +25,7 @@ def build_cyclonedx_document(
     components: list[dict[str, Any]] = []
     for scanned_component in _complete_component_set(scan):
         component = deepcopy(scanned_component)
-        component.setdefault(
-            "bom-ref", component.get("purl") or _component_ref(component)
-        )
+        component.setdefault("bom-ref", component.get("purl") or _component_ref(component))
         components.append(component)
 
     identity = _document_identity(scan)
@@ -50,9 +49,7 @@ def build_cyclonedx_document(
             "properties": [
                 {
                     "name": "pyflow:inventory-complete",
-                    "value": str(
-                        bool(scan.metadata.get("inventoryComplete", True))
-                    ).lower(),
+                    "value": str(bool(scan.metadata.get("inventoryComplete", True))).lower(),
                 }
             ]
             + [
@@ -68,9 +65,7 @@ def build_cyclonedx_document(
     return document
 
 
-def build_spdx_document(
-    scan: SupplyChainScan, *, deterministic: bool = False
-) -> dict[str, Any]:
+def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -> dict[str, Any]:
     """Build an SPDX 2.3 JSON document from a local scan."""
 
     packages: list[dict[str, Any]] = []
@@ -146,8 +141,7 @@ def build_spdx_document(
             "PyFlow inventory complete: "
             f"{str(bool(scan.metadata.get('inventoryComplete', True))).lower()}"
             + (
-                "; limitations: "
-                + ", ".join(scan.metadata.get("inventoryLimitations", ()))
+                "; limitations: " + ", ".join(scan.metadata.get("inventoryLimitations", ()))
                 if scan.metadata.get("inventoryLimitations")
                 else ""
             )
@@ -178,7 +172,7 @@ def build_sarif_document(scan: SupplyChainScan) -> dict[str, Any]:
     for finding in scan.findings:
         result: dict[str, Any] = {
             "ruleId": finding.kind,
-            "level": _sarif_level(finding.severity),
+            "level": severity_level(finding.severity),
             "message": {"text": finding.message},
             "partialFingerprints": {"pyflowFindingId": finding.to_dict()["id"]},
             "properties": {
@@ -191,25 +185,13 @@ def build_sarif_document(scan: SupplyChainScan) -> dict[str, Any]:
                 {"physicalLocation": {"artifactLocation": {"uri": finding.location}}}
             ]
         results.append(result)
-    return {
-        "$schema": (
-            "https://raw.githubusercontent.com/oasis-tcs/"
-            "sarif-spec/main/Schemata/sarif-schema-2.1.0.json"
-        ),
-        "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "pyflow-supply-chain",
-                        "version": __version__,
-                        "rules": rules,
-                    }
-                },
-                "results": results,
-            }
-        ],
-    }
+    return sarif_document(
+        "pyflow-supply-chain",
+        results,
+        rules=rules,
+        driver_properties={"version": __version__},
+        schema="https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/Schemata/sarif-schema-2.1.0.json",
+    )
 
 
 def build_requirements_text(scan: SupplyChainScan) -> str:
@@ -332,15 +314,6 @@ def _timestamp(deterministic: bool) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _sarif_level(severity: str) -> str:
-    return {
-        "CRITICAL": "error",
-        "HIGH": "error",
-        "MEDIUM": "warning",
-        "LOW": "note",
-    }.get(severity.upper(), "warning")
-
-
 def _requirement_hash_name(algorithm: str) -> str | None:
     return {
         "MD5": "md5",
@@ -357,8 +330,7 @@ def _requirement_hash_name(algorithm: str) -> str | None:
 def _complete_component_set(scan: SupplyChainScan) -> list[dict[str, Any]]:
     components = [deepcopy(component) for component in scan.components]
     refs = {
-        str(component.get("purl") or component.get("bom-ref") or "")
-        for component in components
+        str(component.get("purl") or component.get("bom-ref") or "") for component in components
     }
     dependency_refs = {
         str(reference)
@@ -377,9 +349,7 @@ def _complete_component_set(scan: SupplyChainScan) -> list[dict[str, Any]]:
                 "name": name or reference,
                 "purl": reference if reference.startswith("pkg:") else None,
                 "bom-ref": reference,
-                "properties": [
-                    {"name": "pyflow:inventory-status", "value": "unresolved"}
-                ],
+                "properties": [{"name": "pyflow:inventory-status", "value": "unresolved"}],
             }
         )
     for component in components:

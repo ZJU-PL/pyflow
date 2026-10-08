@@ -24,13 +24,13 @@ from pyflow.checker.ast_rules.core.config import SecurityConfig
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
 from pyflow.frontend.entry_discovery import resolve_entry_file
-from .reporting import (
-    _ifds_result_to_dict,
-    _nullness_result_to_dict,
-    _output_results,
-    _result_status,
-    _statistics_to_dict,
-    _typestate_result_to_dict,
+from .reporting import _output_results
+from pyflow.checker.common.reporting import result_status, statistics_to_dict
+from pyflow.checker.common.diagnostics import diagnostics_to_dicts, affects_completeness
+from pyflow.checker.ifds.reporting import (
+    taint_result_to_dict,
+    nullness_result_to_dict,
+    typestate_result_to_dict,
 )
 
 if TYPE_CHECKING:
@@ -50,9 +50,7 @@ def _ifds_solver_options(args):
         max_incoming_records=getattr(args, "ifds_max_incoming_records", None),
         max_summary_entries=getattr(args, "ifds_max_summary_entries", None),
         max_facts_per_node=getattr(args, "ifds_max_facts_per_node", None),
-        max_contexts_per_procedure=getattr(
-            args, "ifds_max_contexts_per_procedure", None
-        ),
+        max_contexts_per_procedure=getattr(args, "ifds_max_contexts_per_procedure", None),
         max_memory_bytes=getattr(args, "ifds_max_memory_bytes", None),
         max_call_string_depth=getattr(args, "ifds_context_depth", 3),
         trace_mode=getattr(args, "ifds_trace_mode", "findings"),
@@ -103,9 +101,7 @@ def _apply_ifds_config(args) -> None:
     try:
         config_data = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        print(
-            f"Error: invalid JSON in config file {config_path}: {exc}", file=sys.stderr
-        )
+        print(f"Error: invalid JSON in config file {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(2)
 
     unknown = set(config_data) - {
@@ -230,20 +226,15 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 entry_file=entry_file,
                 configuration=ClassPollutionConfiguration(
                     source_names=frozenset(getattr(args, "sources", ()) or {"input"}),
-                    sanitizer_names=frozenset(
-                        getattr(args, "sanitizers", ()) or ()
-                    ),
+                    sanitizer_names=frozenset(getattr(args, "sanitizers", ()) or ()),
                     preserve_unknown_call_results=(
-                        getattr(args, "ifds_unknown_call_policy", "preserve")
-                        != "drop"
+                        getattr(args, "ifds_unknown_call_policy", "preserve") != "drop"
                     ),
                 ),
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
-                callgraph_max_iterations=getattr(
-                    args, "ifds_callgraph_max_iterations", 256
-                ),
+                callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -255,7 +246,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        status, termination_reason = _result_status(pollution_result)
+        status, termination_reason = result_status(pollution_result)
         result = {
             "entry": entry_label,
             "analysis": "class-pollution",
@@ -284,7 +275,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 for finding in pollution_result.findings
             ],
             "diagnostics": list(pollution_result.diagnostics),
-            "statistics": _statistics_to_dict(pollution_result.statistics),
+            "statistics": statistics_to_dict(pollution_result.statistics),
             "status": status,
             "termination_reason": termination_reason,
         }
@@ -303,9 +294,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
-                callgraph_max_iterations=getattr(
-                    args, "ifds_callgraph_max_iterations", 256
-                ),
+                callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -317,7 +306,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        result = _typestate_result_to_dict(entry_label, typestate_result)
+        result = typestate_result_to_dict(entry_label, typestate_result)
         return _apply_session_diagnostics(result, _session)
 
     if getattr(args, "analysis", "taint") == "nullness":
@@ -330,9 +319,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
-                callgraph_max_iterations=getattr(
-                    args, "ifds_callgraph_max_iterations", 256
-                ),
+                callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -344,7 +331,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        result = _nullness_result_to_dict(entry_label, nullness_result)
+        result = nullness_result_to_dict(entry_label, nullness_result)
         return _apply_session_diagnostics(result, _session)
 
     try:
@@ -385,18 +372,14 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             entry_point_defaults=entry_point_defaults,
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
-            unknown_call_policy=getattr(
-                args, "ifds_unknown_call_policy", "drop"
-            ),
+            unknown_call_policy=getattr(args, "ifds_unknown_call_policy", "drop"),
             conservative_unresolved_call_side_effects=getattr(
                 args, "conservative_unresolved_calls", False
             ),
             dependency_strategy=getattr(args, "dependency_strategy", "auto"),
             verbose=getattr(args, "verbose", False),
             solver_options=solver_options,
-            callgraph_max_iterations=getattr(
-                args, "ifds_callgraph_max_iterations", 256
-            ),
+            callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
         )
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -408,17 +391,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "termination_reason": str(e),
         }
 
-    result = _ifds_result_to_dict(entry_label, taint_result)
+    result = taint_result_to_dict(entry_label, taint_result)
     return _apply_session_diagnostics(result, _session)
-
-
-def _diagnostics_to_dicts(diagnostics) -> list[Any]:
-    from dataclasses import asdict, is_dataclass
-
-    return [
-        (asdict(diagnostic) if is_dataclass(diagnostic) else str(diagnostic))
-        for diagnostic in diagnostics
-    ]
 
 
 def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any]:
@@ -426,9 +400,9 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
         *tuple(result.get("diagnostics", ())),
         *tuple(getattr(session, "diagnostics", ())),
     )
-    result["diagnostics"] = _diagnostics_to_dicts(diagnostics)
+    result["diagnostics"] = diagnostics_to_dicts(diagnostics)
     if result.get("status") == "complete" and any(
-        getattr(diagnostic, "affects_completeness", False) for diagnostic in diagnostics
+        affects_completeness(diagnostic) for diagnostic in diagnostics
     ):
         result["status"] = "partial"
         result["termination_reason"] = (
@@ -482,14 +456,9 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
             )
         else:
             source = path.read_text(encoding="utf-8", errors="replace")
-            cpg = build_cpg(
-                source, filename=str(target), deadline=construction_deadline
-            )
+            cpg = build_cpg(source, filename=str(target), deadline=construction_deadline)
 
-        if (
-            construction_deadline is not None
-            and monotonic() >= construction_deadline
-        ):
+        if construction_deadline is not None and monotonic() >= construction_deadline:
             diagnostics.append(
                 {
                     "code": "cpg-time-budget",
@@ -586,21 +555,10 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
 
         result = engine.analyze()
         findings.extend(f.to_dict() for f in result.findings)
-        diagnostics.extend(
-            {
-                "code": diagnostic.code,
-                "message": diagnostic.message,
-                "function": diagnostic.function,
-                "affects_completeness": diagnostic.affects_completeness,
-                "level": diagnostic.level,
-                "filename": diagnostic.filename,
-                "line": diagnostic.line,
-                "operation": diagnostic.operation,
-            }
-            for diagnostic in result.diagnostics
-        )
+        diagnostics.extend(diagnostics_to_dicts(result.diagnostics))
         for key, value in result.statistics.items():
             statistics[key] = statistics.get(key, 0) + value
+
         if result.status != "complete" and status == "complete":
             status = result.status
 
@@ -637,14 +595,10 @@ def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path
     return files
 
 
-def _resolve_ifds_entry_file(
-    targets: Sequence[str | Path], entry: str | Path | None
-) -> Path:
+def _resolve_ifds_entry_file(targets: Sequence[str | Path], entry: str | Path | None) -> Path:
     paths = [Path(target) for target in targets]
     if len(paths) != 1:
-        raise ValueError(
-            "IFDS analysis requires exactly one file or project directory."
-        )
+        raise ValueError("IFDS analysis requires exactly one file or project directory.")
 
     target = paths[0]
     if target.is_file():
@@ -691,15 +645,9 @@ def _build_taint_configuration(
     sinks = list(getattr(args, "sinks", []) or [])
     sanitizers = list(getattr(args, "sanitizers", []) or [])
     models = [
-        *(
-            CallModel(name=name, source_kinds=frozenset({"untrusted"}))
-            for name in sources
-        ),
+        *(CallModel(name=name, source_kinds=frozenset({"untrusted"})) for name in sources),
         *(CallModel(name=name, sink_kinds=frozenset({"dangerous"})) for name in sinks),
-        *(
-            CallModel(name=name, sanitizer_kinds=frozenset({"*"}))
-            for name in sanitizers
-        ),
+        *(CallModel(name=name, sanitizer_kinds=frozenset({"*"})) for name in sanitizers),
     ]
     rules: list[TaintRule] = []
     if sources and sinks:
@@ -735,9 +683,7 @@ def _build_taint_configuration(
                 for path in source_files:
                     try:
                         registry.detect(
-                            path.read_text(
-                                encoding="utf-8", errors="replace"
-                            ).splitlines()
+                            path.read_text(encoding="utf-8", errors="replace").splitlines()
                         )
                     except OSError:
                         continue
@@ -805,17 +751,13 @@ def run_security(args) -> int:
         result = _run_ifds(targets, args)
         _output_results(engine, result, args)
         status = result.get("status", "complete")
-        return _security_exit_code(
-            args, status=status, has_findings=bool(result.get("findings"))
-        )
+        return _security_exit_code(args, status=status, has_findings=bool(result.get("findings")))
 
     elif engine == "cpg":
         result = _run_cpg(targets, args)
         _output_results(engine, result, args)
         status = result.get("status", "complete")
-        return _security_exit_code(
-            args, status=status, has_findings=bool(result.get("findings"))
-        )
+        return _security_exit_code(args, status=status, has_findings=bool(result.get("findings")))
 
     else:
         print(f"Unknown engine: {engine}", file=sys.stderr)

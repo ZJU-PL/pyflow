@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.checker import Cwe
+from pyflow.checker.common.issue import Cwe
 
 
 def test_exec_use_is_flagged(scan):

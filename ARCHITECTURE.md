@@ -136,3 +136,53 @@ or legacy execution wrappers.
 
 `config.py` retains ancillary output-directory and shape defaults. It no longer
 controls pipeline scheduling or reporting switches.
+
+## Shared checker infrastructure
+
+Checker engines consume shared infrastructure through `checker.common` and
+`checker.formatters`. Neither shared package may import a specific checker engine
+or a transport. The architecture regression tests enforce this boundary and
+verify that importing shared utilities does not load an engine.
+
+- `common.taint` owns the immutable taint domain, locations, provenance, abstract
+  strings, and uncertainty records used by AST dataflow and formal CPG analysis.
+  `common.taint.refinement` owns their common update/refinement policies.
+- `common.diagnostics.CheckerDiagnostic` is the diagnostic record used by AST
+  dataflow and CPG. Its serializer also accepts native IFDS diagnostics and
+  already serialized mappings, preserving source and completeness information.
+- `common.reporting` serializes status, statistics, and procedure names.
+  `common.metrics.Metrics` counts native Issue records and visitor scores;
+  AST dataflow creates fresh metrics for each run.
+- `formatters.utils` assembles Issue reports and baseline candidates for JSON
+  and YAML and supplies their deterministic ordering.
+- `formatters.sarif` owns severity conversion, source-coordinate conversion, and
+  SARIF document assembly. Pattern scanning, AST dataflow, IFDS, CPG,
+  capability, and supply-chain exports use these utilities.
+- `formatters.security` renders AST/IFDS/CPG security reports from finding data;
+  `formatters.cpg` renders native CPG findings, including full code flows;
+  `formatters.capability` renders capability findings. These adapters import
+  no solver implementations and accept no CLI argument objects.
+
+Engines keep their native finding types and evidence. Engine-specific
+normalization, such as binding IFDS nodes to source locations and witness paths,
+remains in `checker.ifds.reporting`. The CLI selects engines, options, and output
+streams; report rendering lives in the formatter package.
+
+Canonical imports replace the former engine-local utility locations:
+
+| Former interface | Shared interface |
+| --- | --- |
+| `checker.ast_dataflow.domain` | `checker.common.taint` |
+| AST semantics refinement exports | `checker.common.taint.refinement` |
+| `ASTDataflowTaintDiagnostic`, `CPGTaintDiagnostic` | `checker.common.diagnostics.CheckerDiagnostic` |
+| `CPGTaintEngine.to_sarif` | `checker.formatters.cpg.findings_to_sarif` |
+| `TaintFinding.to_sarif` | `checker.formatters.cpg.finding_to_sarif` |
+| `RuleMetadata.to_sarif_rule` | `checker.formatters.cpg.rule_to_sarif` |
+| `CPGTaintEngine.to_json` | `checker.formatters.json.findings_json` |
+| Checker root engine exports | Explicit imports from the engine or common package |
+
+JSON/YAML Issue schemas and engine-specific report fields remain intact.
+SARIF severity labels now use one mapping across exporters: low/note is `note`,
+medium/warning is `warning`, and high/critical/error is `error`. In particular,
+CPG CLI low-severity results now use `note` rather than `warning`. Unknown source
+lines in native CPG SARIF exports use line 1 instead of an invalid line 0.

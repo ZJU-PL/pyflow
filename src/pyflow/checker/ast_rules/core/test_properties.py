@@ -47,8 +47,3 @@ def takes_config(*args):
     else:
         name = args[0]
         return _takes_config
-
-
-def accepts_baseline(func):
-    """Decorator to mark formatter functions that can handle baseline data"""
-    return func

@@ -7,12 +7,8 @@ from pyflow.analysis.alias.flow_sensitive.model import (
     HeapObjectIdentity,
     HeapObjectKind,
 )
-from pyflow.checker.ast_dataflow.domain import TaintLocation
-from pyflow.checker.ast_dataflow.semantics import (
-    AdaptiveRefinementProvider,
-    HeapGraphRefinementProvider,
-    heap_location_adapter,
-)
+from pyflow.checker.common.taint import TaintLocation
+from pyflow.checker.common.taint.refinement import AdaptiveRefinementProvider, HeapGraphRefinementProvider, heap_location_adapter
 
 
 @dataclass(frozen=True)

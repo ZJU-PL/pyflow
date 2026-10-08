@@ -19,8 +19,6 @@ from ...common.issue import Issue
 class ASTDataflowManager:
     """Adapter exposing AST dataflow results to shared formatters."""
 
-    scope = []
-
     def __init__(
         self,
         config: Optional[BugFinderConfig] = None,
@@ -37,6 +35,7 @@ class ASTDataflowManager:
             verbose: Enable verbose output
             quiet: Quiet mode (minimal output)
         """
+        self.scope = []
         self.debug = debug
         self.verbose = verbose
         self.quiet = quiet
@@ -52,9 +51,7 @@ class ASTDataflowManager:
         """Get list of skipped files."""
         return self.skipped
 
-    def get_issue_list(
-        self, sev_level=b_constants.LOW, conf_level=b_constants.LOW
-    ) -> List[Issue]:
+    def get_issue_list(self, sev_level=b_constants.LOW, conf_level=b_constants.LOW) -> List[Issue]:
         """Get filtered list of issues."""
         return self.filter_results(sev_level, conf_level)
 
@@ -77,19 +74,19 @@ class ASTDataflowManager:
         Returns:
             List of Issue objects found
         """
+        self.metrics = Metrics()
         self.results = self.finder.analyze(paths)
         self.analysis_result = self.finder.last_result
 
         # Count lines of code from analyzed files
-        total_lines = 0
         for path in paths:
             path_obj = Path(path) if isinstance(path, str) else path
             if path_obj.is_file():
                 try:
                     with open(path_obj, "r", encoding="utf-8") as f:
                         lines = f.readlines()
-                    total_lines += len(lines)
-                    self.metrics.files += 1
+                    self.metrics.begin(str(path_obj))
+                    self.metrics.count_locs(lines)
                 except (IOError, OSError):
                     pass
             elif path_obj.is_dir():
@@ -97,56 +94,12 @@ class ASTDataflowManager:
                     try:
                         with open(py_file, "r", encoding="utf-8") as f:
                             lines = f.readlines()
-                        total_lines += len(lines)
-                        self.metrics.files += 1
+                        self.metrics.begin(str(py_file))
+                        self.metrics.count_locs(lines)
                     except (IOError, OSError):
                         pass
 
-        self.metrics.lines = total_lines
-        self.metrics.data["_totals"]["loc"] = total_lines
         self.metrics.data["_totals"]["files"] = self.metrics.files
-
-        # Update metrics
-        for issue in self.results:
-            self.metrics.issues += 1
-            if issue.severity in self.metrics.issues_by_severity:
-                self.metrics.issues_by_severity[issue.severity] += 1
-            if issue.confidence in self.metrics.issues_by_confidence:
-                self.metrics.issues_by_confidence[issue.confidence] += 1
-
-        # Update metrics data property
-        self.metrics.data = self._build_metrics_data(self.metrics)
+        self.metrics.count_findings(self.results)
 
         return self.results
-
-    def _build_metrics_data(self, metrics: Metrics):
-        """Build metrics data dictionary in format expected by formatters."""
-        data = {
-            "_totals": {
-                "loc": metrics.lines,
-                "nosec": metrics.nosec,
-                "skipped_tests": metrics.skipped,
-                "SEVERITY.UNDEFINED": 0,
-                "SEVERITY.LOW": metrics.issues_by_severity.get("LOW", 0),
-                "SEVERITY.MEDIUM": metrics.issues_by_severity.get("MEDIUM", 0),
-                "SEVERITY.HIGH": metrics.issues_by_severity.get("HIGH", 0),
-                "CONFIDENCE.UNDEFINED": 0,
-                "CONFIDENCE.LOW": metrics.issues_by_confidence.get("LOW", 0),
-                "CONFIDENCE.MEDIUM": metrics.issues_by_confidence.get("MEDIUM", 0),
-                "CONFIDENCE.HIGH": metrics.issues_by_confidence.get("HIGH", 0),
-            }
-        }
-        return data
-
-    @property
-    def metrics(self) -> Metrics:
-        """Get the metrics object."""
-        return self._metrics
-
-    @metrics.setter
-    def metrics(self, value: Metrics):
-        """Set the metrics object."""
-        self._metrics = value
-        # Add data property to metrics if it doesn't exist
-        if not hasattr(value, "data"):
-            value.data = self._build_metrics_data(value)

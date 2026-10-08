@@ -249,11 +249,11 @@ class TestSarifFormatter(unittest.TestCase):
 
     def test_map_severity_to_sarif_level(self):
         """Test severity mapping to SARIF level."""
-        self.assertEqual(sarif_formatter._map_severity_to_sarif_level("UNDEFINED"), "none")
-        self.assertEqual(sarif_formatter._map_severity_to_sarif_level("LOW"), "note")
-        self.assertEqual(sarif_formatter._map_severity_to_sarif_level("MEDIUM"), "warning")
-        self.assertEqual(sarif_formatter._map_severity_to_sarif_level("HIGH"), "error")
-        self.assertEqual(sarif_formatter._map_severity_to_sarif_level("UNKNOWN"), "warning")
+        self.assertEqual(sarif_formatter.severity_level("UNDEFINED"), "none")
+        self.assertEqual(sarif_formatter.severity_level("LOW"), "note")
+        self.assertEqual(sarif_formatter.severity_level("MEDIUM"), "warning")
+        self.assertEqual(sarif_formatter.severity_level("HIGH"), "error")
+        self.assertEqual(sarif_formatter.severity_level("UNKNOWN"), "warning")
 
     def test_map_confidence_to_sarif_properties(self):
         """Test confidence mapping to SARIF properties."""

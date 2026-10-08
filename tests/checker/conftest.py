@@ -7,7 +7,9 @@ from typing import Any, List, Mapping, Optional, Sequence, Union
 
 import pytest
 
-from pyflow.checker import Issue, SecurityConfig, SecurityManager
+from pyflow.checker.common.issue import Issue
+from pyflow.checker.ast_rules.core.config import SecurityConfig
+from pyflow.checker.ast_rules.core.manager import SecurityManager
 
 
 IssueList = List[Issue]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pyflow.checker.common.diagnostics import CheckerDiagnostic
+
 import io
 import json
 from types import SimpleNamespace
@@ -8,7 +10,6 @@ import pytest
 
 import pyflow.cli.security.command as security_cli
 from pyflow.checker.ast_dataflow.detectors._taint_models import (
-    ASTDataflowTaintDiagnostic,
     ASTDataflowTaintFinding,
     ASTDataflowTaintResult,
     ASTDataflowTraceStep,
@@ -17,10 +18,10 @@ from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.common.issue import Issue
-from pyflow.cli.security.reporting import (
-    _ast_dataflow_payload,
-    _result_to_json,
-    _result_to_sarif,
+from pyflow.checker.formatters.security import (
+    ast_dataflow_report,
+    security_json,
+    security_sarif,
 )
 from pyflow.cli.security.command import _security_exit_code
 
@@ -43,7 +44,7 @@ def test_ast_scanner_json_includes_primary_and_ancestor_cwes():
     issue.lineno = 7
     manager = SimpleNamespace(get_issue_list=lambda *_args: [issue])
 
-    finding = _result_to_json("ast-scanner", manager)["results"][0]
+    finding = security_json("ast-scanner", manager)["results"][0]
 
     assert finding["cwe"] == "CWE-78"
     assert finding["cwes"] == ["CWE-78", "CWE-77"]
@@ -329,7 +330,7 @@ def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
             ASTDataflowTraceStep("sink", "eval", "sample.py", 9, "eval"),
         ),
     )
-    diagnostic = ASTDataflowTaintDiagnostic(
+    diagnostic = CheckerDiagnostic(
         "Unknown library effect",
         "unknown-call-effect",
         True,
@@ -345,19 +346,16 @@ def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
         )
     )
 
-    payload = _ast_dataflow_payload(manager)
-    sarif = _result_to_sarif("ast-dataflow", manager, SimpleNamespace())
+    payload = ast_dataflow_report(manager)
+    sarif = security_sarif("ast-dataflow", manager)
 
     assert payload["findings"][0]["trace"][0]["operation"] == "source"
     assert payload["findings"][0]["cwes"] == ["CWE-95", "CWE-94"]
     assert payload["findings"][0]["cwe_ancestors"] == ["CWE-94"]
     assert payload["diagnostics"][0]["operation"] == "library.call"
-    thread_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0][
-        "locations"
-    ]
+    thread_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0]["locations"]
     assert [
-        item["location"]["physicalLocation"]["region"]["startLine"]
-        for item in thread_locations
+        item["location"]["physicalLocation"]["region"]["startLine"] for item in thread_locations
     ] == [
         3,
         9,
@@ -406,7 +404,9 @@ def run_from_dict():
         framework=[],
     )
 
-    findings = security_cli._run_cpg([str(sample)], args)["findings"]
+    report = security_cli._run_cpg([str(sample)], args)
+    assert report["statistics"], "Shared reporting must retain engine statistics"
+    findings = report["findings"]
 
     sink_labels = {finding["sink_label"] for finding in findings}
     assert "os.system" in sink_labels
@@ -446,3 +446,17 @@ def test_security_report_exit_policy_separates_process_and_analysis_status():
 
     assert _security_exit_code(args, status="partial", has_findings=True) == 0
     assert _security_exit_code(args, status="failed", has_findings=False) == 0
+
+
+def test_session_diagnostics_preserve_serialized_fields_and_partial_status():
+    from pyflow.cli.security.command import _apply_session_diagnostics
+
+    diagnostic = {
+        "code": "partial-graph",
+        "message": "Graph incomplete",
+        "affects_completeness": True,
+    }
+    report = {"status": "complete", "diagnostics": [diagnostic]}
+    result = _apply_session_diagnostics(report, SimpleNamespace(diagnostics=()))
+    assert result["status"] == "partial"
+    assert result["diagnostics"] == [diagnostic]

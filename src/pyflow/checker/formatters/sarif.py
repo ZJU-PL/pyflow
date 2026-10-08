@@ -5,7 +5,8 @@ r"""
 SARIF formatter
 ==============
 
-This formatter outputs the issues in SARIF (Static Analysis Results Interchange Format) version 2.1.0.
+This formatter outputs issues in SARIF (Static Analysis Results Interchange Format)
+version 2.1.0.
 
 SARIF is an industry standard format for static analysis tools to output their results in a
 standardized, tool-agnostic way. This allows security scanning results to be easily consumed
@@ -48,7 +49,7 @@ by other tools and integrated into development workflows.
             {
               "ruleId": "B301",
               "message": {
-                "text": "Use of unsafe yaml load. Allows instantiation of arbitrary objects. Consider yaml.safe_load()."
+                "text": "Use yaml.safe_load() instead of unsafe YAML loading."
               },
               "level": "warning",
               "locations": [
@@ -74,36 +75,98 @@ by other tools and integrated into development workflows.
 
 """
 
-import datetime
 import json
 import logging
 import sys
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 
-from ..ast_rules.core.test_properties import accepts_baseline
-from .utils import wrap_file_object
+from .utils import wrap_file_object, issue_sort_key
 
 LOG = logging.getLogger(__name__)
 
 
-def _issue_sort_key(issue) -> tuple:
-    return (
-        str(getattr(issue, "fname", "")),
-        int(getattr(issue, "lineno", -1) or -1),
-        str(getattr(issue, "test_id", "")),
-        str(getattr(issue, "test", "")),
-        str(getattr(issue, "text", "")),
+SARIF_SCHEMA = (
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+    "Schemata/sarif-schema-2.1.0.json"
+)
+
+
+def severity_level(severity: str | None, *, default: str = "warning") -> str:
+    """Normalize checker rankings and SARIF levels at the reporting boundary."""
+    levels = {
+        "undefined": "none",
+        "none": "none",
+        "low": "note",
+        "note": "note",
+        "info": "note",
+        "informational": "note",
+        "medium": "warning",
+        "warning": "warning",
+        "high": "error",
+        "critical": "error",
+        "error": "error",
+    }
+    return levels.get((severity or "").lower(), default)
+
+
+def physical_location(uri, *, line=None, column=None, end_line=None, end_column=None):
+    """Build a SARIF location from zero-based source columns."""
+    physical = {"artifactLocation": {"uri": uri}}
+    region = {}
+    if line is not None and line > 0:
+        region["startLine"] = line
+    if column is not None and column >= 0:
+        region["startColumn"] = column + 1
+    if end_line is not None and end_line > 0:
+        region["endLine"] = end_line
+    if end_column is not None and end_column >= 0:
+        region["endColumn"] = end_column + 1
+    if region:
+        physical["region"] = region
+    return {"physicalLocation": physical}
+
+
+def location_from_span(span):
+    if not span:
+        return None
+    return physical_location(
+        span.get("uri", ""),
+        line=max(int(span.get("start_line") or 1), 1),
+        column=max(int(span["start_column"]), 0) if span.get("start_column") is not None else None,
+        end_line=int(span["end_line"]) if span.get("end_line") is not None else None,
+        end_column=int(span["end_column"]) if span.get("end_column") is not None else None,
     )
 
 
-def _map_severity_to_sarif_level(severity: str) -> str:
-    """Map PyFlow severity levels to SARIF result levels.
-
-    SARIF levels: none, note, warning, error
-    PyFlow levels: UNDEFINED, LOW, MEDIUM, HIGH
-    """
-    mapping = {"UNDEFINED": "none", "LOW": "note", "MEDIUM": "warning", "HIGH": "error"}
-    return mapping.get(severity, "warning")
+def sarif_document(
+    tool_name,
+    results,
+    *,
+    rules=None,
+    artifacts=None,
+    invocations=None,
+    driver_properties=None,
+    run_properties=None,
+    schema=SARIF_SCHEMA,
+    omit_empty_run=False,
+):
+    """Assemble the shared SARIF envelope without engine or CLI dependencies."""
+    results = list(results)
+    document = {"$schema": schema, "version": "2.1.0", "runs": []}
+    if omit_empty_run and not results:
+        return document
+    driver = {"name": tool_name, **(driver_properties or {})}
+    if rules is not None:
+        driver["rules"] = list(rules)
+    run = {"tool": {"driver": driver}, "results": results}
+    if artifacts is not None:
+        run["artifacts"] = list(artifacts)
+    if invocations is not None:
+        run["invocations"] = list(invocations)
+    if run_properties is not None:
+        run["properties"] = dict(run_properties)
+    document["runs"].append(run)
+    return document
 
 
 def _map_confidence_to_sarif_properties(confidence: str) -> Dict[str, str]:
@@ -128,23 +191,14 @@ def _create_sarif_artifact(file_path: str) -> Dict[str, Any]:
 
 def _create_sarif_location(issue) -> Dict[str, Any]:
     """Create a SARIF location object from a PyFlow issue."""
-    location = {"physicalLocation": {"artifactLocation": {"uri": issue.fname}}}
-
-    # Add region information if we have line/column data
-    region = {}
-    if issue.lineno is not None and issue.lineno > 0:
-        region["startLine"] = issue.lineno
-
-    if issue.col_offset is not None and issue.col_offset >= 0:
-        region["startColumn"] = issue.col_offset + 1  # SARIF is 1-based
-
-    if issue.end_col_offset is not None and issue.end_col_offset > 0:
-        region["endColumn"] = issue.end_col_offset + 1  # SARIF is 1-based
-
-    if region:
-        location["physicalLocation"]["region"] = region
-
-    return location
+    return physical_location(
+        issue.fname,
+        line=issue.lineno,
+        column=issue.col_offset,
+        end_column=(
+            issue.end_col_offset if issue.end_col_offset and issue.end_col_offset > 0 else None
+        ),
+    )
 
 
 def _create_sarif_result(issue) -> Dict[str, Any]:
@@ -152,7 +206,7 @@ def _create_sarif_result(issue) -> Dict[str, Any]:
     result = {
         "ruleId": issue.test_id,
         "message": {"text": issue.text},
-        "level": _map_severity_to_sarif_level(issue.severity),
+        "level": severity_level(issue.severity),
         "locations": [_create_sarif_location(issue)],
         "properties": _map_confidence_to_sarif_properties(issue.confidence),
     }
@@ -187,7 +241,6 @@ def _collect_unique_rules_and_artifacts(
     return sorted_rules, sorted_artifacts
 
 
-@accepts_baseline
 def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """Prints issues in SARIF format
 
@@ -209,49 +262,21 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
             issues.extend(results[r])
     else:
         issues = results
-    issues = sorted(issues, key=_issue_sort_key)
+    issues = sorted(issues, key=issue_sort_key)
 
-    # If no issues, return empty SARIF document
-    if not issues:
-        sarif_output = {
-            "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
-            "version": "2.1.0",
-            "runs": [],
-        }
-    else:
-        # Collect unique rules and artifacts
-        rules, artifacts = _collect_unique_rules_and_artifacts(issues)
-
-        # Create SARIF results
-        sarif_results = []
-        for issue in issues:
-            sarif_results.append(_create_sarif_result(issue))
-
-        # Create the SARIF run
-        sarif_run = {
-            "tool": {
-                "driver": {
-                    "name": "PyFlow",
-                    "version": "0.1.0",
-                    "informationUri": "https://pyflow.readthedocs.io/",  # TODO: Update with actual docs URL
-                    "rules": list(rules.values()),
-                }
-            },
-            "artifacts": list(artifacts.values()),
-            "results": sarif_results,
-        }
-
-        # Create the complete SARIF document
-        sarif_output = {
-            "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
-            "version": "2.1.0",
-            "runs": [sarif_run],
-        }
+    rules, artifacts = _collect_unique_rules_and_artifacts(issues)
+    sarif_output = sarif_document(
+        "PyFlow",
+        [_create_sarif_result(issue) for issue in issues],
+        rules=rules.values(),
+        artifacts=artifacts.values(),
+        driver_properties={"version": "0.1.0", "informationUri": "https://pyflow.readthedocs.io/"},
+        schema="https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
+        omit_empty_run=True,
+    )
 
     # Write SARIF output
-    result = json.dumps(
-        sarif_output, indent=2, separators=(",", ": "), ensure_ascii=False
-    )
+    result = json.dumps(sarif_output, indent=2, separators=(",", ": "), ensure_ascii=False)
 
     writer = wrap_file_object(fileobj)
     writer.write(result)

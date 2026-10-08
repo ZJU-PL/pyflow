@@ -8,7 +8,7 @@ from typing import Mapping
 
 from pyflow.analysis.taint_policy import TaintPolicy, sink_behavior_is_active
 
-from ..domain import (
+from pyflow.checker.common.taint import (
     AccessSelector,
     AnalysisUncertainty,
     PrecisionLevel,
