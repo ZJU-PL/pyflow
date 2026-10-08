@@ -1,109 +1,48 @@
 # AGENTS.md
 
-This file is for coding agents working in the `pyflow` repository. It is not a
-general project introduction; it is an execution guide for making safe,
-high-signal changes in this codebase.
+Execution guide for coding agents working on PyFlow, a Python static analysis
+framework. Python >=3.10; install development dependencies with
+`python -m pip install -e ".[dev]"` in the project virtual environment.
 
-## Repository Summary
+## Layout
 
-PyFlow is a static analysis framework for Python. The repository includes:
+Code lives in `src/pyflow`; tests live in `tests`.
 
-- analysis infrastructure such as CFG, call graph, IFDS, IPA, CPA, shape, and
-  lifetime analysis
-- optimization passes and pipeline orchestration
-- a public API for entrypoint declarations and semantic queries
-- CLI commands for optimization, call graph generation, IR dumping, security, etc.
-- a large test suite with both focused unit tests and slower integration tests
+- `ir`, `language`: intermediate representations and Python language support.
+- `analysis`: CFG, call graph, IFDS, IPA, CPA, shape, and lifetime analysis.
+- `application`: program context, pass manager, and pipelines.
+- `api`: entrypoint declarations and semantic queries.
+- `frontend`: source extraction, dependency resolution, and object loading.
+- `checker`: pattern-based and semantic security analysis.
+- `cli`: command-line entrypoints.
 
-## Environment
+## Validation
 
-- Python: `>=3.10`
-- Main package root: `src/pyflow`
-- Test root: `tests`
-- Package install:
-  - `pip install -e .`
-  - `pip install -e ".[dev]"`
+Start with the smallest relevant suite; broaden coverage for changes spanning
+subsystems. Add regression tests for bug fixes and document user-visible changes.
 
-## Primary Repo Layout
+| Change | Focused tests |
+| --- | --- |
+| API queries | `pytest -q tests/api/test_query_api_regressions.py`, then `pytest tests/api` |
+| CLI | `pytest tests/cli` |
+| IFDS/dataflow | `pytest tests/ifds tests/cli/test_dataflow.py` |
+| Frontend/modules | `pytest tests/frontend tests/modules` |
+| Optimization | `pytest tests/optimization` |
+| Security checkers | `pytest tests/checker` |
 
-- `src/pyflow/ir`
-  intermediate representations
-- `src/pyflow/analysis`
-  Core analysis infrastructure and engines 
-- `src/pyflow/application`
-  Program context, pass manager, pipeline wiring, and high-level orchestration.
-- `src/pyflow/api`
-  Public API for entrypoint declarations and query services.
-- `src/pyflow/checker`
-  Pattern-based and semantic security analysis.
-- `src/pyflow/cli`
-  User-facing command-line entrypoints.
-- `src/pyflow/frontend`
-  Source extraction, dependency resolution, and object loading.
-- `src/pyflow/language`
-  Python IR/AST support and module utilities.
-- `tests`
-  Subsystem-focused tests plus integration and API regression coverage.
+`pytest` runs the default non-integration suite. Run integration tests explicitly
+with `pytest -m integration tests/integration`.
 
-## Existing Tooling
+Use the Black version pinned in `pyproject.toml`: `make format` formats `src` and
+`tests`; `black --check src tests` checks formatting. Other Makefile targets:
+`install`, `install-dev`, `test`, `test-integration`, `test-cov`, `lint`,
+`type-check`, and `docs`.
 
-The repo already defines common commands in `Makefile`:
+For CLI changes, update focused tests, keep help text and defaults consistent,
+and preserve machine-consumable output compatibility.
 
-- `make install`
-- `make install-dev`
-- `make test`
-- `make test-integration`
-- `make test-cov`
-- `make format`
-- `make lint`
-- `make type-check`
-- `make docs`
+## Releases
 
-Equivalent direct commands commonly used in CI:
-
-- `pytest`
-- `pytest -m integration tests/integration`
-- `pytest --cov=pyflow --cov-report=xml --cov-report=term`
-- `flake8 src/ tests/`
-
-## Testing Guidance
-
-Start with the smallest relevant suite.
-
-Examples:
-
-- API query changes:
-  - `pytest -q tests/api/test_query_api_regressions.py`
-  - `pytest tests/api`
-- CLI behavior:
-  - `pytest tests/cli`
-- IFDS/dataflow changes:
-  - `pytest tests/ifds`
-  - `pytest tests/cli/test_dataflow.py`
-- frontend/module resolution:
-  - `pytest tests/frontend`
-  - `pytest tests/modules`
-- optimization passes:
-  - `pytest tests/optimization`
-- security checker changes:
-  - `pytest tests/checker`
-
-Run broader coverage when the change crosses subsystem boundaries.
-
-
-## CLI Notes
-
-CLI entrypoints live under `src/pyflow/cli`. If you change CLI flags or output:
-
-- update or add focused tests in `tests/cli`
-- keep help text and default behavior consistent across subcommands
-- avoid breaking machine-consumable output silently
-
-## Change Checklist
-
-Before finishing a change, do the relevant subset of the following:
-
-- run focused tests for the edited subsystem
-- run broader tests if the change spans multiple layers
-- update regression tests for bug fixes (if needed)
-- update docs for user-visible changes
+Follow [RELEASING.md](RELEASING.md). Publish through the existing GitHub Actions
+Trusted Publishing workflow by pushing a version tag. Prefer this workflow over
+local Twine uploads; never republish an existing PyPI version.

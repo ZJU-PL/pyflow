@@ -150,3 +150,8 @@ pytest tests/frontend
 pytest tests/api
 pytest tests/checker
 ```
+
+### Publishing
+
+See [RELEASING.md](RELEASING.md) for versioning, validation, and publishing to
+PyPI through GitHub Actions Trusted Publishing.

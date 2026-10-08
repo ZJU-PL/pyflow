@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.1.2] - 2026-10-08
+
+### Added
+
+- Seven-instruction MIR and native PyCG-style call graph analysis.
+
+### Changed
+
+- Reorganized checker infrastructure and analysis architecture.
+- Improved frontend and call graph construction performance.
+- Updated pass scheduling to rerun invalidated analyses before consumers and
+  record execution order, cache hits, timings, and IR versions.
+- Standardized Python source and test formatting with a pinned Black version.
+
+## [0.1.0]
 
 ### Added
 
