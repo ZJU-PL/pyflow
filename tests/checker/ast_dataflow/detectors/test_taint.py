@@ -63,13 +63,11 @@ class Handler:
 
 def test_ast_dataflow_taint_detector_reports_direct_eval_flow():
     session = _make_session(
-        {
-            "vuln": """
+        {"vuln": """
 def vuln():
     data = input()
     eval(data)
-"""
-        },
+"""},
         {"vuln": "sample.py"},
     )
 
@@ -100,9 +98,7 @@ def test_formal_detector_does_not_report_sanitized_entry_parameter():
     session = _make_session(
         {
             "handler": (
-                "def handler(payload):\n"
-                "    cleaned = sanitize(payload)\n"
-                "    eval(cleaned)\n"
+                "def handler(payload):\n" "    cleaned = sanitize(payload)\n" "    eval(cleaned)\n"
             )
         },
         {"handler": "sample.py"},
@@ -226,13 +222,7 @@ def test_ast_dataflow_taint_detector_applies_universal_sanitizer():
         CallModel("clean", sanitizer_kinds=frozenset({"*"})),
     )
     session = _make_session(
-        {
-            "main": (
-                "def main():\n"
-                "    value = input()\n"
-                "    target_sink(clean(value))\n"
-            )
-        }
+        {"main": ("def main():\n" "    value = input()\n" "    target_sink(clean(value))\n")}
     )
 
     assert ASTDataflowTaintDetector(policy=policy).run(session) == []
@@ -263,13 +253,7 @@ def test_ast_dataflow_taint_detector_applies_kind_scoped_sanitizer():
         ],
     )
     session = _make_session(
-        {
-            "main": (
-                "def main():\n"
-                "    value = input()\n"
-                "    target_sink(clean_html(value))\n"
-            )
-        }
+        {"main": ("def main():\n" "    value = input()\n" "    target_sink(clean_html(value))\n")}
     )
 
     result = ASTDataflowTaintDetector(policy=policy).analyze(session)

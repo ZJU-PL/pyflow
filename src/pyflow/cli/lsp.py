@@ -78,25 +78,16 @@ def _source_query_index(input_path: Path) -> SourceIndex:
         python_files = sorted(
             path
             for path in root.rglob("*.py")
-            if not any(
-                part.startswith(".") for part in path.relative_to(root).parts
-            )
+            if not any(part.startswith(".") for part in path.relative_to(root).parts)
             and not set(path.parts).intersection(_IGNORED_DIRECTORY_NAMES)
         )
-    source_files = {
-        str(path.absolute()): path.read_text(encoding="utf-8")
-        for path in python_files
-    }
+    source_files = {str(path.absolute()): path.read_text(encoding="utf-8") for path in python_files}
     return SourceIndex(source_files, (root.absolute(),))
 
 
 def _dispatch_source_query(index: SourceIndex, args) -> object:
     """Dispatch queries that can be answered directly from Python source."""
-    return sorted(
-        symbol.qualified_name
-        for symbol in index.symbols
-        if symbol.kind in {6, 12}
-    )
+    return sorted(symbol.qualified_name for symbol in index.symbols if symbol.kind in {6, 12})
 
 
 def _uses_source_index(args) -> bool:
@@ -129,19 +120,13 @@ def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
         allocation_site_sensitive_instances=False,
         skip_stdlib_modules=True,
     )
-    return {
-        caller: sorted(callees)
-        for caller, callees in sorted(callgraph.get().items())
-    }
+    return {caller: sorted(callees) for caller, callees in sorted(callgraph.get().items())}
 
 
 def _resolve_callgraph_node(graph: dict[str, list[str]], name: str) -> str | None:
     if name in graph:
         return name
-    matches = sorted(
-        node for node in graph
-        if node == name or node.endswith(f".{name}")
-    )
+    matches = sorted(node for node in graph if node == name or node.endswith(f".{name}"))
     if len(matches) == 1:
         return matches[0]
     return None
@@ -152,9 +137,7 @@ def _dispatch_callgraph_query(graph: dict[str, list[str]], args) -> object:
         target = _resolve_callgraph_node(graph, args.get_callers)
         if target is None:
             return []
-        return sorted(
-            caller for caller, callees in graph.items() if target in callees
-        )
+        return sorted(caller for caller, callees in graph.items() if target in callees)
     if args.get_callees:
         source = _resolve_callgraph_node(graph, args.get_callees)
         return [] if source is None else graph.get(source, [])
@@ -171,9 +154,7 @@ def _add_mode_argument(parser):
 
 
 def add_lsp_parser(subparsers):
-    p = subparsers.add_parser(
-        "lsp", help="Run pyflow as a Language Server Protocol server"
-    )
+    p = subparsers.add_parser("lsp", help="Run pyflow as a Language Server Protocol server")
     p.add_argument(
         "--root",
         "-r",
@@ -185,9 +166,7 @@ def add_lsp_parser(subparsers):
 
 
 def add_mcp_parser(subparsers):
-    p = subparsers.add_parser(
-        "mcp", help="Run pyflow as a Model Context Protocol server"
-    )
+    p = subparsers.add_parser("mcp", help="Run pyflow as a Model Context Protocol server")
     p.add_argument(
         "--root",
         "-r",
@@ -356,9 +335,7 @@ def _dispatch_query(server: AnalysisManager, args) -> object:
         return snapshot.queries.call_graph.get_callgraph_data()
     if args.get_type:
         module, line, col = args.get_type
-        result = snapshot.queries.type_info.get_expression_type(
-            module, int(line), int(col)
-        )
+        result = snapshot.queries.type_info.get_expression_type(module, int(line), int(col))
         return {"type": str(result)} if result is not None else None
     if args.get_cfg:
         return snapshot.queries.control_flow.get_cfg_structure(args.get_cfg)
@@ -375,8 +352,7 @@ def _dispatch_query(server: AnalysisManager, args) -> object:
         return sorted(
             (
                 getattr(code, "codeName", lambda: "?")()
-                if hasattr(code, "codeName")
-                and callable(getattr(code, "codeName", None))
+                if hasattr(code, "codeName") and callable(getattr(code, "codeName", None))
                 else str(getattr(code, "name", "?"))
             )
             for code in getattr(server.program, "liveCode", [])

@@ -4,6 +4,7 @@ B507: Test for unsafe Paramiko usage.
 Paramiko SSH commands executed via shell=True or without input
 validation can lead to command injection.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

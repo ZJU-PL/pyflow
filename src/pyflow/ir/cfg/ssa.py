@@ -418,9 +418,7 @@ class SSARename(TypeDispatcher):
         # Mask variables that need to be merged.
         if node in self.merge:
             for name in self.merge[node]:
-                frame[name] = self.clone(
-                    self.locals_by_key[name], frame, allocate_value=False
-                )
+                frame[name] = self.clone(self.locals_by_key[name], frame, allocate_value=False)
 
             self.fixup.append(node)
 
@@ -488,9 +486,7 @@ class SSARename(TypeDispatcher):
             handler_branches.append((renamed.body, frame))
 
         if node.defaultHandler is not None:
-            defaultHandler, default_frame = self.renameWithFrame(
-                node.defaultHandler, incoming
-            )
+            defaultHandler, default_frame = self.renameWithFrame(node.defaultHandler, incoming)
             default_branch = (defaultHandler, default_frame)
         else:
             defaultHandler = None
@@ -593,20 +589,14 @@ class SSARename(TypeDispatcher):
             self.currentFrame[local_key(self.catalog, self.code, node.lcls[0])] = expr
             return None
 
-        lcls = [
-            self.clone(lcl, self.currentFrame, definition=node)
-            for lcl in node.lcls
-        ]
+        lcls = [self.clone(lcl, self.currentFrame, definition=node) for lcl in node.lcls]
         return ast.Assign(expr, lcls)
 
     @dispatch(ast.UnpackSequence)
     def visitUnpackSequence(self, node):
         expr = self(node.expr)
 
-        lcls = [
-            self.clone(lcl, self.currentFrame, definition=node)
-            for lcl in node.targets
-        ]
+        lcls = [self.clone(lcl, self.currentFrame, definition=node) for lcl in node.targets]
         return ast.UnpackSequence(expr, lcls)
 
     # Insert the merges, now that we know all the sources
@@ -691,8 +681,7 @@ def evaluate(compiler, g):
     """
     if _contains_try_except_finally(g.entryTerminal):
         raise UnsupportedSSAError(
-            "CFG SSA does not support TryExceptFinally; refusing to return "
-            "a non-SSA graph."
+            "CFG SSA does not support TryExceptFinally; refusing to return " "a non-SSA graph."
         )
     transaction = CFGTransformTransaction(g, "ssa")
 

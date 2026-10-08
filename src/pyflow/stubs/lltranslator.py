@@ -285,9 +285,7 @@ class LLTranslator(TypeDispatcher):
                     node = ast.Load(node.args[0], "LowLevel", node.args[1])
                 elif defn == "store":
                     checkCallArgs(node, 3)
-                    node = ast.Store(
-                        node.args[0], "LowLevel", node.args[1], node.args[2]
-                    )
+                    node = ast.Store(node.args[0], "LowLevel", node.args[1], node.args[2])
                 elif defn == "check":
                     checkCallArgs(node, 2)
                     node = ast.Check(node.args[0], "LowLevel", node.args[1])
@@ -296,9 +294,7 @@ class LLTranslator(TypeDispatcher):
                     node = ast.Load(node.args[0], "Attribute", node.args[1])
                 elif defn == "storeAttr":
                     checkCallArgs(node, 3)
-                    node = ast.Store(
-                        node.args[0], "Attribute", node.args[1], node.args[2]
-                    )
+                    node = ast.Store(node.args[0], "Attribute", node.args[1], node.args[2])
                 elif defn == "checkAttr":
                     checkCallArgs(node, 2)
                     node = ast.Check(node.args[0], "Attribute", node.args[1])
@@ -307,9 +303,7 @@ class LLTranslator(TypeDispatcher):
                     node = ast.Load(node.args[0], "Dictionary", node.args[1])
                 elif defn == "storeDict":
                     checkCallArgs(node, 3)
-                    node = ast.Store(
-                        node.args[0], "Dictionary", node.args[1], node.args[2]
-                    )
+                    node = ast.Store(node.args[0], "Dictionary", node.args[1], node.args[2])
                 elif defn == "checkDict":
                     checkCallArgs(node, 2)
                     node = ast.Check(node.args[0], "Dictionary", node.args[1])

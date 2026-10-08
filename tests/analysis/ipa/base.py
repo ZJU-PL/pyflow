@@ -34,9 +34,7 @@ class TestIPABase(unittest.TestCase):
         existingPolicy = None
         externalPolicy = None
 
-        self.analysis = IPAnalysis(
-            self.compiler, self.canonical, existingPolicy, externalPolicy
-        )
+        self.analysis = IPAnalysis(self.compiler, self.canonical, existingPolicy, externalPolicy)
 
     def local(self, context, name, *values):
         lcl = context.local(name)

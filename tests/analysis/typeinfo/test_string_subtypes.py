@@ -12,7 +12,10 @@ import re
 import pytest
 
 from pyflow.analysis.typeinfo.inference import string_patterns
-from pyflow.analysis.typeinfo.inference.string_patterns import generate_from_regex, infer_regex_from_methods
+from pyflow.analysis.typeinfo.inference.string_patterns import (
+    generate_from_regex,
+    infer_regex_from_methods,
+)
 from pyflow.util.orderedset import OrderedSet
 
 
@@ -87,22 +90,26 @@ def test_infer_regex_center_and_just():
 
 
 def test_infer_regex_remove_prefix_suffix():
-    regex = infer_regex_from_methods({
-        "removeprefix": OrderedSet(["pre"]),
-        "removesuffix": OrderedSet(["suf"]),
-    })
+    regex = infer_regex_from_methods(
+        {
+            "removeprefix": OrderedSet(["pre"]),
+            "removesuffix": OrderedSet(["suf"]),
+        }
+    )
     assert regex.search("presufsuf")
     assert regex.search("prebody")
     assert regex.search("bodysuf")
 
 
 def test_infer_regex_translate_count_splitlines_format():
-    regex = infer_regex_from_methods({
-        "translate": OrderedSet(),
-        "count": OrderedSet(["x"]),
-        "splitlines": OrderedSet(),
-        "format": OrderedSet(),
-    })
+    regex = infer_regex_from_methods(
+        {
+            "translate": OrderedSet(),
+            "count": OrderedSet(["x"]),
+            "splitlines": OrderedSet(),
+            "format": OrderedSet(),
+        }
+    )
     assert regex.search("hello\nworld")
     assert regex.search("abc")
     assert not regex.search("")

@@ -48,9 +48,7 @@ class TaintState:
     max_access_path: int = 4
 
     @classmethod
-    def bottom(
-        cls, *, max_provenance_edges: int = 4096, max_access_path: int = 4
-    ) -> "TaintState":
+    def bottom(cls, *, max_provenance_edges: int = 4096, max_access_path: int = 4) -> "TaintState":
         return cls(
             reachable=False,
             max_provenance_edges=max_provenance_edges,
@@ -93,10 +91,7 @@ class TaintState:
             uncertainties = uncertainties | {self._provenance_overflow_uncertainty()}
         facts = self.facts | other.facts
         guarantees = self.guarantees & other.guarantees
-        if (
-            self.max_access_path != path_limit
-            or other.max_access_path != path_limit
-        ):
+        if self.max_access_path != path_limit or other.max_access_path != path_limit:
             facts = self._normalize_facts(facts, path_limit)
             guarantees = self._normalize_guarantees(guarantees, path_limit)
         return TaintState(
@@ -116,8 +111,7 @@ class TaintState:
         candidates = (
             fact
             for fact in self.facts
-            if fact.location.is_prefix_of(location)
-            or location.is_prefix_of(fact.location)
+            if fact.location.is_prefix_of(location) or location.is_prefix_of(fact.location)
         )
         return frozenset(
             fact
@@ -132,9 +126,7 @@ class TaintState:
 
     def is_tainted(self, location: TaintLocation, kinds: Iterable[str] = ()) -> bool:
         expected = frozenset(kinds)
-        return any(
-            not expected or fact.kind in expected for fact in self.facts_at(location)
-        )
+        return any(not expected or fact.kind in expected for fact in self.facts_at(location))
 
     def introduce(
         self,
@@ -149,8 +141,7 @@ class TaintState:
         guarantees = frozenset(
             guarantee
             for guarantee in self.guarantees
-            if guarantee[0] != location
-            or guarantee[1] not in {fact.kind for fact in additions}
+            if guarantee[0] != location or guarantee[1] not in {fact.kind for fact in additions}
         )
         return replace(self, facts=self.facts | additions, guarantees=guarantees)
 
@@ -171,9 +162,7 @@ class TaintState:
         if not self.reachable:
             return self
         location = self.abstract_location(location)
-        source_base = (
-            self.abstract_location(source_base) if source_base is not None else None
-        )
+        source_base = self.abstract_location(source_base) if source_base is not None else None
         strong = strong and location.is_precise
         source_facts = tuple(
             TaintFact(self.abstract_location(fact.location), fact.kind, fact.origin)
@@ -215,8 +204,7 @@ class TaintState:
         guarantees = {
             guarantee
             for guarantee in self.guarantees
-            if not location.may_overlap(guarantee[0])
-            or guarantee[1] not in written_kinds
+            if not location.may_overlap(guarantee[0]) or guarantee[1] not in written_kinds
         }
         if strong:
             guarantees.update((location, fact.kind) for fact in contaminating)
@@ -272,18 +260,13 @@ class TaintState:
             fact
             for fact in self.facts
             if not (
-                location.is_prefix_of(fact.location)
-                and (remove_all or fact.kind in removed_kinds)
+                location.is_prefix_of(fact.location) and (remove_all or fact.kind in removed_kinds)
             )
         )
         guarantees = set(self.guarantees)
         if record_guarantee:
             concrete_kinds = (
-                {
-                    fact.kind
-                    for fact in self.facts
-                    if location.is_prefix_of(fact.location)
-                }
+                {fact.kind for fact in self.facts if location.is_prefix_of(fact.location)}
                 if remove_all
                 else set(removed_kinds)
             )
@@ -303,9 +286,7 @@ class TaintState:
         removed = frozenset(removed_kinds)
         remove_all = "*" in removed
         incoming = self.facts_at(source)
-        kept = tuple(
-            fact for fact in incoming if not remove_all and fact.kind not in removed
-        )
+        kept = tuple(fact for fact in incoming if not remove_all and fact.kind not in removed)
         result = self.write(
             destination,
             kept,
@@ -363,9 +344,7 @@ class TaintState:
         return values, False
 
     @staticmethod
-    def _normalize_facts(
-        facts: Iterable[TaintFact], max_access_path: int
-    ) -> frozenset[TaintFact]:
+    def _normalize_facts(facts: Iterable[TaintFact], max_access_path: int) -> frozenset[TaintFact]:
         return frozenset(
             TaintFact(fact.location.summarize(max_access_path), fact.kind, fact.origin)
             for fact in facts

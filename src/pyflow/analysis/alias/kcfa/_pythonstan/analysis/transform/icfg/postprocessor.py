@@ -24,9 +24,19 @@ from pycg.processing.base import ProcessingBase
 from pycg.machinery.definitions import Definition
 from pycg import utils
 
+
 class PostProcessor(ProcessingBase):
-    def __init__(self, input_file, modname, import_manager,
-            scope_manager, def_manager, class_manager, module_manager, modules_analyzed=None):
+    def __init__(
+        self,
+        input_file,
+        modname,
+        import_manager,
+        scope_manager,
+        def_manager,
+        class_manager,
+        module_manager,
+        modules_analyzed=None,
+    ):
         super().__init__(input_file, modname, modules_analyzed)
         self.import_manager = import_manager
         self.scope_manager = scope_manager
@@ -85,12 +95,15 @@ class PostProcessor(ProcessingBase):
                     for name in self.closured.get(item.get_ns(), []):
                         # If there exists a next method on the iterable
                         # and if yes, add a pointer to it
-                        next_defi = self.def_manager.get(utils.join_ns(name,
-                            utils.constants.NEXT_METHOD, utils.constants.RETURN_NAME))
+                        next_defi = self.def_manager.get(
+                            utils.join_ns(
+                                name, utils.constants.NEXT_METHOD, utils.constants.RETURN_NAME
+                            )
+                        )
                         if next_defi:
                             for name in self.closured.get(next_defi.get_ns(), []):
                                 target_def.get_name_pointer().add(name)
-                        else: # otherwise, add a pointer to the name (e.g. a yield)
+                        else:  # otherwise, add a pointer to the name (e.g. a yield)
                             target_def.get_name_pointer().add(name)
 
         super().visit_For(node)
@@ -118,7 +131,9 @@ class PostProcessor(ProcessingBase):
                 for d in last_decoded:
                     if not isinstance(d, Definition):
                         continue
-                    fn_def.decorator_names.add(utils.join_ns(d.get_ns(), utils.constants.RETURN_NAME))
+                    fn_def.decorator_names.add(
+                        utils.join_ns(d.get_ns(), utils.constants.RETURN_NAME)
+                    )
 
             previous_names = self.closured.get(fn_def.get_ns(), set())
             for decorator in reversed_decorators:
@@ -299,9 +314,15 @@ class PostProcessor(ProcessingBase):
                 new_def.get_name_pointer().add(child_def.get_ns())
 
     def analyze_submodules(self):
-        super().analyze_submodules(PostProcessor, self.import_manager,
-                self.scope_manager, self.def_manager, self.class_manager,
-                self.module_manager, modules_analyzed=self.get_modules_analyzed())
+        super().analyze_submodules(
+            PostProcessor,
+            self.import_manager,
+            self.scope_manager,
+            self.def_manager,
+            self.class_manager,
+            self.module_manager,
+            modules_analyzed=self.get_modules_analyzed(),
+        )
 
     def analyze(self):
         self.visit(ast.parse(self.contents, self.filename))

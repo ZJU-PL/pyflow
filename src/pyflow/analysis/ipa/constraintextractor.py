@@ -292,15 +292,11 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.Load)
     def visitLoad(self, node, targets):
-        return self.load(
-            node, self(node.expr), node.fieldtype, self(node.name), targets
-        )
+        return self.load(node, self(node.expr), node.fieldtype, self(node.name), targets)
 
     @dispatch(ast.Check)
     def visitCheck(self, node, targets):
-        return self.check(
-            node, self(node.expr), node.fieldtype, self(node.name), targets
-        )
+        return self.check(node, self(node.expr), node.fieldtype, self(node.name), targets)
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
@@ -347,6 +343,7 @@ class ConstraintExtractor(TypeDispatcher):
             ObjectName with GLBL qualifier for the constant.
         """
         from .constraints import qualifiers
+
         xtype = self.analysis.canonical.existingType(self.analysis.pyObj(pyobj))
         return self.analysis.objectName(xtype, qualifiers.GLBL)
 

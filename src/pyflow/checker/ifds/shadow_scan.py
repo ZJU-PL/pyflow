@@ -179,9 +179,7 @@ def _extract_snippet(code: str, start: int, end: int) -> str:
     return code[snippet_start:snippet_end].replace("\n", " ").strip()[:120]
 
 
-def run_shadow_scan(
-    code: str, language: str = "python"
-) -> list[ShadowMatch]:
+def run_shadow_scan(code: str, language: str = "python") -> list[ShadowMatch]:
     """Run pattern-only shadow scan over source code.
 
     Returns a list of :class:`ShadowMatch` instances deduplicated by
@@ -344,6 +342,4 @@ def generate_shadow_report(
 ) -> ShadowScanReport:
     """Run shadow scan and diff against IFDS findings — convenience API."""
     shadow_matches = run_shadow_scan(code, language)
-    return diff_scans(
-        ifds_findings, shadow_matches, file_path=file_path, language=language
-    )
+    return diff_scans(ifds_findings, shadow_matches, file_path=file_path, language=language)

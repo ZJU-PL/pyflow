@@ -93,8 +93,7 @@ class CapabilityRegistry:
         return tuple(
             pattern
             for pattern in self._patterns
-            if pattern.operation is operation
-            and fnmatchcase(access_path, pattern.access_path)
+            if pattern.operation is operation and fnmatchcase(access_path, pattern.access_path)
         )
 
     def reachable(self, access_path: str) -> tuple[CapabilityPattern, ...]:

@@ -139,9 +139,7 @@ class PDGConstructor:
 
         return pdg
 
-    def _reachable_cfg_nodes(
-        self, entry: cfg_graph.CFGBlock
-    ) -> List[cfg_graph.CFGBlock]:
+    def _reachable_cfg_nodes(self, entry: cfg_graph.CFGBlock) -> List[cfg_graph.CFGBlock]:
         visited: Set[cfg_graph.CFGBlock] = set()
         order: List[cfg_graph.CFGBlock] = []
         stack: List[cfg_graph.CFGBlock] = [entry]
@@ -162,19 +160,13 @@ class PDGConstructor:
         for cnode in cfg_nodes:
             # Always create a block/anchor node so control dependence wiring is stable
             if isinstance(cnode, cfg_graph.Entry):
-                anchor = pdg.add_node(
-                    "entry", cfg_node=cnode, label=_safe_cfg_label(cnode)
-                )
+                anchor = pdg.add_node("entry", cfg_node=cnode, label=_safe_cfg_label(cnode))
                 pdg.entry = anchor
             elif isinstance(cnode, cfg_graph.Exit):
-                anchor = pdg.add_node(
-                    "exit", cfg_node=cnode, label=_safe_cfg_label(cnode)
-                )
+                anchor = pdg.add_node("exit", cfg_node=cnode, label=_safe_cfg_label(cnode))
                 pdg.exit_nodes.append(anchor)
             else:
-                anchor = pdg.add_node(
-                    "block", cfg_node=cnode, label=_safe_cfg_label(cnode)
-                )
+                anchor = pdg.add_node("block", cfg_node=cnode, label=_safe_cfg_label(cnode))
 
             pdg.set_cfg_anchor(cnode, anchor)
             pdg.add_cfg_content(cnode, anchor)
@@ -182,22 +174,16 @@ class PDGConstructor:
             # Block contents at statement/condition granularity
             if isinstance(cnode, cfg_graph.Suite):
                 for op in list(getattr(cnode, "ops", ())):
-                    n = pdg.add_node(
-                        "stmt", cfg_node=cnode, ast_node=op, label=_safe_ast_label(op)
-                    )
+                    n = pdg.add_node("stmt", cfg_node=cnode, ast_node=op, label=_safe_ast_label(op))
                     pdg.add_cfg_content(cnode, n)
             elif isinstance(cnode, cfg_graph.Switch):
                 cond = cnode.condition
-                n = pdg.add_node(
-                    "cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond)
-                )
+                n = pdg.add_node("cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond))
                 pdg.add_cfg_content(cnode, n)
                 pdg.set_cfg_anchor(cnode, n)
             elif isinstance(cnode, cfg_graph.TypeSwitch):
                 cond = cnode.original.conditional
-                n = pdg.add_node(
-                    "cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond)
-                )
+                n = pdg.add_node("cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond))
                 pdg.add_cfg_content(cnode, n)
                 pdg.set_cfg_anchor(cnode, n)
             elif isinstance(cnode, cfg_graph.ForIter):
@@ -357,10 +343,7 @@ class PDGConstructor:
         var_to_defs: Dict[object, List[PDGNode]] = {}
         if pdg.entry is not None:
             for symbol in catalog.symbols:
-                if (
-                    symbol.id.scope == procedure.root_scope
-                    and symbol.kind is SymbolKind.PARAMETER
-                ):
+                if symbol.id.scope == procedure.root_scope and symbol.kind is SymbolKind.PARAMETER:
                     var_to_defs.setdefault(symbol.id, []).append(pdg.entry)
                     for value in catalog.values:
                         if value.id.symbol == symbol.id and value.definition is None:
@@ -371,9 +354,7 @@ class PDGConstructor:
             if node.ast_node is None:
                 continue
             try:
-                semantics = catalog.semantics.operation(
-                    catalog.node_id(node.ast_node, root_code)
-                )
+                semantics = catalog.semantics.operation(catalog.node_id(node.ast_node, root_code))
             except KeyError:
                 continue
             node_uses[node] = semantics.uses
@@ -392,14 +373,10 @@ class PDGConstructor:
                         else symbol_id
                     )
                     symbol = catalog.symbols.get(identity)
-                    label = (
-                        symbol.display_name if symbol is not None else str(symbol_id)
-                    )
+                    label = symbol.display_name if symbol is not None else str(symbol_id)
                     def_node.add_edge_to(use_node, "data", label)
 
-    def _add_data_edges(
-        self, pdg: ProgramDependenceGraph, parent_map: Dict[Any, Any]
-    ) -> None:
+    def _add_data_edges(self, pdg: ProgramDependenceGraph, parent_map: Dict[Any, Any]) -> None:
         try:
             self._add_data_edges_from_ddg(pdg, parent_map)
         except Exception as exc:

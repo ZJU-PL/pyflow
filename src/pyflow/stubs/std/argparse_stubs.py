@@ -15,7 +15,21 @@ def makeArgparseStubs(collector):
     @export
     @attachPtr(argparse, "ArgumentParser")
     @llfunc
-    def argparse_ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=(), formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True):
+    def argparse_ArgumentParser(
+        prog=None,
+        usage=None,
+        description=None,
+        epilog=None,
+        parents=(),
+        formatter_class=argparse.HelpFormatter,
+        prefix_chars="-",
+        fromfile_prefix_chars=None,
+        argument_default=None,
+        conflict_handler="error",
+        add_help=True,
+        allow_abbrev=True,
+        exit_on_error=True,
+    ):
         return allocate(argparse.ArgumentParser)
 
     @attachPtr(argparse.ArgumentParser, "add_argument")
@@ -35,7 +49,19 @@ def makeArgparseStubs(collector):
 
     @attachPtr(argparse.ArgumentParser, "add_subparsers")
     @llfunc
-    def argumentparser_add_subparsers(self, title=None, description=None, prog=None, parser_class=None, action=None, option_strings=(), dest=None, required=False, help=None, metavar=None):
+    def argumentparser_add_subparsers(
+        self,
+        title=None,
+        description=None,
+        prog=None,
+        parser_class=None,
+        action=None,
+        option_strings=(),
+        dest=None,
+        required=False,
+        help=None,
+        metavar=None,
+    ):
         return allocate(argparse._SubParsersAction)
 
     @attachPtr(argparse.ArgumentParser, "parse_args")
@@ -136,14 +162,18 @@ def makeArgparseStubs(collector):
     @export
     @attachPtr(argparse, "ArgumentDefaultsHelpFormatter")
     @llfunc
-    def argparse_ArgumentDefaultsHelpFormatter(prog, indent_increment=2, max_help_position=24, width=None):
+    def argparse_ArgumentDefaultsHelpFormatter(
+        prog, indent_increment=2, max_help_position=24, width=None
+    ):
         return allocate(argparse.ArgumentDefaultsHelpFormatter)
 
     ### RawDescriptionHelpFormatter ###
     @export
     @attachPtr(argparse, "RawDescriptionHelpFormatter")
     @llfunc
-    def argparse_RawDescriptionHelpFormatter(prog, indent_increment=2, max_help_position=24, width=None):
+    def argparse_RawDescriptionHelpFormatter(
+        prog, indent_increment=2, max_help_position=24, width=None
+    ):
         return allocate(argparse.RawDescriptionHelpFormatter)
 
     ### RawTextHelpFormatter ###
@@ -157,14 +187,16 @@ def makeArgparseStubs(collector):
     @export
     @attachPtr(argparse, "MetavarTypeHelpFormatter")
     @llfunc
-    def argparse_MetavarTypeHelpFormatter(prog, indent_increment=2, max_help_position=24, width=None):
+    def argparse_MetavarTypeHelpFormatter(
+        prog, indent_increment=2, max_help_position=24, width=None
+    ):
         return allocate(argparse.MetavarTypeHelpFormatter)
 
     ### FileType ###
     @export
     @attachPtr(argparse, "FileType")
     @llfunc
-    def argparse_FileType(mode='r', bufsize=-1, encoding=None, errors=None):
+    def argparse_FileType(mode="r", bufsize=-1, encoding=None, errors=None):
         return allocate(argparse.FileType)
 
     @attachPtr(argparse.FileType, "__call__")
@@ -176,14 +208,36 @@ def makeArgparseStubs(collector):
     @export
     @attachPtr(argparse, "Action")
     @llfunc
-    def argparse_Action(option_strings, dest, nargs=None, const=None, default=None, type=None, choices=None, required=False, help=None, metavar=None):
+    def argparse_Action(
+        option_strings,
+        dest,
+        nargs=None,
+        const=None,
+        default=None,
+        type=None,
+        choices=None,
+        required=False,
+        help=None,
+        metavar=None,
+    ):
         return allocate(argparse.Action)
 
     ### BooleanOptionalAction ###
     @export
     @attachPtr(argparse, "BooleanOptionalAction")
     @llfunc
-    def argparse_BooleanOptionalAction(option_strings, dest, nargs=0, const=None, default=None, type=None, choices=None, required=False, help=None, metavar=None):
+    def argparse_BooleanOptionalAction(
+        option_strings,
+        dest,
+        nargs=0,
+        const=None,
+        default=None,
+        type=None,
+        choices=None,
+        required=False,
+        help=None,
+        metavar=None,
+    ):
         return allocate(argparse.BooleanOptionalAction)
 
     ### Exceptions ###

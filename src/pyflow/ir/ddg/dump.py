@@ -97,8 +97,7 @@ class DDGDumper(object):
             stats = self.ddg.stats()
             f.write("%s\n%s\n\n" % (title, "=" * 60))
             f.write(
-                "Nodes: %(nodes)d, Edges: %(edges)d, Ops: %(ops)d, Slots: %(slots)d\n\n"
-                % stats
+                "Nodes: %(nodes)d, Edges: %(edges)d, Ops: %(ops)d, Slots: %(slots)d\n\n" % stats
             )
             f.write("Nodes:\n")
             for n in self._sorted_nodes(self.ddg.nodes):
@@ -179,9 +178,7 @@ class DDGDumper(object):
             json.dump(data, f, indent=2)
 
 
-def dump_ddg(
-    ddg: DataDependenceGraph, path: str, fmt: str = "text", title: str = "DDG"
-) -> None:
+def dump_ddg(ddg: DataDependenceGraph, path: str, fmt: str = "text", title: str = "DDG") -> None:
     """
     Convenience function to dump a DDG in various formats.
 

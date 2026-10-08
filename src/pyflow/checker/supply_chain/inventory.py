@@ -79,9 +79,7 @@ def best_dependency_ref(
             specifier = None
         if specifier is not None:
             matching = [
-                reference
-                for reference in refs
-                if _purl_version_matches(reference, specifier)
+                reference for reference in refs if _purl_version_matches(reference, specifier)
             ]
             if len(matching) == 1:
                 return matching[0]
@@ -169,6 +167,5 @@ def dedupe_dependencies(
     for target in all_targets:
         grouped.setdefault(target, set())
     return [
-        {"ref": source, "dependsOn": sorted(targets)}
-        for source, targets in sorted(grouped.items())
+        {"ref": source, "dependsOn": sorted(targets)} for source, targets in sorted(grouped.items())
     ]

@@ -127,9 +127,7 @@ class DFA(object):
         if self.recognizer._state.backtracking > 0:
             raise BacktrackingFailed
 
-        nvae = NoViableAltException(
-            self.getDescription(), self.decisionNumber, s, input
-        )
+        nvae = NoViableAltException(self.getDescription(), self.decisionNumber, s, input)
 
         self.error(nvae)
         raise nvae
@@ -166,7 +164,7 @@ class DFA(object):
 
         ret = []
         for i in range(len(string) // 2):
-            (n, v) = ord(string[i * 2]), ord(string[i * 2 + 1])
+            n, v = ord(string[i * 2]), ord(string[i * 2 + 1])
 
             # Is there a bitwise operation to do this?
             if v == 0xFFFF:

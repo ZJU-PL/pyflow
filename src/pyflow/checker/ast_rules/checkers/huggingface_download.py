@@ -4,6 +4,7 @@ B612: Test for unsafe HuggingFace model/download usage.
 HuggingFace model loading and dataset operations can execute
 arbitrary code from untrusted sources.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

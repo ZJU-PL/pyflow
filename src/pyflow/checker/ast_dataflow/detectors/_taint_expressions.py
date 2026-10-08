@@ -105,11 +105,7 @@ class _ExpressionTaintMixin:
                 if container:
                     if method in {"get", "pop"}:
                         key_expr = expr.args[0] if expr.args else None
-                        key = (
-                            self._subscript_key(key_expr)
-                            if key_expr is not None
-                            else None
-                        )
+                        key = self._subscript_key(key_expr) if key_expr is not None else None
                         if self._is_container_key_tainted(container, key):
                             return True
                         if key is None and self._is_container_values_tainted(container):
@@ -164,9 +160,7 @@ class _ExpressionTaintMixin:
             return False
         if isinstance(expr, ast.JoinedStr):
             for part in expr.values:
-                if isinstance(part, ast.FormattedValue) and self._expr_is_tainted(
-                    part.value
-                ):
+                if isinstance(part, ast.FormattedValue) and self._expr_is_tainted(part.value):
                     return True
             return False
         if isinstance(expr, ast.FormattedValue):
@@ -191,16 +185,14 @@ class _ExpressionTaintMixin:
                 return True
             if has_unknown and tainted_params:
                 return True
-            if self.callee_returns_tainted.get(
+            if self.callee_returns_tainted.get(callee, False) and self.callee_has_source.get(
                 callee, False
-            ) and self.callee_has_source.get(callee, False):
+            ):
                 return True
             return False
         return self.callee_returns_tainted.get(callee, False)
 
-    def _tainted_params_for_call(
-        self, node: ast.Call, callee: str
-    ) -> Tuple[Set[str], bool]:
+    def _tainted_params_for_call(self, node: ast.Call, callee: str) -> Tuple[Set[str], bool]:
         param_names = list(self._callee_param_names(node, callee))
         deps = self.callee_return_param_deps.get(callee, set())
         tainted: Set[str] = set()
@@ -241,9 +233,7 @@ class _ExpressionTaintMixin:
 
         return tainted, has_unknown
 
-    def _tainted_param_keys_for_call(
-        self, node: ast.Call, callee: str
-    ) -> Dict[str, Set[str]]:
+    def _tainted_param_keys_for_call(self, node: ast.Call, callee: str) -> Dict[str, Set[str]]:
         # Key-level interprocedural taint propagation is optional; return empty
         # mapping if not implemented to avoid hard failures.
         return {}

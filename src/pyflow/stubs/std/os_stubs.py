@@ -440,7 +440,7 @@ def makeOSStubs(collector):
     @export
     @attachPtr(os, "popen")
     @llfunc
-    def os_popen(cmd, mode='r', buffering=-1):
+    def os_popen(cmd, mode="r", buffering=-1):
         return allocate(type(os.popen("echo test")))
 
     @export
@@ -591,7 +591,16 @@ def makeOSStubs(collector):
     @export
     @attachPtr(os, "fdopen")
     @llfunc
-    def os_fdopen(fd, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None):
+    def os_fdopen(
+        fd,
+        mode="r",
+        buffering=-1,
+        encoding=None,
+        errors=None,
+        newline=None,
+        closefd=True,
+        opener=None,
+    ):
         return allocate(type(os.fdopen(0)))
 
     @export

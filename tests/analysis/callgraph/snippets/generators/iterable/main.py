@@ -13,5 +13,6 @@ class func(object):
         else:
             raise StopIteration()
 
+
 for i in func(100):
     pass

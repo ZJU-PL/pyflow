@@ -3,8 +3,17 @@ KW_ONLY = object()
 
 
 class Field:
-    def __init__(self, default=MISSING, default_factory=MISSING, repr=True,
-                 hash=None, init=True, compare=True, metadata=None, kw_only=MISSING):
+    def __init__(
+        self,
+        default=MISSING,
+        default_factory=MISSING,
+        repr=True,
+        hash=None,
+        init=True,
+        compare=True,
+        metadata=None,
+        kw_only=MISSING,
+    ):
         self.name = None
         self.type = None
         self.default = default
@@ -17,17 +26,36 @@ class Field:
         self.kw_only = kw_only
 
 
-def field(default=MISSING, default_factory=MISSING, repr=True, hash=None,
-          init=True, compare=True, metadata=None, kw_only=MISSING):
+def field(
+    default=MISSING,
+    default_factory=MISSING,
+    repr=True,
+    hash=None,
+    init=True,
+    compare=True,
+    metadata=None,
+    kw_only=MISSING,
+):
     return Field(default, default_factory, repr, hash, init, compare, metadata, kw_only)
 
 
-def dataclass(cls=None, *, init=True, repr=True, eq=True, order=False,
-              unsafe_hash=False, frozen=False, match_args=True,
-              kw_only=False, slots=False, weakref_slot=False):
+def dataclass(
+    cls=None,
+    *,
+    init=True,
+    repr=True,
+    eq=True,
+    order=False,
+    unsafe_hash=False,
+    frozen=False,
+    match_args=True,
+    kw_only=False,
+    slots=False,
+    weakref_slot=False,
+):
     def wrap(cls):
         cls.__dataclass_fields__ = {}
-        annotations = getattr(cls, '__annotations__', {})
+        annotations = getattr(cls, "__annotations__", {})
         for name, type_ in annotations.items():
             f = getattr(cls, name, MISSING)
             if isinstance(f, Field):
@@ -41,7 +69,8 @@ def dataclass(cls=None, *, init=True, repr=True, eq=True, order=False,
                 cls.__dataclass_fields__[name] = new_field
 
         if init:
-            original_init = cls.__init__ if hasattr(cls, '__init__') else None
+            original_init = cls.__init__ if hasattr(cls, "__init__") else None
+
             def __init__(self, *args, **kwargs):
                 for i, (name, f) in enumerate(cls.__dataclass_fields__.items()):
                     if i < len(args):
@@ -52,25 +81,28 @@ def dataclass(cls=None, *, init=True, repr=True, eq=True, order=False,
                         setattr(self, name, f.default)
                     elif f.default_factory is not MISSING:
                         setattr(self, name, f.default_factory())
+
             cls.__init__ = __init__
 
         if repr:
+
             def __repr__(self):
                 fields_str = ", ".join(
-                    f"{name}={getattr(self, name)!r}"
-                    for name in cls.__dataclass_fields__
+                    f"{name}={getattr(self, name)!r}" for name in cls.__dataclass_fields__
                 )
                 return f"{cls.__name__}({fields_str})"
+
             cls.__repr__ = __repr__
 
         if eq:
+
             def __eq__(self, other):
                 if other.__class__ is not self.__class__:
                     return NotImplemented
                 return all(
-                    getattr(self, name) == getattr(other, name)
-                    for name in cls.__dataclass_fields__
+                    getattr(self, name) == getattr(other, name) for name in cls.__dataclass_fields__
                 )
+
             cls.__eq__ = __eq__
 
         if match_args:
@@ -100,10 +132,23 @@ def astuple(obj, tuple_factory=tuple):
     return tuple_factory(getattr(obj, name) for name in obj.__dataclass_fields__)
 
 
-def make_dataclass(cls_name, fields, *, bases=(), namespace=None, init=True,
-                   repr=True, eq=True, order=False, unsafe_hash=False,
-                   frozen=False, match_args=True, kw_only=False, slots=False,
-                   weakref_slot=False):
+def make_dataclass(
+    cls_name,
+    fields,
+    *,
+    bases=(),
+    namespace=None,
+    init=True,
+    repr=True,
+    eq=True,
+    order=False,
+    unsafe_hash=False,
+    frozen=False,
+    match_args=True,
+    kw_only=False,
+    slots=False,
+    weakref_slot=False,
+):
     ns = namespace or {}
     annotations = {}
     for item in fields:
@@ -116,11 +161,21 @@ def make_dataclass(cls_name, fields, *, bases=(), namespace=None, init=True,
             annotations[name] = type_
             if default is not MISSING:
                 ns[name] = default
-    ns['__annotations__'] = annotations
+    ns["__annotations__"] = annotations
     cls = type(cls_name, bases, ns)
-    return dataclass(cls, init=init, repr=repr, eq=eq, order=order,
-                     unsafe_hash=unsafe_hash, frozen=frozen, match_args=match_args,
-                     kw_only=kw_only, slots=slots, weakref_slot=weakref_slot)
+    return dataclass(
+        cls,
+        init=init,
+        repr=repr,
+        eq=eq,
+        order=order,
+        unsafe_hash=unsafe_hash,
+        frozen=frozen,
+        match_args=match_args,
+        kw_only=kw_only,
+        slots=slots,
+        weakref_slot=weakref_slot,
+    )
 
 
 def replace(obj, **changes):
@@ -135,7 +190,7 @@ def replace(obj, **changes):
 
 def is_dataclass(obj):
     cls = obj if isinstance(obj, type) else type(obj)
-    return hasattr(cls, '__dataclass_fields__')
+    return hasattr(cls, "__dataclass_fields__")
 
 
 class InitVar:

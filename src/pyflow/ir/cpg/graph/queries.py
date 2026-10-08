@@ -508,9 +508,7 @@ class _GraphQueryMixin:
         }
         return {
             "functions": list(self.functions),
-            "construction_diagnostics": [
-                dict(item) for item in self._construction_diagnostics
-            ],
+            "construction_diagnostics": [dict(item) for item in self._construction_diagnostics],
             "nodes": nodes,
             "edges": edges,
             "defs": defs_dict,

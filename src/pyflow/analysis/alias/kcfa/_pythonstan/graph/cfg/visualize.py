@@ -8,26 +8,23 @@ from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope, IRModule, IRClass
 from .cfg import ControlFlowGraph
 
 
-def new_digraph(name, filename, node_attr={}, edge_attr={}, graph_attr={}
-                ) -> Digraph:
+def new_digraph(name, filename, node_attr={}, edge_attr={}, graph_attr={}) -> Digraph:
     """Create a Graphviz graph with the backend's standard visual styling."""
-    n_attr = {'shape': 'record', 'fontsize': '8pt'}
+    n_attr = {"shape": "record", "fontsize": "8pt"}
     n_attr.update(node_attr)
-    e_attr = {'fontsize': '7pt'}
+    e_attr = {"fontsize": "7pt"}
     e_attr.update(edge_attr)
-    g_attr = {'fontsize': '10pt', 'fontcolor': "blue"}
+    g_attr = {"fontsize": "10pt", "fontcolor": "blue"}
     g_attr.update(graph_attr)
-    return graphviz.Digraph(name,
-                            filename=filename,
-                            node_attr=n_attr,
-                            edge_attr=e_attr,
-                            graph_attr=g_attr)
+    return graphviz.Digraph(
+        name, filename=filename, node_attr=n_attr, edge_attr=e_attr, graph_attr=g_attr
+    )
 
 
 def draw_cfg(scope: IRScope, s: Digraph, info: Dict = {}):
     """Add one scope's CFG nodes and edges to ``s``."""
     cfg = scope.cfg
-    gen_id = lambda blk: f'{subg_name}_{blk.idx}'
+    gen_id = lambda blk: f"{subg_name}_{blk.idx}"
 
     def gen_lab(blk):
         label = str(blk)
@@ -43,15 +40,13 @@ def draw_cfg(scope: IRScope, s: Digraph, info: Dict = {}):
     subg_name = scope.get_name()
     for blk in cfg.blks:
         if blk == cfg.entry_blk:
-            s.node(gen_id(blk), gen_lab(blk),
-                   style='filled', fillcolor='honeydew2')
+            s.node(gen_id(blk), gen_lab(blk), style="filled", fillcolor="honeydew2")
         elif blk == cfg.super_exit_blk:
-            s.node(gen_id(blk), gen_lab(blk),
-                   style='filled', fillcolor='honeydew2')
+            s.node(gen_id(blk), gen_lab(blk), style="filled", fillcolor="honeydew2")
         elif blk in cfg.exit_blks:
-            s.node(gen_id(blk), gen_lab(blk), style='filled', fillcolor='powderblue')
+            s.node(gen_id(blk), gen_lab(blk), style="filled", fillcolor="powderblue")
         else:
-            s.node(gen_id(blk), gen_lab(blk), style='filled', fillcolor='ivory')
+            s.node(gen_id(blk), gen_lab(blk), style="filled", fillcolor="ivory")
     for blk in cfg.blks:
         for e in cfg.out_edges_of(blk):
             src = gen_id(e.src)
@@ -61,11 +56,10 @@ def draw_cfg(scope: IRScope, s: Digraph, info: Dict = {}):
 
 def draw_module(mod: IRModule, s: Digraph, info: Dict = {}):
     """Draw a module CFG and recursively draw its nested scopes."""
-    with s.subgraph(name=mod.get_name(),
-                    graph_attr={'label': mod.get_name(),
-                                'cluster': 'true',
-                                'bgcolor': 'gray50'}
-                    ) as subs:
+    with s.subgraph(
+        name=mod.get_name(),
+        graph_attr={"label": mod.get_name(), "cluster": "true", "bgcolor": "gray50"},
+    ) as subs:
         draw_cfg(mod, subs, info)
         for cls in mod.classes:
             if cls in info:
@@ -81,11 +75,10 @@ def draw_module(mod: IRModule, s: Digraph, info: Dict = {}):
 
 def draw_class(cls: IRClass, s: Digraph, info: Dict = {}):
     """Draw a class CFG and recursively draw nested classes and functions."""
-    with s.subgraph(name=cls.get_name(),
-                    graph_attr={'label': cls.get_name(),
-                                'cluster': 'true',
-                                'bgcolor': 'gray64'}
-                    ) as subs:
+    with s.subgraph(
+        name=cls.get_name(),
+        graph_attr={"label": cls.get_name(), "cluster": "true", "bgcolor": "gray64"},
+    ) as subs:
         draw_cfg(cls, subs, info)
         for sub_cls in cls.classes:
             if sub_cls in info:
@@ -101,11 +94,10 @@ def draw_class(cls: IRClass, s: Digraph, info: Dict = {}):
 
 def draw_function(fn: IRFunc, s: Digraph, info: Dict = {}):
     """Draw a function CFG and recursively draw its nested scopes."""
-    with s.subgraph(name=fn.get_name(),
-                    graph_attr={'label': fn.get_name(),
-                                'cluster': 'true',
-                                'bgcolor': 'gray78'}
-                    ) as subs:
+    with s.subgraph(
+        name=fn.get_name(),
+        graph_attr={"label": fn.get_name(), "cluster": "true", "bgcolor": "gray78"},
+    ) as subs:
         draw_cfg(fn, subs, info)
         for cls in fn.classes:
             if cls in info:

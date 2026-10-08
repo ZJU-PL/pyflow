@@ -43,15 +43,11 @@ class InterfaceBuildOptions:
             verbose=getattr(args, "verbose", False),
             include_main_entry_points=getattr(args, "include_main_entry_points", False),
             search_paths=(
-                tuple(str(path) for path in search_paths)
-                if search_paths is not None
-                else None
+                tuple(str(path) for path in search_paths) if search_paths is not None else None
             ),
             fail_on_diagnostics=getattr(args, "fail_on_diagnostics", False),
             max_diagnostics=getattr(args, "max_diagnostics", None),
-            max_runtime_fallback_ratio=getattr(
-                args, "max_runtime_fallback_ratio", None
-            ),
+            max_runtime_fallback_ratio=getattr(args, "max_runtime_fallback_ratio", None),
         )
 
 
@@ -68,11 +64,7 @@ def _default_entry_args(callable_obj, *, skip_first: bool = False):
     args = []
     keywords = []
     for parameter in parameters:
-        value = (
-            None
-            if parameter.default is inspect.Parameter.empty
-            else parameter.default
-        )
+        value = None if parameter.default is inspect.Parameter.empty else parameter.default
         if parameter.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -110,15 +102,11 @@ def _add_class_entries(
 ) -> None:
     for class_name, class_object in classes.items():
         declaration = ClassDeclaration(class_object)
-        init_args, init_keywords = _default_entry_args(
-            class_object.__init__, skip_first=True
-        )
+        init_args, init_keywords = _default_entry_args(class_object.__init__, skip_first=True)
         declaration.init(*init_args, kwds=init_keywords)
         interface.cls.append(declaration)
 
-        for method_name, method_info in resolver.get_public_method_specs(
-            class_object
-        ).items():
+        for method_name, method_info in resolver.get_public_method_specs(class_object).items():
             if method_name.startswith("_"):
                 continue
             if method_info.get("is_property", False):
@@ -129,17 +117,11 @@ def _add_class_entries(
             method = getattr(class_object, method_name)
             if method_info.get("is_classmethod", False):
                 method = getattr(method, "__func__", method)
-            method_args, method_keywords = _default_entry_args(
-                method, skip_first=skip_first
-            )
+            method_args, method_keywords = _default_entry_args(method, skip_first=skip_first)
             kind = (
                 "staticmethod"
                 if method_info.get("is_staticmethod", False)
-                else (
-                    "classmethod"
-                    if method_info.get("is_classmethod", False)
-                    else "instance"
-                )
+                else ("classmethod" if method_info.get("is_classmethod", False) else "instance")
             )
             declaration.method(
                 method_name,
@@ -152,9 +134,7 @@ def _add_class_entries(
             print(f"Added class '{class_name}' from {file_path}")
 
 
-def _report_resolver_state(
-    resolver: DependencyResolver, options: InterfaceBuildOptions
-) -> None:
+def _report_resolver_state(resolver: DependencyResolver, options: InterfaceBuildOptions) -> None:
     if not options.verbose:
         return
 
@@ -216,9 +196,7 @@ def build_interface_from_paths(
             if source is None:
                 # utf-8-sig strips a leading BOM (plain utf-8 keeps it and
                 # ast.parse then rejects the whole file).
-                source = Path(file_path).read_text(
-                    encoding="utf-8-sig", errors="replace"
-                )
+                source = Path(file_path).read_text(encoding="utf-8-sig", errors="replace")
             source_files[str(file_path)] = source
         except Exception as error:
             print(f"Warning: Could not read {file_path}: {error}")

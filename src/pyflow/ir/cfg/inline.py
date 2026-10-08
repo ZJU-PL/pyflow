@@ -154,9 +154,7 @@ class CFGClonerPre(TypeDispatcher):
 
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
-        origin_ast = (
-            self.astcloner(node.origin_ast) if node.origin_ast is not None else None
-        )
+        origin_ast = self.astcloner(node.origin_ast) if node.origin_ast is not None else None
         suite = cfg.Suite(node.region, origin_ast=origin_ast)
         for op in node.ops:
             suite.ops.append(self.astcloner(op))
@@ -281,9 +279,7 @@ class InlineTransform(TypeDispatcher):
             if index is None:
                 if codeparameters.kparam is None:
                     return None
-                extra_keywords.extend(
-                    [ast.Existing(ast.program.Object(name)), argument]
-                )
+                extra_keywords.extend([ast.Existing(ast.program.Object(name)), argument])
                 continue
             if index in bound:
                 return None

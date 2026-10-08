@@ -118,9 +118,7 @@ _SANITIZER_KEYS = frozenset(
         "assumptions",
     }
 )
-_PROPAGATION_KEYS = frozenset(
-    {"from", "to", "kinds", "maps", "removes", "guard"}
-)
+_PROPAGATION_KEYS = frozenset({"from", "to", "kinds", "maps", "removes", "guard"})
 _DETECTION_KEYS = frozenset({"imports", "patterns"})
 _ENTRYPOINT_KEYS = frozenset({"mode", "include_synthetic_modules", "taint_parameters"})
 _REQUIRED_ROOT_KEYS = frozenset(
@@ -140,8 +138,7 @@ class RulePackValidationError(ValueError):
         self.path = path
         self.issues = tuple(issues)
         super().__init__(
-            f"Invalid PyFlow rule pack {path.name}: "
-            + "; ".join(issue.message for issue in issues)
+            f"Invalid PyFlow rule pack {path.name}: " + "; ".join(issue.message for issue in issues)
         )
 
 
@@ -208,8 +205,7 @@ class RulePack:
             if model is not None:
                 models.append(model)
                 models.extend(
-                    replace(model, name=alias)
-                    for alias in _parse_string_set(entry.get("aliases"))
+                    replace(model, name=alias) for alias in _parse_string_set(entry.get("aliases"))
                 )
         return tuple(models)
 
@@ -302,15 +298,13 @@ def _sink_all_arguments(entries: object) -> bool:
 
 def _sink_receiver(entries: object) -> bool:
     return isinstance(entries, list) and any(
-        isinstance(entry, dict) and entry.get("port") == "receiver"
-        for entry in entries
+        isinstance(entry, dict) and entry.get("port") == "receiver" for entry in entries
     )
 
 
 def _sink_return(entries: object) -> bool:
     return isinstance(entries, list) and any(
-        isinstance(entry, dict) and entry.get("port") == "return"
-        for entry in entries
+        isinstance(entry, dict) and entry.get("port") == "return" for entry in entries
     )
 
 
@@ -347,11 +341,7 @@ def _taint_model_port(raw: object) -> TaintModelPort | None:
             return None
         if "parameter" in raw and set(raw) <= {"parameter", "path"}:
             parameter = raw["parameter"]
-            if (
-                isinstance(parameter, int)
-                and not isinstance(parameter, bool)
-                and parameter >= 0
-            ):
+            if isinstance(parameter, int) and not isinstance(parameter, bool) and parameter >= 0:
                 return TaintModelPort("parameter", parameter, tuple(path))
             return None
         kind = raw.get("kind")
@@ -398,17 +388,11 @@ def _sanitizer_contracts(entries: object) -> FrozenSet[TaintSanitizerContract]:
         if not isinstance(entry, dict) or not advanced_keys.intersection(entry):
             continue
         input_port = _taint_model_port(entry.get("from", "all"))
-        output_port = _taint_model_port(
-            entry.get("to", entry.get("port", "return"))
-        )
+        output_port = _taint_model_port(entry.get("to", entry.get("port", "return")))
         if input_port is None or output_port is None:
             continue
         raw_kinds = entry.get("kinds", ())
-        removes = (
-            frozenset({"*"})
-            if raw_kinds == "all"
-            else _parse_string_set(raw_kinds)
-        )
+        removes = frozenset({"*"}) if raw_kinds == "all" else _parse_string_set(raw_kinds)
         contracts.add(
             TaintSanitizerContract(
                 input=input_port,
@@ -491,9 +475,7 @@ def _taint_rule_from_entry(rule: dict) -> TaintRule:
 
 
 def _parse_typestate(entry: dict) -> FrozenSet[str]:
-    explicit_actions = {
-        action for action, _protocol in _parse_typestate_action_protocols(entry)
-    }
+    explicit_actions = {action for action, _protocol in _parse_typestate_action_protocols(entry)}
     if explicit_actions:
         return frozenset(explicit_actions)
     return frozenset()
@@ -585,8 +567,7 @@ def validate_rule_pack_data(
             for key in ("imports", "patterns"):
                 value = detection.get(key)
                 if value is not None and (
-                    not isinstance(value, list)
-                    or any(not isinstance(item, str) for item in value)
+                    not isinstance(value, list) or any(not isinstance(item, str) for item in value)
                 ):
                     error(f"detection.{key}", "must be an array of strings")
 
@@ -626,10 +607,7 @@ def validate_rule_pack_data(
         if aliases is not None and (
             not isinstance(aliases, list)
             or not aliases
-            or any(
-                not isinstance(alias, str) or not alias.strip()
-                for alias in aliases
-            )
+            or any(not isinstance(alias, str) or not alias.strip() for alias in aliases)
         ):
             error(f"{location}.aliases", "must contain non-empty strings")
         legacy_keys = {
@@ -697,9 +675,7 @@ def validate_rule_pack_data(
                 or any(not isinstance(item, str) or not item.strip() for item in value)
             ):
                 error(f"{location}.{key}", "must contain non-empty kind names")
-        if "entrypoint_source" in rule and not isinstance(
-            rule["entrypoint_source"], bool
-        ):
+        if "entrypoint_source" in rule and not isinstance(rule["entrypoint_source"], bool):
             error(f"{location}.entrypoint_source", "must be a boolean")
         for key in ("calls", "call", "pattern_type", "sink_arg_positions"):
             if key in rule:
@@ -719,10 +695,7 @@ def validate_rule_pack_data(
             if isinstance(endpoint, dict) and endpoint.get("kind")
         }
         ruled_sink_kinds = {
-            str(kind)
-            for rule in rules
-            if isinstance(rule, dict)
-            for kind in rule.get("sinks", [])
+            str(kind) for rule in rules if isinstance(rule, dict) for kind in rule.get("sinks", [])
         }
         for kind in sorted(modeled_sink_kinds - ruled_sink_kinds):
             error("rules", f"sink kind {kind!r} has no source-to-sink rule")
@@ -732,20 +705,14 @@ def validate_rule_pack_data(
 
 
 def _validate_taint_model(entry: dict, location: str, error) -> None:
-    if not any(
-        entry.get(key)
-        for key in ("sources", "sinks", "sanitizers", "propagations")
-    ):
+    if not any(entry.get(key) for key in ("sources", "sinks", "sanitizers", "propagations")):
         error(
             location,
             "must define at least one source, sink, sanitizer, or propagation",
         )
     sink_behavior = entry.get("sink_behavior")
     if sink_behavior is not None:
-        if (
-            not isinstance(sink_behavior, str)
-            or sink_behavior not in SUPPORTED_SINK_BEHAVIORS
-        ):
+        if not isinstance(sink_behavior, str) or sink_behavior not in SUPPORTED_SINK_BEHAVIORS:
             error(
                 f"{location}.sink_behavior",
                 f"must be one of {sorted(SUPPORTED_SINK_BEHAVIORS)!r}",
@@ -807,9 +774,7 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
                 f"{sanitizer_location}.kinds",
                 "must be 'all' or a non-empty array of kind names",
             )
-        output_port = _taint_model_port(
-            sanitizer.get("to", sanitizer.get("port"))
-        )
+        output_port = _taint_model_port(sanitizer.get("to", sanitizer.get("port")))
         if output_port is None or output_port.kind not in {
             "return",
             "receiver",
@@ -833,10 +798,7 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
             )
         maps = sanitizer.get("maps", {})
         if not isinstance(maps, dict) or any(
-            not isinstance(source, str)
-            or not source
-            or not isinstance(target, str)
-            or not target
+            not isinstance(source, str) or not source or not isinstance(target, str) or not target
             for source, target in maps.items()
         ):
             error(f"{sanitizer_location}.maps", "must map kind names to kind names")
@@ -845,8 +807,7 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
                 error(f"{sanitizer_location}.{flag}", "must be a boolean")
         assumptions = sanitizer.get("assumptions", [])
         if not isinstance(assumptions, list) or any(
-            not isinstance(assumption, str) or not assumption
-            for assumption in assumptions
+            not isinstance(assumption, str) or not assumption for assumption in assumptions
         ):
             error(
                 f"{sanitizer_location}.assumptions",
@@ -887,8 +848,7 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
         }:
             error(
                 f"{propagation_location}.to",
-                "must be 'return' or identify a receiver, parameter, yield, "
-                "raise, or sink port",
+                "must be 'return' or identify a receiver, parameter, yield, " "raise, or sink port",
             )
         for field in ("kinds", "removes"):
             value = propagation.get(field, [])
@@ -920,11 +880,7 @@ def _valid_parameter_port(port: object) -> bool:
     if not isinstance(port, dict) or set(port) != {"parameter"}:
         return False
     parameter = port["parameter"]
-    return (
-        isinstance(parameter, int)
-        and not isinstance(parameter, bool)
-        and parameter >= 0
-    )
+    return isinstance(parameter, int) and not isinstance(parameter, bool) and parameter >= 0
 
 
 def _validate_positions(entry: dict, location: str, error) -> None:
@@ -933,8 +889,7 @@ def _validate_positions(entry: dict, location: str, error) -> None:
         if value is None:
             continue
         if not isinstance(value, list) or any(
-            not isinstance(item, int) or isinstance(item, bool) or item < 0
-            for item in value
+            not isinstance(item, int) or isinstance(item, bool) or item < 0 for item in value
         ):
             error(f"{location}.{key}", "must contain non-negative integers")
 
@@ -975,9 +930,7 @@ def validate_registry() -> tuple[ValidationIssue, ...]:
                     )
                 )
             group[subdir] = path
-        for rule in (
-            data.get("rules", ()) if isinstance(data.get("rules"), list) else ()
-        ):
+        for rule in (data.get("rules", ()) if isinstance(data.get("rules"), list) else ()):
             if not isinstance(rule, dict) or not isinstance(rule.get("id"), str):
                 continue
             rule_id = rule["id"]
@@ -1031,9 +984,7 @@ class Registry:
         available = self.available_frameworks(type=type)
         unknown = sorted(set(framework_names) - available)
         if unknown:
-            raise ValueError(
-                "Unknown PyFlow rule-pack framework(s): " + ", ".join(unknown)
-            )
+            raise ValueError("Unknown PyFlow rule-pack framework(s): " + ", ".join(unknown))
         for pack in _available_packs():
             pid = self._pack_key(pack)
             if pack.framework not in framework_names:
@@ -1044,9 +995,7 @@ class Registry:
                 self._activated_sources.add(pid)
                 self._active_packs.append(pack)
 
-    def detect(
-        self, source_lines: Iterable[str], *, type: str | None = None
-    ) -> FrozenSet[str]:
+    def detect(self, source_lines: Iterable[str], *, type: str | None = None) -> FrozenSet[str]:
         """Scan *source_lines* for framework markers and activate matching packs."""
         lines = tuple(source_lines)
         detected_frameworks: set[str] = set()
@@ -1137,7 +1086,6 @@ class Registry:
             rules.extend(pack.taint_rules())
         return tuple(rules)
 
-
     def as_taint_policy(self) -> TaintPolicy:
         """Project active strict-v2 taint packs into an engine-neutral policy."""
         defaults = EntryPointDefaults()
@@ -1198,9 +1146,7 @@ class Registry:
             open_names=frozenset(open_names) if open_names else frozenset({"open"}),
             close_names=frozenset(close_names) if close_names else frozenset({"close"}),
             use_names=(
-                frozenset(use_names)
-                if use_names
-                else frozenset({"read", "write", "send", "recv"})
+                frozenset(use_names) if use_names else frozenset({"read", "write", "send", "recv"})
             ),
             enabled_protocols=(
                 frozenset(protocol_names) if protocol_names else frozenset({"resource"})

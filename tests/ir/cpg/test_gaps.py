@@ -20,7 +20,6 @@ from pyflow.ir.cpg.graph import PDGNode
 from pyflow.ir.cpg.persist import CPGStore
 from pyflow.checker.cpg.taint import CPGTaintEngine
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 

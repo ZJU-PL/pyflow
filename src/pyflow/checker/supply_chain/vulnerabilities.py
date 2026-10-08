@@ -22,7 +22,6 @@ from packaging.version import InvalidVersion, Version
 from .models import SupplyChainFinding, SupplyChainScan
 from .vex import load_vex, vex_status_for
 
-
 MAX_VULNERABILITY_DATABASE_FILE_SIZE = 512 * 1024 * 1024
 MAX_VULNERABILITY_JSON_FILE_SIZE = 64 * 1024 * 1024
 MAX_VULNERABILITY_DATABASE_FILES = 100_000
@@ -77,8 +76,8 @@ def audit_vulnerabilities(
             ):
                 records[identifier] = record
 
-    records_by_package: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = (
-        defaultdict(list)
+    records_by_package: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = defaultdict(
+        list
     )
     for identifier, record in records.items():
         for affected in record.get("affected", ()) or ():
@@ -146,8 +145,7 @@ def audit_vulnerabilities(
                         SupplyChainFinding(
                             kind="vulnerability-suppressed-by-vex",
                             message=(
-                                f"{identifier} is suppressed by an applicable "
-                                "VEX statement"
+                                f"{identifier} is suppressed by an applicable " "VEX statement"
                             ),
                             location=purl,
                             severity="LOW",
@@ -165,9 +163,7 @@ def audit_vulnerabilities(
             if reachable_refs is not None:
                 reachability = "observed" if purl in reachable_refs else "not-observed"
             findings.append(
-                _vulnerability_finding(
-                    record, affected, component, reachability=reachability
-                )
+                _vulnerability_finding(record, affected, component, reachability=reachability)
             )
             matched.add((identifier, purl))
 
@@ -254,9 +250,7 @@ def _load_osv_records(
         return
     is_json_lines = path.suffix.casefold() in {".jsonl", ".ndjson"}
     size_limit = (
-        MAX_VULNERABILITY_DATABASE_FILE_SIZE
-        if is_json_lines
-        else MAX_VULNERABILITY_JSON_FILE_SIZE
+        MAX_VULNERABILITY_DATABASE_FILE_SIZE if is_json_lines else MAX_VULNERABILITY_JSON_FILE_SIZE
     )
     if size > size_limit:
         findings.append(
@@ -375,9 +369,7 @@ def _database_read_error(path: Path, exc: OSError) -> SupplyChainFinding:
 
 def _affected_version(version_text: str, affected: dict[str, Any]) -> bool:
     explicit_versions = affected.get("versions", ()) or ()
-    if any(
-        _versions_equal(version_text, str(candidate)) for candidate in explicit_versions
-    ):
+    if any(_versions_equal(version_text, str(candidate)) for candidate in explicit_versions):
         return True
     for range_data in affected.get("ranges", ()) or ():
         if not isinstance(range_data, dict):
@@ -534,9 +526,7 @@ def _trusted_digest_for(path: Path, trusted_hashes: Mapping[str, str]) -> str | 
 
 
 def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(
-        character in "0123456789abcdef" for character in value
-    )
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def _sha256_file(path: Path) -> str:
@@ -675,9 +665,7 @@ def _cvss_v3_score(vector: str) -> float | None:
         "CIA": {"H": 0.56, "L": 0.22, "N": 0.0},
     }
     pr_weights = (
-        {"N": 0.85, "L": 0.68, "H": 0.5}
-        if scope_changed
-        else {"N": 0.85, "L": 0.62, "H": 0.27}
+        {"N": 0.85, "L": 0.68, "H": 0.5} if scope_changed else {"N": 0.85, "L": 0.62, "H": 0.27}
     )
     try:
         impact_base = 1 - (

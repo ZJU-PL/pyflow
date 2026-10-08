@@ -285,8 +285,7 @@ class Sudoku:
                 ]
             )
             raise BadSudoku(
-                "place(%d,%d): cell already contains %d"
-                % (digit, cell, self.contents[cell])
+                "place(%d,%d): cell already contains %d" % (digit, cell, self.contents[cell])
             )
         if (1 << cell) & self.locations[digit] == 0:
             self.log(
@@ -382,9 +381,7 @@ def eliminate(grid):
                 grid.log(["Unable to place any digit in", cellnames[cell] + "."])
                 raise BadSudoku("No digit for cell %d" % cell)
             if len(allowed) == 1:
-                grid.place(
-                    allowed[0], cell, "No other digit may be placed in that cell."
-                )
+                grid.place(allowed[0], cell, "No other digit may be placed in that cell.")
 
 
 def align(grid):
@@ -422,8 +419,7 @@ def align(grid):
 
 
 enough_room = (
-    "To leave enough room for those digits, no other "
-    "digits may be placed in those cells."
+    "To leave enough room for those digits, no other " "digits may be placed in those cells."
 )
 
 
@@ -885,10 +881,7 @@ def subproblem(grid):
                 expls = []
                 for force in forces:
                     if expls or len(force) > 1:
-                        that = (
-                            "would leave too few remaining cells"
-                            " to place those digits."
-                        )
+                        that = "would leave too few remaining cells" " to place those digits."
                     if expls:
                         expls[-1] += ","
                         if force == forces[-1]:
@@ -907,9 +900,7 @@ def subproblem(grid):
                     ]
                 expls[-1] += "."
                 return (
-                    ["In", g.name + ","]
-                    + expls
-                    + ["Placing", d, "in", namecells(mask, "or"), that]
+                    ["In", g.name + ","] + expls + ["Placing", d, "in", namecells(mask, "or"), that]
                 )
 
             grid.unplace(d, mask, explain)
@@ -1056,9 +1047,7 @@ def bivalue(grid):
         mask &= ~(1 << w)
 
         def explain():
-            cycle = [v] + nrg.shortest(
-                w, grid.otherbv[w, digit], v, grid.otherbv[v, digit]
-            )
+            cycle = [v] + nrg.shortest(w, grid.otherbv[w, digit], v, grid.otherbv[v, digit])
             return [
                 "In the cyclic sequence of cells",
                 pathname(cycle) + ",",
@@ -1213,9 +1202,7 @@ def path(grid):
 
                         grid.unplace(d, neighbors[cell] & neighbors[neighbor], explain)
                 if cell in grid.bivalues:
-                    for neighbor, nd in grid.bivalues.reachable(
-                        cell, grid.otherbv[cell, d]
-                    ):
+                    for neighbor, nd in grid.bivalues.reachable(cell, grid.otherbv[cell, d]):
                         if d == grid.otherbv[neighbor, nd]:
 
                             def explain():
@@ -1240,9 +1227,7 @@ def path(grid):
                                     "shared digits of the sequence.",
                                 ]
 
-                            grid.unplace(
-                                d, neighbors[cell] & neighbors[neighbor], explain
-                            )
+                            grid.unplace(d, neighbors[cell] & neighbors[neighbor], explain)
 
 
 def explain_conflict_path(grid, cell, d, why, reached, dd):
@@ -1287,9 +1272,7 @@ def explain_conflict_path(grid, cell, d, why, reached, dd):
             plural(len(path) - 2, "cell"),
             "of the sequence.",
         ]
-    path = grid.bivalues.shortest(
-        cell, grid.otherbv[cell, d], reached, grid.otherbv[reached, dd]
-    )
+    path = grid.bivalues.shortest(cell, grid.otherbv[cell, d], reached, grid.otherbv[reached, dd])
     if len(path) == 2:
         mask = (1 << cell) | (1 << reached)
         return [
@@ -1421,17 +1404,13 @@ def conflict(grid):
                     else:
                         conflicts[dd] |= neighbors[reached]
                 if cell in grid.bivalues:
-                    for reached, dd in grid.bivalues.reachable(
-                        cell, grid.otherbv[cell, d]
-                    ):
+                    for reached, dd in grid.bivalues.reachable(cell, grid.otherbv[cell, d]):
                         other = grid.otherbv[reached, dd]
                         why[reached, other] = False
                         if (1 << reached) & conflicts[other]:
 
                             def explain():
-                                return explain_conflict(
-                                    grid, cell, d, why, reached, other
-                                )
+                                return explain_conflict(grid, cell, d, why, reached, other)
 
                             grid.place(d, cell, explain)
                             return  # allow changes to propagate
@@ -1529,10 +1508,9 @@ def permute(grid, preserve_symmetry=True):
     contents = [None] * 81
     for row in range(9):
         for col in range(9):
-            contents[
-                row_permutation[row] * transpose[0]
-                + col_permutation[col] * transpose[1]
-            ] = digit_permutation[grid.contents[9 * row + col]]
+            contents[row_permutation[row] * transpose[0] + col_permutation[col] * transpose[1]] = (
+                digit_permutation[grid.contents[9 * row + col]]
+            )
     return Sudoku(contents)
 
 
@@ -1856,27 +1834,23 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if options.show_rules:
-        print(
-            """This solver knows the following rules.  Rules occurring later
+        print("""This solver knows the following rules.  Rules occurring later
 in the list are attempted only when all earlier rules have failed
 to make progress.
-"""
-        )
+""")
         for name, rule, difficulty in rules:
             print(name + ":" + rule.__doc__)
         sys.exit(0)
 
     if options.show_levels:
-        print(
-            """
+        print("""
 Puzzles are classified by difficulty, according to a weighted combination
 of the set of rules needed to solve each puzzle.  There are six levels,
 in order by difficulty: easy, moderate, tricky, difficult, evil, and
 fiendish.  In addition, a puzzle is classified as impossible if this
 program cannot find a solution for it, or if backtracking is needed to
 find the solution.
-"""
-        )
+""")
         sys.exit(0)
 
     if options.translate:

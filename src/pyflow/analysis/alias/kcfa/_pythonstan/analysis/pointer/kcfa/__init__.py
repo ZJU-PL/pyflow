@@ -23,7 +23,7 @@ from .context import (
     TypeContext,
     ReceiverContext,
     HybridContext,
-    Scope
+    Scope,
 )
 from .context_selector import ContextPolicy, ContextSelector, parse_policy
 from .object import AllocKind, AllocSite, AbstractObject, SuperObject, ObjectFactory
@@ -52,7 +52,7 @@ from .constraints import (
     CallConstraint,
     ReturnConstraint,
     SuperResolveConstraint,
-    ConstraintManager
+    ConstraintManager,
 )
 from .class_hierarchy import ClassHierarchyManager, MROError
 from .builtin_api_handler import BuiltinAPIHandler, BuiltinSummaryManager
@@ -62,7 +62,6 @@ __all__ = [
     "PointerAnalysis",
     "AnalysisResult",
     "Config",
-    
     # Context types
     "CallSite",
     "AbstractContext",
@@ -74,7 +73,6 @@ __all__ = [
     "ContextPolicy",
     "ContextSelector",
     "parse_policy",
-    
     # Object model
     "AllocKind",
     "AllocSite",
@@ -102,7 +100,6 @@ __all__ = [
     "ClassConstructionKind",
     "ClassConstructionState",
     "InvalidClassVariant",
-    
     # Constraints
     "Constraint",
     "CopyConstraint",
@@ -113,11 +110,9 @@ __all__ = [
     "ReturnConstraint",
     "SuperResolveConstraint",
     "ConstraintManager",
-    
     # Class hierarchy
     "ClassHierarchyManager",
     "MROError",
-    
     # Extension points
     "BuiltinAPIHandler",
     "BuiltinSummaryManager",

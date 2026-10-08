@@ -35,9 +35,7 @@ class DataFlowQueries:
         self._taint = TaintAnalyzer()
         self._ipa = IpaAnalyzer()
 
-    def get_reaching_defs(
-        self, function: Union[str, object]
-    ) -> Dict[str, List[ReachingDef]]:
+    def get_reaching_defs(self, function: Union[str, object]) -> Dict[str, List[ReachingDef]]:
         """Return reaching definitions for all variables in a function."""
         try:
             code = self.context.resolve_function(function)
@@ -75,9 +73,7 @@ class DataFlowQueries:
         for symbol in catalog.symbols:
             if symbol.id.scope != procedure.root_scope:
                 continue
-            references = catalog.facts.query(
-                Capabilities.ALIAS_REFERENCES, symbol.id
-            )
+            references = catalog.facts.query(Capabilities.ALIAS_REFERENCES, symbol.id)
             if references.precision is Precision.UNKNOWN:
                 continue
             locations = tuple(references.values)
@@ -133,13 +129,9 @@ class DataFlowQueries:
         locations = self._matching_locations(facts, variable)
         info = AliasInfo(variable=variable)
         for location in locations:
-            info.aliases.update(
-                self._location_label(alias) for alias in facts.points_to(location)
-            )
+            info.aliases.update(self._location_label(alias) for alias in facts.points_to(location))
         info.is_aliased = len(info.aliases) > 1
-        info.ref_count = max(
-            (facts.reference_count(location) for location in locations), default=0
-        )
+        info.ref_count = max((facts.reference_count(location) for location in locations), default=0)
         info.is_escaped = any(facts.is_escaped(location) for location in locations)
         info.is_singleton = bool(locations) and all(
             facts.reference_count(location) <= 1 for location in locations
@@ -158,9 +150,7 @@ class DataFlowQueries:
             info.points_to.update(
                 self._location_label(alias) for alias in facts.points_to(location)
             )
-        info.ref_count = max(
-            (facts.reference_count(location) for location in locations), default=0
-        )
+        info.ref_count = max((facts.reference_count(location) for location in locations), default=0)
         info.is_escaped = any(facts.is_escaped(location) for location in locations)
         info.is_singleton = bool(locations) and all(
             facts.reference_count(location) <= 1 for location in locations

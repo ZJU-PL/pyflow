@@ -40,9 +40,9 @@ def ConcaveMinima(RowIndices, ColIndices, Matrix):
     # Reduce phase: make number of rows at most equal to number of cols
     stack = []
     for r in RowIndices:
-        while len(stack) >= 1 and Matrix(
-            stack[-1], ColIndices[len(stack) - 1]
-        ) > Matrix(r, ColIndices[len(stack) - 1]):
+        while len(stack) >= 1 and Matrix(stack[-1], ColIndices[len(stack) - 1]) > Matrix(
+            r, ColIndices[len(stack) - 1]
+        ):
             stack.pop()
         if len(stack) != len(ColIndices):
             stack.append(r)

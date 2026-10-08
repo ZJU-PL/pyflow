@@ -38,9 +38,7 @@ class AbstractString:
         )
 
     @classmethod
-    def from_constants(
-        cls, values: Iterable[str], *, max_constants: int = 8
-    ) -> "AbstractString":
+    def from_constants(cls, values: Iterable[str], *, max_constants: int = 8) -> "AbstractString":
         constants = frozenset(values)
         if not constants:
             return cls.bottom(max_constants=max_constants)
@@ -70,13 +68,11 @@ class AbstractString:
             if other.kind is AbstractStringKind.CONSTANTS:
                 return self.constants <= other.constants
             if other.kind is AbstractStringKind.PREFIX:
-                return all(
-                    value.startswith(other.prefix or "") for value in self.constants
-                )
+                return all(value.startswith(other.prefix or "") for value in self.constants)
         if self.kind is AbstractStringKind.PREFIX:
-            return other.kind is AbstractStringKind.PREFIX and (
-                self.prefix or ""
-            ).startswith(other.prefix or "")
+            return other.kind is AbstractStringKind.PREFIX and (self.prefix or "").startswith(
+                other.prefix or ""
+            )
         return False
 
     def join(self, other: "AbstractString") -> "AbstractString":
@@ -87,13 +83,8 @@ class AbstractString:
             return self
         if self.kind is AbstractStringKind.TOP or other.kind is AbstractStringKind.TOP:
             return self.top(max_constants=limit)
-        if (
-            self.kind is AbstractStringKind.CONSTANTS
-            and other.kind is AbstractStringKind.CONSTANTS
-        ):
-            return self.from_constants(
-                self.constants | other.constants, max_constants=limit
-            )
+        if self.kind is AbstractStringKind.CONSTANTS and other.kind is AbstractStringKind.CONSTANTS:
+            return self.from_constants(self.constants | other.constants, max_constants=limit)
         prefixes = []
         for value in (self, other):
             if value.kind is AbstractStringKind.PREFIX:

@@ -55,9 +55,9 @@ class TestFoldRewrite(unittest.TestCase):
         """Test FoldRewrite initialization."""
         extractor = MockExtractor()
         code = MockCode()
-        
+
         fr = FoldRewrite(extractor, None, code)
-        
+
         self.assertEqual(fr.extractor, extractor)
         self.assertEqual(fr.code, code)
         self.assertIsNone(fr.storeGraph)
@@ -67,19 +67,19 @@ class TestFoldRewrite(unittest.TestCase):
         """Test FoldRewrite initialization with store graph."""
         extractor = MockExtractor()
         code = MockCode()
-        
+
         sg = MockStoreGraph()
         fr = FoldRewrite(extractor, sg, code)
-        
+
         self.assertEqual(fr.storeGraph, sg)
 
     def test_legacy_annotation_contexts_do_not_enable_fact_based_folding(self):
         extractor = MockExtractor()
         code = MockCode()
         code.annotation.contexts = ["context1", "context2"]
-        
+
         fr = FoldRewrite(extractor, MockStoreGraph(), code)
-        
+
         self.assertFalse(fr.annotationsExist)
 
     def test_init_without_contexts(self):
@@ -87,29 +87,29 @@ class TestFoldRewrite(unittest.TestCase):
         extractor = MockExtractor()
         code = MockCode()
         code.annotation.contexts = None
-        
+
         fr = FoldRewrite(extractor, None, code)
-        
+
         self.assertFalse(fr.annotationsExist)
 
     def test_descriptive_true(self):
         """Test descriptive() returns True."""
         code = MockCode(descriptive=True)
         fr = FoldRewrite(MockExtractor(), None, code)
-        
+
         self.assertTrue(fr.descriptive())
 
     def test_descriptive_false(self):
         """Test descriptive() returns False."""
         code = MockCode(descriptive=False)
         fr = FoldRewrite(MockExtractor(), None, code)
-        
+
         self.assertFalse(fr.descriptive())
 
     def test_visitOK_returns_node(self):
         """Test that visitOK returns node unchanged."""
         fr = FoldRewrite(MockExtractor(), None, MockCode())
-        
+
         node = ast.Local("x")
         result = fr.visitOK(node)
         self.assertEqual(result, node)

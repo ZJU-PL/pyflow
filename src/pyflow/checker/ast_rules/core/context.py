@@ -121,15 +121,11 @@ class Context:
         Returns:
             Dictionary mapping argument names to values, or None if not a call
         """
-        if "call" not in self._context or not hasattr(
-            self._context["call"], "keywords"
-        ):
+        if "call" not in self._context or not hasattr(self._context["call"], "keywords"):
             return None
         return {
             li.arg: (
-                li.value.attr
-                if hasattr(li.value, "attr")
-                else self._get_literal_value(li.value)
+                li.value.attr if hasattr(li.value, "attr") else self._get_literal_value(li.value)
             )
             for li in self._context["call"].keywords
         }
@@ -234,9 +230,7 @@ class Context:
         arg_value = self.get_call_arg_value(argument_name)
         if arg_value is None:
             return None
-        values = (
-            argument_values if isinstance(argument_values, list) else [argument_values]
-        )
+        values = argument_values if isinstance(argument_values, list) else [argument_values]
         return arg_value in values
 
     def is_module_being_imported(self, module):

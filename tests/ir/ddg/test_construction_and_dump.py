@@ -154,11 +154,7 @@ class TestDDGConstructionRegression(unittest.TestCase):
         reader.connect(writer)
 
         ddg = construct_ddg(FakeDataflow(entry))
-        edges = [
-            edge
-            for edge in ddg.all_edges()
-            if edge.kind == "memory" and edge.label == "WAR"
-        ]
+        edges = [edge for edge in ddg.all_edges() if edge.kind == "memory" and edge.label == "WAR"]
 
         self.assertEqual(len(edges), 1)
         self.assertIs(edges[0].source.ir_node, reader)
@@ -177,11 +173,7 @@ class TestDDGConstructionRegression(unittest.TestCase):
         bypass.connect(consumer)
 
         ddg = construct_ddg(FakeDataflow(entry))
-        edges = [
-            edge
-            for edge in ddg.all_edges()
-            if edge.kind == "memory" and edge.label == "RAW"
-        ]
+        edges = [edge for edge in ddg.all_edges() if edge.kind == "memory" and edge.label == "RAW"]
 
         self.assertEqual(len(edges), 1)
         self.assertIs(edges[0].source.ir_node, writer)
@@ -338,9 +330,7 @@ class TestDDGDumpRegression(unittest.TestCase):
             self.assertIn("ir", json_output["nodes"][0])
             self.assertTrue(any(edge["label"] == "slot_x" for edge in json_output["edges"]))
             self.assertTrue(any(edge["label"] == "RAW" for edge in json_output["edges"]))
-            self.assertTrue(
-                any(edge["location"] == "'heap.x'" for edge in json_output["edges"])
-            )
+            self.assertTrue(any(edge["location"] == "'heap.x'" for edge in json_output["edges"]))
 
             with open(dot_path) as f:
                 dot_output = f.read()

@@ -22,14 +22,11 @@ import re
 from ...common import issue
 from ..core import test_properties as test
 
-
 AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 GITHUB_TOKEN_RE = re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,255}\b")
 GOOGLE_API_KEY_RE = re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")
 SLACK_TOKEN_RE = re.compile(r"\bxox(?:b|p)-[A-Za-z0-9-]{10,255}\b")
-PRIVATE_KEY_RE = re.compile(
-    r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"
-)
+PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----")
 DATABASE_PASSWORD_RE = re.compile(
     r"(?:"
     r"(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqp|mssql|oracle|sqlite)"
@@ -51,9 +48,7 @@ PASSWORD_NAME_RE = re.compile(r"(?:password|passwd|pwd|passphrase)", re.IGNORECA
 TOKEN_NAME_RE = re.compile(
     r"(?:token|api[_-]?key|access[_-]?key|client[_-]?secret|secret)", re.IGNORECASE
 )
-JWT_NAME_RE = re.compile(
-    r"(?:jwt|json[_-]?web[_-]?token).*(?:secret|key)", re.IGNORECASE
-)
+JWT_NAME_RE = re.compile(r"(?:jwt|json[_-]?web[_-]?token).*(?:secret|key)", re.IGNORECASE)
 ENCRYPTION_KEY_NAME_RE = re.compile(
     r"(?:encrypt(?:ion)?|crypto|cipher|aes|des|rsa).*(?:key|secret)|"
     r"(?:key|secret).*(?:encrypt(?:ion)?|crypto|cipher|aes|des|rsa)",
@@ -191,9 +186,7 @@ def hardcoded_database_password(context):
     """Detect database connection strings with inline passwords."""
     match = _find_match(DATABASE_PASSWORD_RE, _collect_strings(context.node.value))
     if match:
-        return _new_issue(
-            "Possible database connection string with hardcoded password detected"
-        )
+        return _new_issue("Possible database connection string with hardcoded password detected")
 
 
 @test.checks("Assign")

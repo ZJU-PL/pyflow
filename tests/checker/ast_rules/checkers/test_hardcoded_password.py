@@ -8,7 +8,9 @@ def test_hardcoded_password_assignment_is_flagged(scan):
     issues = res.issues
 
     b105_issues = [i for i in issues if i.test_id == "B105"]
-    assert len(b105_issues) == 1, f"Expected exactly one B105 issue, got {[i.test_id for i in issues]}"
+    assert (
+        len(b105_issues) == 1
+    ), f"Expected exactly one B105 issue, got {[i.test_id for i in issues]}"
     issue = b105_issues[0]
     assert issue.cwe.id == Cwe.HARD_CODED_PASSWORD
     assert issue.severity == "LOW"
@@ -27,28 +29,26 @@ def test_hardcoded_password_keyword_argument_is_flagged(scan):
 
 
 def test_hardcoded_password_default_argument_is_flagged(scan):
-    res = scan(
-        """
+    res = scan("""
         def f(password='secret'):
             return password
-        """
-    )
+        """)
     issues = res.issues
 
     b107_issues = [i for i in issues if i.test_id == "B107"]
-    assert len(b107_issues) == 1, f"Expected exactly one B107 issue, got {[i.test_id for i in issues]}"
+    assert (
+        len(b107_issues) == 1
+    ), f"Expected exactly one B107 issue, got {[i.test_id for i in issues]}"
     issue = b107_issues[0]
     assert issue.cwe.id == Cwe.HARD_CODED_PASSWORD
     assert issue.lineno == 1
 
 
 def test_hardcoded_password_compare_is_flagged(scan):
-    res = scan(
-        """
+    res = scan("""
         if password == 'secret':
             pass
-        """
-    )
+        """)
     issues = res.issues
 
     assert [i.test_id for i in issues] == ["B105"]

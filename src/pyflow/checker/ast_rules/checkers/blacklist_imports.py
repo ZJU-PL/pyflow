@@ -68,6 +68,4 @@ def check_blacklisted_import_from(context):
     if not isinstance(node, ast.ImportFrom) or not node.module:
         return None
 
-    return blacklist.blacklist_manager.check_blacklist(
-        "ImportFrom", node.module, context
-    )
+    return blacklist.blacklist_manager.check_blacklist("ImportFrom", node.module, context)

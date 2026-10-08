@@ -44,7 +44,7 @@ class TestDependencyResolver(unittest.TestCase):
 
     def test_init_custom_safe_modules(self):
         """Test DependencyResolver initialization with custom safe modules."""
-        safe_modules = ['math', 'json']
+        safe_modules = ["math", "json"]
         resolver = DependencyResolver(safe_modules=safe_modules)
         self.assertEqual(resolver.safe_modules, safe_modules)
 
@@ -102,9 +102,7 @@ def test_func():
 
     def test_noop_runtime_failures_fall_back_to_ast(self):
         """NOOP mode should preserve local functions when runtime probing fails."""
-        resolver = DependencyResolver(
-            strategy="noop", verbose=False, allow_runtime_execution=True
-        )
+        resolver = DependencyResolver(strategy="noop", verbose=False, allow_runtime_execution=True)
         source = """
 raise RuntimeError("boom")
 
@@ -141,11 +139,7 @@ def test_func(x):
 
     def test_extract_import_map_ignores_function_local_imports(self):
         """Function-local imports must not appear as module-level bindings."""
-        tree = ast.parse(
-            "def build():\n"
-            "    import pkg as p\n"
-            "    return p.Base\n"
-        )
+        tree = ast.parse("def build():\n" "    import pkg as p\n" "    return p.Base\n")
         imports = self.resolver._extract_import_map(tree, "consumer")
         self.assertEqual(imports, {})
 
@@ -160,9 +154,7 @@ def test_func(x):
         )
 
     def test_stubs_strategy_falls_back_when_runtime_probe_fails(self):
-        resolver = DependencyResolver(
-            strategy="stubs", verbose=False, allow_runtime_execution=True
-        )
+        resolver = DependencyResolver(strategy="stubs", verbose=False, allow_runtime_execution=True)
         source = "def local_function():\n    return 1\n"
 
         with patch.object(
@@ -258,9 +250,7 @@ def _private_func():
 
     def test_extract_functions_private_functions_with_toggle(self):
         """Private top-level functions can be included with include_private."""
-        resolver = DependencyResolver(
-            strategy="ast_only", verbose=False, include_private=True
-        )
+        resolver = DependencyResolver(strategy="ast_only", verbose=False, include_private=True)
         source = """
 def public_func():
     return 1
@@ -278,9 +268,9 @@ def _private_func():
         self.assertIsInstance(globals_dict, dict)
         # vars(builtins) returns the module dict, not __builtins__
         # Check for common builtin functions instead
-        self.assertIn('len', globals_dict)
-        self.assertIn('print', globals_dict)
-        self.assertIsNot(globals_dict['os'], __import__('os'))
+        self.assertIn("len", globals_dict)
+        self.assertIn("print", globals_dict)
+        self.assertIsNot(globals_dict["os"], __import__("os"))
 
     def test_find_imports(self):
         """Test finding imports in source code."""
@@ -291,9 +281,9 @@ from sys import argv
 """
         imports = self.resolver._find_imports(source)
         self.assertIsInstance(imports, set)
-        self.assertIn('math', imports)
-        self.assertIn('os', imports)
-        self.assertIn('sys', imports)
+        self.assertIn("math", imports)
+        self.assertIn("os", imports)
+        self.assertIn("sys", imports)
 
     def test_find_imports_ignores_function_local_imports(self):
         """Import discovery should stay at module scope."""
@@ -345,20 +335,14 @@ def build():
 
     def test_record_import_edges_ignores_function_local_imports(self):
         """Import graph edges should only include module-scope imports."""
-        tree = ast.parse(
-            "def build():\n"
-            "    import pkg.mod\n"
-            "    from os import path\n"
-        )
+        tree = ast.parse("def build():\n" "    import pkg.mod\n" "    from os import path\n")
         self.resolver._record_import_edges(tree, "consumer", "consumer.py")
         self.assertEqual(self.resolver._import_graph["consumer"], set())
 
     def test_build_stub_modules_ignores_function_local_imports(self):
         """Stub modules should not be created for nested-scope imports."""
         modules = self.resolver._build_stub_modules(
-            "def build():\n"
-            "    import pkg.mod\n"
-            "    from os import path\n",
+            "def build():\n" "    import pkg.mod\n" "    from os import path\n",
             "consumer.py",
         )
         self.assertEqual(modules, {})
@@ -381,11 +365,11 @@ def build():
     def test_create_ast_stub(self):
         """Test creating an AST stub function."""
         import ast as python_ast
-        
+
         source = "def test_func(a, b): return a + b"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         stub_func = self.resolver._create_ast_stub(func_node)
         self.assertIsNotNone(stub_func)
         self.assertEqual(stub_func.__name__, "test_func")
@@ -395,30 +379,33 @@ def build():
 
     def test_filter_functions(self):
         """Test filtering functions from module globals."""
+
         def test_func():
             return 1
-        
+
         module_globals = {
-            'test_func': test_func,
-            'builtin_func': len,  # Built-in should be filtered
-            '__builtins__': __builtins__,
+            "test_func": test_func,
+            "builtin_func": len,  # Built-in should be filtered
+            "__builtins__": __builtins__,
         }
-        
+
         filtered = self.resolver._filter_functions(module_globals, "test.py")
         self.assertIsInstance(filtered, dict)
         # Built-in functions should be filtered out
-        self.assertNotIn('builtin_func', filtered)
+        self.assertNotIn("builtin_func", filtered)
 
     def test_filter_functions_with_code_filename(self):
         """Test filtering functions with code filename matching."""
+
         def test_func():
             return 1
-        
+
         # Use a real function - the actual filename will be the test file
         # The filter checks if code.co_filename matches the file_path
-        module_globals = {'test_func': test_func}
+        module_globals = {"test_func": test_func}
         # Use the actual test file path
         import os
+
         test_file = os.path.abspath(__file__)
         filtered = self.resolver._filter_functions(module_globals, test_file)
         # Should return a dict (might be empty if filename doesn't match exactly)
@@ -452,14 +439,11 @@ def func2(x, y):
         result = self.resolver._handle_import_errors(source, exec_globals)
         self.assertIsInstance(result, dict)
         # Should have stub for missing module
-        self.assertIn('nonexistent_module', result)
+        self.assertIn("nonexistent_module", result)
 
     def test_handle_import_errors_makes_import_statement_executable(self):
         """Stubbed modules should be importable during runtime extraction."""
-        source = (
-            "import nonexistent_module\n"
-            "value = nonexistent_module.some_attr()\n"
-        )
+        source = "import nonexistent_module\n" "value = nonexistent_module.some_attr()\n"
         resolver = DependencyResolver(strategy="stubs", verbose=False, allow_runtime_execution=True)
         exec_globals = resolver._create_safe_exec_globals()
         exec_globals = resolver._handle_import_errors(source, exec_globals, "example.py")
@@ -473,9 +457,13 @@ def func2(x, y):
         import os
 
         real_system = os.system
-        resolver = DependencyResolver(strategy="strict", verbose=False, allow_runtime_execution=True)
+        resolver = DependencyResolver(
+            strategy="strict", verbose=False, allow_runtime_execution=True
+        )
         exec_globals = resolver._create_safe_exec_globals()
-        compiled = compile("import os\nvalue = os\nresult = os.system('ignored')\n", "example.py", "exec")
+        compiled = compile(
+            "import os\nvalue = os\nresult = os.system('ignored')\n", "example.py", "exec"
+        )
         resolver._exec_with_stub_modules(compiled, exec_globals)
 
         self.assertIsNot(exec_globals["value"], os)
@@ -499,12 +487,7 @@ def func2(x, y):
             verbose=False,
             allow_runtime_execution=True,
         )
-        source = (
-            f"import {missing_mod}\n"
-            "\n"
-            "def f():\n"
-            "    return 1\n"
-        )
+        source = f"import {missing_mod}\n" "\n" "def f():\n" "    return 1\n"
         functions = resolver.extract_functions(source, "example.py")
         self.assertIn("f", functions)
         self.assertNotIn(missing_mod, sys.modules)
@@ -576,11 +559,7 @@ def func2(x, y):
         """Cross-module base resolution should not recursively reparse sources."""
         sources = {
             "pkg/base.py": "class Base:\n    def m(self):\n        return 1\n",
-            "pkg/child.py": (
-                "from pkg.base import Base\n"
-                "class Child(Base):\n"
-                "    pass\n"
-            ),
+            "pkg/child.py": ("from pkg.base import Base\n" "class Child(Base):\n" "    pass\n"),
         }
         resolver = DependencyResolver(
             strategy="ast_only",
@@ -627,8 +606,12 @@ def func2(x, y):
             },
         )
 
-        resolver.extract_functions("class Base:\n    def m(self):\n        return 1\n", "pkg/__init__.py")
-        resolver.extract_functions("from pkg import *\nclass Child(Base):\n    pass\n", "consumer.py")
+        resolver.extract_functions(
+            "class Base:\n    def m(self):\n        return 1\n", "pkg/__init__.py"
+        )
+        resolver.extract_functions(
+            "from pkg import *\nclass Child(Base):\n    pass\n", "consumer.py"
+        )
 
         child = resolver.get_module_classes("consumer.py")["Child"]
         methods = resolver.get_public_method_specs(child)
@@ -678,9 +661,7 @@ def func2(x, y):
             with open(os.path.join(d, "pkg", "__init__.py"), "w", encoding="utf-8") as f:
                 f.write("VALUE = 1\n")
 
-            resolver = DependencyResolver(
-                strategy="ast_only", verbose=False, search_paths=[d]
-            )
+            resolver = DependencyResolver(strategy="ast_only", verbose=False, search_paths=[d])
             self.assertIsNone(resolver._find_module_source("pkg.missing"))
 
     def test_stub_module_uses_pyi_signatures_and_classes(self):

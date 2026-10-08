@@ -87,8 +87,15 @@ def mock_server():
     snapshot.queries.call_graph.get_shortest_path.return_value = ["a", "b"]
     snapshot.queries.type_info.get_expression_type.return_value = "int"
     snapshot.queries.test_generation.get_function_test_profile.return_value = SimpleNamespace(
-        name="f", signature="()", parameters=[], return_type="int", calls=[],
-        called_by=[], has_branches=False, has_loops=False, complexity=1,
+        name="f",
+        signature="()",
+        parameters=[],
+        return_type="int",
+        calls=[],
+        called_by=[],
+        has_branches=False,
+        has_loops=False,
+        complexity=1,
         external_dependencies=[],
     )
     snapshot.queries.data_flow.get_aliases_for_variable.return_value = SimpleNamespace(
@@ -175,16 +182,10 @@ class TestInitialize:
     def test_legacy_queries_require_initialized_notification(self, mock_server):
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)
-        initialized = _dispatch(
-            rpc, {"id": 1, "method": "initialize", "params": {}}
-        )
-        before_ready = _dispatch(
-            rpc, {"id": 2, "method": "tools/list", "params": {}}
-        )
+        initialized = _dispatch(rpc, {"id": 1, "method": "initialize", "params": {}})
+        before_ready = _dispatch(rpc, {"id": 2, "method": "tools/list", "params": {}})
         _dispatch(rpc, {"method": "notifications/initialized", "params": {}})
-        after_ready = _dispatch(
-            rpc, {"id": 3, "method": "tools/list", "params": {}}
-        )
+        after_ready = _dispatch(rpc, {"id": 3, "method": "tools/list", "params": {}})
 
         assert initialized[0]["result"]["protocolVersion"] == LEGACY_PROTOCOL_VERSION
         assert before_ready[0]["error"]["code"] == -32600
@@ -214,9 +215,7 @@ class TestInitialize:
                 "id": 1,
                 "method": "server/discover",
                 "params": {
-                    "_meta": {
-                        "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION
-                    }
+                    "_meta": {"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION}
                 },
             },
         )
@@ -588,9 +587,7 @@ class TestTools:
             assert result["cacheScope"] == "private"
             assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "pyflow"
 
-    def test_stale_snapshot_keeps_tools_stable_and_rejects_semantic_calls(
-        self, mock_server
-    ):
+    def test_stale_snapshot_keeps_tools_stable_and_rejects_semantic_calls(self, mock_server):
         mock_server.current_snapshot.return_value.semantic_stale = True
         rpc = JsonRpcServer()
         McpHandler(mock_server).register_on(rpc)

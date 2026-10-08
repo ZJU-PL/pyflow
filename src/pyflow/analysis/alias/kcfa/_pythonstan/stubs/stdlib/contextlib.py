@@ -13,6 +13,7 @@ def contextmanager(func):
     def wrapper(*args, **kwargs):
         gen = func(*args, **kwargs)
         return _ContextManager(next(gen))
+
     wrapper.__wrapped__ = func
     return wrapper
 

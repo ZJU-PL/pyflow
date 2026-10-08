@@ -100,15 +100,11 @@ class NodeStyle(TypeDispatcher):
         else:
             label = astpprint.toString(op, eol="\\n")
 
-        return dict(
-            label=label, shape="box", style="filled", fillcolor=self.opColor, fontsize=8
-        )
+        return dict(label=label, shape="box", style="filled", fillcolor=self.opColor, fontsize=8)
 
     @dispatch(graph.Split)
     def handleSplit(self, node):
-        return dict(
-            label="split", style="filled", fillcolor=self.splitColor, fontsize=8
-        )
+        return dict(label="split", style="filled", fillcolor=self.splitColor, fontsize=8)
 
     @dispatch(graph.Gate)
     def handleGate(self, node):
@@ -148,9 +144,7 @@ class DataflowToDot(TypeDispatcher):
         return node.isSlot() and len(self.cluster[node.canonical()]) > 1
 
     def shouldSplit(self, node):
-        return isinstance(
-            node, (graph.ExistingNode, graph.NullNode, graph.Entry, graph.Exit)
-        )
+        return isinstance(node, (graph.ExistingNode, graph.NullNode, graph.Entry, graph.Exit))
 
     def compoundStyle(self, node):
         cluster = self.cluster[node.canonical()]

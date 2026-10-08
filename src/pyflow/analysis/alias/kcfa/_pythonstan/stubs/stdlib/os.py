@@ -7,7 +7,7 @@ class _PathModule:
         idx = path_str.rfind("/")
         if idx == -1:
             return ("", path_str)
-        return (path_str[:idx], path_str[idx+1:])
+        return (path_str[:idx], path_str[idx + 1 :])
 
     def dirname(self, path):
         return self.split(path)[0]
@@ -105,7 +105,7 @@ def lstat(path):
     return _StatResult()
 
 
-def listdir(path='.'):
+def listdir(path="."):
     return []
 
 
@@ -212,7 +212,7 @@ class DirEntry:
         return _StatResult()
 
 
-def scandir(path='.'):
+def scandir(path="."):
     return _ScandirIterator(path)
 
 

@@ -5,7 +5,9 @@ from pyflow.api.queries import create_query_components
 
 
 def _program():
-    return SimpleNamespace(liveCode=[], session=SimpleNamespace(results={}), interface=None, ir=None)
+    return SimpleNamespace(
+        liveCode=[], session=SimpleNamespace(results={}), interface=None, ir=None
+    )
 
 
 def test_query_components_are_constructed_without_protocol_or_manager():

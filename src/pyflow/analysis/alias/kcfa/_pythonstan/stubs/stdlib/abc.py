@@ -2,8 +2,9 @@ class ABCMeta(type):
     def __new__(mcs, name, bases, namespace):
         cls = super().__new__(mcs, name, bases, namespace)
         cls.__abstractmethods__ = frozenset(
-            name for name, value in namespace.items()
-            if getattr(value, '__isabstractmethod__', False)
+            name
+            for name, value in namespace.items()
+            if getattr(value, "__isabstractmethod__", False)
         )
         cls._abc_registry = set()
         cls._abc_cache = set()
@@ -69,12 +70,12 @@ def update_abstractmethods(cls):
     abstracts = set()
     for name in dir(cls):
         value = getattr(cls, name, None)
-        if getattr(value, '__isabstractmethod__', False):
+        if getattr(value, "__isabstractmethod__", False):
             abstracts.add(name)
     for base in cls.__bases__:
-        for name in getattr(base, '__abstractmethods__', ()):
+        for name in getattr(base, "__abstractmethods__", ()):
             value = getattr(cls, name, None)
-            if getattr(value, '__isabstractmethod__', False):
+            if getattr(value, "__isabstractmethod__", False):
                 abstracts.add(name)
     cls.__abstractmethods__ = frozenset(abstracts)
     return cls

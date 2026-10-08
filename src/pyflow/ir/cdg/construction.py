@@ -23,9 +23,7 @@ class CDGConstructor:
     def __init__(self, cfg: cfg_graph.Code):
         self.cfg = cfg
         self.cdg = ControlDependenceGraph(cfg)
-        self.control_dependences: Dict[
-            cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]
-        ] = {}
+        self.control_dependences: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
         self.post_dominators: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
         self._postdom_nodes: Dict[cfg_graph.CFGBlock, Any] = {}
         self._cfg_nodes: Optional[List[cfg_graph.CFGBlock]] = None
@@ -78,9 +76,7 @@ class CDGConstructor:
             )
             if terminal in node_set
         ]
-        virtual_terminals = self._nonterminating_sink_representatives(
-            all_nodes, real_terminals
-        )
+        virtual_terminals = self._nonterminating_sink_representatives(all_nodes, real_terminals)
 
         def reverse_forward(node):
             if node is self._EXIT_SINK:
@@ -106,11 +102,7 @@ class CDGConstructor:
         while pending:
             node = pending.pop()
             for predecessor, name in node.iterprev():
-                if (
-                    predecessor is not None
-                    and name != "yield"
-                    and predecessor not in can_exit
-                ):
+                if predecessor is not None and name != "yield" and predecessor not in can_exit:
                     can_exit.add(predecessor)
                     pending.append(predecessor)
 
@@ -169,9 +161,7 @@ class CDGConstructor:
             components.append(component)
 
         component_of = {
-            node: index
-            for index, component in enumerate(components)
-            for node in component
+            node: index for index, component in enumerate(components) for node in component
         }
         order_index = {node: index for index, node in enumerate(all_nodes)}
         result = []
@@ -239,17 +229,13 @@ class CDGConstructor:
 
         return order
 
-    def _get_immediate_post_dominator(
-        self, node: cfg_graph.CFGBlock
-    ) -> Optional[Any]:
+    def _get_immediate_post_dominator(self, node: cfg_graph.CFGBlock) -> Optional[Any]:
         dj_node = self._get_postdom_dj_node(node)
         if dj_node is None or dj_node.idom is None:
             return None
         return dj_node.idom.node
 
-    def get_control_dependences(
-        self, node: cfg_graph.CFGBlock
-    ) -> Set[cfg_graph.CFGBlock]:
+    def get_control_dependences(self, node: cfg_graph.CFGBlock) -> Set[cfg_graph.CFGBlock]:
         """Get the control-dependent nodes for a controller."""
         return self.control_dependences.get(node, set())
 

@@ -113,10 +113,7 @@ class LogarithmicOrderedSequence(SimpleOrderedSequence):
             while first != self._first and self._tag[self._prev[first]] & ~mask == base:
                 first = self._prev[first]
                 nItems += 1
-            while (
-                self._next[last] != self._first
-                and self._tag[self._next[last]] & ~mask == base
-            ):
+            while self._next[last] != self._first and self._tag[self._next[last]] & ~mask == base:
                 last = self._next[last]
                 nItems += 1
             increment = (mask + 1) // nItems

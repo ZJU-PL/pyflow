@@ -89,9 +89,7 @@ def test_hybrid_context_tracks_calls_and_objects(call_site_factory, object_facto
     assert not ctx.is_empty()
 
 
-def test_hybrid_context_updates_nonzero_dimensions_independently(
-    call_site_factory, object_factory
-):
+def test_hybrid_context_updates_nonzero_dimensions_independently(call_site_factory, object_factory):
     call_site = call_site_factory()
     obj = object_factory()
 

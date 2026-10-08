@@ -59,9 +59,7 @@ def get_module_qualname_from_path(path):
     """Get the module's qualified name by analysis of the path"""
     head, tail = os.path.split(path)
     if not head or not tail:
-        raise InvalidModulePath(
-            f'Invalid python file path: "{path}" Missing path or file name'
-        )
+        raise InvalidModulePath(f'Invalid python file path: "{path}" Missing path or file name')
 
     qname = [os.path.splitext(tail)[0]]
     while head not in ["/", ".", ""]:

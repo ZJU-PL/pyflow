@@ -896,8 +896,7 @@ def test_legacy_source_nested_call_result_reaches_assignment_in_while(tmp_path):
     from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "legacy_while.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return "value"
 
@@ -912,8 +911,7 @@ def main(flag):
             return
     except Exception, error:
         return
-"""
-    )
+""")
     session = load_analysis_session([target], root_function="main")
     main_cfg = next(cfg for cfg in session.adapter.cfgs if cfg.code.codeName() == "main")
     result = analyze_taint(

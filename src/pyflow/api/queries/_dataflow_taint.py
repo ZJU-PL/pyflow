@@ -75,20 +75,15 @@ class TaintAnalyzer:
                     "explanations": (
                         [
                             {
-                                "source": getattr(
-                                    edge.source_node.procedure.code, "name", None
-                                ),
+                                "source": getattr(edge.source_node.procedure.code, "name", None),
                                 "target_kind": edge.node.kind,
                                 "trace": [
-                                    {"kind": step.kind, "note": step.note}
-                                    for step in traces
+                                    {"kind": step.kind, "note": step.note} for step in traces
                                 ],
                             }
                             for edge, traces in result.explain_fact(
                                 finding.sink,
-                                result.fact_for_local(
-                                    finding.sink, finding.tainted_arguments[0]
-                                ),
+                                result.fact_for_local(finding.sink, finding.tainted_arguments[0]),
                             ).items()
                         ]
                         if finding.tainted_arguments

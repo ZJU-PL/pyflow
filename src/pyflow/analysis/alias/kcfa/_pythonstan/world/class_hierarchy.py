@@ -40,14 +40,14 @@ class ClassHierarchy:
     def add_class(self, class_name: str, ir_class: IRClass):
         """Add a class to the hierarchy"""
         self.classes[class_name] = ir_class
-    
+
     def add_inheritance(self, subclass_name: str, base_class_name: str):
         """Add inheritance relationship between classes"""
         if subclass_name in self.classes and base_class_name in self.classes:
             subclass = self.classes[subclass_name]
             base_class = self.classes[base_class_name]
             self.add_subclass(base_class, subclass)
-    
+
     def add_method(self, class_name: str, method_name: str, method_value):
         """Add a method to a class"""
         # For now, just store the method in the class

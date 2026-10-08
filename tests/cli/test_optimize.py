@@ -45,9 +45,7 @@ def test_run_optimization_passes_always_skips_public_inlining(monkeypatch, capsy
     assert "currently disabled in the public optimization pipeline" in capsys.readouterr().out
 
 
-def test_run_optimization_passes_skips_inlining_even_with_experimental_flag(
-    monkeypatch, capsys
-):
+def test_run_optimization_passes_skips_inlining_even_with_experimental_flag(monkeypatch, capsys):
     compiler = _Compiler()
     program = object()
     args = SimpleNamespace(experimental_inlining=True)
@@ -131,9 +129,7 @@ def test_optimize_parser_rejects_conflicting_mode_flags():
     optimize.add_optimize_parser(subparsers)
 
     try:
-        parser.parse_args(
-            ["optimize", "sample.py", "--suggest-only", "--apply-optimizations"]
-        )
+        parser.parse_args(["optimize", "sample.py", "--suggest-only", "--apply-optimizations"])
     except SystemExit as exc:
         assert exc.code == 2
     else:
@@ -145,9 +141,7 @@ def test_optimize_parser_accepts_explicit_optimized_source_destination():
     subparsers = parser.add_subparsers(dest="command")
     optimize.add_optimize_parser(subparsers)
 
-    args = parser.parse_args(
-        ["optimize", "sample.py", "--emit-optimized", "optimized.py"]
-    )
+    args = parser.parse_args(["optimize", "sample.py", "--emit-optimized", "optimized.py"])
 
     assert args.emit_optimized == "optimized.py"
 
@@ -261,9 +255,7 @@ def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):
     assert calls["default"] == 1
 
 
-def test_run_analysis_threads_experimental_inlining_into_default_pipeline(
-    monkeypatch, tmp_path
-):
+def test_run_analysis_threads_experimental_inlining_into_default_pipeline(monkeypatch, tmp_path):
     sample = tmp_path / "sample.py"
     sample.write_text("def f():\n    return 1\n", encoding="utf-8")
 
@@ -312,9 +304,7 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
     initial_ipa = SimpleNamespace(contexts={"a": object()})
     refreshed_ipa = SimpleNamespace(contexts={"a": object(), "b": object()})
     program = Program()
-    program.session.record_result(
-        "cpa", SimpleNamespace(unresolved=["call1", "call2"])
-    )
+    program.session.record_result("cpa", SimpleNamespace(unresolved=["call1", "call2"]))
     seen = []
 
     class _Pipeline:
@@ -331,9 +321,9 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
     monkeypatch.setattr(
         ipa_module,
         "evaluate",
-        lambda _compiler, _program: initial_ipa
-        if _program.session.get_result("ipa") is None
-        else refreshed_ipa,
+        lambda _compiler, _program: (
+            initial_ipa if _program.session.get_result("ipa") is None else refreshed_ipa
+        ),
     )
     monkeypatch.setattr(optimize, "Pipeline", _Pipeline)
 

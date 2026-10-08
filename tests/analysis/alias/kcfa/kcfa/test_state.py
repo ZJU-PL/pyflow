@@ -11,7 +11,10 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_g
     PointerFlowKind,
     SelectorNode,
 )
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import Variable, VariableKind
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
+    Variable,
+    VariableKind,
+)
 
 
 def test_points_to_set_singleton_union_and_iteration(object_factory):
@@ -59,7 +62,9 @@ def test_state_rebases_external_points_to_sets_into_its_arena(
     assert empty_state.get_points_to(cvar).arena is empty_state.arena
 
 
-def test_state_sets_points_to_on_contextual_variables(empty_state, module_scope, simple_context, object_factory):
+def test_state_sets_points_to_on_contextual_variables(
+    empty_state, module_scope, simple_context, object_factory
+):
     cvar = empty_state.get_variable(module_scope, simple_context, Variable("x"))
     obj = object_factory()
 
@@ -70,14 +75,18 @@ def test_state_sets_points_to_on_contextual_variables(empty_state, module_scope,
 
 def test_state_resolves_global_variable_to_module_scope(empty_state, module_scope, simple_context):
     local = empty_state.get_variable(module_scope, simple_context, Variable("x"))
-    global_var = empty_state.get_variable(module_scope, simple_context, Variable("x", VariableKind.GLOBAL))
+    global_var = empty_state.get_variable(
+        module_scope, simple_context, Variable("x", VariableKind.GLOBAL)
+    )
 
     assert isinstance(local, Ctx)
     assert global_var.scope is module_scope
     assert global_var.context == module_scope.context
 
 
-def test_state_field_access_is_contextualized(empty_state, module_scope, simple_context, object_factory):
+def test_state_field_access_is_contextualized(
+    empty_state, module_scope, simple_context, object_factory
+):
     obj = object_factory(AllocKind.OBJECT)
     field = attr("value")
 
@@ -131,12 +140,8 @@ def test_heap_get_all_variables_returns_contextual_bindings(
 def test_selector_is_monotone_and_independent_of_candidate_arrival_order(
     empty_state, module_scope, simple_context, object_factory
 ):
-    high = NormalNode(
-        empty_state.get_variable(module_scope, simple_context, Variable("high"))
-    )
-    low = NormalNode(
-        empty_state.get_variable(module_scope, simple_context, Variable("low"))
-    )
+    high = NormalNode(empty_state.get_variable(module_scope, simple_context, Variable("high")))
+    low = NormalNode(empty_state.get_variable(module_scope, simple_context, Variable("low")))
     selector = SelectorNode()
     high_edge = PointerFlowEdge(high, selector, PointerFlowKind.NORMAL)
     low_edge = PointerFlowEdge(low, selector, PointerFlowKind.NORMAL)

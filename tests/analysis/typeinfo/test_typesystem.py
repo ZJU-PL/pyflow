@@ -255,9 +255,7 @@ A = TypeVar("A")
         ),
         (
             Callable[[int], str],
-            CallableType(
-                (Instance(ClassDescriptor(int)),), Instance(ClassDescriptor(str))
-            ),
+            CallableType((Instance(ClassDescriptor(int)),), Instance(ClassDescriptor(str))),
         ),
         (type[int], TypeType(Instance(ClassDescriptor(int)))),
         (NoReturn, NEVER),
@@ -533,7 +531,13 @@ def test_is_collection_type(typ, result):
 @pytest.mark.parametrize(
     "symbol,types",
     [
-        ("a", ("tests.analysis.typeinfo.fixtures.types.symbols.Foo", "tests.analysis.typeinfo.fixtures.types.symbols.Baz")),
+        (
+            "a",
+            (
+                "tests.analysis.typeinfo.fixtures.types.symbols.Foo",
+                "tests.analysis.typeinfo.fixtures.types.symbols.Baz",
+            ),
+        ),
         ("b", ("tests.analysis.typeinfo.fixtures.types.symbols.Bar",)),
         ("foo", ("tests.analysis.typeinfo.fixtures.types.symbols.Foo",)),
         (
@@ -564,9 +568,9 @@ def test_is_collection_type(typ, result):
 )
 def test_find_by_symbols(symbol, types):
     type_system = _build_type_system_from_module("tests.analysis.typeinfo.fixtures.types.symbols")
-    assert type_system.find_by_attribute(symbol) == OrderedSet([
-        type_system.find_class_descriptor("" + t) for t in types
-    ])
+    assert type_system.find_by_attribute(symbol) == OrderedSet(
+        [type_system.find_class_descriptor("" + t) for t in types]
+    )
 
 
 @pytest.mark.parametrize(

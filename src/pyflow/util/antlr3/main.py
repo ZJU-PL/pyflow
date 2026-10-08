@@ -12,13 +12,9 @@ class _Main(object):
 
     def parseOptions(self, argv):
         optParser = optparse.OptionParser()
-        optParser.add_option(
-            "--encoding", action="store", type="string", dest="encoding"
-        )
+        optParser.add_option("--encoding", action="store", type="string", dest="encoding")
         optParser.add_option("--input", action="store", type="string", dest="input")
-        optParser.add_option(
-            "--interactive", "-i", action="store_true", dest="interactive"
-        )
+        optParser.add_option("--interactive", "-i", action="store_true", dest="interactive")
         optParser.add_option("--no-output", action="store_true", dest="no_output")
         optParser.add_option("--profile", action="store_true", dest="profile")
         optParser.add_option("--hotshot", action="store_true", dest="hotshot")
@@ -54,9 +50,7 @@ class _Main(object):
                 inStream = antlr3.ANTLRFileStream(args[0], encoding=options.encoding)
 
             else:
-                inStream = antlr3.ANTLRInputStream(
-                    self.stdin, encoding=options.encoding
-                )
+                inStream = antlr3.ANTLRInputStream(self.stdin, encoding=options.encoding)
 
             if options.profile:
                 try:
@@ -82,9 +76,7 @@ class _Main(object):
                 import hotshot
 
                 profiler = hotshot.Profile("hotshot.dat")
-                profiler.runctx(
-                    "self.parseStream(options, inStream)", globals(), locals()
-                )
+                profiler.runctx("self.parseStream(options, inStream)", globals(), locals())
 
             else:
                 self.parseStream(options, inStream)

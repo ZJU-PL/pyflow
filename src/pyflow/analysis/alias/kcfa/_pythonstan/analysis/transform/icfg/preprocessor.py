@@ -26,10 +26,19 @@ from pycg.machinery.definitions import DefinitionManager, Definition
 from pycg import utils
 from pycg.processing.base import ProcessingBase
 
+
 class PreProcessor(ProcessingBase):
-    def __init__(self, filename, modname,
-            import_manager, scope_manager, def_manager, class_manager,
-            module_manager, modules_analyzed=None):
+    def __init__(
+        self,
+        filename,
+        modname,
+        import_manager,
+        scope_manager,
+        def_manager,
+        class_manager,
+        module_manager,
+        modules_analyzed=None,
+    ):
         super().__init__(filename, modname, modules_analyzed)
 
         self.modname = modname
@@ -40,7 +49,6 @@ class PreProcessor(ProcessingBase):
         self.def_manager = def_manager
         self.class_manager = class_manager
         self.module_manager = module_manager
-
 
     def _get_fun_defaults(self, node):
         defaults = {}
@@ -62,9 +70,16 @@ class PreProcessor(ProcessingBase):
         return defaults
 
     def analyze_submodule(self, modname):
-        super().analyze_submodule(PreProcessor, modname,
-            self.import_manager, self.scope_manager, self.def_manager, self.class_manager,
-            self.module_manager, modules_analyzed=self.get_modules_analyzed())
+        super().analyze_submodule(
+            PreProcessor,
+            modname,
+            self.import_manager,
+            self.scope_manager,
+            self.def_manager,
+            self.class_manager,
+            self.module_manager,
+            modules_analyzed=self.get_modules_analyzed(),
+        )
 
     def visit_Module(self, node):
         def iterate_mod_items(items, const):
@@ -91,8 +106,7 @@ class PreProcessor(ProcessingBase):
         root_sc = self.scope_manager.get_scope(self.modname)
         if not root_sc:
             # initialize module scopes
-            items = self.scope_manager.handle_module(self.modname,
-                self.filename, self.contents)
+            items = self.scope_manager.handle_module(self.modname, self.filename, self.contents)
 
             root_sc = self.scope_manager.get_scope(self.modname)
             root_defi = self.def_manager.get(self.modname)
@@ -113,7 +127,7 @@ class PreProcessor(ProcessingBase):
 
         super().visit_Module(node)
 
-    def visit_Import(self, node, prefix='', level=0):
+    def visit_Import(self, node, prefix="", level=0):
         """
         For imports of the form
             `from something import anything`
@@ -123,6 +137,7 @@ class PreProcessor(ProcessingBase):
         level is set to a number indicating the number
         of parent directories (e.g. in this case level=1)
         """
+
         def handle_src_name(name):
             # Get the module name and prepend prefix if necessary
             src_name = name
@@ -200,16 +215,18 @@ class PreProcessor(ProcessingBase):
             if not fname:
                 continue
             # only analyze modules under the current directory
-            if self.import_manager.get_mod_dir() in fname and \
-                not modname in self.modules_analyzed:
-                    self.analyze_submodule(modname)
-
+            if self.import_manager.get_mod_dir() in fname and not modname in self.modules_analyzed:
+                self.analyze_submodule(modname)
 
     def visit_ImportFrom(self, node):
         self.visit_Import(node, prefix=node.module, level=node.level)
 
     def _get_last_line(self, node):
-        lines = sorted(list(ast.walk(node)), key=lambda x: x.lineno if hasattr(x, "lineno") else 0, reverse=True)
+        lines = sorted(
+            list(ast.walk(node)),
+            key=lambda x: x.lineno if hasattr(x, "lineno") else 0,
+            reverse=True,
+        )
         if not lines:
             return node.lineno
 
@@ -238,10 +255,17 @@ class PreProcessor(ProcessingBase):
         is_static_method = False
         if hasattr(node, "decorator_list"):
             for decorator in node.decorator_list:
-                if isinstance(decorator, ast.Name) and decorator.id == utils.constants.STATIC_METHOD:
+                if (
+                    isinstance(decorator, ast.Name)
+                    and decorator.id == utils.constants.STATIC_METHOD
+                ):
                     is_static_method = True
 
-        if current_def.get_type() == utils.constants.CLS_DEF and not is_static_method and node.args.args:
+        if (
+            current_def.get_type() == utils.constants.CLS_DEF
+            and not is_static_method
+            and node.args.args
+        ):
             arg_ns = utils.join_ns(fn_def.get_ns(), node.args.args[0].arg)
             arg_def = self.def_manager.get(arg_ns)
             if not arg_def:
@@ -263,9 +287,9 @@ class PreProcessor(ProcessingBase):
             defs_to_create.append(arg_ns)
 
         # TODO: Add support for kwargs and varargs
-        #if node.args.kwarg:
+        # if node.args.kwarg:
         #    pass
-        #if node.args.vararg:
+        # if node.args.vararg:
         #    pass
 
         for arg_ns in defs_to_create:

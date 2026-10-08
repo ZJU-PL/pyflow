@@ -24,11 +24,7 @@ def test_capabilities_cli_json(tmp_path, capsys) -> None:
     assert run_capabilities(args) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "complete"
-    direct = next(
-        finding
-        for finding in payload["findings"]
-        if finding["report_kind"] == "direct"
-    )
+    direct = next(finding for finding in payload["findings"] if finding["report_kind"] == "direct")
     assert direct["capability"] == "process.execute"
     assert direct["location"]["line"] == 2
 

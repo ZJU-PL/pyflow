@@ -139,9 +139,7 @@ class TestCFGRegressions(unittest.TestCase):
                 [
                     pyflow_ast.Break(),
                     pyflow_ast.Continue(),
-                    pyflow_ast.Discard(
-                        pyflow_ast.Existing(pyflow_ast.program.Object("reachable"))
-                    ),
+                    pyflow_ast.Discard(pyflow_ast.Existing(pyflow_ast.program.Object("reachable"))),
                 ]
             ),
         )
@@ -239,9 +237,7 @@ class TestCFGRegressions(unittest.TestCase):
 
         catalog, graph, code = _ssa_fixture((original, target, arg))
         key = ssa.local_key(catalog, code, original)
-        renamer = ssa.SSARename(
-            graph, set(), {merge: {key}}, {key: original}, catalog
-        )
+        renamer = ssa.SSARename(graph, set(), {merge: {key}}, {key: original}, catalog)
         renamer.frames = {
             merge: {key: target},
             prev_true: {key: arg},
@@ -320,9 +316,7 @@ class TestCFGRegressions(unittest.TestCase):
                         None,
                         None,
                     ),
-                    pyflow_ast.Assign(
-                        pyflow_ast.Existing(pyflow_ast.program.Object(1)), [dead]
-                    ),
+                    pyflow_ast.Assign(pyflow_ast.Existing(pyflow_ast.program.Object(1)), [dead]),
                 ]
             ),
         )
@@ -424,9 +418,7 @@ def callee(x):
         )
         caller_cfg = transform.CFGTransformer().process(caller)
 
-        remap = inline.evaluate(
-            self.compiler, caller_cfg, {callee_object: callee_cfg}
-        )
+        remap = inline.evaluate(self.compiler, caller_cfg, {callee_object: callee_cfg})
 
         self.assertEqual(len(remap.call_sites), 1)
         self.assertEqual(next(iter(remap.call_sites.values())), ())
@@ -450,10 +442,7 @@ def callee(x):
             )
         )
         self.assertTrue(
-            any(
-                isinstance(op, pyflow_ast.Assign) and result in op.lcls
-                for op in operations
-            )
+            any(isinstance(op, pyflow_ast.Assign) and result in op.lcls for op in operations)
         )
 
     def test_transform_handles_global_and_nonlocal_declarations(self):
@@ -490,7 +479,11 @@ def outer():
                 type_params=None,
             ),
             pyflow_ast.Suite(
-                [pyflow_ast.TypeAlias("Alias", [], pyflow_ast.Existing(pyflow_ast.program.Object(int)))]
+                [
+                    pyflow_ast.TypeAlias(
+                        "Alias", [], pyflow_ast.Existing(pyflow_ast.program.Object(int))
+                    )
+                ]
             ),
         )
         graph = transform.evaluate(self.compiler, code)

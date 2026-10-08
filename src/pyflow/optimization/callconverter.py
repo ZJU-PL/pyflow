@@ -113,15 +113,11 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.ConvertToBool)
     def visitConvertToBool(self, node):
-        return self.directCall(
-            node, self.exports["convertToBool"], None, [self(node.expr)]
-        )
+        return self.directCall(node, self.exports["convertToBool"], None, [self(node.expr)])
 
     @dispatch(ast.Not)
     def visitNot(self, node):
-        return self.directCall(
-            node, self.exports["invertedConvertToBool"], None, [self(node.expr)]
-        )
+        return self.directCall(node, self.exports["invertedConvertToBool"], None, [self(node.expr)])
 
     @dispatch(ast.BinaryOp)
     def visitBinaryOp(self, node):
@@ -167,15 +163,11 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.GetIter)
     def visitGetIter(self, node):
-        return self.directCall(
-            node, self.exports["interpreter_iter"], None, [self(node.expr)]
-        )
+        return self.directCall(node, self.exports["interpreter_iter"], None, [self(node.expr)])
 
     @dispatch(ast.BuildList)
     def visitBuildList(self, node):
-        code = self.exports.get("buildList") or self.exports.get(
-            "interpreter_buildList"
-        )
+        code = self.exports.get("buildList") or self.exports.get("interpreter_buildList")
         if code is None:
             # Fallback: leave node shape but convert children
             return node.rewriteChildren(self)

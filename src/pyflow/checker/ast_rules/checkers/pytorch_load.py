@@ -4,6 +4,7 @@ B611: Test for unsafe PyTorch model loading.
 PyTorch model loading with pickle can execute arbitrary code
 during deserialization. Use weights_only=True when available.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
@@ -13,7 +14,8 @@ from ..core import test_properties as test
 def pytorch_load_unsafe(context):
     qualname = context.call_function_name_qual
     if qualname not in {
-        "torch.load", "torch.hub.load",
+        "torch.load",
+        "torch.hub.load",
         "torch.hub.download_url_to_file",
     }:
         return None

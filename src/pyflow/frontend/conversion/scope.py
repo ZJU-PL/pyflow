@@ -111,11 +111,7 @@ def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis
             for expression in (
                 *node.decorator_list,
                 *node.args.defaults,
-                *(
-                    default
-                    for default in node.args.kw_defaults
-                    if default is not None
-                ),
+                *(default for default in node.args.kw_defaults if default is not None),
             ):
                 scan(
                     expression,
@@ -128,11 +124,7 @@ def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis
             for expression in (
                 *node.decorator_list,
                 *node.args.defaults,
-                *(
-                    default
-                    for default in node.args.kw_defaults
-                    if default is not None
-                ),
+                *(default for default in node.args.kw_defaults if default is not None),
             ):
                 zero_only(expression)
 
@@ -306,9 +298,7 @@ def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis
 
     child_candidates = []
     for child in direct_children:
-        candidates = (
-            child.loaded - child.bound - child.global_names
-        ) | child.nonlocal_names
+        candidates = (child.loaded - child.bound - child.global_names) | child.nonlocal_names
         child_candidates.append(frozenset(candidates))
     return FunctionBodyAnalysis(
         frozenset(root.global_names),
@@ -530,9 +520,7 @@ def direct_child_captures(
     body_nodes: Sequence[ast.AST],
     parent_bound: set[str],
     *,
-    scope_names: Callable[
-        [Sequence[ast.AST]], tuple[set[str], set[str]]
-    ] = collect_scope_names,
+    scope_names: Callable[[Sequence[ast.AST]], tuple[set[str], set[str]]] = collect_scope_names,
     scope_directives: Callable[
         [Sequence[ast.AST]], tuple[set[str], set[str]]
     ] = collect_direct_scope_directives,

@@ -42,9 +42,7 @@ class StaticBugFinder:
                 sinks=sinks or None,
                 sanitizers=sanitizers or None,
                 frameworks=(
-                    None
-                    if self.config.frameworks is None
-                    else tuple(self.config.frameworks)
+                    None if self.config.frameworks is None else tuple(self.config.frameworks)
                 ),
                 registry_paths=tuple(self.config.registry_paths),
             )

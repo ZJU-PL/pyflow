@@ -219,9 +219,7 @@ class CallConstraint(UserCallConstraint):
 
 class DirectCallConstraint(UserCallConstraint):
     def __init__(self, context, op, code, selfarg, args, kwds, varg, karg, targets):
-        UserCallConstraint.__init__(
-            self, context, op, selfarg, args, kwds, varg, karg, targets
-        )
+        UserCallConstraint.__init__(self, context, op, selfarg, args, kwds, varg, karg, targets)
         self.code = code
 
     def getCode(self, context, selfobj):
@@ -317,15 +315,13 @@ class ConcreteCallConstraint(AbstractCall):
                     self.selfarg,
                     self.args,
                     vargSlots,
-                    [],           # defaultSlots (none for concrete calls)
+                    [],  # defaultSlots (none for concrete calls)
                     self.targets,
                 )
 
 
 class FlatCallConstraint(AbstractCall):
-    def __init__(
-        self, context, op, code, selfarg, args, vargSlots, defaultSlots, targets
-    ):
+    def __init__(self, context, op, code, selfarg, args, vargSlots, defaultSlots, targets):
         assert argIsOK(selfarg), selfarg
 
         AbstractCall.__init__(self)

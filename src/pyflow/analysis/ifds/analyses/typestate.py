@@ -35,9 +35,7 @@ class TypestateConfiguration:
     use_names: FrozenSet[str] = frozenset({"read", "write", "send", "recv"})
     resource_arg_positions: FrozenSet[int] = frozenset({0})
     track_method_receiver: bool = True
-    collection_mutator_names: FrozenSet[str] = frozenset(
-        {"append", "add", "extend", "update"}
-    )
+    collection_mutator_names: FrozenSet[str] = frozenset({"append", "add", "extend", "update"})
     collection_accessor_names: FrozenSet[str] = frozenset({"get"})
     enabled_protocols: FrozenSet[str] = frozenset({"resource"})
     extra_protocols: tuple[TypestateProtocol, ...] = ()
@@ -81,9 +79,7 @@ class TypestateFinding:
 class TypestateAnalysisResult:
     """Query wrapper for typestate results."""
 
-    def __init__(
-        self, ifds_result, findings: Sequence[TypestateFinding], problem
-    ) -> None:
+    def __init__(self, ifds_result, findings: Sequence[TypestateFinding], problem) -> None:
         self._ifds_result = ifds_result
         self.findings = tuple(findings)
         self._problem = problem
@@ -103,9 +99,7 @@ class TypestateAnalysisResult:
 
     def resource_facts_at(self, node: CFGNode):
         return frozenset(
-            fact
-            for fact in self._ifds_result.facts_at(node)
-            if isinstance(fact, ResourceStateFact)
+            fact for fact in self._ifds_result.facts_at(node) if isinstance(fact, ResourceStateFact)
         )
 
     @property
@@ -190,9 +184,7 @@ class InterproceduralTypestateProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_TYPESTATE)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
-        if node.kind == "call" and self.adapter.is_exceptional_successor(
-            node, successor
-        ):
+        if node.kind == "call" and self.adapter.is_exceptional_successor(node, successor):
             return self._identity_outputs(fact, ())
         local_call_outputs = self._local_call_outputs(node, fact)
         if local_call_outputs is not None:
@@ -204,9 +196,7 @@ class InterproceduralTypestateProblem(
             return self._identity_outputs(fact, ())
 
         killed = self._killed_locations_for_node(node)
-        dynamic_setattr_locations = self._dynamic_setattr_locations(
-            node.procedure, operation
-        )
+        dynamic_setattr_locations = self._dynamic_setattr_locations(node.procedure, operation)
         if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_setattr_value(node.procedure, operation)
@@ -217,9 +207,7 @@ class InterproceduralTypestateProblem(
                 and self._expr_has_state(node.procedure, value, fact)
             ):
                 outputs.update(
-                    self._make_resource_fact(
-                        location, state, protocol=self._fact_protocol(fact)
-                    )
+                    self._make_resource_fact(location, state, protocol=self._fact_protocol(fact))
                     for location in dynamic_setattr_locations
                 )
             return tuple(outputs)
@@ -245,9 +233,7 @@ class InterproceduralTypestateProblem(
                     )
                 )
                 outputs.update(
-                    self._make_resource_fact(
-                        location, state, protocol=self._fact_protocol(fact)
-                    )
+                    self._make_resource_fact(location, state, protocol=self._fact_protocol(fact))
                     for location in dynamic_subscript_locations
                 )
             return tuple(outputs)
@@ -269,8 +255,7 @@ class InterproceduralTypestateProblem(
             if (
                 state is not None
                 and any(
-                    self._expr_has_state(node.procedure, value, fact)
-                    for value in collection_values
+                    self._expr_has_state(node.procedure, value, fact) for value in collection_values
                 )
                 or (
                     state is not None
@@ -279,22 +264,16 @@ class InterproceduralTypestateProblem(
                 )
             ):
                 outputs.update(
-                    self._make_resource_fact(
-                        location, state, protocol=self._fact_protocol(fact)
-                    )
+                    self._make_resource_fact(location, state, protocol=self._fact_protocol(fact))
                     for location in collection_locations
                 )
                 outputs.update(
-                    self._make_resource_fact(
-                        location, state, protocol=self._fact_protocol(fact)
-                    )
+                    self._make_resource_fact(location, state, protocol=self._fact_protocol(fact))
                     for location in copy_locations
                 )
             return tuple(outputs)
 
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
             expr = getattr(operation, "expr", None)
             if isinstance(operation, py_ast.AnnAssign):
@@ -330,9 +309,7 @@ class InterproceduralTypestateProblem(
             state = self._fact_state(fact)
             if state is not None:
                 outputs.update(
-                    self._make_resource_fact(
-                        location, state, protocol=self._fact_protocol(fact)
-                    )
+                    self._make_resource_fact(location, state, protocol=self._fact_protocol(fact))
                     for location in self._aliased_dynamic_locations_for_assignment(
                         node.procedure,
                         operation,
@@ -511,9 +488,7 @@ class InterproceduralTypestateProblem(
 
         return tuple(outputs)
 
-    def call_to_return_flow(
-        self, call_node: CFGNode, return_site: CFGNode, fact: object
-    ):
+    def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
         call_effect = self._call_effect(call_node)
         operation = (
@@ -521,9 +496,7 @@ class InterproceduralTypestateProblem(
             if call_effect is not None
             else self.adapter.operation_of(call_node)
         )
-        call_expression = (
-            call_effect.call_expression if call_effect is not None else None
-        )
+        call_expression = call_effect.call_expression if call_effect is not None else None
         self._mark_unresolved_call_arguments_escaped(call_node, call_expression)
         self._materialize_unresolved_call_summary(
             call_node,
@@ -568,10 +541,7 @@ class InterproceduralTypestateProblem(
         for action in self._actions_for_call(call_node, model, fact=fact):
             transition = self.engine.transition(action, state)
             if transition is not None and transition.to_state is not None:
-                if (
-                    isinstance(fact, ResourceStateFact)
-                    and fact.location in resource_locations
-                ):
+                if isinstance(fact, ResourceStateFact) and fact.location in resource_locations:
                     outputs.discard(fact)
                     outputs.add(
                         self._make_resource_fact(
@@ -619,13 +589,9 @@ class InterproceduralTypestateProblem(
                 continue
             model = self._call_model_for_node(node)
             call_name = (
-                call_effect.call_name
-                if call_effect is not None
-                else self._call_name(node)
+                call_effect.call_name if call_effect is not None else self._call_name(node)
             ) or "<call>"
-            locations = self._resource_locations_for_call(
-                node.procedure, call, model=model
-            )
+            locations = self._resource_locations_for_call(node.procedure, call, model=model)
             for action in self._actions_for_call(node, model):
                 protocol = self.engine.protocol_name_for_action(action)
                 if protocol is None:
@@ -653,12 +619,9 @@ class InterproceduralTypestateProblem(
                 for fact in result.facts_at(exit_node):
                     if not isinstance(fact, ResourceStateFact):
                         continue
-                    for obligation in self.engine.exit_violations_for(
-                        fact.protocol, fact.state
-                    ):
-                        if (
-                            obligation.suppress_when_escaped
-                            and self._fact_transfers_ownership(procedure, fact)
+                    for obligation in self.engine.exit_violations_for(fact.protocol, fact.state):
+                        if obligation.suppress_when_escaped and self._fact_transfers_ownership(
+                            procedure, fact
                         ):
                             continue
                         record(
@@ -891,9 +854,7 @@ class InterproceduralTypestateProblem(
     def _name_matches_constraint(self, name: str, constraint: str) -> bool:
         return name == constraint or name.endswith(f".{constraint}")
 
-    def _fact_matches_receiver_types(
-        self, fact: object, receiver_types: frozenset[str]
-    ) -> bool:
+    def _fact_matches_receiver_types(self, fact: object, receiver_types: frozenset[str]) -> bool:
         location = self._location_from_fact(fact)
         if location is None:
             return False
@@ -961,9 +922,7 @@ class InterproceduralTypestateProblem(
         except Exception:
             return False
 
-    def _fact_transfers_ownership(
-        self, procedure: cfg_graph.Code, fact: ResourceStateFact
-    ) -> bool:
+    def _fact_transfers_ownership(self, procedure: cfg_graph.Code, fact: ResourceStateFact) -> bool:
         if self._location_escaped(fact.location):
             return True
         return self._return_fact_index(procedure, fact) is not None
@@ -982,9 +941,7 @@ class InterproceduralTypestateProblem(
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 location
                 for local in assigned_locals(operation)
@@ -992,8 +949,7 @@ class InterproceduralTypestateProblem(
             )
         if isinstance(operation, py_ast.Delete):
             return tuple(
-                location
-                for location in self._locations_for_local(procedure, operation.lcl)
+                location for location in self._locations_for_local(procedure, operation.lcl)
             )
         if isinstance(operation, py_ast.InputBlock):
             locals_ = []
@@ -1039,10 +995,7 @@ class InterproceduralTypestateProblem(
                 for local in assigned_locals(operation)
                 for location in self._locations_for_local(procedure, local)
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 location
                 for local in assigned_locals(operation)
@@ -1150,9 +1103,7 @@ class InterproceduralTypestateProblem(
             )
         )
         return {
-            self._make_resource_fact(
-                location, state, access_path=access_path, protocol=protocol
-            )
+            self._make_resource_fact(location, state, access_path=access_path, protocol=protocol)
             for location in locations
         }
 
@@ -1182,9 +1133,7 @@ class InterproceduralTypestateProblem(
             )
             return (
                 *dynamic_facts,
-                self._make_expression_state_fact(
-                    procedure, current, state, protocol=protocol
-                ),
+                self._make_expression_state_fact(procedure, current, state, protocol=protocol),
             )
         return tuple(
             self._make_resource_fact(location, state, protocol=protocol)
@@ -1243,10 +1192,7 @@ class InterproceduralTypestateProblem(
                 return_index,
                 protocol=protocol,
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
                 facts = {
                     self._make_expression_state_fact(
@@ -1287,9 +1233,7 @@ class InterproceduralTypestateProblem(
                         protocol=protocol,
                     )
                 }
-            target_index = self._call_result_target_index(
-                operation, call_expression, return_index
-            )
+            target_index = self._call_result_target_index(operation, call_expression, return_index)
             if target_index is not None:
                 return self._facts_for_return_location(
                     procedure,
@@ -1358,15 +1302,12 @@ class InterproceduralTypestateProblem(
             return None
         for index, local in enumerate(procedure.code.codeparameters.returnparams):
             if any(
-                candidate == location
-                for candidate in self._locations_for_local(procedure, local)
+                candidate == location for candidate in self._locations_for_local(procedure, local)
             ):
                 return index
         return None
 
-    def _expr_has_state(
-        self, procedure: cfg_graph.Code, expr: object, fact: object
-    ) -> bool:
+    def _expr_has_state(self, procedure: cfg_graph.Code, expr: object, fact: object) -> bool:
         state = self._fact_state(fact)
         if state is None:
             return False
@@ -1404,9 +1345,7 @@ class InterproceduralTypestateProblem(
         visit(expr)
         return found
 
-    def _formal_for_fact(
-        self, procedure: cfg_graph.Code, fact: object
-    ) -> py_ast.Local | None:
+    def _formal_for_fact(self, procedure: cfg_graph.Code, fact: object) -> py_ast.Local | None:
         location = self._location_from_fact(fact)
         if location is None:
             return None
@@ -1417,18 +1356,13 @@ class InterproceduralTypestateProblem(
         candidates.extend(
             param for param in params.posonlyparams if isinstance(param, py_ast.Local)
         )
+        candidates.extend(param for param in params.params if isinstance(param, py_ast.Local))
         candidates.extend(
-            param for param in params.params if isinstance(param, py_ast.Local)
-        )
-        candidates.extend(
-            param
-            for param in (params.vparam, params.kparam)
-            if isinstance(param, py_ast.Local)
+            param for param in (params.vparam, params.kparam) if isinstance(param, py_ast.Local)
         )
         for local in candidates:
             if any(
-                candidate == location
-                for candidate in self._locations_for_local(procedure, local)
+                candidate == location for candidate in self._locations_for_local(procedure, local)
             ):
                 return local
         return None
@@ -1519,9 +1453,7 @@ class InterproceduralTypestateAnalysis:
             else IFDSSolver(record_traces=self.record_traces)
         )
         result = solver.solve(self.problem)
-        return TypestateAnalysisResult(
-            result, self.problem.findings(result), self.problem
-        )
+        return TypestateAnalysisResult(result, self.problem.findings(result), self.problem)
 
 
 def analyze_typestate(

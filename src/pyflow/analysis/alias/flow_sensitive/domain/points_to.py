@@ -52,14 +52,10 @@ class HeapValueSnapshot:
     scalar_present: "frozenset[HeapLocation]" = frozenset()
     definitely_scalar_present: "frozenset[HeapLocation]" = frozenset()
     precise_shadows: "frozenset[HeapLocation]" = frozenset()
-    locals: "dict[tuple[object, str], frozenset[HeapLocation]]" = field(
-        default_factory=dict
-    )
+    locals: "dict[tuple[object, str], frozenset[HeapLocation]]" = field(default_factory=dict)
     locals_non_reference: "frozenset[tuple[object, str]]" = frozenset()
     locals_unbound: "frozenset[tuple[object, str]]" = frozenset()
-    returns: "dict[object, tuple[frozenset[HeapLocation], ...]]" = field(
-        default_factory=dict
-    )
+    returns: "dict[object, tuple[frozenset[HeapLocation], ...]]" = field(default_factory=dict)
     yields: "dict[object, frozenset[HeapLocation]]" = field(default_factory=dict)
     raised: "dict[object, frozenset[HeapLocation]]" = field(default_factory=dict)
 
@@ -141,12 +137,8 @@ class PointsToGraph:
     allow_strong_nested_fresh: bool = False
     """Whether exact paths below singleton roots admit strong updates."""
 
-    heap_values: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
-        default_factory=dict
-    )
-    heap_contaminants: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
-        default_factory=dict
-    )
+    heap_values: "dict[HeapLocation, frozenset[HeapLocation]]" = field(default_factory=dict)
+    heap_contaminants: "dict[HeapLocation, frozenset[HeapLocation]]" = field(default_factory=dict)
     program_point_values: dict[
         object,
         tuple[
@@ -178,9 +170,9 @@ class PointsToGraph:
     program_point_precise_shadows: (
         "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
     ) = field(default_factory=dict)
-    program_point_complete_roots: (
-        "dict[object, tuple[frozenset[object], frozenset[object]]]"
-    ) = field(default_factory=dict)
+    program_point_complete_roots: "dict[object, tuple[frozenset[object], frozenset[object]]]" = (
+        field(default_factory=dict)
+    )
     program_point_outcomes: "dict[object, dict[str, HeapValueSnapshot]]" = field(
         default_factory=dict
     )
@@ -279,8 +271,8 @@ class PointsToGraph:
                 point_absent = self.program_point_absent.get(operation_key)
                 point_complete = self.program_point_complete_roots.get(operation_key)
                 point_scalar = self.program_point_scalar_present.get(operation_key)
-                point_definitely_scalar = (
-                    self.program_point_definitely_scalar_present.get(operation_key)
+                point_definitely_scalar = self.program_point_definitely_scalar_present.get(
+                    operation_key
                 )
                 point_shadows = self.program_point_precise_shadows.get(operation_key)
                 if point_absent is not None:
@@ -318,9 +310,7 @@ class PointsToGraph:
         definitely_absent = (
             location in absent
             or (
-                location.root in complete_roots
-                and not locations
-                and location not in scalar_present
+                location.root in complete_roots and not locations and location not in scalar_present
             )
         ) and not has_overlapping_contaminant
         includes_unknown = any(
@@ -353,19 +343,15 @@ class PointsToGraph:
         name = getattr(local, "name", local)
         key = (self._procedure_key(procedure), str(name))
         if outcome is not None:
-            snapshot = self.program_point_outcomes.get(
-                self._operation_key(operation), {}
-            ).get(outcome)
+            snapshot = self.program_point_outcomes.get(self._operation_key(operation), {}).get(
+                outcome
+            )
             if snapshot is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = snapshot.locals.get(key, frozenset())
             includes_non_reference = key in snapshot.locals_non_reference
             may_unbound = key in snapshot.locals_unbound
-            known = (
-                key in snapshot.locals
-                or includes_non_reference
-                or may_unbound
-            )
+            known = key in snapshot.locals or includes_non_reference or may_unbound
         else:
             pair = self.program_point_locals.get(self._operation_key(operation))
             if pair is None:
@@ -382,24 +368,14 @@ class PointsToGraph:
             )
             includes_non_reference = key in non_reference_pair[index]
             may_unbound = key in unbound_pair[index]
-            known = (
-                key in pair[index]
-                or includes_non_reference
-                or may_unbound
-            )
+            known = key in pair[index] or includes_non_reference or may_unbound
         return PossibleValues(
             locations,
             includes_unknown=any(
-                self._root_value_is_unknown(location.root.kind)
-                for location in locations
+                self._root_value_is_unknown(location.root.kind) for location in locations
             ),
             definitely_absent=(
-                not known
-                or (
-                    may_unbound
-                    and not locations
-                    and not includes_non_reference
-                )
+                not known or (may_unbound and not locations and not includes_non_reference)
             ),
             includes_non_reference=includes_non_reference,
         )
@@ -422,9 +398,7 @@ class PointsToGraph:
         precise_shadows: "frozenset[HeapLocation]",
     ) -> bool:
         return (
-            location.is_precise()
-            and location in precise_shadows
-            and not contaminant.is_precise()
+            location.is_precise() and location in precise_shadows and not contaminant.is_precise()
         )
 
     def outcome_snapshot(
@@ -520,11 +494,7 @@ class PointsToGraph:
         if entry is None:
             return False
         if location.is_nested():
-            return (
-                location.is_precise()
-                and self.allow_strong_nested_fresh
-                and entry.is_singleton
-            )
+            return location.is_precise() and self.allow_strong_nested_fresh and entry.is_singleton
         return entry.update_policy is UpdatePolicy.STRONG
 
     def receiver_cardinality(
@@ -567,12 +537,7 @@ class PointsToGraph:
         It is suitable for repeated dynamic reads whose provenance is stable
         while the produced object may be fresh on each evaluation.
         """
-        return (
-            a.root == b.root
-            and a.selectors == b.selectors
-            and a.is_precise()
-            and b.is_precise()
-        )
+        return a.root == b.root and a.selectors == b.selectors and a.is_precise() and b.is_precise()
 
     def may_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* **may** refer to the same storage.
@@ -704,9 +669,7 @@ class PointsToGraph:
 
     def degradations_at(self, operation: object) -> "frozenset[str]":
         """Return reasons this program point was conservatively degraded."""
-        return self.precision_degradations.get(
-            self._operation_key(operation), frozenset()
-        )
+        return self.precision_degradations.get(self._operation_key(operation), frozenset())
 
     def _operation_key(self, operation: object) -> object:
         return self.operation_identities.get(operation, operation)
@@ -749,15 +712,11 @@ class PointsToGraph:
 
     def escaped_locations(self) -> "frozenset[HeapLocation]":
         """Return all root locations that have been marked escaped."""
-        return frozenset(
-            entry.location for entry in self.entries.values() if entry.is_escaped
-        )
+        return frozenset(entry.location for entry in self.entries.values() if entry.is_escaped)
 
     def singleton_locations(self) -> "frozenset[HeapLocation]":
         """Return all root locations eligible for strong updates."""
-        return frozenset(
-            entry.location for entry in self.entries.values() if entry.is_singleton
-        )
+        return frozenset(entry.location for entry in self.entries.values() if entry.is_singleton)
 
     # ── bulk queries ───────────────────────────────────────────────────
 

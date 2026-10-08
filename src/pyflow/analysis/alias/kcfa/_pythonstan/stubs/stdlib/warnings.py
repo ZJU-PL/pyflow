@@ -6,8 +6,16 @@ def warn(message, category=None, stacklevel=1, source=None):
     pass
 
 
-def warn_explicit(message, category, filename, lineno, module=None, registry=None,
-                  module_globals=None, source=None):
+def warn_explicit(
+    message,
+    category,
+    filename,
+    lineno,
+    module=None,
+    registry=None,
+    module_globals=None,
+    source=None,
+):
     pass
 
 
@@ -19,7 +27,7 @@ def formatwarning(message, category, filename, lineno, line=None):
     return f"{filename}:{lineno}: {category.__name__}: {message}\n"
 
 
-def filterwarnings(action, message='', category=Warning, module='', lineno=0, append=False):
+def filterwarnings(action, message="", category=Warning, module="", lineno=0, append=False):
     entry = (action, message, category, module, lineno)
     if append:
         filters.append(entry)
@@ -28,7 +36,7 @@ def filterwarnings(action, message='', category=Warning, module='', lineno=0, ap
 
 
 def simplefilter(action, category=Warning, lineno=0, append=False):
-    filterwarnings(action, '', category, '', lineno, append)
+    filterwarnings(action, "", category, "", lineno, append)
 
 
 def resetwarnings():

@@ -18,7 +18,9 @@ class Signature:
 
     def __init__(self, parameters=None, return_annotation=None):
         self.parameters = {} if parameters is None else {p.name: p for p in parameters}
-        self.return_annotation = return_annotation if return_annotation is not None else Signature.empty
+        self.return_annotation = (
+            return_annotation if return_annotation is not None else Signature.empty
+        )
 
     def bind(self, *args, **kwargs):
         return BoundArguments(self, args, kwargs)
@@ -53,11 +55,11 @@ def getmembers_static(obj, predicate=None):
 
 
 def getmodule(obj, _filename=None):
-    return obj.__module__ if hasattr(obj, '__module__') else None
+    return obj.__module__ if hasattr(obj, "__module__") else None
 
 
 def getfile(obj):
-    return obj.__file__ if hasattr(obj, '__file__') else ""
+    return obj.__file__ if hasattr(obj, "__file__") else ""
 
 
 def getsourcefile(obj):
@@ -73,7 +75,7 @@ def getsource(obj):
 
 
 def getdoc(obj):
-    return obj.__doc__ if hasattr(obj, '__doc__') else None
+    return obj.__doc__ if hasattr(obj, "__doc__") else None
 
 
 def getcomments(obj):
@@ -81,11 +83,11 @@ def getcomments(obj):
 
 
 def getmodulename(path):
-    return path.rpartition('/')[2].rpartition('.')[0]
+    return path.rpartition("/")[2].rpartition(".")[0]
 
 
 def ismodule(obj):
-    return hasattr(obj, '__name__') and hasattr(obj, '__file__')
+    return hasattr(obj, "__name__") and hasattr(obj, "__file__")
 
 
 def isclass(obj):
@@ -93,11 +95,11 @@ def isclass(obj):
 
 
 def ismethod(obj):
-    return hasattr(obj, '__self__') and hasattr(obj, '__func__')
+    return hasattr(obj, "__self__") and hasattr(obj, "__func__")
 
 
 def isfunction(obj):
-    return callable(obj) and hasattr(obj, '__code__')
+    return callable(obj) and hasattr(obj, "__code__")
 
 
 def isgeneratorfunction(obj):
@@ -105,7 +107,7 @@ def isgeneratorfunction(obj):
 
 
 def isgenerator(obj):
-    return hasattr(obj, '__next__') and hasattr(obj, 'send')
+    return hasattr(obj, "__next__") and hasattr(obj, "send")
 
 
 def iscoroutinefunction(obj):
@@ -137,11 +139,11 @@ def isroutine(obj):
 
 
 def isabstract(obj):
-    return getattr(obj, '__abstractmethods__', False)
+    return getattr(obj, "__abstractmethods__", False)
 
 
 def isdatadescriptor(obj):
-    return hasattr(obj, '__get__') and hasattr(obj, '__set__')
+    return hasattr(obj, "__get__") and hasattr(obj, "__set__")
 
 
 def isgetsetdescriptor(obj):
@@ -235,7 +237,7 @@ class _Code:
 
 
 def unwrap(func, stop=None):
-    while hasattr(func, '__wrapped__'):
+    while hasattr(func, "__wrapped__"):
         if stop is not None and stop(func):
             break
         func = func.__wrapped__
@@ -243,4 +245,4 @@ def unwrap(func, stop=None):
 
 
 def get_annotations(obj, globals=None, locals=None, eval_str=False):
-    return getattr(obj, '__annotations__', {})
+    return getattr(obj, "__annotations__", {})

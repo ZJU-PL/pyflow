@@ -23,7 +23,7 @@ def get_root(path: str, names: List[str]) -> str:
     else:
         module_path = path_obj
     parts = module_path.parts
-    root_parts = parts[: -prev_num] if prev_num <= len(parts) else parts
+    root_parts = parts[:-prev_num] if prev_num <= len(parts) else parts
     if not root_parts:
         return path_obj.anchor if path_obj.is_absolute() else ""
     return str(Path(*root_parts))
@@ -35,30 +35,30 @@ class Namespace:
     names: List[str]
     empty_ns = None
 
-    ns_dict: Dict[str, 'Namespace'] = {}
+    ns_dict: Dict[str, "Namespace"] = {}
 
     def __init__(self, names):
         assert len(names) > 0, "Cannot  construct empty namespace"
         self.names = names
-        self.ns_dict['.'.join(names)] = self
+        self.ns_dict[".".join(names)] = self
 
     def __str__(self):
-        return '.'.join(self.names)
+        return ".".join(self.names)
 
     @classmethod
-    def build(cls, names: List[str]) -> 'Namespace':
-        name_str = '.'.join(names)
+    def build(cls, names: List[str]) -> "Namespace":
+        name_str = ".".join(names)
         if name_str in cls.ns_dict:
             return cls.ns_dict[name_str]
         else:
             return cls(names)
 
     @classmethod
-    def from_str(cls, name_str: str) -> 'Namespace':
-        return cls.build(name_str.split('.'))
+    def from_str(cls, name_str: str) -> "Namespace":
+        return cls.build(name_str.split("."))
 
     @classmethod
-    def from_path(cls, filename: str) -> 'Namespace':
+    def from_path(cls, filename: str) -> "Namespace":
         path_obj = Path(filename)
         if path_obj.name == "__init__.py":
             module_path = path_obj.parent
@@ -72,11 +72,11 @@ class Namespace:
         return cls(parts)
 
     def to_str(self):
-        return '.'.join(self.names)
-    
+        return ".".join(self.names)
+
     def __str__(self):
         return self.to_str()
-    
+
     def __repr__(self) -> str:
         return self.to_str()
 
@@ -87,7 +87,7 @@ class Namespace:
         return path
 
     def to_dirpath(self, rootpath: Optional[str] = None) -> str:
-        path =  f'{"/".join(self.names)}/__init__.py'
+        path = f'{"/".join(self.names)}/__init__.py'
         if rootpath is not None:
             path = os.path.join(rootpath, path)
         return path
@@ -95,27 +95,27 @@ class Namespace:
     def base(self):
         return self.names[0]
 
-    def relative_ns(self, names: List[str], level: int) -> 'Namespace':
+    def relative_ns(self, names: List[str], level: int) -> "Namespace":
         assert level >= 0
         assert len(self.names) >= level
-        
+
         # TODO names=[''] is a special case, need to be clarified in the future
-        if len(names) == 1 and names[0] == '':
+        if len(names) == 1 and names[0] == "":
             return self
-        
+
         if level > 0:
-            return self.build(self.names[: -level] + names)
+            return self.build(self.names[:-level] + names)
         else:
             return self.build(self.names + names)
 
-    def next_ns(self, names: List[str]) -> 'Namespace':
+    def next_ns(self, names: List[str]) -> "Namespace":
         return self.build(self.names + names)
 
     def subns(self, name):
         assert len(name) > 0
         return Namespace(self.names + [name])
 
-    def prev_ns(self) -> 'Namespace':
+    def prev_ns(self) -> "Namespace":
         assert len(self.names) > 0
         return Namespace(self.names[:-1])
 
@@ -155,11 +155,7 @@ class NamespaceManager:
         self.resolved_paths = {}
         self.mock_libs = mock_libs
         self.prefer_mock_libs = prefer_mock_libs
-        self.mock_root = (
-            Path(__file__).resolve().parents[1]
-            / "stubs"
-            / "stdlib"
-        )
+        self.mock_root = Path(__file__).resolve().parents[1] / "stubs" / "stdlib"
 
     # path to namespace
     def get_module(self, filepath: str) -> Namespace:
@@ -167,8 +163,7 @@ class NamespaceManager:
         if not os.path.isabs(filepath):
             for path in self.paths:
                 cur_path = os.path.join(path, filepath)
-                if (is_src_file(cur_path) and os.path.isfile(cur_path)) \
-                        or os.path.isdir(cur_path):
+                if (is_src_file(cur_path) and os.path.isfile(cur_path)) or os.path.isdir(cur_path):
                     full_path = cur_path
                     break
         ns = Namespace.from_str(full_path)
@@ -176,13 +171,13 @@ class NamespaceManager:
 
     def get_ns2path(self, ns: Namespace) -> str:
         return self.names2path[ns.to_str()]
-    
+
     def set_entry_module(self, module_path: str, root_path: str) -> Namespace:
         """Register and return the namespace of the analysis entry module."""
         if root_path.endswith("/"):
             root_path = root_path[:-1]
         if module_path.startswith(root_path):
-            rel_module_path = module_path[len(root_path) + 1:]
+            rel_module_path = module_path[len(root_path) + 1 :]
         else:
             rel_module_path = module_path
         ns = Namespace.from_path(rel_module_path)
@@ -190,8 +185,7 @@ class NamespaceManager:
         self.names2path[ns.to_str()] = module_path
         return ns
 
-    def names_from_import(self, ir: IRImport) -> List[str]:
-        ...
+    def names_from_import(self, ir: IRImport) -> List[str]: ...
 
     def _cache_ns_path(self, ns: Namespace, path: str) -> str:
         self.ns2path[ns] = path
@@ -241,11 +235,7 @@ class NamespaceManager:
             result = self.find_ns_in_path(self.paths, ns)
             if result is None:
                 mock_path = self._find_mock_path(ns)
-                result = (
-                    self._cache_ns_path(ns, mock_path)
-                    if mock_path is not None
-                    else None
-                )
+                result = self._cache_ns_path(ns, mock_path) if mock_path is not None else None
 
         # Negative results are stable because a manager's search roots and
         # stub policy do not change during a pipeline run.
@@ -255,10 +245,10 @@ class NamespaceManager:
     def resolve_import(self, name: str) -> Optional[Tuple[Namespace, str]]:
         """
         Resolve import from name to namespace and path.
-        
+
         Args:
             name: Name of the module to import
-        
+
         Returns:
             Tuple[Namespace, str]: Namespace and path of the imported module
         """
@@ -271,11 +261,11 @@ class NamespaceManager:
     def resolve_importfrom(self, module: str, name: str) -> Optional[Tuple[Namespace, str]]:
         """
         Resolve import from module.name to name.
-        
+
         Args:
             module: Module name
             name: Name of the item to import
-        
+
         Returns:
             Tuple[Namespace, str]: Namespace and path of the imported module
         """
@@ -289,56 +279,58 @@ class NamespaceManager:
             return mod_ns, mod_path
         return None
 
-    def resolve_rel_importfrom(self, cur_ns: Namespace, module: str, name: str, level: int) -> Optional[Tuple[Namespace, str]]:
+    def resolve_rel_importfrom(
+        self, cur_ns: Namespace, module: str, name: str, level: int
+    ) -> Optional[Tuple[Namespace, str]]:
         """
         Resolve relative import from cur_ns to module.name with level.
-        
+
         Args:
             cur_ns: Current namespace
             module: Module name
             name: Name of the item to import
             level: Level of the relative import
-        
+
         Returns:
             Tuple[Namespace, str]: Namespace and path of the imported module
         """
-        if self.ns2path[cur_ns].endswith('__init__.py'):
+        if self.ns2path[cur_ns].endswith("__init__.py"):
             level -= 1
-        rel_ns = cur_ns.relative_ns(module.split('.'), level)
+        rel_ns = cur_ns.relative_ns(module.split("."), level)
         root_path = get_root(self.ns2path[cur_ns], cur_ns.names)
         if os.path.isfile(rel_ns.to_filepath(root_path)):
             rel_ns_path = rel_ns.to_filepath(root_path)
             self.ns2path[rel_ns] = rel_ns_path
             return rel_ns, rel_ns_path
-        
+
         elif os.path.isfile(rel_ns.to_dirpath(root_path)):
             succ_rel_ns = rel_ns.next_ns([name])
-            
+
             if os.path.isfile(succ_rel_ns.to_filepath(root_path)):
                 succ_rel_path = succ_rel_ns.to_filepath(root_path)
                 self.ns2path[succ_rel_ns] = succ_rel_path
                 return succ_rel_ns, succ_rel_path
-            
+
             elif os.path.isfile(succ_rel_ns.to_dirpath(root_path)):
                 succ_rel_path = succ_rel_ns.to_dirpath(root_path)
                 self.ns2path[succ_rel_ns] = succ_rel_path
                 return succ_rel_ns, succ_rel_path
-            
+
             else:
                 rel_path = rel_ns.to_dirpath(root_path)
                 self.ns2path[rel_ns] = rel_path
                 return rel_ns, rel_path
-            
+
         return None
 
     def get_import(self, cur_ns: Namespace, ir: IRImport) -> Optional[Tuple[Namespace, str]]:
         """
         Get namespace and path of the imported module from cur_ns and ir.
-        
+
         Args:
             cur_ns: Current namespace
             ir: Import statement
-        
+
         Returns:
             Tuple[Namespace, str]: Namespace and path of the imported module
         """

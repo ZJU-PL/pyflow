@@ -4,13 +4,22 @@ B814: Test for Trojan Source attacks.
 Detects Unicode bidirectional (Bidi) override characters that can
 be used to inject invisible code (CVE-2021-42574).
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
 BIDI_CHARS = {
-    "\u202a", "\u202b", "\u202c", "\u202d", "\u202e",
-    "\u2066", "\u2067", "\u2068", "\u2069",
-    "\u200f", "\u200e",
+    "\u202a",
+    "\u202b",
+    "\u202c",
+    "\u202d",
+    "\u202e",
+    "\u2066",
+    "\u2067",
+    "\u2068",
+    "\u2069",
+    "\u200f",
+    "\u200e",
 }
 
 

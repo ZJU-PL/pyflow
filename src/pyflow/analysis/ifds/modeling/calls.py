@@ -7,7 +7,6 @@ from typing import FrozenSet, Iterable, Literal, Mapping
 
 from pyflow.analysis.taint_policy.policy import call_name_suffix_matches
 
-
 STATE_OPEN = "open"
 STATE_CLOSE = "close"
 STATE_USE = "use"
@@ -17,9 +16,7 @@ STATE_USE = "use"
 class TaintModelPort:
     """One input or output port in a modeled taint propagation edge."""
 
-    kind: Literal[
-        "parameter", "all", "receiver", "return", "yield", "raise", "sink"
-    ]
+    kind: Literal["parameter", "all", "receiver", "return", "yield", "raise", "sink"]
     parameter: int | None = None
     path: tuple[str, ...] = ()
 
@@ -33,10 +30,7 @@ class TaintModelPort:
                 raise ValueError("parameter taint ports require a non-negative index")
         elif self.parameter is not None:
             raise ValueError(f"{self.kind} taint ports cannot define a parameter index")
-        if any(
-            not isinstance(component, str) or not component
-            for component in self.path
-        ):
+        if any(not isinstance(component, str) or not component for component in self.path):
             raise ValueError("taint port paths require non-empty string components")
         if self.kind in {"all", "sink"} and self.path:
             raise ValueError(f"{self.kind} taint ports cannot define a path")
@@ -65,8 +59,7 @@ class TaintPropagation:
             "sink",
         }:
             raise ValueError(
-                "propagation targets must be return, receiver, parameter, "
-                "yield, raise, or sink"
+                "propagation targets must be return, receiver, parameter, " "yield, raise, or sink"
             )
 
     def transform_kind(self, kind: str) -> FrozenSet[str]:
@@ -200,12 +193,8 @@ class CallModel:
             source_kinds=self.source_kinds | other.source_kinds,
             sink_kinds=self.sink_kinds | other.sink_kinds,
             sanitizer_kinds=self.sanitizer_kinds | other.sanitizer_kinds,
-            sanitizer_contracts=(
-                self.sanitizer_contracts | other.sanitizer_contracts
-            ),
-            taint_propagations=(
-                self.taint_propagations | other.taint_propagations
-            ),
+            sanitizer_contracts=(self.sanitizer_contracts | other.sanitizer_contracts),
+            taint_propagations=(self.taint_propagations | other.taint_propagations),
             sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
             sink_all_arguments=(self.sink_all_arguments or other.sink_all_arguments),
             sink_receiver=(self.sink_receiver or other.sink_receiver),
@@ -222,12 +211,8 @@ class CallModel:
             typestate_action_protocols=(
                 self.typestate_action_protocols | other.typestate_action_protocols
             ),
-            resource_arg_positions=(
-                self.resource_arg_positions | other.resource_arg_positions
-            ),
-            track_method_receiver=(
-                self.track_method_receiver or other.track_method_receiver
-            ),
+            resource_arg_positions=(self.resource_arg_positions | other.resource_arg_positions),
+            track_method_receiver=(self.track_method_receiver or other.track_method_receiver),
             receiver_types=self.receiver_types | other.receiver_types,
             callee_qualnames=self.callee_qualnames | other.callee_qualnames,
             module_prefixes=self.module_prefixes | other.module_prefixes,
@@ -314,8 +299,7 @@ class CallModelRegistry:
         modeled_roots = {
             model_name.split(".", 1)[0]
             for model_name in self._models
-            if "." in model_name
-            and model_name.split(".", 1)[0] not in {"self", "cls"}
+            if "." in model_name and model_name.split(".", 1)[0] not in {"self", "cls"}
         }
         receiver = name.split(".", 1)[0]
         if not candidates and "." in name and receiver not in modeled_roots:

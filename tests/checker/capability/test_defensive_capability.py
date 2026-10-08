@@ -17,11 +17,7 @@ def _findings(source: str):
 
 
 def test_reports_sensitive_callable_after_aliasing() -> None:
-    findings = _findings(
-        "from subprocess import run\n"
-        "execute = run\n"
-        "execute(['id'])\n"
-    )
+    findings = _findings("from subprocess import run\n" "execute = run\n" "execute(['id'])\n")
 
     assert any(
         finding.capability == "process.execute"
@@ -57,9 +53,7 @@ def test_open_mode_distinguishes_read_and_write() -> None:
 
 def test_reports_escape_into_unanalyzed_external_call() -> None:
     findings = _findings(
-        "from subprocess import run\n"
-        "import plugin_api\n"
-        "plugin_api.register(run)\n"
+        "from subprocess import run\n" "import plugin_api\n" "plugin_api.register(run)\n"
     )
     assert any(
         finding.capability == "process.execute"
@@ -90,16 +84,12 @@ def test_benign_alias_has_no_capability() -> None:
 
 def test_cross_module_return_preserves_sensitive_identity(tmp_path) -> None:
     (tmp_path / "helper.py").write_text(
-        "from subprocess import run\n"
-        "def get_runner():\n"
-        "    return run\n",
+        "from subprocess import run\n" "def get_runner():\n" "    return run\n",
         encoding="utf-8",
     )
     entry = tmp_path / "main.py"
     entry.write_text(
-        "from helper import get_runner\n"
-        "execute = get_runner()\n"
-        "execute(['id'])\n",
+        "from helper import get_runner\n" "execute = get_runner()\n" "execute(['id'])\n",
         encoding="utf-8",
     )
 
@@ -134,9 +124,7 @@ def test_reports_sensitive_callable_returned_from_function() -> None:
 
 def test_unresolved_call_makes_result_partial() -> None:
     result = DefensiveCapabilityAnalysis().analyze_source(
-        "mapping = globals()\n"
-        "unknown = mapping['callback']\n"
-        "unknown()\n"
+        "mapping = globals()\n" "unknown = mapping['callback']\n" "unknown()\n"
     )
     assert result.status == "partial"
     assert any(diagnostic.kind == "unknown" for diagnostic in result.diagnostics)
@@ -238,11 +226,7 @@ def test_default_spawn_summary_reports_callback_authority() -> None:
 
 
 def test_stub_library_summary_reports_serialized_authority() -> None:
-    findings = _findings(
-        "import pickle\n"
-        "from subprocess import run\n"
-        "pickle.dumps(run)\n"
-    )
+    findings = _findings("import pickle\n" "from subprocess import run\n" "pickle.dumps(run)\n")
     assert any(
         finding.capability == "process.execute"
         and "serialized" in finding.reason

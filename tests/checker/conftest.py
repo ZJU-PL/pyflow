@@ -11,7 +11,6 @@ from pyflow.checker.common.issue import Issue
 from pyflow.checker.ast_rules.core.config import SecurityConfig
 from pyflow.checker.ast_rules.core.manager import SecurityManager
 
-
 IssueList = List[Issue]
 
 

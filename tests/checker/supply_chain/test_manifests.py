@@ -36,33 +36,22 @@ def test_unsupported_direct_target_cannot_claim_a_complete_inventory(tmp_path):
 
     assert not scan.metadata["inventoryComplete"]
     assert scan.metadata["inventoryLimitations"] == ["unsupported-supply-chain-target"]
-    assert any(
-        finding.kind == "unsupported-supply-chain-target" for finding in scan.findings
-    )
+    assert any(finding.kind == "unsupported-supply-chain-target" for finding in scan.findings)
 
 
 def test_directory_and_archive_input_limits_are_enforced(tmp_path):
     for index in range(3):
-        (tmp_path / f"requirements-{index}.txt").write_text(
-            f"demo-{index}==1\n", encoding="utf-8"
-        )
+        (tmp_path / f"requirements-{index}.txt").write_text(f"demo-{index}==1\n", encoding="utf-8")
     limited_directory = scan_targets(
         [tmp_path], recursive=True, limits=ScanLimits(max_scan_entries=2)
     )
-    assert any(
-        finding.kind == "scan-entry-limit" for finding in limited_directory.findings
-    )
+    assert any(finding.kind == "scan-entry-limit" for finding in limited_directory.findings)
 
     archive_path = tmp_path / "large.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("file.txt", "content")
-    limited_archive = scan_targets(
-        [archive_path], limits=ScanLimits(max_archive_size=1)
-    )
-    assert any(
-        finding.kind == "archive-file-size-limit"
-        for finding in limited_archive.findings
-    )
+    limited_archive = scan_targets([archive_path], limits=ScanLimits(max_archive_size=1))
+    assert any(finding.kind == "archive-file-size-limit" for finding in limited_archive.findings)
 
     with pytest.raises(ValueError):
         scan_targets([], limits=ScanLimits(max_compression_ratio=float("nan")))
@@ -77,8 +66,7 @@ def test_directory_and_archive_input_limits_are_enforced(tmp_path):
 def test_environment_markers_filter_non_matching_dependencies(tmp_path):
     requirements = tmp_path / "requirements.txt"
     requirements.write_text(
-        'old-only==1; python_version < "3.11"\n'
-        'new-only==1; python_version >= "3.11"\n',
+        'old-only==1; python_version < "3.11"\n' 'new-only==1; python_version >= "3.11"\n',
         encoding="utf-8",
     )
 
@@ -99,9 +87,7 @@ def test_requirements_includes_hashes_and_index_risks(tmp_path):
     )
     requirements = tmp_path / "requirements.txt"
     requirements.write_text(
-        "-r base.in\n"
-        "--extra-index-url http://packages.example/simple\n"
-        "floating>=2\n",
+        "-r base.in\n" "--extra-index-url http://packages.example/simple\n" "floating>=2\n",
         encoding="utf-8",
     )
 
@@ -247,8 +233,7 @@ def test_setup_script_reports_install_time_execution(tmp_path):
     scan = scan_targets([setup])
 
     assert any(
-        finding.kind == "install-script-dangerous-behavior"
-        and finding.severity == "HIGH"
+        finding.kind == "install-script-dangerous-behavior" and finding.severity == "HIGH"
         for finding in scan.findings
     )
     assert any(component["name"] == "requests" for component in scan.components)
@@ -266,9 +251,7 @@ def test_setup_script_ignores_unreachable_dangerous_function(tmp_path):
 
     scan = scan_targets([setup])
 
-    assert not any(
-        finding.kind == "install-script-dangerous-behavior" for finding in scan.findings
-    )
+    assert not any(finding.kind == "install-script-dangerous-behavior" for finding in scan.findings)
 
 
 def test_setup_script_follows_reachable_local_function(tmp_path):
@@ -284,6 +267,4 @@ def test_setup_script_follows_reachable_local_function(tmp_path):
 
     scan = scan_targets([setup])
 
-    assert any(
-        finding.kind == "install-script-dangerous-behavior" for finding in scan.findings
-    )
+    assert any(finding.kind == "install-script-dangerous-behavior" for finding in scan.findings)

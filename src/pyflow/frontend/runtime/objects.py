@@ -20,13 +20,9 @@ from ..conversion.source import best_source_for_callable
 class ObjectManager:
     """Manages Python objects and their PyFlow representations."""
 
-    _VALUE_CACHED_TYPES = frozenset(
-        {type(None), bool, int, float, complex, str, bytes}
-    )
+    _VALUE_CACHED_TYPES = frozenset({type(None), bool, int, float, complex, str, bytes})
 
-    def __init__(
-        self, verbose: bool = True, function_extractor=None, intrinsic_manager=None
-    ):
+    def __init__(self, verbose: bool = True, function_extractor=None, intrinsic_manager=None):
         self.verbose = verbose
         # Cache safe immutable scalar values by value.
         self._object_cache: Dict[Any, Object] = {}
@@ -84,9 +80,7 @@ class ObjectManager:
                     if self.verbose:
                         print(f"DEBUG: Source code provided, type: {type(source_code)}")
                         if isinstance(source_code, dict):
-                            print(
-                                f"DEBUG: Source code keys: {list(source_code.keys())}"
-                            )
+                            print(f"DEBUG: Source code keys: {list(source_code.keys())}")
 
                     if hasattr(func, "__code__") and func.__code__.co_filename:
                         if isinstance(source_code, dict):
@@ -99,9 +93,7 @@ class ObjectManager:
                                         f"(len={len(func_source)})"
                                     )
                                 else:
-                                    print(
-                                        f"DEBUG: Could not locate source for {func.__qualname__}"
-                                    )
+                                    print(f"DEBUG: Could not locate source for {func.__qualname__}")
                         elif isinstance(source_code, str):
                             func_source = source_code
                 else:
@@ -131,9 +123,7 @@ class ObjectManager:
             return func, None
         return func, None
 
-    def make_imaginary(
-        self, name: str, t: AbstractObject, preexisting: bool
-    ) -> ImaginaryObject:
+    def make_imaginary(self, name: str, t: AbstractObject, preexisting: bool) -> ImaginaryObject:
         """Create an imaginary object for static analysis."""
         return ImaginaryObject(name, t, preexisting)
 
@@ -226,7 +216,5 @@ class ObjectManager:
             return type_obj.typeinfo.abstractInstance
         else:
             # Fallback: create a minimal abstract instance if typeinfo wasn't created
-            type_name = (
-                typeobj.__name__ if hasattr(typeobj, "__name__") else str(typeobj)
-            )
+            type_name = typeobj.__name__ if hasattr(typeobj, "__name__") else str(typeobj)
             return self.make_imaginary(f"instance_of_{type_name}", type_obj, False)

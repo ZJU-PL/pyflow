@@ -260,11 +260,7 @@ class InterproceduralDataflow(object):
 
     def fold(self, targetcontext):
         def notConst(obj):
-            return (
-                obj is None
-                or obj is analysis.cpasignature.Any
-                or not obj.obj.isConstant()
-            )
+            return obj is None or obj is analysis.cpasignature.Any or not obj.obj.isConstant()
 
         sig = targetcontext.signature
         code = sig.code
@@ -288,9 +284,7 @@ class InterproceduralDataflow(object):
 
             params = [param.obj for param in sig.params]
             try:
-                result = foldFunctionIR(
-                    self.extractor, code.annotation.dynamicFold, params
-                )
+                result = foldFunctionIR(self.extractor, code.annotation.dynamicFold, params)
             except ApplyError:
                 # Constant inputs do not imply that the runtime operation is
                 # defined for their types.  A failed speculative fold leaves
@@ -432,9 +426,7 @@ class InterproceduralDataflow(object):
         for srcop, dsts in self.opInvokes.items():
             for dst in dsts:
                 newdstcode = cloner.code(dst.code)
-                invokeLUT[(srcop.code, srcop.op)][srcop.context].add(
-                    (newdstcode, dst.context)
-                )
+                invokeLUT[(srcop.code, srcop.op)][srcop.context].add((newdstcode, dst.context))
         self.invokeLUT = invokeLUT
 
         # Re-index the locals
@@ -564,8 +556,7 @@ class InterproceduralDataflow(object):
         # Show summary if there were unresolved calls but not in verbose mode
         if unresolved_count > 0 and not self.console.verbose:
             self.console.output(
-                "Found %d unresolved call(s). Use --verbose for details."
-                % unresolved_count
+                "Found %d unresolved call(s). Use --verbose for details." % unresolved_count
             )
 
     def slotMemory(self):
@@ -577,8 +568,7 @@ class InterproceduralDataflow(object):
         console.output("Contexts:      %d" % len(self.liveContexts))
         console.output("Code:          %d" % len(self.liveCode))
         console.output(
-            "Contexts/Code: %.1f"
-            % (float(len(self.liveContexts)) / max(len(self.liveCode), 1))
+            "Contexts/Code: %.1f" % (float(len(self.liveContexts)) / max(len(self.liveCode), 1))
         )
         console.output("Slot Memory:   %s" % formatting.memorySize(self.slotMemory()))
         console.output("")
@@ -589,9 +579,7 @@ class InterproceduralDataflow(object):
 
 def evaluateWithImage(compiler, prgm, opPathLength=0, firstPass=True, clone=False):
     with compiler.console.scope("cpa analysis"):
-        dataflow = InterproceduralDataflow(
-            compiler, prgm.storeGraph, opPathLength, clone
-        )
+        dataflow = InterproceduralDataflow(compiler, prgm.storeGraph, opPathLength, clone)
         dataflow.firstPass = firstPass  # HACK for debugging
 
         for entryPoint, args in prgm.entryPoints:

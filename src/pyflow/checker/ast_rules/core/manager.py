@@ -74,9 +74,7 @@ class SecurityManager:
         return (
             results
             if not self.baseline
-            else _find_candidate_matches(
-                _compare_baseline_results(self.baseline, results), results
-            )
+            else _find_candidate_matches(_compare_baseline_results(self.baseline, results), results)
         )
 
     def results_count(self, sev_filter=b_constants.LOW, conf_filter=b_constants.LOW):
@@ -108,9 +106,7 @@ class SecurityManager:
                     files_list.update(new_files)
                     excluded_files.update(newly_excluded)
                 else:
-                    LOG.warning(
-                        "Skipping directory (%s), use -r flag to scan contents", fname
-                    )
+                    LOG.warning("Skipping directory (%s), use -r flag to scan contents", fname)
             else:
                 if _is_file_included(
                     fname, included_globs, excluded_path_globs, enforce_glob=False
@@ -131,9 +127,7 @@ class SecurityManager:
             try:
                 if fname == "-":
                     fdata = io.BytesIO(os.fdopen(sys.stdin.fileno(), "rb", 0).read())
-                    new_files_list = [
-                        "<stdin>" if x == "-" else x for x in new_files_list
-                    ]
+                    new_files_list = ["<stdin>" if x == "-" else x for x in new_files_list]
                     self._parse_file("<stdin>", fdata, new_files_list)
                 else:
                     with open(fname, "rb") as fdata:
@@ -158,9 +152,7 @@ class SecurityManager:
             if not self.ignore_nosec:
                 try:
                     fdata.seek(0)
-                    for toktype, tokval, (lineno, _), _, _ in tokenize.tokenize(
-                        fdata.readline
-                    ):
+                    for toktype, tokval, (lineno, _), _, _ in tokenize.tokenize(fdata.readline):
                         if toktype == tokenize.COMMENT:
                             nosec_lines[lineno] = _parse_nosec_comment(tokval)
                 except tokenize.TokenError:
@@ -235,8 +227,7 @@ def _compare_baseline_results(baseline, results):
 def _find_candidate_matches(unmatched_issues, results_list):
     """Returns a dictionary with issue candidates"""
     return collections.OrderedDict(
-        (unmatched, [i for i in results_list if unmatched == i])
-        for unmatched in unmatched_issues
+        (unmatched, [i for i in results_list if unmatched == i]) for unmatched in unmatched_issues
     )
 
 

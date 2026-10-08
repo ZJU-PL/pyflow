@@ -72,9 +72,7 @@ server = "demo.server:main"
     assert "Use --entry to select one" in error
 
 
-def test_constraint_project_entry_defaults_to_reachable_scopes(
-    monkeypatch, tmp_path, capsys
-):
+def test_constraint_project_entry_defaults_to_reachable_scopes(monkeypatch, tmp_path, capsys):
     sample = tmp_path / "main.py"
     sample.write_text("def main():\n    return 1\n", encoding="utf-8")
     captured = []
@@ -109,14 +107,10 @@ def test_constraint_project_entry_defaults_to_reachable_scopes(
     assert captured[-1]["seed_entry_file_scopes"] is False
 
 
-def test_native_pycg_mir_cli_resolves_callback_without_external_pycg(
-    tmp_path, monkeypatch, capsys
-):
+def test_native_pycg_mir_cli_resolves_callback_without_external_pycg(tmp_path, monkeypatch, capsys):
     sample = tmp_path / "sample.py"
     sample.write_text(
-        "def chosen():\n    pass\n"
-        "def use(callback):\n    callback()\n"
-        "use(chosen)\n",
+        "def chosen():\n    pass\n" "def use(callback):\n    callback()\n" "use(chosen)\n",
         encoding="utf-8",
     )
 
@@ -142,9 +136,7 @@ def test_native_pycg_mir_cli_passes_project_root(tmp_path, monkeypatch, capsys):
         return "native graph"
 
     monkeypatch.setattr(callgraph_cli, "analyze_file_pycg_mir", analyze)
-    args = parse_callgraph_args(
-        tmp_path, "--entry", "src/app.py", "--algorithm", "pycg-mir"
-    )
+    args = parse_callgraph_args(tmp_path, "--entry", "src/app.py", "--algorithm", "pycg-mir")
     assert callgraph_cli.run_callgraph(tmp_path, args) == 0
     assert captured == {
         "filepath": str(entry),
@@ -168,9 +160,7 @@ def test_native_pycg_mir_cli_reports_invalid_source(tmp_path, capsys):
 def test_native_pycg_mir_cli_rejects_context_sensitive_flag(tmp_path, capsys):
     sample = tmp_path / "sample.py"
     sample.write_text("pass\n", encoding="utf-8")
-    args = parse_callgraph_args(
-        sample, "--algorithm", "pycg-mir", "--context-sensitive"
-    )
+    args = parse_callgraph_args(sample, "--algorithm", "pycg-mir", "--context-sensitive")
 
     assert callgraph_cli.run_callgraph(sample, args) == 1
     assert "--context-sensitive" in capsys.readouterr().err

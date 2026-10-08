@@ -14,6 +14,7 @@ Usage::
     store.save_findings(findings, file_path="app.py")
     cached = store.get_cached_findings("app.py")
 """
+
 from __future__ import annotations
 
 import json
@@ -22,7 +23,6 @@ import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
-
 
 _SCHEMA_VERSION = 1
 _IMPORT_RE = re.compile(
@@ -114,8 +114,7 @@ class CPGStore:
         )
         if sha256:
             cur.execute(
-                "UPDATE files SET sha256 = ?, scanned_at = datetime('now') "
-                "WHERE path = ?",
+                "UPDATE files SET sha256 = ?, scanned_at = datetime('now') " "WHERE path = ?",
                 (sha256, file_path),
             )
         cur.execute("SELECT id FROM files WHERE path = ?", (file_path,))
@@ -232,8 +231,7 @@ class CPGStore:
                     node.kind,
                     node.label or "",
                     meta.get("func_name", ""),
-                    meta.get("lineno", getattr(node.ast_node, "lineno", 0)
-                     if node.ast_node else 0),
+                    meta.get("lineno", getattr(node.ast_node, "lineno", 0) if node.ast_node else 0),
                     json.dumps(meta, default=str),
                 ),
             )
@@ -284,9 +282,7 @@ class CPGStore:
         self._conn.commit()
         return file_id
 
-    def get_cached_findings(
-        self, file_path: str
-    ) -> Optional[List[Dict[str, Any]]]:
+    def get_cached_findings(self, file_path: str) -> Optional[List[Dict[str, Any]]]:
         cur = self._conn.cursor()
         cur.execute("SELECT id FROM files WHERE path = ?", (file_path,))
         row = cur.fetchone()
@@ -301,24 +297,19 @@ class CPGStore:
             return None
         return [json.loads(r["finding_json"]) for r in rows]
 
-    def get_cpg_edges(
-        self, file_path: str
-    ) -> List[Dict[str, Any]]:
+    def get_cpg_edges(self, file_path: str) -> List[Dict[str, Any]]:
         cur = self._conn.cursor()
         cur.execute("SELECT id FROM files WHERE path = ?", (file_path,))
         row = cur.fetchone()
         if row is None:
             return []
         cur.execute(
-            "SELECT source_id, target_id, kind, label "
-            "FROM cpg_edges WHERE file_id = ?",
+            "SELECT source_id, target_id, kind, label " "FROM cpg_edges WHERE file_id = ?",
             (row["id"],),
         )
         return [dict(r) for r in cur.fetchall()]
 
-    def get_cpg_nodes(
-        self, file_path: str
-    ) -> List[Dict[str, Any]]:
+    def get_cpg_nodes(self, file_path: str) -> List[Dict[str, Any]]:
         cur = self._conn.cursor()
         cur.execute("SELECT id FROM files WHERE path = ?", (file_path,))
         row = cur.fetchone()

@@ -107,9 +107,7 @@ def verify_cfg(cfg, catalog=None) -> None:
     if catalog is not None:
         code_id = catalog.procedure(cfg.code).code_id
         catalog_blocks = {
-            block_id: block
-            for block_id, block in catalog.blocks()
-            if block_id.code == code_id
+            block_id: block for block_id, block in catalog.blocks() if block_id.code == code_id
         }
         if set(catalog_blocks.values()) != block_set:
             raise CFGVerificationError("catalog block set does not match CFG")

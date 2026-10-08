@@ -33,11 +33,7 @@ def _raw_types(typ) -> set[type]:
     if isinstance(typ, Instance):
         return {typ.type.raw_type}
     if isinstance(typ, UnionType):
-        return {
-            item.type.raw_type
-            for item in typ.items
-            if isinstance(item, Instance)
-        }
+        return {item.type.raw_type for item in typ.items if isinstance(item, Instance)}
     return set()
 
 
@@ -295,9 +291,7 @@ third = wrap(1.5)
         str,
         float,
     }
-    assert "specialization-budget-exceeded" in {
-        item.code for item in result.diagnostics
-    }
+    assert "specialization-budget-exceeded" in {item.code for item in result.diagnostics}
 
 
 def test_infers_unannotated_parameters_and_recursive_return() -> None:
@@ -470,9 +464,9 @@ elif c5:
 else:
     value = None
 """
-    result = StaticTypeInferenceEngine(
-        options=InferenceOptions(max_union_size=3)
-    ).infer_source("sample", source)
+    result = StaticTypeInferenceEngine(options=InferenceOptions(max_union_size=3)).infer_source(
+        "sample", source
+    )
 
     value = result.value_of("value")
     assert value is not None
@@ -893,15 +887,11 @@ def test_project_engine_discovers_imports_and_solves_cross_module_types() -> Non
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
-            "from .models import Client, parse\n\n"
-            "number = parse('42')\n"
-            "client = Client()\n",
+            "from .models import Client, parse\n\n" "number = parse('42')\n" "client = Client()\n",
             encoding="utf-8",
         )
 
-        result = ProjectTypeInferenceEngine(
-            ProjectContext(root)
-        ).infer_project(["pkg.service"])
+        result = ProjectTypeInferenceEngine(ProjectContext(root)).infer_project(["pkg.service"])
 
     assert result.converged is True
     assert {"pkg.models", "pkg.service"} <= result.modules.keys()

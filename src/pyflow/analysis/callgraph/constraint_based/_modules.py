@@ -24,9 +24,7 @@ def _is_stdlib_path(path: str) -> bool:
     """Check whether *path* lives inside the Python standard library."""
     stdlib_dir = os.path.dirname(os.__file__)
     try:
-        common = os.path.commonpath(
-            [os.path.abspath(path), os.path.abspath(stdlib_dir)]
-        )
+        common = os.path.commonpath([os.path.abspath(path), os.path.abspath(stdlib_dir)])
     except ValueError:
         return False
     return common == stdlib_dir
@@ -70,9 +68,7 @@ class _ModuleAnalysisMixin:
                 tree = ast.parse(normalize_legacy_python_syntax(source))
             except SyntaxError:
                 continue
-            self.modules[module_name] = ModuleInfo(
-                module_name, tree, normalized_path
-            )
+            self.modules[module_name] = ModuleInfo(module_name, tree, normalized_path)
 
         queue: deque[str] = deque(self.modules)
         visited: Set[str] = set()
@@ -110,9 +106,7 @@ class _ModuleAnalysisMixin:
                         )
                         if stub_path is not None:
                             imported_path = stub_path
-                if self.options.skip_stdlib_modules and _is_stdlib_path(
-                    str(imported_path)
-                ):
+                if self.options.skip_stdlib_modules and _is_stdlib_path(str(imported_path)):
                     continue
                 if self.options.skip_external_modules and not _is_within_path(
                     str(imported_path), self.project_root
@@ -192,9 +186,7 @@ class _ModuleAnalysisMixin:
                     if nested_module in self.modules:
                         out.add(make_module(nested_module))
                 elif base_value.kind == CLASS_KIND:
-                    out.update(
-                        self.class_fields.get(base_value.name, {}).get(expr.attr, set())
-                    )
+                    out.update(self.class_fields.get(base_value.name, {}).get(expr.attr, set()))
                     nested_class = f"{base_value.name}.{expr.attr}"
                     if nested_class in self.classes:
                         out.add(make_class(nested_class))
@@ -253,9 +245,7 @@ class _ModuleAnalysisMixin:
     def _bind_import_from(
         self, stmt: ast.ImportFrom, module_name: str, env: Dict[str, Set[AbstractValue]]
     ) -> None:
-        source_module = self._resolve_import_module_name(
-            module_name, stmt.module, stmt.level
-        )
+        source_module = self._resolve_import_module_name(module_name, stmt.module, stmt.level)
         if not source_module:
             return
 
@@ -279,9 +269,7 @@ class _ModuleAnalysisMixin:
                 )
             else:
                 candidate_module = f"{source_module}.{alias.name}"
-                if candidate_module in self.modules or self._resolve_module_file(
-                    candidate_module
-                ):
+                if candidate_module in self.modules or self._resolve_module_file(candidate_module):
                     self._merge_value_set(
                         env.setdefault(local_name, set()),
                         {make_module(candidate_module)},
@@ -310,7 +298,6 @@ class _ModuleAnalysisMixin:
         for name, values in source.items():
             current = target.setdefault(name, set())
             changed = (
-                self._merge_value_set(current, set(values), preserve_callables=True)
-                or changed
+                self._merge_value_set(current, set(values), preserve_callables=True) or changed
             )
         return changed

@@ -56,9 +56,7 @@ class AnalysisSession:
         program.interface, all_source_code = build_interface_from_paths(
             python_files, InterfaceBuildOptions(verbose=verbose)
         )
-        compiler.extractor = Extractor(
-            compiler, verbose=verbose, source_code=all_source_code
-        )
+        compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
 
         with console.scope("extraction"):
             extract_program(compiler, program)
@@ -196,17 +194,13 @@ class AnalysisSession:
                     if node.module:
                         for alias in node.names:
                             imported = f"{node.module}.{alias.name}"
-                            file_imports[filename][
-                                alias.asname or alias.name
-                            ] = imported
+                            file_imports[filename][alias.asname or alias.name] = imported
 
             # Preserve lexical qualification. Security reports and call-graph
             # targets distinguish ``Class.method`` and nested functions, while
             # the old flat ``node.name`` map both lost that identity and
             # silently overwrote same-named methods from different classes.
-            qualified_functions: list[
-                tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]
-            ] = []
+            qualified_functions: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
 
             class FunctionCollector(ast.NodeVisitor):
                 def __init__(self) -> None:
@@ -217,12 +211,8 @@ class AnalysisSession:
                     self.generic_visit(node)
                     self.scope.pop()
 
-                def _visit_function(
-                    self, node: ast.FunctionDef | ast.AsyncFunctionDef
-                ) -> None:
-                    qualified_functions.append(
-                        (".".join((*self.scope, node.name)), node)
-                    )
+                def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+                    qualified_functions.append((".".join((*self.scope, node.name)), node))
                     self.scope.append(node.name)
                     self.generic_visit(node)
                     self.scope.pop()
@@ -231,13 +221,9 @@ class AnalysisSession:
                 visit_AsyncFunctionDef = _visit_function
 
             FunctionCollector().visit(tree)
-            top_level_names = {
-                name for name, _node in qualified_functions if "." not in name
-            }
+            top_level_names = {name for name, _node in qualified_functions if "." not in name}
             method_leaf_names = {
-                name.rsplit(".", 1)[-1]
-                for name, _node in qualified_functions
-                if "." in name
+                name.rsplit(".", 1)[-1] for name, _node in qualified_functions if "." in name
             }
             for leaf_name in method_leaf_names - top_level_names:
                 if func_to_file.get(leaf_name) == filename:
@@ -246,9 +232,7 @@ class AnalysisSession:
 
             if qualified_functions:
                 for qualified_name, node in qualified_functions:
-                    if getattr(node, "lineno", None) and getattr(
-                        node, "end_lineno", None
-                    ):
+                    if getattr(node, "lineno", None) and getattr(node, "end_lineno", None):
                         # Re-render the parsed node. Plain dedenting is not
                         # safe for methods whose multiline strings contain
                         # legitimate column-zero content.

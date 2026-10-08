@@ -4,11 +4,15 @@ B201: Test for application debug mode enabled.
 Running applications in debug mode may expose sensitive
 information through detailed error messages and stack traces.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
 DEBUG_FLAGS = {
-    "True", "true", "1", "yes",
+    "True",
+    "true",
+    "1",
+    "yes",
 }
 
 

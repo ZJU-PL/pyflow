@@ -288,13 +288,9 @@ class TestQueryRouting:
         )
         assert capsys.readouterr().out
 
-    def test_source_queries_do_not_construct_analysis_server(
-        self, monkeypatch, tmp_path, capsys
-    ):
+    def test_source_queries_do_not_construct_analysis_server(self, monkeypatch, tmp_path, capsys):
         source = tmp_path / "sample.py"
-        source.write_text(
-            "def callee():\n    return 1\n\ndef caller():\n    return callee()\n"
-        )
+        source.write_text("def callee():\n    return 1\n\ndef caller():\n    return callee()\n")
 
         def fail_if_constructed(**_kwargs):
             raise AssertionError("source queries must not construct analysis server")
@@ -320,9 +316,7 @@ class TestQueryRouting:
 
     def test_dedicated_callgraph_analysis_answers_call_queries(self, tmp_path):
         source = tmp_path / "sample.py"
-        source.write_text(
-            "def callee():\n    return 1\n\ndef caller():\n    return callee()\n"
-        )
+        source.write_text("def callee():\n    return 1\n\ndef caller():\n    return callee()\n")
         graph = _run_callgraph_analysis(source)
         defaults = {
             "get_callers": None,
@@ -333,9 +327,5 @@ class TestQueryRouting:
         callers = dict(defaults, get_callers="callee")
         callees = dict(defaults, get_callees="caller")
 
-        assert _dispatch_callgraph_query(graph, Namespace(**callers)) == [
-            "main.caller"
-        ]
-        assert _dispatch_callgraph_query(graph, Namespace(**callees)) == [
-            "main.callee"
-        ]
+        assert _dispatch_callgraph_query(graph, Namespace(**callers)) == ["main.caller"]
+        assert _dispatch_callgraph_query(graph, Namespace(**callees)) == ["main.callee"]

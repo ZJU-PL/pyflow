@@ -1,6 +1,7 @@
 def func():
     pass
 
+
 class Cls:
     def __init__(self, max=0):
         self.max = max
@@ -13,9 +14,10 @@ class Cls:
         if self.n > self.max:
             raise StopIteration
 
-        result = 2 ** self.n
+        result = 2**self.n
         self.n += 1
         return func
+
 
 for i in Cls():
     i()

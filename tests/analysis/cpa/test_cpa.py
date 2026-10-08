@@ -78,20 +78,16 @@ class TestCPA(unittest.TestCase):
             if code.name == func.__name__:
                 func_code = code
                 break
-        
+
         if func_code is None:
             self.fail(f"Could not find function {func.__name__} in program.liveCode")
 
         code_id = program.ir.procedure(func_code).code_id
-        published_contexts = program.ir.facts.query(
-            Capabilities.CONTEXTS, code_id
-        )
+        published_contexts = program.ir.facts.query(Capabilities.CONTEXTS, code_id)
         self.assertEqual(published_contexts.precision, Precision.EXACT)
         self.assertTrue(published_contexts.values)
 
-        param_symbol = program.ir.symbol_id(
-            func_code.codeparameters.params[0], func_code
-        )
+        param_symbol = program.ir.symbol_id(func_code.codeparameters.params[0], func_code)
         first_context = next(iter(published_contexts.values))
         published_references = program.ir.facts.query(
             Capabilities.REFERENCES,
@@ -99,7 +95,7 @@ class TestCPA(unittest.TestCase):
         )
         self.assertEqual(published_references.precision, Precision.EXACT)
         self.assertTrue(published_references.values)
-        
+
         types = set([compiler.extractor.getObject(int)])
 
         for param in func_code.codeparameters.params:
@@ -111,6 +107,7 @@ class TestCPA(unittest.TestCase):
 
     def test_conditional_execution(self):
         """Test CPA with conditional statements."""
+
         def func(x):
             if x > 0:
                 return x * 2
@@ -122,9 +119,7 @@ class TestCPA(unittest.TestCase):
         compiler = CompilerContext(Console())
         program = pyflow.application.program.Program()
 
-        program.interface.func.append(
-            (func, (pyflow.model.entrypoints.ExistingWrapper(5),))
-        )
+        program.interface.func.append((func, (pyflow.model.entrypoints.ExistingWrapper(5),)))
 
         compiler.program = program
         compiler.extractor = Extractor(compiler)
@@ -143,6 +138,7 @@ class TestCPA(unittest.TestCase):
 
     def test_loop_analysis(self):
         """Test CPA with loop constructs."""
+
         def func():
             total = 0
             for i in range(3):
@@ -173,6 +169,7 @@ class TestCPA(unittest.TestCase):
 
     def test_attribute_access(self):
         """Test CPA with attribute access."""
+
         def func():
             x = "hello"
             return len(x)

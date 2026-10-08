@@ -337,9 +337,7 @@ def makeInterpreterStubs(collector):
         if op in opnames.forward and op in opnames.reverse:
             forward_name = opnames.forward[op]
             reverse_name = opnames.reverse[op]
-            f = simpleBinaryOp(
-                "interpreter%s" % forward_name, forward_name, reverse_name
-            )
+            f = simpleBinaryOp("interpreter%s" % forward_name, forward_name, reverse_name)
             # Try to add fold function if available
             try:
                 foldF = getattr(operator, forward_name)

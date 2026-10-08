@@ -94,9 +94,7 @@ class TestGirEmitter(unittest.TestCase):
     def test_chained_comparison_evaluates_middle_once_and_short_circuits_tail(self):
         tree = emit_tree("result = left() < middle() < right()")
 
-        top_level_calls = [
-            row["call_stmt"]["name"] for row in tree if "call_stmt" in row
-        ]
+        top_level_calls = [row["call_stmt"]["name"] for row in tree if "call_stmt" in row]
         self.assertEqual(top_level_calls, ["left", "middle"])
         first_compare = next(row["assign_stmt"] for row in tree if "assign_stmt" in row)
         self.assertEqual(first_compare["operator"], "<")
@@ -119,16 +117,14 @@ class TestGirEmitter(unittest.TestCase):
         self.assertIn("array_write", ops)
 
     def test_collection_literals(self):
-        tree, _ = emit("l = [1, 2]\nt = (1, 2)\nd = {\"a\": x}")
+        tree, _ = emit('l = [1, 2]\nt = (1, 2)\nd = {"a": x}')
         ops = {next(iter(r.keys())) for r in tree}
         self.assertIn("new_array", ops)
         self.assertIn("new_record", ops)
         self.assertIn("record_write", ops)
 
     def test_if_while_for(self):
-        tree, _ = emit(
-            "if a:\n    x = 1\nwhile a:\n    a = 0\nfor i in items:\n    x = i"
-        )
+        tree, _ = emit("if a:\n    x = 1\nwhile a:\n    a = 0\nfor i in items:\n    x = i")
         ops = {next(iter(r.keys())) for r in tree}
         self.assertIn("if_stmt", ops)
         self.assertIn("while_stmt", ops)
@@ -159,9 +155,7 @@ class TestGirEmitter(unittest.TestCase):
 
     def test_lian_record_slice_and_zero_based_locations(self):
         tree = emit_tree(
-            'd = {"key": value, **other}\n'
-            "item = values[1:4:2]\n"
-            "values[1:4] = replacement\n"
+            'd = {"key": value, **other}\n' "item = values[1:4:2]\n" "values[1:4] = replacement\n"
         )
         record = next(row["record_write"] for row in tree if "record_write" in row)
         self.assertEqual(
@@ -205,8 +199,7 @@ class TestGirEmitter(unittest.TestCase):
 
     def test_lian_packed_calls_and_starred_collections(self):
         tree = emit_tree(
-            "result = func(a, *items, key=value, **options)\n"
-            "values = [a, *items, b]\n"
+            "result = func(a, *items, key=value, **options)\n" "values = [a, *items, b]\n"
         )
         call = next(row["call_stmt"] for row in tree if "call_stmt" in row)
         self.assertEqual(call["positional_args"], [])
@@ -247,23 +240,15 @@ class TestGirEmitter(unittest.TestCase):
         boolean_branch = next(row["if_stmt"] for row in tree if "if_stmt" in row)
         self.assertEqual(boolean_branch["condition"], "left")
         self.assertTrue(boolean_branch["then_body"])
-        operators = [
-            row["assign_stmt"].get("operator")
-            for row in tree
-            if "assign_stmt" in row
-        ]
+        operators = [row["assign_stmt"].get("operator") for row in tree if "assign_stmt" in row]
         self.assertIn("not", operators)
-        set_allocations = [
-            row["new_array"] for row in tree if "new_array" in row
-        ]
+        set_allocations = [row["new_array"] for row in tree if "new_array" in row]
         self.assertEqual(set_allocations[-2]["attrs"], ["set"])
         self.assertNotIn("attrs", set_allocations[-1])
 
     def test_lian_function_metadata_and_default_preamble(self):
         tree = emit_tree(
-            "@decorator\n"
-            "async def function(value: int = make()) -> str:\n"
-            "    pass\n"
+            "@decorator\n" "async def function(value: int = make()) -> str:\n" "    pass\n"
         )
         method = next(row["method_decl"] for row in tree if "method_decl" in row)
         self.assertEqual(method["attrs"], ["decorator", "async"])
@@ -271,15 +256,11 @@ class TestGirEmitter(unittest.TestCase):
         parameter = method["parameters"][0]["parameter_decl"]
         self.assertEqual(parameter["data_type"], "int")
         self.assertTrue(parameter["default_value"].startswith("%dvv"))
-        method_index = next(
-            index for index, row in enumerate(tree) if "method_decl" in row
-        )
+        method_index = next(index for index, row in enumerate(tree) if "method_decl" in row)
         self.assertTrue(any("call_stmt" in row for row in tree[:method_index]))
         self.assertIn("pass_stmt", method["body"][0])
 
-    @unittest.skipUnless(
-        hasattr(python_ast, "TypeVar"), "PEP 695 parsing requires Python 3.12+"
-    )
+    @unittest.skipUnless(hasattr(python_ast, "TypeVar"), "PEP 695 parsing requires Python 3.12+")
     def test_lian_generic_class_and_annotated_fields(self):
         tree = emit_tree("class Box[T](Base[T]):\n    value: T = initial\n")
         class_decl = tree[0]["class_decl"]
@@ -289,14 +270,10 @@ class TestGirEmitter(unittest.TestCase):
         self.assertEqual((field["name"], field["data_type"]), ("value", "T"))
         static_init = class_decl["methods"][0]["method_decl"]
         self.assertEqual(static_init["name"], "%class_sinit")
-        self.assertEqual(
-            static_init["body"][0]["field_write"]["field"], "value"
-        )
+        self.assertEqual(static_init["body"][0]["field_write"]["field"], "value")
 
     def test_try_except(self):
-        tree, _ = emit(
-            "try:\n    risky()\nexcept ValueError as e:\n    x = 1"
-        )
+        tree, _ = emit("try:\n    risky()\nexcept ValueError as e:\n    x = 1")
         try_row = next(r for r in tree if "try_stmt" in r)
         body = try_row["try_stmt"]
         self.assertEqual(len(body["catch_body"]), 1)
@@ -316,14 +293,10 @@ class TestGirEmitter(unittest.TestCase):
         self.assertIn("%packed_named_pmt", by_name["kw"]["attrs"])
 
     def test_class_unify_drops_self(self):
-        tree, _ = emit(
-            "class Foo:\n    def __init__(self, x):\n        self.x = x\n"
-        )
+        tree, _ = emit("class Foo:\n    def __init__(self, x):\n        self.x = x\n")
         class_decl = tree[0]["class_decl"]
         method = class_decl["methods"][0]["method_decl"]
-        self.assertEqual(
-            [p["parameter_decl"]["name"] for p in method["parameters"]], ["x"]
-        )
+        self.assertEqual([p["parameter_decl"]["name"] for p in method["parameters"]], ["x"])
         body = method["body"]
         field_write = next(r for r in body if "field_write" in r)
         self.assertEqual(field_write["field_write"]["receiver_object"], "%this")
@@ -346,8 +319,7 @@ class TestGirEmitter(unittest.TestCase):
     def test_unit_init_wraps_module_exec(self):
         _, rows = emit("import os\nx = os.getcwd()")
         init = next(
-            r for r in rows
-            if r.get("operation") == "method_decl" and r.get("name") == "%unit_init"
+            r for r in rows if r.get("operation") == "method_decl" and r.get("name") == "%unit_init"
         )
         wrapped = [r for r in rows if r["parent_stmt_id"] == init["body"]]
         wrapped_ops = {r["operation"] for r in wrapped}
@@ -403,31 +375,20 @@ class TestGirEmitter(unittest.TestCase):
         rows = build_gir(module_code("def f(value=1):\n    return value\n"), "unit")
         self.assertIn("def f(value=1):", readable_gir(rows))
 
-    @unittest.skipUnless(
-        hasattr(python_ast, "TypeVar"), "PEP 695 parsing requires Python 3.12+"
-    )
+    @unittest.skipUnless(hasattr(python_ast, "TypeVar"), "PEP 695 parsing requires Python 3.12+")
     def test_pep695_type_parameters_warn_and_keep_runtime_parameters(self):
         code = module_code(
-            "def first[T](xs: list[T]) -> T:\n"
-            "    return xs[0]\n"
-            "class Box[T]:\n"
-            "    pass\n"
+            "def first[T](xs: list[T]) -> T:\n" "    return xs[0]\n" "class Box[T]:\n" "    pass\n"
         )
         function_statements = []
-        with self.assertWarnsRegex(
-            GirCompatibilityWarning, "function type parameters"
-        ):
-            GirEmitter().emit_statement(
-                code.ast.blocks[0], function_statements
-            )
+        with self.assertWarnsRegex(GirCompatibilityWarning, "function type parameters"):
+            GirEmitter().emit_statement(code.ast.blocks[0], function_statements)
         class_statements = []
         GirEmitter().emit_statement(code.ast.blocks[1], class_statements)
         method = function_statements[0]["method_decl"]
         self.assertEqual(method["parameters"][0]["parameter_decl"]["name"], "xs")
         self.assertEqual(class_statements[0]["class_decl"]["name"], "Box")
-        self.assertEqual(
-            class_statements[0]["class_decl"]["type_parameters"], "T"
-        )
+        self.assertEqual(class_statements[0]["class_decl"]["type_parameters"], "T")
 
 
 if __name__ == "__main__":

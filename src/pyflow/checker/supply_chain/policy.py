@@ -28,9 +28,7 @@ def load_finding_policy(path: Path) -> FindingPolicy:
     if not isinstance(data, dict):
         raise ValueError("finding policy must be a JSON object")
     exceptions = data.get("exceptions", ()) or ()
-    if not isinstance(exceptions, list) or not all(
-        isinstance(item, dict) for item in exceptions
-    ):
+    if not isinstance(exceptions, list) or not all(isinstance(item, dict) for item in exceptions):
         raise ValueError("policy exceptions must be an array of objects")
     for item in exceptions:
         if not str(item.get("reason", "")).strip():

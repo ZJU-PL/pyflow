@@ -57,9 +57,7 @@ def edge(G, u, v, e):
     if u not in G:
         raise GraphFormatError("Unexpected vertex %s in edge to %s" % (str(u), str(v)))
     if v not in G:
-        raise GraphFormatError(
-            "Unexpected vertex %s in edge from %s" % (str(v), str(u))
-        )
+        raise GraphFormatError("Unexpected vertex %s in edge from %s" % (str(v), str(u)))
     G[u][v] = G[v][u] = e
 
 
@@ -109,9 +107,7 @@ def readEdgeList(lines):
         if len(words) < 2 or len(words) > 3:
             raise GraphFormatError('Wrong number of words in edge list: "%s"' % line)
         if len(words) == 3 and words[1] != "-":
-            raise GraphFormatError(
-                'Unrecognized edge type "%s" in edge list' % words[1]
-            )
+            raise GraphFormatError('Unrecognized edge type "%s" in edge list' % words[1])
         u, v = words[0], words[-1]
         if u not in G:
             vertex(G, u)
@@ -171,9 +167,7 @@ def readNodeEdgeList(lines):
             try:
                 action = actions[line[3:]]
             except KeyError:
-                raise GraphFormatError(
-                    'Unrecognized section "%s" in node edge list' % line[3:]
-                )
+                raise GraphFormatError('Unrecognized section "%s" in node edge list' % line[3:])
         else:
             action(line)
 
@@ -199,9 +193,7 @@ def readGraphML(lines):
                 raise GraphFormatError('Unrecognized outer tag "%s" in GraphML' % name)
         elif len(context) == 2 and name == "graph":
             if "edgedefault" not in attrs:
-                raise GraphFormatError(
-                    "Required attribute edgedefault missing in GraphML"
-                )
+                raise GraphFormatError("Required attribute edgedefault missing in GraphML")
             if attrs["edgedefault"] == "undirected":
                 defaultDirectedness[0] = "false"
         elif len(context) == 3 and context[1] == "graph" and name == "node":
@@ -405,9 +397,7 @@ def readUndirectedGraph(arg):
         line = lines[0]
         if line.startswith(">>graph6<<") or graph6data(line):
             return readGraph6(line)
-        elif line.startswith(">>sparse6<<") or (
-            line.startswith(":") and graph6data(line[1:])
-        ):
+        elif line.startswith(">>sparse6<<") or (line.startswith(":") and graph6data(line[1:])):
             return readSparse6(line)
 
     # LEDA.GRAPH

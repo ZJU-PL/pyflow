@@ -205,15 +205,9 @@ class OpFlow(TypeDispatcher):
     def visitTryExceptFinally(self, node):
         body = self.summarize(node.body)
         handlers = [self.summarize(handler) for handler in node.handlers]
-        default = (
-            self.summarize(node.defaultHandler)
-            if node.defaultHandler is not None
-            else None
-        )
+        default = self.summarize(node.defaultHandler) if node.defaultHandler is not None else None
         else_ = self.summarize(node.else_) if node.else_ is not None else None
-        finally_ = (
-            self.summarize(node.finally_) if node.finally_ is not None else None
-        )
+        finally_ = self.summarize(node.finally_) if node.finally_ is not None else None
 
         normal = body.normal and (else_ is None or else_.normal)
         if body.fails or body.errors:

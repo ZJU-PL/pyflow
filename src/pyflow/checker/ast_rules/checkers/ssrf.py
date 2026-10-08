@@ -17,7 +17,6 @@ import ast
 from ...common import issue
 from ..core import test_properties as test
 
-
 # HTTP request functions
 REQUESTS_FUNCTIONS = [
     "requests.get",

@@ -24,7 +24,6 @@ from pyflow.analysis.ifds.modeling.calls import TaintModelPort, TaintPropagation
 from pyflow.analysis.taint_policy import TaintRule
 from pyflow.ir.core import Capabilities
 
-
 PROGRAM = """
 def source():
     return 1
@@ -114,8 +113,7 @@ def test_run_class_pollution_analysis_api_on_source_file(tmp_path):
 
 def test_run_taint_analysis_api_models_source_level_subscript_helpers(tmp_path):
     target = tmp_path / "subscript_sample.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -127,8 +125,7 @@ def main():
     items[0] = source()
     out = items[0]
     sink(out)
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -405,8 +402,7 @@ def test_load_analysis_session_uses_constraint_callsite_edges_for_higher_order_c
     tmp_path,
 ):
     target = tmp_path / "higher_order.py"
-    target.write_text(
-        """
+    target.write_text("""
 def target():
     return 1
 
@@ -415,8 +411,7 @@ def apply(fn):
 
 def main():
     return apply(target)
-"""
-    )
+""")
 
     session = load_analysis_session([target], root_function="main")
     apply_cfg = next(
@@ -493,13 +488,11 @@ def test_load_analysis_session_finalizes_semantics_once(tmp_path, monkeypatch):
 
 def test_run_nullness_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "nullness_sample.py"
-    target.write_text(
-        """
+    target.write_text("""
 def main():
     value = None
     return value
-"""
-    )
+""")
 
     session, result = run_nullness_analysis(
         [target],
@@ -513,14 +506,12 @@ def main():
 
 def test_run_typestate_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "typestate_sample.py"
-    target.write_text(
-        """
+    target.write_text("""
 def main():
     resource = open()
     close(resource)
     read(resource)
-"""
-    )
+""")
 
     session, result = run_typestate_analysis(
         [target],
@@ -805,12 +796,10 @@ def test_load_analysis_session_with_root_function_drops_unrelated_module_roots(
 ):
     main = tmp_path / "main.py"
     dead = tmp_path / "dead.py"
-    main.write_text(
-        """
+    main.write_text("""
 def main():
     return 0
-"""
-    )
+""")
     dead.write_text("x = source()\nsink(x)\n")
 
     session = load_analysis_session([main, dead], verbose=False, root_function="main")
@@ -945,8 +934,7 @@ def test_entry_file_public_handler_follows_cross_module_calls(tmp_path):
 
 def test_run_taint_analysis_includes_module_top_level_of_requested_file(tmp_path):
     target = tmp_path / "sample.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -958,8 +946,7 @@ sink(x)
 
 def main():
     return 0
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -972,8 +959,7 @@ def main():
 
 def test_run_taint_analysis_includes_class_definition_time_code(tmp_path):
     target = tmp_path / "sample.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -986,8 +972,7 @@ class C:
 
 def main():
     return 0
-"""
-    )
+""")
 
     session, result, _ = run_taint_analysis(
         [target],
@@ -1001,8 +986,7 @@ def main():
 
 def test_run_taint_analysis_handles_nested_and_computed_sink_expressions(tmp_path):
     target = tmp_path / "nested.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1018,8 +1002,7 @@ def main():
     sink(a + 1)
     b = helper(source())
     sink(b)
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1043,8 +1026,7 @@ def main():
 
 def test_run_taint_analysis_ignores_sanitized_nested_sink_expressions(tmp_path):
     target = tmp_path / "sanitized.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1058,8 +1040,7 @@ def main():
     a = source()
     sink(sanitize(a))
     sink(sanitize(source()))
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1072,8 +1053,7 @@ def main():
 
 def test_run_taint_analysis_seeds_program_entry_points_only(tmp_path):
     target = tmp_path / "roots.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1085,8 +1065,7 @@ def dead_helper():
 
 def main():
     return 0
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1099,8 +1078,7 @@ def main():
 
 def test_run_taint_analysis_tracks_nested_call_results(tmp_path):
     target = tmp_path / "nested_results.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1115,8 +1093,7 @@ def sink(x):
 
 def main():
     sink(wrapper())
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1131,8 +1108,7 @@ def main():
 
 def test_run_taint_analysis_tracks_try_except_sink_flow(tmp_path):
     target = tmp_path / "try_except.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1145,8 +1121,7 @@ def main():
         raise ValueError()
     except ValueError:
         sink(x)
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1161,8 +1136,7 @@ def main():
 
 def test_run_taint_analysis_does_not_report_unreachable_except_calls(tmp_path):
     target = tmp_path / "unreachable_except.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1174,8 +1148,7 @@ def main():
         x = 0
     except Exception:
         sink(source())
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1188,8 +1161,7 @@ def main():
 
 def test_run_taint_analysis_scopes_findings_to_reachable_entry(tmp_path):
     target = tmp_path / "reachability.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1201,8 +1173,7 @@ def dead():
 
 def main():
     return 0
-"""
-    )
+""")
 
     _session, result, _ = run_taint_analysis(
         [target],
@@ -1215,8 +1186,7 @@ def main():
 
 def test_load_analysis_session_handles_common_expression_shapes(tmp_path):
     target = tmp_path / "expressions.py"
-    target.write_text(
-        """
+    target.write_text("""
 def f(a, b, xs):
     items = [a]
     subset = xs[1:2]
@@ -1226,8 +1196,7 @@ def f(a, b, xs):
     if (w := a):
         items = [w]
     return maker(both or either or subset or items)
-"""
-    )
+""")
 
     session = load_analysis_session([target], verbose=False)
 
@@ -1238,14 +1207,12 @@ def f(a, b, xs):
 
 def test_load_analysis_session_handles_annotated_assignments(tmp_path):
     target = tmp_path / "annassign.py"
-    target.write_text(
-        """
+    target.write_text("""
 def f():
     x: int = 1
     y: int
     return x
-"""
-    )
+""")
 
     session = load_analysis_session([target], verbose=False)
 
@@ -1313,8 +1280,7 @@ def test_security_cli_emits_class_pollution_proof_level(tmp_path, capsys):
 
 def test_security_cli_reports_expression_only_taint_findings(tmp_path, capsys):
     target = tmp_path / "nested.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -1325,8 +1291,7 @@ def main():
     sink(source())
 
 main()
-"""
-    )
+""")
 
     args = SimpleNamespace(
         entry=None,

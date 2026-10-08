@@ -36,9 +36,7 @@ def test_cached_spans_shares_entries_between_original_and_dedented_copy():
     assert dedented == original
     assert dedented is not original
 
-    with patch.object(
-        source_module.ast, "parse", wraps=source_module.ast.parse
-    ) as parse:
+    with patch.object(source_module.ast, "parse", wraps=source_module.ast.parse) as parse:
         first = _cached_spans(original)
         second = _cached_spans(dedented)
 
@@ -50,9 +48,7 @@ def test_cached_spans_shares_entries_between_original_and_dedented_copy():
 def test_cached_spans_parses_distinct_content_separately():
     """Different module content must not share span entries."""
     _clear_caches()
-    with patch.object(
-        source_module.ast, "parse", wraps=source_module.ast.parse
-    ) as parse:
+    with patch.object(source_module.ast, "parse", wraps=source_module.ast.parse) as parse:
         _cached_spans("def a():\n    return 1\n")
         _cached_spans("def b():\n    return 2\n")
     assert parse.call_count == 2
@@ -81,14 +77,12 @@ def test_best_source_for_callable_indexes_missing_filename_once():
 def test_best_source_fallback_uses_reverse_index_for_multiple_callables():
     _clear_caches()
     sources = {
-        f"pkg/mod_{index}.py": f"def helper_{index}():\n    return {index}\n"
-        for index in range(20)
+        f"pkg/mod_{index}.py": f"def helper_{index}():\n    return {index}\n" for index in range(20)
     }
     namespace = {}
     exec(
         compile(
-            "def helper_19():\n    return 19\n"
-            "def helper_3():\n    return 3\n",
+            "def helper_19():\n    return 19\n" "def helper_3():\n    return 3\n",
             "generated/missing.py",
             "exec",
         ),
@@ -100,12 +94,8 @@ def test_best_source_fallback_uses_reverse_index_for_multiple_callables():
         "_cached_spans",
         wraps=source_module._cached_spans,
     ) as spans:
-        assert "def helper_19" in best_source_for_callable(
-            namespace["helper_19"], sources
-        )
-        assert "def helper_3" in best_source_for_callable(
-            namespace["helper_3"], sources
-        )
+        assert "def helper_19" in best_source_for_callable(namespace["helper_19"], sources)
+        assert "def helper_3" in best_source_for_callable(namespace["helper_3"], sources)
 
     assert spans.call_count == len(sources)
 
@@ -149,6 +139,7 @@ def test_best_source_for_callable_invalidates_on_new_source_set():
 
 def test_best_source_for_callable_skips_external_runtime_callable():
     import os
+
     _clear_caches()
     sources = {"pkg/mod.py": "def helper():\n    return 1\n"}
     with patch.object(
@@ -162,6 +153,4 @@ def test_best_source_for_callable_skips_external_runtime_callable():
 
 
 def test_external_runtime_detection_uses_path_components():
-    assert not _is_external_runtime_file(
-        "/tmp/not-site-packages-project/pkg/module.py"
-    )
+    assert not _is_external_runtime_file("/tmp/not-site-packages-project/pkg/module.py")

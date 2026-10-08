@@ -18,16 +18,12 @@ class _BindingTransferMixin:
         locations: list[HeapLocation] = []
         keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
         for key in keys:
-            if not isinstance(local_name, str) or self.heap._local_names.get(
-                key
-            ) != local_name:
+            if not isinstance(local_name, str) or self.heap._local_names.get(key) != local_name:
                 continue
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
                 site = self.heap.allocation_sites.get(key)
-                storage = (
-                    self.heap.site_storage.get(site, ()) if site is not None else ()
-                )
+                storage = self.heap.site_storage.get(site, ()) if site is not None else ()
             locations.extend(self.heap.location_for_raw(raw) for raw in storage)
         return tuple(dict.fromkeys(locations))
 
@@ -93,10 +89,7 @@ class _BindingTransferMixin:
                 if operation.name == name:
                     return True
                 continue
-            if any(
-                getattr(local, "name", None) == name
-                for local in assigned_locals(operation)
-            ):
+            if any(getattr(local, "name", None) == name for local in assigned_locals(operation)):
                 return True
         return False
 
@@ -108,16 +101,15 @@ class _BindingTransferMixin:
         locations: list[HeapLocation] = []
         keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
         for key in keys:
-            if key[0] != self.heap._procedure_key(
-                procedure
-            ) or self.heap._local_names.get(key) != name:
+            if (
+                key[0] != self.heap._procedure_key(procedure)
+                or self.heap._local_names.get(key) != name
+            ):
                 continue
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
                 site = self.heap.allocation_sites.get(key)
-                storage = (
-                    self.heap.site_storage.get(site, ()) if site is not None else ()
-                )
+                storage = self.heap.site_storage.get(site, ()) if site is not None else ()
             locations.extend(self.heap.location_for_raw(raw) for raw in storage)
         return tuple(dict.fromkeys(locations))
 

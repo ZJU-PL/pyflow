@@ -27,9 +27,7 @@ _UNSUPPORTED_PROTOCOL_VERSION = -32022
 class UnsupportedProtocolVersionError(JsonRpcError):
     """Report a protocol era that cannot use the requested MCP endpoint."""
 
-    def __init__(
-        self, version: object, message: str = "Unsupported MCP protocol version"
-    ):
+    def __init__(self, version: object, message: str = "Unsupported MCP protocol version"):
         super().__init__(
             _UNSUPPORTED_PROTOCOL_VERSION,
             message,
@@ -104,9 +102,7 @@ class McpHandler:
             "capabilities": {"resources": {}, "tools": {"listChanged": False}},
             "ttlMs": 60_000,
             "cacheScope": "private",
-            "_meta": {
-                _SERVER_INFO_META_KEY: {"name": "pyflow", "version": self._version()}
-            },
+            "_meta": {_SERVER_INFO_META_KEY: {"name": "pyflow", "version": self._version()}},
         }
 
     def _handle_initialized(self, params: Any) -> None:
@@ -151,18 +147,19 @@ class McpHandler:
 
     def _handle_list_resource_templates(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
-        return self._cacheable_complete(params, {
-            "resourceTemplates": [
-                {
-                    "uriTemplate": "pyflow://function/{name}",
-                    "name": "Function Details",
-                    "description": (
-                        "Source location and analysis profile for a function"
-                    ),
-                    "mimeType": "application/json",
-                }
-            ]
-        })
+        return self._cacheable_complete(
+            params,
+            {
+                "resourceTemplates": [
+                    {
+                        "uriTemplate": "pyflow://function/{name}",
+                        "name": "Function Details",
+                        "description": ("Source location and analysis profile for a function"),
+                        "mimeType": "application/json",
+                    }
+                ]
+            },
+        )
 
     def _handle_read_resource(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
@@ -189,31 +186,32 @@ class McpHandler:
             name = unquote(uri.removeprefix("pyflow://function/"))
             symbol = snapshot.source_index.symbol_by_name(name)
             if symbol is None:
-                raise JsonRpcError(
-                    ErrorCodes.InvalidParams, f"Unknown function: {name}"
-                )
+                raise JsonRpcError(ErrorCodes.InvalidParams, f"Unknown function: {name}")
             value = {
                 "name": symbol.name,
                 "qualifiedName": symbol.qualified_name,
                 "location": symbol.selection_range.location(),
                 "profile": _serialize_profile(
-                    self._fresh_semantic_snapshot(snapshot)
-                    .queries.test_generation.get_function_test_profile(
-                        symbol.qualified_name
-                    )
+                    self._fresh_semantic_snapshot(
+                        snapshot
+                    ).queries.test_generation.get_function_test_profile(symbol.qualified_name)
                 ),
             }
         else:
             raise JsonRpcError(ErrorCodes.InvalidParams, f"Unknown resource: {uri}")
-        return self._cacheable_complete(params, {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": "application/json",
-                    "text": json.dumps(value, default=str, sort_keys=True),
-                }
-            ]
-        }, ttl_ms=0)
+        return self._cacheable_complete(
+            params,
+            {
+                "contents": [
+                    {
+                        "uri": uri,
+                        "mimeType": "application/json",
+                        "text": json.dumps(value, default=str, sort_keys=True),
+                    }
+                ]
+            },
+            ttl_ms=0,
+        )
 
     def _handle_list_tools(self, params: Any) -> dict[str, Any]:
         self._require_request_era(params)
@@ -266,9 +264,7 @@ class McpHandler:
                 "function_summaries",
                 ("function",),
                 lambda: _serialize_profile(
-                    snapshot.queries.test_generation.get_function_test_profile(
-                        args["function"]
-                    )
+                    snapshot.queries.test_generation.get_function_test_profile(args["function"])
                 ),
             ),
             "get_aliases": (
@@ -310,13 +306,9 @@ class McpHandler:
         capability, required, handler = entry
         missing = [field for field in required if field not in args]
         if missing:
-            return self._tool_error(
-                f"Missing required arguments: {', '.join(missing)}", params
-            )
+            return self._tool_error(f"Missing required arguments: {', '.join(missing)}", params)
         if capability and not snapshot.features.supports(capability):
-            return self._tool_error(
-                f"Tool {name} is unavailable in this analysis snapshot", params
-            )
+            return self._tool_error(f"Tool {name} is unavailable in this analysis snapshot", params)
         if capability and snapshot.semantic_stale:
             return self._tool_error(
                 "Semantic analysis is refreshing for the current source revision", params
@@ -554,10 +546,13 @@ class McpHandler:
         }
 
     def _tool_error(self, message: str, params: Any) -> dict[str, Any]:
-        return self._complete(params, {
-            "isError": True,
-            "content": [{"type": "text", "text": message}],
-        })
+        return self._complete(
+            params,
+            {
+                "isError": True,
+                "content": [{"type": "text", "text": message}],
+            },
+        )
 
     @staticmethod
     def _version() -> str:

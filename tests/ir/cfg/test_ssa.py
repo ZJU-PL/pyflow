@@ -149,15 +149,17 @@ class TestSSA(unittest.TestCase):
         assignments = [
             op
             for block_id, block in catalog.blocks()
-            if block_id.code == catalog.procedure(code).code_id
-            and hasattr(block, "ops")
+            if block_id.code == catalog.procedure(code).code_id and hasattr(block, "ops")
             for op in block.ops
             if isinstance(op, ast.Assign)
         ]
         self.assertTrue(assignments)
         self.assertTrue(
             any(
-                any(isinstance(identity, ValueId) for identity in catalog.semantics_of(op, code=code).definitions)
+                any(
+                    isinstance(identity, ValueId)
+                    for identity in catalog.semantics_of(op, code=code).definitions
+                )
                 for op in assignments
             )
         )

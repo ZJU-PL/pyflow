@@ -24,16 +24,10 @@ def test_archive_metadata_and_suspicious_entries_are_scanned(tmp_path):
 
     scan = scan_targets([wheel], recursive=True)
 
-    assert any(
-        component["purl"] == "pkg:pypi/demo@1.0.0" for component in scan.components
-    )
+    assert any(component["purl"] == "pkg:pypi/demo@1.0.0" for component in scan.components)
     assert any(finding.kind == "archive-parent-reference" for finding in scan.findings)
-    assert all(
-        "pyflow_supply_chain_" not in finding.location for finding in scan.findings
-    )
-    assert any(
-        "!/demo-1.0.0.dist-info/" in finding.location for finding in scan.findings
-    )
+    assert all("pyflow_supply_chain_" not in finding.location for finding in scan.findings)
+    assert any("!/demo-1.0.0.dist-info/" in finding.location for finding in scan.findings)
 
 
 def test_wheel_without_distribution_metadata_is_rejected(tmp_path):
@@ -43,9 +37,7 @@ def test_wheel_without_distribution_metadata_is_rejected(tmp_path):
 
     scan = scan_targets([wheel])
 
-    assert any(
-        finding.kind == "archive-missing-package-metadata" for finding in scan.findings
-    )
+    assert any(finding.kind == "archive-missing-package-metadata" for finding in scan.findings)
 
 
 def test_malformed_archive_inputs_fail_closed_without_crashing(tmp_path):
@@ -54,9 +46,7 @@ def test_malformed_archive_inputs_fail_closed_without_crashing(tmp_path):
         archive_path = tmp_path / f"malformed-{index}.zip"
         archive_path.write_bytes(generator.randbytes(index * 17 + 1))
         scan = scan_targets([archive_path])
-        assert any(
-            finding.kind == "archive-unrecognized-format" for finding in scan.findings
-        )
+        assert any(finding.kind == "archive-unrecognized-format" for finding in scan.findings)
 
 
 def test_record_audit_reports_invalid_hash(tmp_path):
@@ -114,10 +104,7 @@ def test_compressed_tar_enforces_ratio_limit(tmp_path):
 
     scan = scan_targets([archive_path], limits=ScanLimits(max_compression_ratio=2.0))
 
-    assert any(
-        finding.kind == "archive-suspicious-compression-ratio"
-        for finding in scan.findings
-    )
+    assert any(finding.kind == "archive-suspicious-compression-ratio" for finding in scan.findings)
 
 
 def test_manifest_size_and_requirement_include_symlink_are_bounded(tmp_path):
@@ -133,9 +120,7 @@ def test_manifest_size_and_requirement_include_symlink_are_bounded(tmp_path):
     root = tmp_path / "requirements-root.txt"
     root.write_text("-r linked.txt\n", encoding="utf-8")
     linked = scan_targets([root])
-    assert any(
-        finding.kind == "requirement-include-symlink" for finding in linked.findings
-    )
+    assert any(finding.kind == "requirement-include-symlink" for finding in linked.findings)
 
 
 def test_record_audit_checks_size_without_claiming_other_distributions(tmp_path):
@@ -173,9 +158,7 @@ def test_record_audit_reports_duplicate_external_and_missing_entries(tmp_path):
         encoding="utf-8",
     )
 
-    kinds = {
-        finding.kind for finding in scan_targets([tmp_path], recursive=True).findings
-    }
+    kinds = {finding.kind for finding in scan_targets([tmp_path], recursive=True).findings}
 
     assert {
         "record-external-path",

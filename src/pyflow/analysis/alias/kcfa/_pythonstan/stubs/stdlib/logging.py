@@ -14,7 +14,7 @@ class LogRecord:
 
 
 class Formatter:
-    def __init__(self, fmt=None, datefmt=None, style='%'):
+    def __init__(self, fmt=None, datefmt=None, style="%"):
         self.fmt = fmt
         self.datefmt = datefmt
         self.style = style
@@ -24,7 +24,7 @@ class Formatter:
 
 
 class Filter:
-    def __init__(self, name=''):
+    def __init__(self, name=""):
         self.name = name
 
     def filter(self, record):
@@ -63,7 +63,7 @@ class StreamHandler(Handler):
 
 
 class FileHandler(StreamHandler):
-    def __init__(self, filename, mode='a', encoding=None, delay=False):
+    def __init__(self, filename, mode="a", encoding=None, delay=False):
         StreamHandler.__init__(self, None)
         self.filename = filename
         self.mode = mode
@@ -104,32 +104,32 @@ class Logger:
             hdlr.handle(record)
 
     def debug(self, msg, *args, **kwargs):
-        self._log(DEBUG, msg, args, kwargs.get('exc_info'))
+        self._log(DEBUG, msg, args, kwargs.get("exc_info"))
 
     def info(self, msg, *args, **kwargs):
-        self._log(INFO, msg, args, kwargs.get('exc_info'))
+        self._log(INFO, msg, args, kwargs.get("exc_info"))
 
     def warning(self, msg, *args, **kwargs):
-        self._log(WARNING, msg, args, kwargs.get('exc_info'))
+        self._log(WARNING, msg, args, kwargs.get("exc_info"))
 
     def warn(self, msg, *args, **kwargs):
         self.warning(msg, *args, **kwargs)
 
     def error(self, msg, *args, **kwargs):
-        self._log(ERROR, msg, args, kwargs.get('exc_info'))
+        self._log(ERROR, msg, args, kwargs.get("exc_info"))
 
     def critical(self, msg, *args, **kwargs):
-        self._log(CRITICAL, msg, args, kwargs.get('exc_info'))
+        self._log(CRITICAL, msg, args, kwargs.get("exc_info"))
 
     def fatal(self, msg, *args, **kwargs):
         self.critical(msg, *args, **kwargs)
 
     def exception(self, msg, *args, **kwargs):
-        kwargs['exc_info'] = True
+        kwargs["exc_info"] = True
         self.error(msg, *args, **kwargs)
 
     def log(self, level, msg, *args, **kwargs):
-        self._log(level, msg, args, kwargs.get('exc_info'))
+        self._log(level, msg, args, kwargs.get("exc_info"))
 
 
 _loggers = {}

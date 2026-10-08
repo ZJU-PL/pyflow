@@ -53,7 +53,9 @@ class TestPDG(unittest.TestCase):
 
     def test_pdg_construction_has_nodes_and_edges(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=True
+        )
 
         stats = pdg.stats()
         self.assertGreater(stats.nodes, 0)
@@ -67,7 +69,9 @@ class TestPDG(unittest.TestCase):
 
     def test_pdg_data_dependence_chain(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         entry = pdg.entry
         self.assertIsNotNone(entry)
@@ -94,13 +98,23 @@ class TestPDG(unittest.TestCase):
 
         # Expect data edges: entry -(x)-> y, y -(y)-> z, z -(z)-> return.
         data_edges = pdg.all_edges(kind="data")
-        self.assertTrue(any(e.source == entry and e.target == y_assign and e.label == "x" for e in data_edges))
-        self.assertTrue(any(e.source == y_assign and e.target == z_assign and e.label == "y" for e in data_edges))
-        self.assertTrue(any(e.source == z_assign and e.target == ret and e.label == "z" for e in data_edges))
+        self.assertTrue(
+            any(e.source == entry and e.target == y_assign and e.label == "x" for e in data_edges)
+        )
+        self.assertTrue(
+            any(
+                e.source == y_assign and e.target == z_assign and e.label == "y" for e in data_edges
+            )
+        )
+        self.assertTrue(
+            any(e.source == z_assign and e.target == ret and e.label == "z" for e in data_edges)
+        )
 
     def test_pdg_control_dependence_edges_exist(self):
         cfg = self.build_cfg(simple_if)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=False)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=False
+        )
 
         control_edges = pdg.all_edges(kind="control")
         # Should include some control edges for the if.
@@ -113,9 +127,13 @@ class TestPDG(unittest.TestCase):
 
     def test_backward_slice_includes_relevant_defs(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
-        ret = next((n for n in pdg.nodes if n.kind == "stmt" and isinstance(n.ast_node, ast.Return)), None)
+        ret = next(
+            (n for n in pdg.nodes if n.kind == "stmt" and isinstance(n.ast_node, ast.Return)), None
+        )
         self.assertIsNotNone(ret)
 
         slc = pdg.backward_slice([ret], kinds=frozenset(("data",)))

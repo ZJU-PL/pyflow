@@ -75,9 +75,7 @@ def wrapCodeContext(schema):
 
 opDataflowSchema = wrapOpContext(lattice.setUnionSchema)
 
-invokesStruct = structure.StructureSchema(
-    ("code", codeSchema), ("context", contextSchema)
-)
+invokesStruct = structure.StructureSchema(("code", codeSchema), ("context", contextSchema))
 invokesSchema = wrapOpContext(tupleset.TupleSetSchema(invokesStruct))
 
 invokeSourcesStruct = structure.StructureSchema(
@@ -243,9 +241,7 @@ class ReadModifyAnalysis(object):
             if op is None:
                 slots = self.facts.code_effect(Capabilities.CODE_WRITES, code, context)
             else:
-                slots = self.facts.operation_effect(
-                    Capabilities.OP_WRITES, code, op, context
-                )
+                slots = self.facts.operation_effect(Capabilities.OP_WRITES, code, op, context)
                 self.opModifyDB[code][op].merge(context, slots)
             self.contextModifies[(code, context)].update(slots)
             self.allModifies.update(slots)
@@ -255,9 +251,7 @@ class ReadModifyAnalysis(object):
             if op is None:
                 slots = self.facts.code_effect(Capabilities.CODE_READS, code, context)
             else:
-                slots = self.facts.operation_effect(
-                    Capabilities.OP_READS, code, op, context
-                )
+                slots = self.facts.operation_effect(Capabilities.OP_READS, code, op, context)
             filtered = {slot for slot in slots if slot in self.allModifies}
             if op is not None:
                 self.opReadDB[code][op].merge(context, filtered)
@@ -265,11 +259,7 @@ class ReadModifyAnalysis(object):
             self.allReads.update(slots)
 
     def handleAllocates(self, code, op):
-        capability = (
-            Capabilities.CODE_ALLOCATIONS
-            if op is None
-            else Capabilities.OP_ALLOCATIONS
-        )
+        capability = Capabilities.CODE_ALLOCATIONS if op is None else Capabilities.OP_ALLOCATIONS
         for context in self.facts.contexts(code):
             if op is None:
                 slots = self.facts.code_effect(capability, code, context)
@@ -737,9 +727,7 @@ class LifetimeAnalysis(object):
                     newLive.add(dstLive)
                 else:
                     # The object will never propagate along this invocation
-                    self.killed[(currentF, currentO, currentC)][(dstF, dstC)].add(
-                        dstLive
-                    )
+                    self.killed[(currentF, currentO, currentC)][(dstF, dstC)].add(dstLive)
 
         if newLive:
             # Propigate dirty
@@ -846,10 +834,7 @@ class LifetimeAnalysis(object):
         modifyDB = self.rm.opModifyDB
         self.allocations = self.rm.allocations
         catalog = prgm.ir
-        capabilities = {
-            capability: {}
-            for capability in Capabilities.LIFETIME
-        }
+        capabilities = {capability: {} for capability in Capabilities.LIFETIME}
 
         for code in prgm.liveCode:
             code_id = catalog.procedure(code).code_id
@@ -858,20 +843,20 @@ class LifetimeAnalysis(object):
                 context_id = catalog.context_id(code, context)
                 code_key = ContextualKey(code_id, context_id)
                 key = (code, context)
-                capabilities[Capabilities.LIFETIME_CODE_LIVE][code_key] = (
-                    FactResult.exact(self.live[key], "lifetime")
+                capabilities[Capabilities.LIFETIME_CODE_LIVE][code_key] = FactResult.exact(
+                    self.live[key], "lifetime"
                 )
-                capabilities[Capabilities.LIFETIME_CODE_KILLED][code_key] = (
-                    FactResult.exact(self.contextKilled[key], "lifetime")
+                capabilities[Capabilities.LIFETIME_CODE_KILLED][code_key] = FactResult.exact(
+                    self.contextKilled[key], "lifetime"
                 )
-                capabilities[Capabilities.LIFETIME_CODE_READS][code_key] = (
-                    FactResult.exact(self.rm.contextReads[key], "lifetime")
+                capabilities[Capabilities.LIFETIME_CODE_READS][code_key] = FactResult.exact(
+                    self.rm.contextReads[key], "lifetime"
                 )
-                capabilities[Capabilities.LIFETIME_CODE_WRITES][code_key] = (
-                    FactResult.exact(self.rm.contextModifies[key], "lifetime")
+                capabilities[Capabilities.LIFETIME_CODE_WRITES][code_key] = FactResult.exact(
+                    self.rm.contextModifies[key], "lifetime"
                 )
-                capabilities[Capabilities.LIFETIME_CODE_ALLOCATIONS][code_key] = (
-                    FactResult.exact(self.allocations[key], "lifetime")
+                capabilities[Capabilities.LIFETIME_CODE_ALLOCATIONS][code_key] = FactResult.exact(
+                    self.allocations[key], "lifetime"
                 )
 
             ops, lcls = getOps(code)
@@ -894,25 +879,21 @@ class LifetimeAnalysis(object):
                     cmod = set(modifies[context] or ())
                     kills = self.killed[(code, op, context)]
                     calloc = set()
-                    for dstCode, dstContext in self.facts.call_targets(
-                        code, op, context
-                    ):
+                    for dstCode, dstContext in self.facts.call_targets(code, op, context):
                         callee_live = self.live[(dstCode, dstContext)]
                         callee_killed = kills[(dstCode, dstContext)]
                         calloc.update(callee_live - callee_killed)
                     calloc.update(
-                        self.facts.operation_effect(
-                            Capabilities.OP_ALLOCATIONS, code, op, context
-                        )
+                        self.facts.operation_effect(Capabilities.OP_ALLOCATIONS, code, op, context)
                     )
-                    capabilities[Capabilities.LIFETIME_OP_READS][op_key] = (
-                        FactResult.exact(creads, "lifetime")
+                    capabilities[Capabilities.LIFETIME_OP_READS][op_key] = FactResult.exact(
+                        creads, "lifetime"
                     )
-                    capabilities[Capabilities.LIFETIME_OP_WRITES][op_key] = (
-                        FactResult.exact(cmod, "lifetime")
+                    capabilities[Capabilities.LIFETIME_OP_WRITES][op_key] = FactResult.exact(
+                        cmod, "lifetime"
                     )
-                    capabilities[Capabilities.LIFETIME_OP_ALLOCATIONS][op_key] = (
-                        FactResult.exact(calloc, "lifetime")
+                    capabilities[Capabilities.LIFETIME_OP_ALLOCATIONS][op_key] = FactResult.exact(
+                        calloc, "lifetime"
                     )
 
         revision = catalog.facts.publish_many("lifetime", capabilities)

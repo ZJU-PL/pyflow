@@ -197,8 +197,7 @@ class CFGTransformer(TypeDispatcher):
         import warnings
 
         warnings.warn(
-            f"CFG transform skipping unsupported AST node type "
-            f"{type(node).__qualname__!r}.",
+            f"CFG transform skipping unsupported AST node type " f"{type(node).__qualname__!r}.",
             RuntimeWarning,
             stacklevel=2,
         )

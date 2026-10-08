@@ -159,10 +159,7 @@ class CPATypeSigBuilder(object):
         return self.call.vargSlots[index].typeSplit.types()
 
     def getDefault(self, index):
-        if (
-            index >= len(self.call.defaultSlots)
-            or self.call.defaultSlots[index] is None
-        ):
+        if index >= len(self.call.defaultSlots) or self.call.defaultSlots[index] is None:
             return None
         return self.call.defaultSlots[index].typeSplit.types()
 

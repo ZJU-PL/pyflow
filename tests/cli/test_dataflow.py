@@ -77,9 +77,7 @@ def _make_args(output_format: str) -> SimpleNamespace:
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_security_cli_uses_single_taint_result_path(
-    monkeypatch, tmp_path, capsys, output_format
-):
+def test_security_cli_uses_single_taint_result_path(monkeypatch, tmp_path, capsys, output_format):
     target = tmp_path / "sample.py"
     target.write_text(
         """
@@ -131,9 +129,7 @@ def main():
         assert "sink=sink procedure=sinkproc args=[b]" in out
 
 
-def test_security_cli_falls_back_to_tainted_argument_labels(
-    monkeypatch, tmp_path, capsys
-):
+def test_security_cli_falls_back_to_tainted_argument_labels(monkeypatch, tmp_path, capsys):
     target = tmp_path / "sample.py"
     target.write_text(
         """
@@ -207,9 +203,7 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     assert captured["conservative_unresolved_call_side_effects"] is True
 
 
-def test_security_cli_defaults_to_dropping_unknown_call_results(
-    monkeypatch, tmp_path, capsys
-):
+def test_security_cli_defaults_to_dropping_unknown_call_results(monkeypatch, tmp_path, capsys):
     target = tmp_path / "sample.py"
     target.write_text("def main():\n    return 0\n", encoding="utf-8")
     captured = {}
@@ -277,9 +271,7 @@ def test_security_cli_accepts_explicit_directory_entry(monkeypatch, tmp_path, ca
     assert captured["entry_file"] == entry.resolve()
 
 
-def test_security_cli_forwards_typestate_protocol_options(
-    monkeypatch, tmp_path, capsys
-):
+def test_security_cli_forwards_typestate_protocol_options(monkeypatch, tmp_path, capsys):
     target = tmp_path / "sample.py"
     target.write_text("def main():\n    return 0\n", encoding="utf-8")
 
@@ -328,9 +320,7 @@ def test_security_cli_forwards_typestate_protocol_options(
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_security_cli_emits_session_diagnostics(
-    monkeypatch, tmp_path, capsys, output_format
-):
+def test_security_cli_emits_session_diagnostics(monkeypatch, tmp_path, capsys, output_format):
     target = tmp_path / "sample.py"
     target.write_text("def main():\n    return 0\n", encoding="utf-8")
 

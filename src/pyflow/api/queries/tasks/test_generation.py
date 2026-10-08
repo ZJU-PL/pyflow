@@ -141,11 +141,7 @@ class TestGenerationQueries:
         return value if value > 0 else None
 
     def _find_source_function_node(self, tree: ast.AST, code, lineno: int | None):
-        name = (
-            self.context.code_name(code)
-            if hasattr(self.context, "code_name")
-            else None
-        )
+        name = self.context.code_name(code) if hasattr(self.context, "code_name") else None
         if name is None:
             name = getattr(code, "name", None)
         short_name = str(name).rsplit(".", 1)[-1] if name else None

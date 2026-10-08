@@ -32,13 +32,14 @@ class IntrinsicManager:
 
         def params_for(op_name):
             """Return CodeParameters tailored to the stub signature."""
+
             def make_params(params_list, varg=None, kwarg=None):
                 return pyflow_ast.CodeParameters(
                     selfparam=None,
                     posonlyparams=[],
                     posonlynames=[],
                     params=params_list,
-                    paramnames=[p.name for p in params_list if hasattr(p, 'name')],
+                    paramnames=[p.name for p in params_list if hasattr(p, "name")],
                     defaults=[],
                     vparam=varg,
                     kparam=kwarg,
@@ -97,38 +98,48 @@ class IntrinsicManager:
                 return make_params([pyflow_ast.Local("subject"), pyflow_ast.Local("keys")])
 
             if op_name == "interpreter_setattr":
-                return make_params([
-                    pyflow_ast.Local("obj"),
-                    pyflow_ast.Local("name"),
-                    pyflow_ast.Local("value"),
-                ])
+                return make_params(
+                    [
+                        pyflow_ast.Local("obj"),
+                        pyflow_ast.Local("name"),
+                        pyflow_ast.Local("value"),
+                    ]
+                )
 
             if op_name == "interpreter_setitem":
-                return make_params([
-                    pyflow_ast.Local("obj"),
-                    pyflow_ast.Local("subscript"),
-                    pyflow_ast.Local("value"),
-                ])
+                return make_params(
+                    [
+                        pyflow_ast.Local("obj"),
+                        pyflow_ast.Local("subscript"),
+                        pyflow_ast.Local("value"),
+                    ]
+                )
 
             if op_name == "interpreter_match_class_arg":
-                return make_params([
-                    pyflow_ast.Local("subject"),
-                    pyflow_ast.Local("cls"),
-                    pyflow_ast.Local("index"),
-                ])
+                return make_params(
+                    [
+                        pyflow_ast.Local("subject"),
+                        pyflow_ast.Local("cls"),
+                        pyflow_ast.Local("index"),
+                    ]
+                )
 
             if op_name == "interpreter_ifexp":
-                return make_params([
-                    pyflow_ast.Local("cond"),
-                    pyflow_ast.Local("t"),
-                    pyflow_ast.Local("f"),
-                ])
+                return make_params(
+                    [
+                        pyflow_ast.Local("cond"),
+                        pyflow_ast.Local("t"),
+                        pyflow_ast.Local("f"),
+                    ]
+                )
 
             if op_name == "interpreter_build_map":
-                return make_params([
-                    pyflow_ast.Local("pairs"),
-                    pyflow_ast.Local("mappings"),
-                ])
+                return make_params(
+                    [
+                        pyflow_ast.Local("pairs"),
+                        pyflow_ast.Local("mappings"),
+                    ]
+                )
 
             return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
 
@@ -139,9 +150,7 @@ class IntrinsicManager:
                 return []
 
         def _is_match_sequence(value):
-            return isinstance(value, Sequence) and not isinstance(
-                value, (str, bytes, bytearray)
-            )
+            return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
 
         def _safe_merge_kwargs(a, b):
             out = {}
@@ -196,17 +205,11 @@ class IntrinsicManager:
             out = {}
             try:
                 for pair in pairs:
-                    if (
-                        isinstance(pair, (list, tuple))
-                        and len(pair) == 3
-                        and pair[0] == "item"
-                    ):
+                    if isinstance(pair, (list, tuple)) and len(pair) == 3 and pair[0] == "item":
                         _, key, value = pair
                         out[key] = value
                     elif (
-                        isinstance(pair, (list, tuple))
-                        and len(pair) == 2
-                        and pair[0] == "mapping"
+                        isinstance(pair, (list, tuple)) and len(pair) == 2 and pair[0] == "mapping"
                     ):
                         out.update(dict(pair[1]))
                     elif isinstance(pair, (list, tuple)) and len(pair) == 2:
@@ -302,9 +305,7 @@ class IntrinsicManager:
             ),
             "interpreter_match_rest": lambda subject: subject,
             "interpreter_exception_group_extract": lambda exc_group, exc_type: (
-                exc_group.split(exc_type)[0]
-                if hasattr(exc_group, "split")
-                else exc_group
+                exc_group.split(exc_type)[0] if hasattr(exc_group, "split") else exc_group
             ),
             "interpreter_exception_type": type,
             "interpreter_make_generator": lambda value: iter((value,)),
@@ -340,20 +341,14 @@ class IntrinsicManager:
             (),
             {
                 "exports": {
-                    "interpreter_getattribute": create_stub_code(
-                        "interpreter_getattribute"
-                    ),
+                    "interpreter_getattribute": create_stub_code("interpreter_getattribute"),
                     "interpreter_setattr": create_stub_code("interpreter_setattr"),
                     "interpreter__mul__": create_stub_code("interpreter__mul__"),
-                    "interpreter__matmul__": create_stub_code(
-                        "interpreter__matmul__"
-                    ),
+                    "interpreter__matmul__": create_stub_code("interpreter__matmul__"),
                     "interpreter__add__": create_stub_code("interpreter__add__"),
                     "interpreter__sub__": create_stub_code("interpreter__sub__"),
                     "interpreter__div__": create_stub_code("interpreter__div__"),
-                    "interpreter__truediv__": create_stub_code(
-                        "interpreter__truediv__"
-                    ),
+                    "interpreter__truediv__": create_stub_code("interpreter__truediv__"),
                     "interpreter__mod__": create_stub_code("interpreter__mod__"),
                     "interpreter__pow__": create_stub_code("interpreter__pow__"),
                     "interpreter__and__": create_stub_code("interpreter__and__"),
@@ -361,9 +356,7 @@ class IntrinsicManager:
                     "interpreter__xor__": create_stub_code("interpreter__xor__"),
                     "interpreter__lshift__": create_stub_code("interpreter__lshift__"),
                     "interpreter__rshift__": create_stub_code("interpreter__rshift__"),
-                    "interpreter__floordiv__": create_stub_code(
-                        "interpreter__floordiv__"
-                    ),
+                    "interpreter__floordiv__": create_stub_code("interpreter__floordiv__"),
                     "interpreter__eq__": create_stub_code("interpreter__eq__"),
                     "interpreter__ne__": create_stub_code("interpreter__ne__"),
                     "interpreter__lt__": create_stub_code("interpreter__lt__"),
@@ -372,9 +365,7 @@ class IntrinsicManager:
                     "interpreter__ge__": create_stub_code("interpreter__ge__"),
                     "interpreter__is__": create_stub_code("interpreter__is__"),
                     "interpreter__is_not__": create_stub_code("interpreter__is_not__"),
-                    "interpreter__contains__": create_stub_code(
-                        "interpreter__contains__"
-                    ),
+                    "interpreter__contains__": create_stub_code("interpreter__contains__"),
                     "interpreter__neg__": create_stub_code("interpreter__neg__"),
                     "interpreter__pos__": create_stub_code("interpreter__pos__"),
                     "interpreter__invert__": create_stub_code("interpreter__invert__"),
@@ -387,23 +378,15 @@ class IntrinsicManager:
                     "interpreter_ifexp": create_stub_code("interpreter_ifexp"),
                     "convertToBool": create_stub_code("convertToBool"),
                     "invertedConvertToBool": create_stub_code("invertedConvertToBool"),
-                    "object__getattribute__": create_stub_code(
-                        "object__getattribute__"
-                    ),
-                    "object__setattribute__": create_stub_code(
-                        "object__setattribute__"
-                    ),
+                    "object__getattribute__": create_stub_code("object__getattribute__"),
+                    "object__setattribute__": create_stub_code("object__setattribute__"),
                     "object__call__": create_stub_code("object__call__"),
                     "function__get__": create_stub_code("function__get__"),
                     "function__call__": create_stub_code("function__call__"),
                     "method__get__": create_stub_code("method__get__"),
                     "method__call__": create_stub_code("method__call__"),
-                    "methoddescriptor__get__": create_stub_code(
-                        "methoddescriptor__get__"
-                    ),
-                    "methoddescriptor__call__": create_stub_code(
-                        "methoddescriptor__call__"
-                    ),
+                    "methoddescriptor__get__": create_stub_code("methoddescriptor__get__"),
+                    "methoddescriptor__call__": create_stub_code("methoddescriptor__call__"),
                     # Context manager protocol stubs
                     "interpreter_enter": create_stub_code("interpreter_enter"),
                     "interpreter_exit": create_stub_code("interpreter_exit"),
@@ -413,21 +396,13 @@ class IntrinsicManager:
                     # String formatting stubs
                     "interpreter_format": create_stub_code("interpreter_format"),
                     "interpreter_join_str": create_stub_code("interpreter_join_str"),
-                    "interpreter_build_map": create_stub_code(
-                        "interpreter_build_map"
-                    ),
+                    "interpreter_build_map": create_stub_code("interpreter_build_map"),
                     # Container helper stubs
-                    "interpreter_list_append": create_stub_code(
-                        "interpreter_list_append"
-                    ),
+                    "interpreter_list_append": create_stub_code("interpreter_list_append"),
                     "interpreter_build_set": create_stub_code("interpreter_build_set"),
                     "interpreter_set_add": create_stub_code("interpreter_set_add"),
-                    "interpreter_merge_varargs": create_stub_code(
-                        "interpreter_merge_varargs"
-                    ),
-                    "interpreter_merge_kwargs": create_stub_code(
-                        "interpreter_merge_kwargs"
-                    ),
+                    "interpreter_merge_varargs": create_stub_code("interpreter_merge_varargs"),
+                    "interpreter_merge_kwargs": create_stub_code("interpreter_merge_kwargs"),
                     "interpreter_unsupported_expr": create_stub_code(
                         "interpreter_unsupported_expr"
                     ),
@@ -450,24 +425,14 @@ class IntrinsicManager:
                     "interpreter_match_mapping_rest": create_stub_code(
                         "interpreter_match_mapping_rest"
                     ),
-                    "interpreter_match_class": create_stub_code(
-                        "interpreter_match_class"
-                    ),
-                    "interpreter_match_class_arg": create_stub_code(
-                        "interpreter_match_class_arg"
-                    ),
-                    "interpreter_match_rest": create_stub_code(
-                        "interpreter_match_rest"
-                    ),
+                    "interpreter_match_class": create_stub_code("interpreter_match_class"),
+                    "interpreter_match_class_arg": create_stub_code("interpreter_match_class_arg"),
+                    "interpreter_match_rest": create_stub_code("interpreter_match_rest"),
                     "interpreter_exception_group_extract": create_stub_code(
                         "interpreter_exception_group_extract"
                     ),
-                    "interpreter_exception_type": create_stub_code(
-                        "interpreter_exception_type"
-                    ),
-                    "interpreter_make_generator": create_stub_code(
-                        "interpreter_make_generator"
-                    ),
+                    "interpreter_exception_type": create_stub_code("interpreter_exception_type"),
+                    "interpreter_make_generator": create_stub_code("interpreter_make_generator"),
                     # Generic attribute access helper
                     "interpreter_getattr": create_stub_code("interpreter_getattr"),
                 }

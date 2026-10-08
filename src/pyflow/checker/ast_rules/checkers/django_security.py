@@ -21,7 +21,6 @@ import ast
 from ...common import issue
 from ..core import test_properties as test
 
-
 DANGEROUS_SESSION_ENGINES = {
     "django.contrib.sessions.backends.cached_db",
     "django.contrib.sessions.backends.cache",
@@ -109,10 +108,7 @@ def debug_true_in_settings(context):
     """Detect DEBUG=True in Django settings."""
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "DEBUG":
-            if (
-                isinstance(context.node.value, ast.Constant)
-                and context.node.value.value is True
-            ):
+            if isinstance(context.node.value, ast.Constant) and context.node.value.value is True:
                 return _django_issue(
                     "DEBUG=True in production settings may expose sensitive information.",
                     severity="HIGH",
@@ -161,10 +157,7 @@ def debug_propagate_exceptions(context):
     """Detect DEBUG_PROPAGATE_EXCEPTIONS=True."""
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "DEBUG_PROPAGATE_EXCEPTIONS":
-            if (
-                isinstance(context.node.value, ast.Constant)
-                and context.node.value.value is True
-            ):
+            if isinstance(context.node.value, ast.Constant) and context.node.value.value is True:
                 return _django_issue(
                     "DEBUG_PROPAGATE_EXCEPTIONS=True may expose sensitive stack traces.",
                     severity="MEDIUM",
@@ -180,10 +173,7 @@ def xss_filter_disabled(context):
     """Detect SECURE_BROWSER_XSS_FILTER=False."""
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "SECURE_BROWSER_XSS_FILTER":
-            if (
-                isinstance(context.node.value, ast.Constant)
-                and context.node.value.value is False
-            ):
+            if isinstance(context.node.value, ast.Constant) and context.node.value.value is False:
                 return _django_issue(
                     "SECURE_BROWSER_XSS_FILTER=False reduces XSS protection.",
                     severity="LOW",
@@ -272,10 +262,7 @@ def login_required_missing(context):
 @test.with_id("D110")
 def password_not_hashed(context):
     """Detect passwords being set without proper hashing."""
-    if (
-        context.call_function_name_qual
-        == "django.contrib.auth.models.User.set_password"
-    ):
+    if context.call_function_name_qual == "django.contrib.auth.models.User.set_password":
         return _django_issue(
             "Direct password assignment detected - ensure passwords are hashed properly.",
             severity="HIGH",

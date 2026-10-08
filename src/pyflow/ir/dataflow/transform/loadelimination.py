@@ -101,10 +101,7 @@ def attemptTransform(g, pg):
             return False
 
         # field name
-        if (
-            not g.localReads[g.op.name].canonical()
-            == defn.localReads[defn.op.name].canonical()
-        ):
+        if not g.localReads[g.op.name].canonical() == defn.localReads[defn.op.name].canonical():
             return False
 
         # Make sure the store predicate dominates the load predicate

@@ -37,8 +37,12 @@ def test_abstract_object_identity_uses_context_and_alloc_site(simple_context, al
 
 
 def test_callable_kinds(simple_context, ir_stmt_factory):
-    function = AbstractObject(simple_context, AllocSite(ir_stmt_factory("def f():\n    pass"), AllocKind.BUILTIN))
-    plain = AbstractObject(simple_context, AllocSite(ir_stmt_factory("x = object()"), AllocKind.OBJECT))
+    function = AbstractObject(
+        simple_context, AllocSite(ir_stmt_factory("def f():\n    pass"), AllocKind.BUILTIN)
+    )
+    plain = AbstractObject(
+        simple_context, AllocSite(ir_stmt_factory("x = object()"), AllocKind.OBJECT)
+    )
 
     assert function.is_callable
     assert not plain.is_callable

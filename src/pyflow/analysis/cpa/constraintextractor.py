@@ -212,10 +212,7 @@ class ExtractDataflow(TypeDispatcher):
                 kw
                 for kw in kwds
                 if kw is not None
-                and (
-                    not isinstance(kw, (list, tuple))
-                    or (len(kw) >= 2 and kw[0] is not None)
-                )
+                and (not isinstance(kw, (list, tuple)) or (len(kw) >= 2 and kw[0] is not None))
             ]
             constraints.CallConstraint(
                 self.system, op, expr, args, filtered_kwds, vargs, kargs, targets
@@ -233,9 +230,7 @@ class ExtractDataflow(TypeDispatcher):
         if self.doOnce(node):
             assert len(targets) == 1
             op = self.contextOp(node)
-            constraints.LoadConstraint(
-                self.system, op, expr, fieldtype, name, targets[0]
-            )
+            constraints.LoadConstraint(self.system, op, expr, fieldtype, name, targets[0])
         return targets
 
     def store(self, node, expr, fieldtype, name, value):
@@ -253,9 +248,7 @@ class ExtractDataflow(TypeDispatcher):
         if self.doOnce(node):
             assert len(targets) == 1
             op = self.contextOp(node)
-            constraints.CheckConstraint(
-                self.system, op, expr, fieldtype, name, targets[0]
-            )
+            constraints.CheckConstraint(self.system, op, expr, fieldtype, name, targets[0])
         return targets
 
     ##################################
@@ -464,9 +457,7 @@ class ExtractDataflow(TypeDispatcher):
                     summary_key_slot = self._existingKeySlot(self._DICT_SUMMARY_KEY)
                 key_slot = summary_key_slot
 
-            constraints.StoreConstraint(
-                self.system, op, targets[0], "Dictionary", key_slot, v_slot
-            )
+            constraints.StoreConstraint(self.system, op, targets[0], "Dictionary", key_slot, v_slot)
 
     @dispatch(ast.BuildSlice)
     def visitBuildSlice(self, node, targets=None):
@@ -529,9 +520,7 @@ class ExtractDataflow(TypeDispatcher):
         if value is not None:
             self.assign(
                 value,
-                self._shared_placeholder(
-                    node, f"__pyflow_shared__:{type(node).__name__}"
-                ),
+                self._shared_placeholder(node, f"__pyflow_shared__:{type(node).__name__}"),
             )
         del targets
         return None
@@ -702,9 +691,7 @@ class ExtractDataflow(TypeDispatcher):
             if len(node.exprs) != len(callee.returnparams):
                 # Use the minimum length to avoid index errors
                 min_len = min(len(node.exprs), len(callee.returnparams))
-                for expr, param in zip(
-                    node.exprs[:min_len], callee.returnparams[:min_len]
-                ):
+                for expr, param in zip(node.exprs[:min_len], callee.returnparams[:min_len]):
                     # Prefer evaluating expression into the return slot when possible
                     dst = self(param)
                     if dst is not None:
@@ -748,15 +735,11 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.Load)
     def visitLoad(self, node, targets):
-        return self.load(
-            node, self(node.expr), node.fieldtype, self(node.name), targets
-        )
+        return self.load(node, self(node.expr), node.fieldtype, self(node.name), targets)
 
     @dispatch(ast.Store)
     def visitStore(self, node):
-        return self.store(
-            node, self(node.expr), node.fieldtype, self(node.name), self(node.value)
-        )
+        return self.store(node, self(node.expr), node.fieldtype, self(node.name), self(node.value))
 
     @dispatch(ast.Allocate)
     def visitAllocate(self, node, targets):
@@ -764,9 +747,7 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.Check)
     def visitCheck(self, node, targets):
-        return self.check(
-            node, self(node.expr), node.fieldtype, self(node.name), targets
-        )
+        return self.check(node, self(node.expr), node.fieldtype, self(node.name), targets)
 
     @dispatch(ast.Switch)
     def visitSwitch(self, node):

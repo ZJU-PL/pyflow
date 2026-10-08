@@ -11,7 +11,7 @@ def topo_adj_list(adj_list):
     g = {u: vs for u, vs in enumerate(adj_list)}
     indeg = Counter()
     for u in g:
-        indeg[u] += 0               # make sure every node is in the map
+        indeg[u] += 0  # make sure every node is in the map
     for u, vs in g.items():
         for v in vs:
             indeg[v] += 1
@@ -60,4 +60,5 @@ def topo_edges(edges, *, n=None):
     return order
 
 
-class CycleError(ValueError): pass
+class CycleError(ValueError):
+    pass

@@ -56,9 +56,7 @@ def extract_call_graph_pycg(
     This is a more sophisticated approach that can handle complex Python constructs.
     """
     if not PYCG_AVAILABLE:
-        raise ImportError(
-            "PyCG library is not available. Install it with: pip install pycg"
-        )
+        raise ImportError("PyCG library is not available. Install it with: pip install pycg")
 
     graph = CallGraph()
 
@@ -72,9 +70,7 @@ def extract_call_graph_pycg(
             for frame_info in inspect.stack():
                 if "main_path" in frame_info.frame.f_locals:
                     potential_path = frame_info.frame.f_locals["main_path"]
-                    if isinstance(potential_path, str) and os.path.isfile(
-                        potential_path
-                    ):
+                    if isinstance(potential_path, str) and os.path.isfile(potential_path):
                         snippet_main_path = os.path.abspath(potential_path)
                         break
 
@@ -153,9 +149,7 @@ def extract_call_graph_pycg(
                 sys.path_hooks = cg.import_manager.old_path_hooks
                 sys.path = cg.import_manager.old_path
                 sys.path_importer_cache.clear()
-                sys.path_importer_cache.update(
-                    getattr(cg.import_manager, "old_importer_cache", {})
-                )
+                sys.path_importer_cache.update(getattr(cg.import_manager, "old_importer_cache", {}))
 
             cg.import_manager.install_hooks = _install_hooks_scoped  # type: ignore
             cg.import_manager.remove_hooks = _remove_hooks_scoped  # type: ignore
@@ -166,9 +160,7 @@ def extract_call_graph_pycg(
                 print("PyCG raw calls:", pycg_calls)
 
             # Process PyCG results
-            module_prefix = (
-                entry_module or os.path.splitext(os.path.basename(snippet_main_path))[0]
-            )
+            module_prefix = entry_module or os.path.splitext(os.path.basename(snippet_main_path))[0]
 
             def normalize(name: str) -> str:
                 if not name:
@@ -204,9 +196,7 @@ def extract_call_graph_pycg(
             # based results that are not available in this trimmed-down build.
             expected_path = None
             if snippet_main_path:
-                candidate = os.path.join(
-                    os.path.dirname(snippet_main_path), "callgraph.json"
-                )
+                candidate = os.path.join(os.path.dirname(snippet_main_path), "callgraph.json")
                 if os.path.exists(candidate):
                     expected_path = candidate
 
@@ -232,9 +222,7 @@ def extract_call_graph_pycg(
                 graph = CallGraph()
                 mapped = {}
                 for caller, callees in expected_data.items():
-                    ordered_callees = {
-                        OrderedStr(value, idx) for idx, value in enumerate(callees)
-                    }
+                    ordered_callees = {OrderedStr(value, idx) for idx, value in enumerate(callees)}
                     mapped[caller] = ordered_callees
                 graph._graph = mapped  # type: ignore[attr-defined]
                 graph._modules = {}  # type: ignore[attr-defined]

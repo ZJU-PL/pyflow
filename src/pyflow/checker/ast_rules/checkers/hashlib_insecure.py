@@ -4,12 +4,21 @@ B324: Test for use of insecure hash functions.
 MD4, MD5, SHA-0, and SHA-1 are broken hash functions that are
 vulnerable to collision attacks. Use SHA-256 or stronger.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
 WEAK_HASHES = {
-    "md5", "MD5", "md4", "MD4", "sha", "SHA",
-    "sha0", "SHA0", "sha1", "SHA1",
+    "md5",
+    "MD5",
+    "md4",
+    "MD4",
+    "sha",
+    "SHA",
+    "sha0",
+    "SHA0",
+    "sha1",
+    "SHA1",
 }
 
 

@@ -27,9 +27,7 @@ from pyflow.ir.core import ensure_code_indexed
 
 
 def _build_interface(python_files, args):
-    return build_interface_from_paths(
-        python_files, InterfaceBuildOptions.from_namespace(args)
-    )
+    return build_interface_from_paths(python_files, InterfaceBuildOptions.from_namespace(args))
 
 
 class TestExtractor(unittest.TestCase):
@@ -69,18 +67,12 @@ class TestExtractor(unittest.TestCase):
     def test_source_syntax_retention_is_opt_in_for_gir(self):
         source = "def helper():\n    return 1\n"
         compact = self.extractor.extract_from_source(source, "sample.py")
-        compact_code = next(
-            code for code in compact.liveCode if code.codeName() == "helper"
-        )
+        compact_code = next(code for code in compact.liveCode if code.codeName() == "helper")
         self.assertIsNone(gir_source_node(compact_code))
 
-        retained_extractor = Extractor(
-            self.compiler, verbose=False, retain_source_syntax=True
-        )
+        retained_extractor = Extractor(self.compiler, verbose=False, retain_source_syntax=True)
         retained = retained_extractor.extract_from_source(source, "sample.py")
-        retained_code = next(
-            code for code in retained.liveCode if code.codeName() == "helper"
-        )
+        retained_code = next(code for code in retained.liveCode if code.codeName() == "helper")
         self.assertIsNotNone(gir_source_node(retained_code))
 
     def test_extract_from_source_simple_function(self):
@@ -123,11 +115,11 @@ class MyClass:
         """Test extracting from an existing file."""
         import tempfile
         import os
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def test_func(): return 1\n")
             temp_path = f.name
-        
+
         try:
             program = self.extractor.extract_from_file(temp_path)
             self.assertIsInstance(program, Program)
@@ -143,10 +135,7 @@ class MyClass:
 
     def test_extract_from_multiple_files(self):
         """Test extracting from multiple files."""
-        source_files = {
-            "file1.py": "def func1(): return 1",
-            "file2.py": "def func2(): return 2"
-        }
+        source_files = {"file1.py": "def func1(): return 1", "file2.py": "def func2(): return 2"}
         program = self.extractor.extract_from_multiple_files(source_files)
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 0)
@@ -155,10 +144,7 @@ class MyClass:
 
     def test_extract_from_multiple_files_with_error(self):
         """Test extracting from multiple files with one error."""
-        source_files = {
-            "file1.py": "def func1(): return 1",
-            "file2.py": "invalid syntax here"
-        }
+        source_files = {"file1.py": "def func1(): return 1", "file2.py": "invalid syntax here"}
         program = self.extractor.extract_from_multiple_files(source_files)
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 1)
@@ -192,9 +178,7 @@ class MyClass:
             "file2.py": "def func2(): return 2",
         }
 
-        program = self.extractor.extract_from_multiple_files(
-            source_files, deadline=2.0
-        )
+        program = self.extractor.extract_from_multiple_files(source_files, deadline=2.0)
 
         names = {code.codeName() for code in program.liveCode}
         self.assertTrue(any(name.endswith("func1") for name in names))
@@ -215,9 +199,10 @@ class MyClass:
 
     def test_get_object_call(self):
         """Test getting object call information."""
+
         def test_func():
             return 1
-        
+
         func_obj, code_obj = self.extractor.getObjectCall(test_func)
         self.assertIsNotNone(func_obj)
         # code_obj might be None if source code is not available
@@ -228,20 +213,14 @@ class MyClass:
         with patch(
             "pyflow.frontend.extractor.os.path.realpath", return_value="/tmp/x.py"
         ) as realpath:
-            self.assertEqual(
-                self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py"
-            )
-            self.assertEqual(
-                self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py"
-            )
+            self.assertEqual(self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py")
+            self.assertEqual(self.extractor._normalize_source_filename("rel/x.py"), "/tmp/x.py")
         self.assertEqual(realpath.call_count, 1)
 
     def test_normalize_source_filename_skips_synthetic_names(self):
         """Synthetic/empty filenames bypass realpath entirely."""
         with patch("pyflow.frontend.extractor.os.path.realpath") as realpath:
-            self.assertEqual(
-                self.extractor._normalize_source_filename("<string>"), "<string>"
-            )
+            self.assertEqual(self.extractor._normalize_source_filename("<string>"), "<string>")
             self.assertEqual(self.extractor._normalize_source_filename(""), "")
         realpath.assert_not_called()
 
@@ -276,17 +255,17 @@ class MyClass:
         """Test getting object call with source code."""
         source = "def test_func(): return 1"
         self.extractor.source_code = source
-        
+
         def test_func():
             return 1
-        
+
         func_obj, code_obj = self.extractor.getObjectCall(test_func)
         self.assertIsNotNone(func_obj)
 
     def test_make_imaginary(self):
         """Test creating an imaginary object."""
         from pyflow.language.python.program import AbstractObject
-        
+
         # Create a mock abstract object
         abstract_obj = Mock(spec=AbstractObject)
         imaginary = self.extractor.makeImaginary("test", abstract_obj, False)
@@ -295,11 +274,11 @@ class MyClass:
     def test_ensure_loaded(self):
         """Test ensuring an object is loaded."""
         from pyflow.language.python.program import AbstractObject
-        
+
         abstract_obj = Mock(spec=AbstractObject)
         abstract_obj.type = None
         abstract_obj.pyobj = int
-        
+
         # Should not raise an exception
         self.extractor.ensureLoaded(abstract_obj)
 
@@ -311,36 +290,39 @@ class MyClass:
 
     def test_get_call(self):
         """Test getting call information for an object."""
+
         def test_func():
             return 1
-        
+
         # Create a mock object with pyobj
         mock_obj = Mock()
         mock_obj.pyobj = test_func
-        
+
         result = self.extractor.getCall(mock_obj)
         # Result might be None if source code is not available
         self.assertIsNotNone(mock_obj)
 
     def test_convert_function(self):
         """Test converting a function."""
+
         def test_func(x):
             return x + 1
-        
+
         source = "def test_func(x): return x + 1"
         self.extractor.source_code = source
-        
+
         code = self.extractor.convertFunction(test_func)
         self.assertIsNotNone(code)
 
     def test_convert_function_with_source_dict(self):
         """Test converting a function with source code dictionary."""
+
         def test_func(x):
             return x + 1
-        
+
         source_dict = {"test.py": "def test_func(x): return x + 1"}
         self.extractor.source_code = source_dict
-        
+
         code = self.extractor.convertFunction(test_func)
         self.assertIsNotNone(code)
 
@@ -375,11 +357,7 @@ class MyClass:
 
     def test_extract_imports_ignores_function_local_imports(self):
         """Function-local imports must not leak into the module import map."""
-        source = (
-            "def build():\n"
-            "    import pkg as p\n"
-            "    return p.Base\n"
-        )
+        source = "def build():\n" "    import pkg as p\n" "    return p.Base\n"
         tree = ast.parse(source)
         self.extractor.source_code = {}
         self.extractor._extract_imports(tree, "pkg.consumer")
@@ -394,9 +372,7 @@ class MyClass:
         """Absolute paths outside the repo should not inherit cwd path segments."""
         # Python 3.13 on Windows returns False for this POSIX-style rooted path.
         with patch("pyflow.frontend.extractor.os.path.isabs", return_value=False):
-            self.assertEqual(
-                self.extractor._get_module_name("/tmp/demo/pkg/mod.py"), "mod"
-            )
+            self.assertEqual(self.extractor._get_module_name("/tmp/demo/pkg/mod.py"), "mod")
 
     def test_package_init_base_class_resolves_across_modules(self):
         """Classes imported from a package __init__ should participate in MRO."""
@@ -498,9 +474,7 @@ def outer2():
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "class Service:\n"
-                "    def run(self):\n"
-                "        return 1\n",
+                "class Service:\n" "    def run(self):\n" "        return 1\n",
                 encoding="utf-8",
             )
 
@@ -523,9 +497,7 @@ def outer2():
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "class Service:\n"
-                "    def run(self, x):\n"
-                "        return x\n",
+                "class Service:\n" "    def run(self, x):\n" "        return x\n",
                 encoding="utf-8",
             )
 
@@ -533,15 +505,11 @@ def outer2():
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
-            compiler.extractor = Extractor(
-                compiler, verbose=False, source_code=sources
-            )
+            compiler.extractor = Extractor(compiler, verbose=False, source_code=sources)
             extract_program(compiler, program)
 
         method_eps = [
-            ep
-            for ep in program.interface.entryPoint
-            if ep.code.codeName().endswith(".run")
+            ep for ep in program.interface.entryPoint if ep.code.codeName().endswith(".run")
         ]
         self.assertEqual(len(method_eps), 1)
         self.assertTrue(method_eps[0].code.codeName().endswith("Service.run"))
@@ -576,20 +544,14 @@ def outer2():
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
-            compiler.extractor = Extractor(
-                compiler, verbose=False, source_code=sources
-            )
+            compiler.extractor = Extractor(compiler, verbose=False, source_code=sources)
             extract_program(compiler, program)
 
         build_eps = [
-            ep
-            for ep in program.interface.entryPoint
-            if ep.code.codeName().endswith(".build")
+            ep for ep in program.interface.entryPoint if ep.code.codeName().endswith(".build")
         ]
         util_eps = [
-            ep
-            for ep in program.interface.entryPoint
-            if ep.code.codeName().endswith(".util")
+            ep for ep in program.interface.entryPoint if ep.code.codeName().endswith(".util")
         ]
         self.assertEqual(len(build_eps), 1)
         self.assertEqual(len(util_eps), 1)
@@ -614,10 +576,7 @@ def outer2():
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "class Service:\n"
-                "    @property\n"
-                "    def token(self):\n"
-                "        return 1\n",
+                "class Service:\n" "    @property\n" "    def token(self):\n" "        return 1\n",
                 encoding="utf-8",
             )
 
@@ -641,8 +600,7 @@ def outer2():
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "def f(a, /, b):\n"
-                "    return a + b\n",
+                "def f(a, /, b):\n" "    return a + b\n",
                 encoding="utf-8",
             )
 
@@ -650,14 +608,10 @@ def outer2():
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
-            compiler.extractor = Extractor(
-                compiler, verbose=False, source_code=sources
-            )
+            compiler.extractor = Extractor(compiler, verbose=False, source_code=sources)
             extract_program(compiler, program)
 
-        func_eps = [
-            ep for ep in program.interface.entryPoint if ep.code.codeName() == "f"
-        ]
+        func_eps = [ep for ep in program.interface.entryPoint if ep.code.codeName() == "f"]
         self.assertEqual(len(func_eps), 1)
         self.assertEqual(len(func_eps[0].args), 2)
 
@@ -675,8 +629,7 @@ def outer2():
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "def f(*, c):\n"
-                "    return c\n",
+                "def f(*, c):\n" "    return c\n",
                 encoding="utf-8",
             )
 
@@ -777,15 +730,9 @@ def outer2():
         extractor.getObjectCall.return_value = (Base.inherited, code)
         interface = InterfaceDeclaration()
 
-        first = interface.getMethCode(
-            ClassDeclaration(First), "inherited", extractor
-        )
-        second = interface.getMethCode(
-            ClassDeclaration(Second), "inherited", extractor
-        )
-        aliased = interface.getMethCode(
-            ClassDeclaration(Aliased), "renamed", extractor
-        )
+        first = interface.getMethCode(ClassDeclaration(First), "inherited", extractor)
+        second = interface.getMethCode(ClassDeclaration(Second), "inherited", extractor)
+        aliased = interface.getMethCode(ClassDeclaration(Aliased), "renamed", extractor)
 
         self.assertIs(first[2], code)
         self.assertIs(second[2], code)
@@ -817,10 +764,7 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_extract_program_with_source_code_dict(self):
         """Test extract_program with source code dictionary."""
-        source_dict = {
-            "file1.py": "def func1(): return 1",
-            "file2.py": "def func2(): return 2"
-        }
+        source_dict = {"file1.py": "def func1(): return 1", "file2.py": "def func2(): return 2"}
         extractor = Extractor(self.compiler, verbose=False, source_code=source_dict)
         self.compiler.extractor = extractor
         extract_program(self.compiler, self.program)
@@ -852,10 +796,10 @@ class TestExtractProgram(unittest.TestCase):
     def test_extract_program_with_interface(self):
         """Test extract_program with interface."""
         from pyflow.model.entrypoints import InterfaceDeclaration
-        
+
         interface_decl = InterfaceDeclaration()
         self.program.interface = interface_decl
-        
+
         extractor = Extractor(self.compiler, verbose=False)
         self.compiler.extractor = extractor
         extract_program(self.compiler, self.program)
@@ -914,6 +858,7 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_extract_program_keeps_module_roots_available_with_interface(self):
         """Synthetic module roots should stay available for callers that need top-level semantics."""
+
         class Args:
             dependency_strategy = "auto"
             verbose = False
@@ -930,9 +875,7 @@ class TestExtractProgram(unittest.TestCase):
 
             interface, sources = _build_interface([main, dead], Args())
             self.program.interface = interface
-            self.compiler.extractor = Extractor(
-                self.compiler, verbose=False, source_code=sources
-            )
+            self.compiler.extractor = Extractor(self.compiler, verbose=False, source_code=sources)
 
             extract_program(self.compiler, self.program)
 
@@ -943,6 +886,7 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_method_entrypoints_use_qualified_names(self):
         """Methods from different classes should remain distinguishable by code name."""
+
         class Args:
             dependency_strategy = "auto"
             verbose = False
@@ -965,9 +909,7 @@ class TestExtractProgram(unittest.TestCase):
 
             interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
-            self.compiler.extractor = Extractor(
-                self.compiler, verbose=False, source_code=sources
-            )
+            self.compiler.extractor = Extractor(self.compiler, verbose=False, source_code=sources)
             extract_program(self.compiler, self.program)
 
         method_names = sorted(
@@ -979,6 +921,7 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_queries_resolve_cfg_without_duplicate_function_ambiguity(self):
         """Function lookups should deduplicate equivalent liveCode/interface code objects."""
+
         class Args:
             dependency_strategy = "auto"
             verbose = False
@@ -990,27 +933,23 @@ class TestExtractProgram(unittest.TestCase):
 
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(
-                "def main():\n"
-                "    return 0\n",
+                "def main():\n" "    return 0\n",
                 encoding="utf-8",
             )
 
             interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
-            self.compiler.extractor = Extractor(
-                self.compiler, verbose=False, source_code=sources
-            )
+            self.compiler.extractor = Extractor(self.compiler, verbose=False, source_code=sources)
             extract_program(self.compiler, self.program)
 
         from pyflow.api.queries import create_query_components
 
-        cfg = create_query_components(
-            self.compiler, self.program
-        ).control_flow.get_cfg("main")
+        cfg = create_query_components(self.compiler, self.program).control_flow.get_cfg("main")
         self.assertEqual(cfg.code.codeName(), "main")
 
     def test_interface_entrypoints_reuse_extracted_function_and_method_codes(self):
         """Interface translation should reuse extracted source definitions."""
+
         class Args:
             dependency_strategy = "auto"
             verbose = False
@@ -1031,15 +970,11 @@ class TestExtractProgram(unittest.TestCase):
             )
             interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
-            self.compiler.extractor = Extractor(
-                self.compiler, verbose=False, source_code=sources
-            )
+            self.compiler.extractor = Extractor(self.compiler, verbose=False, source_code=sources)
             extract_program(self.compiler, self.program)
 
         live_by_name = {code.codeName(): code for code in self.program.liveCode}
-        entries_by_name = {
-            ep.code.codeName(): ep.code for ep in self.program.entryPoints
-        }
+        entries_by_name = {ep.code.codeName(): ep.code for ep in self.program.entryPoints}
         self.assertIs(entries_by_name["f"], live_by_name["f"])
         self.assertIs(
             entries_by_name["sample.Service.run"],
@@ -1059,18 +994,12 @@ class TestExtractProgram(unittest.TestCase):
         extract_program(self.compiler, self.program)
 
         module = next(
-            code
-            for code in self.program.liveCode
-            if code.codeName() == "pkg.mod.<module>"
+            code for code in self.program.liveCode if code.codeName() == "pkg.mod.<module>"
         )
         definition = next(
-            block
-            for block in module.ast.blocks
-            if isinstance(block, pyflow_ast.FunctionDef)
+            block for block in module.ast.blocks if isinstance(block, pyflow_ast.FunctionDef)
         )
-        live_function = next(
-            code for code in self.program.liveCode if code.codeName() == "f"
-        )
+        live_function = next(code for code in self.program.liveCode if code.codeName() == "f")
         self.assertIs(definition.code, live_function)
         self.assertEqual(
             sum(1 for _procedure in self.program.ir.procedures()),
@@ -1094,9 +1023,7 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
 
             interface, sources = _build_interface([sample], Args())
             compiler = CompilerContext(Console())
-            compiler.extractor = Extractor(
-                compiler, verbose=False, source_code=sources
-            )
+            compiler.extractor = Extractor(compiler, verbose=False, source_code=sources)
             program = Program()
             program.interface = interface
             extract_program(compiler, program)
@@ -1104,10 +1031,7 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
 
     def test_ipa_accepts_namedexpr(self):
         compiler, program = self._build_program(
-            "def f(xs):\n"
-            "    if (n := len(xs)) > 0:\n"
-            "        return n\n"
-            "    return 0\n"
+            "def f(xs):\n" "    if (n := len(xs)) > 0:\n" "        return n\n" "    return 0\n"
         )
         ipa.evaluate(compiler, program)
 
@@ -1117,28 +1041,17 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
         assert program.ir.facts.has(Capabilities.CALL_TARGETS)
 
     def test_ipa_accepts_await(self):
-        compiler, program = self._build_program(
-            "async def f(x):\n"
-            "    return await g(x)\n"
-        )
+        compiler, program = self._build_program("async def f(x):\n" "    return await g(x)\n")
         ipa.evaluate(compiler, program)
 
     def test_ipa_accepts_global_decl(self):
         compiler, program = self._build_program(
-            "x = 0\n"
-            "def f():\n"
-            "    global x\n"
-            "    x = 1\n"
-            "    return x\n"
+            "x = 0\n" "def f():\n" "    global x\n" "    x = 1\n" "    return x\n"
         )
         ipa.evaluate(compiler, program)
 
     def test_ipa_accepts_annotated_assignment(self):
-        compiler, program = self._build_program(
-            "def f():\n"
-            "    x: int = 1\n"
-            "    return x\n"
-        )
+        compiler, program = self._build_program("def f():\n" "    x: int = 1\n" "    return x\n")
         ipa.evaluate(compiler, program)
 
 
@@ -1165,9 +1078,7 @@ class TestEntryPointFailureTolerance(unittest.TestCase):
 
             interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
-            self.compiler.extractor = Extractor(
-                self.compiler, verbose=False, source_code=sources
-            )
+            self.compiler.extractor = Extractor(self.compiler, verbose=False, source_code=sources)
 
     def test_signature_mismatch_keeps_conservative_entry_point(self):
         interface = InterfaceDeclaration()
@@ -1202,22 +1113,13 @@ class TestEntryPointFailureTolerance(unittest.TestCase):
 
     def test_extract_program_skips_failed_function_entry(self):
         """A function entry that cannot bind should be skipped with a warning."""
-        self._build_program(
-            "def good():\n"
-            "    return 1\n\n"
-            "def bad():\n"
-            "    return 2\n"
-        )
+        self._build_program("def good():\n" "    return 1\n\n" "def bad():\n" "    return 2\n")
 
         real_create = InterfaceDeclaration.createEntryPoint
 
-        def flaky_create(
-            self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None
-        ):
+        def flaky_create(self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None):
             if getattr(code, "codeName", lambda: "")() == "bad":
-                raise ValueError(
-                    "Unsupported keyword arguments for entry point: _source"
-                )
+                raise ValueError("Unsupported keyword arguments for entry point: _source")
             return real_create(self_, code, selfarg, args, kwds, varg, karg, group)
 
         with patch.object(InterfaceDeclaration, "createEntryPoint", flaky_create):
@@ -1242,13 +1144,9 @@ class TestEntryPointFailureTolerance(unittest.TestCase):
 
         real_create = InterfaceDeclaration.createEntryPoint
 
-        def flaky_create(
-            self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None
-        ):
+        def flaky_create(self_, code, selfarg, args, kwds=None, varg=None, karg=None, group=None):
             if getattr(code, "codeName", lambda: "")().endswith(".bad"):
-                raise ValueError(
-                    "Unsupported keyword arguments for entry point: _source"
-                )
+                raise ValueError("Unsupported keyword arguments for entry point: _source")
             return real_create(self_, code, selfarg, args, kwds, varg, karg, group)
 
         with patch.object(InterfaceDeclaration, "createEntryPoint", flaky_create):

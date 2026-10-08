@@ -62,11 +62,7 @@ def test_typed_exception_routes_only_to_first_matching_handler():
                         ast.Local("TypeError"),
                         None,
                         ast.Suite(
-                            [
-                                ast.Assign(
-                                    ast.Existing(ast.program.Object(1)), [handled_type]
-                                )
-                            ]
+                            [ast.Assign(ast.Existing(ast.program.Object(1)), [handled_type])]
                         ),
                     ),
                     ast.ExceptionHandler(
@@ -74,11 +70,7 @@ def test_typed_exception_routes_only_to_first_matching_handler():
                         ast.Local("ValueError"),
                         None,
                         ast.Suite(
-                            [
-                                ast.Assign(
-                                    ast.Existing(ast.program.Object(1)), [handled_value]
-                                )
-                            ]
+                            [ast.Assign(ast.Existing(ast.program.Object(1)), [handled_value])]
                         ),
                     ),
                 ],
@@ -102,9 +94,7 @@ def test_typed_exception_routes_only_to_first_matching_handler():
     }
 
     assert any("1" in scope for scope in successor_scopes)
-    assert not any(
-        scope[:4] == ("0", "try", "handler", "0") for scope in successor_scopes
-    )
+    assert not any(scope[:4] == ("0", "try", "handler", "0") for scope in successor_scopes)
 
 
 def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
@@ -130,17 +120,13 @@ def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
                         ast.Suite([]),
                         ast.Local("Exception"),
                         None,
-                        ast.Suite(
-                            [ast.Assign(ast.Existing(ast.program.Object(1)), [broad])]
-                        ),
+                        ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [broad])]),
                     ),
                     ast.ExceptionHandler(
                         ast.Suite([]),
                         ast.Local("ValueError"),
                         None,
-                        ast.Suite(
-                            [ast.Assign(ast.Existing(ast.program.Object(1)), [narrow])]
-                        ),
+                        ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [narrow])]),
                     ),
                 ],
                 None,
@@ -232,8 +218,7 @@ def test_constraint_callgraph_publishes_same_class_method_targets(tmp_path):
     from pyflow.api.ifds import load_analysis_session
 
     target = tmp_path / "methods.py"
-    target.write_text(
-        """
+    target.write_text("""
 class Reader:
     def values(self):
         yield 1
@@ -241,8 +226,7 @@ class Reader:
     def read(self):
         for value in self.values():
             return value
-"""
-    )
+""")
     session = load_analysis_session([target], entry_file=target)
     effects = [
         effect
@@ -253,9 +237,7 @@ class Reader:
     ]
 
     assert len(effects) == 1
-    assert {callee.code.codeName() for callee in effects[0].callees} == {
-        "Reader.values"
-    }
+    assert {callee.code.codeName() for callee in effects[0].callees} == {"Reader.values"}
 
 
 def test_return_inside_try_runs_finally_before_procedure_exit():
@@ -328,9 +310,7 @@ def test_break_inside_try_skips_loop_else_after_finally():
                         )
                     ]
                 ),
-                ast.Suite(
-                    [ast.Assign(ast.Existing(ast.program.Object(2)), [else_only])]
-                ),
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(2)), [else_only])]),
             ),
             ast.Assign(ast.Existing(ast.program.Object(3)), [after_loop]),
             ast.Return([]),

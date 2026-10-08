@@ -6,7 +6,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "pyflow"
 CONTRACTS = {
     "model": {

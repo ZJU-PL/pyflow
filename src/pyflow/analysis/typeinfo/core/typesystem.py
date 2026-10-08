@@ -211,9 +211,7 @@ class TupleType(ProperType):
     `Instance(ClassDescriptor(tuple))` because tuple is varargs generic.
     """
 
-    def __init__(  # noqa: D107
-        self, args: tuple[ProperType, ...], *, unknown_size: bool = False
-    ):
+    def __init__(self, args: tuple[ProperType, ...], *, unknown_size: bool = False):  # noqa: D107
         self.args: Final[tuple[ProperType, ...]] = args
         self.unknown_size: Final[bool] = unknown_size
         # Cached hash value
@@ -929,12 +927,9 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     return True
                 right_element = self.right.args[0]
                 if left.unknown_size:
-                    return not left.args or self.sub_type_check(
-                        left.args[0], right_element
-                    )
+                    return not left.args or self.sub_type_check(left.args[0], right_element)
                 return all(
-                    self.sub_type_check(left_element, right_element)
-                    for left_element in left.args
+                    self.sub_type_check(left_element, right_element) for left_element in left.args
                 )
             if left.unknown_size:
                 return False
@@ -973,9 +968,7 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         )
 
     def visit_type_type(self, left: TypeType) -> bool:
-        return isinstance(self.right, TypeType) and self.sub_type_check(
-            left.item, self.right.item
-        )
+        return isinstance(self.right, TypeType) and self.sub_type_check(left.item, self.right.item)
 
     def visit_string_subtype(self, left: StringSubtype) -> bool:
         if isinstance(self.right, StringSubtype):
@@ -1044,9 +1037,7 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
             The distance between the two types or None if they are not connected.
         """
         if isinstance(self.subtype, Instance):
-            class_distance = self.graph.get_shortest_path_length(
-                supertype.type, self.subtype.type
-            )
+            class_distance = self.graph.get_shortest_path_length(supertype.type, self.subtype.type)
             if class_distance is None:
                 return None
             if supertype.type != self.subtype.type:
@@ -1055,15 +1046,9 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
                 return None
             argument_distance = _sum_distances(
                 self.graph.subtype_distance(supertype_arg, subtype_arg)
-                for supertype_arg, subtype_arg in zip(
-                    supertype.args, self.subtype.args
-                )
+                for supertype_arg, subtype_arg in zip(supertype.args, self.subtype.args)
             )
-            return (
-                None
-                if argument_distance is None
-                else class_distance + argument_distance
-            )
+            return None if argument_distance is None else class_distance + argument_distance
 
         if isinstance(self.subtype, UnionType):
             distances = [
@@ -1098,9 +1083,7 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
                 return 0
             supertype_element = supertype.args[0]
             subtype_elements = (
-                self.subtype.args[:1]
-                if self.subtype.unknown_size
-                else self.subtype.args
+                self.subtype.args[:1] if self.subtype.unknown_size else self.subtype.args
             )
             return _sum_distances(
                 self.graph.subtype_distance(supertype_element, subtype_element)
@@ -1110,9 +1093,7 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
             return None
         return _sum_distances(
             self.graph.subtype_distance(supertype_arg, subtype_arg)
-            for supertype_arg, subtype_arg in zip(
-                supertype.args, self.subtype.args
-            )
+            for supertype_arg, subtype_arg in zip(supertype.args, self.subtype.args)
         )
 
     def visit_union_type(self, supertype: UnionType) -> int | None:
@@ -1145,22 +1126,15 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
             return None
         if supertype.arg_types is None:
             return return_distance
-        if (
-            self.subtype.arg_types is None
-            or len(supertype.arg_types) != len(self.subtype.arg_types)
+        if self.subtype.arg_types is None or len(supertype.arg_types) != len(
+            self.subtype.arg_types
         ):
             return None
         parameter_distance = _sum_distances(
             self.graph.subtype_distance(subtype_arg, supertype_arg)
-            for supertype_arg, subtype_arg in zip(
-                supertype.arg_types, self.subtype.arg_types
-            )
+            for supertype_arg, subtype_arg in zip(supertype.arg_types, self.subtype.arg_types)
         )
-        return (
-            None
-            if parameter_distance is None
-            else return_distance + parameter_distance
-        )
+        return None if parameter_distance is None else return_distance + parameter_distance
 
     def visit_type_type(self, supertype: TypeType) -> int | None:
         if not isinstance(self.subtype, TypeType):
@@ -1270,7 +1244,9 @@ class ClassDescriptor:
             raw_type: the raw (class) type
         """
         self.raw_type = raw_type
-        self.name, self.qualname, self.module = ClassDescriptor._extract_name_qualname_module(raw_type)
+        self.name, self.qualname, self.module = ClassDescriptor._extract_name_qualname_module(
+            raw_type
+        )
         self.full_name = ClassDescriptor.to_full_name(raw_type)
         self.hash = hash(self.full_name)
         self.is_abstract = inspect.isabstract(raw_type)
@@ -1376,68 +1352,74 @@ class NamedDefaultDict(dict[str, tt.UsageTraceNode]):  # noqa: FURB189
 # to make guesses.
 # __mul__ and __rmul__ are not reliable, as they don't necessarily have to indicate
 # the type, for example, [1,2] * 3 is well-defined between a list and an int.
-_ARGUMENT_ATTRIBUTES = OrderedSet([
-    "__eq__",
-    "__ne__",
-    "__lt__",
-    "__le__",
-    "__gt__",
-    "__ge__",
-    "__add__",
-    "__radd__",
-    "__sub__",
-    "__rsub__",
-    "__truediv__",
-    "__rtruediv__",
-    "__floordiv__",
-    "__rfloordiv__",
-])
+_ARGUMENT_ATTRIBUTES = OrderedSet(
+    [
+        "__eq__",
+        "__ne__",
+        "__lt__",
+        "__le__",
+        "__gt__",
+        "__ge__",
+        "__add__",
+        "__radd__",
+        "__sub__",
+        "__rsub__",
+        "__truediv__",
+        "__rtruediv__",
+        "__floordiv__",
+        "__rfloordiv__",
+    ]
+)
 
 # If we suspect the type to be a string and one of these methods was called on a proxy,
 # we can use the argument values to try and infer a string subtype.
-_STRING_SUBTYPE_ATTRIBUTES = OrderedSet([
-    "startswith",
-    "endswith",
-    "split",
-    "rsplit",
-    "splitlines",
-    "partition",
-    "rpartition",
-    "find",
-    "rfind",
-    "index",
-    "rindex",
-    "replace",
-    "format",
-    "join",
-    "strip",
-    "lstrip",
-    "rstrip",
-    "zfill",
-    "center",
-    "ljust",
-    "rjust",
-    "removeprefix",
-    "removesuffix",
-    "translate",
-    "count",
-])
+_STRING_SUBTYPE_ATTRIBUTES = OrderedSet(
+    [
+        "startswith",
+        "endswith",
+        "split",
+        "rsplit",
+        "splitlines",
+        "partition",
+        "rpartition",
+        "find",
+        "rfind",
+        "index",
+        "rindex",
+        "replace",
+        "format",
+        "join",
+        "strip",
+        "lstrip",
+        "rstrip",
+        "zfill",
+        "center",
+        "ljust",
+        "rjust",
+        "removeprefix",
+        "removesuffix",
+        "translate",
+        "count",
+    ]
+)
 
-STRING_SUBTYPES = OrderedSet([
-    NumericString,
-    EmailString,
-    HexadecimalString,
-    ISOColorString,
-    UUIDString,
-    ISODateString,
-    ISOTimeString,
-    CSVString,
-    URLString,
-    IPv4String,
-    IPv6String,
-    PhoneNumberString,
-    SHA256String,
-])
+STRING_SUBTYPES = OrderedSet(
+    [
+        NumericString,
+        EmailString,
+        HexadecimalString,
+        ISOColorString,
+        UUIDString,
+        ISODateString,
+        ISOTimeString,
+        CSVString,
+        URLString,
+        IPv4String,
+        IPv6String,
+        PhoneNumberString,
+        SHA256String,
+    ]
+)
 # We can guess the element type by looking at the knowledge from these
 _LIST_ELEMENT_ATTRIBUTES = OrderedSet(("__iter__", "__getitem__"))
 _DICT_KEY_ATTRIBUTES = OrderedSet(("__iter__",))
@@ -1448,26 +1430,32 @@ _TUPLE_ELEMENT_ATTRIBUTES = OrderedSet(("__iter__", "__getitem__"))
 # We can guess generic type(s) from the argument type(s) of these methods:
 _LIST_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__", "__delitem__"))
 _SET_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__", "__delitem__"))
-_DICT_KEY_FROM_ARGUMENT_TYPES = OrderedSet((
-    "__contains__",
-    "__delitem__",
-    "__getitem__",
-    "__setitem__",
-))
+_DICT_KEY_FROM_ARGUMENT_TYPES = OrderedSet(
+    (
+        "__contains__",
+        "__delitem__",
+        "__getitem__",
+        "__setitem__",
+    )
+)
 _DICT_VALUE_FROM_ARGUMENT_TYPES = OrderedSet(("__setitem__",))
 _TUPLE_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__",))
 
 # Similar to above, but these are not dunder methods but are called,
 # e.g., for 'append', we need to search for 'append.__call__(...)'
-_LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet([
-    ("append", "__call__"),
-    ("remove", "__call__"),
-])
-_SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet([
-    ("add", "__call__"),
-    ("remove", "__call__"),
-    ("discard", "__call__"),
-])
+_LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet(
+    [
+        ("append", "__call__"),
+        ("remove", "__call__"),
+    ]
+)
+_SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet(
+    [
+        ("add", "__call__"),
+        ("remove", "__call__"),
+        ("discard", "__call__"),
+    ]
+)
 # Nothing for tuple and dict.
 _EMPTY_SET: OrderedSet[tuple[str, ...]] = OrderedSet()
 
@@ -1628,7 +1616,9 @@ class InferredSignature:
     def _from_type_check(self, knowledge: tt.UsageTraceNode) -> ProperType | None:
         # Type checks is not empty here.
         return self._choose_type_or_negate(
-            OrderedSet([self.type_system.to_class_descriptor(randomness.choice(knowledge.type_checks))])
+            OrderedSet(
+                [self.type_system.to_class_descriptor(randomness.choice(knowledge.type_checks))]
+            )
         )
 
     def _from_attr_table(self, knowledge: tt.UsageTraceNode) -> ProperType | None:
@@ -1656,8 +1646,7 @@ class InferredSignature:
 
         # Check if string subtype inference is applicable
         if (
-            config.settings.type_inference.subtype_inference
-            == SubtypeInferenceStrategy.STRING
+            config.settings.type_inference.subtype_inference == SubtypeInferenceStrategy.STRING
             and len(arg_types) > 0
         ):
             candidate_arg_type = randomness.choice(arg_types)
@@ -1769,9 +1758,7 @@ class InferredSignature:
             guessed_type = Instance(guessed_type.type, args)
         elif isinstance(guessed_type, TupleType):
             # Guess random size of tuple.
-            num_elements = randomness.next_int(
-                1, config.settings.test_creation.collection_size
-            )
+            num_elements = randomness.next_int(1, config.settings.test_creation.collection_size)
             elements = []
             for _ in range(num_elements):
                 guessed_element_type = self._guess_generic_arguments(
@@ -1789,7 +1776,9 @@ class InferredSignature:
             guessed_type = TupleType(tuple(elements))
         return guessed_type
 
-    def _choose_type_or_negate(self, positive_types: OrderedSet[ClassDescriptor]) -> ProperType | None:
+    def _choose_type_or_negate(
+        self, positive_types: OrderedSet[ClassDescriptor]
+    ) -> ProperType | None:
         if not positive_types:
             return None
 
@@ -1929,10 +1918,12 @@ class InferredSignature:
                 )
             parameter_types[param_name] = [str(t) for t in top_n_guesses]
         # Also need to compute for return type(s).
-        compute_partial_matches_for.append((
-            self.return_type,
-            self.return_type_for_statistics,
-        ))
+        compute_partial_matches_for.append(
+            (
+                self.return_type,
+                self.return_type_for_statistics,
+            )
+        )
 
         # Need to compute which types are base type matches of others.
         # Otherwise, we need to parse the string again in the evaluation...
@@ -1995,7 +1986,9 @@ class TypeSystem:  # noqa: PLR0904
         self.add_subclass_edge(super_class=float_info, sub_class=int_info)
         self.add_subclass_edge(super_class=complex_info, sub_class=float_info)
 
-    def add_subclass_edge(self, *, super_class: ClassDescriptor, sub_class: ClassDescriptor) -> None:
+    def add_subclass_edge(
+        self, *, super_class: ClassDescriptor, sub_class: ClassDescriptor
+    ) -> None:
         """Add a subclass edge between two types.
 
         Args:
@@ -2036,7 +2029,9 @@ class TypeSystem:  # noqa: PLR0904
         result.add(klass)
         return result
 
-    def get_type_outside_of(self, klasses: OrderedSet[ClassDescriptor]) -> OrderedSet[ClassDescriptor]:
+    def get_type_outside_of(
+        self, klasses: OrderedSet[ClassDescriptor]
+    ) -> OrderedSet[ClassDescriptor]:
         """Find a type that does not belong to the given types or any subclasses.
 
         Args:
@@ -2219,12 +2214,14 @@ class TypeSystem:  # noqa: PLR0904
         # because it will raise a NotImplementedError.
         object_info = self.find_class_descriptor("builtins.object")
         assert object_info is not None
-        object_info.attributes.difference_update({
-            "__lt__",
-            "__le__",
-            "__gt__",
-            "__ge__",
-        })
+        object_info.attributes.difference_update(
+            {
+                "__lt__",
+                "__le__",
+                "__gt__",
+                "__ge__",
+            }
+        )
 
         # Use fix point iteration with reach-in/out to push elements down.
         work_list = list(self._graph.nodes)
@@ -2460,9 +2457,7 @@ class TypeSystem:  # noqa: PLR0904
         if get_origin(hint) is type:
             type_args = get_args(hint)
             return TypeType(
-                self.convert_type_hint(type_args[0], unsupported=unsupported)
-                if type_args
-                else ANY
+                self.convert_type_hint(type_args[0], unsupported=unsupported) if type_args else ANY
             )
         if get_origin(hint) is cabc.Callable:
             callable_args = get_args(hint)

@@ -235,16 +235,12 @@ def _scan_path(
         components.extend(components_from_requirements(path, findings, limits))
     elif name == "pyproject.toml":
         recognized_input = True
-        parsed_components, parsed_dependencies = components_from_pyproject(
-            path, findings, limits
-        )
+        parsed_components, parsed_dependencies = components_from_pyproject(path, findings, limits)
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name in {"poetry.lock", "pdm.lock", "uv.lock"}:
         recognized_input = True
-        parsed_components, parsed_dependencies = components_from_toml_lock(
-            path, findings, limits
-        )
+        parsed_components, parsed_dependencies = components_from_toml_lock(path, findings, limits)
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name == "Pipfile.lock":
@@ -252,9 +248,7 @@ def _scan_path(
         components.extend(components_from_pipfile_lock(path, findings, limits))
     elif name == "pylock.toml" or name.endswith(".pylock.toml"):
         recognized_input = True
-        parsed_components, parsed_dependencies = components_from_pylock(
-            path, findings, limits
-        )
+        parsed_components, parsed_dependencies = components_from_pylock(path, findings, limits)
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name == "setup.cfg":
@@ -339,9 +333,7 @@ def _scan_archive(
             report_unsupported=False,
         )
         _remap_archive_findings(findings, finding_start, destination, path)
-        _remap_archive_component_sources(
-            components[component_start:], destination, path
-        )
+        _remap_archive_component_sources(components[component_start:], destination, path)
         audit_archive_identity(path, components[component_start:], findings)
 
 
@@ -464,9 +456,10 @@ def _audit_filesystem_symlink(
 
 def _is_requirements_file(path: Path) -> bool:
     lowered = path.name.lower()
-    return lowered.startswith(
-        ("requirements", "constraints")
-    ) and path.suffix.lower() in {".txt", ".in"}
+    return lowered.startswith(("requirements", "constraints")) and path.suffix.lower() in {
+        ".txt",
+        ".in",
+    }
 
 
 def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:
@@ -475,9 +468,7 @@ def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:
         normalized = pattern.replace("\\", "/").rstrip("/")
         if not normalized:
             continue
-        if fnmatch.fnmatch(path_text, normalized) or fnmatch.fnmatch(
-            path.name, normalized
-        ):
+        if fnmatch.fnmatch(path_text, normalized) or fnmatch.fnmatch(path.name, normalized):
             return True
         if normalized in path.parts:
             return True

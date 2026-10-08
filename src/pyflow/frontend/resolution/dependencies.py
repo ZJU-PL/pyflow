@@ -142,14 +142,10 @@ class DependencyResolver:
         if self.analysis_root is None:
             self.analysis_root = _infer_analysis_root(self.source_files.keys())
         has_absolute_source = any(
-            os.path.isabs(path)
-            for path in self.source_files
-            if path and not path.startswith("<")
+            os.path.isabs(path) for path in self.source_files if path and not path.startswith("<")
         )
         project_path = (
-            self.analysis_root
-            if self._analysis_root_explicit or has_absolute_source
-            else None
+            self.analysis_root if self._analysis_root_explicit or has_absolute_source else None
         )
         self.project_context = ProjectContext(
             project_path,
@@ -166,9 +162,7 @@ class DependencyResolver:
         self._module_proxy_building: Set[str] = set()
         self._class_proxy_registry: Dict[str, type] = {}
         # Track missing dependencies for better error reporting
-        self._missing_dependencies: Dict[str, List[str]] = (
-            {}
-        )  # module -> [importing_files]
+        self._missing_dependencies: Dict[str, List[str]] = {}  # module -> [importing_files]
         # Import graph: module -> imported modules
         self._import_graph: Dict[str, set[str]] = {}
         self._diagnostics: List[str] = []
@@ -256,10 +250,7 @@ class DependencyResolver:
                 f"Dependency diagnostics present for {file_path}: {self._diagnostics[-1]}"
             )
 
-        if (
-            self.max_diagnostics is not None
-            and len(self._diagnostics) > self.max_diagnostics
-        ):
+        if self.max_diagnostics is not None and len(self._diagnostics) > self.max_diagnostics:
             raise RuntimeError(
                 f"Diagnostic budget exceeded ({len(self._diagnostics)} > {self.max_diagnostics})"
             )
@@ -275,9 +266,7 @@ class DependencyResolver:
                         f"({ratio:.2f} > {self.max_runtime_fallback_ratio:.2f})"
                     )
 
-    def _runtime_disabled_fallback(
-        self, source: str, file_path: str, mode: str
-    ) -> Dict[str, Any]:
+    def _runtime_disabled_fallback(self, source: str, file_path: str, mode: str) -> Dict[str, Any]:
         self._telemetry["runtime_fallbacks"] += 1
         if self.verbose:
             print(
@@ -310,9 +299,7 @@ class DependencyResolver:
             source, file_path, allow_stub_imports=allow_stub_imports
         )
         ast_functions = self._extract_ast_functions(source, file_path)
-        functions = {
-            name: ast_functions[name] for name in names if name in ast_functions
-        }
+        functions = {name: ast_functions[name] for name in names if name in ast_functions}
         if functions:
             return functions
         if diagnostic_stage:
@@ -321,9 +308,7 @@ class DependencyResolver:
             )
         return {}
 
-    def _extract_signature(
-        self, args: python_ast.arguments
-    ) -> Optional[inspect.Signature]:
+    def _extract_signature(self, args: python_ast.arguments) -> Optional[inspect.Signature]:
         try:
             return _signature_from_ast(args)
         except Exception:
@@ -373,9 +358,7 @@ class DependencyResolver:
         for node in _iter_toplevel_function_nodes(tree):
             if not self._should_include_toplevel_name(node.name):
                 continue
-            functions[node.name] = self._extract_function_proxy(
-                node, module_name, file_path
-            )
+            functions[node.name] = self._extract_function_proxy(node, module_name, file_path)
         return functions
 
     def _cache_module_extraction(
@@ -465,10 +448,7 @@ class DependencyResolver:
                     failed_path,
                     f"{type(error).__name__}: {error}",
                 )
-                print(
-                    f"Warning: Could not build class proxies for "
-                    f"{failed_path}: {error}"
-                )
+                print(f"Warning: Could not build class proxies for " f"{failed_path}: {error}")
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
@@ -487,9 +467,7 @@ class DependencyResolver:
             )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
-            self._record_diagnostic(
-                "runtime_exec", file_path, f"{type(e).__name__}: {e}"
-            )
+            self._record_diagnostic("runtime_exec", file_path, f"{type(e).__name__}: {e}")
             if self.verbose:
                 print(f"ERROR: Runtime extraction failed for {file_path}: {e}")
             return {}
@@ -513,9 +491,7 @@ class DependencyResolver:
                 return functions
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
-            self._record_diagnostic(
-                "stub_runtime_exec", file_path, f"{type(e).__name__}: {e}"
-            )
+            self._record_diagnostic("stub_runtime_exec", file_path, f"{type(e).__name__}: {e}")
             if self.verbose:
                 print(f"DEBUG: Stub-assisted execution failed for {file_path}: {e}")
 
@@ -552,9 +528,7 @@ class DependencyResolver:
             )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
-            self._record_diagnostic(
-                "noop_runtime_exec", file_path, f"{type(e).__name__}: {e}"
-            )
+            self._record_diagnostic("noop_runtime_exec", file_path, f"{type(e).__name__}: {e}")
             if self.verbose:
                 print(f"DEBUG: No-op extraction failed for {file_path}: {e}")
             self._telemetry["runtime_fallbacks"] += 1
@@ -600,9 +574,7 @@ class DependencyResolver:
             imports = self._extract_import_map(tree, module_name)
             classes = self._extract_top_level_classes(tree, module_name, file_path)
             functions = self._extract_top_level_functions(tree, module_name, file_path)
-            self._cache_module_metadata(
-                file_path, module_name, functions, classes, imports, source
-            )
+            self._cache_module_metadata(file_path, module_name, functions, classes, imports, source)
             if resolve_proxies:
                 self._ensure_module_class_proxies(file_path)
             return functions
@@ -613,9 +585,7 @@ class DependencyResolver:
                 module_name = Path(file_path).stem
             self._cache_module_metadata(file_path, module_name, {}, {}, {}, source)
             self._telemetry["ast_extract_failures"] += 1
-            self._record_diagnostic(
-                "ast_extract", file_path, f"{type(e).__name__}: {e}"
-            )
+            self._record_diagnostic("ast_extract", file_path, f"{type(e).__name__}: {e}")
             print(f"Warning: Could not parse {file_path}: {type(e).__name__}: {e}")
             return {}
 
@@ -663,9 +633,7 @@ class DependencyResolver:
             "lineno": int(getattr(node, "lineno", 1) or 1),
         }
 
-    def _signature_from_stub_function(
-        self, func: StubFunctionInfo
-    ) -> inspect.Signature:
+    def _signature_from_stub_function(self, func: StubFunctionInfo) -> inspect.Signature:
         params: List[inspect.Parameter] = []
         for raw_name, _annotation in func.params:
             kind_name = func.param_kinds.get(raw_name)
@@ -792,9 +760,7 @@ class DependencyResolver:
                 )
         return module
 
-    def _extract_import_map(
-        self, tree: python_ast.AST, module_name: str
-    ) -> Dict[str, str]:
+    def _extract_import_map(self, tree: python_ast.AST, module_name: str) -> Dict[str, str]:
         imports: Dict[str, str] = {}
 
         for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
@@ -813,18 +779,12 @@ class DependencyResolver:
                 )
                 for alias in node.names:
                     if alias.name == "*":
-                        for exported in self._expand_star_import_names(
-                            effective_module
-                        ):
-                            imports.setdefault(
-                                exported, f"{effective_module}.{exported}"
-                            )
+                        for exported in self._expand_star_import_names(effective_module):
+                            imports.setdefault(exported, f"{effective_module}.{exported}")
                         continue
                     local_name = alias.asname or alias.name
                     imports[local_name] = (
-                        f"{effective_module}.{alias.name}"
-                        if effective_module
-                        else alias.name
+                        f"{effective_module}.{alias.name}" if effective_module else alias.name
                     )
 
         return imports
@@ -918,9 +878,7 @@ class DependencyResolver:
             # AST-inferred bases (flattened generics, cycle placeholders) can
             # conflict; degrade to object instead of aborting extraction.
             qualified_name = cls_info.get("qualname", cls_info["name"])
-            self._record_diagnostic(
-                "class_proxy_mro", file_path, f"{qualified_name}: {error}"
-            )
+            self._record_diagnostic("class_proxy_mro", file_path, f"{qualified_name}: {error}")
             print(
                 f"Warning: Inconsistent MRO while building proxy for "
                 f"{qualified_name}; falling back to object base: {error}"
@@ -958,19 +916,13 @@ class DependencyResolver:
 
             bases: List[type] = []
             for base_name in cls_info.get("bases", []):
-                resolved = self._resolve_proxy_base_name(
-                    base_name, module_name, imports
-                )
+                resolved = self._resolve_proxy_base_name(base_name, module_name, imports)
                 base_proxy = self._get_or_load_class_proxy(
                     resolved,
                     local_classes=classes,
                     local_builder=build,
                 )
-                if (
-                    base_proxy is not None
-                    and base_proxy is not object
-                    and base_proxy not in bases
-                ):
+                if base_proxy is not None and base_proxy is not object and base_proxy not in bases:
                     bases.append(base_proxy)
 
             proxy = self._create_class_proxy(
@@ -1098,9 +1050,7 @@ class DependencyResolver:
                 )
                 if target:
                     edges.add(target)
-        self._telemetry["import_edges"] = sum(
-            len(v) for v in self._import_graph.values()
-        )
+        self._telemetry["import_edges"] = sum(len(v) for v in self._import_graph.values())
 
     def _extract_auto(self, source: str, file_path: str) -> Dict[str, Any]:
         """Auto strategy: prefer AST parsing to avoid executing user code.
@@ -1245,9 +1195,7 @@ class DependencyResolver:
         resolved_stub = self.stub_resolver.resolve(module_name)
         if resolved_stub is not None:
             if self.verbose:
-                print(
-                    f"DEBUG: Found stub file for '{module_name}': {resolved_stub.path}"
-                )
+                print(f"DEBUG: Found stub file for '{module_name}': {resolved_stub.path}")
             return self._create_module_from_resolved_stub(module_name, resolved_stub)
 
         source_file = self._find_module_source(module_name)
@@ -1256,9 +1204,7 @@ class DependencyResolver:
                 print(f"DEBUG: Found source file for '{module_name}': {source_file}")
             try:
                 module_source = self._load_source(source_file)
-                module_functions = self._extract_ast_functions(
-                    module_source, source_file
-                )
+                module_functions = self._extract_ast_functions(module_source, source_file)
                 cache = self._module_cache.get(source_file, {})
                 module_classes = cache.get("classes", {})
                 module = self._create_enhanced_stub_module(
@@ -1286,9 +1232,7 @@ class DependencyResolver:
         self._note_missing_dependency(module_name, file_path)
         return self._create_stub_module(module_name)
 
-    def _build_stub_modules(
-        self, source: str, file_path: str
-    ) -> Dict[str, types.ModuleType]:
+    def _build_stub_modules(self, source: str, file_path: str) -> Dict[str, types.ModuleType]:
         try:
             tree = python_ast.parse(source)
         except Exception:
@@ -1332,12 +1276,8 @@ class DependencyResolver:
                     child_module_name = f"{module_name}.{alias.name}"
                     child_source = self._find_module_source(child_module_name)
                     if child_source:
-                        child_module = self._load_stub_module(
-                            child_module_name, file_path, modules
-                        )
-                        self._register_module_chain(
-                            modules, child_module_name, child_module
-                        )
+                        child_module = self._load_stub_module(child_module_name, file_path, modules)
+                        self._register_module_chain(modules, child_module_name, child_module)
                         setattr(module, alias.name, child_module)
                     elif not hasattr(module, alias.name):
                         setattr(
@@ -1348,9 +1288,7 @@ class DependencyResolver:
 
         return modules
 
-    def _exec_with_stub_modules(
-        self, compiled: Any, exec_globals: Dict[str, Any]
-    ) -> None:
+    def _exec_with_stub_modules(self, compiled: Any, exec_globals: Dict[str, Any]) -> None:
         if not self.allow_runtime_execution:
             raise RuntimeError(
                 "Runtime module execution is disabled; enable allow_runtime_execution to opt in."
@@ -1405,9 +1343,7 @@ class DependencyResolver:
         except Exception:
             return set()
 
-    def _find_imports_detailed(
-        self, source: str
-    ) -> Dict[str, List[Tuple[str, Optional[str]]]]:
+    def _find_imports_detailed(self, source: str) -> Dict[str, List[Tuple[str, Optional[str]]]]:
         """Find all import statements in source code with detailed information.
 
         Returns:
@@ -1510,9 +1446,7 @@ class DependencyResolver:
             signature=sig,
         )
 
-    def _filter_functions(
-        self, module_globals: Dict[str, Any], file_path: str
-    ) -> Dict[str, Any]:
+    def _filter_functions(self, module_globals: Dict[str, Any], file_path: str) -> Dict[str, Any]:
         """Filter out built-in and external functions, keep only file-local ones."""
         builtin_names = set(dir(builtins))
         if isinstance(builtins, dict):

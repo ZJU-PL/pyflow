@@ -111,9 +111,7 @@ class RegionAnalysis(object):
 
             ops, lcls = getOps(code)
             for op in ops:
-                reads = self.facts.merged_operation_effect(
-                    Capabilities.LIFETIME_OP_READS, code, op
-                )
+                reads = self.facts.merged_operation_effect(Capabilities.LIFETIME_OP_READS, code, op)
                 writes = self.facts.merged_operation_effect(
                     Capabilities.LIFETIME_OP_WRITES, code, op
                 )

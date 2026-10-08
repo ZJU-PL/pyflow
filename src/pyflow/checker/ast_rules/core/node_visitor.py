@@ -101,9 +101,7 @@ class SecurityNodeVisitor:
         self.testset = testset
         self.imports = set()
         self.import_aliases = {}
-        self.tester = b_tester.SecurityTester(
-            self.testset, self.debug, nosec_lines, metrics
-        )
+        self.tester = b_tester.SecurityTester(self.testset, self.debug, nosec_lines, metrics)
 
         # Try to determine module qualified name from file path
         try:
@@ -326,9 +324,7 @@ class SecurityNodeVisitor:
             visitor(node)
         else:
             # No specific visitor, run generic tests for this node type
-            self.update_scores(
-                self.tester.run_tests(self.context, node.__class__.__name__)
-            )
+            self.update_scores(self.tester.run_tests(self.context, node.__class__.__name__))
 
     def post_visit(self, node):
         """
@@ -370,9 +366,7 @@ class SecurityNodeVisitor:
                 for idx, item in enumerate(value):
                     if isinstance(item, ast.AST):
                         # Set parent and sibling references for context
-                        item._bandit_sibling = (
-                            value[idx + 1] if idx < len(value) - 1 else None
-                        )
+                        item._bandit_sibling = value[idx + 1] if idx < len(value) - 1 else None
                         item._bandit_parent = node
                         if self.pre_visit(item):
                             self.visit(item)

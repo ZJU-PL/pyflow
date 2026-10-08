@@ -47,19 +47,13 @@ class AnalysisFacts:
             raise MissingAnalysisFact(f"code has no IR catalog: {code!r}")
         return cls(catalog)
 
-    def context_ids(
-        self, code, *, producer: str | None = None
-    ) -> tuple[ContextId, ...]:
+    def context_ids(self, code, *, producer: str | None = None) -> tuple[ContextId, ...]:
         self._require_current()
         code_id = self.catalog.procedure(code).code_id
-        if producer is None and self.catalog.facts.has_producer(
-            Capabilities.CONTEXTS, "cpa"
-        ):
+        if producer is None and self.catalog.facts.has_producer(Capabilities.CONTEXTS, "cpa"):
             producer = "cpa"
         result = (
-            self.catalog.facts.query_producer(
-                Capabilities.CONTEXTS, producer, code_id
-            )
+            self.catalog.facts.query_producer(Capabilities.CONTEXTS, producer, code_id)
             if producer is not None
             else self.catalog.facts.query(Capabilities.CONTEXTS, code_id)
         )
@@ -71,8 +65,7 @@ class AnalysisFacts:
 
     def contexts(self, code, *, producer: str | None = None) -> tuple[object, ...]:
         return tuple(
-            self.catalog.context(identity)
-            for identity in self.context_ids(code, producer=producer)
+            self.catalog.context(identity) for identity in self.context_ids(code, producer=producer)
         )
 
     def context_id(self, code, context) -> ContextId:
@@ -102,9 +95,7 @@ class AnalysisFacts:
 
     def call_targets(self, code, operation, context) -> frozenset[tuple[object, object]]:
         self._require_current()
-        key = ContextualKey(
-            self.catalog.node_id(operation, code), self.context_id(code, context)
-        )
+        key = ContextualKey(self.catalog.node_id(operation, code), self.context_id(code, context))
         targets = _require(
             self.catalog.facts.query(Capabilities.CALL_TARGETS, key),
             Capabilities.CALL_TARGETS,
@@ -124,9 +115,7 @@ class AnalysisFacts:
 
     def operation_effect(self, capability: str, code, operation, context):
         self._require_current()
-        key = ContextualKey(
-            self.catalog.node_id(operation, code), self.context_id(code, context)
-        )
+        key = ContextualKey(self.catalog.node_id(operation, code), self.context_id(code, context))
         return _require(self.catalog.facts.query(capability, key), capability)
 
     def merged_operation_effect(self, capability: str, code, operation):
@@ -138,9 +127,7 @@ class AnalysisFacts:
 
     def code_effect(self, capability: str, code, context):
         self._require_current()
-        key = ContextualKey(
-            self.catalog.procedure(code).code_id, self.context_id(code, context)
-        )
+        key = ContextualKey(self.catalog.procedure(code).code_id, self.context_id(code, context))
         return _require(self.catalog.facts.query(capability, key), capability)
 
     def merged_code_effect(self, capability: str, code):
@@ -173,9 +160,7 @@ class AnalysisFacts:
     def reference_count(self, location) -> int:
         self._require_current()
         values = _require(
-            self.catalog.facts.query(
-                Capabilities.ALIAS_REFERENCE_COUNT, location
-            ),
+            self.catalog.facts.query(Capabilities.ALIAS_REFERENCE_COUNT, location),
             Capabilities.ALIAS_REFERENCE_COUNT,
         )
         if len(values) != 1:
@@ -197,9 +182,7 @@ class AnalysisFacts:
         if not self.catalog.facts.has(Capabilities.ALIAS_POINTS_TO):
             raise MissingAnalysisFact(f"missing {Capabilities.ALIAS_POINTS_TO}")
         locations = []
-        for location, result in self.catalog.facts.items(
-            Capabilities.ALIAS_POINTS_TO
-        ):
+        for location, result in self.catalog.facts.items(Capabilities.ALIAS_POINTS_TO):
             _require(result, Capabilities.ALIAS_POINTS_TO)
             locations.append(location)
         return tuple(locations)

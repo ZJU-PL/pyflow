@@ -73,9 +73,7 @@ class DataflowNode(object):
         Args:
             hyperblock: Hyperblock this node belongs to (or None for global)
         """
-        assert hyperblock is None or isinstance(hyperblock, Hyperblock), type(
-            hyperblock
-        )
+        assert hyperblock is None or isinstance(hyperblock, Hyperblock), type(hyperblock)
         self.hyperblock = hyperblock
         self._annotation = None
 
@@ -1624,9 +1622,7 @@ class DataflowGraph(object):
         This is separated from __init__ to allow transformation passes to
         control when predicates are initialized.
         """
-        self.entryPredicate = PredicateNode(
-            self.entry.hyperblock, repr(self.entry.hyperblock)
-        )
+        self.entryPredicate = PredicateNode(self.entry.hyperblock, repr(self.entry.hyperblock))
         self.entry.addEntry("*", self.entryPredicate)
 
     def getExisting(self, node, ref=None):

@@ -71,7 +71,7 @@ class Random:
         return alpha
 
     def randbytes(self, n):
-        return b'\x00' * n
+        return b"\x00" * n
 
 
 _inst = Random()
@@ -109,7 +109,7 @@ class SystemRandom(Random):
         return 0
 
     def randbytes(self, n):
-        return b'\x00' * n
+        return b"\x00" * n
 
     def seed(self, *args, **kwds):
         pass
@@ -122,4 +122,4 @@ class SystemRandom(Random):
 
 
 BPF = 53
-RECIP_BPF = 2 ** -BPF
+RECIP_BPF = 2**-BPF

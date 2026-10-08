@@ -30,6 +30,7 @@ This formatter outputs the issues as plain text.
     New field `CWE` added to output
 
 """
+
 import datetime
 import logging
 import sys

@@ -346,15 +346,10 @@ class TestLspHandlerReal:
                 },
             },
         )
-        names = [
-            symbol.name
-            for symbol in server.source_index.document_symbols(sample.as_uri())
-        ]
+        names = [symbol.name for symbol in server.source_index.document_symbols(sample.as_uri())]
         assert names == ["renamed"]
 
-    def test_did_open_can_initialize_a_single_file_workspace(
-        self, tmp_path: Path
-    ) -> None:
+    def test_did_open_can_initialize_a_single_file_workspace(self, tmp_path: Path) -> None:
         sample = tmp_path / "opened.py"
         sample.write_text("def disk_version(): return 1\n")
         server = AnalysisManager(verbose=False)

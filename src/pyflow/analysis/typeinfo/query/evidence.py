@@ -38,9 +38,7 @@ class TypeEvidenceIndex:
         self.evidence.setdefault(item.name, []).append(item)
 
     def types_for(self, name: str) -> tuple[str, ...]:
-        return tuple(
-            dict.fromkeys(item.type_name for item in self.evidence.get(name, ()))
-        )
+        return tuple(dict.fromkeys(item.type_name for item in self.evidence.get(name, ())))
 
     def items(self):
         return self.evidence.items()
@@ -99,9 +97,7 @@ class _PythonTypeCollector(py_ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: py_ast.AsyncFunctionDef) -> None:
         self._collect_function(node)
 
-    def _collect_function(
-        self, node: py_ast.FunctionDef | py_ast.AsyncFunctionDef
-    ) -> None:
+    def _collect_function(self, node: py_ast.FunctionDef | py_ast.AsyncFunctionDef) -> None:
         if node.returns is not None:
             self._add(
                 node.name,

@@ -41,9 +41,10 @@ def test_heap_abstraction_aliases_direct_local_assignments():
     heap.alias_locals(None, y, x)
 
     assert heap.locations_for_local(None, y) == heap.locations_for_local(None, x)
-    assert heap.allocation_sites[heap._local_key(None, y)] == heap.allocation_sites[
-        heap._local_key(None, x)
-    ]
+    assert (
+        heap.allocation_sites[heap._local_key(None, y)]
+        == heap.allocation_sites[heap._local_key(None, x)]
+    )
 
 
 def test_heap_abstraction_strong_update_breaks_local_alias():
@@ -56,9 +57,7 @@ def test_heap_abstraction_strong_update_breaks_local_alias():
     old_site = heap.allocation_sites[heap._local_key(None, y)]
     heap.unalias_local(None, y)
 
-    assert tuple(location.root.label for location in heap.locations_for_local(None, y)) == (
-        "y",
-    )
+    assert tuple(location.root.label for location in heap.locations_for_local(None, y)) == ("y",)
     assert heap.allocation_sites[heap._local_key(None, y)] != old_site
 
 
@@ -111,9 +110,7 @@ def test_heap_abstraction_write_policy_is_strong_for_precise_singleton_fields():
     heap = HeapAbstraction(lambda _procedure, _local: ())
 
     root_write = heap.write_for_location(heap.location_for_raw(base))
-    field_write = heap.write_for_location(
-        heap.dynamic_attribute_location(base, "payload")
-    )
+    field_write = heap.write_for_location(heap.dynamic_attribute_location(base, "payload"))
 
     assert root_write.policy is UpdatePolicy.STRONG
     assert field_write.policy is UpdatePolicy.STRONG
@@ -408,7 +405,9 @@ def test_aliased_locations_returns_equiv_class_members():
 
 
 def test_aliased_locations_excludes_nested():
-    heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy(allow_strong_nested_fresh=True))
+    heap = HeapAbstraction(
+        lambda _procedure, _local: (), policy=HeapPolicy(allow_strong_nested_fresh=True)
+    )
     obj = heap.allocation_object(None, object(), label="obj")
     field = heap.dynamic_attribute_location(obj, "payload")
 
@@ -452,13 +451,19 @@ def test_nested_location_strong_by_default_with_ref_count_one():
 
 def test_heap_policy_from_dict_validates_config():
     """from_dict() must reject invalid configurations."""
-    valid = {"allocation_sensitivity": "site", "field_sensitivity": "named_fields",
-             "container_sensitivity": "literal_keys"}
+    valid = {
+        "allocation_sensitivity": "site",
+        "field_sensitivity": "named_fields",
+        "container_sensitivity": "literal_keys",
+    }
     HeapPolicy.from_dict(valid)  # should not raise
 
-    invalid = {"allocation_sensitivity": "site", "field_sensitivity": "bounded_path",
-               "container_sensitivity": "literal_keys",
-               "max_selector_depth": None}
+    invalid = {
+        "allocation_sensitivity": "site",
+        "field_sensitivity": "bounded_path",
+        "container_sensitivity": "literal_keys",
+        "max_selector_depth": None,
+    }
     with pytest.raises(ValueError, match="BOUNDED_PATH"):
         HeapPolicy.from_dict(invalid)
 

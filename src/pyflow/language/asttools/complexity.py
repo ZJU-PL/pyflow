@@ -102,9 +102,7 @@ class _PathGraphingAstVisitor(_ASTVisitor):
         for node in node_list:
             self.dispatch(node)
 
-    def visitFunctionDef(  # noqa: N802
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
+    def visitFunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:  # noqa: N802
         entity = node.name
         name = f"{node.lineno}:{node.col_offset}: {entity}"
 

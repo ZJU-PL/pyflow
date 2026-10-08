@@ -50,6 +50,4 @@ def test_setup_script_with_null_byte_fails_closed(tmp_path):
 
     assert not scan.components
     assert not scan.metadata["inventoryComplete"]
-    assert any(
-        finding.kind == "invalid-setup-script" for finding in scan.findings
-    )
+    assert any(finding.kind == "invalid-setup-script" for finding in scan.findings)

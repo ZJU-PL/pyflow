@@ -36,7 +36,7 @@ def makeShutilStubs(collector):
     @export
     @attachPtr(shutil, "copyfileobj")
     @llfunc
-    def shutil_copyfileobj(fsrc, fdst, length=16*1024):
+    def shutil_copyfileobj(fsrc, fdst, length=16 * 1024):
         return allocate(type(None))
 
     ### copymode ###
@@ -57,7 +57,15 @@ def makeShutilStubs(collector):
     @export
     @attachPtr(shutil, "copytree")
     @llfunc
-    def shutil_copytree(src, dst, symlinks=False, ignore=None, copy_function=shutil.copy2, ignore_dangling_symlinks=False, dirs_exist_ok=False):
+    def shutil_copytree(
+        src,
+        dst,
+        symlinks=False,
+        ignore=None,
+        copy_function=shutil.copy2,
+        ignore_dangling_symlinks=False,
+        dirs_exist_ok=False,
+    ):
         return allocate(str)
 
     ### rmtree ###
@@ -128,7 +136,17 @@ def makeShutilStubs(collector):
     @export
     @attachPtr(shutil, "make_archive")
     @llfunc
-    def shutil_make_archive(base_name, format, root_dir=None, base_dir=None, verbose=0, dry_run=0, owner=None, group=None, logger=None):
+    def shutil_make_archive(
+        base_name,
+        format,
+        root_dir=None,
+        base_dir=None,
+        verbose=0,
+        dry_run=0,
+        owner=None,
+        group=None,
+        logger=None,
+    ):
         return allocate(str)
 
     ### unpack_archive ###
@@ -142,7 +160,7 @@ def makeShutilStubs(collector):
     @export
     @attachPtr(shutil, "register_archive_format")
     @llfunc
-    def shutil_register_archive_format(name, function, extra_args=None, description=''):
+    def shutil_register_archive_format(name, function, extra_args=None, description=""):
         return allocate(type(None))
 
     ### unregister_archive_format ###
@@ -156,7 +174,7 @@ def makeShutilStubs(collector):
     @export
     @attachPtr(shutil, "register_unpack_format")
     @llfunc
-    def shutil_register_unpack_format(name, extensions, function, extra_args=None, description=''):
+    def shutil_register_unpack_format(name, extensions, function, extra_args=None, description=""):
         return allocate(type(None))
 
     ### unregister_unpack_format ###

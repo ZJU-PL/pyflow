@@ -38,11 +38,7 @@ def reachable(index, secondary):
     # unreachable, even if marked external.
     if not index.currentSet and not secondary.paths.hasCertainHit():
         return False
-    return (
-        index.currentSet
-        or secondary.externalReferences
-        or secondary.paths.hasCertainHit()
-    )
+    return index.currentSet or secondary.externalReferences or secondary.paths.hasCertainHit()
 
 
 def gcMerge(sys, point, context, index, secondary, canSteal=False):
@@ -119,12 +115,8 @@ def updateHitMiss(sys, e0, e1, b0, b1, slot, paths):
 
     hitsStable = not b0
     missesStable = b0
-    e0StableLocation = paths.stableLocation(
-        e0, slot, keepHits=hitsStable, keepMisses=missesStable
-    )
-    e1StableLocation = paths.stableLocation(
-        e1, slot, keepHits=hitsStable, keepMisses=missesStable
-    )
+    e0StableLocation = paths.stableLocation(e0, slot, keepHits=hitsStable, keepMisses=missesStable)
+    e1StableLocation = paths.stableLocation(e1, slot, keepHits=hitsStable, keepMisses=missesStable)
 
     newPaths = paths.filterUnstable(slot, keepHits=hitsStable, keepMisses=missesStable)
 
@@ -223,9 +215,7 @@ def assignmentConstraint(sys, outpoint, context, e1, e0, index, paths, external)
 
     if v0.certain():
         if v1.certain():
-            assign(
-                sys, outpoint, context, e0, e1, e0Must, e1Must, index, paths, external
-            )
+            assign(sys, outpoint, context, e0, e1, e0Must, e1Must, index, paths, external)
         else:
             assign(
                 sys,

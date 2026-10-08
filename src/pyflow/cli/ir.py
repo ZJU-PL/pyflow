@@ -39,9 +39,7 @@ def add_ir_parser(subparsers):
 
     # Input arguments
     parser.add_argument("input_path", help="Python file or directory to analyze")
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose output"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument(
         "--recursive",
         "-r",
@@ -125,11 +123,7 @@ def find_function_in_live_code(liveCode, function_name: str, program=None):
             return code
 
     # Check entry points if not found in live code
-    if (
-        program
-        and hasattr(program, "interface")
-        and hasattr(program.interface, "entryPoint")
-    ):
+    if program and hasattr(program, "interface") and hasattr(program.interface, "entryPoint"):
         for ep in program.interface.entryPoint:
             if hasattr(ep.code, "codeName") and ep.code.codeName() == function_name:
                 return ep.code
@@ -168,16 +162,12 @@ def dump_ir(
     """Generic IR dumping function for AST, CFG, and SSA."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
-        print(
-            f"Error: Function '{function_name}' not found in live code", file=sys.stderr
-        )
+        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
 
     def _dump_impl():
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(
-            output_dir, f"{function_name}_{ir_type.lower()}.{format}"
-        )
+        output_file = os.path.join(output_dir, f"{function_name}_{ir_type.lower()}.{format}")
 
         if ir_type == "AST":
             content = _get_ast_content(func, function_name)
@@ -194,9 +184,7 @@ def dump_ir(
                         f.write(g.to_string())
                     print(f"CFG dumped to: {output_file}")
                 except Exception as e:
-                    print(
-                        f"Warning: DOT generation failed, falling back to text format: {e}"
-                    )
+                    print(f"Warning: DOT generation failed, falling back to text format: {e}")
                     write_ir_file(output_file, function_name, "CFG", str(cfg))
             else:
                 content = generate_clang_style_cfg(cfg)
@@ -233,9 +221,7 @@ def dump_ast(
     program=None,
 ):
     """Dump the AST for a specific function."""
-    return dump_ir(
-        compiler, liveCode, function_name, output_dir, "AST", format, program
-    )
+    return dump_ir(compiler, liveCode, function_name, output_dir, "AST", format, program)
 
 
 def dump_cfg(
@@ -247,9 +233,7 @@ def dump_cfg(
     program=None,
 ):
     """Dump the CFG for a specific function."""
-    return dump_ir(
-        compiler, liveCode, function_name, output_dir, "CFG", format, program
-    )
+    return dump_ir(compiler, liveCode, function_name, output_dir, "CFG", format, program)
 
 
 def dump_ssa(
@@ -261,9 +245,7 @@ def dump_ssa(
     program=None,
 ):
     """Dump the SSA form for a specific function."""
-    return dump_ir(
-        compiler, liveCode, function_name, output_dir, "SSA", format, program
-    )
+    return dump_ir(compiler, liveCode, function_name, output_dir, "SSA", format, program)
 
 
 def dump_gir(
@@ -285,9 +267,7 @@ def dump_gir(
 
     def _dump_impl():
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(
-            output_dir, f"{function_name}_gir.{format}"
-        )
+        output_file = os.path.join(output_dir, f"{function_name}_gir.{format}")
         rows = build_function_gir(func, function_name)
         if format == "json":
             with open(output_file, "w") as output:
@@ -317,16 +297,12 @@ def _dump_graph_ir(
     """Generic function to dump graph-based IRs (CDG, DDG)."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
-        print(
-            f"Error: Function '{function_name}' not found in live code", file=sys.stderr
-        )
+        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
 
     try:
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(
-            output_dir, f"{function_name}_{ir_name.lower()}.{format}"
-        )
+        output_file = os.path.join(output_dir, f"{function_name}_{ir_name.lower()}.{format}")
 
         # Build base structure (CFG for CDG, Dataflow for DDG)
         base_structure = builder_func(compiler, func)
@@ -400,31 +376,21 @@ def find_python_files(directory, args):
         if file_path.suffix != ".py":
             return False
         filename = file_path.name
-        include_match = any(
-            fnmatch.fnmatch(filename, pattern) for pattern in args.include
-        )
-        exclude_match = any(
-            fnmatch.fnmatch(filename, pattern) for pattern in args.exclude
-        )
+        include_match = any(fnmatch.fnmatch(filename, pattern) for pattern in args.include)
+        exclude_match = any(fnmatch.fnmatch(filename, pattern) for pattern in args.exclude)
         return include_match and not exclude_match
 
     if args.recursive:
         files = []
         for root, dirs, filenames in os.walk(directory):
             dirs[:] = [
-                d
-                for d in dirs
-                if not any(fnmatch.fnmatch(d, pattern) for pattern in args.exclude)
+                d for d in dirs if not any(fnmatch.fnmatch(d, pattern) for pattern in args.exclude)
             ]
-            files.extend(
-                Path(root) / f for f in filenames if should_include(Path(root) / f)
-            )
+            files.extend(Path(root) / f for f in filenames if should_include(Path(root) / f))
         return sorted(files)
     else:
         return sorted(
-            item
-            for item in directory.iterdir()
-            if item.is_file() and should_include(item)
+            item for item in directory.iterdir() if item.is_file() and should_include(item)
         )
 
 
@@ -456,8 +422,7 @@ def _dump_mir_files(python_files, input_path: Path, args):
     output_dir = Path(args.dump_output or ".")
     project_root = str(input_path.resolve()) if input_path.is_dir() else None
     compiled = [
-        (source, lower_file(str(source), project_root=project_root))
-        for source in python_files
+        (source, lower_file(str(source), project_root=project_root)) for source in python_files
     ]
     prepared = []
     for source_path, program, scope in _select_mir_programs(compiled, args.dump_mir):
@@ -471,13 +436,9 @@ def _dump_mir_files(python_files, input_path: Path, args):
         if scope is not None:
             # Qualified names may contain compiler-generated markers; keep
             # emitted filenames portable and confined to the output directory.
-            safe_scope = "".join(
-                char if char.isalnum() or char in "._-" else "_" for char in scope
-            )
+            safe_scope = "".join(char if char.isalnum() or char in "._-" else "_" for char in scope)
             stem = f"{stem}.{safe_scope}"
-        prepared.append(
-            (output_dir / relative_dir / f"{stem}_mir.{args.dump_format}", content)
-        )
+        prepared.append((output_dir / relative_dir / f"{stem}_mir.{args.dump_format}", content))
 
     for output_file, content in prepared:
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -506,9 +467,7 @@ def run_ir_dump(input_path: Path, args):
             _dump_mir_files(python_files, input_path, args)
             if not any(
                 getattr(args, name, None)
-                for name in (
-                    "dump_ast", "dump_cfg", "dump_ssa", "dump_cdg", "dump_ddg", "dump_gir"
-                )
+                for name in ("dump_ast", "dump_cfg", "dump_ssa", "dump_cdg", "dump_ddg", "dump_gir")
             ):
                 print("IR dumping complete!")
                 return
@@ -539,13 +498,7 @@ def run_ir_dump(input_path: Path, args):
             )
 
         # Skip analysis pipeline for AST/CFG/CDG/DDG dumping since it clears AST blocks
-        if not (
-            args.dump_ast
-            or args.dump_cfg
-            or args.dump_cdg
-            or args.dump_ddg
-            or args.dump_gir
-        ):
+        if not (args.dump_ast or args.dump_cfg or args.dump_cdg or args.dump_ddg or args.dump_gir):
             with console.scope("analysis"):
                 Pipeline().run(program, compiler=compiler, name=str(input_path))
 

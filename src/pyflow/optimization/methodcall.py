@@ -470,9 +470,7 @@ class MethodRewrite(TypeDispatcher):
         rewrite.annotation = node.annotation
 
     def rewriteCall(self, node, expr, name):
-        rewrite = ast.MethodCall(
-            expr, name, node.args, node.kwds, node.vargs, node.kargs
-        )
+        rewrite = ast.MethodCall(expr, name, node.args, node.kwds, node.vargs, node.kargs)
         copy_call_argument_metadata(node, rewrite)
         self.transferOpInfo(node, rewrite)
         self.rewritten.add(node)

@@ -388,11 +388,7 @@ class TreeWizard(object):
         tpattern = parser.pattern()
 
         # don't allow invalid patterns
-        if (
-            tpattern is None
-            or tpattern.isNil()
-            or isinstance(tpattern, WildcardTreePattern)
-        ):
+        if tpattern is None or tpattern.isNil() or isinstance(tpattern, WildcardTreePattern):
             return None
 
         rootTokenType = tpattern.getType()
@@ -454,11 +450,7 @@ class TreeWizard(object):
         tpattern = parser.pattern()
 
         # don't allow invalid patterns
-        if (
-            tpattern is None
-            or tpattern.isNil()
-            or isinstance(tpattern, WildcardTreePattern)
-        ):
+        if tpattern is None or tpattern.isNil() or isinstance(tpattern, WildcardTreePattern):
             return
 
         rootTokenType = tpattern.getType()

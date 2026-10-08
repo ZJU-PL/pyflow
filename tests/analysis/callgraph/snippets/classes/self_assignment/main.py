@@ -8,5 +8,6 @@ class A:
     def func2(self):
         pass
 
+
 a = A()
 a.func()

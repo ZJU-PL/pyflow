@@ -24,9 +24,7 @@ def test_candidate_ledger_records_a_complete_source_span():
     code = SimpleNamespace(ir_catalog=catalog)
     compiler = SimpleNamespace(stats={})
 
-    record_source_candidate(
-        compiler, code, node, "load_elimination", replacement_local="cached"
-    )
+    record_source_candidate(compiler, code, node, "load_elimination", replacement_local="cached")
 
     assert source_candidates(compiler) == (
         {

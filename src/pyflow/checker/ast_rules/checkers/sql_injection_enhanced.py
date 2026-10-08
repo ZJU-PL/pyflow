@@ -16,7 +16,6 @@ import re
 from ...common import issue
 from ..core import test_properties as test
 
-
 # SQL execution functions
 DJANGO_ORM_FUNCTIONS = [
     "extra",
@@ -145,9 +144,7 @@ def django_orm_extra_injection(context):
                     )
 
                 # Check for % formatting
-                if isinstance(where_value, ast.BinOp) and isinstance(
-                    where_value.op, ast.Mod
-                ):
+                if isinstance(where_value, ast.BinOp) and isinstance(where_value.op, ast.Mod):
                     left_str = _get_string(where_value.left)
                     if left_str and _contains_sql_keyword(left_str):
                         return issue.Issue(
@@ -160,10 +157,7 @@ def django_orm_extra_injection(context):
 
                 # Check for .format()
                 if isinstance(where_value, ast.Call):
-                    if (
-                        hasattr(where_value.func, "attr")
-                        and where_value.func.attr == "format"
-                    ):
+                    if hasattr(where_value.func, "attr") and where_value.func.attr == "format":
                         format_str = (
                             _get_string(where_value.func.value)
                             if hasattr(where_value.func, "value")
@@ -272,9 +266,7 @@ def sqlalchemy_raw_sql_injection(context):
         if isinstance(first_arg, ast.Call):
             if hasattr(first_arg.func, "attr") and first_arg.func.attr == "format":
                 format_str = (
-                    _get_string(first_arg.func.value)
-                    if hasattr(first_arg.func, "value")
-                    else None
+                    _get_string(first_arg.func.value) if hasattr(first_arg.func, "value") else None
                 )
                 if format_str and _contains_sql_keyword(format_str):
                     return issue.Issue(
@@ -315,9 +307,7 @@ def sqlalchemy_dynamic_table_names(context):
         return None
 
     # Check if this is a SQLAlchemy or Django cursor call
-    is_sql = any(
-        sa in func_name for sa in SQLALCHEMY_FUNCTIONS + DJANGO_CURSOR_FUNCTIONS
-    )
+    is_sql = any(sa in func_name for sa in SQLALCHEMY_FUNCTIONS + DJANGO_CURSOR_FUNCTIONS)
 
     if not is_sql:
         return None
@@ -423,9 +413,7 @@ def django_cursor_raw_sql(context):
         if isinstance(first_arg, ast.Call):
             if hasattr(first_arg.func, "attr") and first_arg.func.attr == "format":
                 format_str = (
-                    _get_string(first_arg.func.value)
-                    if hasattr(first_arg.func, "value")
-                    else None
+                    _get_string(first_arg.func.value) if hasattr(first_arg.func, "value") else None
                 )
                 if format_str and _contains_sql_keyword(format_str):
                     return issue.Issue(

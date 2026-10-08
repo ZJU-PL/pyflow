@@ -5,7 +5,7 @@ class ModuleSpec:
         self.origin = origin
         self.submodule_search_locations = [] if is_package else None
         self.cached = None
-        self.parent = name.rpartition('.')[0] if '.' in name else ''
+        self.parent = name.rpartition(".")[0] if "." in name else ""
 
 
 class _Module:
@@ -108,7 +108,7 @@ class _Traversable:
     def iterdir(self):
         return iter([])
 
-    def open(self, mode='r', *args, **kwargs):
+    def open(self, mode="r", *args, **kwargs):
         return _FileHandle(self)
 
 

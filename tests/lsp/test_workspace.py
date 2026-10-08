@@ -16,10 +16,7 @@ from pyflow.lsp.workspace import (
 def _index(tmp_path: Path) -> tuple[SourceIndex, str]:
     path = tmp_path / "sample.py"
     source = (
-        "def target(value):\n"
-        "    return value\n\n"
-        "def caller():\n"
-        "    return target(1)\n"
+        "def target(value):\n" "    return value\n\n" "def caller():\n" "    return target(1)\n"
     )
     path.write_text(source)
     return SourceIndex({str(path): source}, (tmp_path,)), path.as_uri()
@@ -124,9 +121,7 @@ def test_symbol_identity_distinguishes_methods_and_local_shadowing(tmp_path: Pat
     assert a_foo.symbol_id != b_foo.symbol_id
     assert a_foo.symbol_id.kind is SymbolKind.METHOD
     assert local_foo.start_line == 9
-    references = index.references_at(
-        path.as_uri(), 10, 11, include_declaration=True
-    )
+    references = index.references_at(path.as_uri(), 10, 11, include_declaration=True)
     assert {item.start_line for item in references} == {9, 10}
 
 
@@ -217,10 +212,7 @@ def test_method_bare_names_skip_the_enclosing_class_namespace(tmp_path: Path):
 def test_self_attribute_resolution_remains_separate_from_bare_names(tmp_path: Path):
     path = tmp_path / "attributes.py"
     source = (
-        "class A:\n"
-        "    value = 2\n\n"
-        "    def method(self):\n"
-        "        return self.value\n"
+        "class A:\n" "    value = 2\n\n" "    def method(self):\n" "        return self.value\n"
     )
     index = SourceIndex({str(path): source}, (tmp_path,))
     class_value = index.symbol_at(path.as_uri(), 1, 5)
@@ -257,17 +249,11 @@ def test_function_bindings_are_predeclared_with_global_and_nonlocal_rules(
     outer_value = index.symbol_at(path.as_uri(), 3, 5)
     global_value = index.symbol_at(path.as_uri(), 0, 1)
     local_value = index.symbol_at(path.as_uri(), 12, 5)
-    inner_references = [
-        ref for ref in index.references if ref.location.start_line in {6, 7}
-    ]
+    inner_references = [ref for ref in index.references if ref.location.start_line in {6, 7}]
     before_assignment = next(
-        ref
-        for ref in index.references
-        if ref.location.start_line == 11 and ref.name == "value"
+        ref for ref in index.references if ref.location.start_line == 11 and ref.name == "value"
     )
-    global_assignment = next(
-        ref for ref in index.references if ref.location.start_line == 17
-    )
+    global_assignment = next(ref for ref in index.references if ref.location.start_line == 17)
 
     assert outer_value is not None and global_value is not None and local_value is not None
     assert {ref.symbol_id for ref in inner_references} == {outer_value.symbol_id}
@@ -287,12 +273,8 @@ def test_function_decorators_and_defaults_resolve_in_enclosing_scope(tmp_path: P
     index = SourceIndex({str(path): source}, (tmp_path,))
     decorator = index.symbol_at(path.as_uri(), 0, 1)
     default = index.symbol_at(path.as_uri(), 1, 1)
-    decorator_reference = next(
-        ref for ref in index.references if ref.location.start_line == 3
-    )
-    default_reference = next(
-        ref for ref in index.references if ref.location.start_line == 4
-    )
+    decorator_reference = next(ref for ref in index.references if ref.location.start_line == 3)
+    default_reference = next(ref for ref in index.references if ref.location.start_line == 4)
 
     assert decorator is not None and default is not None
     assert decorator_reference.symbol_id == decorator.symbol_id
@@ -311,13 +293,9 @@ def test_class_outer_expressions_resolve_before_class_namespace(tmp_path: Path):
     index = SourceIndex({str(path): source}, (tmp_path,))
     outer_base = index.symbol_at(path.as_uri(), 0, 1)
     class_base = index.symbol_at(path.as_uri(), 5, 5)
-    decorator_reference = next(
-        ref for ref in index.references if ref.location.start_line == 3
-    )
+    decorator_reference = next(ref for ref in index.references if ref.location.start_line == 3)
     base_references = [
-        ref
-        for ref in index.references
-        if ref.name == "Base" and ref.location.start_line == 4
+        ref for ref in index.references if ref.name == "Base" and ref.location.start_line == 4
     ]
 
     assert outer_base is not None and class_base is not None
@@ -329,9 +307,7 @@ def test_class_outer_expressions_resolve_before_class_namespace(tmp_path: Path):
 def test_lambda_parameters_use_anonymous_nested_scope(tmp_path: Path):
     path = tmp_path / "lambda_scope.py"
     source = (
-        "def function(value):\n"
-        "    transform = lambda value: value + 1\n"
-        "    return value\n"
+        "def function(value):\n" "    transform = lambda value: value + 1\n" "    return value\n"
     )
     index = SourceIndex({str(path): source}, (tmp_path,))
     outer_parameter = index.symbol_at(path.as_uri(), 0, 13)
@@ -372,8 +348,7 @@ def test_comprehensions_use_implicit_scopes_without_leaking_targets(tmp_path: Pa
     ]
 
     assert all(
-        item is not None
-        for item in (outer_x, first_target, nested_x_target, nested_y_target)
+        item is not None for item in (outer_x, first_target, nested_x_target, nested_y_target)
     )
     assert "<comprehension@" in first_target.qualified_name
     assert return_reference.symbol_id == outer_x.symbol_id
@@ -492,7 +467,7 @@ def test_exception_and_pattern_captures_create_lexical_bindings(tmp_path: Path):
         "    except ValueError as error:\n"
         "        seen = error\n"
         "    match obj:\n"
-        "        case {\"item\": item, **rest}:\n"
+        '        case {"item": item, **rest}:\n'
         "            return item, rest\n"
     )
     index = SourceIndex({str(path): source}, (tmp_path,))

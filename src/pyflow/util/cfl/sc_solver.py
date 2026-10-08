@@ -89,9 +89,7 @@ class SCSolver:
             for e in elist:
                 index1 = str(graph.ds_structure.edge_indices[e[0]])
                 index2 = str(graph.ds_structure.edge_indices[e[1]])
-                constraint["con1"]["X" + index1].add(
-                    "X" + index1 + "," + p + "," + "X" + index2
-                )
+                constraint["con1"]["X" + index1].add("X" + index1 + "," + p + "," + "X" + index2)
         for left, v in grammar.items():
             for right in v:
                 if len(right) == 2:
@@ -138,15 +136,7 @@ class SCSolver:
                                 "X" + str(i) + "," + left + "," + "Dst" + left + str(i)
                             )
                             constraint["pro"]["X" + str(i)].add(
-                                "Dst"
-                                + left
-                                + str(i)
-                                + ","
-                                + right[0]
-                                + str(1)
-                                + ","
-                                + "X"
-                                + str(i)
+                                "Dst" + left + str(i) + "," + right[0] + str(1) + "," + "X" + str(i)
                             )
                             set_variable.add("Dst" + left + str(i))
                 else:
@@ -192,9 +182,7 @@ class SCSolver:
                             if i.split(",")[0] == x_var:
                                 if ground[i.split(",")[2]] == 0:
                                     ground[i.split(",")[2]] = 1
-                                    worklist.add(
-                                        ("con", i.split(",")[0], i.split(",")[2])
-                                    )
+                                    worklist.add(("con", i.split(",")[0], i.split(",")[2]))
                                     num_of_sol += 1
                     gs_iteration += self.estimate(num_of_sol, iteration)
                     whole_iteration += iteration

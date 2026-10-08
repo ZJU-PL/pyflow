@@ -130,30 +130,30 @@ class TestCDG(unittest.TestCase):
     def test_simple_if_cdg_construction(self):
         """Test CDG construction for a simple if statement."""
         cdg = self.build_cdg(simple_if)
-        
+
         # CDG should have nodes
         self.assertIsInstance(cdg, ControlDependenceGraph)
         self.assertGreater(len(cdg.nodes), 0)
-        
+
         # Should have a root node (entry terminal)
         self.assertIsNotNone(cdg.root_node)
         self.assertEqual(cdg.root_node.cfg_node, cdg.cfg.entryTerminal)
-        
+
         # Check statistics
         stats = cdg.get_statistics()
-        self.assertIn('total_nodes', stats)
-        self.assertIn('total_edges', stats)
-        self.assertGreater(stats['total_nodes'], 0)
+        self.assertIn("total_nodes", stats)
+        self.assertIn("total_edges", stats)
+        self.assertGreater(stats["total_nodes"], 0)
 
     def test_cdg_node_creation(self):
         """Test CDG node creation and retrieval."""
         cdg = self.build_cdg(simple_if)
-        
+
         # Test getting nodes
         entry_node = cdg.get_node(cdg.cfg.entryTerminal)
         self.assertIsNotNone(entry_node)
         self.assertIsInstance(entry_node, CDGNode)
-        
+
         # Test adding node (should return existing if already present)
         node1 = cdg.add_node(cdg.cfg.entryTerminal)
         node2 = cdg.add_node(cdg.cfg.entryTerminal)
@@ -162,11 +162,11 @@ class TestCDG(unittest.TestCase):
     def test_control_dependence_edges(self):
         """Test control dependence edge creation."""
         cdg = self.build_cdg(simple_if)
-        
+
         # Get all edges
         edges = cdg.get_all_edges()
         self.assertIsInstance(edges, list)
-        
+
         # Check edge structure
         for edge in edges:
             self.assertIsInstance(edge, CDGEdge)
@@ -177,7 +177,7 @@ class TestCDG(unittest.TestCase):
     def test_control_dependents(self):
         """Test getting control dependents."""
         cdg = self.build_cdg(simple_if)
-        
+
         # Get entry node
         entry_node = cdg.get_node(cdg.cfg.entryTerminal)
         if entry_node:
@@ -188,11 +188,11 @@ class TestCDG(unittest.TestCase):
     def test_control_dependencies(self):
         """Test getting control dependencies."""
         cdg = self.build_cdg(simple_if)
-        
+
         # Get all nodes
         all_nodes = cdg.get_all_nodes()
         self.assertGreater(len(all_nodes), 0)
-        
+
         # Check dependencies for each node
         for node in all_nodes:
             dependencies = cdg.get_control_dependencies(node.cfg_node)
@@ -201,48 +201,47 @@ class TestCDG(unittest.TestCase):
     def test_nested_if_cdg(self):
         """Test CDG construction for nested if statements."""
         cdg = self.build_cdg(nested_if)
-        
+
         stats = cdg.get_statistics()
         # Nested ifs should create more control dependencies
-        self.assertGreater(stats['total_nodes'], 0)
-        self.assertGreaterEqual(stats['total_edges'], 0)
+        self.assertGreater(stats["total_nodes"], 0)
+        self.assertGreaterEqual(stats["total_edges"], 0)
 
     def test_loop_cdg(self):
         """Test CDG construction for loops."""
         cdg = self.build_cdg(if_with_loop)
-        
+
         stats = cdg.get_statistics()
         # Loops should create control dependencies
-        self.assertGreater(stats['total_nodes'], 0)
+        self.assertGreater(stats["total_nodes"], 0)
 
     def test_cdg_statistics(self):
         """Test CDG statistics generation."""
         cdg = self.build_cdg(simple_if)
         stats = cdg.get_statistics()
-        
+
         # Check required statistics fields
-        required_fields = ['total_nodes', 'total_edges', 'node_types', 
-                          'edge_labels', 'has_root']
+        required_fields = ["total_nodes", "total_edges", "node_types", "edge_labels", "has_root"]
         for field in required_fields:
             self.assertIn(field, stats)
-        
+
         # Check types
-        self.assertIsInstance(stats['total_nodes'], int)
-        self.assertIsInstance(stats['total_edges'], int)
-        self.assertIsInstance(stats['node_types'], dict)
-        self.assertIsInstance(stats['edge_labels'], dict)
-        self.assertIsInstance(stats['has_root'], bool)
+        self.assertIsInstance(stats["total_nodes"], int)
+        self.assertIsInstance(stats["total_edges"], int)
+        self.assertIsInstance(stats["node_types"], dict)
+        self.assertIsInstance(stats["edge_labels"], dict)
+        self.assertIsInstance(stats["has_root"], bool)
 
     def test_analyze_control_dependencies(self):
         """Test control dependency analysis function."""
         cfg = self.build_cfg(simple_if)
         analysis = analyze_control_dependencies(cfg)
-        
+
         # Should return a dictionary with statistics
         self.assertIsInstance(analysis, dict)
-        self.assertIn('total_nodes', analysis)
-        self.assertIn('control_dependences', analysis)
-        self.assertIn('post_dominators', analysis)
+        self.assertIn("total_nodes", analysis)
+        self.assertIn("control_dependences", analysis)
+        self.assertIn("post_dominators", analysis)
 
     def test_analyze_control_dependencies_uses_unique_node_keys(self):
         """Serialized analysis maps should keep one entry per CFG node."""
@@ -255,15 +254,15 @@ class TestCDG(unittest.TestCase):
     def test_cdg_node_relationships(self):
         """Test CDG node relationship methods."""
         cdg = self.build_cdg(simple_if)
-        
+
         nodes = cdg.get_all_nodes()
         if len(nodes) > 1:
             node1, node2 = nodes[0], nodes[1]
-            
+
             # Test is_control_dependent_on
             result = node1.is_control_dependent_on(node2)
             self.assertIsInstance(result, bool)
-            
+
             # Test controls
             result = node1.controls(node2)
             self.assertIsInstance(result, bool)
@@ -271,7 +270,7 @@ class TestCDG(unittest.TestCase):
     def test_cdg_edge_labels(self):
         """Test CDG edge label handling."""
         cdg = self.build_cdg(simple_if)
-        
+
         edges = cdg.get_all_edges()
         for edge in edges:
             # Edge should have a label (may be empty string)
@@ -281,21 +280,21 @@ class TestCDG(unittest.TestCase):
     def test_sequential_ifs_cdg(self):
         """Test CDG for sequential if statements."""
         cdg = self.build_cdg(sequential_ifs)
-        
+
         stats = cdg.get_statistics()
-        self.assertGreater(stats['total_nodes'], 0)
+        self.assertGreater(stats["total_nodes"], 0)
 
     def test_loop_with_break_cdg(self):
         """Test CDG for loop with break statement."""
         cdg = self.build_cdg(loop_with_break)
-        
+
         stats = cdg.get_statistics()
-        self.assertGreater(stats['total_nodes'], 0)
+        self.assertGreater(stats["total_nodes"], 0)
 
     def test_cdg_control_conditions(self):
         """Test getting control conditions for nodes."""
         cdg = self.build_cdg(simple_if)
-        
+
         all_nodes = cdg.get_all_nodes()
         for node in all_nodes:
             conditions = cdg.get_control_conditions(node.cfg_node)
@@ -304,7 +303,7 @@ class TestCDG(unittest.TestCase):
     def test_cdg_is_control_dependent(self):
         """Test checking if one node is control dependent on another."""
         cdg = self.build_cdg(simple_if)
-        
+
         all_cfg_nodes = list(cdg.nodes.keys())
         if len(all_cfg_nodes) > 1:
             node1, node2 = all_cfg_nodes[0], all_cfg_nodes[1]
@@ -316,7 +315,7 @@ class TestCDG(unittest.TestCase):
         cdg = self.build_cdg(simple_if)
         repr_str = repr(cdg)
         self.assertIsInstance(repr_str, str)
-        self.assertIn('ControlDependenceGraph', repr_str)
+        self.assertIn("ControlDependenceGraph", repr_str)
 
     def test_simple_if_has_normal_and_exceptional_control_edges(self):
         """The total CDG keeps ordinary branches and possible errors."""
@@ -417,7 +416,9 @@ class TestCDG(unittest.TestCase):
         cdg = self.build_cdg(func)
 
         switch_to_switch_edges = [
-            edge for edge in cdg.get_all_edges() if isinstance(edge.source.cfg_node, cfg_graph.Switch)
+            edge
+            for edge in cdg.get_all_edges()
+            if isinstance(edge.source.cfg_node, cfg_graph.Switch)
             and isinstance(edge.target.cfg_node, cfg_graph.Switch)
         ]
         self.assertTrue(switch_to_switch_edges)
@@ -477,14 +478,8 @@ class TestCDG(unittest.TestCase):
         constructor = CDGConstructor(code)
         graph = constructor.construct()
 
-        self.assertEqual(
-            len(constructor._postdom_nodes), len(constructor._get_all_cfg_nodes())
-        )
-        labels = {
-            edge.label
-            for edge in graph.get_all_edges()
-            if edge.source.cfg_node is switch
-        }
+        self.assertEqual(len(constructor._postdom_nodes), len(constructor._get_all_cfg_nodes()))
+        labels = {edge.label for edge in graph.get_all_edges() if edge.source.cfg_node is switch}
         self.assertIn("true", labels)
 
     def test_cdg_preserves_parallel_control_labels(self):
@@ -498,12 +493,8 @@ class TestCDG(unittest.TestCase):
 
         node = graph.get_node(controller)
         target = graph.get_node(dependent)
-        self.assertEqual(
-            node.get_control_condition_labels(target), {"true", "false"}
-        )
-        self.assertEqual(
-            graph.get_control_conditions(controller)[target], "false|true"
-        )
+        self.assertEqual(node.get_control_condition_labels(target), {"true", "false"})
+        self.assertEqual(graph.get_control_conditions(controller)[target], "false|true")
         self.assertEqual(len(graph.get_all_edges()), 2)
 
 

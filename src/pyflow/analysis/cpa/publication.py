@@ -90,12 +90,8 @@ def publish_cpa_facts(
                 if symbol.id.scope.code == code_id:
                     reference_values[ContextualKey(symbol.id, context_id)]
             code_key = ContextualKey(code_id, context_id)
-            code_reads[code_key] = FactResult.exact(
-                record.reads.get(context, ()), "cpa"
-            )
-            code_writes[code_key] = FactResult.exact(
-                record.writes.get(context, ()), "cpa"
-            )
+            code_reads[code_key] = FactResult.exact(record.reads.get(context, ()), "cpa")
+            code_writes[code_key] = FactResult.exact(record.writes.get(context, ()), "cpa")
             code_allocations[code_key] = FactResult.exact(
                 record.allocations.get(context, ()), "cpa"
             )
@@ -112,9 +108,7 @@ def publish_cpa_facts(
                 target_id = context_ids.get((target_code, target_context))
                 if target_id is None:
                     continue
-                targets.append(
-                    CallTarget(catalog.procedure(target_code).code_id, target_id)
-                )
+                targets.append(CallTarget(catalog.procedure(target_code).code_id, target_id))
             call_targets[key] = FactResult.exact(targets, "cpa")
 
         for fact in record.references:
@@ -123,17 +117,14 @@ def publish_cpa_facts(
                 entity = catalog.symbol_id(fact.reference, record.code)
             else:
                 entity = catalog.node_id(fact.reference, record.code)
-            reference_values[ContextualKey(entity, context_id)].update(
-                fact.locations
-            )
+            reference_values[ContextualKey(entity, context_id)].update(fact.locations)
 
     return catalog.facts.publish_many(
         "cpa",
         {
             Capabilities.CONTEXTS: contexts_by_code,
             Capabilities.REFERENCES: {
-                key: FactResult.exact(values, "cpa")
-                for key, values in reference_values.items()
+                key: FactResult.exact(values, "cpa") for key, values in reference_values.items()
             },
             Capabilities.CALL_TARGETS: call_targets,
             Capabilities.OP_READS: op_reads,

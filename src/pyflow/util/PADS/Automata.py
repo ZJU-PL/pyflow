@@ -191,11 +191,7 @@ class DFA(FiniteAutomaton):
 
     def __eq__(self, other):
         """Report whether these two DFAs have equivalent states."""
-        if (
-            not isinstance(other, DFA)
-            or len(self) != len(other)
-            or self.alphabet != other.alphabet
-        ):
+        if not isinstance(other, DFA) or len(self) != len(other) or self.alphabet != other.alphabet:
             return False
         equivalences = {self.initial: other.initial}
         unprocessed = [self.initial]

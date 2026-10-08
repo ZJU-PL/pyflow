@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
-
 RawStorageProvider = Callable[[object, object], tuple[object, ...]]
 
 
@@ -97,11 +96,7 @@ class HeapObject:
     def to_dict(self) -> dict:
         return {
             "kind": self.kind.value,
-            "key": (
-                repr(self.key)
-                if not isinstance(self.key, (str, int, tuple))
-                else self.key
-            ),
+            "key": (repr(self.key) if not isinstance(self.key, (str, int, tuple)) else self.key),
             "label": self.label,
             "type_hint": self.type_hint,
             "allocation_site": (

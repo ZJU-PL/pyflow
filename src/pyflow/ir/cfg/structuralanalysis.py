@@ -42,9 +42,7 @@ class Search(object):
 
 
 class KillContinues(TypeDispatcher):
-    @dispatch(
-        ast.leafTypes, ast.Condition, ast.While, ast.Break, ast.Assign, ast.Discard
-    )
+    @dispatch(ast.leafTypes, ast.Condition, ast.While, ast.Break, ast.Assign, ast.Discard)
     def visitLeaf(self, node):
         return node
 
@@ -94,9 +92,7 @@ class Compactor(TypeDispatcher):
 
         assert next is not None
 
-        if isinstance(next, graph.Merge) or (
-            not ignoreRegion and next.region is not node.region
-        ):
+        if isinstance(next, graph.Merge) or (not ignoreRegion and next.region is not node.region):
             next = graph.Suite(node.region)
             node.insertAtExit(name, next, "normal")
 
@@ -404,9 +400,7 @@ def processLoop(dj):
 
     if isinstance(switch.node, graph.Suite):
         if len(switch.d) != 1:
-            raise StructuralAnalysisError(
-                "loop preheader does not have a unique condition block"
-            )
+            raise StructuralAnalysisError("loop preheader does not have a unique condition block")
         switch = switch.d[0]
 
     if not isinstance(switch.node, (graph.Switch, graph.ForIter)):

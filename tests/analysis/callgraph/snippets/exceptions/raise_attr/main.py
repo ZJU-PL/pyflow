@@ -3,4 +3,5 @@ class A:
         def __init__(self):
             pass
 
+
 raise A.B

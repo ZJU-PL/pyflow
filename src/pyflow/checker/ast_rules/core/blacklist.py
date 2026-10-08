@@ -80,9 +80,7 @@ class BlacklistItem:
         Returns:
             True if any pattern matches, False otherwise
         """
-        return any(
-            self._matches_pattern(qualname, pattern) for pattern in self.qualnames
-        )
+        return any(self._matches_pattern(qualname, pattern) for pattern in self.qualnames)
 
     def _matches_pattern(self, qualname, pattern):
         """
@@ -97,11 +95,7 @@ class BlacklistItem:
         Returns:
             True if matches, False otherwise
         """
-        return (
-            fnmatch.fnmatch(qualname, pattern)
-            if "*" in pattern
-            else qualname == pattern
-        )
+        return fnmatch.fnmatch(qualname, pattern) if "*" in pattern else qualname == pattern
 
     def create_issue(self, context, qualname):
         """

@@ -90,9 +90,7 @@ def _module_search_bases(project_root: Path, data: dict[str, Any]) -> list[Path]
         if isinstance(find_where, str):
             find_where = [find_where]
         if isinstance(find_where, list):
-            relative_bases.extend(
-                Path(value) for value in find_where if isinstance(value, str)
-            )
+            relative_bases.extend(Path(value) for value in find_where if isinstance(value, str))
     elif isinstance(packages, list):
         # Explicit package names: a declared package directory and its parent
         # are both plausible import roots (e.g. "demo" or "source/demo").
@@ -160,9 +158,7 @@ def _entries_from_pyproject(
     return candidates
 
 
-def _entries_from_setup_py(
-    project_root: Path, bases: list[Path]
-) -> list[EntryCandidate]:
+def _entries_from_setup_py(project_root: Path, bases: list[Path]) -> list[EntryCandidate]:
     setup_py = project_root / "setup.py"
     if not setup_py.is_file():
         return []
@@ -176,9 +172,7 @@ def _entries_from_setup_py(
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        is_setup_call = (
-            isinstance(node.func, ast.Name) and node.func.id == "setup"
-        ) or (
+        is_setup_call = (isinstance(node.func, ast.Name) and node.func.id == "setup") or (
             isinstance(node.func, ast.Attribute) and node.func.attr == "setup"
         )
         if not is_setup_call:
@@ -194,10 +188,7 @@ def _entries_from_setup_py(
                 ):
                     continue
                 for element in value.elts:
-                    if not (
-                        isinstance(element, ast.Constant)
-                        and isinstance(element.value, str)
-                    ):
+                    if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
                         continue
                     declaration = element.value
                     command, separator, reference = declaration.partition("=")
@@ -207,16 +198,12 @@ def _entries_from_setup_py(
                     entry = _module_to_path(module, project_root, bases)
                     if entry is not None:
                         candidates.append(
-                            EntryCandidate(
-                                entry, "setup.py console_scripts", command.strip()
-                            )
+                            EntryCandidate(entry, "setup.py console_scripts", command.strip())
                         )
     return candidates
 
 
-def _entries_from_setup_cfg(
-    project_root: Path, bases: list[Path]
-) -> list[EntryCandidate]:
+def _entries_from_setup_cfg(project_root: Path, bases: list[Path]) -> list[EntryCandidate]:
     setup_cfg = project_root / "setup.cfg"
     if not setup_cfg.is_file():
         return []
@@ -245,9 +232,7 @@ def _entries_from_setup_cfg(
             module = reference.split(":", 1)[0].strip()
             entry = _module_to_path(module, project_root, bases)
             if entry is not None:
-                candidates.append(
-                    EntryCandidate(entry, "setup.cfg entry_points", command.strip())
-                )
+                candidates.append(EntryCandidate(entry, "setup.cfg entry_points", command.strip()))
     return candidates
 
 
@@ -319,15 +304,11 @@ def resolve_entry_file(
     selected = Path(entry) if entry is not None else detect_entry_file(root)
     if selected is None:
         return None
-    resolved = (
-        selected.resolve() if selected.is_absolute() else (root / selected).resolve()
-    )
+    resolved = selected.resolve() if selected.is_absolute() else (root / selected).resolve()
     try:
         resolved.relative_to(root)
     except ValueError as error:
-        raise ValueError(
-            f"Entry point '{selected}' is outside project root '{root}'."
-        ) from error
+        raise ValueError(f"Entry point '{selected}' is outside project root '{root}'.") from error
     if not resolved.is_file():
         raise ValueError(f"Entry point '{selected}' not found in '{root}'.")
     if resolved.suffix != ".py":

@@ -27,15 +27,9 @@ def _build_catalog():
         qualname="main",
         anchor=SourceAnchor("example.py", 3, 0),
     )
-    box = catalog.symbols.intern(
-        procedure.root_scope, "box", SymbolKind.LOCAL
-    )
-    same_box = catalog.symbols.intern(
-        procedure.root_scope, "box", SymbolKind.LOCAL
-    )
-    temp = catalog.symbols.fresh(
-        procedure.root_scope, "tmp", SymbolKind.TEMPORARY
-    )
+    box = catalog.symbols.intern(procedure.root_scope, "box", SymbolKind.LOCAL)
+    same_box = catalog.symbols.intern(procedure.root_scope, "box", SymbolKind.LOCAL)
+    temp = catalog.symbols.fresh(procedure.root_scope, "tmp", SymbolKind.TEMPORARY)
     operation = object()
     operation_id = catalog.register_node(procedure.code_id, operation)
     box_0 = catalog.values.define(box.id, operation_id)
@@ -75,17 +69,11 @@ def test_fact_store_publishes_and_invalidates_complete_snapshots():
 
 def test_fact_store_joins_producers_but_supports_designated_queries():
     store = Program().ir.facts
-    store.publish(
-        "targets", "ipa", {"call": FactResult.exact({"left"}, "ipa")}
-    )
-    store.publish(
-        "targets", "cpa", {"call": FactResult.exact({"right"}, "cpa")}
-    )
+    store.publish("targets", "ipa", {"call": FactResult.exact({"left"}, "ipa")})
+    store.publish("targets", "cpa", {"call": FactResult.exact({"right"}, "cpa")})
 
     assert store.query("targets", "call").values == frozenset({"left", "right"})
-    assert store.query_producer("targets", "ipa", "call").values == frozenset(
-        {"left"}
-    )
+    assert store.query_producer("targets", "ipa", "call").values == frozenset({"left"})
 
 
 def test_fact_store_distinguishes_empty_conservative_and_missing():
@@ -174,9 +162,7 @@ def test_structurally_equal_references_keep_distinct_node_occurrences():
 
     first_node = catalog.register_node(procedure.code_id, first)
     second_node = catalog.register_node(procedure.code_id, second)
-    symbol = catalog.symbols.intern(
-        procedure.root_scope, "captured", SymbolKind.CELL
-    )
+    symbol = catalog.symbols.intern(procedure.root_scope, "captured", SymbolKind.CELL)
     catalog.bind_symbol(first, symbol.id)
     catalog.bind_symbol(second, symbol.id)
 

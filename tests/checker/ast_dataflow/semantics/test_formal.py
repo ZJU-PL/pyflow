@@ -36,13 +36,11 @@ def _sink_events(result):
 
 
 def test_formal_semantics_reports_direct_source_to_sink_flow():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     value = input()
     eval(value)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
     assert _sink_events(result)[0].source_kinds == frozenset({"user_input"})
@@ -53,13 +51,9 @@ def test_literal_jinja_template_requires_explicit_autoescape_bypass():
     policy = TaintPolicy(
         source_kinds_by_call={"input": frozenset({"user_input"})},
         sink_kinds_by_call={"render_template_string": frozenset({"xss"})},
-        sink_positions_by_call={
-            "render_template_string": frozenset({0, 1})
-        },
+        sink_positions_by_call={"render_template_string": frozenset({0, 1})},
         sink_cwe_by_call={"render_template_string": "CWE-79"},
-        sink_behavior_by_call={
-            "render_template_string": "jinja-autoescape"
-        },
+        sink_behavior_by_call={"render_template_string": "jinja-autoescape"},
         rules=(
             TaintRule(
                 "TEST-XSS",
@@ -92,12 +86,10 @@ def test_literal_jinja_template_requires_explicit_autoescape_bypass():
 
 
 def test_formal_semantics_models_response_body_attribute_as_xss_sink():
-    result = _analyze(
-        """
+    result = _analyze("""
 def handler(resp):
     resp.text = input()
-"""
-    )
+""")
 
     event = _sink_events(result)[0]
     assert event.sink_name == "resp.text"
@@ -105,32 +97,27 @@ def handler(resp):
 
 
 def test_formal_semantics_respects_sanitizer_before_response_body_write():
-    result = _analyze(
-        """
+    result = _analyze("""
 def handler(response):
     response.body = clean(input())
-"""
-    )
+""")
 
     assert _sink_events(result) == []
 
 
 def test_formal_semantics_strong_assignment_kills_scalar_taint():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     value = input()
     value = "safe"
     eval(value)
-"""
-    )
+""")
 
     assert _sink_events(result) == []
 
 
 def test_formal_semantics_joins_unknown_branches_without_order_dependence():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f(flag):
     value = "safe"
     if flag:
@@ -138,61 +125,52 @@ def f(flag):
     else:
         value = "safe"
     eval(value)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
 
 
 def test_formal_semantics_prunes_constant_dead_branch():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     value = "safe"
     if False:
         value = input()
     eval(value)
-"""
-    )
+""")
 
     assert _sink_events(result) == []
 
 
 def test_formal_semantics_prunes_short_circuited_expression_source():
     for expression in ("False and input()", "True or input()"):
-        result = _analyze(
-            f"""
+        result = _analyze(f"""
 def f():
     value = {expression}
     eval(value)
-"""
-        )
+""")
 
         assert _sink_events(result) == []
 
 
 def test_formal_semantics_prunes_unselected_conditional_expression_source():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     value = "safe" if True else input()
     eval(value)
-"""
-    )
+""")
 
     assert _sink_events(result) == []
 
 
 def test_formal_semantics_iterates_loops_and_keeps_zero_iteration_path():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f(items):
     value = "safe"
     for item in items:
         value = input()
     eval(value)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
 
@@ -205,65 +183,53 @@ def test_formal_semantics_applies_kind_specific_sanitizer():
         sanitizer_kinds_by_call={"clean_html": frozenset({"html"})},
         rules=(),
     )
-    function = ast.parse(
-        """
+    function = ast.parse("""
 def f():
     value = source()
     sink(clean_html(value))
-"""
-    ).body[0]
+""").body[0]
 
-    result = analyze_ast_function(
-        function, procedure="f", filename="sample.py", policy=policy
-    )
+    result = analyze_ast_function(function, procedure="f", filename="sample.py", policy=policy)
     event = next(event for event in result.events if isinstance(event, TaintSinkEvent))
 
     assert event.source_kinds == frozenset({"shell"})
 
 
 def test_formal_semantics_propagates_taint_through_starred_expression():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     values = [input()]
     expanded = [*values]
     eval(expanded)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
     assert result.status == "complete"
 
 
 def test_formal_semantics_propagates_raised_payload_to_handler_name():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     try:
         raise input()
     except Exception as error:
         eval(error)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
 
 
 def test_unknown_call_havocs_return_conservatively_without_partial_status():
-    result = _analyze(
-        """
+    result = _analyze("""
 def f():
     value = unknown_library()
     eval(value)
-"""
-    )
+""")
 
     assert len(_sink_events(result)) == 1
     assert result.status == "complete"
     diagnostic = next(
-        diagnostic
-        for diagnostic in result.diagnostics
-        if diagnostic.code == "unknown-call-effect"
+        diagnostic for diagnostic in result.diagnostics if diagnostic.code == "unknown-call-effect"
     )
     assert diagnostic.affects_completeness is False
     assert diagnostic.level.value == "conservative"
@@ -289,17 +255,13 @@ def test_equivalent_qualified_sink_models_match_short_receiver_call():
             ),
         ),
     )
-    function = ast.parse(
-        """
+    function = ast.parse("""
 def f(cursor):
     query = source()
     cursor.execute(query)
-"""
-    ).body[0]
+""").body[0]
 
-    result = analyze_ast_function(
-        function, procedure="f", filename="sample.py", policy=policy
-    )
+    result = analyze_ast_function(function, procedure="f", filename="sample.py", policy=policy)
 
     assert len(_sink_events(result)) == 1
 
@@ -362,9 +324,7 @@ def test_ambiguous_receiver_type_conservatively_unions_sink_models():
             ),
         ),
     )
-    function = ast.parse(
-        "def handler(cursor):\n    cursor.execute(source(), 'safe')\n"
-    ).body[0]
+    function = ast.parse("def handler(cursor):\n    cursor.execute(source(), 'safe')\n").body[0]
 
     result = analyze_ast_function(
         function,
@@ -387,9 +347,7 @@ def test_leaf_fallback_does_not_borrow_cwe_metadata_from_another_api():
         sink_cwe_by_call={"pickle.loads": "CWE-502"},
     )
 
-    assert policy.sink_kinds_for("decoder.loads") == frozenset(
-        {"dangerous", "deserialization"}
-    )
+    assert policy.sink_kinds_for("decoder.loads") == frozenset({"dangerous", "deserialization"})
     assert policy.sink_cwe_for("json.loads") is None
 
 
@@ -407,17 +365,13 @@ def test_framework_attribute_source_alias_flows_to_qualified_sink():
             ),
         ),
     )
-    function = ast.parse(
-        """
+    function = ast.parse("""
 def get(request):
     query = request.GET.get("query", "")
     return HttpResponse(f"<p>{query}</p>")
-"""
-    ).body[0]
+""").body[0]
 
-    result = analyze_ast_function(
-        function, procedure="get", filename="sample.py", policy=policy
-    )
+    result = analyze_ast_function(function, procedure="get", filename="sample.py", policy=policy)
 
     assert len(_sink_events(result)) == 1
 
@@ -427,9 +381,7 @@ def test_pure_path_operations_do_not_reintroduce_taint_after_sanitization():
         source_kinds_by_call={"input": frozenset({"user_input"})},
         sink_kinds_by_call={"open": frozenset({"file"})},
         sink_positions_by_call={"open": frozenset({0})},
-        sanitizer_kinds_by_call={
-            "secure_filename": frozenset({"user_input"})
-        },
+        sanitizer_kinds_by_call={"secure_filename": frozenset({"user_input"})},
         rules=(
             TaintRule(
                 "TEST-PATH",
@@ -439,15 +391,13 @@ def test_pure_path_operations_do_not_reintroduce_taint_after_sanitization():
             ),
         ),
     )
-    function = ast.parse(
-        """
+    function = ast.parse("""
 def handler():
     filename = secure_filename(input())
     path = os.path.join("/srv/files", filename)
     if os.path.exists(path) and os.path.isfile(path):
         open(path)
-"""
-    ).body[0]
+""").body[0]
 
     result = analyze_ast_function(
         function, procedure="handler", filename="sample.py", policy=policy
@@ -470,14 +420,12 @@ def test_pure_path_operations_preserve_unsanitized_taint():
             ),
         ),
     )
-    function = ast.parse(
-        """
+    function = ast.parse("""
 def handler():
     path = os.path.join("/srv/files", input())
     if os.path.exists(path):
         open(path)
-"""
-    ).body[0]
+""").body[0]
 
     result = analyze_ast_function(
         function, procedure="handler", filename="sample.py", policy=policy

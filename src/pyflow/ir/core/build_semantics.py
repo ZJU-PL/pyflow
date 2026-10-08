@@ -21,7 +21,6 @@ from .storage import (
 )
 from .symbols import SymbolKind
 
-
 _ALLOCATION_TYPES = (
     ast.Allocate,
     ast.BuildList,
@@ -88,9 +87,7 @@ def _definition_references(node) -> tuple[object, ...]:
     if isinstance(node, ast.For):
         return (node.index,)
     if isinstance(node, ast.TypeSwitch):
-        return tuple(
-            case.expr for case in node.cases if getattr(case, "expr", None) is not None
-        )
+        return tuple(case.expr for case in node.cases if getattr(case, "expr", None) is not None)
     return ()
 
 
@@ -117,9 +114,7 @@ def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocatio
         return tuple(AttributeStorage(base, _literal_name(node.name)) for base in bases)
     if isinstance(node, ast.GetSubscript):
         bases = _storage_for_expr(catalog, code_id, node.expr)
-        return tuple(
-            SubscriptStorage(base, _literal_name(node.subscript)) for base in bases
-        )
+        return tuple(SubscriptStorage(base, _literal_name(node.subscript)) for base in bases)
     return ()
 
 
@@ -247,9 +242,7 @@ def _register_call(catalog: IRCatalog, node, node_id):
         return ()
     callee = getattr(node, "expr", None)
     callee_id = catalog.node_id(callee, node_id.code) if callee is not None else None
-    argument_ids = tuple(
-        catalog.node_id(arg, node_id.code) for arg in _call_arguments(node)
-    )
+    argument_ids = tuple(catalog.node_id(arg, node_id.code) for arg in _call_arguments(node))
     keyword_arguments = tuple(
         (str(keyword[0]), catalog.node_id(keyword[1], node_id.code))
         for keyword in getattr(node, "kwds", ())
@@ -298,9 +291,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
             parent_id, parent = pending[cursor]
             cursor += 1
             for child in children(parent):
-                if not isinstance(child, ast.PythonASTNode) or isinstance(
-                    child, ast.Code
-                ):
+                if not isinstance(child, ast.PythonASTNode) or isinstance(child, ast.Code):
                     continue
                 if catalog.has_node(child, parent_id.code):
                     continue
@@ -319,11 +310,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
                         kind = (
                             SymbolKind.CELL
                             if isinstance(child, ast.Cell)
-                            else (
-                                SymbolKind.TEMPORARY
-                                if child.name is None
-                                else SymbolKind.LOCAL
-                            )
+                            else (SymbolKind.TEMPORARY if child.name is None else SymbolKind.LOCAL)
                         )
                         symbol = catalog.symbols.intern(
                             procedure.root_scope,
@@ -350,9 +337,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
         elif isinstance(node, ast.Code):
             result = ()
         else:
-            result = tuple(
-                local for child in children(node) for local in local_occurrences(child)
-            )
+            result = tuple(local for child in children(node) for local in local_occurrences(child))
         local_occurrences_by_identity[identity] = result
         return result
 
@@ -360,14 +345,10 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
     # pass, but container semantics encounter the same occurrence once for
     # every ancestor.  Cache the combined symbol/value lookup by identity so
     # those ancestors do not repeatedly traverse the catalog's nested ID keys.
-    reference_bindings: dict[
-        tuple[int, int], tuple[SymbolId, SymbolId | ValueId] | None
-    ] = {}
+    reference_bindings: dict[tuple[int, int], tuple[SymbolId, SymbolId | ValueId] | None] = {}
     missing_binding = object()
 
-    def reference_binding(
-        reference, code_id
-    ) -> tuple[SymbolId, SymbolId | ValueId] | None:
+    def reference_binding(reference, code_id) -> tuple[SymbolId, SymbolId | ValueId] | None:
         key = (id(code_id), id(reference))
         cached = reference_bindings.get(key, missing_binding)
         if cached is not missing_binding:
@@ -421,22 +402,14 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
         use_symbols = tuple(use_symbols_list)
         uses = tuple(uses_list)
         reads: list[StorageLocation] = [LocalStorage(symbol) for symbol in use_symbols]
-        writes: list[StorageLocation] = [
-            LocalStorage(symbol) for symbol in definition_symbols
-        ]
+        writes: list[StorageLocation] = [LocalStorage(symbol) for symbol in definition_symbols]
         explicit_reads, explicit_writes = _explicit_storage(catalog, node_id.code, node)
         reads.extend(explicit_reads)
         writes.extend(explicit_writes)
-        allocations = (
-            (AllocationSiteId(node_id, 0),)
-            if isinstance(node, _ALLOCATION_TYPES)
-            else ()
-        )
+        allocations = (AllocationSiteId(node_id, 0),) if isinstance(node, _ALLOCATION_TYPES) else ()
         calls = _register_call(catalog, node, node_id)
         complete = not isinstance(node, _CALL_TYPES)
-        diagnostics = (
-            ("call heap effects require points-to refinement",) if not complete else ()
-        )
+        diagnostics = ("call heap effects require points-to refinement",) if not complete else ()
         if not complete:
             reads.append(UnknownStorage("call-read"))
             writes.append(UnknownStorage("call-write"))
@@ -452,8 +425,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
                 evaluation_order=tuple(
                     catalog.node_id(child, node_id.code)
                     for child in children(node)
-                    if isinstance(child, ast.PythonASTNode)
-                    and not isinstance(child, ast.Code)
+                    if isinstance(child, ast.PythonASTNode) and not isinstance(child, ast.Code)
                 ),
                 control=_control_effects(node),
                 complete=complete,

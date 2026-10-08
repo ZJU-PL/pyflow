@@ -50,9 +50,7 @@ class CodeInliningAnalysis(TypeDispatcher):
     def visitLeaf(self, node):
         pass
 
-    @dispatch(
-        ast.Suite, list, ast.Condition, ast.Assign, ast.Discard, ast.TypeSwitchCase
-    )
+    @dispatch(ast.Suite, list, ast.Condition, ast.Assign, ast.Discard, ast.TypeSwitchCase)
     def visitOK(self, node):
         node.visitChildren(self)
 
@@ -232,8 +230,7 @@ class OpInliningTransform(TypeDispatcher):
             # Inlined into assignment
             assert len(self.returnargs) == len(node.exprs)
             assignments = [
-                ast.Assign(self(src), [dst])
-                for src, dst in zip(node.exprs, self.returnargs)
+                ast.Assign(self(src), [dst]) for src, dst in zip(node.exprs, self.returnargs)
             ]
             for assignment in assignments:
                 self.transferAnalysisData(node, assignment)
@@ -309,9 +306,7 @@ class CodeInliningTransform(TypeDispatcher):
         self.intrinsics = intrinsics
         self.facts = AnalysisFacts(prgm.ir)
         self.provenance_seeds = []
-        self.opinline = OpInliningTransform(
-            analysis, prgm.ir, self.provenance_seeds
-        )
+        self.opinline = OpInliningTransform(analysis, prgm.ir, self.provenance_seeds)
         self.processed = set()
         self.trace = set()
 
@@ -464,9 +459,7 @@ class CodeInliningTransform(TypeDispatcher):
         # were permanently corrupted, causing subsequent inlining decisions to
         # be based on wrong sizes.  We now perform the actual inlining first
         # and only update the counts if it succeeds.
-        result = self.opinline.process(
-            self.code, node, allCode, selfarg, args, returnargs
-        )
+        result = self.opinline.process(self.code, node, allCode, selfarg, args, returnargs)
 
         # Inlining succeeded — update op counts.
         # Eliminate the call (-1) and add the inlined body's ops.
@@ -539,6 +532,8 @@ def evaluate(compiler, prgm):
         Currently disabled in the optimization pipeline due to
         limitations with complex calling conventions.
     """
+
+
 def evaluate(compiler, prgm):
     """Main entry point for code inlining optimization.
 

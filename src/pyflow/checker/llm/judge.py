@@ -79,9 +79,7 @@ class BugReportJudge:
                 remediation="Manual review required",
             )
 
-    def judge_reports_batch(
-        self, bug_reports: List[Dict[str, Any]]
-    ) -> List[BugJudgment]:
+    def judge_reports_batch(self, bug_reports: List[Dict[str, Any]]) -> List[BugJudgment]:
         """Analyze multiple bug reports in batch."""
         return [self.judge_report(report) for report in bug_reports]
 
@@ -97,9 +95,7 @@ class BugReportJudge:
 
         return json.loads(json_match.group())
 
-    def is_false_positive(
-        self, bug_report: Dict[str, Any], threshold: float = 0.7
-    ) -> bool:
+    def is_false_positive(self, bug_report: Dict[str, Any], threshold: float = 0.7) -> bool:
         """Quick check if report is likely a false positive."""
         judgment = self.judge_report(bug_report)
         return not judgment.is_security_issue and judgment.confidence > threshold

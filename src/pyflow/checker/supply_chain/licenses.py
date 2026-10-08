@@ -8,7 +8,6 @@ from typing import Any, Iterable
 
 from .models import SupplyChainFinding, SupplyChainScan
 
-
 DEFAULT_ALLOWED_LICENSES: frozenset[str] = frozenset(
     {
         "MIT",
@@ -70,9 +69,7 @@ class _LicenseExpressionParser:
             raise _LicenseExpressionError("expression is empty")
         result = self._parse_or()
         if self.index != len(self.tokens):
-            raise _LicenseExpressionError(
-                f"unexpected token {self.tokens[self.index]!r}"
-            )
+            raise _LicenseExpressionError(f"unexpected token {self.tokens[self.index]!r}")
         return result
 
     def _parse_or(self) -> tuple[Any, ...]:
@@ -91,9 +88,7 @@ class _LicenseExpressionParser:
         result = self._parse_primary()
         if self._accept("WITH"):
             if result[0] != "LICENSE":
-                raise _LicenseExpressionError(
-                    "WITH must follow a single license identifier"
-                )
+                raise _LicenseExpressionError("WITH must follow a single license identifier")
             exception = self._identifier()
             result = ("WITH", result, exception)
         return result
@@ -119,9 +114,7 @@ class _LicenseExpressionParser:
         if self.index >= len(self.tokens):
             return False
         current = self.tokens[self.index]
-        matches: bool = (
-            current == token if token in {"(", ")"} else current.upper() == token
-        )
+        matches: bool = current == token if token in {"(", ")"} else current.upper() == token
         if matches:
             self.index += 1
         return matches
@@ -141,9 +134,7 @@ def audit_license_policy(
     """
 
     allowed = (
-        frozenset(allowed_licenses)
-        if allowed_licenses is not None
-        else DEFAULT_ALLOWED_LICENSES
+        frozenset(allowed_licenses) if allowed_licenses is not None else DEFAULT_ALLOWED_LICENSES
     )
     exceptions = frozenset(
         DEFAULT_ALLOWED_EXCEPTIONS if allowed_exceptions is None else allowed_exceptions
@@ -184,9 +175,7 @@ def audit_license_policy(
                         )
                     )
                     continue
-                accepted, denied = _evaluate_license_expression(
-                    parsed, allowed, exceptions
-                )
+                accepted, denied = _evaluate_license_expression(parsed, allowed, exceptions)
                 choices_allowed.append(accepted)
                 rejected.update(denied)
                 continue
@@ -230,9 +219,7 @@ def licenses_from_metadata(data: Any) -> list[dict[str, Any]]:
         if classifier.startswith("License ::"):
             classifier_text = classifier.strip()
             mapped = _TROVE_LICENSES.get(classifier_text)
-            licenses.append(
-                license_entry(mapped or classifier.rsplit("::", 1)[-1].strip())
-            )
+            licenses.append(license_entry(mapped or classifier.rsplit("::", 1)[-1].strip()))
     unique: dict[str, dict[str, Any]] = {}
     for item in licenses:
         key = json.dumps(item, sort_keys=True)
@@ -257,17 +244,13 @@ def _evaluate_license_expression(
         identifier = str(node[1])
         return identifier in allowed, set() if identifier in allowed else {identifier}
     if operation == "WITH":
-        base_allowed, rejected = _evaluate_license_expression(
-            node[1], allowed, allowed_exceptions
-        )
+        base_allowed, rejected = _evaluate_license_expression(node[1], allowed, allowed_exceptions)
         exception = str(node[2])
         exception_allowed = exception in allowed_exceptions
         if not exception_allowed:
             rejected.add(exception)
         return base_allowed and exception_allowed, rejected
-    left_allowed, left_rejected = _evaluate_license_expression(
-        node[1], allowed, allowed_exceptions
-    )
+    left_allowed, left_rejected = _evaluate_license_expression(node[1], allowed, allowed_exceptions)
     right_allowed, right_rejected = _evaluate_license_expression(
         node[2], allowed, allowed_exceptions
     )

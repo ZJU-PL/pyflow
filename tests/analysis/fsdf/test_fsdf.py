@@ -21,7 +21,7 @@ class TestReadModifyInfo(unittest.TestCase):
     def test_init(self):
         """Test ReadModifyInfo initialization."""
         info = ReadModifyInfo()
-        
+
         self.assertEqual(info.localRead, set())
         self.assertEqual(info.localModify, set())
         self.assertEqual(info.heapRead, set())
@@ -32,14 +32,14 @@ class TestReadModifyInfo(unittest.TestCase):
         info1 = ReadModifyInfo()
         info1.localRead.add("x")
         info1.heapRead.add("field_a")
-        
+
         info2 = ReadModifyInfo()
         info2.localRead.add("y")
         info2.localModify.add("x")
         info2.heapModify.add("field_b")
-        
+
         info1.accumulate(info2)
-        
+
         self.assertEqual(info1.localRead, {"x", "y"})
         self.assertEqual(info1.localModify, {"x"})
         self.assertEqual(info1.heapRead, {"field_a"})
@@ -48,12 +48,12 @@ class TestReadModifyInfo(unittest.TestCase):
     def test_accumulate_multiple(self):
         """Test accumulating from multiple sources."""
         info = ReadModifyInfo()
-        
+
         for i in range(5):
             other = ReadModifyInfo()
             other.localRead.add(f"var{i}")
             info.accumulate(other)
-        
+
         self.assertEqual(len(info.localRead), 5)
 
 
@@ -110,12 +110,7 @@ class TestFindRecursiveGroups(unittest.TestCase):
 
     def test_complex_recursion(self):
         """Test with complex recursion pattern."""
-        G = {
-            "a": {"b"},
-            "b": {"c"},
-            "c": {"a", "d"},  # cycle: a->b->c->a
-            "d": set()
-        }
+        G = {"a": {"b"}, "b": {"c"}, "c": {"a", "d"}, "d": set()}  # cycle: a->b->c->a
         result = findRecursiveGroups(G)
         # a, b, c should be in recursive group
         self.assertIn("a", result)
@@ -131,7 +126,7 @@ class TestLocalName(unittest.TestCase):
         local = "x"
         context = ("call1",)
         name = LocalName(local, context)
-        
+
         self.assertEqual(name.local, local)
         self.assertEqual(name.context, context)
 
@@ -157,9 +152,9 @@ class TestFieldName(unittest.TestCase):
         field = "field_a"
         context = "ctx1"
         unique = True
-        
+
         name = FieldName(obj, field, context, unique)
-        
+
         self.assertEqual(name.obj, obj)
         self.assertEqual(name.field, field)
         self.assertEqual(name.context, context)
@@ -195,9 +190,9 @@ class TestOperation(unittest.TestCase):
         """Test Operation initialization."""
         op_node = "assign_expr"
         targets = ["x", "y"]
-        
+
         op = Operation(op_node, targets)
-        
+
         self.assertEqual(op.op, op_node)
         self.assertEqual(op.targets, targets)
         self.assertEqual(op.uses, [])
@@ -212,7 +207,7 @@ class TestSlot(unittest.TestCase):
     def test_init(self):
         """Test Slot initialization."""
         slot = Slot("x")
-        
+
         self.assertEqual(slot.name, "x")
         self.assertFalse(slot.externalDefinition)
         self.assertEqual(slot.defs, [])
@@ -222,9 +217,9 @@ class TestSlot(unittest.TestCase):
         """Test adding a use to a slot."""
         slot = Slot("x")
         op = Operation("load", [])
-        
+
         slot.addUse(op)
-        
+
         self.assertIn(op, slot.uses)
         self.assertIn(slot, op.uses)
 
@@ -232,9 +227,9 @@ class TestSlot(unittest.TestCase):
         """Test adding a definition to a slot."""
         slot = Slot("x")
         op = Operation("assign", [])
-        
+
         slot.addDef(op)
-        
+
         self.assertIn(op, slot.defs)
         self.assertIn(slot, op.defs)
 
@@ -243,7 +238,7 @@ class TestSlot(unittest.TestCase):
         slot = Slot("x")
         slot.externalDefinition = True
         op = Operation("assign", [])
-        
+
         with self.assertRaises(AssertionError):
             slot.addDef(op)
 
@@ -261,7 +256,7 @@ class TestHeapSlot(unittest.TestCase):
     def test_init(self):
         """Test HeapSlot initialization."""
         heap_slot = HeapSlot("obj.field")
-        
+
         self.assertEqual(heap_slot.name, "obj.field")
         self.assertFalse(heap_slot.externalDefinition)
         self.assertEqual(heap_slot.defs, [])
@@ -271,9 +266,9 @@ class TestHeapSlot(unittest.TestCase):
         """Test adding a use to a heap slot."""
         heap_slot = HeapSlot("obj.field")
         op = Operation("load", [])
-        
+
         heap_slot.addUse(op)
-        
+
         self.assertIn(op, heap_slot.uses)
         self.assertIn(heap_slot, op.heapuses)
 
@@ -281,9 +276,9 @@ class TestHeapSlot(unittest.TestCase):
         """Test adding a definition to a heap slot."""
         heap_slot = HeapSlot("obj.field")
         op = Operation("store", [])
-        
+
         heap_slot.addDef(op)
-        
+
         self.assertIn(op, heap_slot.defs)
         self.assertIn(heap_slot, op.heapdefs)
 
@@ -292,7 +287,7 @@ class TestHeapSlot(unittest.TestCase):
         heap_slot = HeapSlot("obj.field")
         heap_slot.externalDefinition = True
         op = Operation("store", [])
-        
+
         with self.assertRaises(AssertionError):
             heap_slot.addDef(op)
 
@@ -311,15 +306,15 @@ class TestDataflowClasses(unittest.TestCase):
         """Test building a simple def-use chain."""
         # Create slots
         x = Slot("x")
-        
+
         # Create operations
         assign = Operation("assign", ["x"])
         use = Operation("load", [])
-        
+
         # Build chain: assign -> x -> use
         x.addDef(assign)
         x.addUse(use)
-        
+
         # Verify
         self.assertIn(assign, x.defs)
         self.assertIn(use, x.uses)
@@ -329,17 +324,17 @@ class TestDataflowClasses(unittest.TestCase):
     def test_multiple_uses(self):
         """Test a slot with multiple uses."""
         x = Slot("x")
-        
+
         def1 = Operation("def1", ["x"])
         use1 = Operation("use1", [])
         use2 = Operation("use2", [])
         use3 = Operation("use3", [])
-        
+
         x.addDef(def1)
         x.addUse(use1)
         x.addUse(use2)
         x.addUse(use3)
-        
+
         self.assertEqual(len(x.uses), 3)
         self.assertIn(use1, x.uses)
         self.assertIn(use2, x.uses)
@@ -348,13 +343,13 @@ class TestDataflowClasses(unittest.TestCase):
     def test_heap_def_use(self):
         """Test heap slot def-use chain."""
         obj_field = HeapSlot("obj.field")
-        
+
         store = Operation("store", [])
         load = Operation("load", [])
-        
+
         obj_field.addDef(store)
         obj_field.addUse(load)
-        
+
         self.assertIn(store, obj_field.defs)
         self.assertIn(load, obj_field.uses)
 

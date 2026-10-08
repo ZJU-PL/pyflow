@@ -62,7 +62,7 @@ class TestCallbackSchema(unittest.TestCase):
     def test_init(self):
         """Test callback schema initialization."""
         schema = structure.CallbackSchema(lambda x: isinstance(x, int))
-        self.assertTrue(hasattr(schema, 'validator'))
+        self.assertTrue(hasattr(schema, "validator"))
 
     def test_validate_success(self):
         """Test successful callback validation."""
@@ -90,20 +90,14 @@ class TestStructureSchema(unittest.TestCase):
         """Test structure schema initialization."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         self.assertEqual(len(schema.fields), 2)
 
     def test_field(self):
         """Test getting field schema by name."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         self.assertIs(schema.field("name"), str_schema)
         self.assertIs(schema.field("value"), int_schema)
 
@@ -111,10 +105,7 @@ class TestStructureSchema(unittest.TestCase):
         """Test getting field names."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         names = list(schema.fieldnames())
         self.assertIn("name", names)
         self.assertIn("value", names)
@@ -123,10 +114,7 @@ class TestStructureSchema(unittest.TestCase):
         """Test successful structure validation."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         struct_type = schema.type_
         instance = struct_type("test", 42)
         schema.validate(instance)
@@ -135,10 +123,7 @@ class TestStructureSchema(unittest.TestCase):
         """Test validation fails with wrong number of fields."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         struct_type = schema.type_
         # Wrong number of fields - only 1 field instead of 2
         with self.assertRaises((structure.base.SchemaError, TypeError)):
@@ -148,10 +133,7 @@ class TestStructureSchema(unittest.TestCase):
         """Test missing() returns structure with default values."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         # missing() should return structure with missing field values
         # TypeSchema.missing() will raise, so this tests that behavior
         with self.assertRaises(structure.base.SchemaError):
@@ -161,19 +143,13 @@ class TestStructureSchema(unittest.TestCase):
         """Test that duplicate field names raise error."""
         int_schema = structure.TypeSchema(int)
         with self.assertRaises(structure.base.SchemaError):
-            structure.StructureSchema(
-                ("x", int_schema),
-                ("x", int_schema)  # Duplicate
-            )
+            structure.StructureSchema(("x", int_schema), ("x", int_schema))  # Duplicate
 
     def test_nonexistent_field_raises(self):
         """Test that nonexistent field name raises error."""
         int_schema = structure.TypeSchema(int)
         str_schema = structure.TypeSchema(str)
-        schema = structure.StructureSchema(
-            ("name", str_schema),
-            ("value", int_schema)
-        )
+        schema = structure.StructureSchema(("name", str_schema), ("value", int_schema))
         with self.assertRaises(structure.base.SchemaError):
             schema.field("nonexistent")
 
@@ -213,8 +189,7 @@ class TestTupleSet(unittest.TestCase):
     def test_init(self):
         """Test tuple set initialization."""
         struct_schema = structure.StructureSchema(
-            ("code", structure.WildcardSchema()),
-            ("context", structure.WildcardSchema())
+            ("code", structure.WildcardSchema()), ("context", structure.WildcardSchema())
         )
         ts_schema = tupleset.TupleSetSchema(struct_schema)
         # TupleSetSchema.instance() creates the actual tuple set
@@ -223,13 +198,12 @@ class TestTupleSet(unittest.TestCase):
     def test_add(self):
         """Test adding tuples to tuple set."""
         struct_schema = structure.StructureSchema(
-            ("code", structure.WildcardSchema()),
-            ("context", structure.WildcardSchema())
+            ("code", structure.WildcardSchema()), ("context", structure.WildcardSchema())
         )
         ts_schema = tupleset.TupleSetSchema(struct_schema)
         ts = ts_schema()
         # add method should exist
-        self.assertTrue(hasattr(ts, 'add'))
+        self.assertTrue(hasattr(ts, "add"))
 
 
 class TestMappingSchema(unittest.TestCase):
@@ -254,7 +228,7 @@ class TestMappingSchema(unittest.TestCase):
         # Should be a Mapping object
         self.assertIsInstance(instance, mapping.Mapping)
         # Should have data attribute (the underlying dict)
-        self.assertTrue(hasattr(instance, 'data'))
+        self.assertTrue(hasattr(instance, "data"))
         self.assertIsInstance(instance.data, dict)
 
     def test_mapping_getitem_creates_missing(self):
@@ -274,10 +248,12 @@ class TestObjectInfo(unittest.TestCase):
 
     def test_init(self):
         """Test ObjectInfo initialization."""
+
         # Create a mock object node
         class MockXType:
             def isExisting(self):
                 return False
+
             def isExternal(self):
                 return False
 
@@ -285,6 +261,7 @@ class TestObjectInfo(unittest.TestCase):
             xtype = MockXType()
 
         from pyflow.analysis.lifetimeanalysis import ObjectInfo
+
         info = ObjectInfo(MockObj())
         self.assertEqual(info.refersTo, set())
         self.assertEqual(info.referedFrom, set())
@@ -295,9 +272,11 @@ class TestObjectInfo(unittest.TestCase):
 
     def test_leaks(self):
         """Test leaks() method."""
+
         class MockXType:
             def isExisting(self):
                 return True  # Globally visible
+
             def isExternal(self):
                 return False
 
@@ -305,14 +284,17 @@ class TestObjectInfo(unittest.TestCase):
             xtype = MockXType()
 
         from pyflow.analysis.lifetimeanalysis import ObjectInfo
+
         info = ObjectInfo(MockObj())
         self.assertTrue(info.leaks())  # Should leak because globallyVisible=True
 
     def test_isReachableFrom(self):
         """Test isReachableFrom() method."""
+
         class MockXType:
             def isExisting(self):
                 return False
+
             def isExternal(self):
                 return False
 
@@ -320,9 +302,10 @@ class TestObjectInfo(unittest.TestCase):
             xtype = MockXType()
 
         from pyflow.analysis.lifetimeanalysis import ObjectInfo
+
         info1 = ObjectInfo(MockObj())
         info2 = ObjectInfo(MockObj())
-        
+
         info1.heldByClosure.add(info2)
         self.assertTrue(info1.isReachableFrom({info2}))
         self.assertFalse(info1.isReachableFrom(set()))
@@ -334,6 +317,7 @@ class TestDFSSearcher(unittest.TestCase):
     def test_init(self):
         """Test DFS searcher initialization."""
         from pyflow.analysis.lifetimeanalysis import DFSSearcher
+
         searcher = DFSSearcher()
         self.assertEqual(searcher._stack, [])
         self.assertEqual(searcher._touched, set())
@@ -341,6 +325,7 @@ class TestDFSSearcher(unittest.TestCase):
     def test_enqueue(self):
         """Test enqueueing nodes."""
         from pyflow.analysis.lifetimeanalysis import DFSSearcher
+
         searcher = DFSSearcher()
         searcher.enqueue("node1", "node2")
         self.assertEqual(len(searcher._stack), 2)
@@ -349,6 +334,7 @@ class TestDFSSearcher(unittest.TestCase):
     def test_enqueue_duplicates(self):
         """Test that duplicate enqueue is ignored."""
         from pyflow.analysis.lifetimeanalysis import DFSSearcher
+
         searcher = DFSSearcher()
         searcher.enqueue("node1")
         searcher.enqueue("node1")  # Duplicate
@@ -357,15 +343,15 @@ class TestDFSSearcher(unittest.TestCase):
     def test_process(self):
         """Test processing all enqueued nodes using DFS (LIFO/stack order)."""
         from pyflow.analysis.lifetimeanalysis import DFSSearcher
-        
+
         class MockSearcher(DFSSearcher):
             def __init__(self):
                 super().__init__()
                 self.visited = []
-            
+
             def visit(self, node):
                 self.visited.append(node)
-        
+
         searcher = MockSearcher()
         searcher.enqueue("a", "b", "c")
         searcher.process()
@@ -379,6 +365,7 @@ class TestInvertInvokes(unittest.TestCase):
     def test_invertInvokes_basic(self):
         """Test that invertInvokes function exists and is callable."""
         from pyflow.analysis.lifetimeanalysis import invertInvokes
+
         self.assertTrue(callable(invertInvokes))
 
 
@@ -388,6 +375,7 @@ class TestWrapSchemas(unittest.TestCase):
     def test_wrapOpContext(self):
         """Test wrapOpContext function."""
         from pyflow.analysis.lifetimeanalysis import wrapOpContext, opDataflowSchema
+
         # wrapOpContext should create a schema with nested mappings
         schema = wrapOpContext(lattice.setUnionSchema)
         self.assertIsNotNone(schema)
@@ -395,6 +383,7 @@ class TestWrapSchemas(unittest.TestCase):
     def test_wrapCodeContext(self):
         """Test wrapCodeContext function."""
         from pyflow.analysis.lifetimeanalysis import wrapCodeContext
+
         schema = wrapCodeContext(lattice.setUnionSchema)
         self.assertIsNotNone(schema)
 
@@ -405,14 +394,14 @@ class TestFilteredSCC(unittest.TestCase):
     def test_filteredSCC_empty(self):
         """Test SCC filtering with empty graph."""
         from pyflow.analysis.lifetimeanalysis import filteredSCC
-        
+
         result = filteredSCC([])
         self.assertEqual(result, [])
 
     def test_filteredSCC_nontrivial(self):
         """Test SCC filtering with non-trivial cycles."""
         from pyflow.analysis.lifetimeanalysis import filteredSCC
-        
+
         # Create a simple cycle: A -> B -> C -> A
         # This requires the StronglyConnectedComponents from PADS
         # The function should find cycles with more than 1 node

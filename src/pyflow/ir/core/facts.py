@@ -8,7 +8,6 @@ from typing import Generic, Hashable, Iterable, TypeVar
 
 from .ids import IRRevision
 
-
 T = TypeVar("T", bound=Hashable)
 
 

@@ -15,21 +15,39 @@ def makeIOStubs(collector):
     @export
     @attachPtr(open)
     @llfunc
-    def builtin_open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None):
+    def builtin_open(
+        file,
+        mode="r",
+        buffering=-1,
+        encoding=None,
+        errors=None,
+        newline=None,
+        closefd=True,
+        opener=None,
+    ):
         return allocate(io.TextIOWrapper)
 
     ### io module functions ###
     @export
     @attachPtr(io, "open")
     @llfunc
-    def io_open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None):
+    def io_open(
+        file,
+        mode="r",
+        buffering=-1,
+        encoding=None,
+        errors=None,
+        newline=None,
+        closefd=True,
+        opener=None,
+    ):
         return allocate(io.TextIOWrapper)
 
     ### StringIO ###
     @export
     @attachPtr(io, "StringIO")
     @llfunc
-    def io_StringIO(initial_value='', newline='\n'):
+    def io_StringIO(initial_value="", newline="\n"):
         return allocate(io.StringIO)
 
     @attachPtr(io.StringIO, "read")
@@ -86,7 +104,7 @@ def makeIOStubs(collector):
     @export
     @attachPtr(io, "BytesIO")
     @llfunc
-    def io_BytesIO(initial_bytes=b''):
+    def io_BytesIO(initial_bytes=b""):
         return allocate(io.BytesIO)
 
     @attachPtr(io.BytesIO, "read")
@@ -143,7 +161,7 @@ def makeIOStubs(collector):
     @export
     @attachPtr(io, "FileIO")
     @llfunc
-    def io_FileIO(file, mode='r', closefd=True, opener=None):
+    def io_FileIO(file, mode="r", closefd=True, opener=None):
         return allocate(io.FileIO)
 
     @attachPtr(io.FileIO, "read")
@@ -234,7 +252,9 @@ def makeIOStubs(collector):
     @export
     @attachPtr(io, "TextIOWrapper")
     @llfunc
-    def io_TextIOWrapper(buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False):
+    def io_TextIOWrapper(
+        buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False
+    ):
         return allocate(io.TextIOWrapper)
 
     @attachPtr(io.TextIOWrapper, "read")

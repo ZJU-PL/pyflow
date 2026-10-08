@@ -29,9 +29,19 @@ class MockCwe:
 class MockIssue:
     """Mock issue for testing."""
 
-    def __init__(self, test_id="B301", test="blacklist_calls", text="Test issue",
-                 severity="MEDIUM", confidence="HIGH", cwe=None,
-                 fname="test.py", lineno=5, col_offset=0, end_col_offset=None):
+    def __init__(
+        self,
+        test_id="B301",
+        test="blacklist_calls",
+        text="Test issue",
+        severity="MEDIUM",
+        confidence="HIGH",
+        cwe=None,
+        fname="test.py",
+        lineno=5,
+        col_offset=0,
+        end_col_offset=None,
+    ):
         self.test_id = test_id
         self.test = test
         self.text = text
@@ -125,10 +135,12 @@ class TestJsonFormatter(unittest.TestCase):
         # Just verify that the report function can be called with empty manager
         # Full integration tests would require a real file or more complex setup
         import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json_formatter.report(self.manager, f, "LOW", "LOW")
             # If we get here, the function worked
         import os
+
         os.unlink(f.name)
 
     def test_report_with_issues(self):
@@ -142,9 +154,11 @@ class TestJsonFormatter(unittest.TestCase):
         self.manager._skipped = [("skipped.py", "syntax error")]
 
         import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json_formatter.report(self.manager, f, "LOW", "LOW")
         import os
+
         os.unlink(f.name)
 
     def test_report_is_deterministically_sorted(self):
@@ -219,7 +233,8 @@ class TestTextFormatter(unittest.TestCase):
         """Helper to run text report - verify no exception raised."""
         import tempfile
         import os
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             text_formatter.report(manager, f, sev_level, conf_level)
         os.unlink(f.name)
         return ""
@@ -353,7 +368,9 @@ class TestSarifFormatter(unittest.TestCase):
         output.seek(0)
         data = json.load(output)
         run = data["runs"][0]
-        self.assertEqual(run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "a.py")
+        self.assertEqual(
+            run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "a.py"
+        )
         self.assertEqual(run["artifacts"][0]["location"]["uri"], "a.py")
         self.assertEqual(run["tool"]["driver"]["rules"][0]["id"], "B101")
 

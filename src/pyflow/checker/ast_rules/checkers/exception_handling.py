@@ -16,7 +16,6 @@ import re
 from ...common import issue
 from ..core import test_properties as test
 
-
 # Exception types that should not be silently swallowed
 CRITICAL_EXCEPTIONS = [
     "KeyboardInterrupt",

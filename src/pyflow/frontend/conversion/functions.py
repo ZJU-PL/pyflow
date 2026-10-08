@@ -25,13 +25,9 @@ _KWONLY_PARAM_PREFIX = "kwonly:"
 class FunctionExtractor:
     """Extracts and converts Python functions to PyFlow AST."""
 
-    def __init__(
-        self, verbose: bool = True, *, retain_source_syntax: bool = True
-    ):
+    def __init__(self, verbose: bool = True, *, retain_source_syntax: bool = True):
         self.verbose = verbose
-        self.ast_converter = ASTConverter(
-            verbose, retain_source_syntax=retain_source_syntax
-        )
+        self.ast_converter = ASTConverter(verbose, retain_source_syntax=retain_source_syntax)
         self.diagnostics: list[str] = []
 
     def _callable_name(self, func: Any) -> str:
@@ -66,9 +62,7 @@ class FunctionExtractor:
                 try:
                     source = inspect.getsource(func)
                     if self.verbose:
-                        print(
-                            f"DEBUG: Got source from inspect.getsource for {func.__name__}"
-                        )
+                        print(f"DEBUG: Got source from inspect.getsource for {func.__name__}")
                 except (OSError, TypeError):
                     if self.verbose:
                         print(f"DEBUG: inspect.getsource failed for {func.__name__}")
@@ -82,9 +76,7 @@ class FunctionExtractor:
                 return self._create_minimal_code(func, reason="source code unavailable")
 
             if self.verbose:
-                print(
-                    f"DEBUG: Processing source code for {func.__name__} (length: {len(source)})"
-                )
+                print(f"DEBUG: Processing source code for {func.__name__} (length: {len(source)})")
 
             # Dedent the source code to handle class-level indentation
             try:
@@ -99,9 +91,7 @@ class FunctionExtractor:
                     source = textwrap.dedent(source)
                 except Exception as e:
                     if self.verbose:
-                        print(
-                            f"DEBUG: Error dedenting refined source for {func.__name__}: {e}"
-                        )
+                        print(f"DEBUG: Error dedenting refined source for {func.__name__}: {e}")
 
             # Parse it into a Python AST
             tree = python_ast.parse(source)
@@ -111,17 +101,13 @@ class FunctionExtractor:
 
             if func_node is None:
                 if self.verbose:
-                    print(
-                        f"DEBUG: Could not find function definition for {func.__name__}"
-                    )
+                    print(f"DEBUG: Could not find function definition for {func.__name__}")
                 self._record_diagnostic(
                     "ast_match",
                     func,
                     "function definition not found; using minimal code",
                 )
-                return self._create_minimal_code(
-                    func, reason="function definition not found"
-                )
+                return self._create_minimal_code(func, reason="function definition not found")
 
             # Convert Python AST to pyflow AST
             code_object = getattr(func, "__code__", None)
@@ -139,9 +125,7 @@ class FunctionExtractor:
 
                 traceback.print_exc()
             # Fallback: create a minimal code stub
-            self._record_diagnostic(
-                "convert_function", func, f"{type(e).__name__}: {e}"
-            )
+            self._record_diagnostic("convert_function", func, f"{type(e).__name__}: {e}")
             return self._create_minimal_code(func, reason=f"{type(e).__name__}: {e}")
 
     def _normalize_qualname(self, qualname: Optional[str]) -> Optional[str]:
@@ -176,17 +160,11 @@ class FunctionExtractor:
 
         for child in body:
             if isinstance(child, python_ast.ClassDef):
-                yield from self._iter_function_nodes_with_qualname(
-                    child, stack + [child.name]
-                )
-            elif isinstance(
-                child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-            ):
+                yield from self._iter_function_nodes_with_qualname(child, stack + [child.name])
+            elif isinstance(child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
                 qualname = ".".join([*stack, child.name])
                 yield child, qualname
-                yield from self._iter_function_nodes_with_qualname(
-                    child, [*stack, child.name]
-                )
+                yield from self._iter_function_nodes_with_qualname(child, [*stack, child.name])
 
     def _find_matching_function_node(
         self,
@@ -214,26 +192,20 @@ class FunctionExtractor:
             return None
 
         if isinstance(target_lineno, int):
-            line_matches = [
-                node for node, _q, lineno in candidates if lineno == target_lineno
-            ]
+            line_matches = [node for node, _q, lineno in candidates if lineno == target_lineno]
             if line_matches:
                 return line_matches[0]
 
         if target_qualname:
             qual_matches = [
-                node
-                for node, qualname, _lineno in candidates
-                if qualname == target_qualname
+                node for node, qualname, _lineno in candidates if qualname == target_qualname
             ]
             if qual_matches:
                 return qual_matches[0]
 
         return candidates[0][0]
 
-    def _create_minimal_code(
-        self, func: Any, reason: Optional[str] = None
-    ) -> pyflow_ast.Code:
+    def _create_minimal_code(self, func: Any, reason: Optional[str] = None) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""
         codeparams = self._empty_code_parameters()
         func_name = self._callable_name(func)
@@ -329,14 +301,8 @@ class FunctionExtractor:
         if self._contains_yield(func_node):
             origin.append("converted_generator")
         try:
-            if (
-                func is not None
-                and hasattr(func, "__code__")
-                and func.__code__ is not None
-            ):
-                origin.append(
-                    f"source({func.__code__.co_filename}:{func.__code__.co_firstlineno})"
-                )
+            if func is not None and hasattr(func, "__code__") and func.__code__ is not None:
+                origin.append(f"source({func.__code__.co_filename}:{func.__code__.co_firstlineno})")
             else:
                 lineno = getattr(func_node, "lineno", None)
                 if filename and isinstance(lineno, int):
@@ -521,29 +487,17 @@ class FunctionExtractor:
                 kwarg = pyflow_ast.Local(args_node.kwarg.arg)
 
         posonly_params = [
-            pyflow_ast.Local(name)
-            for kind, name, _default in param_records
-            if kind == "posonly"
+            pyflow_ast.Local(name) for kind, name, _default in param_records if kind == "posonly"
         ]
-        posonly_names = [
-            name for kind, name, _default in param_records if kind == "posonly"
-        ]
+        posonly_names = [name for kind, name, _default in param_records if kind == "posonly"]
         regular_params = [
-            pyflow_ast.Local(name)
-            for kind, name, _default in param_records
-            if kind == "regular"
+            pyflow_ast.Local(name) for kind, name, _default in param_records if kind == "regular"
         ]
-        regular_names = [
-            name for kind, name, _default in param_records if kind == "regular"
-        ]
+        regular_names = [name for kind, name, _default in param_records if kind == "regular"]
         kwonly_params = [
-            pyflow_ast.Local(name)
-            for kind, name, _default in param_records
-            if kind == "kwonly"
+            pyflow_ast.Local(name) for kind, name, _default in param_records if kind == "kwonly"
         ]
-        kwonly_names = [
-            name for kind, name, _default in param_records if kind == "kwonly"
-        ]
+        kwonly_names = [name for kind, name, _default in param_records if kind == "kwonly"]
         params = [*regular_params, *kwonly_params]
         param_names = [
             *regular_names,
@@ -551,9 +505,7 @@ class FunctionExtractor:
         ]
         per_param_defaults = [default for _kind, _name, default in param_records]
 
-        first_default = next(
-            (i for i, d in enumerate(per_param_defaults) if d is not None), None
-        )
+        first_default = next((i for i, d in enumerate(per_param_defaults) if d is not None), None)
         defaults = []
         if first_default is not None:
             for d in per_param_defaults[first_default:]:
@@ -592,9 +544,7 @@ class FunctionExtractor:
                 print(f"Found function: {node.name}")
 
             # Convert Python AST function to pyflow AST
-            pyflow_code = self._convert_python_function_to_pyflow(
-                node, None, filename=filename
-            )
+            pyflow_code = self._convert_python_function_to_pyflow(node, None, filename=filename)
 
             # Add to program
             self._add_code_to_program(program, pyflow_code)
@@ -625,12 +575,8 @@ class FunctionExtractor:
             qualname = qualname or node.name
 
             for child in node.body:
-                if isinstance(
-                    child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-                ):
-                    code = self._convert_python_function_to_pyflow(
-                        child, None, filename=filename
-                    )
+                if isinstance(child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
+                    code = self._convert_python_function_to_pyflow(child, None, filename=filename)
                     code.setCodeName(f"{qualname}.{child.name}")
                     self._add_code_to_program(program, code)
                     if self.verbose:

@@ -8,13 +8,10 @@ from __future__ import annotations
 
 from pyflow.language.python import ast as py_ast
 
-
 _CALL_ARGUMENT_ORDERS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CALL_POSITIONAL_SPREADS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CALL_KEYWORD_SPREADS: dict[int, tuple[object, tuple[object, ...]]] = {}
-_CALL_POSITIONAL_ITEMS: dict[
-    int, tuple[object, tuple[tuple[bool, object], ...]]
-] = {}
+_CALL_POSITIONAL_ITEMS: dict[int, tuple[object, tuple[tuple[bool, object], ...]]] = {}
 _CODE_DEFINITION_ANNOTATIONS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CODE_CLOSURE_CELLS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CLASS_CELLS: dict[int, tuple[object, object | None]] = {}
@@ -172,11 +169,7 @@ def actual_argument_expressions(call) -> tuple[object, ...]:
     source_order = call_argument_evaluation_order(call)
     if source_order is not None:
         selfarg = getattr(call, "selfarg", None)
-        return (
-            (selfarg, *tuple(source_order))
-            if selfarg is not None
-            else tuple(source_order)
-        )
+        return (selfarg, *tuple(source_order)) if selfarg is not None else tuple(source_order)
     actuals: list[object] = []
     selfarg = getattr(call, "selfarg", None)
     if selfarg is not None:

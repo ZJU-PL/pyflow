@@ -5,12 +5,11 @@ from collections import deque
 from .analysis import DataflowAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import BaseBlock
 
-
 Fact = TypeVar("Fact")
 
 
 class Solver(Generic[Fact], ABC):
-    solver_dict: Dict[str, 'Type[Solver[Fact]]'] = {}
+    solver_dict: Dict[str, "Type[Solver[Fact]]"] = {}
 
     def __init_subclass__(cls) -> None:
         cls.solver_dict[cls.__name__] = cls
@@ -20,8 +19,9 @@ class Solver(Generic[Fact], ABC):
         return cls.solver_dict[id]
 
     @classmethod
-    def init(cls, analysis: DataflowAnalysis[Fact]
-             ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
+    def init(
+        cls, analysis: DataflowAnalysis[Fact]
+    ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         if analysis.is_forward:
             in_facts, out_facts = cls.init_forward(analysis)
         else:
@@ -29,8 +29,9 @@ class Solver(Generic[Fact], ABC):
         return in_facts, out_facts
 
     @classmethod
-    def init_forward(cls, analysis: DataflowAnalysis[Fact]
-                     ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
+    def init_forward(
+        cls, analysis: DataflowAnalysis[Fact]
+    ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         in_facts, out_facts = {}, {}
         cfg = analysis.get_cfg()
         for node in cfg.blks:
@@ -43,8 +44,9 @@ class Solver(Generic[Fact], ABC):
         return in_facts, out_facts
 
     @classmethod
-    def init_backward(cls, analysis: DataflowAnalysis[Fact]
-                      ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
+    def init_backward(
+        cls, analysis: DataflowAnalysis[Fact]
+    ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         in_facts, out_facts = {}, {}
         cfg = analysis.cfg
         for node in cfg.blks:
@@ -67,16 +69,22 @@ class Solver(Generic[Fact], ABC):
 
     @classmethod
     @abstractmethod
-    def solve_forward(cls, analysis: DataflowAnalysis[Fact],
-                      in_facts: Dict[BaseBlock, Fact],
-                      out_facts: Dict[BaseBlock, Fact]):
+    def solve_forward(
+        cls,
+        analysis: DataflowAnalysis[Fact],
+        in_facts: Dict[BaseBlock, Fact],
+        out_facts: Dict[BaseBlock, Fact],
+    ):
         pass
 
     @classmethod
     @abstractmethod
-    def solve_backward(cls, analysis: DataflowAnalysis[Fact],
-                       in_facts: Dict[BaseBlock, Fact],
-                       out_facts: Dict[BaseBlock, Fact]):
+    def solve_backward(
+        cls,
+        analysis: DataflowAnalysis[Fact],
+        in_facts: Dict[BaseBlock, Fact],
+        out_facts: Dict[BaseBlock, Fact],
+    ):
         pass
 
 
@@ -109,8 +117,9 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
         return postorder
 
     @classmethod
-    def init_forward(cls, analysis: DataflowAnalysis[Fact]
-                     ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
+    def init_forward(
+        cls, analysis: DataflowAnalysis[Fact]
+    ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         in_facts, out_facts = {}, {}
         cfg = analysis.get_cfg()
         for node in cfg.blks:
@@ -132,14 +141,15 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
         return in_facts, out_facts
 
     @classmethod
-    def solve_forward(cls, analysis: DataflowAnalysis[Fact],
-                      in_facts: Dict[BaseBlock, Fact],
-                      out_facts: Dict[BaseBlock, Fact]):
+    def solve_forward(
+        cls,
+        analysis: DataflowAnalysis[Fact],
+        in_facts: Dict[BaseBlock, Fact],
+        out_facts: Dict[BaseBlock, Fact],
+    ):
         cfg = analysis.get_cfg()
         postorder = cls._cfg_postorder(cfg)
-        work_list = deque(
-            blk for blk in reversed(postorder) if blk != cfg.entry_blk
-        )
+        work_list = deque(blk for blk in reversed(postorder) if blk != cfg.entry_blk)
         queued = set(work_list)
         while work_list:
             cur = work_list.popleft()
@@ -161,8 +171,9 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
                         work_list.append(succ)
 
     @classmethod
-    def init_backward(cls, analysis: DataflowAnalysis[Fact]
-                      ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
+    def init_backward(
+        cls, analysis: DataflowAnalysis[Fact]
+    ) -> Tuple[Dict[BaseBlock, Fact], Dict[BaseBlock, Fact]]:
         in_facts, out_facts = {}, {}
         cfg = analysis.get_cfg()
         for node in cfg.blks:
@@ -184,14 +195,15 @@ class WorklistSolver(Generic[Fact], Solver[Fact]):
         return in_facts, out_facts
 
     @classmethod
-    def solve_backward(cls, analysis: DataflowAnalysis[Fact],
-                       in_facts: Dict[BaseBlock, Fact],
-                       out_facts: Dict[BaseBlock, Fact]):
+    def solve_backward(
+        cls,
+        analysis: DataflowAnalysis[Fact],
+        in_facts: Dict[BaseBlock, Fact],
+        out_facts: Dict[BaseBlock, Fact],
+    ):
         cfg = analysis.get_cfg()
         postorder = cls._cfg_postorder(cfg)
-        work_list = deque(
-            blk for blk in postorder if blk != cfg.super_exit_blk
-        )
+        work_list = deque(blk for blk in postorder if blk != cfg.super_exit_blk)
         queued = set(work_list)
         while work_list:
             cur = work_list.popleft()

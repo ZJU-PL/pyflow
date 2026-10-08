@@ -142,8 +142,7 @@ class LocalizationQueries:
 
         defs_by_var = self.data_flow.get_reaching_defs(function)
         trace.definitions = [
-            self._format_reaching_def(item)
-            for item in defs_by_var.get(variable, [])
+            self._format_reaching_def(item) for item in defs_by_var.get(variable, [])
         ]
         trace.uses = self.data_flow.get_variable_uses(function, variable)
         trace.upstream_functions = self.call_graph.get_upstream_functions(function, max_depth=2)
@@ -152,7 +151,9 @@ class LocalizationQueries:
 
         candidate_locations = []
         for candidate in self.get_localization_candidates(function, variable):
-            if candidate.function_name != func_name and self._candidate_matches_variable(candidate, variable):
+            if candidate.function_name != func_name and self._candidate_matches_variable(
+                candidate, variable
+            ):
                 candidate_locations.append(candidate.function_name)
         trace.candidate_locations = candidate_locations
         return trace.to_dict()
@@ -165,7 +166,9 @@ class LocalizationQueries:
                     entry_points.add(candidate)
         return sorted(entry_points)
 
-    def get_change_impact(self, changed_function: Union[str, object]) -> Dict[str, Union[str, List[str]]]:
+    def get_change_impact(
+        self, changed_function: Union[str, object]
+    ) -> Dict[str, Union[str, List[str]]]:
         func_name = self.context.resolve_function_name(changed_function)
         direct_callers = self.call_graph.get_callers(changed_function)
         all_upstream = self.call_graph.get_upstream_functions(changed_function)
@@ -233,7 +236,9 @@ class LocalizationQueries:
 
         return buckets
 
-    def _matches_variable(self, data_deps: Union[List[str], Dict[str, Set[str]]], variable: Optional[str]) -> bool:
+    def _matches_variable(
+        self, data_deps: Union[List[str], Dict[str, Set[str]]], variable: Optional[str]
+    ) -> bool:
         if not variable:
             return False
         if isinstance(data_deps, dict):
@@ -241,10 +246,7 @@ class LocalizationQueries:
         else:
             flattened = data_deps
         var = variable.lower()
-        return any(
-            var == dep.lower() or dep.lower().endswith(f".{var}")
-            for dep in flattened
-        )
+        return any(var == dep.lower() or dep.lower().endswith(f".{var}") for dep in flattened)
 
     def _collect_localization_evidence(
         self,

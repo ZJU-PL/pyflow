@@ -53,14 +53,10 @@ def prepare_program_for_ifds(
     from pyflow.language.python import ast as py_ast
 
     indexed_codes = tuple(
-        cfg.code
-        for cfg in cfgs
-        if isinstance(getattr(cfg, "code", None), py_ast.Code)
+        cfg.code for cfg in cfgs if isinstance(getattr(cfg, "code", None), py_ast.Code)
     )
     if indexed_codes:
-        program.ir = ensure_codes_indexed(
-            indexed_codes, rebuild_semantics=False
-        )
+        program.ir = ensure_codes_indexed(indexed_codes, rebuild_semantics=False)
         for cfg in cfgs:
             if isinstance(getattr(cfg, "code", None), py_ast.Code):
                 index_cfg(program.ir, cfg, rebuild_semantics=False)
@@ -69,6 +65,4 @@ def prepare_program_for_ifds(
 
         build_semantics(program.ir)
 
-    return PreparedIFDSArtifacts(
-        tuple(cfgs), catalog=getattr(program, "ir", None)
-    )
+    return PreparedIFDSArtifacts(tuple(cfgs), catalog=getattr(program, "ir", None))

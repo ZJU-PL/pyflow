@@ -4,12 +4,17 @@ B510: Test for insecure SNMP configuration.
 Using default or weak SNMP community strings exposes
 device configuration to unauthorized access.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
 DEFAULT_COMMUNITY_STRINGS = {
-    "public", "private", "community",
-    "snmp", "admin", "default",
+    "public",
+    "private",
+    "community",
+    "snmp",
+    "admin",
+    "default",
 }
 
 
@@ -36,8 +41,12 @@ def snmp_weak_community(context):
 @test.with_id("B511")
 def snmp_insecure_version(context):
     qualname = context.call_function_name_qual
-    if qualname in {"pysnmp.hlapi.getCmd", "pysnmp.hlapi.setCmd",
-                    "pysnmp.hlapi.nextCmd", "pysnmp.hlapi.bulkCmd"}:
+    if qualname in {
+        "pysnmp.hlapi.getCmd",
+        "pysnmp.hlapi.setCmd",
+        "pysnmp.hlapi.nextCmd",
+        "pysnmp.hlapi.bulkCmd",
+    }:
         return issue.Issue(
             severity="MEDIUM",
             confidence="MEDIUM",

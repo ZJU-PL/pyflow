@@ -25,7 +25,6 @@ from pyflow.language.modules.type_stubs import (
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.analysis import typeinfo
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -369,11 +368,7 @@ def test_parse_stub_class() -> None:
 def test_parse_stub_variables() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         pyi = Path(tmp) / "mod.pyi"
-        pyi.write_text(
-            "x: int\n"
-            "y: str\n"
-            "z: List[int]\n"
-        )
+        pyi.write_text("x: int\n" "y: str\n" "z: List[int]\n")
         info = parse_stub_file(pyi)
         assert len(info.variables) == 3
         names = {v[0] for v in info.variables}
@@ -383,10 +378,7 @@ def test_parse_stub_variables() -> None:
 def test_parse_stub_generic_function() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         pyi = Path(tmp) / "mod.pyi"
-        pyi.write_text(
-            "from typing import Optional\n"
-            "def find(key: str) -> Optional[int]: ...\n"
-        )
+        pyi.write_text("from typing import Optional\n" "def find(key: str) -> Optional[int]: ...\n")
         info = parse_stub_file(pyi)
         assert info.functions[0].returns == "Optional[int]"
 

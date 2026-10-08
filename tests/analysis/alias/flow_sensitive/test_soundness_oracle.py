@@ -137,9 +137,7 @@ def test_exhaustive_branch_store_load_results_are_abstractly_represented():
     }
 
     for result_name in _concrete_results():
-        concrete_location = heap.locations_for_local(
-            code, concrete_locals[result_name]
-        )[0]
+        concrete_location = heap.locations_for_local(code, concrete_locals[result_name])[0]
         assert any(
             graph.may_alias(concrete_location, abstract_location)
             for abstract_location in abstract_results
@@ -207,10 +205,7 @@ def test_generated_field_subscript_and_nested_call_families_are_sound():
                 [
                     py_ast.Assign(py_ast.BuildList([]), [first]),
                     py_ast.Assign(py_ast.BuildList([]), [second]),
-                    *(
-                        py_ast.Assign(py_ast.BuildList([]), [local])
-                        for local in values.values()
-                    ),
+                    *(py_ast.Assign(py_ast.BuildList([]), [local]) for local in values.values()),
                     store(first, values["old_first"]),
                     store(second, values["old_second"]),
                     py_ast.Switch(

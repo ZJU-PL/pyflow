@@ -114,18 +114,12 @@ def _symbol_kind(name: str) -> SymbolKind:
 def _procedure_metadata(code: ast.Code):
     tags = {str(origin) for origin in _origins(code)}
     construct_kind = next(
-        (
-            tag.split("(", 1)[0]
-            for tag in sorted(tags)
-            if tag.startswith("synthetic_module(")
-        ),
+        (tag.split("(", 1)[0] for tag in sorted(tags) if tag.startswith("synthetic_module(")),
         None,
     )
     return {
         "is_async": "converted_async_function" in tags,
-        "is_generator": any(
-            tag in {"converted_generator", "converted_genexpr"} for tag in tags
-        ),
+        "is_generator": any(tag in {"converted_generator", "converted_genexpr"} for tag in tags),
         "construct_kind": construct_kind,
     }
 
@@ -325,9 +319,7 @@ def _program_live_code(program, filename: str | None) -> list[ast.Code]:
     )
 
 
-def _code_module(
-    code: ast.Code, module: str, filename: str | None
-) -> tuple[str, SourceAnchor]:
+def _code_module(code: ast.Code, module: str, filename: str | None) -> tuple[str, SourceAnchor]:
     code_module = module
     anchor = _source_anchor(code, filename)
     if anchor.filename and module == "__main__":
@@ -383,9 +375,7 @@ def register_program_procedures(
             if isinstance(node, ast.Code) and node is not code:
                 nested_name = node.codeName()
                 nested_qualname = (
-                    nested_name
-                    if "." in nested_name
-                    else f"{qualname}.<locals>.{nested_name}"
+                    nested_name if "." in nested_name else f"{qualname}.<locals>.{nested_name}"
                 )
                 register_tree(
                     node,
@@ -466,9 +456,7 @@ def rebuild_program_ir(
         catalog.source_map.set_provenance(node_id, provenance)
 
     for seed in provenance_seeds:
-        if not catalog.has_procedure(seed.code) or not catalog.has_node(
-            seed.node, seed.code
-        ):
+        if not catalog.has_procedure(seed.code) or not catalog.has_node(seed.node, seed.code):
             continue
         node_id = catalog.node_id(seed.node, seed.code)
         catalog.source_map.set_origin(node_id, seed.origin)
@@ -484,17 +472,13 @@ def rebuild_program_ir(
         if isinstance(seed.node, (ast.Local, ast.Cell)) and catalog.has_symbol(
             seed.node, seed.code
         ):
-            catalog.source_map.set_declaration(
-                catalog.symbol_id(seed.node, seed.code), seed.origin
-            )
+            catalog.source_map.set_declaration(catalog.symbol_id(seed.node, seed.code), seed.origin)
 
     build_semantics(catalog)
     return catalog
 
 
-def ensure_code_indexed(
-    code: ast.Code, *, rebuild_semantics: bool = True
-) -> IRCatalog:
+def ensure_code_indexed(code: ast.Code, *, rebuild_semantics: bool = True) -> IRCatalog:
     """Return the mandatory catalog for a standalone code object."""
     catalog = getattr(code, "ir_catalog", None)
     if isinstance(catalog, IRCatalog):
@@ -527,9 +511,7 @@ def ensure_code_indexed(
     return catalog
 
 
-def ensure_codes_indexed(
-    codes: Iterable[ast.Code], *, rebuild_semantics: bool = True
-) -> IRCatalog:
+def ensure_codes_indexed(codes: Iterable[ast.Code], *, rebuild_semantics: bool = True) -> IRCatalog:
     """Return one catalog spanning a related set of procedures.
 
     Program-extracted procedures already share their program catalog.  Ad-hoc
@@ -685,9 +667,7 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
         elif isinstance(block, cfg_graph.Merge):
             visit_ast(block.phi)
         pending.extend(
-            target for _label, target in sorted(
-                block.next.items(), key=lambda item: str(item[0])
-            )
+            target for _label, target in sorted(block.next.items(), key=lambda item: str(item[0]))
         )
 
     for terminal in terminals:

@@ -85,8 +85,8 @@ def test_frontend_semantics_are_built_lazily_on_first_access():
 
 def test_frontend_can_still_build_semantics_eagerly():
     compiler = context.CompilerContext(None)
-    program = Extractor(
-        compiler, verbose=False, defer_semantics=False
-    ).extract_from_source("def main():\n    return None\n", "facts.py")
+    program = Extractor(compiler, verbose=False, defer_semantics=False).extract_from_source(
+        "def main():\n    return None\n", "facts.py"
+    )
 
     assert program.ir.semantics.ready is True

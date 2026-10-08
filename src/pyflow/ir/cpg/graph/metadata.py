@@ -130,8 +130,7 @@ class _GraphMetadataMixin:
             self._node_meta[l_node.node_id] = {
                 "node_type": "Lambda",
                 "lineno": getattr(ast_node, "lineno", 0) or 0,
-                "col": getattr(ast_node, "col", getattr(ast_node, "col_offset", 0))
-                or 0,
+                "col": getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
                 "value": lambda_label,
                 "func_name": self._meta_for(node).get("func_name", ""),
                 "kind": l_node.kind,
@@ -171,9 +170,9 @@ class _GraphMetadataMixin:
                 for other_node in other_pdg.nodes:
                     for edge in other_node.edges_out:
                         if edge.kind == "data" and edge.label:
-                            self._data_definitions_by_label.setdefault(
-                                edge.label, []
-                            ).append((other_fname, other_node))
+                            self._data_definitions_by_label.setdefault(edge.label, []).append(
+                                (other_fname, other_node)
+                            )
 
         for node in pdg.nodes:
             ast_node = node.ast_node
@@ -196,9 +195,7 @@ class _GraphMetadataMixin:
             meta = self._meta_for(node)
             meta["scope_decl"] = scope_kind
             meta["scope_var"] = var_name
-            for other_fname, other_node in self._data_definitions_by_label.get(
-                var_name, ()
-            ):
+            for other_fname, other_node in self._data_definitions_by_label.get(var_name, ()):
                 if other_fname == fname and scope_kind != "global":
                     continue
                 if other_node is node:
@@ -261,9 +258,7 @@ class _GraphMetadataMixin:
                     label=f"import:{local_name}",
                 )
 
-    def _build_collection_metadata(
-        self, fname: str, pdg: ProgramDependenceGraph
-    ) -> None:
+    def _build_collection_metadata(self, fname: str, pdg: ProgramDependenceGraph) -> None:
         """Annotate assignment nodes whose RHS is a collection literal
         (``BuildList``, ``BuildTuple``, ``BuildSet``, ``BuildMap``) with
         the names of elements, enabling the taint engine to propagate
@@ -332,18 +327,14 @@ class _GraphMetadataMixin:
                     meta["async_await"] = True
                     break
             call_name = (
-                self._resolve_call_name(ast_node)
-                if isinstance(ast_node, py_ast.Call)
-                else None
+                self._resolve_call_name(ast_node) if isinstance(ast_node, py_ast.Call) else None
             )
             if call_name and call_name.startswith("interpreter_a"):
                 meta = self._meta_for(node)
                 meta["async_lowered"] = True
                 meta["async_lowered_kind"] = call_name
 
-    def _build_annassign_metadata(
-        self, fname: str, pdg: ProgramDependenceGraph
-    ) -> None:
+    def _build_annassign_metadata(self, fname: str, pdg: ProgramDependenceGraph) -> None:
         """Annotate AnnAssign nodes with the target variable name and
         annotation type string.
         """
@@ -435,9 +426,7 @@ class _GraphMetadataMixin:
             else_blk = getattr(ast_node, "else_", None)
             finally_blk = getattr(ast_node, "finally_", None)
             meta["has_else"] = else_blk is not None and len(else_blk.blocks) > 0
-            meta["has_finally"] = (
-                finally_blk is not None and len(finally_blk.blocks) > 0
-            )
+            meta["has_finally"] = finally_blk is not None and len(finally_blk.blocks) > 0
 
     def _build_loop_metadata(self, fname: str, pdg: ProgramDependenceGraph) -> None:
         """Mark loop header PDG nodes and collect for-loop variable mappings."""
@@ -479,9 +468,7 @@ class _GraphMetadataMixin:
                 index_name = getattr(index, "name", None)
                 if index_name:
                     self._meta_for(node)["for_loop_index"] = index_name
-            if (
-                cfg_node is not None and id(cfg_node) in loop_cfg_blocks
-            ) or is_structured_for:
+            if (cfg_node is not None and id(cfg_node) in loop_cfg_blocks) or is_structured_for:
                 meta = self._meta_for(node)
                 meta["loop_header"] = True
                 if for_loop_vars:
@@ -494,25 +481,15 @@ class _GraphMetadataMixin:
     ) -> None:
         for stmt in getattr(suite, "blocks", []):
             if isinstance(stmt, py_ast.For):
-                iter_name = (
-                    stmt.iterator.name
-                    if isinstance(stmt.iterator, py_ast.Local)
-                    else ""
-                )
-                index_name = (
-                    stmt.index.name if isinstance(stmt.index, py_ast.Local) else ""
-                )
+                iter_name = stmt.iterator.name if isinstance(stmt.iterator, py_ast.Local) else ""
+                index_name = stmt.index.name if isinstance(stmt.index, py_ast.Local) else ""
                 if iter_name and index_name:
                     result.append((iter_name, index_name))
                 _GraphMetadataMixin._collect_for_loop_vars(stmt.body, result)
-            elif hasattr(stmt, "body") and isinstance(
-                getattr(stmt, "body", None), py_ast.Suite
-            ):
+            elif hasattr(stmt, "body") and isinstance(getattr(stmt, "body", None), py_ast.Suite):
                 _GraphMetadataMixin._collect_for_loop_vars(stmt.body, result)
 
-    def _build_statement_metadata(
-        self, fname: str, pdg: ProgramDependenceGraph
-    ) -> None:
+    def _build_statement_metadata(self, fname: str, pdg: ProgramDependenceGraph) -> None:
         """Best-effort metadata for AST kinds Ansede models explicitly.
 
         PyFlow lowers some stdlib AST constructs before the CPG layer sees

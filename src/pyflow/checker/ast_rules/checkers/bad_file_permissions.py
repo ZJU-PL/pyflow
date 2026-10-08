@@ -4,6 +4,7 @@ B102/B103: Test for bad file permissions.
 Setting world-writable or overly permissive file permissions can
 expose sensitive data or allow unauthorized modification.
 """
+
 import ast
 import stat
 

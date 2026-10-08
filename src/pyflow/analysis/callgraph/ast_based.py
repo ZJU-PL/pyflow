@@ -101,9 +101,7 @@ def _analyze_call_node(call_node, caller_name, function_names, graph):
             pass
 
 
-def _find_subsequent_calls(
-    assign_node, var_name, func_name, caller_name, function_names, graph
-):
+def _find_subsequent_calls(assign_node, var_name, func_name, caller_name, function_names, graph):
     """Find calls to a variable after it's been assigned a function."""
     parent = getattr(assign_node, "_parent", None)
     if parent and hasattr(parent, "body"):
@@ -112,9 +110,7 @@ def _find_subsequent_calls(
             # Look at subsequent statements
             for i in range(assign_idx + 1, len(parent.body)):
                 next_node = parent.body[i]
-                if isinstance(next_node, ast.Expr) and isinstance(
-                    next_node.value, ast.Call
-                ):
+                if isinstance(next_node, ast.Expr) and isinstance(next_node.value, ast.Call):
                     call = next_node.value
                     if isinstance(call.func, ast.Name) and call.func.id == var_name:
                         # This is a call like a()
@@ -127,11 +123,7 @@ def _find_subsequent_calls(
                                 graph.add_edge(caller_name, func_name)
                         # Handle a()() pattern - the inner call returns a function
                         # that gets called by the outer call
-                        if (
-                            call.args
-                            and len(call.args) == 1
-                            and isinstance(call.args[0], ast.Call)
-                        ):
+                        if call.args and len(call.args) == 1 and isinstance(call.args[0], ast.Call):
                             inner_call = call.args[0]
                             if (
                                 isinstance(inner_call.func, ast.Name)

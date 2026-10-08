@@ -16,9 +16,9 @@ class MockCode:
     def visitChildrenForced(self, visitor):
         self.visited.append(visitor)
         for child in self.children:
-            if hasattr(child, 'visitChildrenForced'):
+            if hasattr(child, "visitChildrenForced"):
                 child.visitChildrenForced(visitor)
-            elif hasattr(child, 'visitChildren'):
+            elif hasattr(child, "visitChildren"):
                 child.visitChildren(visitor)
 
     def addChild(self, child):
@@ -59,7 +59,7 @@ class MockLocal:
 
     def __init__(self, name):
         self.name = name
-    
+
     def alwaysReturnsBoolean(self):
         return False
 
@@ -77,7 +77,7 @@ class TestInferBoolean(unittest.TestCase):
         """Test define method."""
         infer = InferBoolean()
         local = MockLocal("x")
-        
+
         infer.define(local)
         self.assertIn(local, infer.lut)
         self.assertTrue(infer.lut[local])
@@ -86,7 +86,7 @@ class TestInferBoolean(unittest.TestCase):
         """Test that defining same local multiple times is idempotent."""
         infer = InferBoolean()
         local = MockLocal("x")
-        
+
         infer.define(local)
         infer.define(local)
         self.assertEqual(infer.lut[local], True)
@@ -104,10 +104,10 @@ class TestInferBoolean(unittest.TestCase):
         """Test undef method."""
         infer = InferBoolean()
         local = MockLocal("x")
-        
+
         infer.define(local)
         self.assertTrue(infer.lut[local])
-        
+
         infer.undef(local)
         self.assertFalse(infer.lut[local])
 
@@ -115,7 +115,7 @@ class TestInferBoolean(unittest.TestCase):
         """Test isBoolean for expressions that always return boolean."""
         infer = InferBoolean()
         expr = MockExpr(always_boolean=True)
-        
+
         self.assertTrue(infer.isBoolean(expr))
 
     def test_isBoolean_lookup_true(self):
@@ -123,14 +123,14 @@ class TestInferBoolean(unittest.TestCase):
         infer = InferBoolean()
         local = MockLocal("x")
         infer.define(local)
-        
+
         self.assertTrue(infer.isBoolean(local))
 
     def test_isBoolean_lookup_false(self):
         """Test isBoolean for expressions not in lookup table."""
         infer = InferBoolean()
         local = MockLocal("x")
-        
+
         self.assertFalse(infer.isBoolean(local))
 
     def test_visitLeaf_str(self):
@@ -148,6 +148,7 @@ class TestInferBoolean(unittest.TestCase):
     def test_visitLeaf_ast_local(self):
         """Test visitLeaf for ast.Local."""
         from pyflow.language.python import ast
+
         infer = InferBoolean()
         local = ast.Local("x")
         infer.visitLeaf(local)
@@ -156,13 +157,13 @@ class TestInferBoolean(unittest.TestCase):
     def test_visitAssign_non_boolean(self):
         """Test visitAssign with non-boolean expression."""
         infer = InferBoolean()
-        
+
         expr = MockExpr(always_boolean=False)
         local = MockLocal("x")
         assign = MockAssign(expr, [local])
-        
+
         infer.visitAssign(assign)
-        
+
         # Should not add to converts
         self.assertEqual(len(infer.converts), 0)
         # Non-boolean assignments conservatively clear boolean tracking.
@@ -172,13 +173,13 @@ class TestInferBoolean(unittest.TestCase):
     def test_visitAssign_boolean(self):
         """Test visitAssign with boolean expression."""
         infer = InferBoolean()
-        
+
         expr = MockExpr(always_boolean=True)
         local = MockLocal("x")
         assign = MockAssign(expr, [local])
-        
+
         infer.visitAssign(assign)
-        
+
         # Should define the local
         self.assertIn(local, infer.lut)
         self.assertTrue(infer.lut[local])
@@ -198,14 +199,14 @@ class TestInferBoolean(unittest.TestCase):
         # The actual ast.ConvertToBool creation requires proper pyflow AST types
         # For now, test that the inferrer tracks converts correctly
         infer = InferBoolean()
-        
+
         # Create a simple assign that will be tracked
         bool_expr = MockExpr(always_boolean=True)
         local = MockLocal("x")
         assign = MockAssign(bool_expr, [local])
-        
+
         infer.visitAssign(assign)
-        
+
         # The local should be marked as boolean
         self.assertIn(local, infer.lut)
         self.assertTrue(infer.lut[local])
@@ -213,14 +214,14 @@ class TestInferBoolean(unittest.TestCase):
     def test_visitAssign_multiple_lcls(self):
         """Test visitAssign with multiple lcls doesn't define."""
         infer = InferBoolean()
-        
+
         expr = MockExpr(always_boolean=True)
         local1 = MockLocal("x")
         local2 = MockLocal("y")
         assign = MockAssign(expr, [local1, local2])
-        
+
         infer.visitAssign(assign)
-        
+
         # Should not define (multiple targets)
         self.assertFalse(infer.isBoolean(local1))
         self.assertFalse(infer.isBoolean(local2))
@@ -229,7 +230,7 @@ class TestInferBoolean(unittest.TestCase):
         """Test process method."""
         infer = InferBoolean()
         code = MockCode()
-        
+
         # Should not raise
         infer.process(code)
         self.assertIn(infer, code.visited)
@@ -255,54 +256,56 @@ class TestEvaluateCode(unittest.TestCase):
 
     def test_empty_code(self):
         """Test evaluateCode with empty code."""
+
         class MockCompiler:
             pass
-        
+
         compiler = MockCompiler()
         code = MockCode()
-        
+
         # Should not raise
         result = evaluateCode(compiler, code)
         self.assertIsNone(result)
 
     def test_no_converts(self):
         """Test evaluateCode when no conversions are found."""
+
         class MockCompiler:
             pass
-        
+
         compiler = MockCompiler()
-        
+
         # Code with no ConvertToBool nodes
         code = MockCode()
-        
+
         result = evaluateCode(compiler, code)
         self.assertIsNone(result)
 
     def test_infer_boolean_tracks_assignments(self):
         """Test that InferBoolean properly tracks boolean assignments."""
         infer = InferBoolean()
-        
+
         # Create a boolean expression assignment
         bool_expr = MockExpr(always_boolean=True)
         local = MockLocal("x")
         assign = MockAssign(bool_expr, [local])
-        
+
         infer.visitAssign(assign)
-        
+
         # Local should be marked as boolean
         self.assertTrue(infer.isBoolean(local))
 
     def test_infer_boolean_rejects_non_boolean(self):
         """Test that InferBoolean rejects non-boolean expressions."""
         infer = InferBoolean()
-        
+
         # Create a non-boolean expression assignment
         non_bool_expr = MockExpr(always_boolean=False)
         local = MockLocal("x")
         assign = MockAssign(non_bool_expr, [local])
-        
+
         infer.visitAssign(assign)
-        
+
         # Local should not be marked as boolean
         self.assertFalse(infer.isBoolean(local))
 
@@ -330,8 +333,9 @@ class TestEvaluateCode(unittest.TestCase):
         def _rewrite(_compiler, _code, replace):
             captured.update(replace)
 
-        with patch("pyflow.optimization.convertboolelimination.InferBoolean", _Infer), patch(
-            "pyflow.optimization.convertboolelimination.rewrite", _rewrite
+        with (
+            patch("pyflow.optimization.convertboolelimination.InferBoolean", _Infer),
+            patch("pyflow.optimization.convertboolelimination.rewrite", _rewrite),
         ):
             evaluateCode(object(), object())
 

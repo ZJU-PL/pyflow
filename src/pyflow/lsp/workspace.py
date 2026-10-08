@@ -253,9 +253,7 @@ class WorkspaceDocuments:
             self.revision += 1
             return True
 
-    def change(
-        self, path: str, changes: list[dict[str, object]], version: Optional[int]
-    ) -> bool:
+    def change(self, path: str, changes: list[dict[str, object]], version: Optional[int]) -> bool:
         """Apply sequential LSP full or ranged edits, rejecting stale versions."""
         with self._lock:
             normalized = os.path.abspath(path)
@@ -342,9 +340,7 @@ def _position_to_offset(text: str, line: int, character: int) -> int:
     if line >= len(lines):
         return len(text)
     line_text = lines[line]
-    return sum(len(item) for item in lines[:line]) + lsp_character_to_offset(
-        line_text, character
-    )
+    return sum(len(item) for item in lines[:line]) + lsp_character_to_offset(line_text, character)
 
 
 class SourceIndex:
@@ -355,16 +351,11 @@ class SourceIndex:
         source_files: dict[str, str],
         workspace_roots: Iterable[str | os.PathLike[str]] = (),
     ):
-        self.workspace_roots = tuple(
-            Path(root).absolute() for root in workspace_roots
-        )
+        self.workspace_roots = tuple(Path(root).absolute() for root in workspace_roots)
         self.module_identity = ModuleIdentityResolver(self.workspace_roots)
-        self.source_files = {
-            os.path.abspath(path): text for path, text in source_files.items()
-        }
+        self.source_files = {os.path.abspath(path): text for path, text in source_files.items()}
         self._file_indices: dict[str, _FileIndex] = {
-            path: self._build_file_index(path, source)
-            for path, source in self.source_files.items()
+            path: self._build_file_index(path, source) for path, source in self.source_files.items()
         }
         self._rebuild_workspace_maps()
 
@@ -385,9 +376,7 @@ class SourceIndex:
 
     def with_source_files(self, source_files: dict[str, str]) -> "SourceIndex":
         """Return an index that reparses only files whose text changed."""
-        normalized = {
-            os.path.abspath(path): text for path, text in source_files.items()
-        }
+        normalized = {os.path.abspath(path): text for path, text in source_files.items()}
         file_indices: dict[str, _FileIndex] = {}
         for path, source in normalized.items():
             previous = self._file_indices.get(path)
@@ -412,9 +401,7 @@ class SourceIndex:
             if file_index.module is not None:
                 self._modules[path] = file_index.module
             self.symbols.extend(file_index.symbols)
-            self._symbols_by_id.update(
-                {symbol.symbol_id: symbol for symbol in file_index.symbols}
-            )
+            self._symbols_by_id.update({symbol.symbol_id: symbol for symbol in file_index.symbols})
             self.references.extend(file_index.references)
             self.calls.extend(file_index.calls)
             self._import_targets.update(file_index.import_targets)
@@ -512,17 +499,11 @@ class SourceIndex:
             return None
 
     def document_symbols(self, uri: str) -> list[SourceSymbol]:
-        return [
-            s
-            for s in self.symbols
-            if s.full_range.uri == uri and s.kind in {5, 6, 12}
-        ]
+        return [s for s in self.symbols if s.full_range.uri == uri and s.kind in {5, 6, 12}]
 
     def workspace_symbols(self, query: str) -> list[SourceSymbol]:
         query = query.casefold()
-        return [
-            s for s in self.symbols if not query or query in s.qualified_name.casefold()
-        ]
+        return [s for s in self.symbols if not query or query in s.qualified_name.casefold()]
 
     def word_at(self, uri: str, line: int, character: int) -> Optional[str]:
         text = self.text_for_uri(uri)
@@ -557,9 +538,7 @@ class SourceIndex:
                 target = self._resolved_import_aliases.get(symbol.symbol_id)
                 return self._symbols_by_id.get(target, symbol)
         for reference in self.references:
-            if reference.location.uri == uri and reference.location.contains(
-                line, character
-            ):
+            if reference.location.uri == uri and reference.location.contains(line, character):
                 if reference.symbol_id is not None:
                     return self._symbols_by_id.get(reference.symbol_id)
         word = self.word_at(uri, line, character)
@@ -587,9 +566,7 @@ class SourceIndex:
             result.insert(0, symbol.selection_range)
         return _deduplicate_ranges(result)
 
-    def rename_ranges_at(
-        self, uri: str, line: int, character: int
-    ) -> list[SourceRange]:
+    def rename_ranges_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         """Return declaration and identity-matched references for LSP rename."""
         symbol = self.symbol_at(uri, line, character)
         if symbol is None:
@@ -622,9 +599,7 @@ class SourceIndex:
             ]
         return []
 
-    def function_at(
-        self, uri: str, line: int, character: int = 0
-    ) -> Optional[SourceSymbol]:
+    def function_at(self, uri: str, line: int, character: int = 0) -> Optional[SourceSymbol]:
         candidates = [
             s
             for s in self.symbols
@@ -645,9 +620,7 @@ class SourceIndex:
         if len(exact) == 1:
             return exact[0]
         suffix = [
-            s
-            for s in self.symbols
-            if s.name == name or s.qualified_name.endswith(f".{name}")
+            s for s in self.symbols if s.name == name or s.qualified_name.endswith(f".{name}")
         ]
         return suffix[0] if len(suffix) == 1 else None
 
@@ -747,9 +720,7 @@ class _IndexVisitor(ast.NodeVisitor):
         kind: int,
         identity_kind: SymbolKind,
     ) -> SourceSymbol:
-        return self._add_definition_in_scope(
-            self._current_scope, node, name, kind, identity_kind
-        )
+        return self._add_definition_in_scope(self._current_scope, node, name, kind, identity_kind)
 
     def _add_definition_in_scope(
         self,
@@ -879,13 +850,9 @@ class _IndexVisitor(ast.NodeVisitor):
                 node,
                 node.name,
                 6 if self.scope else 12,
-                SymbolKind.METHOD
-                if is_method
-                else SymbolKind.FUNCTION,
+                SymbolKind.METHOD if is_method else SymbolKind.FUNCTION,
             )
-        self._push_scope(
-            node.name, kind=_ScopeKind.FUNCTION, function=symbol.symbol_id
-        )
+        self._push_scope(node.name, kind=_ScopeKind.FUNCTION, function=symbol.symbol_id)
         self._predeclare_function_bindings(node)
         if is_method:
             positional = [*node.args.posonlyargs, *node.args.args]
@@ -913,9 +880,7 @@ class _IndexVisitor(ast.NodeVisitor):
         if node.returns is not None:
             self.visit(node.returns)
 
-    def _predeclare_function_bindings(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
+    def _predeclare_function_bindings(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self._predeclare_bindings(
             node.body,
             arguments=[
@@ -931,9 +896,7 @@ class _IndexVisitor(ast.NodeVisitor):
         self, statements: list[ast.stmt], *, arguments: list[ast.arg] | None = None
     ) -> None:
         collector = _ScopeBindingCollector(
-            function_lsp_kind=12
-            if self._current_scope.kind is _ScopeKind.MODULE
-            else 6
+            function_lsp_kind=12 if self._current_scope.kind is _ScopeKind.MODULE else 6
         )
         for argument in arguments or []:
             collector.visit(argument)
@@ -978,9 +941,7 @@ class _IndexVisitor(ast.NodeVisitor):
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
-        self._push_scope(
-            node.name, kind=_ScopeKind.CLASS, class_symbol=symbol.symbol_id
-        )
+        self._push_scope(node.name, kind=_ScopeKind.CLASS, class_symbol=symbol.symbol_id)
         for statement in node.body:
             self.visit(statement)
         self._pop_scope()
@@ -993,9 +954,7 @@ class _IndexVisitor(ast.NodeVisitor):
         ]:
             if argument is not None:
                 self.visit(argument)
-        self._push_scope(
-            f"<lambda@{node.lineno}:{node.col_offset}>", kind=_ScopeKind.LAMBDA
-        )
+        self._push_scope(f"<lambda@{node.lineno}:{node.col_offset}>", kind=_ScopeKind.LAMBDA)
         self._predeclare_expression_bindings(
             node.body,
             arguments=[
@@ -1078,9 +1037,7 @@ class _IndexVisitor(ast.NodeVisitor):
                 return scope
         return self._scopes[0]
 
-    def _bind_namedexpr_target(
-        self, target_scope: _Scope, target: ast.Name
-    ) -> Optional[SymbolId]:
+    def _bind_namedexpr_target(self, target_scope: _Scope, target: ast.Name) -> Optional[SymbolId]:
         if target.id in target_scope.global_names:
             return self._scopes[0].bindings.get(target.id)
         if target.id in target_scope.nonlocal_names:
@@ -1112,9 +1069,7 @@ class _IndexVisitor(ast.NodeVisitor):
                     alias, alias.asname or alias.name, SymbolKind.IMPORT
                 )
                 if node.module:
-                    self.index._import_targets[symbol.symbol_id] = (
-                        f"{node.module}.{alias.name}"
-                    )
+                    self.index._import_targets[symbol.symbol_id] = f"{node.module}.{alias.name}"
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, (ast.Store, ast.Del)):
@@ -1270,15 +1225,11 @@ class _ScopeBindingCollector(ast.NodeVisitor):
         # scope, including the PEP 572 containing-scope rule for a nested
         # comprehension.  Do not walk the target again as an ordinary Store.
         if isinstance(node.target, ast.Name):
-            self.bindings.append(
-                _FunctionBinding(node.target, node.target.id, SymbolKind.VARIABLE)
-            )
+            self.bindings.append(_FunctionBinding(node.target, node.target.id, SymbolKind.VARIABLE))
         self.visit(node.value)
 
     def visit_arg(self, node: ast.arg) -> None:
-        self.bindings.append(
-            _FunctionBinding(node, node.arg, SymbolKind.PARAMETER)
-        )
+        self.bindings.append(_FunctionBinding(node, node.arg, SymbolKind.PARAMETER))
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -1299,30 +1250,22 @@ class _ScopeBindingCollector(ast.NodeVisitor):
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
-            self.bindings.append(
-                _FunctionBinding(node, node.name, SymbolKind.VARIABLE)
-            )
+            self.bindings.append(_FunctionBinding(node, node.name, SymbolKind.VARIABLE))
         self.generic_visit(node)
 
     def visit_MatchAs(self, node: ast.MatchAs) -> None:
         if node.name:
-            self.bindings.append(
-                _FunctionBinding(node, node.name, SymbolKind.VARIABLE)
-            )
+            self.bindings.append(_FunctionBinding(node, node.name, SymbolKind.VARIABLE))
         self.generic_visit(node)
 
     def visit_MatchStar(self, node: ast.MatchStar) -> None:
         if node.name:
-            self.bindings.append(
-                _FunctionBinding(node, node.name, SymbolKind.VARIABLE)
-            )
+            self.bindings.append(_FunctionBinding(node, node.name, SymbolKind.VARIABLE))
         self.generic_visit(node)
 
     def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
         if node.rest:
-            self.bindings.append(
-                _FunctionBinding(node, node.rest, SymbolKind.VARIABLE)
-            )
+            self.bindings.append(_FunctionBinding(node, node.rest, SymbolKind.VARIABLE))
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -1346,9 +1289,7 @@ class _ScopeBindingCollector(ast.NodeVisitor):
         )
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self.bindings.append(
-            _FunctionBinding(node, node.name, SymbolKind.CLASS, lsp_kind=5)
-        )
+        self.bindings.append(_FunctionBinding(node, node.name, SymbolKind.CLASS, lsp_kind=5))
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         # Lambda creates a nested scope; its internal assignments do not bind
@@ -1368,7 +1309,8 @@ class _ScopeBindingCollector(ast.NodeVisitor):
         self._visit_comprehension(node)
 
     def _visit_comprehension(
-        self, node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
     ) -> None:
         # Comprehension targets are local to an implicit nested scope.  Walk
         # non-target expressions solely to find assignment expressions, whose

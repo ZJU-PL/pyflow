@@ -94,9 +94,7 @@ inplaceFallback = {}
 for op, name in opLUT.items():
     iop = op + "="  # Create in-place operator (e.g., "+" -> "+=")
     forward[op] = "__%s__" % name  # Forward method: a + b -> a.__add__(b)
-    reverse[op] = (
-        "__r%s__" % name
-    )  # Reverse method: a + b -> b.__radd__(a) if a.__add__ fails
+    reverse[op] = "__r%s__" % name  # Reverse method: a + b -> b.__radd__(a) if a.__add__ fails
     inplace[op] = "__i%s__" % name  # In-place method: a += b -> a.__iadd__(b)
     binaryOps.add(op)
     inplaceOps.add(iop)

@@ -8,16 +8,13 @@ from pyflow.language.python.ir_metadata import actual_argument_expressions
 from pyflow.language.python import ast as py_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 
-
 KWONLY_NAME_PREFIX = "kwonly:"
 
 
 def _is_missing_default(default_expr: object) -> bool:
     if not isinstance(default_expr, py_ast.Existing):
         return False
-    return (
-        getattr(getattr(default_expr, "object", None), "pyobj", None) is MISSING_DEFAULT
-    )
+    return getattr(getattr(default_expr, "object", None), "pyobj", None) is MISSING_DEFAULT
 
 
 def _decode_param_name(name: str | None) -> tuple[str | None, bool]:
@@ -63,9 +60,7 @@ def formal_parameters(params) -> tuple[py_ast.Local, ...]:
     formals: list[py_ast.Local] = []
     if isinstance(params.selfparam, py_ast.Local):
         formals.append(params.selfparam)
-    formals.extend(
-        param for param in params.posonlyparams if isinstance(param, py_ast.Local)
-    )
+    formals.extend(param for param in params.posonlyparams if isinstance(param, py_ast.Local))
     formals.extend(param for param in params.params if isinstance(param, py_ast.Local))
     if isinstance(params.vparam, py_ast.Local):
         formals.append(params.vparam)
@@ -116,9 +111,7 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
 
     receiver = getattr(call, "selfarg", None)
     if receiver is not None:
-        if not bind_next_positional(receiver) and isinstance(
-            params.vparam, py_ast.Local
-        ):
+        if not bind_next_positional(receiver) and isinstance(params.vparam, py_ast.Local):
             bindings.append((receiver, params.vparam))
 
     for actual in getattr(call, "args", ()):
@@ -169,9 +162,7 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
     ]
     defaults = tuple(getattr(params, "defaults", ()))
     if defaults and defaultable_formals:
-        for formal, default_expr in zip(
-            defaultable_formals[-len(defaults) :], defaults
-        ):
+        for formal, default_expr in zip(defaultable_formals[-len(defaults) :], defaults):
             if _is_missing_default(default_expr):
                 continue
             if formal in bound_formals:
@@ -187,9 +178,7 @@ def actual_parameters(call, params=None) -> tuple[py_ast.Local, ...]:
     actuals: list[py_ast.Local] = []
     if params is None:
         actuals.extend(
-            arg
-            for arg in actual_argument_expressions(call)
-            if isinstance(arg, py_ast.Local)
+            arg for arg in actual_argument_expressions(call) if isinstance(arg, py_ast.Local)
         )
         return tuple(actuals)
 

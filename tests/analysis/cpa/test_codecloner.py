@@ -2,9 +2,7 @@ from __future__ import absolute_import
 import unittest
 from unittest.mock import Mock, MagicMock
 
-from pyflow.analysis.cpa.codecloner import (
-    createCodeMap, FunctionCloner, NullCloner
-)
+from pyflow.analysis.cpa.codecloner import createCodeMap, FunctionCloner, NullCloner
 from pyflow.language.python import ast
 
 
@@ -43,13 +41,13 @@ class TestFunctionCloner(unittest.TestCase):
         self.mock_code1 = Mock()
         self.mock_code2 = Mock()
         self.live_code = [self.mock_code1, self.mock_code2]
-        
+
         # Mock the cloned codes
         self.cloned_code1 = Mock()
         self.cloned_code2 = Mock()
         self.mock_code1.clone.return_value = self.cloned_code1
         self.mock_code2.clone.return_value = self.cloned_code2
-        
+
         self.cloner = FunctionCloner(self.live_code)
 
     def test_initialization(self):
@@ -60,16 +58,16 @@ class TestFunctionCloner(unittest.TestCase):
     def test_visitLocal_new_local(self):
         local = ast.Local("test_var")
         cloned_local = ast.Local("test_var")
-        
+
         # Create a mock that replaces the local object
         mock_local = Mock()
         mock_local.clone.return_value = cloned_local
-        
+
         # Initialize the cloner first to create localMap
         self.cloner.process(self.mock_code1)
-        
+
         result = self.cloner.visitLocal(mock_local)
-        
+
         self.assertEqual(result, cloned_local)
         mock_local.clone.assert_called_once()
         self.assertIn(mock_local, self.cloner.localMap)
@@ -78,13 +76,13 @@ class TestFunctionCloner(unittest.TestCase):
     def test_visitLocal_existing_local(self):
         local = ast.Local("test_var")
         cloned_local = ast.Local("test_var")
-        
+
         # Initialize the cloner first to create localMap
         self.cloner.process(self.mock_code1)
         self.cloner.localMap[local] = cloned_local
-        
+
         result = self.cloner.visitLocal(local)
-        
+
         self.assertEqual(result, cloned_local)
 
     def test_visitCode(self):
@@ -112,12 +110,12 @@ class TestFunctionCloner(unittest.TestCase):
         mock_node.__shared__ = False
         mock_result = Mock()
         mock_node.rewriteCloned.return_value = mock_result
-        
+
         # Initialize the cloner first to create opMap
         self.cloner.process(self.mock_code1)
-        
+
         result = self.cloner.default(mock_node)
-        
+
         self.assertEqual(result, mock_result)
         mock_node.rewriteCloned.assert_called_once_with(self.cloner)
         self.assertIn(mock_node, self.cloner.opMap)
@@ -127,7 +125,7 @@ class TestFunctionCloner(unittest.TestCase):
         # Test with a shared node (should raise assertion)
         mock_node = Mock()
         mock_node.__shared__ = True
-        
+
         with self.assertRaises(AssertionError):
             self.cloner.default(mock_node)
 
@@ -135,35 +133,35 @@ class TestFunctionCloner(unittest.TestCase):
         # Mock the replaceChildren method
         self.cloned_code1.replaceChildren = Mock()
         self.cloned_code2.replaceChildren = Mock()
-        
+
         self.cloner.process(self.mock_code1)
-        
+
         # Check that localMap and opMap are initialized
         self.assertIsNotNone(self.cloner.localMap)
         self.assertIsNotNone(self.cloner.opMap)
-        
+
         # Check that replaceChildren was called
         self.cloned_code1.replaceChildren.assert_called_once_with(self.cloner)
 
     def test_op(self):
         mock_op = Mock()
         mock_cloned_op = Mock()
-        
+
         # Initialize the cloner first to create opMap
         self.cloner.process(self.mock_code1)
         self.cloner.opMap[mock_op] = mock_cloned_op
-        
+
         result = self.cloner.op(mock_op)
         self.assertEqual(result, mock_cloned_op)
 
     def test_lcl(self):
         mock_local = Mock()
         mock_cloned_local = Mock()
-        
+
         # Initialize the cloner first to create localMap
         self.cloner.process(self.mock_code1)
         self.cloner.localMap[mock_local] = mock_cloned_local
-        
+
         result = self.cloner.lcl(mock_local)
         self.assertEqual(result, mock_cloned_local)
 

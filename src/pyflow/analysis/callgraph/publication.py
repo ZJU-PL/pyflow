@@ -203,16 +203,12 @@ def publish_constraint_callgraph_facts(
         for ordinal, operation in enumerate(calls):
             if is_module:
                 target_names = set(
-                    module_edges.get(
-                        (source_filename, _source_line(catalog, code, operation)), ()
-                    )
+                    module_edges.get((source_filename, _source_line(catalog, code, operation)), ())
                 )
             else:
                 target_names = set()
                 for scope in caller_scopes:
-                    target_names.update(
-                        edges.get((source_filename, scope, ordinal), ())
-                    )
+                    target_names.update(edges.get((source_filename, scope, ordinal), ()))
             target_codes = {
                 target
                 for target_name in target_names
@@ -221,9 +217,7 @@ def publish_constraint_callgraph_facts(
             targets = {
                 CallTarget(catalog.procedure(target).code_id, target_context)
                 for target in target_codes
-                for target_context in contexts_by_code.get(
-                    catalog.procedure(target).code_id, ()
-                )
+                for target_context in contexts_by_code.get(catalog.procedure(target).code_id, ())
             }
             node_id = catalog.node_id(operation, code)
             published_codes[node_id] = FactResult.exact(

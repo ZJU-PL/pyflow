@@ -275,12 +275,8 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 out.endl()
 
             # dump read/modify/allocate information for this op
-            read = facts.operation_effect(
-                Capabilities.LIFETIME_OP_READS, code, op, context
-            )
-            modify = facts.operation_effect(
-                Capabilities.LIFETIME_OP_WRITES, code, op, context
-            )
+            read = facts.operation_effect(Capabilities.LIFETIME_OP_READS, code, op, context)
+            modify = facts.operation_effect(Capabilities.LIFETIME_OP_WRITES, code, op, context)
             allocate = facts.operation_effect(
                 Capabilities.LIFETIME_OP_ALLOCATIONS, code, op, context
             )
@@ -364,9 +360,7 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             out.end("p")
 
         live = facts.code_effect(Capabilities.LIFETIME_CODE_LIVE, code, context)
-        killed = facts.code_effect(
-            Capabilities.LIFETIME_CODE_KILLED, code, context
-        )
+        killed = facts.code_effect(Capabilities.LIFETIME_CODE_KILLED, code, context)
 
         out.begin("h3")
         out << "Live"
@@ -601,21 +595,15 @@ class DerivedData(object):
         self.invokeDestination = collections.defaultdict(set)
         self.invokeSource = collections.defaultdict(set)
         self.funcReads = collections.defaultdict(lambda: collections.defaultdict(set))
-        self.funcModifies = collections.defaultdict(
-            lambda: collections.defaultdict(set)
-        )
+        self.funcModifies = collections.defaultdict(lambda: collections.defaultdict(set))
 
         for code in liveCode:
             for context in facts.contexts(code):
                 self.funcReads[code][context].update(
-                    facts.code_effect(
-                        Capabilities.LIFETIME_CODE_READS, code, context
-                    )
+                    facts.code_effect(Capabilities.LIFETIME_CODE_READS, code, context)
                 )
                 self.funcModifies[code][context].update(
-                    facts.code_effect(
-                        Capabilities.LIFETIME_CODE_WRITES, code, context
-                    )
+                    facts.code_effect(Capabilities.LIFETIME_CODE_WRITES, code, context)
                 )
 
             ops = tools.codeOps(code)
@@ -634,17 +622,13 @@ class DerivedData(object):
     def handleOpReads(self, code, op):
         for context in self.facts.contexts(code):
             self.funcReads[code][context].update(
-                self.facts.operation_effect(
-                    Capabilities.LIFETIME_OP_READS, code, op, context
-                )
+                self.facts.operation_effect(Capabilities.LIFETIME_OP_READS, code, op, context)
             )
 
     def handleOpModifies(self, code, op):
         for context in self.facts.contexts(code):
             self.funcModifies[code][context].update(
-                self.facts.operation_effect(
-                    Capabilities.LIFETIME_OP_WRITES, code, op, context
-                )
+                self.facts.operation_effect(Capabilities.LIFETIME_OP_WRITES, code, op, context)
             )
 
     def callers(self, function, context):
@@ -661,6 +645,4 @@ def evaluate(compiler, prgm, name):
 
         derived = DerivedData(prgm.liveCode, AnalysisFacts(prgm.ir))
 
-        dumpReport(
-            name, compiler, prgm, derived, liveInvocations, liveHeap, heapContexts
-        )
+        dumpReport(name, compiler, prgm, derived, liveInvocations, liveHeap, heapContexts)

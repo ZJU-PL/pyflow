@@ -70,9 +70,7 @@ class _TypeAnalysisMixin:
         strings = {value.name for value in resolved if value.kind == STRING_KIND}
         if strings or lookup_env is self.module_bindings.get(module_name, {}):
             return strings
-        fallback = self._eval_expr_static(
-            expr, self.module_bindings.get(module_name, {})
-        )
+        fallback = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
         return {value.name for value in fallback if value.kind == STRING_KIND}
 
     def _expr_qualname(self, expr: ast.AST) -> Optional[str]:
@@ -105,21 +103,15 @@ class _TypeAnalysisMixin:
                     parsed = ast.parse(expr.value, mode="eval")
                 except SyntaxError:
                     return set()
-                return self._resolve_type_expression_values(
-                    parsed.body, module_name, env=env
-                )
+                return self._resolve_type_expression_values(parsed.body, module_name, env=env)
 
         if isinstance(expr, ast.Name) and expr.id == "None":
             return {NONE_VALUE}
 
         if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
             out: Set[AbstractValue] = set()
-            out.update(
-                self._resolve_type_expression_values(expr.left, module_name, env)
-            )
-            out.update(
-                self._resolve_type_expression_values(expr.right, module_name, env)
-            )
+            out.update(self._resolve_type_expression_values(expr.left, module_name, env))
+            out.update(self._resolve_type_expression_values(expr.right, module_name, env))
             return out
 
         if isinstance(expr, ast.Tuple):
@@ -133,9 +125,7 @@ class _TypeAnalysisMixin:
             if base_name in {"Optional", "typing.Optional"}:
                 out = {NONE_VALUE}
                 for item in self._annotation_union_items(expr.slice):
-                    out.update(
-                        self._resolve_type_expression_values(item, module_name, env)
-                    )
+                    out.update(self._resolve_type_expression_values(item, module_name, env))
                 return out
             if base_name in {
                 "Union",
@@ -148,9 +138,7 @@ class _TypeAnalysisMixin:
             }:
                 out: Set[AbstractValue] = set()
                 for item in self._annotation_union_items(expr.slice):
-                    out.update(
-                        self._resolve_type_expression_values(item, module_name, env)
-                    )
+                    out.update(self._resolve_type_expression_values(item, module_name, env))
                 return out
             if base_name in {"Literal", "typing.Literal"}:
                 out: Set[AbstractValue] = set()
@@ -169,9 +157,7 @@ class _TypeAnalysisMixin:
         if resolved:
             return resolved
         if lookup_env is not self.module_bindings.get(module_name, {}):
-            return self._eval_expr_static(
-                expr, self.module_bindings.get(module_name, {})
-            )
+            return self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
         return set()
 
     def _type_guard_refinement(
@@ -198,9 +184,7 @@ class _TypeAnalysisMixin:
             }:
                 out: Set[AbstractValue] = set()
                 for item in self._annotation_union_items(expr.slice):
-                    out.update(
-                        self._resolve_type_expression_values(item, module_name, env)
-                    )
+                    out.update(self._resolve_type_expression_values(item, module_name, env))
                 return out
         return set()
 
@@ -271,9 +255,7 @@ class _TypeAnalysisMixin:
         declared_types: Set[AbstractValue] = set()
         if decorator_expr.args:
             declared_types.update(
-                self._resolve_type_expression_values(
-                    decorator_expr.args[0], scope.module, env=env
-                )
+                self._resolve_type_expression_values(decorator_expr.args[0], scope.module, env=env)
             )
         return generic_names, declared_types
 
@@ -295,9 +277,7 @@ class _TypeAnalysisMixin:
         registrations.append((function_name, set(dispatch_types)))
         self._active_singledispatch_changed = True
 
-    def _singledispatch_registration_types(
-        self, function_name: str
-    ) -> Set[AbstractValue]:
+    def _singledispatch_registration_types(self, function_name: str) -> Set[AbstractValue]:
         function_info = self.functions.get(function_name)
         if function_info is None or not function_info.params:
             return set()
@@ -307,19 +287,13 @@ class _TypeAnalysisMixin:
             function_info.module,
         )
 
-    def _matches_type_values(
-        self, value: AbstractValue, type_values: Set[AbstractValue]
-    ) -> bool:
+    def _matches_type_values(self, value: AbstractValue, type_values: Set[AbstractValue]) -> bool:
         allowed_classes = {item.name for item in type_values if item.kind == CLASS_KIND}
-        allowed_strings = {
-            item.name for item in type_values if item.kind == STRING_KIND
-        }
+        allowed_strings = {item.name for item in type_values if item.kind == STRING_KIND}
         allow_none = any(item.kind == NONE_KIND for item in type_values)
 
         protocol_classes = [
-            class_name
-            for class_name in allowed_classes
-            if self._is_protocol_class(class_name)
+            class_name for class_name in allowed_classes if self._is_protocol_class(class_name)
         ]
 
         if value.kind == UNKNOWN_KIND:
@@ -401,12 +375,8 @@ class _TypeAnalysisMixin:
             out.update(self.class_fields.get(proto, {}).keys())
         return out
 
-    def _matches_protocol_structurally(
-        self, value: AbstractValue, protocol_name: str
-    ) -> bool:
+    def _matches_protocol_structurally(self, value: AbstractValue, protocol_name: str) -> bool:
         required_attrs = self._protocol_required_attrs(protocol_name)
         if not required_attrs:
             return False
-        return all(
-            self._resolve_attribute({value}, attr_name) for attr_name in required_attrs
-        )
+        return all(self._resolve_attribute({value}, attr_name) for attr_name in required_attrs)

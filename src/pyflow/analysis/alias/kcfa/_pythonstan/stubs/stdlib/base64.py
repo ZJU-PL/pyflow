@@ -42,7 +42,7 @@ def a85encode(b, foldspaces=False, wrapcol=0, pad=False, adobe=False):
     return b"ascii85_" + b
 
 
-def a85decode(b, foldspaces=False, adobe=False, ignorechars=b' \t\n\r\x0b'):
+def a85decode(b, foldspaces=False, adobe=False, ignorechars=b" \t\n\r\x0b"):
     return b[8:] if b.startswith(b"ascii85_") else b
 
 

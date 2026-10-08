@@ -6,13 +6,12 @@ from .transform import Transform
 from pyflow.analysis.alias.kcfa._pythonstan.world import World
 from pyflow.analysis.alias.kcfa._pythonstan.ir import *
 
-
-__all__ = ['STAGE_NAME', 'IR', 'IRTransformer']
+__all__ = ["STAGE_NAME", "IR", "IRTransformer"]
 STAGE_NAME = "ir"
 
 
 class IR(Transform):
-    transformer: 'IRTransformer'
+    transformer: "IRTransformer"
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
@@ -23,9 +22,7 @@ class IR(Transform):
         self.transformer.process_stmts(three_address_form.body)
         ir = self.transformer.stmts
         World().scope_manager.set_ir(module, STAGE_NAME, ir)
-        World().scope_manager.set_ir(
-            module, "imports", self.transformer.get_imports()
-        )
+        World().scope_manager.set_ir(module, "imports", self.transformer.get_imports())
         # self.results = imports
 
 
@@ -89,7 +86,6 @@ class IRTransformer(NodeVisitor):
     def process_stmts(self, stmts: List[stmt]):
         self.orig_stmts = stmts
 
-
         self.reset()
         self.visit_stmts(stmts)
         self.postprocess()
@@ -121,7 +117,7 @@ class IRTransformer(NodeVisitor):
         self.breaks_stack[-1].append(stmt)
         self.stmts.append(stmt)
 
-    def visit_Continue(self, node:Continue):
+    def visit_Continue(self, node: Continue):
         assert len(self.continues_stack) > 0
         stmt = Goto()
         self.continues_stack[-1].append(stmt)
@@ -140,11 +136,11 @@ class IRTransformer(NodeVisitor):
         stmt = IRImport(node)
         self.imports.append(stmt)
         self.stmts.append(stmt)
-    
+
     def visit_Global(self, node: Global):
         for name in node.names:
             self.scope.add_global_var(name)
-    
+
     def visit_Nonlocal(self, node: Nonlocal):
         for name in node.names:
             self.scope.add_nonlocal_var(name)
@@ -210,7 +206,7 @@ class IRTransformer(NodeVisitor):
         stmt = IRRaise(node)
         self.stmts.append(stmt)
 
-    '''
+    """
     try:
   exec()
 except E1 as e:
@@ -252,7 +248,7 @@ catch Exception from to label_try with label_catch with label_fin
 label_fin:
    fin()
 
-    '''
+    """
 
     # TODO refine the handling of the exception expression, eg., try a.b.E: ...
     def visit_Try(self, node: Try):
@@ -273,8 +269,10 @@ label_fin:
             self.stmts.append(label_e)
             self.stmts.append(IRPass())
             if expt.name is not None:
-                e_ass_stmt = Assign(targets=[Name(id=expt.name, ctx=Store())],
-                                    value=Name(id="@caught_except", ctx=Load()))
+                e_ass_stmt = Assign(
+                    targets=[Name(id=expt.name, ctx=Store())],
+                    value=Name(id="@caught_except", ctx=Load()),
+                )
                 copy_location(e_ass_stmt, expt)
                 e_ass = IRAssign(e_ass_stmt)
                 self.stmts.append(e_ass)
@@ -287,17 +285,19 @@ label_fin:
             goto_fin = Goto()
             self.stmts.append(goto_fin)
             goto_fin_list.append(goto_fin)
-            assert isinstance(expt.type, (Name, Tuple)) or expt.type is None, \
-                f"Type of Exception should be Name or None or [Name], but got {dump(expt.type)}!"
+            assert (
+                isinstance(expt.type, (Name, Tuple)) or expt.type is None
+            ), f"Type of Exception should be Name or None or [Name], but got {dump(expt.type)}!"
             expt_types = []
             if isinstance(expt.type, Name):
                 expt_types.append(expt.type.id)
             elif isinstance(expt.type, Tuple):
                 for e in expt.type.elts:
-                    assert isinstance(e, Name), "Type of Exception should be Name or None or [Name]!"
+                    assert isinstance(
+                        e, Name
+                    ), "Type of Exception should be Name or None or [Name]!"
                     expt_types.append(e.id)
-            catch_stmt = IRCatchException(expt_types,
-                                          label_try, label_catch, label_e, expt)
+            catch_stmt = IRCatchException(expt_types, label_try, label_catch, label_e, expt)
             self.stmts.insert(catch_idx, catch_stmt)
             catch_idx += 1
 
@@ -314,8 +314,7 @@ label_fin:
 
         if len(node.finalbody) > 0:
             label_fin = self.label_gen.gen()
-            catch_fin = IRCatchException(None,
-                                         label_try, label_catch, label_fin)
+            catch_fin = IRCatchException(None, label_try, label_catch, label_fin)
             self.stmts.append(catch_fin)
             self.stmts.append(label_fin)
             for goto in goto_fin_list:

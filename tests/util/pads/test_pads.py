@@ -611,21 +611,41 @@ class TestBiconnectivity(unittest.TestCase):
 
     def test_biconnected_components_multiple(self):
         """Test BiconnectedComponents with multiple components."""
-        G = {0: [2, 5], 1: [3, 8], 2: [0, 3, 5], 3: [1, 2, 6, 8], 4: [7],
-             5: [0, 2], 6: [3, 8], 7: [4], 8: [1, 3, 6]}
+        G = {
+            0: [2, 5],
+            1: [3, 8],
+            2: [0, 3, 5],
+            3: [1, 2, 6, 8],
+            4: [7],
+            5: [0, 2],
+            6: [3, 8],
+            7: [4],
+            8: [1, 3, 6],
+        }
         components = list(Biconnectivity.BiconnectedComponents(G))
         # Should have 4 biconnected components
         self.assertEqual(len(components), 4)
 
     def test_st_orientation(self):
         """Test stOrientation function."""
-        G = {0: [1, 2, 5], 1: [0, 5], 2: [0, 3, 4], 3: [2, 4, 5, 6],
-             4: [2, 3, 5, 6], 5: [0, 1, 3, 4], 6: [3, 4]}
+        G = {
+            0: [1, 2, 5],
+            1: [0, 5],
+            2: [0, 3, 4],
+            3: [2, 4, 5, 6],
+            4: [2, 3, 5, 6],
+            5: [0, 1, 3, 4],
+            6: [3, 4],
+        }
         st_graph = Biconnectivity.stOrientation(G)
         # Check that the result is a DAG
         # Count sources and sinks
-        sources = sum(1 for v in st_graph if len(st_graph[v]) == 0 or
-                      all(st_graph[v].__contains__(u) or u not in st_graph for u in st_graph))
+        sources = sum(
+            1
+            for v in st_graph
+            if len(st_graph[v]) == 0
+            or all(st_graph[v].__contains__(u) or u not in st_graph for u in st_graph)
+        )
         # Verify structure
         for v in st_graph:
             for w in st_graph[v]:
@@ -729,24 +749,28 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_graph_num_valid(self):
         """Test graphNum with valid integer."""
         from pyflow.util.PADS.ReadUndirectedGraph import graphNum
+
         self.assertEqual(graphNum("123"), 123)
         self.assertEqual(graphNum("0"), 0)
 
     def test_graph_num_invalid(self):
         """Test graphNum raises GraphFormatError on invalid input."""
         from pyflow.util.PADS.ReadUndirectedGraph import graphNum, GraphFormatError
+
         with self.assertRaises(GraphFormatError):
             graphNum("abc")
 
     def test_graph_creation(self):
         """Test graph() function creates empty graph."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph
+
         G = graph()
         self.assertEqual(G, {})
 
     def test_vertex_addition(self):
         """Test vertex() function adds vertex to graph."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph, vertex
+
         G = graph()
         vertex(G, 0)
         self.assertIn(0, G)
@@ -755,6 +779,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_vertex_duplicate_raises(self):
         """Test vertex() raises on duplicate vertex."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph, vertex, GraphFormatError
+
         G = graph()
         vertex(G, 0)
         with self.assertRaises(GraphFormatError):
@@ -763,6 +788,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_edge_addition(self):
         """Test edge() function adds edge to graph."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph, vertex, edge
+
         G = graph()
         vertex(G, 0)
         vertex(G, 1)
@@ -773,6 +799,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_edge_self_loop_raises(self):
         """Test edge() raises on self-loop."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph, vertex, edge, GraphFormatError
+
         G = graph()
         vertex(G, 0)
         with self.assertRaises(GraphFormatError):
@@ -781,6 +808,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_edge_missing_vertex_raises(self):
         """Test edge() raises on missing vertex."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph, vertex, edge, GraphFormatError
+
         G = graph()
         vertex(G, 0)
         with self.assertRaises(GraphFormatError):
@@ -789,6 +817,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_graph6data_valid(self):
         """Test graph6data with valid input."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph6data
+
         # ASCII characters 63-126 represent values 0-63
         data = graph6data("A")  # 'A' = 65 - 63 = 2
         self.assertEqual(data, [2])
@@ -796,12 +825,14 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_graph6data_invalid(self):
         """Test graph6data returns None for invalid characters."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph6data
+
         result = graph6data("\x00")  # Invalid character
         self.assertIsNone(result)
 
     def test_graph6n_single_value(self):
         """Test graph6n with single value."""
         from pyflow.util.PADS.ReadUndirectedGraph import graph6n
+
         data = [32]  # value <= 62
         result, rest = graph6n(data)
         self.assertEqual(result, 32)
@@ -810,6 +841,7 @@ class TestReadUndirectedGraph(unittest.TestCase):
     def test_graph_format_error_exception(self):
         """Test GraphFormatError is a proper exception."""
         from pyflow.util.PADS.ReadUndirectedGraph import GraphFormatError
+
         with self.assertRaises(GraphFormatError):
             raise GraphFormatError("test message")
 
@@ -820,6 +852,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_empty_graph(self):
         """Test matching on empty graph."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         G = {}
         result = matching(G)
         self.assertEqual(result, {})
@@ -827,6 +860,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_no_edges(self):
         """Test matching on graph with no edges."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         G = {0: [], 1: []}
         result = matching(G)
         self.assertEqual(result, {})
@@ -834,6 +868,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_single_edge(self):
         """Test matching on single edge."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         G = {0: [1], 1: [0]}
         result = matching(G)
         self.assertEqual(len(result), 2)
@@ -843,6 +878,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_path_graph(self):
         """Test matching on path graph."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         # 0 - 1 - 2 - 3
         G = {0: [1], 1: [0, 2], 2: [1, 3], 3: [2]}
         result = matching(G)
@@ -855,6 +891,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_cycle(self):
         """Test matching on cycle graph."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         # Triangle: 0 - 1 - 2 - 0
         G = {0: [1, 2], 1: [0, 2], 2: [0, 1]}
         result = matching(G)
@@ -864,6 +901,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_matching_star_graph(self):
         """Test matching on star graph."""
         from pyflow.util.PADS.CardinalityMatching import matching
+
         # 0 connected to 1, 2, 3, 4
         G = {0: [1, 2, 3, 4], 1: [0], 2: [0], 3: [0], 4: [0]}
         result = matching(G)
@@ -873,6 +911,7 @@ class TestCardinalityMatching(unittest.TestCase):
     def test_greedy_matching(self):
         """Test greedyMatching function."""
         from pyflow.util.PADS.CardinalityMatching import greedyMatching
+
         G = {0: [1], 1: [0, 2], 2: [1]}
         result = greedyMatching(G)
         # Should find a valid matching
@@ -886,6 +925,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_is_topological_order_valid(self):
         """Test isTopologicalOrder on valid ordering."""
         from pyflow.util.PADS.PartialOrder import isTopologicalOrder
+
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         L = [0, 1, 2, 3]
         self.assertTrue(isTopologicalOrder(G, L))
@@ -893,6 +933,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_is_topological_order_invalid(self):
         """Test isTopologicalOrder on invalid ordering."""
         from pyflow.util.PADS.PartialOrder import isTopologicalOrder
+
         G = {0: [1], 1: [2]}
         L = [0, 2, 1]  # 2 comes before 1, but there's an edge 1->2
         self.assertFalse(isTopologicalOrder(G, L))
@@ -900,6 +941,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_is_topological_order_missing_vertex(self):
         """Test isTopologicalOrder with missing vertex."""
         from pyflow.util.PADS.PartialOrder import isTopologicalOrder
+
         G = {0: [1], 1: [2]}
         L = [0, 1]  # missing 2
         self.assertFalse(isTopologicalOrder(G, L))
@@ -907,6 +949,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_is_topological_order_extra_vertex(self):
         """Test isTopologicalOrder with extra vertex."""
         from pyflow.util.PADS.PartialOrder import isTopologicalOrder
+
         G = {0: [1]}
         L = [0, 1, 2]  # extra vertex 2 not in graph
         self.assertFalse(isTopologicalOrder(G, L))
@@ -914,6 +957,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_topological_order_dag(self):
         """Test TopologicalOrder on valid DAG."""
         from pyflow.util.PADS.PartialOrder import TopologicalOrder
+
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         L = TopologicalOrder(G)
         self.assertEqual(len(L), 4)
@@ -926,6 +970,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_topological_order_cyclic_raises(self):
         """Test TopologicalOrder raises on cyclic graph."""
         from pyflow.util.PADS.PartialOrder import TopologicalOrder
+
         G = {0: [1], 1: [2], 2: [0]}  # cycle
         with self.assertRaises(ValueError):
             TopologicalOrder(G)
@@ -933,18 +978,21 @@ class TestPartialOrder(unittest.TestCase):
     def test_is_acyclic_true(self):
         """Test isAcyclic on DAG."""
         from pyflow.util.PADS.PartialOrder import isAcyclic
+
         G = {0: [1], 1: [2], 2: []}
         self.assertTrue(isAcyclic(G))
 
     def test_is_acyclic_false(self):
         """Test isAcyclic on cyclic graph."""
         from pyflow.util.PADS.PartialOrder import isAcyclic
+
         G = {0: [1], 1: [2], 2: [0]}  # cycle
         self.assertFalse(isAcyclic(G))
 
     def test_transitive_closure(self):
         """Test TransitiveClosure function."""
         from pyflow.util.PADS.PartialOrder import TransitiveClosure
+
         # 0 -> 1 -> 2
         G = {0: [1], 1: [2], 2: []}
         TC = TransitiveClosure(G)
@@ -958,6 +1006,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_transitive_closure_complex(self):
         """Test TransitiveClosure on more complex graph."""
         from pyflow.util.PADS.PartialOrder import TransitiveClosure
+
         # Diamond: 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         TC = TransitiveClosure(G)
@@ -969,6 +1018,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_trace_paths(self):
         """Test TracePaths function."""
         from pyflow.util.PADS.PartialOrder import TracePaths
+
         # Disjoint chains: 0 -> 1 -> 2 and 3 -> 4
         G = {0: [1], 1: [2], 2: [], 3: [4], 4: []}
         paths = list(TracePaths(G))
@@ -977,6 +1027,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_minimum_path_decomposition(self):
         """Test MinimumPathDecomposition function."""
         from pyflow.util.PADS.PartialOrder import MinimumPathDecomposition
+
         # Diamond shape
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         paths = list(MinimumPathDecomposition(G))
@@ -986,6 +1037,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_minimum_chain_decomposition(self):
         """Test MinimumChainDecomposition function."""
         from pyflow.util.PADS.PartialOrder import MinimumChainDecomposition
+
         # Diamond shape
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         chains = list(MinimumChainDecomposition(G))
@@ -995,6 +1047,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_maximum_antichain(self):
         """Test MaximumAntichain function."""
         from pyflow.util.PADS.PartialOrder import MaximumAntichain
+
         # Diamond: 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
         G = {0: [1, 2], 1: [3], 2: [3], 3: []}
         antichain = MaximumAntichain(G)
@@ -1008,6 +1061,7 @@ class TestPartialOrder(unittest.TestCase):
     def test_maximum_antichain_raises_on_cycle(self):
         """Test MaximumAntichain raises on cyclic graph."""
         from pyflow.util.PADS.PartialOrder import MaximumAntichain
+
         G = {0: [1], 1: [2], 2: [0]}  # cycle
         with self.assertRaises(ValueError):
             MaximumAntichain(G)
@@ -1019,6 +1073,7 @@ class TestAutomata(unittest.TestCase):
     def test_language_from_string(self):
         """Test creating RegularLanguage from string (regex)."""
         from pyflow.util.PADS.Automata import RegularLanguage
+
         lang = RegularLanguage("a*b")
         self.assertIn("b", lang)
         self.assertIn("ab", lang)
@@ -1029,6 +1084,7 @@ class TestAutomata(unittest.TestCase):
     def test_language_complement(self):
         """Test complement of a language."""
         from pyflow.util.PADS.Automata import RegularLanguage
+
         lang = RegularLanguage("a")
         complement = ~lang
         # Complement should contain strings that original doesn't
@@ -1037,6 +1093,7 @@ class TestAutomata(unittest.TestCase):
     def test_language_is_empty(self):
         """Test checking if language is empty."""
         from pyflow.util.PADS.Automata import RegularLanguage
+
         # Empty language using a regex that matches nothing
         lang = RegularLanguage("")  # empty string only
         # Nonzero returns True if there are any final states
@@ -1049,6 +1106,7 @@ class TestPartialCube(unittest.TestCase):
     def test_is_partial_cube_true(self):
         """Test isPartialCube on a partial cube."""
         from pyflow.util.PADS.PartialCube import isPartialCube
+
         # Path graph is a partial cube
         G = {0: [1], 1: [0, 2], 2: [1, 3], 3: [2]}
         self.assertTrue(isPartialCube(G))
@@ -1056,6 +1114,7 @@ class TestPartialCube(unittest.TestCase):
     def test_is_partial_cube_false(self):
         """Test isPartialCube on a non-partial-cube."""
         from pyflow.util.PADS.PartialCube import isPartialCube
+
         # Triangle is not a partial cube (not bipartite)
         G = {0: [1, 2], 1: [0, 2], 2: [0, 1]}
         self.assertFalse(isPartialCube(G))
@@ -1063,6 +1122,7 @@ class TestPartialCube(unittest.TestCase):
     def test_is_partial_cube_odd_cycle(self):
         """Test isPartialCube detects odd cycles."""
         from pyflow.util.PADS.PartialCube import isPartialCube
+
         # 5-cycle
         G = {0: [1, 4], 1: [0, 2], 2: [1, 3], 3: [2, 4], 4: [3, 0]}
         self.assertFalse(isPartialCube(G))
@@ -1070,6 +1130,7 @@ class TestPartialCube(unittest.TestCase):
     def test_partial_cube_edge_labeling(self):
         """Test PartialCubeEdgeLabeling function."""
         from pyflow.util.PADS.PartialCube import PartialCubeEdgeLabeling
+
         # Path of length 3
         G = {0: [1], 1: [0, 2], 2: [1, 3], 3: [2]}
         labeling = PartialCubeEdgeLabeling(G)
@@ -1082,6 +1143,7 @@ class TestPartialCube(unittest.TestCase):
     def test_partial_cube_labeling(self):
         """Test PartialCubeLabeling function."""
         from pyflow.util.PADS.PartialCube import PartialCubeLabeling
+
         # Path of length 2
         G = {0: [1], 1: [0, 2], 2: [1]}
         labels = PartialCubeLabeling(G)
@@ -1092,6 +1154,7 @@ class TestPartialCube(unittest.TestCase):
     def test_medium_for_partial_cube(self):
         """Test MediumForPartialCube function."""
         from pyflow.util.PADS.PartialCube import MediumForPartialCube
+
         # Square (cycle of 4) is a partial cube
         G = {0: [1, 3], 1: [0, 2], 2: [1, 3], 3: [2, 0]}
         medium = MediumForPartialCube(G)
@@ -1105,6 +1168,7 @@ class TestMedium(unittest.TestCase):
     def test_bitvector_medium_states(self):
         """Test BitvectorMedium states iteration."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0001, 0b0010, 0b0100, 0b1000}
         medium = BitvectorMedium(states, 4)
         result = list(medium.states())
@@ -1113,6 +1177,7 @@ class TestMedium(unittest.TestCase):
     def test_bitvector_medium_tokens(self):
         """Test BitvectorMedium tokens iteration."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0000, 0b0001}
         medium = BitvectorMedium(states, 4)
         tokens = list(medium.tokens())
@@ -1122,6 +1187,7 @@ class TestMedium(unittest.TestCase):
     def test_bitvector_medium_action(self):
         """Test BitvectorMedium action method."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0000, 0b0001, 0b0010, 0b0011}
         medium = BitvectorMedium(states, 4)
         # Flip bit 0 (LSB)
@@ -1131,6 +1197,7 @@ class TestMedium(unittest.TestCase):
     def test_bitvector_medium_reverse(self):
         """Test BitvectorMedium reverse method."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0000, 0b0001}
         medium = BitvectorMedium(states, 4)
         # Reverse of (0, True) should be (0, False)
@@ -1140,12 +1207,14 @@ class TestMedium(unittest.TestCase):
     def test_medium_error(self):
         """Test MediumError exception."""
         from pyflow.util.PADS.Medium import MediumError
+
         with self.assertRaises(MediumError):
             raise MediumError("test error")
 
     def test_state_transition_graph(self):
         """Test StateTransitionGraph function."""
         from pyflow.util.PADS.Medium import BitvectorMedium, StateTransitionGraph
+
         states = {0b0000, 0b0001}
         medium = BitvectorMedium(states, 4)
         G = StateTransitionGraph(medium)
@@ -1155,6 +1224,7 @@ class TestMedium(unittest.TestCase):
     def test_labeled_graph_medium(self):
         """Test LabeledGraphMedium class."""
         from pyflow.util.PADS.Medium import LabeledGraphMedium
+
         # Simple two-state medium with proper reversals
         G = {0: {1: "a"}, 1: {0: "a"}}  # "a" is its own reverse
         medium = LabeledGraphMedium(G)
@@ -1164,6 +1234,7 @@ class TestMedium(unittest.TestCase):
     def test_explicit_medium(self):
         """Test ExplicitMedium class."""
         from pyflow.util.PADS.Medium import BitvectorMedium, ExplicitMedium
+
         states = {0b0000, 0b0001}
         original = BitvectorMedium(states, 4)
         explicit = ExplicitMedium(original)
@@ -1172,6 +1243,7 @@ class TestMedium(unittest.TestCase):
     def test_medium_iteration(self):
         """Test that Medium is iterable."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0000, 0b0001}
         medium = BitvectorMedium(states, 4)
         result = list(medium)
@@ -1180,6 +1252,7 @@ class TestMedium(unittest.TestCase):
     def test_medium_len(self):
         """Test that Medium supports len()."""
         from pyflow.util.PADS.Medium import BitvectorMedium
+
         states = {0b0000, 0b0001, 0b0010}
         medium = BitvectorMedium(states, 4)
         self.assertEqual(len(medium), 3)

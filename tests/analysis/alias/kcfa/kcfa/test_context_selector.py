@@ -40,7 +40,9 @@ def test_object_policy_uses_callee_object(call_site_factory, object_factory):
     selector = ContextSelector(ContextPolicy.OBJ_1)
     callee = object_factory()
 
-    ctx = selector.select_call_context(call_site_factory(), selector.empty_context(), callee_obj=callee)
+    ctx = selector.select_call_context(
+        call_site_factory(), selector.empty_context(), callee_obj=callee
+    )
 
     assert isinstance(ctx, ObjectContext)
     assert ctx.alloc_sites == (callee,)

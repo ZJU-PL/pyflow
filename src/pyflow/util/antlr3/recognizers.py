@@ -338,10 +338,7 @@ class BaseRecognizer(object):
                 tokenName = self.tokenNames[e.expecting]
 
             msg = (
-                "mismatched input "
-                + self.getTokenErrorDisplay(e.token)
-                + " expecting "
-                + tokenName
+                "mismatched input " + self.getTokenErrorDisplay(e.token) + " expecting " + tokenName
             )
 
         elif isinstance(e, MismatchedTreeNodeException):
@@ -880,9 +877,7 @@ class BaseRecognizer(object):
         if ruleIndex not in self._state.ruleMemo:
             self._state.ruleMemo[ruleIndex] = {}
 
-        return self._state.ruleMemo[ruleIndex].get(
-            ruleStartIndex, self.MEMO_RULE_UNKNOWN
-        )
+        return self._state.ruleMemo[ruleIndex].get(ruleStartIndex, self.MEMO_RULE_UNKNOWN)
 
     def alreadyParsedRule(self, input, ruleIndex):
         """
@@ -1179,9 +1174,7 @@ class Lexer(BaseRecognizer, TokenSource):
         if self._state.text is not None:
             return self._state.text
 
-        return self.input.substring(
-            self._state.tokenStartCharIndex, self.getCharIndex() - 1
-        )
+        return self.input.substring(self._state.tokenStartCharIndex, self.getCharIndex() - 1)
 
     def setText(self, text):
         """

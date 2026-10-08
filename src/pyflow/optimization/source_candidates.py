@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _CANDIDATE_STATS_KEY = "source_rewrite_candidates"
 
 

@@ -259,9 +259,7 @@ class Subgraph(object):
             return n
         else:
             n = str(n)
-            assert n in self.nameLUT, (
-                "Cannot find node " + str(n) + "\n\n" + str(self.nameLUT)
-            )
+            assert n in self.nameLUT, "Cannot find node " + str(n) + "\n\n" + str(self.nameLUT)
             return self.nameLUT[n]
 
     def edge(self, n1, n2, edgetype=None, **kargs):

@@ -4,6 +4,7 @@ B104: Test for binding to all interfaces.
 Binding to all network interfaces (0.0.0.0) may expose internal
 services to unintended network segments.
 """
+
 import ast
 
 from ...common import issue

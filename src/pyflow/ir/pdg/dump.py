@@ -54,9 +54,7 @@ class PDGDumper:
         for e in self.pdg.all_edges():
             edge_label = e.kind if not e.label else f"{e.kind}:{e.label}"
             g.add_edge(
-                pydot.Edge(
-                    f"n_{e.source.node_id}", f"n_{e.target.node_id}", label=edge_label
-                )
+                pydot.Edge(f"n_{e.source.node_id}", f"n_{e.target.node_id}", label=edge_label)
             )
 
         with open(path, "w") as f:
@@ -95,9 +93,7 @@ class PDGDumper:
             json.dump(data, f, indent=2)
 
 
-def dump_pdg(
-    pdg: ProgramDependenceGraph, path: str, fmt: str = "text", title: str = "PDG"
-) -> None:
+def dump_pdg(pdg: ProgramDependenceGraph, path: str, fmt: str = "text", title: str = "PDG") -> None:
     dumper = PDGDumper(pdg)
     fmt = fmt.lower()
     if fmt == "text":

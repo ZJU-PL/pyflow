@@ -33,12 +33,16 @@ class Config:
     mock_libs: bool
     prefer_mock_libs: bool
 
-    def __init__(self, filename, project_path,
-                 lazy_ir_construction: bool = False,
-                 import_level: int = -1,
-                 time_count: bool = False,
-                 mock_libs: bool = True,
-                 prefer_mock_libs: bool = False):
+    def __init__(
+        self,
+        filename,
+        project_path,
+        lazy_ir_construction: bool = False,
+        import_level: int = -1,
+        time_count: bool = False,
+        mock_libs: bool = True,
+        prefer_mock_libs: bool = False,
+    ):
         self.filename = filename
         self.project_path = project_path
         self.library_paths = []
@@ -49,37 +53,42 @@ class Config:
         self.time_count = time_count
         self.mock_libs = mock_libs
         self.prefer_mock_libs = prefer_mock_libs
-        
+
     @classmethod
     def from_dict(cls, info: Dict):
         """Build a configuration from a decoded mapping."""
-        lazy_ir = info.get('lazy_ir_construction', False)
-        mock_libs = info.get('mock_libs', True)
-        prefer_mock_libs = info.get('prefer_mock_libs', False)
+        lazy_ir = info.get("lazy_ir_construction", False)
+        mock_libs = info.get("mock_libs", True)
+        prefer_mock_libs = info.get("prefer_mock_libs", False)
         conf = cls(
-            info['filename'],
-            info['project_path'],
+            info["filename"],
+            info["project_path"],
             lazy_ir_construction=lazy_ir,
             mock_libs=mock_libs,
             prefer_mock_libs=prefer_mock_libs,
         )
-        for anal_info in info['analysis']:
-            inter_procedure = anal_info.get('inter_procedure', False)
+        for anal_info in info["analysis"]:
+            inter_procedure = anal_info.get("inter_procedure", False)
             anal_cfg = AnalysisConfig(
-                anal_info['name'], anal_info['id'], anal_info['description'],
-                anal_info['prev_analysis'], inter_procedure, anal_info['options'])
+                anal_info["name"],
+                anal_info["id"],
+                anal_info["description"],
+                anal_info["prev_analysis"],
+                inter_procedure,
+                anal_info["options"],
+            )
             conf.add_analysis(anal_cfg)
-        for library_path in info['library_paths']:
+        for library_path in info["library_paths"]:
             conf.add_library_path(library_path)
-        conf.import_level = info.get('import_level', -1)
-        conf.time_count = info.get('time_count', False)
+        conf.import_level = info.get("import_level", -1)
+        conf.time_count = info.get("time_count", False)
         return conf
 
     @classmethod
     def from_file(cls, filename):
         """Load a configuration from JSON or, when available, YAML."""
-        with open(filename, 'r') as f:
-            if filename.endswith('.json'):
+        with open(filename, "r") as f:
+            if filename.endswith(".json"):
                 info = _json.load(f)
             elif _yaml is not None:
                 info = _yaml.safe_load(f)

@@ -227,17 +227,9 @@ class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return {("main.entry", Z): frozenset()}
 
     def normal_flow(self, node, successor, fact):
-        if (
-            node == "main.entry"
-            and successor in {"main.call1", "main.call2"}
-            and fact is Z
-        ):
+        if node == "main.entry" and successor in {"main.call1", "main.call2"} and fact is Z:
             return (ValueTransition("d", IdentityEdgeFunction()),)
-        if (
-            node in {"main.ret1", "main.ret2"}
-            and successor == "main.exit"
-            and fact == "d"
-        ):
+        if node in {"main.ret1", "main.ret2"} and successor == "main.exit" and fact == "d":
             return (ValueTransition("d", IdentityEdgeFunction()),)
         if node == "callee.entry" and successor == "callee.exit" and fact == "p":
             return (ValueTransition("p", _AccumLabel(frozenset({"summary"}))),)
@@ -482,9 +474,7 @@ class TestContextSensitive:
         assert sens.is_reached("shared.sink", "clean_arg")
 
         sink_edges = [
-            e
-            for e in sens.path_edges()
-            if e.node == "shared.sink" and e.fact == "tainted_arg"
+            e for e in sens.path_edges() if e.node == "shared.sink" and e.fact == "tainted_arg"
         ]
         assert len(sink_edges) >= 1
         for e in sink_edges:
@@ -497,9 +487,7 @@ class TestContextSensitive:
         result = IFDSSolver(max_call_string_depth=3).solve(problem)
 
         edges = list(result.path_edges())
-        sink_edges = [
-            e for e in edges if e.node == "shared.sink" and e.fact == "tainted_arg"
-        ]
+        sink_edges = [e for e in edges if e.node == "shared.sink" and e.fact == "tainted_arg"]
         assert len(sink_edges) > 0
         for e in sink_edges:
             assert e.context is not None
@@ -523,17 +511,13 @@ class TestContextSensitive:
         assert sens.is_reached("leak.sink", "secret")
 
         insens_edges = [
-            e
-            for e in insens.path_edges()
-            if e.node == "leak.sink" and e.fact == "secret"
+            e for e in insens.path_edges() if e.node == "leak.sink" and e.fact == "secret"
         ]
         assert (
             len(insens_edges) == 1
         ), "Context-insensitive should merge same (node,fact) into one path edge"
 
-        sens_edges = [
-            e for e in sens.path_edges() if e.node == "leak.sink" and e.fact == "secret"
-        ]
+        sens_edges = [e for e in sens.path_edges() if e.node == "leak.sink" and e.fact == "secret"]
         assert (
             len(sens_edges) == 2
         ), "Context-sensitive should have distinct path edges per call site"
@@ -555,9 +539,7 @@ class TestContextSensitive:
         assert deep.is_reached("inner.sink", "payload")
 
         shallow_edges = [
-            e
-            for e in shallow.path_edges()
-            if e.node == "inner.sink" and e.fact == "payload"
+            e for e in shallow.path_edges() if e.node == "inner.sink" and e.fact == "payload"
         ]
         for e in shallow_edges:
             assert isinstance(e.context, CallContext)
@@ -567,9 +549,7 @@ class TestContextSensitive:
             assert e.context.max_depth == 1
 
         deep_edges = [
-            e
-            for e in deep.path_edges()
-            if e.node == "inner.sink" and e.fact == "payload"
+            e for e in deep.path_edges() if e.node == "inner.sink" and e.fact == "payload"
         ]
         for e in deep_edges:
             assert isinstance(e.context, CallContext)
@@ -658,12 +638,8 @@ class TestIDESensitivity:
         call2_ctx = CallContext(max_depth=3).push("main.call2")
 
         assert result.value_at("callee.entry", "p") == frozenset({"one", "two"})
-        assert result.value_at_context("callee.entry", "p", call1_ctx) == frozenset(
-            {"one"}
-        )
-        assert result.value_at_context("callee.entry", "p", call2_ctx) == frozenset(
-            {"two"}
-        )
+        assert result.value_at_context("callee.entry", "p", call1_ctx) == frozenset({"one"})
+        assert result.value_at_context("callee.entry", "p", call2_ctx) == frozenset({"two"})
 
     def test_ide_contextual_value_at_return_site(self):
         sg = _make_split_call_supergraph()
@@ -672,12 +648,8 @@ class TestIDESensitivity:
 
         root_ctx = CallContext(max_depth=3)
 
-        assert result.value_at_context("main.ret1", "d", root_ctx) == frozenset(
-            {"one", "summary"}
-        )
-        assert result.value_at_context("main.ret2", "d", root_ctx) == frozenset(
-            {"two", "summary"}
-        )
+        assert result.value_at_context("main.ret1", "d", root_ctx) == frozenset({"one", "summary"})
+        assert result.value_at_context("main.ret2", "d", root_ctx) == frozenset({"two", "summary"})
 
 
 class TestPathEdgeWithContext:

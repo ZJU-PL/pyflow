@@ -15,16 +15,19 @@ class TestAsyncUtils(unittest.TestCase):
         self.original_enabled = enabled
         # Ensure async is enabled for most tests
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
     def tearDown(self):
         """Restore the enabled flag after each test."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = self.original_enabled
 
     def test_async_func_enabled(self):
         """Test async_func decorator when enabled."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_func
@@ -38,6 +41,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_func_disabled(self):
         """Test async_func decorator when disabled."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = False
 
         @async_func
@@ -50,6 +54,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_func_with_args(self):
         """Test async_func with arguments."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_func
@@ -63,6 +68,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_func_with_return_value(self):
         """Test that async_func returns the correct value."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         test_value = "test_return_value"
@@ -81,6 +87,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_limited_enabled(self):
         """Test async_limited decorator when enabled."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_limited(2)
@@ -94,6 +101,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_limited_disabled(self):
         """Test async_limited decorator when disabled."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = False
 
         @async_limited(2)
@@ -106,9 +114,11 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_limited_count(self):
         """Test async_limited with different counts."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         for count in [1, 3, 5]:
+
             @async_limited(count)
             def test_function():
                 return count
@@ -120,6 +130,7 @@ class TestAsyncUtils(unittest.TestCase):
     def test_async_limited_multiple_calls(self):
         """Test async_limited with multiple concurrent calls."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_limited(2)
@@ -142,16 +153,19 @@ class TestAsyncUtilsEdgeCases(unittest.TestCase):
     def setUp(self):
         """Save original enabled state."""
         import pyflow.util.application.async_utils
+
         self.original_enabled = pyflow.util.application.async_utils.enabled
 
     def tearDown(self):
         """Restore enabled state."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = self.original_enabled
 
     def test_async_func_exception_handling(self):
         """Test async_func with exception-raising function."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_func
@@ -164,6 +178,7 @@ class TestAsyncUtilsEdgeCases(unittest.TestCase):
     def test_async_func_empty_args(self):
         """Test async_func with no arguments."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_func
@@ -177,6 +192,7 @@ class TestAsyncUtilsEdgeCases(unittest.TestCase):
     def test_async_limited_exception_handling(self):
         """Test async_limited with exception-raising function."""
         import pyflow.util.application.async_utils
+
         pyflow.util.application.async_utils.enabled = True
 
         @async_limited(1)

@@ -88,13 +88,9 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
                 % name
             )
         if _iskeyword(name):
-            raise ValueError(
-                "Type names and field names cannot be a keyword: %r" % name
-            )
+            raise ValueError("Type names and field names cannot be a keyword: %r" % name)
         if name[0].isdigit():
-            raise ValueError(
-                "Type names and field names cannot start with a number: %r" % name
-            )
+            raise ValueError("Type names and field names cannot start with a number: %r" % name)
 
     # Check for duplicate field names and underscore prefixes
     seen_names = set()
@@ -108,19 +104,14 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
     # Create and fill-in the class template
     numfields = len(field_names)
     # Generate argument text: "x, y" from field_names
-    argtxt = repr(field_names).replace("'", "")[
-        1:-1
-    ]  # tuple repr without parens or quotes
+    argtxt = repr(field_names).replace("'", "")[1:-1]  # tuple repr without parens or quotes
     # Generate repr format: "x=%r, y=%r"
     reprtxt = ", ".join("%s=%%r" % name for name in field_names)
     # Generate dict comprehension: "{'x': t[0], 'y': t[1]}"
-    dicttxt = ", ".join(
-        "%r: t[%d]" % (name, pos) for pos, name in enumerate(field_names)
-    )
+    dicttxt = ", ".join("%r: t[%d]" % (name, pos) for pos, name in enumerate(field_names))
 
     # Generate the class template with standard namedtuple methods
-    template = (
-        """class %(typename)s(tuple):
+    template = """class %(typename)s(tuple):
         '%(typename)s(%(argtxt)s)' \n
         __slots__ = () \n
         _fields = %(field_names)r \n
@@ -145,9 +136,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
                 raise ValueError('Got unexpected field names: %%r' %% kwds.keys())
             return result \n
         def __getnewargs__(self):
-            return tuple(self) \n\n"""
-        % locals()
-    )
+            return tuple(self) \n\n""" % locals()
 
     # Add property accessors for each field (e.g., self.x, self.y)
     for i, name in enumerate(field_names):

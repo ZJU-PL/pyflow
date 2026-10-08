@@ -8,7 +8,6 @@ from typing import FrozenSet, Iterable, Mapping
 
 from pyflow.analysis.entrypoints import EntryPointDefaults
 
-
 _SEVERITIES = {"info", "low", "medium", "high", "critical"}
 
 
@@ -88,14 +87,10 @@ class TaintPolicy:
         mapping = call_models.as_mapping()
         return cls(
             source_kinds_by_call={
-                name: model.source_kinds
-                for name, model in mapping.items()
-                if model.source_kinds
+                name: model.source_kinds for name, model in mapping.items() if model.source_kinds
             },
             sink_kinds_by_call={
-                name: model.sink_kinds
-                for name, model in mapping.items()
-                if model.sink_kinds
+                name: model.sink_kinds for name, model in mapping.items() if model.sink_kinds
             },
             sink_positions_by_call={
                 name: model.sink_arg_positions
@@ -103,9 +98,7 @@ class TaintPolicy:
                 if model.sink_kinds
             },
             sink_cwe_by_call={
-                name: model.cwe
-                for name, model in mapping.items()
-                if model.sink_kinds and model.cwe
+                name: model.cwe for name, model in mapping.items() if model.sink_kinds and model.cwe
             },
             sink_severity_by_call={
                 name: model.severity
@@ -146,9 +139,7 @@ class TaintPolicy:
         if name in mapping:
             return name
         candidates = [
-            candidate
-            for candidate in mapping
-            if call_name_suffix_matches(candidate, name)
+            candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
         ]
         if len(candidates) == 1:
             return candidates[0]
@@ -159,30 +150,22 @@ class TaintPolicy:
         return None
 
     @staticmethod
-    def _matching_names(
-        mapping: Mapping[str, object], name: str | None
-    ) -> tuple[str, ...]:
+    def _matching_names(mapping: Mapping[str, object], name: str | None) -> tuple[str, ...]:
         if not name:
             return ()
         if name in mapping:
             return (name,)
         matches = tuple(
-            candidate
-            for candidate in mapping
-            if call_name_suffix_matches(candidate, name)
+            candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
         )
         if matches:
             return matches
         leaf = name.rsplit(".", 1)[-1]
-        return tuple(
-            candidate for candidate in mapping if candidate.rsplit(".", 1)[-1] == leaf
-        )
+        return tuple(candidate for candidate in mapping if candidate.rsplit(".", 1)[-1] == leaf)
 
     def source_kinds_for(self, name: str | None) -> FrozenSet[str]:
         keys = self._matching_names(self.source_kinds_by_call, name)
-        return frozenset(
-            kind for key in keys for kind in self.source_kinds_by_call[key]
-        )
+        return frozenset(kind for key in keys for kind in self.source_kinds_by_call[key])
 
     def sink_kinds_for(self, name: str | None) -> FrozenSet[str]:
         keys = self._matching_names(self.sink_kinds_by_call, name)
@@ -190,9 +173,7 @@ class TaintPolicy:
 
     def sink_positions_for(self, name: str | None) -> FrozenSet[int]:
         keys = self._matching_names(self.sink_positions_by_call, name)
-        return frozenset(
-            position for key in keys for position in self.sink_positions_by_call[key]
-        )
+        return frozenset(position for key in keys for position in self.sink_positions_by_call[key])
 
     def sink_cwe_for(self, name: str | None) -> str | None:
         # An exact sink model without CWE metadata intentionally leaves the
@@ -229,9 +210,7 @@ class TaintPolicy:
 
     def sanitizer_kinds_for(self, name: str | None) -> FrozenSet[str]:
         key = self._resolve_name(self.sanitizer_kinds_by_call, name)
-        return (
-            self.sanitizer_kinds_by_call.get(key, frozenset()) if key else frozenset()
-        )
+        return self.sanitizer_kinds_by_call.get(key, frozenset()) if key else frozenset()
 
     def matching_rules(
         self,

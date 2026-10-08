@@ -231,12 +231,8 @@ def test_getattr_next_and_sorted_return_stored_values():
     assert heap is not None
     value_location = heap.locations_for_local(code, value)[0]
     assert graph.must_alias(heap.locations_for_local(code, attr)[0], value_location)
-    assert graph.must_alias(
-        heap.locations_for_local(code, next_value)[0], value_location
-    )
-    assert graph.must_alias(
-        heap.locations_for_local(code, copied_value)[0], value_location
-    )
+    assert graph.must_alias(heap.locations_for_local(code, next_value)[0], value_location)
+    assert graph.must_alias(heap.locations_for_local(code, copied_value)[0], value_location)
 
 
 def test_packed_varargs_and_kwargs_are_indexable_containers():
@@ -252,9 +248,7 @@ def test_packed_varargs_and_kwargs_are_indexable_containers():
     )
     kw_callee = _code(
         "named_arg",
-        py_ast.Suite(
-            [py_ast.Return([py_ast.GetSubscript(kwargs, _existing("named"))])]
-        ),
+        py_ast.Suite([py_ast.Return([py_ast.GetSubscript(kwargs, _existing("named"))])]),
         returns=(kw_ret,),
         kparam=kwargs,
     )
@@ -267,9 +261,7 @@ def test_packed_varargs_and_kwargs_are_indexable_containers():
             [
                 py_ast.Assign(py_ast.BuildList([]), [actual]),
                 py_ast.Assign(
-                    py_ast.DirectCall(
-                        var_callee, None, [actual], [], None, None
-                    ),
+                    py_ast.DirectCall(var_callee, None, [actual], [], None, None),
                     [var_result],
                 ),
                 py_ast.Assign(
@@ -292,12 +284,8 @@ def test_packed_varargs_and_kwargs_are_indexable_containers():
     heap = analysis.heap
     assert heap is not None
     actual_location = heap.locations_for_local(caller, actual)[0]
-    assert graph.must_alias(
-        heap.locations_for_local(caller, var_result)[0], actual_location
-    )
-    assert graph.must_alias(
-        heap.locations_for_local(caller, kw_result)[0], actual_location
-    )
+    assert graph.must_alias(heap.locations_for_local(caller, var_result)[0], actual_location)
+    assert graph.must_alias(heap.locations_for_local(caller, kw_result)[0], actual_location)
 
 
 def test_spread_arguments_bind_regular_formals_conservatively():
@@ -473,12 +461,8 @@ def test_subscript_evaluation_captures_base_before_key_side_effect():
     analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
-    assert heap.locations_for_local(code, selected) == heap.locations_for_local(
-        code, second
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
+    assert heap.locations_for_local(code, selected) == heap.locations_for_local(code, second)
 
 
 def test_write_through_branch_join_weakly_updates_each_possible_root():
@@ -814,9 +798,7 @@ def test_exception_handler_target_is_unbound_after_handler():
         py_ast.Suite(
             [
                 py_ast.TryExceptFinally(
-                    body=py_ast.Suite(
-                        [py_ast.Raise(exception, None, None)]
-                    ),
+                    body=py_ast.Suite([py_ast.Raise(exception, None, None)]),
                     handlers=[handler],
                     defaultHandler=None,
                     else_=None,
@@ -1246,9 +1228,7 @@ def test_definitely_raising_direct_call_has_no_normal_successor():
     obj = py_ast.Local("obj")
     before = py_ast.Local("before")
     unreachable = py_ast.Local("unreachable")
-    call = py_ast.Discard(
-        py_ast.DirectCall(callee, None, [before], [], None, None)
-    )
+    call = py_ast.Discard(py_ast.DirectCall(callee, None, [before], [], None, None))
     code = _code(
         "main",
         py_ast.Suite(
@@ -1304,7 +1284,7 @@ def test_returned_function_retains_and_escapes_its_closure_cells():
                 py_ast.Assign(
                     py_ast.DirectCall(outer, None, [actual], [], None, None),
                     [returned],
-                )
+                ),
             ]
         ),
     )
@@ -1340,12 +1320,10 @@ def test_program_point_queries_expose_before_and_after_heap_values():
         heap.locations_for_local(code, obj)[0],
         "field",
     )
-    assert graph.possible_values_at(
-        field, write, before=True
-    ).definitely_absent
-    assert heap.locations_for_local(code, value)[0] in graph.possible_values_at(
-        field, write
-    ).locations
+    assert graph.possible_values_at(field, write, before=True).definitely_absent
+    assert (
+        heap.locations_for_local(code, value)[0] in graph.possible_values_at(field, write).locations
+    )
 
 
 def test_heap_analysis_publishes_revision_aware_alias_facts():
@@ -1470,9 +1448,7 @@ def test_known_class_constructor_applies_resolved_init_effects():
     value_param = py_ast.Local("value")
     initializer = _code(
         "__init__",
-        py_ast.Suite(
-            [py_ast.SetAttr(value_param, self_param, _existing("payload"))]
-        ),
+        py_ast.Suite([py_ast.SetAttr(value_param, self_param, _existing("payload"))]),
         params=(self_param, value_param),
     )
     class_node = py_ast.ClassDef(
@@ -1519,9 +1495,7 @@ def test_known_subclass_constructor_applies_inherited_init_effects():
     value_param = py_ast.Local("value")
     initializer = _code(
         "__init__",
-        py_ast.Suite(
-            [py_ast.SetAttr(value_param, self_param, _existing("payload"))]
-        ),
+        py_ast.Suite([py_ast.SetAttr(value_param, self_param, _existing("payload"))]),
         params=(self_param, value_param),
     )
     base = py_ast.ClassDef(
@@ -1573,9 +1547,9 @@ def test_known_subclass_constructor_applies_inherited_init_effects():
         if location.root.kind.value == "allocation"
     )
     payload = heap.dynamic_attribute_location(concrete_instance, "payload")
-    assert heap.locations_for_local(code, argument)[0] in graph.possible_values_at(
-        payload
-    ).locations
+    assert (
+        heap.locations_for_local(code, argument)[0] in graph.possible_values_at(payload).locations
+    )
 
 
 def test_known_new_return_is_included_in_constructor_result():
@@ -1789,9 +1763,10 @@ def test_slice_copy_for_starred_unpacking_has_fresh_container_identity():
     rest_location = heap.locations_for_local(code, rest)[0]
     element_location = heap.locations_for_local(code, element)[0]
     assert not graph.must_alias(rest_location, element_location)
-    assert element_location in graph.possible_values_at(
-        heap.dynamic_subscript_location(rest_location, "[0]")
-    ).locations
+    assert (
+        element_location
+        in graph.possible_values_at(heap.dynamic_subscript_location(rest_location, "[0]")).locations
+    )
 
 
 def test_conditional_expression_joins_branch_bindings():
@@ -1901,9 +1876,7 @@ def test_globals_from_distinct_source_modules_do_not_share_slots():
             module=("code-module", catalog.procedure(second).code_id),
         )
     )
-    assert graph.possible_values_at(first_global) != graph.possible_values_at(
-        second_global
-    )
+    assert graph.possible_values_at(first_global) != graph.possible_values_at(second_global)
 
 
 def test_generator_branch_yields_join_effects_at_same_resume_depth():
@@ -2008,11 +1981,7 @@ def test_generator_resume_preserves_caller_mutations_between_yields():
         py_ast.Suite(
             [
                 py_ast.Discard(py_ast.Yield(first_formal)),
-                py_ast.Discard(
-                    py_ast.Yield(
-                        py_ast.GetAttr(object_formal, _existing("payload"))
-                    )
-                ),
+                py_ast.Discard(py_ast.Yield(py_ast.GetAttr(object_formal, _existing("payload")))),
             ]
         ),
         params=(object_formal, first_formal),
@@ -2115,9 +2084,7 @@ def test_allocation_insensitive_policy_never_strongly_updates_summary_root():
         ),
     )
 
-    analysis = HeapAnalysis(
-        HeapPolicy(allocation_sensitivity=AllocationSensitivity.NONE)
-    )
+    analysis = HeapAnalysis(HeapPolicy(allocation_sensitivity=AllocationSensitivity.NONE))
     graph = analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
@@ -2193,9 +2160,7 @@ def test_virtual_call_resolves_known_receiver_class_method():
                 ),
                 py_ast.Assign(py_ast.BuildList([]), [value]),
                 py_ast.Assign(
-                    py_ast.MethodCall(
-                        instance, _existing("echo"), [value], [], None, None
-                    ),
+                    py_ast.MethodCall(instance, _existing("echo"), [value], [], None, None),
                     [result],
                 ),
             ]
@@ -2264,8 +2229,7 @@ def test_implicit_getitem_protocol_propagates_return_and_side_effects():
         for location in heap.locations_for_local(code, result)
     )
     assert any(
-        graph.may_alias(key_location, location)
-        for location in heap.locations_for_local(code, seen)
+        graph.may_alias(key_location, location) for location in heap.locations_for_local(code, seen)
     )
 
 
@@ -2278,9 +2242,7 @@ def test_resolved_new_controls_constructed_identity():
         params=(cls_param, supplied_param),
         returns=(py_ast.Local("new_return"),),
     )
-    other_class = py_ast.ClassDef(
-        "Other", [], [], py_ast.Suite([]), [], None
-    )
+    other_class = py_ast.ClassDef("Other", [], [], py_ast.Suite([]), [], None)
     constructed_class = py_ast.ClassDef(
         "C",
         [],
@@ -2337,9 +2299,7 @@ def test_program_point_raise_outcome_retains_exceptional_heap_effects():
     value = py_ast.Local("value")
     exception = py_ast.Local("exception")
     call_operation = py_ast.Assign(
-        py_ast.DirectCall(
-            callee, None, [obj, value, exception], [], None, None
-        ),
+        py_ast.DirectCall(callee, None, [obj, value, exception], [], None, None),
         [py_ast.Local("unused")],
     )
     code = _code(
@@ -2358,12 +2318,11 @@ def test_program_point_raise_outcome_retains_exceptional_heap_effects():
     analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
-    field = heap.dynamic_attribute_location(
-        heap.locations_for_local(code, obj)[0], "payload"
+    field = heap.dynamic_attribute_location(heap.locations_for_local(code, obj)[0], "payload")
+    assert (
+        heap.locations_for_local(code, value)[0]
+        in analysis.possible_values_at(field, call_operation, outcome="raise").locations
     )
-    assert heap.locations_for_local(code, value)[0] in analysis.possible_values_at(
-        field, call_operation, outcome="raise"
-    ).locations
 
 
 def test_generator_resume_does_not_replay_consumed_prefix_writes():
@@ -2412,13 +2371,9 @@ def test_generator_resume_does_not_replay_consumed_prefix_writes():
                     ),
                     [iterator],
                 ),
-                py_ast.Discard(
-                    py_ast.Call(py_ast.Local("next"), [iterator], [], None, None)
-                ),
+                py_ast.Discard(py_ast.Call(py_ast.Local("next"), [iterator], [], None, None)),
                 py_ast.SetAttr(caller_value, obj, _existing("payload")),
-                py_ast.Discard(
-                    py_ast.Call(py_ast.Local("next"), [iterator], [], None, None)
-                ),
+                py_ast.Discard(py_ast.Call(py_ast.Local("next"), [iterator], [], None, None)),
                 py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
             ]
         ),
@@ -2456,12 +2411,11 @@ def test_program_point_yield_outcome_has_suspension_heap_snapshot():
     analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
-    field = heap.dynamic_attribute_location(
-        heap.locations_for_local(code, obj)[0], "payload"
+    field = heap.dynamic_attribute_location(heap.locations_for_local(code, obj)[0], "payload")
+    assert (
+        heap.locations_for_local(code, value)[0]
+        in analysis.possible_values_at(field, yield_operation, outcome="yield").locations
     )
-    assert heap.locations_for_local(code, value)[0] in analysis.possible_values_at(
-        field, yield_operation, outcome="yield"
-    ).locations
 
 
 def test_nested_indirect_call_executes_inside_collection_literal():
@@ -2475,9 +2429,7 @@ def test_nested_indirect_call_executes_inside_collection_literal():
     value = py_ast.Local("value")
     container = py_ast.Local("container")
     loaded = py_ast.Local("loaded")
-    nested_call = py_ast.Call(
-        py_ast.Local("identity"), [value], [], None, None
-    )
+    nested_call = py_ast.Call(py_ast.Local("identity"), [value], [], None, None)
     code = _code(
         "main",
         py_ast.Suite(
@@ -2667,9 +2619,7 @@ def test_class_alias_construction_uses_evaluated_class_root():
             "__class__",
         )
     ).locations
-    assert any(
-        location.root.label == "class C" for location in class_values
-    )
+    assert any(location.root.label == "class C" for location in class_values)
 
 
 def test_generator_keeps_pre_yield_allocation_identity_across_resumes():
@@ -2739,19 +2689,20 @@ def test_scalar_presence_and_local_program_point_queries_are_distinct():
     graph = analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
-    field = heap.dynamic_attribute_location(
-        heap.locations_for_local(code, obj)[0], "payload"
-    )
+    field = heap.dynamic_attribute_location(heap.locations_for_local(code, obj)[0], "payload")
     scalar = graph.possible_values_at(field, scalar_store)
     assert scalar.includes_non_reference
     assert not scalar.definitely_absent
     assert not scalar.includes_unknown
-    assert heap.locations_for_local(code, local)[0] in graph.possible_local_values_at(
-        code,
-        local,
-        assignment,
-        outcome="normal",
-    ).locations
+    assert (
+        heap.locations_for_local(code, local)[0]
+        in graph.possible_local_values_at(
+            code,
+            local,
+            assignment,
+            outcome="normal",
+        ).locations
+    )
 
 
 def test_scalar_local_read_does_not_fabricate_heap_reference():
@@ -2989,9 +2940,7 @@ def test_static_class_and_property_descriptors_bind_correctly():
         [],
         py_ast.Suite(
             [
-                py_ast.FunctionDef(
-                    "static", static_code, [_existing("staticmethod")], None
-                ),
+                py_ast.FunctionDef("static", static_code, [_existing("staticmethod")], None),
                 py_ast.FunctionDef(
                     "class_method",
                     class_code,
@@ -3025,9 +2974,7 @@ def test_static_class_and_property_descriptors_bind_correctly():
                 ),
                 py_ast.Assign(py_ast.BuildList([]), [value]),
                 py_ast.Assign(
-                    py_ast.MethodCall(
-                        instance, _existing("static"), [value], [], None, None
-                    ),
+                    py_ast.MethodCall(instance, _existing("static"), [value], [], None, None),
                     [static_result],
                 ),
                 py_ast.Assign(
@@ -3054,12 +3001,8 @@ def test_static_class_and_property_descriptors_bind_correctly():
     heap = analysis.heap
     assert heap is not None
     value_location = heap.locations_for_local(code, value)[0]
-    assert graph.must_alias(
-        value_location, heap.locations_for_local(code, static_result)[0]
-    )
-    assert graph.must_alias(
-        value_location, heap.locations_for_local(code, class_result)[0]
-    )
+    assert graph.must_alias(value_location, heap.locations_for_local(code, static_result)[0])
+    assert graph.must_alias(value_location, heap.locations_for_local(code, class_result)[0])
     assert graph.must_alias(
         heap.locations_for_local(code, instance)[0],
         heap.locations_for_local(code, property_result)[0],
@@ -3092,9 +3035,7 @@ def test_super_method_dispatch_starts_after_current_class():
                 py_ast.Return(
                     [
                         py_ast.MethodCall(
-                            py_ast.Call(
-                                py_ast.Local("super"), [], [], None, None
-                            ),
+                            py_ast.Call(py_ast.Local("super"), [], [], None, None),
                             _existing("method"),
                             [child_value],
                             [],
@@ -3131,9 +3072,7 @@ def test_super_method_dispatch_starts_after_current_class():
                 ),
                 py_ast.Assign(py_ast.BuildList([]), [value]),
                 py_ast.Assign(
-                    py_ast.MethodCall(
-                        instance, _existing("method"), [value], [], None, None
-                    ),
+                    py_ast.MethodCall(instance, _existing("method"), [value], [], None, None),
                     [result],
                 ),
             ]
@@ -3159,9 +3098,7 @@ def test_super_method_dispatch_starts_after_current_class():
         for entry in graph.iter_entries()
         if entry.location.root.label == "super proxy"
     )
-    assert super_locations, tuple(
-        code.codeName() for code in analysis.procedure_summaries
-    )
+    assert super_locations, tuple(code.codeName() for code in analysis.procedure_summaries)
     super_class_values = graph.possible_values_at(
         heap.dynamic_attribute_location(super_locations[0], "__super_class__")
     ).locations
@@ -3354,20 +3291,14 @@ def test_unsupported_statement_contaminates_only_reachable_objects():
     assert graph.is_escaped(value_location)
     assert heap.locations_for_local(caller, target)
     assert heap.locations_for_local(caller, loaded)
-    assert graph.degradations_at(operation) == frozenset(
-        {"unsupported-_OpaqueStatement"}
-    )
+    assert graph.degradations_at(operation) == frozenset({"unsupported-_OpaqueStatement"})
     assert graph.has_precision_degradation(operation)
     metrics = graph.analysis_metrics()
     assert metrics["degraded_program_point_count"] == 1
-    assert metrics["degradation_reason_counts"] == {
-        "unsupported-_OpaqueStatement": 1
-    }
+    assert metrics["degradation_reason_counts"] == {"unsupported-_OpaqueStatement": 1}
     evidence = graph.alias_evidence(value_location, value_location, operation)
     assert evidence["must_alias"]
-    assert evidence["precision_degradations"] == [
-        "unsupported-_OpaqueStatement"
-    ]
+    assert evidence["precision_degradations"] == ["unsupported-_OpaqueStatement"]
 
 
 def _outer_with_nonlocal_setter(name):
@@ -3433,7 +3364,7 @@ def test_nonlocal_write_updates_nearest_outer_binding():
                         None,
                     ),
                     [result],
-                )
+                ),
             ]
         ),
     )

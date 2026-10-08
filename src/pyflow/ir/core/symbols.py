@@ -63,10 +63,7 @@ class SymbolTable:
         existing = self._bindings.get(key)
         if existing is not None:
             symbol = self._symbols[existing]
-            if (
-                declaration_origin is not None
-                and symbol.declaration_origin is None
-            ):
+            if declaration_origin is not None and symbol.declaration_origin is None:
                 symbol = Symbol(
                     symbol.id,
                     symbol.name,

@@ -120,9 +120,7 @@ class Collapser(TypeDispatcher):
                 if node.traceback:
                     self.markPossible(node.traceback)
 
-    @dispatch(
-        ast.Break, ast.Continue, ast.Local, ast.Existing, ast.Cell, ast.DoNotCare, str
-    )
+    @dispatch(ast.Break, ast.Continue, ast.Local, ast.Existing, ast.Cell, ast.DoNotCare, str)
     def visitNOP(self, node):
         pass
 

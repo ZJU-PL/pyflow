@@ -92,14 +92,8 @@ class _FixpointSolverMixin:
     ) -> None:
         """Evaluate definition-time expressions for a function header."""
         expressions: List[ast.AST] = list(node.args.defaults)
-        expressions.extend(
-            default for default in node.args.kw_defaults if default is not None
-        )
-        for arg in (
-            list(node.args.posonlyargs)
-            + list(node.args.args)
-            + list(node.args.kwonlyargs)
-        ):
+        expressions.extend(default for default in node.args.kw_defaults if default is not None)
+        for arg in list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs):
             if arg.annotation is not None:
                 expressions.append(arg.annotation)
         if node.args.vararg and node.args.vararg.annotation is not None:
@@ -184,9 +178,7 @@ class _FixpointSolverMixin:
             changed = self._merge_value_set(current, set(values)) or changed
         return changed
 
-    def _scope_state_fingerprint(
-        self, scope: ScopeInfo, scope_context: ContextKey
-    ) -> int:
+    def _scope_state_fingerprint(self, scope: ScopeInfo, scope_context: ContextKey) -> int:
         scope_key = (scope.name, scope_context)
         input_bindings = self.scope_inputs.get(scope_key, {})
         flow_bindings = self.scope_flow_bindings.get(scope_key, {})
@@ -276,9 +268,7 @@ class _FixpointSolverMixin:
                 return self._refine_name_binding(
                     case_env,
                     "__match_subject__",
-                    self._refine_values_with_type_filter(
-                        subject_values, expected, True
-                    ),
+                    self._refine_values_with_type_filter(subject_values, expected, True),
                 )
             return case_env
 
@@ -326,9 +316,7 @@ class _FixpointSolverMixin:
                 for subject in subject_values:
                     if subject.kind == "container":
                         element_values.update(
-                            self.container_key_values.get(subject.name, {}).get(
-                                f"#{index}", set()
-                            )
+                            self.container_key_values.get(subject.name, {}).get(f"#{index}", set())
                         )
                 case_env = self._refine_env_for_pattern(
                     scope,
@@ -399,11 +387,7 @@ class _FixpointSolverMixin:
             return bool(expr.elts)
         if isinstance(expr, ast.Dict):
             return bool(expr.keys)
-        if (
-            isinstance(expr, ast.Compare)
-            and len(expr.ops) == 1
-            and len(expr.comparators) == 1
-        ):
+        if isinstance(expr, ast.Compare) and len(expr.ops) == 1 and len(expr.comparators) == 1:
             try:
                 left = ast.literal_eval(expr.left)
                 right = ast.literal_eval(expr.comparators[0])
@@ -462,24 +446,18 @@ class _FixpointSolverMixin:
             return copy_env(env)
 
         if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
-            return self._refine_env_for_test(
-                scope, scope_context, test.operand, env, not positive
-            )
+            return self._refine_env_for_test(scope, scope_context, test.operand, env, not positive)
 
         if isinstance(test, ast.BoolOp):
             if positive and isinstance(test.op, ast.And):
                 refined = copy_env(env)
                 for value in test.values:
-                    refined = self._refine_env_for_test(
-                        scope, scope_context, value, refined, True
-                    )
+                    refined = self._refine_env_for_test(scope, scope_context, value, refined, True)
                 return refined
             if not positive and isinstance(test.op, ast.Or):
                 refined = copy_env(env)
                 for value in test.values:
-                    refined = self._refine_env_for_test(
-                        scope, scope_context, value, refined, False
-                    )
+                    refined = self._refine_env_for_test(scope, scope_context, value, refined, False)
                 return refined
             return copy_env(env)
 
@@ -494,12 +472,8 @@ class _FixpointSolverMixin:
             current = set(env.get(target_name, set()))
             if not current:
                 return copy_env(env)
-            type_values = self._resolve_type_expression_values(
-                test.args[1], scope.module, env=env
-            )
-            refined = self._refine_values_with_type_filter(
-                current, type_values, positive
-            )
+            type_values = self._resolve_type_expression_values(test.args[1], scope.module, env=env)
+            refined = self._refine_values_with_type_filter(current, type_values, positive)
             return self._refine_name_binding(env, target_name, refined)
 
         if (
@@ -532,9 +506,7 @@ class _FixpointSolverMixin:
                     )
                 )
             if positive and refinements:
-                refined = self._refine_values_with_type_filter(
-                    current, refinements, True
-                )
+                refined = self._refine_values_with_type_filter(current, refinements, True)
                 return self._refine_name_binding(env, target_name, refined)
 
         if (
@@ -549,8 +521,7 @@ class _FixpointSolverMixin:
             refined = {
                 value
                 for value in current
-                if self._is_callable_value(value) == positive
-                or value.kind == UNKNOWN_VALUE.kind
+                if self._is_callable_value(value) == positive or value.kind == UNKNOWN_VALUE.kind
             }
             return self._refine_name_binding(env, target_name, refined)
 
@@ -562,15 +533,12 @@ class _FixpointSolverMixin:
             and isinstance(test.args[0], ast.Name)
         ):
             target_name = test.args[0].id
-            attr_names = self._resolve_string_expression_values(
-                test.args[1], scope.module, env=env
-            )
+            attr_names = self._resolve_string_expression_values(test.args[1], scope.module, env=env)
             current = set(env.get(target_name, set()))
             refined: Set[AbstractValue] = set()
             for value in current:
                 has_attr = any(
-                    self._resolve_attribute({value}, attr_name)
-                    for attr_name in attr_names
+                    self._resolve_attribute({value}, attr_name) for attr_name in attr_names
                 )
                 if (positive and has_attr) or (not positive and not has_attr):
                     refined.add(value)
@@ -590,16 +558,12 @@ class _FixpointSolverMixin:
             if isinstance(op, ast.Is):
                 target_name = test.left.id
                 current = set(env.get(target_name, set()))
-                refined = self._refine_values_with_type_filter(
-                    current, {NONE_VALUE}, positive
-                )
+                refined = self._refine_values_with_type_filter(current, {NONE_VALUE}, positive)
                 return self._refine_name_binding(env, target_name, refined)
             if isinstance(op, ast.IsNot):
                 target_name = test.left.id
                 current = set(env.get(target_name, set()))
-                refined = self._refine_values_with_type_filter(
-                    current, {NONE_VALUE}, not positive
-                )
+                refined = self._refine_values_with_type_filter(current, {NONE_VALUE}, not positive)
                 return self._refine_name_binding(env, target_name, refined)
 
         return copy_env(env)
@@ -662,9 +626,8 @@ class _FixpointSolverMixin:
                     for callback in env.get(name, initial_values):
                         if callback.kind != FUNC_KIND:
                             continue
-                        resolved_types = (
-                            dispatch_types
-                            or self._singledispatch_registration_types(callback.name)
+                        resolved_types = dispatch_types or self._singledispatch_registration_types(
+                            callback.name
                         )
                         self._register_singledispatch_implementation(
                             generic_name,
@@ -730,8 +693,7 @@ class _FixpointSolverMixin:
                 # one as an independent root defeats entry-rooted analysis and
                 # makes large repositories converge over unrelated code.
                 return scope_name == "main" or (
-                    self.options.seed_entry_file_scopes
-                    and self.scopes[scope_name].module == "main"
+                    self.options.seed_entry_file_scopes and self.scopes[scope_name].module == "main"
                 )
             if scope_name in self.modules:
                 return True
@@ -744,9 +706,7 @@ class _FixpointSolverMixin:
             return function_info.parent_scope is None
 
         queue_fifo: deque[Tuple[str, ContextKey]] = deque()
-        queue_priority: List[
-            Tuple[Tuple[int, int, int, str, str], Tuple[str, ContextKey]]
-        ] = []
+        queue_priority: List[Tuple[Tuple[int, int, int, str, str], Tuple[str, ContextKey]]] = []
         queued_reasons: Dict[Tuple[str, ContextKey], Set[str]] = {}
         in_queue: Set[Tuple[str, ContextKey]] = set()
         iterations = 0
@@ -783,13 +743,9 @@ class _FixpointSolverMixin:
             if self.options.requeue_policy == "fifo":
                 queue_fifo.append(key)
             else:
-                priority = self._prioritize_scope_context(
-                    key, reason_weight=reason_weight
-                )
+                priority = self._prioritize_scope_context(key, reason_weight=reason_weight)
                 heapq.heappush(queue_priority, (priority, key))
-            self.solver_stats.max_queue_size = max(
-                self.solver_stats.max_queue_size, len(in_queue)
-            )
+            self.solver_stats.max_queue_size = max(self.solver_stats.max_queue_size, len(in_queue))
 
         root_context = self._root_context()
         for scope_name in self.scopes:
@@ -802,9 +758,7 @@ class _FixpointSolverMixin:
                 ):
                     owner_class = self._owner_class_for_scope(scope_name)
                     if owner_class is not None:
-                        normalized = self._normalize_context_for_scope(
-                            scope_name, root_context
-                        )
+                        normalized = self._normalize_context_for_scope(scope_name, root_context)
                         inputs = self.scope_inputs.setdefault(
                             (scope_name, normalized),
                             {param: set() for param in scope.params},
@@ -828,9 +782,7 @@ class _FixpointSolverMixin:
 
         def _has_pending() -> bool:
             return (
-                bool(queue_fifo)
-                if self.options.requeue_policy == "fifo"
-                else bool(queue_priority)
+                bool(queue_fifo) if self.options.requeue_policy == "fifo" else bool(queue_priority)
             )
 
         while _has_pending() and iterations < max_iterations:
@@ -839,9 +791,7 @@ class _FixpointSolverMixin:
                 scope_name, scope_context = queue_fifo.popleft()
             else:
                 _priority, (scope_name, scope_context) = heapq.heappop(queue_priority)
-            reasons = queued_reasons.pop(
-                (scope_name, scope_context), {"unknown"}
-            )
+            reasons = queued_reasons.pop((scope_name, scope_context), {"unknown"})
             in_queue.discard((scope_name, scope_context))
             self._analyzed_scope_contexts.add((scope_name, scope_context))
             scope = self.scopes[scope_name]
@@ -849,8 +799,7 @@ class _FixpointSolverMixin:
             fingerprint = self._scope_state_fingerprint(scope, scope_context)
             if (
                 reasons == {"inputs_changed"}
-                and self._state_input_fingerprints.get((scope_name, scope_context))
-                == fingerprint
+                and self._state_input_fingerprints.get((scope_name, scope_context)) == fingerprint
             ):
                 continue
             self._state_input_fingerprints[(scope_name, scope_context)] = fingerprint
@@ -904,11 +853,7 @@ class _FixpointSolverMixin:
             )
             if changed:
                 impacted: Set[Tuple[str, ContextKey]] = set()
-                if (
-                    returns_changed
-                    or callees_changed
-                    or result.nonlocal_binding_changed
-                ):
+                if returns_changed or callees_changed or result.nonlocal_binding_changed:
                     impacted.update(self.call_dependents.get(scope_ctx_key, set()))
                     if result.nonlocal_binding_changed:
                         self._global_module_stamp += 1
@@ -916,13 +861,9 @@ class _FixpointSolverMixin:
                     self._global_module_stamp += 1
                     impacted.update(self.module_dependents.get(scope.module, set()))
                 for field_key in result.changed_instance_fields:
-                    impacted.update(
-                        self.instance_field_dependents.get(field_key, set())
-                    )
+                    impacted.update(self.instance_field_dependents.get(field_key, set()))
                 for field_key in result.changed_class_fields:
-                    impacted.update(
-                        self._class_impacted_scope_contexts(field_key)
-                    )
+                    impacted.update(self._class_impacted_scope_contexts(field_key))
                 if (
                     result.changed_instance_fields
                     or result.changed_class_fields
@@ -931,19 +872,13 @@ class _FixpointSolverMixin:
                     self._global_heap_stamp += 1
                 if result.changed_container_keys:
                     impacted.update(
-                        self._container_impacted_scope_contexts(
-                            result.changed_container_keys
-                        )
+                        self._container_impacted_scope_contexts(result.changed_container_keys)
                     )
                 if result.singledispatch_changed:
                     impacted.update(self._known_scope_contexts())
                 for candidate in impacted:
                     reason_weight = 1
-                    if (
-                        returns_changed
-                        or callees_changed
-                        or result.nonlocal_binding_changed
-                    ):
+                    if returns_changed or callees_changed or result.nonlocal_binding_changed:
                         reason_weight = max(reason_weight, 4)
                     if (
                         result.module_binding_changed
@@ -1063,13 +998,9 @@ class _FixpointSolverMixin:
             flow_bindings = self.scope_flow_bindings.setdefault(scope_ctx_key, {})
             input_names = set(scope.params) | set(scope.closure_vars)
             derived_bindings = {
-                name: values
-                for name, values in env.items()
-                if name not in input_names
+                name: values for name, values in env.items() if name not in input_names
             }
-            flow_binding_changed = self._merge_bindings(
-                flow_bindings, derived_bindings
-            )
+            flow_binding_changed = self._merge_bindings(flow_bindings, derived_bindings)
 
             if scope.class_owner is not None:
                 class_info = self.classes.get(scope.class_owner)
@@ -1082,9 +1013,8 @@ class _FixpointSolverMixin:
                         or (class_info is not None and name in class_info.methods)
                     ):
                         continue
-                    if (
-                        class_definition_env is not None
-                        and values == class_definition_env.get(name, set())
+                    if class_definition_env is not None and values == class_definition_env.get(
+                        name, set()
                     ):
                         continue
                     current = class_bindings[name]
@@ -1101,24 +1031,14 @@ class _FixpointSolverMixin:
                 module_binding_changed = self._merge_bindings(module_bindings, env)
             if block_global_writes:
                 module_binding_changed = (
-                    self._merge_bindings(
-                        self.module_bindings[scope.module], block_global_writes
-                    )
+                    self._merge_bindings(self.module_bindings[scope.module], block_global_writes)
                     or module_binding_changed
                 )
 
-            stored_global_writes = self.scope_global_writes.setdefault(
-                scope_ctx_key, {}
-            )
-            stored_nonlocal_writes = self.scope_nonlocal_writes.setdefault(
-                scope_ctx_key, {}
-            )
-            global_changed = self._merge_bindings(
-                stored_global_writes, block_global_writes
-            )
-            nonlocal_changed = self._merge_bindings(
-                stored_nonlocal_writes, block_nonlocal_writes
-            )
+            stored_global_writes = self.scope_global_writes.setdefault(scope_ctx_key, {})
+            stored_nonlocal_writes = self.scope_nonlocal_writes.setdefault(scope_ctx_key, {})
+            global_changed = self._merge_bindings(stored_global_writes, block_global_writes)
+            nonlocal_changed = self._merge_bindings(stored_nonlocal_writes, block_nonlocal_writes)
 
             return ScopeResult(
                 callees=callees,
@@ -1134,12 +1054,8 @@ class _FixpointSolverMixin:
             )
         finally:
             self._active_scope_context = previous_active_scope_context
-            self._active_changed_instance_fields = (
-                previous_active_changed_instance_fields
-            )
+            self._active_changed_instance_fields = previous_active_changed_instance_fields
             self._active_changed_class_fields = previous_active_changed_class_fields
-            self._active_changed_container_state = (
-                previous_active_changed_container_state
-            )
+            self._active_changed_container_state = previous_active_changed_container_state
             self._active_changed_closure_scopes = previous_active_changed_closure_scopes
             self._active_singledispatch_changed = previous_active_singledispatch_changed

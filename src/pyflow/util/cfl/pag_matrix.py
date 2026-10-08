@@ -112,9 +112,7 @@ class PAG_Matrix:
             lines[0] = line_1
             lines[-1] = line_2
             for line in lines:
-                if ("=" in line and "[" in line) or (
-                    "=" not in line and "[" not in line
-                ):
+                if ("=" in line and "[" in line) or ("=" not in line and "[" not in line):
                     if "->" in line:
                         match = edge_pattern.search(line)
                         if match is not None:
@@ -188,9 +186,7 @@ class PAG_Matrix:
             return True
         return False
 
-    def new_check_edge(
-        self, u: Union[Vertex, str], v: Union[Vertex, str], lable: str
-    ) -> bool:
+    def new_check_edge(self, u: Union[Vertex, str], v: Union[Vertex, str], lable: str) -> bool:
         if isinstance(u, Vertex) and isinstance(v, Vertex):
             u_index = self.edge_indices[u.name]
             v_index = self.edge_indices[v.name]

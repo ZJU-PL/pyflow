@@ -50,12 +50,8 @@ def test_typestate_engine_models_resource_protocol_rules():
     transition = engine.transition(ACTION_CLOSE, "open")
     assert transition is not None
     assert transition.to_state == "closed"
-    assert [v.kind for v in engine.violations_for(ACTION_USE, "closed")] == [
-        "use_after_close"
-    ]
-    assert [v.kind for v in engine.exit_violations_for("resource", "open")] == [
-        "resource_leak"
-    ]
+    assert [v.kind for v in engine.violations_for(ACTION_USE, "closed")] == ["use_after_close"]
+    assert [v.kind for v in engine.exit_violations_for("resource", "open")] == ["resource_leak"]
     assert use_model is not None
 
 
@@ -84,8 +80,7 @@ def test_typestate_reports_use_after_close():
     )
 
     assert any(
-        f.kind == "use_after_close" and f.resource_label == "resource"
-        for f in result.findings
+        f.kind == "use_after_close" and f.resource_label == "resource" for f in result.findings
     )
     finding = next(f for f in result.findings if f.kind == "use_after_close")
     assert finding.protocol == "resource"
@@ -117,8 +112,7 @@ def test_typestate_reports_resource_leak_at_exit():
     )
 
     assert any(
-        f.kind == "resource_leak" and f.resource_label == "resource"
-        for f in result.findings
+        f.kind == "resource_leak" and f.resource_label == "resource" for f in result.findings
     )
 
 
@@ -156,9 +150,7 @@ def test_typestate_suppresses_leak_for_unresolved_escaped_resource():
         [],
         [
             ast.Assign(ast.Call(ast.Local("open"), [], [], None, None), [resource]),
-            ast.Discard(
-                ast.Call(ast.Local("store_elsewhere"), [resource], [], None, None)
-            ),
+            ast.Discard(ast.Call(ast.Local("store_elsewhere"), [resource], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -195,9 +187,7 @@ def test_typestate_propagates_closed_state_through_helper():
         [],
         [
             ast.Assign(ast.Call(ast.Local("open"), [], [], None, None), [resource]),
-            ast.Discard(
-                ast.DirectCall(helper_code, None, [resource], [], None, None)
-            ),
+            ast.Discard(ast.DirectCall(helper_code, None, [resource], [], None, None)),
             ast.Discard(ast.Call(ast.Local("read"), [resource], [], None, None)),
             ast.Return([]),
         ],
@@ -214,8 +204,7 @@ def test_typestate_propagates_closed_state_through_helper():
     )
 
     assert any(
-        f.kind == "use_after_close" and f.resource_label == "resource"
-        for f in result.findings
+        f.kind == "use_after_close" and f.resource_label == "resource" for f in result.findings
     )
 
 
@@ -243,10 +232,7 @@ def test_typestate_reports_double_close():
         entry_nodes=[adapter.supergraph.entry_of(cfg)],
     )
 
-    assert any(
-        f.kind == "double_close" and f.resource_label == "resource"
-        for f in result.findings
-    )
+    assert any(f.kind == "double_close" and f.resource_label == "resource" for f in result.findings)
 
 
 def test_typestate_tracks_resource_in_nonfirst_argument():
@@ -260,9 +246,7 @@ def test_typestate_tracks_resource_in_nonfirst_argument():
         [
             ast.Assign(ast.Call(ast.Local("open"), [], [], None, None), [resource]),
             ast.Assign(ast.Existing(ast.program.Object(0)), [context_arg]),
-            ast.Discard(
-                ast.Call(ast.Local("close2"), [context_arg, resource], [], None, None)
-            ),
+            ast.Discard(ast.Call(ast.Local("close2"), [context_arg, resource], [], None, None)),
             ast.Discard(ast.Call(ast.Local("read"), [resource], [], None, None)),
             ast.Return([]),
         ],
@@ -406,8 +390,7 @@ def test_typestate_tracks_lowered_interpreter_subscript_helpers():
     )
 
     assert any(
-        finding.kind == "use_after_close"
-        and finding.resource_label == "items['payload']"
+        finding.kind == "use_after_close" and finding.resource_label == "items['payload']"
         for finding in result.findings
     )
 
@@ -626,8 +609,7 @@ def test_typestate_tracks_collection_accessor_to_subscript_slot():
     )
 
     assert any(
-        finding.kind == "use_after_close"
-        and finding.resource_label == "items['payload']"
+        finding.kind == "use_after_close" and finding.resource_label == "items['payload']"
         for finding in result.findings
     )
 
@@ -737,9 +719,7 @@ def test_typestate_builtin_lock_reports_release_without_acquire():
         "main",
         [],
         [
-            ast.Assign(
-                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
-            ),
+            ast.Assign(ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]),
             ast.Discard(ast.MethodCall(lock, ast.Local("release"), [], [], None, None)),
             ast.Return([]),
         ],
@@ -770,15 +750,9 @@ def test_typestate_builtin_lock_context_manager_releases_lock():
         "main",
         [],
         [
-            ast.Assign(
-                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
-            ),
-            ast.Discard(
-                ast.MethodCall(lock, ast.Local("__enter__"), [], [], None, None)
-            ),
-            ast.Discard(
-                ast.MethodCall(lock, ast.Local("__exit__"), [], [], None, None)
-            ),
+            ast.Assign(ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]),
+            ast.Discard(ast.MethodCall(lock, ast.Local("__enter__"), [], [], None, None)),
+            ast.Discard(ast.MethodCall(lock, ast.Local("__exit__"), [], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -803,9 +777,7 @@ def test_typestate_builtin_socket_reports_use_after_close():
         "main",
         [],
         [
-            ast.Assign(
-                ast.Call(ast.Local("socket.socket"), [], [], None, None), [sock]
-            ),
+            ast.Assign(ast.Call(ast.Local("socket.socket"), [], [], None, None), [sock]),
             ast.Discard(ast.MethodCall(sock, ast.Local("close"), [], [], None, None)),
             ast.Discard(ast.MethodCall(sock, ast.Local("send"), [], [], None, None)),
             ast.Return([]),
@@ -933,9 +905,7 @@ def test_typestate_constrained_action_only_matches_receiver_type():
     )
 
     assert any(
-        finding.kind == "db_leak"
-        and finding.protocol == "db"
-        and finding.resource_label == "db"
+        finding.kind == "db_leak" and finding.protocol == "db" and finding.resource_label == "db"
         for finding in result.findings
     )
 

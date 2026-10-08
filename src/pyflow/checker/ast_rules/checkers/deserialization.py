@@ -21,7 +21,6 @@ import ast
 from ...common import issue
 from ..core import test_properties as test
 
-
 PICKLE_FUNCS = {"pickle.load", "pickle.loads"}
 MARSHAL_FUNCS = {"marshal.load", "marshal.loads"}
 YAML_LOAD_FUNC = "yaml.load"
@@ -144,9 +143,7 @@ def _is_user_controlled(node):
     if isinstance(node, (ast.List, ast.Tuple)):
         return any(_is_user_controlled(elt) for elt in node.elts)
     if isinstance(node, ast.Dict):
-        return (
-            any(_is_user_controlled(v) for v in node.values) if node.values else False
-        )
+        return any(_is_user_controlled(v) for v in node.values) if node.values else False
 
     if isinstance(node, ast.Name):
         # Only flag if name strongly suggests user input
@@ -162,9 +159,11 @@ def _is_user_controlled(node):
             "body",
             "payload",
         )
-        return any(
-            marker == name_lower for marker in high_confidence_markers
-        ) or name_lower in ("request", "args", "query")
+        return any(marker == name_lower for marker in high_confidence_markers) or name_lower in (
+            "request",
+            "args",
+            "query",
+        )
 
     if isinstance(node, ast.Attribute):
         dotted = _get_qualified_name(node)
@@ -212,9 +211,7 @@ def _is_user_controlled(node):
         ):
             return True
         return any(_is_user_controlled(arg) for arg in node.args) or any(
-            _is_user_controlled(kw.value)
-            for kw in node.keywords
-            if kw.value is not None
+            _is_user_controlled(kw.value) for kw in node.keywords if kw.value is not None
         )
 
     # For other complex expressions (BinOp, etc.), be conservative

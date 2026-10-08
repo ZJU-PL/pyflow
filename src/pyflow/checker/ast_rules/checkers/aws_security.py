@@ -22,7 +22,6 @@ import re
 from ...common import issue
 from ..core import test_properties as test
 
-
 AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 AWS_SECRET_KEY_RE = re.compile(
     r"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*['\"][A-Za-z0-9/+=]{40}['\"]"
@@ -134,10 +133,7 @@ def secrets_not_in_secrets_manager(context):
         return None
     strings = _collect_strings(context.node.value)
     for s in strings:
-        if any(
-            secret in s.lower()
-            for secret in ("password", "secret", "api_key", "credential")
-        ):
+        if any(secret in s.lower() for secret in ("password", "secret", "api_key", "credential")):
             if not ("secretsmanager" in s.lower() or "secretmanager" in s.lower()):
                 return _aws_issue(
                     "Possible hardcoded secret detected - use AWS Secrets Manager for sensitive values.",

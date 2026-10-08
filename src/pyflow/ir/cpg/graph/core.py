@@ -39,9 +39,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         # Dict-of-dicts (key=CPGEdge, value=None) preserves insertion order
         # for deterministic traversal while still dedup'ing via __hash__.
         self._built: bool = False
-        self._cpg_edges_out: MutableMapping[int, Dict[CPGEdge, None]] = defaultdict(
-            dict
-        )
+        self._cpg_edges_out: MutableMapping[int, Dict[CPGEdge, None]] = defaultdict(dict)
         self._cpg_edges_in: MutableMapping[int, Dict[CPGEdge, None]] = defaultdict(dict)
         self._ast_parent: Dict[int, int] = {}  # id(ast_child) → id(ast_parent)
         self._cfg_forward_map: Dict[Tuple[int, str], List[PDGNode]] = {}
@@ -102,9 +100,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         """
         self._ensure_built()
         return {
-            name: pdg.entry.node_id
-            for name, pdg in self._pdgs.items()
-            if pdg.entry is not None
+            name: pdg.entry.node_id for name, pdg in self._pdgs.items() if pdg.entry is not None
         }
 
     def build(self, *, deadline: float | None = None) -> bool:
@@ -126,14 +122,13 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         self._nodes_by_id.clear()
         self._node_meta.clear()
         self._data_definitions_by_label.clear()
-        self._next_node_id = max(
-            (
-                node.node_id
-                for pdg in self._pdgs.values()
-                for node in pdg.nodes
-            ),
-            default=-1,
-        ) + 1
+        self._next_node_id = (
+            max(
+                (node.node_id for pdg in self._pdgs.values() for node in pdg.nodes),
+                default=-1,
+            )
+            + 1
+        )
 
         # Collect all PDG nodes and their AST ids.
         pdg_ast_ids: Dict[str, Set[int]] = {}
@@ -250,9 +245,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
     def _meta_for(self, node: PDGNode) -> Dict[str, Any]:
         return self._node_meta.setdefault(node.node_id, {})
 
-    def _append_meta_entry(
-        self, node: PDGNode, key: str, entry: Dict[str, Any]
-    ) -> None:
+    def _append_meta_entry(self, node: PDGNode, key: str, entry: Dict[str, Any]) -> None:
         values = self._meta_for(node).setdefault(key, [])
         if entry not in values:
             values.append(entry)

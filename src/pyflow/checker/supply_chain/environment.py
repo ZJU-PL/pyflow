@@ -40,9 +40,7 @@ def resolve_environment(
                     SupplyChainFinding(
                         kind="invalid-environment-marker",
                         message="Dependency marker cannot be evaluated",
-                        location=str(
-                            component.get("purl") or component.get("name", "")
-                        ),
+                        location=str(component.get("purl") or component.get("name", "")),
                         severity="MEDIUM",
                         details={"marker": marker_text, "error": str(exc)},
                     )
@@ -50,10 +48,7 @@ def resolve_environment(
                 matched = True
                 break
             candidate_extras = selected_extras or ("",)
-            if any(
-                marker.evaluate({**target, "extra": extra})
-                for extra in candidate_extras
-            ):
+            if any(marker.evaluate({**target, "extra": extra}) for extra in candidate_extras):
                 matched = True
                 break
         if matched:

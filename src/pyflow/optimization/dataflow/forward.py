@@ -282,9 +282,7 @@ class ForwardFlowTraverse(TypeDispatcher):
                     changed = True
                     if len(newtypes) > 0:
                         # Some, but not all of the types have been eliminated.
-                        newcases.append(
-                            ast.TypeSwitchCase(newtypes, case.expr, case.body)
-                        )
+                        newcases.append(ast.TypeSwitchCase(newtypes, case.expr, case.body))
             cases = newcases
 
         # Filter out degenerate forms (less than 2 cases)
@@ -653,10 +651,7 @@ class ForwardFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.OutputBlock)
     def visitOutputBlock(self, node):
-        outputs = [
-            ast.Output(self.processExpr(output.expr), output.dst)
-            for output in node.outputs
-        ]
+        outputs = [ast.Output(self.processExpr(output.expr), output.dst) for output in node.outputs]
         return ast.OutputBlock(outputs)
 
     @dispatch(ast.Return)

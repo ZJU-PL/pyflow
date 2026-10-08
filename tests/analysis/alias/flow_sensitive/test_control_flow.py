@@ -232,9 +232,7 @@ def test_loop_fixed_point_keeps_wildcard_contamination():
                 py_ast.Assign(py_ast.BuildMap([]), [mapping]),
                 py_ast.While(
                     py_ast.Condition(py_ast.Suite([]), cond),
-                    py_ast.Suite(
-                        [py_ast.SetSubscript(dynamic_value, mapping, dynamic_key)]
-                    ),
+                    py_ast.Suite([py_ast.SetSubscript(dynamic_value, mapping, dynamic_key)]),
                     py_ast.Suite([]),
                 ),
                 py_ast.Assign(py_ast.GetSubscript(mapping, _existing("a")), [loaded]),
@@ -286,9 +284,7 @@ def test_idempotent_loop_write_reaches_a_fixed_point_without_degradation():
     assert "loop-iteration-bound" not in {
         reason for reasons in analysis.precision_degradations.values() for reason in reasons
     }
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
 
 
 def test_loop_bound_degrades_and_havocs_modified_heap_locations():
@@ -324,9 +320,7 @@ def test_loop_bound_degrades_and_havocs_modified_heap_locations():
     assert (loop, "loop-iteration-bound") in engine.precision_degradations
     assert outcome.normal is not None
     loaded_locations = heap.locations_for_local(code, loaded)
-    assert any(
-        location.root.kind is HeapObjectKind.UNKNOWN for location in loaded_locations
-    )
+    assert any(location.root.kind is HeapObjectKind.UNKNOWN for location in loaded_locations)
 
 
 def test_while_re_evaluates_condition_with_loop_carried_heap_effects():
@@ -359,9 +353,7 @@ def test_while_re_evaluates_condition_with_loop_carried_heap_effects():
                         py_ast.Suite([]),
                         py_ast.DirectCall(condition_code, None, [obj], [], None, None),
                     ),
-                    py_ast.Suite(
-                        [py_ast.SetAttr(replacement, obj, _existing("inp"))]
-                    ),
+                    py_ast.Suite([py_ast.SetAttr(replacement, obj, _existing("inp"))]),
                     py_ast.Suite([]),
                 ),
                 py_ast.Assign(py_ast.GetAttr(obj, _existing("out")), [loaded]),
@@ -475,9 +467,9 @@ def test_for_loop_index_binds_to_iterator_elements():
     index_locations = heap.locations_for_local(code, index)
     value_location = heap.locations_for_local(code, value)[0]
 
-    assert value_location in index_locations, (
-        "For loop index should bind to iterator element values"
-    )
+    assert (
+        value_location in index_locations
+    ), "For loop index should bind to iterator element values"
 
 
 def test_for_loop_index_aliases_container_elements():
@@ -523,12 +515,8 @@ def test_type_switch_analyzes_case_body():
     obj = py_ast.Local("obj")
     value = py_ast.Local("value")
     loaded = py_ast.Local("loaded")
-    case_body = py_ast.Suite(
-        [py_ast.SetAttr(value, obj, _existing("field"))]
-    )
-    type_case = py_ast.TypeSwitchCase(
-        types=[], expr=None, body=case_body
-    )
+    case_body = py_ast.Suite([py_ast.SetAttr(value, obj, _existing("field"))])
+    type_case = py_ast.TypeSwitchCase(types=[], expr=None, body=case_body)
     code = _code(
         "main",
         py_ast.Suite(
@@ -555,9 +543,9 @@ def test_type_switch_analyzes_case_body():
     loaded_locations = heap.locations_for_local(code, loaded)
     value_location = heap.locations_for_local(code, value)[0]
 
-    assert value_location in loaded_locations, (
-        "Value written in TypeSwitch case body should be readable afterward"
-    )
+    assert (
+        value_location in loaded_locations
+    ), "Value written in TypeSwitch case body should be readable afterward"
 
 
 def test_type_switch_joins_multiple_case_branches():
@@ -575,16 +563,14 @@ def test_type_switch_joins_multiple_case_branches():
                     conditional=obj,
                     cases=[
                         py_ast.TypeSwitchCase(
-                            types=[], expr=None,
-                            body=py_ast.Suite(
-                                [py_ast.SetAttr(val_a, obj, _existing("f"))]
-                            ),
+                            types=[],
+                            expr=None,
+                            body=py_ast.Suite([py_ast.SetAttr(val_a, obj, _existing("f"))]),
                         ),
                         py_ast.TypeSwitchCase(
-                            types=[], expr=None,
-                            body=py_ast.Suite(
-                                [py_ast.SetAttr(val_b, obj, _existing("f"))]
-                            ),
+                            types=[],
+                            expr=None,
+                            body=py_ast.Suite([py_ast.SetAttr(val_b, obj, _existing("f"))]),
                         ),
                     ],
                 ),
@@ -624,7 +610,8 @@ def test_type_switch_binds_case_expr_to_conditional():
                     conditional=obj,
                     cases=[
                         py_ast.TypeSwitchCase(
-                            types=[], expr=case_var,
+                            types=[],
+                            expr=case_var,
                             body=py_ast.Suite([]),
                         ),
                     ],
@@ -642,9 +629,7 @@ def test_type_switch_binds_case_expr_to_conditional():
     case_var_locs = heap.locations_for_local(code, case_var)
     obj_loc = heap.locations_for_local(code, obj)[0]
 
-    assert obj_loc in case_var_locs, (
-        "Case variable should alias the matched expression"
-    )
+    assert obj_loc in case_var_locs, "Case variable should alias the matched expression"
 
 
 def test_try_handler_sees_body_mutations():
@@ -672,9 +657,7 @@ def test_try_handler_sees_body_mutations():
             [
                 py_ast.Assign(py_ast.BuildList([]), [obj]),
                 py_ast.TryExceptFinally(
-                    body=py_ast.Suite(
-                        [py_ast.SetAttr(value, obj, _existing("field"))]
-                    ),
+                    body=py_ast.Suite([py_ast.SetAttr(value, obj, _existing("field"))]),
                     handlers=[handler],
                     defaultHandler=None,
                     else_=None,
@@ -693,9 +676,7 @@ def test_try_handler_sees_body_mutations():
     loaded_locations = heap.locations_for_local(code, loaded)
     value_location = heap.locations_for_local(code, value)[0]
 
-    assert value_location in loaded_locations, (
-        "Handler should see field mutation from try body"
-    )
+    assert value_location in loaded_locations, "Handler should see field mutation from try body"
 
 
 def test_raise_stops_try_body_before_handler_state_is_captured():
@@ -707,9 +688,7 @@ def test_raise_stops_try_body_before_handler_state_is_captured():
         preamble=py_ast.Suite([]),
         type=_existing("Exception"),
         value=None,
-        body=py_ast.Suite(
-            [py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]
-        ),
+        body=py_ast.Suite([py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]),
     )
     code = _code(
         "main",
@@ -753,9 +732,7 @@ def test_exception_handler_joins_all_try_prefixes():
         preamble=py_ast.Suite([]),
         type=_existing("Exception"),
         value=None,
-        body=py_ast.Suite(
-            [py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]
-        ),
+        body=py_ast.Suite([py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]),
     )
     code = _code(
         "main",
@@ -839,9 +816,7 @@ def test_break_stops_suite_execution():
     assert len(a_locs) >= 1, "Assignment before break should be visible"
 
     b_locs = heap.locations_for_local(code, b)
-    assert len(b_locs) == 0, (
-        "Assignment after break should not be applied"
-    )
+    assert len(b_locs) == 0, "Assignment after break should not be applied"
 
 
 def test_continue_stops_suite_execution():
@@ -868,6 +843,4 @@ def test_continue_stops_suite_execution():
     assert len(a_locs) >= 1, "Assignment before continue should be visible"
 
     b_locs = heap.locations_for_local(code, b)
-    assert len(b_locs) == 0, (
-        "Assignment after continue should not be applied"
-    )
+    assert len(b_locs) == 0, "Assignment after continue should not be applied"

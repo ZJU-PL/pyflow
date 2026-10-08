@@ -245,9 +245,7 @@ class _ValueMixin:
     def _compare(self, comparison: ast.Compare) -> Any:
         left = self._evaluate(comparison.left)
         last_index = len(comparison.ops) - 1
-        for index, (operator, node) in enumerate(
-            zip(comparison.ops, comparison.comparators)
-        ):
+        for index, (operator, node) in enumerate(zip(comparison.ops, comparison.comparators)):
             right = self._evaluate(node)
             result = self._compare_pair(left, operator, right)
             if index == last_index:
@@ -892,13 +890,9 @@ class _ValueMixin:
                 if isinstance(result, _BoolValue):
                     result = self._to_int(result)
                 if not isinstance(result, _IntValue):
-                    raise _TargetException(
-                        "TypeError", "__len__() should return an integer"
-                    )
+                    raise _TargetException("TypeError", "__len__() should return an integer")
                 if result.concrete < 0:
-                    raise _TargetException(
-                        "ValueError", "__len__() should return >= 0"
-                    )
+                    raise _TargetException("ValueError", "__len__() should return >= 0")
                 return result
         raise UnsupportedSyntaxError("len() requires a supported container")
 

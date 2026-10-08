@@ -15,14 +15,33 @@ def makeTempfileStubs(collector):
     @export
     @attachPtr(tempfile, "TemporaryFile")
     @llfunc
-    def tempfile_TemporaryFile(mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None, errors=None):
+    def tempfile_TemporaryFile(
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+        errors=None,
+    ):
         return allocate(type(tempfile.TemporaryFile()))
 
     ### NamedTemporaryFile ###
     @export
     @attachPtr(tempfile, "NamedTemporaryFile")
     @llfunc
-    def tempfile_NamedTemporaryFile(mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None, delete=True, errors=None):
+    def tempfile_NamedTemporaryFile(
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+        delete=True,
+        errors=None,
+    ):
         return allocate(type(tempfile.NamedTemporaryFile()))
 
     @attachPtr(type(tempfile.NamedTemporaryFile()), "name")
@@ -39,7 +58,17 @@ def makeTempfileStubs(collector):
     @export
     @attachPtr(tempfile, "SpooledTemporaryFile")
     @llfunc
-    def tempfile_SpooledTemporaryFile(max_size=0, mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None, errors=None):
+    def tempfile_SpooledTemporaryFile(
+        max_size=0,
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+        errors=None,
+    ):
         return allocate(type(tempfile.SpooledTemporaryFile()))
 
     @attachPtr(type(tempfile.SpooledTemporaryFile()), "rollover")
@@ -56,7 +85,9 @@ def makeTempfileStubs(collector):
     @export
     @attachPtr(tempfile, "TemporaryDirectory")
     @llfunc
-    def tempfile_TemporaryDirectory(suffix=None, prefix=None, dir=None, ignore_cleanup_errors=False):
+    def tempfile_TemporaryDirectory(
+        suffix=None, prefix=None, dir=None, ignore_cleanup_errors=False
+    ):
         return allocate(tempfile.TemporaryDirectory)
 
     @attachPtr(tempfile.TemporaryDirectory, "name")
@@ -87,7 +118,7 @@ def makeTempfileStubs(collector):
     @export
     @attachPtr(tempfile, "mktemp")
     @llfunc
-    def tempfile_mktemp(suffix='', prefix='tmp', dir=None):
+    def tempfile_mktemp(suffix="", prefix="tmp", dir=None):
         return allocate(str)
 
     ### gettempdir ###

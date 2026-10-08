@@ -400,9 +400,7 @@ def test_actual_parameters_without_params():
 
 
 def test_actual_parameters_non_local_args():
-    call = ast.Call(
-        ast.Local("fn"), [ast.Existing(ast.program.Object(1))], [], None, None
-    )
+    call = ast.Call(ast.Local("fn"), [ast.Existing(ast.program.Object(1))], [], None, None)
     params = actual_parameters(call)
     assert len(params) == 0
 

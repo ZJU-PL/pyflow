@@ -121,7 +121,4 @@ def test_function_model_mutation_contaminates_receiver_heap():
 
     loaded_locations = heap.locations_for_local(code, loaded)
     assert loaded_locations
-    assert any(
-        location.root.kind is HeapObjectKind.UNKNOWN
-        for location in loaded_locations
-    )
+    assert any(location.root.kind is HeapObjectKind.UNKNOWN for location in loaded_locations)

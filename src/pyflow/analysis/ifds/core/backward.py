@@ -50,9 +50,7 @@ class BackwardIFDSProblem(Generic[ProcT, NodeT, FactT], ABC):
     def call_flow(self, return_site: NodeT, callee: ProcT, fact: FactT):
         return ()
 
-    def return_flow(
-        self, return_site: NodeT, callee: ProcT, callee_entry: NodeT, call_fact: FactT
-    ):
+    def return_flow(self, return_site: NodeT, callee: ProcT, callee_entry: NodeT, call_fact: FactT):
         return ()
 
     def call_to_return_flow(self, return_site: NodeT, call_site: NodeT, fact: FactT):
@@ -76,19 +74,15 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
         self.record_traces = self.options.trace_mode == "all"
         self.max_propagated_path_edges = self.options.max_propagated_path_edges
 
-    def solve(
-        self, problem: BackwardIFDSProblem[ProcT, NodeT, FactT]
-    ) -> IFDSResult[NodeT, FactT]:
+    def solve(self, problem: BackwardIFDSProblem[ProcT, NodeT, FactT]) -> IFDSResult[NodeT, FactT]:
         supergraph = problem.supergraph
         queue: deque[PathEdge[NodeT, FactT]] = deque()
         seen: set[PathEdge[NodeT, FactT]] = set()
         reached: DefaultDict[NodeT, set[FactT]] = defaultdict(set)
-        incoming: DefaultDict[
-            tuple[NodeT, FactT], set[_BackwardIncomingRecord[NodeT, FactT]]
-        ] = defaultdict(set)
-        end_summary: DefaultDict[tuple[NodeT, FactT, NodeT], set[FactT]] = defaultdict(
-            set
+        incoming: DefaultDict[tuple[NodeT, FactT], set[_BackwardIncomingRecord[NodeT, FactT]]] = (
+            defaultdict(set)
         )
+        end_summary: DefaultDict[tuple[NodeT, FactT, NodeT], set[FactT]] = defaultdict(set)
         incoming_total = 0
         summary_entries = 0
         bookkeeping = _SolverBookkeeping[NodeT, FactT](
@@ -121,9 +115,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                     f"Backward IFDS exceeded max_facts_per_node={max_facts}",
                 )
                 return
-            bookkeeping.record_propagation(
-                path_edge, kind=kind, predecessor=predecessor, note=note
-            )
+            bookkeeping.record_propagation(path_edge, kind=kind, predecessor=predecessor, note=note)
             if bookkeeping.status is not AnalysisStatus.COMPLETE:
                 return
             queue.append(path_edge)
@@ -160,9 +152,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                         problem.call_to_return_flow(node, call_site, fact)
                     ):
                         propagate(
-                            PathEdge(
-                                source_node, source_fact, call_site, transition.fact
-                            ),
+                            PathEdge(source_node, source_fact, call_site, transition.fact),
                             kind="call_to_return",
                             predecessor=edge,
                             note=f"{node!r} -> {call_site!r}",
@@ -195,16 +185,12 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                                     )
                                     entry_node = supergraph.entry_of(callee)
                                     for exit_fact in sorted(
-                                        end_summary.get(
-                                            (callee_exit, start_fact, entry_node), ()
-                                        ),
+                                        end_summary.get((callee_exit, start_fact, entry_node), ()),
                                         key=_stable_value_key,
                                     ):
                                         bookkeeping.increment("return_flow_steps")
                                         for transition in _normalize_ifds_transitions(
-                                            problem.return_flow(
-                                                node, callee, entry_node, exit_fact
-                                            )
+                                            problem.return_flow(node, callee, entry_node, exit_fact)
                                         ):
                                             propagate(
                                                 PathEdge(
@@ -218,9 +204,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                                             )
 
                             propagate(
-                                PathEdge(
-                                    callee_exit, start_fact, callee_exit, start_fact
-                                ),
+                                PathEdge(callee_exit, start_fact, callee_exit, start_fact),
                                 kind="call_flow",
                                 predecessor=edge,
                                 note=f"{node!r} -> {callee!r}",
@@ -278,9 +262,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
         return IFDSResult(
             dict(reached),
             frozenset(seen),
-            bookkeeping.statistics(
-                check_budget=bookkeeping.status is AnalysisStatus.COMPLETE
-            ),
+            bookkeeping.statistics(check_budget=bookkeeping.status is AnalysisStatus.COMPLETE),
             bookkeeping.frozen_traces(),
             {key: tuple(value) for key, value in incoming.items()},
             {key: frozenset(value) for key, value in end_summary.items()},
@@ -297,10 +279,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
         for node in sg.ordered_nodes():
             for succ in sg.ordered_normal_successors(node):
                 preds[succ].add(node)
-        return {
-            node: tuple(sorted(values, key=sg.node_id))
-            for node, values in preds.items()
-        }
+        return {node: tuple(sorted(values, key=sg.node_id)) for node, values in preds.items()}
 
     def _build_return_site_call_map(self, sg):
         mapping: DefaultDict[NodeT, set[NodeT]] = defaultdict(set)
@@ -309,10 +288,7 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                 continue
             for ret_site in sg.ordered_return_sites_of_call_at(call_node):
                 mapping[ret_site].add(call_node)
-        return {
-            node: tuple(sorted(values, key=sg.node_id))
-            for node, values in mapping.items()
-        }
+        return {node: tuple(sorted(values, key=sg.node_id)) for node, values in mapping.items()}
 
     def _build_callees_by_return_site(self, sg):
         mapping: DefaultDict[NodeT, set[ProcT]] = defaultdict(set)
@@ -323,6 +299,5 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
                 for ret_site in sg.ordered_return_sites_of_call_at(call_node):
                     mapping[ret_site].add(callee)
         return {
-            node: tuple(sorted(values, key=sg.procedure_id))
-            for node, values in mapping.items()
+            node: tuple(sorted(values, key=sg.procedure_id)) for node, values in mapping.items()
         }

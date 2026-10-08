@@ -197,9 +197,7 @@ class _TaintStateMixin:
     def _apply_param_field_effects_to_arg(
         self, arg: ast.AST, keys: Set[str], tainted_keys: Set[str]
     ) -> None:
-        self._apply_param_field_effects_to_names(
-            self._names_in_expr(arg), keys, tainted_keys
-        )
+        self._apply_param_field_effects_to_names(self._names_in_expr(arg), keys, tainted_keys)
 
     def _apply_param_field_effects_to_names(
         self, names: Set[str], keys: Set[str], tainted_keys: Set[str]
@@ -232,9 +230,7 @@ class _TaintStateMixin:
             return {base} if base else set()
         return set()
 
-    def _record_param_key_write(
-        self, base: str, key: Optional[str], tainted: bool
-    ) -> None:
+    def _record_param_key_write(self, base: str, key: Optional[str], tainted: bool) -> None:
         param = self._param_name_for(base)
         if not param:
             return
@@ -443,9 +439,7 @@ class _TaintStateMixin:
                             else:
                                 merged: Set[str] = set()
                                 for alias in self._aliases_for(source):
-                                    merged.update(
-                                        self.tainted_container_keys.get(alias, set())
-                                    )
+                                    merged.update(self.tainted_container_keys.get(alias, set()))
                                 if "*" in merged:
                                     tainted_keys.add("*")
                                 else:
@@ -477,9 +471,7 @@ class _TaintStateMixin:
                         src = elt.value.id
                         merged_keys: Set[str] = set()
                         for alias in self._aliases_for(src):
-                            merged_keys.update(
-                                self.tainted_container_keys.get(alias, set())
-                            )
+                            merged_keys.update(self.tainted_container_keys.get(alias, set()))
                         if src in self.tainted_containers or "*" in merged_keys:
                             tainted_indices.add("*")
                             return tainted_indices
@@ -533,11 +525,7 @@ class _TaintStateMixin:
 
     def _callee_param_names(self, node: ast.Call, callee: str) -> List[str]:
         params = self.callee_param_names.get(callee, [])
-        if (
-            isinstance(node.func, ast.Attribute)
-            and params
-            and params[0] in {"self", "cls"}
-        ):
+        if isinstance(node.func, ast.Attribute) and params and params[0] in {"self", "cls"}:
             return params[1:]
         return params
 

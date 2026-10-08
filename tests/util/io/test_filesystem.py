@@ -205,7 +205,7 @@ class TestDataHash(unittest.TestCase):
 
     def test_hash_unicode(self):
         """Test hashing unicode string."""
-        result = dataHash("hello".encode('utf-8'))
+        result = dataHash("hello".encode("utf-8"))
         self.assertIsInstance(result, bytes)
         self.assertEqual(len(result), 20)  # SHA-1 produces 20 bytes
 

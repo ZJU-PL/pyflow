@@ -10,7 +10,9 @@ from ._models import IpaFunctionSummary
 class IpaAnalyzer:
     """Resolve immutable IPA summary facts."""
 
-    def get_function_summaries(self, context, function: Optional[Union[str, object]] = None) -> List[IpaFunctionSummary]:
+    def get_function_summaries(
+        self, context, function: Optional[Union[str, object]] = None
+    ) -> List[IpaFunctionSummary]:
         from pyflow.ir.core import AnalysisFacts
 
         codes = (

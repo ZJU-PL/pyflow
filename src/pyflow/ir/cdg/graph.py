@@ -151,9 +151,7 @@ class CDGNode:
             dependent: The node to remove from this node's dependents
         """
         if dependent in self.dependents:
-            edges_to_remove = [
-                edge for edge in self.edges_out if edge.target == dependent
-            ]
+            edges_to_remove = [edge for edge in self.edges_out if edge.target == dependent]
             for edge in edges_to_remove:
                 self.edges_out.remove(edge)
                 dependent.edges_in.remove(edge)
@@ -210,9 +208,7 @@ class CDGNode:
 
     def get_control_condition_labels(self, dependent: "CDGNode") -> Set[str]:
         """Return every branch label connecting this controller to a node."""
-        return {
-            edge.label for edge in self.edges_out if edge.target == dependent
-        }
+        return {edge.label for edge in self.edges_out if edge.target == dependent}
 
     def __repr__(self):
         return f"CDGNode({self.node_id}, {type(self.cfg_node).__name__})"
@@ -268,9 +264,7 @@ class ControlDependenceGraph:
             # A raw CFG must be synchronized below before it can be used.  Let
             # index_cfg perform the single authoritative semantics build rather
             # than building AST-only semantics immediately beforehand.
-            self.catalog = ensure_code_indexed(
-                cfg.code, rebuild_semantics=False
-            )
+            self.catalog = ensure_code_indexed(cfg.code, rebuild_semantics=False)
             try:
                 self.catalog.block_id(cfg.entryTerminal, cfg.code)
             except KeyError:
@@ -424,9 +418,7 @@ class ControlDependenceGraph:
             ),
         )
 
-    def get_control_conditions(
-        self, cfg_node: cfg_graph.CFGBlock
-    ) -> Dict[CDGNode, str]:
+    def get_control_conditions(self, cfg_node: cfg_graph.CFGBlock) -> Dict[CDGNode, str]:
         """
         Get all control conditions for a given CFG node.
 
@@ -492,6 +484,5 @@ class ControlDependenceGraph:
     def __repr__(self):
         stats = self.get_statistics()
         return (
-            "ControlDependenceGraph("
-            f"nodes={stats['total_nodes']}, edges={stats['total_edges']})"
+            "ControlDependenceGraph(" f"nodes={stats['total_nodes']}, edges={stats['total_edges']})"
         )

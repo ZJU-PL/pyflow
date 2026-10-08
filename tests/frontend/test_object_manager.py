@@ -67,17 +67,19 @@ class TestObjectManager(unittest.TestCase):
 
     def test_get_object_function(self):
         """Test getting an object for a function."""
+
         def test_func():
             return 1
-        
+
         obj = self.object_manager.get_object(test_func)
         self.assertIsInstance(obj, Object)
 
     def test_get_object_class(self):
         """Test getting an object for a class."""
+
         class TestClass:
             pass
-        
+
         obj = self.object_manager.get_object(TestClass)
         self.assertIsInstance(obj, Object)
 
@@ -120,9 +122,10 @@ class TestObjectManager(unittest.TestCase):
 
     def test_get_object_call_with_function(self):
         """Test getting object call for a function."""
+
         def test_func():
             return 1
-        
+
         func_obj, code_obj = self.object_manager.get_object_call(test_func)
         self.assertEqual(func_obj, test_func)
         # code_obj might be None if function_extractor is not set
@@ -132,10 +135,10 @@ class TestObjectManager(unittest.TestCase):
         mock_extractor = Mock()
         mock_extractor.convert_function = Mock(return_value=Mock())
         manager = ObjectManager(verbose=False, function_extractor=mock_extractor)
-        
+
         def test_func():
             return 1
-        
+
         source = "def test_func(): return 1"
         func_obj, code_obj = manager.get_object_call(test_func, source_code=source)
         self.assertEqual(func_obj, test_func)
@@ -147,10 +150,10 @@ class TestObjectManager(unittest.TestCase):
         mock_extractor = Mock()
         mock_extractor.convert_function = Mock(return_value=Mock())
         manager = ObjectManager(verbose=False, function_extractor=mock_extractor)
-        
+
         def test_func():
             return 1
-        
+
         # Use a real function which has a proper code object
         # The filename might be '<string>' or the actual file, but the code should handle it
         source_dict = {"test.py": "def test_func(): return 1"}
@@ -170,6 +173,7 @@ class TestObjectManager(unittest.TestCase):
         """Test creating an imaginary object."""
         # Create a proper type object for ImaginaryObject
         from pyflow.language.python.program import Object
+
         type_obj = Object(int)  # Use int as a type
         imaginary = self.object_manager.make_imaginary("test_name", type_obj, False)
         self.assertIsInstance(imaginary, ImaginaryObject)
@@ -193,7 +197,7 @@ class TestObjectManager(unittest.TestCase):
         obj = Mock(spec=AbstractObject)
         obj.type = Mock()
         obj.isType = Mock(return_value=False)
-        
+
         # Should not raise an exception
         self.object_manager.ensure_loaded(obj)
 
@@ -203,7 +207,7 @@ class TestObjectManager(unittest.TestCase):
         obj.type = None
         obj.pyobj = int
         obj.isType = Mock(return_value=False)
-        
+
         # Should set type
         self.object_manager.ensure_loaded(obj)
         # Type should be set (might be an Object wrapper)
@@ -215,7 +219,7 @@ class TestObjectManager(unittest.TestCase):
         obj.type = None
         obj.pyobj = type  # The type class itself
         obj.isType = Mock(return_value=False)
-        
+
         # Should handle type(type) recursion
         self.object_manager.ensure_loaded(obj)
 
@@ -227,7 +231,7 @@ class TestObjectManager(unittest.TestCase):
         obj.typeinfo = None
         obj.pyobj = Mock()  # Add pyobj attribute
         obj.pyobj.__name__ = "TestClass"
-        
+
         # Should create typeinfo
         self.object_manager.ensure_loaded(obj)
         self.assertIsNotNone(obj.typeinfo)
@@ -240,23 +244,24 @@ class TestObjectManager(unittest.TestCase):
         obj.typeinfo = None
         obj.pyobj = Mock()
         obj.pyobj.__name__ = "TestClass"
-        
+
         # Should create typeinfo
         self.object_manager.ensure_loaded(obj)
         self.assertIsNotNone(obj.typeinfo)
 
     def test_get_call_with_callable_pyobj(self):
         """Test getting call for object with callable pyobj."""
+
         def test_func():
             return 1
-        
+
         mock_obj = Mock()
         mock_obj.pyobj = test_func
-        
+
         mock_extractor = Mock()
         mock_extractor.convert_function = Mock(return_value=Mock())
         manager = ObjectManager(verbose=False, function_extractor=mock_extractor)
-        
+
         result = manager.get_call(mock_obj, source_code="def test_func(): return 1")
         # Should return code object
         self.assertIsNotNone(result)
@@ -265,7 +270,7 @@ class TestObjectManager(unittest.TestCase):
         """Test getting call for object with non-callable pyobj."""
         mock_obj = Mock()
         mock_obj.pyobj = 42  # Not callable
-        
+
         result = self.object_manager.get_call(mock_obj)
         self.assertIsNone(result)
 
@@ -273,7 +278,7 @@ class TestObjectManager(unittest.TestCase):
         """Test getting call for object without pyobj."""
         mock_obj = Mock()
         del mock_obj.pyobj  # Remove pyobj attribute
-        
+
         result = self.object_manager.get_call(mock_obj)
         self.assertIsNone(result)
 
@@ -281,7 +286,7 @@ class TestObjectManager(unittest.TestCase):
         """Test error handling in get_object."""
         # Create an object that might cause an error
         # Use a mock that raises an exception
-        with patch('pyflow.language.python.program.Object', side_effect=Exception("Test error")):
+        with patch("pyflow.language.python.program.Object", side_effect=Exception("Test error")):
             manager = ObjectManager(verbose=False)
             result = manager.get_object(42)
             # Should return fallback (the original object) on error
@@ -290,7 +295,7 @@ class TestObjectManager(unittest.TestCase):
     def test_get_object_error_handling_verbose(self):
         """Test error handling in get_object with verbose mode."""
         manager = ObjectManager(verbose=True)
-        with patch('pyflow.language.python.program.Object', side_effect=Exception("Test error")):
+        with patch("pyflow.language.python.program.Object", side_effect=Exception("Test error")):
             result = manager.get_object(42)
             # Should return fallback on error
             self.assertEqual(result, 42)

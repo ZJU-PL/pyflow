@@ -226,14 +226,10 @@ def test_exact_source_model_precedes_qualified_leaf_aliases() -> None:
 
 
 def test_bare_builtin_sink_does_not_match_attribute_method_with_same_leaf() -> None:
-    safe = CPGTaintEngine(
-        build_cpg("import re\ndef main():\n    re.compile(input())\n")
-    )
+    safe = CPGTaintEngine(build_cpg("import re\ndef main():\n    re.compile(input())\n"))
     safe.add_source("input")
     safe.add_sink("compile", cwe="CWE-95")
-    unsafe = CPGTaintEngine(
-        build_cpg("def main():\n    compile(input(), '<value>', 'exec')\n")
-    )
+    unsafe = CPGTaintEngine(build_cpg("def main():\n    compile(input(), '<value>', 'exec')\n"))
     unsafe.add_source("input")
     unsafe.add_sink("compile", cwe="CWE-95")
 
@@ -274,9 +270,7 @@ def test_inferred_supergraph_edges_are_direct_and_returns_are_matched() -> None:
     ]
 
     assert any(cpg.node_func_name(edge.source) == "recursive" for edge in call_edges)
-    assert not any(
-        isinstance(edge.source.ast_node, py_ast.FunctionDef) for edge in call_edges
-    )
+    assert not any(isinstance(edge.source.ast_node, py_ast.FunctionDef) for edge in call_edges)
     assert {
         cpg.node_func_name(edge.target)
         for edge in call_edges
@@ -287,8 +281,7 @@ def test_inferred_supergraph_edges_are_direct_and_returns_are_matched() -> None:
         exits = cpg._pdgs[callee].exit_nodes
         assert all(
             any(
-                returned.kind is CPGEdgeKind.RETURN_EDGE
-                and returned.target is edge.source
+                returned.kind is CPGEdgeKind.RETURN_EDGE and returned.target is edge.source
                 for returned in cpg._cpg_edges_out.get(exit_node.node_id, ())
             )
             for exit_node in exits
@@ -297,10 +290,7 @@ def test_inferred_supergraph_edges_are_direct_and_returns_are_matched() -> None:
 
 def test_full_sanitizer_assignment_kills_flow() -> None:
     engine = _engine(
-        "def main():\n"
-        "    value = input()\n"
-        "    cleaned = clean(value)\n"
-        "    eval(cleaned)\n"
+        "def main():\n" "    value = input()\n" "    cleaned = clean(value)\n" "    eval(cleaned)\n"
     )
     engine.add_sanitizer("clean")
 
@@ -456,10 +446,7 @@ def test_default_entry_selection_prunes_components_without_sources() -> None:
 
 def test_data_edges_are_consulted_but_cannot_bypass_a_kill() -> None:
     result = _engine(
-        "def main():\n"
-        "    value = input()\n"
-        "    value = 'safe'\n"
-        "    eval(value)\n"
+        "def main():\n" "    value = input()\n" "    value = 'safe'\n" "    eval(value)\n"
     ).analyze()
 
     assert result.findings == ()
@@ -468,32 +455,21 @@ def test_data_edges_are_consulted_but_cannot_bypass_a_kill() -> None:
 
 def test_unknown_call_does_not_invent_taint_on_clean_arguments() -> None:
     result = _engine(
-        "def main():\n"
-        "    value = None\n"
-        "    mutate(value)\n"
-        "    eval(value.field)\n"
+        "def main():\n" "    value = None\n" "    mutate(value)\n" "    eval(value.field)\n"
     ).analyze()
 
     assert result.findings == ()
     assert result.status == "complete"
-    diagnostic = next(
-        item for item in result.diagnostics if item.code == "cpg-unknown-call-effect"
-    )
+    diagnostic = next(item for item in result.diagnostics if item.code == "cpg-unknown-call-effect")
     assert diagnostic.affects_completeness is False
     assert diagnostic.level == "conservative"
 
 
 def test_unknown_call_still_taints_its_return_conservatively() -> None:
-    result = _engine(
-        "def main():\n"
-        "    value = external_value()\n"
-        "    eval(value)\n"
-    ).analyze()
+    result = _engine("def main():\n" "    value = external_value()\n" "    eval(value)\n").analyze()
 
     assert len(result.findings) == 1
-    assert any(
-        item.code == "cpg-unknown-call-effect" for item in result.diagnostics
-    )
+    assert any(item.code == "cpg-unknown-call-effect" for item in result.diagnostics)
 
 
 def test_local_summary_side_effects_propagate_without_inventing_taint() -> None:
@@ -553,8 +529,7 @@ def test_literal_jinja_template_requires_explicit_autoescape_bypass() -> None:
     )
     bypassed = CPGTaintEngine(
         build_cpg(
-            "def main():\n"
-            "    render_template_string('<p>{{ value | safe }}</p>', input())\n"
+            "def main():\n" "    render_template_string('<p>{{ value | safe }}</p>', input())\n"
         )
     )
     bypassed.add_source("input")
@@ -571,17 +546,9 @@ def test_literal_jinja_template_requires_explicit_autoescape_bypass() -> None:
 
 
 def test_local_class_constructor_preserves_arguments_without_inventing_taint() -> None:
-    clean = _engine(
-        "class Item:\n"
-        "    pass\n"
-        "def main():\n"
-        "    eval(Item())\n"
-    ).analyze()
+    clean = _engine("class Item:\n" "    pass\n" "def main():\n" "    eval(Item())\n").analyze()
     tainted = _engine(
-        "class Item:\n"
-        "    pass\n"
-        "def main():\n"
-        "    eval(Item(input()))\n"
+        "class Item:\n" "    pass\n" "def main():\n" "    eval(Item(input()))\n"
     ).analyze()
 
     assert clean.findings == ()
@@ -589,18 +556,12 @@ def test_local_class_constructor_preserves_arguments_without_inventing_taint() -
 
 
 def test_pure_string_method_preserves_existing_taint_without_inventing_it() -> None:
-    tainted = _engine(
-        "def main():\n" "    value = input().lower()\n" "    eval(value)\n"
-    ).analyze()
-    clean = _engine(
-        "def main():\n" "    value = 'safe'.lower()\n" "    eval(value)\n"
-    ).analyze()
+    tainted = _engine("def main():\n" "    value = input().lower()\n" "    eval(value)\n").analyze()
+    clean = _engine("def main():\n" "    value = 'safe'.lower()\n" "    eval(value)\n").analyze()
 
     assert len(tainted.findings) == 1
     assert clean.findings == ()
-    assert "cpg-unknown-call-effect" not in {
-        diagnostic.code for diagnostic in clean.diagnostics
-    }
+    assert "cpg-unknown-call-effect" not in {diagnostic.code for diagnostic in clean.diagnostics}
 
 
 def test_pure_path_operations_preserve_only_existing_taint() -> None:
@@ -623,8 +584,7 @@ def test_pure_path_operations_preserve_only_existing_taint() -> None:
     assert clean.findings == ()
     path_operations = {"os.path.abspath", "os.path.exists", "os.path.isfile"}
     assert not any(
-        diagnostic.code == "cpg-unknown-call-effect"
-        and diagnostic.operation in path_operations
+        diagnostic.code == "cpg-unknown-call-effect" and diagnostic.operation in path_operations
         for diagnostic in clean.diagnostics
     )
 
@@ -657,9 +617,7 @@ def test_interpreter_string_helpers_propagate_only_existing_taint() -> None:
 
 
 def test_nested_sink_calls_are_events_not_lost_inside_outer_expressions() -> None:
-    result = _engine(
-        "def main():\n" "    value = input()\n" "    consume(eval(value))\n"
-    ).analyze()
+    result = _engine("def main():\n" "    value = input()\n" "    consume(eval(value))\n").analyze()
 
     assert len(result.findings) == 1
     assert result.findings[0].sink_label == "eval"
@@ -767,9 +725,7 @@ def test_budgets_and_loop_configuration_are_explicit() -> None:
     with pytest.raises(ValueError):
         CPGTaintEngine(build_cpg("pass"), max_loop_iterations=0)
 
-    result = _engine(
-        "def main():\n    value = input()\n    eval(value)\n", max_states=1
-    ).analyze()
+    result = _engine("def main():\n    value = input()\n    eval(value)\n", max_states=1).analyze()
 
     assert result.status == "partial"
     assert "cpg-state-budget" in {item.code for item in result.diagnostics}
@@ -784,9 +740,7 @@ def test_budgets_and_loop_configuration_are_explicit() -> None:
         max_loop_iterations=1,
     ).analyze()
     assert loop_result.statistics["loop_threshold_crossings"] > 0
-    assert "cpg-loop-convergence-threshold" in {
-        item.code for item in loop_result.diagnostics
-    }
+    assert "cpg-loop-convergence-threshold" in {item.code for item in loop_result.diagnostics}
 
 
 def test_empty_graph_is_explicitly_incomplete() -> None:
@@ -803,9 +757,7 @@ def test_cpg_construction_failures_are_not_silently_dropped(monkeypatch) -> None
         raise RuntimeError("synthetic CFG failure")
 
     monkeypatch.setattr(build_module.cfg_transform, "evaluate", fail_cfg)
-    result = CPGTaintEngine(
-        build_module.build_cpg("def target():\n    pass\n")
-    ).analyze()
+    result = CPGTaintEngine(build_module.build_cpg("def target():\n    pass\n")).analyze()
 
     assert result.status == "partial"
     assert "cpg-cfg-build-failed" in {item.code for item in result.diagnostics}
@@ -840,9 +792,7 @@ def test_structured_try_joins_handler_effects() -> None:
     result = engine.analyze()
 
     assert len(result.findings) == 1
-    assert "cpg-exception-overapproximation" in {
-        item.code for item in result.diagnostics
-    }
+    assert "cpg-exception-overapproximation" in {item.code for item in result.diagnostics}
 
 
 def test_structured_try_handles_bare_except_suite() -> None:
@@ -859,9 +809,7 @@ def test_structured_try_handles_bare_except_suite() -> None:
     result = engine.analyze()
 
     assert len(result.findings) == 1
-    assert "cpg-exception-overapproximation" in {
-        item.code for item in result.diagnostics
-    }
+    assert "cpg-exception-overapproximation" in {item.code for item in result.diagnostics}
 
 
 def test_structured_try_finally_strong_overwrite_kills_taint() -> None:
@@ -920,17 +868,12 @@ def test_absent_with_finally_does_not_reenter_the_enclosing_try() -> None:
 
 def test_time_budget_covers_formal_initialization_and_reporting() -> None:
     result = _engine(
-        "def target():\n"
-        "    value = input()\n"
-        "    eval(value)\n",
+        "def target():\n" "    value = input()\n" "    eval(value)\n",
         max_seconds=1e-9,
     ).analyze()
 
     assert result.status == "partial"
-    assert any(
-        diagnostic.code == "cpg-time-budget"
-        for diagnostic in result.diagnostics
-    )
+    assert any(diagnostic.code == "cpg-time-budget" for diagnostic in result.diagnostics)
 
 
 def test_import_alias_cycles_do_not_expand_forever() -> None:

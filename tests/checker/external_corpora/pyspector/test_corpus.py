@@ -28,7 +28,6 @@ from .cases import (
     TaintCase,
 )
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 

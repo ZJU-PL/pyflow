@@ -61,9 +61,7 @@ def test_identity_results_agree_with_cpython(source: str) -> None:
     concrete = _concrete_namespace(source)
     assert concrete["result"] is concrete["sentinel"]
 
-    schedules = (("fifo", 0), ("lifo", 0), *(
-        ("random", seed) for seed in range(10)
-    ))
+    schedules = (("fifo", 0), ("lifo", 0), *(("random", seed) for seed in range(10)))
     results = [
         PointerAnalysis(
             source,
@@ -76,21 +74,15 @@ def test_identity_results_agree_with_cpython(source: str) -> None:
     # Differential oracle checks may-soundness: the concrete identity must be
     # represented even where descriptor/plain-value joins deliberately retain
     # additional conservative targets.
+    assert all(result.points_to("sentinel") <= result.points_to("result") for result in results)
     assert all(
-        result.points_to("sentinel") <= result.points_to("result")
-        for result in results
-    )
-    assert all(
-        result.points_to("result") == results[0].points_to("result")
-        for result in results[1:]
+        result.points_to("result") == results[0].points_to("result") for result in results[1:]
     )
 
 
 def _allocation_kinds(values: set[str]) -> set[str]:
     return {
-        match.group(1)
-        for value in values
-        if (match := re.search(r"AllocKind\.([A-Z_]+)", value))
+        match.group(1) for value in values if (match := re.search(r"AllocKind\.([A-Z_]+)", value))
     }
 
 
@@ -148,21 +140,25 @@ def test_base_combination_widening_retains_reachable_attribute_facts() -> None:
         left = f"Base{position}Left"
         right = f"Base{position}Right"
         marker = "\n    marker = sentinel" if position == 6 else ""
-        declarations.extend((
-            f"class {left}:\n    pass",
-            f"class {right}:{marker or chr(10) + '    pass'}",
-        ))
+        declarations.extend(
+            (
+                f"class {left}:\n    pass",
+                f"class {right}:{marker or chr(10) + '    pass'}",
+            )
+        )
         variable = f"Choice{position}"
         assignments.extend((f"{variable} = {left}", f"{variable} = {right}"))
         base_names.append(variable)
 
-    source = "\n\n".join((
-        "sentinel = object()",
-        *declarations,
-        "\n".join(assignments),
-        f"class Combined({', '.join(base_names)}):\n    pass",
-        "result = Combined.marker",
-    ))
+    source = "\n\n".join(
+        (
+            "sentinel = object()",
+            *declarations,
+            "\n".join(assignments),
+            f"class Combined({', '.join(base_names)}):\n    pass",
+            "result = Combined.marker",
+        )
+    )
 
     results = [
         PointerAnalysis(
@@ -186,6 +182,5 @@ def test_base_combination_widening_retains_reachable_attribute_facts() -> None:
         assert any(variant.widened for variant in variants)
 
     assert all(
-        result.points_to("result") == results[0].points_to("result")
-        for result in results[1:]
+        result.points_to("result") == results[0].points_to("result") for result in results[1:]
     )

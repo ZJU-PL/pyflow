@@ -270,9 +270,7 @@ class TestCPGConstruction(unittest.TestCase):
         try_ast = try_node.ast_node
         result = engine._propagate_try(try_ast, tstate, try_node, mem)
         self.assertTrue(result.is_tainted(), "Taint state should pass through try")
-        self.assertTrue(
-            mem.is_tainted("e"), "Caught variable 'e' should be tainted in mem"
-        )
+        self.assertTrue(mem.is_tainted("e"), "Caught variable 'e' should be tainted in mem")
 
     def test_try_clean_state_does_not_mark_caught_var(self):
         """Clean tstate does not mark caught variable."""
@@ -329,12 +327,8 @@ class TestCPGConstruction(unittest.TestCase):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", RuntimeWarning)
             cpg = self.build_cpg(while_loop, run_ssa=True)
-        self.assertFalse(
-            any("DDG-backed data dependence" in str(w.message) for w in caught)
-        )
-        self.assertTrue(
-            all(pdg.data_dependence_mode == "hybrid" for pdg in cpg.pdgs.values())
-        )
+        self.assertFalse(any("DDG-backed data dependence" in str(w.message) for w in caught))
+        self.assertTrue(all(pdg.data_dependence_mode == "hybrid" for pdg in cpg.pdgs.values()))
         cpg.build()
         found_header = False
         for node in cpg.nodes():
@@ -877,10 +871,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_taint_engine_clean_overwrite_kills_flow(self):
         cpg = build_cpg(
-            "def main():\n"
-            "    value = input()\n"
-            "    value = 'safe'\n"
-            "    eval(value)\n"
+            "def main():\n" "    value = input()\n" "    value = 'safe'\n" "    eval(value)\n"
         )
         engine = CPGTaintEngine(cpg)
         engine.add_source("input")
@@ -1068,10 +1059,7 @@ class TestCPGConstruction(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             with open(os.path.join(tmp, "a.py"), "w") as f:
-                f.write(
-                    "def foo(x):\n    return x\n"
-                    "def unused():\n    return 0\n"
-                )
+                f.write("def foo(x):\n    return x\n" "def unused():\n    return 0\n")
             with open(os.path.join(tmp, "b.py"), "w") as f:
                 f.write(
                     "from a import foo\n"
@@ -1319,9 +1307,7 @@ class TestCPGConstruction(unittest.TestCase):
         engine = CPGTaintEngine(cpg)
         self.assertIsInstance(engine.find_taint_paths(), list)
         node = next(cpg.nodes("test_func"))
-        self.assertEqual(
-            engine.get_node_taint(node), engine.get_node_taint(node.node_id)
-        )
+        self.assertEqual(engine.get_node_taint(node), engine.get_node_taint(node.node_id))
 
     def test_load_strict_v2_custom_pack(self):
         import json
@@ -1350,9 +1336,7 @@ class TestCPGConstruction(unittest.TestCase):
                                 "call": "custom.sink",
                                 "cwe": "CWE-999",
                                 "severity": "high",
-                                "sinks": [
-                                    {"kind": "custom_sink", "port": {"parameter": 0}}
-                                ],
+                                "sinks": [{"kind": "custom_sink", "port": {"parameter": 0}}],
                             },
                             {
                                 "call": "custom.clean",
@@ -1411,9 +1395,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertIs(engine._propagate_call(call, state, mem), state)
 
         mem.mark_tainted("params", state)
-        kw_call = py_ast.Call(
-            py_ast.Local("execute"), [], [], None, py_ast.Local("params")
-        )
+        kw_call = py_ast.Call(py_ast.Local("execute"), [], [], None, py_ast.Local("params"))
         self.assertTrue(engine._has_tainted_dict_unpack(kw_call, mem))
 
     # ── Context sensitivity ──────────────────────────────────────────
@@ -1660,9 +1642,7 @@ class TestCPGConstruction(unittest.TestCase):
         source = "def f(x: int) -> None:\n    y: int = x\n"
         cpg = build_cpg(source, "test.py")
         cpg.build()
-        ann_assign_nodes = [
-            n for n in cpg.nodes() if cpg.node_meta(n).get("ann_assign")
-        ]
+        ann_assign_nodes = [n for n in cpg.nodes() if cpg.node_meta(n).get("ann_assign")]
         # At least one AnnAssign should be tagged
         if ann_assign_nodes:
             meta = cpg.node_meta(ann_assign_nodes[0])
@@ -1697,12 +1677,8 @@ class TestCPGConstruction(unittest.TestCase):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", RuntimeWarning)
             cpg = build_cpg(source, "test.py")
-        self.assertFalse(
-            any("DDG-backed data dependence" in str(w.message) for w in caught)
-        )
-        self.assertTrue(
-            all(pdg.data_dependence_mode == "hybrid" for pdg in cpg.pdgs.values())
-        )
+        self.assertFalse(any("DDG-backed data dependence" in str(w.message) for w in caught))
+        self.assertTrue(all(pdg.data_dependence_mode == "hybrid" for pdg in cpg.pdgs.values()))
         cpg.build()
         raise_nodes = [n for n in cpg.nodes() if cpg.node_meta(n).get("is_raise")]
         if raise_nodes:
@@ -1758,11 +1734,7 @@ class TestCPGConstruction(unittest.TestCase):
         source = "def gen(xs):\n    yield xs\n    yield from xs\n"
         cpg = build_cpg(source, "test.py")
         cpg.build()
-        metas = [
-            cpg.node_meta(n)
-            for n in cpg.nodes()
-            if cpg.node_meta(n).get("synthetic_ast")
-        ]
+        metas = [cpg.node_meta(n) for n in cpg.nodes() if cpg.node_meta(n).get("synthetic_ast")]
         self.assertTrue(any(m.get("is_yield") for m in metas))
         self.assertTrue(any(m.get("yield_kind") == "Yield" for m in metas))
         self.assertTrue(any(m.get("yield_kind") == "YieldFrom" for m in metas))
@@ -1770,9 +1742,7 @@ class TestCPGConstruction(unittest.TestCase):
     def test_detect_frameworks_uses_pack_markers(self):
         from pyflow.checker.cpg.rules import detect_frameworks
 
-        detected = detect_frameworks(
-            "import requests\nimport subprocess\nrequests.get(url)\n"
-        )
+        detected = detect_frameworks("import requests\nimport subprocess\nrequests.get(url)\n")
         self.assertIn("requests", detected)
         self.assertIn("concurrency", detected)
 
@@ -1850,9 +1820,7 @@ class TestCPGConstruction(unittest.TestCase):
         engine = CPGTaintEngine(cpg)
         mem = MemoryLayout()
         state = TaintState.user_controlled()
-        ann = py_ast.AnnAssign(
-            py_ast.Local("out"), py_ast.Local("int"), py_ast.Local("clean")
-        )
+        ann = py_ast.AnnAssign(py_ast.Local("out"), py_ast.Local("int"), py_ast.Local("clean"))
         result = engine._propagate_annassign(ann, state, mem)
         self.assertIsNotNone(result)
         self.assertTrue(result.is_tainted())

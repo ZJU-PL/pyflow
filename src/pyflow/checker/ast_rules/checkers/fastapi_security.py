@@ -21,7 +21,6 @@ import ast
 from ...common import issue
 from ..core import test_properties as test
 
-
 SENSITIVE_FIELDS = (
     "password",
     "secret",
@@ -227,10 +226,7 @@ def sensitive_fields_in_response_model(context):
                         model_name = arg_kw.value.id
                     elif isinstance(arg_kw.value, ast.Attribute):
                         model_name = arg_kw.value.attr
-                    if any(
-                        sensitive in model_name.lower()
-                        for sensitive in SENSITIVE_FIELDS
-                    ):
+                    if any(sensitive in model_name.lower() for sensitive in SENSITIVE_FIELDS):
                         return _fastapi_issue(
                             f"response_model '{model_name}' may include sensitive fields - consider excluding them.",
                             severity="MEDIUM",
@@ -272,9 +268,7 @@ def transaction_safety_in_depends(context):
     for node in ast.walk(context.node):
         if isinstance(node, ast.Call):
             qual = context.call_function_name_qual or ""
-            if any(
-                db in qual.lower() for db in ("session", "query", "commit", "rollback")
-            ):
+            if any(db in qual.lower() for db in ("session", "query", "commit", "rollback")):
                 has_db_operation = True
             if "commit" in qual.lower():
                 has_commit = True

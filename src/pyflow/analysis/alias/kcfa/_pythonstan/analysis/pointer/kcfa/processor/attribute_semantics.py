@@ -62,17 +62,17 @@ class AttributeResolver(Processor):
 
     _READ_INTERCEPT_SKIP = {"__getattribute__", "__getattr__"}
     _WRITE_INTERCEPT_SKIP = {"__setattr__"}
-    
+
     def __init__(self) -> None:
         self._const_alloc_sites: Dict[str, AllocSite] = {}
         self._installed_field_lookups = set()
 
     def handle_field_read(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        base_obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        base_obj: "AbstractObject",
         field: Field,
         target,
     ) -> bool:
@@ -81,9 +81,7 @@ class AttributeResolver(Processor):
             return False
         state = solver.state
         target_ctx = (
-            target
-            if isinstance(target, Ctx)
-            else state.get_variable(scope, context, target)
+            target if isinstance(target, Ctx) else state.get_variable(scope, context, target)
         )
         if isinstance(base_obj, InstanceObject):
             raw_instance = state.raw_field(scope, context, base_obj, field)
@@ -98,24 +96,20 @@ class AttributeResolver(Processor):
             )
             return True
         if isinstance(base_obj, ClassObject):
-            self._install_class_lookup(
-                solver, scope, base_obj, field, target_ctx
-            )
+            self._install_class_lookup(solver, scope, base_obj, field, target_ctx)
             return True
         if isinstance(base_obj, SuperObject):
-            self._install_super_lookup(
-                solver, scope, base_obj, field, target_ctx
-            )
+            self._install_super_lookup(solver, scope, base_obj, field, target_ctx)
             return True
         return False
 
     def _install_class_lookup(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         class_obj: ClassObject,
         field: Field,
-        target_ctx: 'Ctx[Any]',
+        target_ctx: "Ctx[Any]",
         *,
         instance_obj: Optional[InstanceObject] = None,
     ) -> None:
@@ -138,9 +132,7 @@ class AttributeResolver(Processor):
             class_obj,
             field,
         )
-        own_edge = PointerFlowEdge(
-            NormalNode(own_field), selector, PointerFlowKind.NORMAL
-        )
+        own_edge = PointerFlowEdge(NormalNode(own_field), selector, PointerFlowKind.NORMAL)
         selector.add_edge(own_edge, 0)
         state._add_points_flow_edge(own_edge)
 
@@ -183,23 +175,18 @@ class AttributeResolver(Processor):
             state.dependencies.subscribe(
                 ("class-lookup-bases", *lookup_key),
                 base_sources,
-                lambda: state.refresh_class_inheritance(
-                    class_obj, field, selector
-                ),
+                lambda: state.refresh_class_inheritance(class_obj, field, selector),
             )
 
     def _install_super_lookup(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         super_obj: SuperObject,
         field: Field,
-        target_ctx: 'Ctx[Any]',
+        target_ctx: "Ctx[Any]",
     ) -> None:
-        if (
-            super_obj.start_type is None
-            or super_obj.receiver_type is None
-        ):
+        if super_obj.start_type is None or super_obj.receiver_type is None:
             # Pending allocation marker; resolved variants arrive
             # incrementally from SuperResolveProcessor.
             return
@@ -222,14 +209,9 @@ class AttributeResolver(Processor):
                 PointerFlowKind.NORMAL,
             )
         )
-        self._refresh_super_lookup(
-            solver, super_obj, field, selector
-        )
+        self._refresh_super_lookup(solver, super_obj, field, selector)
         receiver_type = super_obj.receiver_type
-        if (
-            receiver_type.kind is TypeRefKind.USER
-            and isinstance(receiver_type.target, ClassObject)
-        ):
+        if receiver_type.kind is TypeRefKind.USER and isinstance(receiver_type.target, ClassObject):
             receiver_class = receiver_type.target
             sources = [("class-variants", receiver_class)]
             sources.extend(
@@ -243,14 +225,12 @@ class AttributeResolver(Processor):
             solver.state.dependencies.subscribe(
                 ("super-lookup-mro", *key),
                 sources,
-                lambda: self._refresh_super_lookup(
-                    solver, super_obj, field, selector
-                ),
+                lambda: self._refresh_super_lookup(solver, super_obj, field, selector),
             )
 
     def _refresh_super_lookup(
         self,
-        solver: 'PointerSolver',
+        solver: "PointerSolver",
         super_obj: SuperObject,
         field: Field,
         selector: SelectorNode,
@@ -262,10 +242,7 @@ class AttributeResolver(Processor):
         if start_type is None or receiver_type is None:
             return
         mro_alternatives = []
-        if (
-            receiver_type.kind is TypeRefKind.USER
-            and isinstance(receiver_type.target, ClassObject)
-        ):
+        if receiver_type.kind is TypeRefKind.USER and isinstance(receiver_type.target, ClassObject):
             variants = state.class_variants(receiver_type.target)
             mro_alternatives.extend(variant.mro for variant in variants)
         if not mro_alternatives:
@@ -278,10 +255,9 @@ class AttributeResolver(Processor):
                 # This concrete alternative raises TypeError at runtime.
                 continue
             candidate_index = 0
-            for type_ref in mro[start_index + 1:]:
-                if (
-                    type_ref.kind is not TypeRefKind.USER
-                    or not isinstance(type_ref.target, ClassObject)
+            for type_ref in mro[start_index + 1 :]:
+                if type_ref.kind is not TypeRefKind.USER or not isinstance(
+                    type_ref.target, ClassObject
                 ):
                     # Builtin/native member summaries are not yet expressible
                     # as PFG cells. Preserve completeness metadata instead of
@@ -289,16 +265,14 @@ class AttributeResolver(Processor):
                     solver.mark_semantic_incomplete()
                     continue
                 candidate = type_ref.target
-                state._add_inherited_field_candidate(
-                    candidate, field, selector, candidate_index
-                )
+                state._add_inherited_field_candidate(candidate, field, selector, candidate_index)
                 candidate_index += 1
-                if state.get_attribute_presence(
-                    candidate, field
-                ).must_exist:
+                if state.get_attribute_presence(candidate, field).must_exist:
                     break
-    
-    def handle_new_constraint(self, solver: 'PointerSolver', scope: 'Scope', constraint: 'Constraint') -> bool:
+
+    def handle_new_constraint(
+        self, solver: "PointerSolver", scope: "Scope", constraint: "Constraint"
+    ) -> bool:
         state = solver.state
         if isinstance(constraint, AttrReadConstraint):
             base_ctx = state.get_variable(scope, scope.context, constraint.base)
@@ -319,19 +293,17 @@ class AttributeResolver(Processor):
             state.constraints.add(scope, base_ctx, constraint)
             base_pts = state.get_points_to(base_ctx)
             if not base_pts.is_empty():
-                self._apply_attr_delete(
-                    solver, scope, base_ctx, constraint, base_pts
-                )
+                self._apply_attr_delete(solver, scope, base_ctx, constraint, base_pts)
             return True
         return False
-    
+
     def handle_constraint(
         self,
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
-        scope: 'Scope',
-        constraint: 'Constraint',
-        pts: 'PointsToSet',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        constraint: "Constraint",
+        pts: "PointsToSet",
     ) -> bool:
         if isinstance(constraint, AttrReadConstraint):
             self._apply_attr_read(solver, scope, target, constraint, pts)
@@ -343,14 +315,14 @@ class AttributeResolver(Processor):
             self._apply_attr_delete(solver, scope, target, constraint, pts)
             return True
         return False
-    
+
     def _apply_attr_read(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        base_ctx: 'Ctx[Any]',
+        solver: "PointerSolver",
+        scope: "Scope",
+        base_ctx: "Ctx[Any]",
         constraint: AttrReadConstraint,
-        pts: 'PointsToSet',
+        pts: "PointsToSet",
     ) -> None:
         attr_field, attr_name = self._resolve_attr(constraint.attr)
         for base_obj in pts:
@@ -375,14 +347,14 @@ class AttributeResolver(Processor):
                     ),
                     PointsToSet.singleton(base_obj),
                 )
-    
+
     def _apply_attr_write(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        base_ctx: 'Ctx[Any]',
+        solver: "PointerSolver",
+        scope: "Scope",
+        base_ctx: "Ctx[Any]",
         constraint: AttrWriteConstraint,
-        pts: 'PointsToSet',
+        pts: "PointsToSet",
     ) -> None:
         attr_field, attr_name = self._resolve_attr(constraint.attr)
         for base_obj in pts:
@@ -410,11 +382,11 @@ class AttributeResolver(Processor):
 
     def _apply_attr_delete(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        base_ctx: 'Ctx[Any]',
+        solver: "PointerSolver",
+        scope: "Scope",
+        base_ctx: "Ctx[Any]",
         constraint: AttrDeleteConstraint,
-        pts: 'PointsToSet',
+        pts: "PointsToSet",
     ) -> None:
         attr_field, attr_name = self._resolve_attr(constraint.attr)
         for base_obj in pts:
@@ -430,11 +402,11 @@ class AttributeResolver(Processor):
             # A union-only heap cannot retract a raw cell for class/module
             # deletion.  Retaining the old value is the sound may-analysis
             # result; instance protocol effects are modeled below.
-    
+
     def _apply_instance_attr_read(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         base_obj: InstanceObject,
         attr_field: Field,
         attr_name: str,
@@ -445,7 +417,7 @@ class AttributeResolver(Processor):
         context = scope.context
         target_ctx = state.get_variable(scope, context, target_var)
         attr_token = self._attr_token(attr_name)
-        
+
         inst_var = self._make_object_var(
             solver,
             scope,
@@ -464,10 +436,11 @@ class AttributeResolver(Processor):
             f"{attr_token}@{stable_token(class_obj)}",
         )
         name_var = self._make_const_name_var(solver, scope, attr_name, call_site)
-        
+
         if attr_name not in self._READ_INTERCEPT_SKIP:
             getattribute_var = self._make_temp_var(
-                "getattribute", call_site,
+                "getattribute",
+                call_site,
                 f"{attr_token}@{stable_token(base_obj)}",
             )
             solver.add_constraint(
@@ -490,12 +463,12 @@ class AttributeResolver(Processor):
                     call_site=call_site,
                 ),
             )
-        
+
         selector = SelectorNode()
         state._add_points_flow_edge(
             PointerFlowEdge(selector, NormalNode(target_ctx), PointerFlowKind.NORMAL)
         )
-        
+
         class_field = self._get_class_field(
             solver,
             scope,
@@ -504,9 +477,7 @@ class AttributeResolver(Processor):
             instance_obj=base_obj,
         )
         if state.instance_field_allowed(class_obj, attr_field):
-            instance_field = state.raw_field(
-                scope, context, base_obj, attr_field
-            )
+            instance_field = state.raw_field(scope, context, base_obj, attr_field)
             # Suppressing an instance value requires proving that the class
             # field is a data descriptor on every abstract execution.  Until
             # descriptor-kind facts carry their own may/must lattice, retain
@@ -516,7 +487,7 @@ class AttributeResolver(Processor):
             )
             selector.add_edge(instance_edge, 1)
             state._add_points_flow_edge(instance_edge)
-        
+
         descriptor_var = self._make_temp_var(
             "descriptor", call_site, f"{attr_token}@{stable_token(base_obj)}"
         )
@@ -528,7 +499,7 @@ class AttributeResolver(Processor):
                 PointerFlowKind.NORMAL,
             )
         )
-        
+
         descriptor_get_var = self._make_temp_var(
             "descriptor_get", call_site, f"{attr_token}@{stable_token(base_obj)}"
         )
@@ -555,24 +526,19 @@ class AttributeResolver(Processor):
                 call_site=call_site,
             ),
         )
-        descriptor_result_ctx = state.get_variable(
-            scope, context, descriptor_result_var
-        )
+        descriptor_result_ctx = state.get_variable(scope, context, descriptor_result_var)
         descriptor_edge = PointerFlowEdge(
             NormalNode(descriptor_result_ctx), selector, PointerFlowKind.NORMAL
         )
         selector.add_edge(descriptor_edge, 0)
         state._add_points_flow_edge(descriptor_edge)
-        
+
         # A later-discovered __get__ must not invalidate an earlier classification
         # as a plain value.  Passing the class value as well is a sound, monotone
         # over-approximation of the descriptor/plain split.
         plain_class_values = GuardNode(
             lambda _edge, pts: PointsToSet.from_objects(
-                (
-                    obj for obj in pts
-                    if not isinstance(obj, SlotDescriptorObject)
-                ),
+                (obj for obj in pts if not isinstance(obj, SlotDescriptorObject)),
                 arena=state.arena,
             )
         )
@@ -582,15 +548,14 @@ class AttributeResolver(Processor):
             PointerFlowKind.NORMAL,
         )
         state._add_points_flow_edge(class_guard_edge)
-        class_edge = PointerFlowEdge(
-            plain_class_values, selector, PointerFlowKind.NORMAL
-        )
+        class_edge = PointerFlowEdge(plain_class_values, selector, PointerFlowKind.NORMAL)
         selector.add_edge(class_edge, 3)
         state._add_points_flow_edge(class_edge)
-        
+
         if attr_name not in self._READ_INTERCEPT_SKIP:
             getattr_var = self._make_temp_var(
-                "getattr", call_site,
+                "getattr",
+                call_site,
                 f"{attr_token}@{stable_token(base_obj)}",
             )
             solver.add_constraint(
@@ -603,7 +568,8 @@ class AttributeResolver(Processor):
                 ),
             )
             getattr_result = self._make_temp_var(
-                "getattr_result", call_site,
+                "getattr_result",
+                call_site,
                 f"{attr_token}@{stable_token(base_obj)}",
             )
             solver.add_constraint(
@@ -618,14 +584,16 @@ class AttributeResolver(Processor):
                 ),
             )
             getattr_ctx = state.get_variable(scope, context, getattr_result)
-            getattr_edge = PointerFlowEdge(NormalNode(getattr_ctx), selector, PointerFlowKind.NORMAL)
+            getattr_edge = PointerFlowEdge(
+                NormalNode(getattr_ctx), selector, PointerFlowKind.NORMAL
+            )
             selector.add_edge(getattr_edge, 4)
             state._add_points_flow_edge(getattr_edge)
-    
+
     def _apply_instance_attr_write(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         base_obj: InstanceObject,
         attr_field: Field,
         attr_name: str,
@@ -635,7 +603,7 @@ class AttributeResolver(Processor):
         state = solver.state
         context = scope.context
         attr_token = self._attr_token(attr_name)
-        
+
         inst_var = self._make_object_var(
             solver,
             scope,
@@ -646,16 +614,14 @@ class AttributeResolver(Processor):
         )
         name_var = self._make_const_name_var(solver, scope, attr_name, call_site)
         source_ctx = state.get_variable(scope, context, source_var)
-        
+
         class_obj = base_obj.class_obj
         class_field = self._get_class_field(solver, scope, class_obj, attr_field)
         # Keep the ordinary instance write unless a data descriptor is known on
         # every abstract execution.  The PFG cannot retract a write that escaped
         # before descriptor discovery.
         if state.instance_field_allowed(class_obj, attr_field):
-            instance_field = state.raw_field(
-                scope, context, base_obj, attr_field
-            )
+            instance_field = state.raw_field(scope, context, base_obj, attr_field)
             state._add_var_points_flow(source_ctx, instance_field)
 
         # Route every current and future class-field candidate through __set__.
@@ -689,10 +655,11 @@ class AttributeResolver(Processor):
                 call_site=call_site,
             ),
         )
-        
+
         if attr_name not in self._WRITE_INTERCEPT_SKIP:
             setattr_var = self._make_temp_var(
-                "setattr", call_site,
+                "setattr",
+                call_site,
                 f"{attr_token}@{stable_token(base_obj)}",
             )
             solver.add_constraint(
@@ -718,8 +685,8 @@ class AttributeResolver(Processor):
 
     def _apply_instance_attr_delete(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         base_obj: InstanceObject,
         attr_field: Field,
         attr_name: str,
@@ -730,22 +697,12 @@ class AttributeResolver(Processor):
         inst_var = self._make_object_var(
             solver, scope, base_obj, "attr_delete_self", call_site, token
         )
-        name_var = self._make_const_name_var(
-            solver, scope, attr_name, call_site
-        )
-        class_field = self._get_class_field(
-            solver, scope, base_obj.class_obj, attr_field
-        )
-        descriptor_var = self._make_temp_var(
-            "delete_descriptor", call_site, token
-        )
-        descriptor_ctx = solver.state.get_variable(
-            scope, context, descriptor_var
-        )
+        name_var = self._make_const_name_var(solver, scope, attr_name, call_site)
+        class_field = self._get_class_field(solver, scope, base_obj.class_obj, attr_field)
+        descriptor_var = self._make_temp_var("delete_descriptor", call_site, token)
+        descriptor_ctx = solver.state.get_variable(scope, context, descriptor_var)
         solver.state._add_var_points_flow(class_field, descriptor_ctx)
-        delete_var = self._make_temp_var(
-            "descriptor_delete", call_site, token
-        )
+        delete_var = self._make_temp_var("descriptor_delete", call_site, token)
         solver.add_constraint(
             scope,
             context,
@@ -766,9 +723,7 @@ class AttributeResolver(Processor):
                 call_site=call_site,
             ),
         )
-        delattr_var = self._make_temp_var(
-            "delattr", call_site, token
-        )
+        delattr_var = self._make_temp_var("delattr", call_site, token)
         solver.add_constraint(
             scope,
             context,
@@ -801,11 +756,11 @@ class AttributeResolver(Processor):
         if field.kind == FieldKind.ATTRIBUTE and field.name:
             return field, field.name
         return field, "<unknown>"
-    
+
     def _make_const_name_var(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         name: str,
         call_site,
     ) -> Variable:
@@ -827,11 +782,11 @@ class AttributeResolver(Processor):
             AllocConstraint(target=var, alloc_site=alloc_site),
         )
         return var
-    
+
     @staticmethod
     def _attr_token(name: str) -> str:
         return "".join(ch if (ch.isalnum() or ch in "._") else "_" for ch in name)
-    
+
     @staticmethod
     def _make_temp_var(prefix: str, call_site, token: Optional[str] = None) -> Variable:
         suffix = f"@{token}" if token else ""
@@ -839,12 +794,12 @@ class AttributeResolver(Processor):
             name=f"${prefix}@{call_site.short_id()}{suffix}",
             kind=VariableKind.TEMPORARY,
         )
-    
+
     @staticmethod
     def _make_object_var(
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        obj: "AbstractObject",
         prefix: str,
         call_site,
         token: str,
@@ -856,16 +811,16 @@ class AttributeResolver(Processor):
         ctx_var = solver.state.get_variable(scope, scope.context, var)
         solver.handle_new_points_to(ctx_var, scope, PointsToSet.singleton(obj))
         return var
-    
+
     def _get_class_field(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        class_obj: 'ClassObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        class_obj: "ClassObject",
         field: Field,
         *,
         instance_obj: Optional[InstanceObject] = None,
-    ) -> 'Ctx[Any]':
+    ) -> "Ctx[Any]":
         lookup_var = Variable(
             name=(
                 f"$class_lookup@{stable_token(class_obj)}@"
@@ -874,9 +829,7 @@ class AttributeResolver(Processor):
             ),
             kind=VariableKind.TEMPORARY,
         )
-        lookup_ctx = solver.state.get_variable(
-            scope, scope.context, lookup_var
-        )
+        lookup_ctx = solver.state.get_variable(scope, scope.context, lookup_var)
         self._install_class_lookup(
             solver,
             scope,

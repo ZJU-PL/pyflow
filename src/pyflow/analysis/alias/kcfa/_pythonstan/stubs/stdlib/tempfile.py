@@ -21,19 +21,48 @@ class _TemporaryFileWrapper:
 
 
 class NamedTemporaryFile(_TemporaryFileWrapper):
-    def __init__(self, mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None, delete=True):
+    def __init__(
+        self,
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+        delete=True,
+    ):
         _TemporaryFileWrapper.__init__(self, "/tmp/tmpfile")
         self.mode = mode
         self.delete = delete
 
 
 class TemporaryFile(_TemporaryFileWrapper):
-    def __init__(self, mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None):
+    def __init__(
+        self,
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+    ):
         _TemporaryFileWrapper.__init__(self, "/tmp/tmpfile")
 
 
 class SpooledTemporaryFile(_TemporaryFileWrapper):
-    def __init__(self, max_size=0, mode='w+b', buffering=-1, encoding=None, newline=None, suffix=None, prefix=None, dir=None):
+    def __init__(
+        self,
+        max_size=0,
+        mode="w+b",
+        buffering=-1,
+        encoding=None,
+        newline=None,
+        suffix=None,
+        prefix=None,
+        dir=None,
+    ):
         _TemporaryFileWrapper.__init__(self, "/tmp/tmpfile")
         self.max_size = max_size
 
@@ -61,7 +90,7 @@ def mkdtemp(suffix=None, prefix=None, dir=None):
     return "/tmp/tmpdir"
 
 
-def mktemp(suffix='', prefix='tmp', dir=None):
+def mktemp(suffix="", prefix="tmp", dir=None):
     return "/tmp/tmpfile"
 
 

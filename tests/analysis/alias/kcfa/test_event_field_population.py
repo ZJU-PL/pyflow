@@ -41,7 +41,9 @@ def test_list_elements_populate_generic_and_index_fields():
     assert _store_sources(constraints).count("y") == 2
     assert _store_sources(constraints).count("z") == 2
     assert any(field.kind == FieldKind.ELEMENT for field in _store_fields(constraints))
-    assert any(field.kind == FieldKind.KEY and field.name == "0" for field in _store_fields(constraints))
+    assert any(
+        field.kind == FieldKind.KEY and field.name == "0" for field in _store_fields(constraints)
+    )
 
 
 def test_name_assignment_generates_copy_constraint():
@@ -63,7 +65,9 @@ def test_dict_values_populate_key_and_generic_fields():
     assert _alloc_kinds(constraints) == [AllocKind.DICT]
     assert _store_sources(constraints).count("x") == 2
     assert _store_sources(constraints).count("y") == 2
-    assert any(field.kind == FieldKind.KEY and field.name == "a" for field in _store_fields(constraints))
+    assert any(
+        field.kind == FieldKind.KEY and field.name == "a" for field in _store_fields(constraints)
+    )
     assert any(field.kind == FieldKind.ELEMENT for field in _store_fields(constraints))
 
 
@@ -74,7 +78,9 @@ def test_tuple_elements_populate_generic_and_index_fields():
     assert _store_sources(constraints).count("a") == 2
     assert _store_sources(constraints).count("b") == 2
     assert _store_sources(constraints).count("c") == 2
-    assert any(field.kind == FieldKind.KEY and field.name == "2" for field in _store_fields(constraints))
+    assert any(
+        field.kind == FieldKind.KEY and field.name == "2" for field in _store_fields(constraints)
+    )
 
 
 def test_set_elements_populate_generic_element_fields():

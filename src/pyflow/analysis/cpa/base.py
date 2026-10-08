@@ -18,7 +18,6 @@ import pyflow.util.canonical as canonical
 import pyflow.analysis as analysis  # for analysis.cpasignature references
 import pyflow.analysis.cpasignature as cpasignature
 
-
 CanonicalObject = canonical.CanonicalObject
 
 from pyflow.ir.storegraph import extendedtypes
@@ -90,17 +89,13 @@ def calleeSlotsFromContext(sys, context):
     selfparam = localSlot(sys, code, callee.selfparam, context)
     parameters = tuple([localSlot(sys, code, p, context) for p in callee.params])
     if callee.defaults:
-        defaults = (
-            callee.defaults
-        )  # HACK: defaults are stored as objects, not converted to slots
+        defaults = callee.defaults  # HACK: defaults are stored as objects, not converted to slots
         # defualts = tuple([localSlot(sys, code, d, context) for d in callee.defaults])
     else:
         defaults = ()
     vparam = localSlot(sys, code, callee.vparam, context)
     kparam = localSlot(sys, code, callee.kparam, context)
-    returnparams = [
-        localSlot(sys, code, param, context) for param in callee.returnparams
-    ]
+    returnparams = [localSlot(sys, code, param, context) for param in callee.returnparams]
 
     return util.python.calling.CalleeParams(
         selfparam, parameters, callee.paramnames, defaults, vparam, kparam, returnparams
@@ -270,9 +265,7 @@ class AnalysisContext(CanonicalObject):
 
         # Set the length of the vparam tuple.
         lengthObjxtype = sys.canonical.existingType(sys.extractor.getObject(length))
-        lengthSlot = vparamObj.field(
-            sys.storeGraph.lengthSlotName, self.group.regionHint
-        )
+        lengthSlot = vparamObj.field(sys.storeGraph.lengthSlotName, self.group.regionHint)
         self._bindObjToSlot(sys, lengthObjxtype, lengthSlot)
         sys.logModify(cop, lengthSlot)
 
@@ -375,14 +368,9 @@ class AnalysisContext(CanonicalObject):
         cop = sys.canonical.opContext(sig.code, None, self)
 
         # Bind the vparams (variable arguments *args)
-        if (
-            callee.vparam is not None
-            and callee.vparam is not analysis.cpasignature.DoNotCare
-        ):
+        if callee.vparam is not None and callee.vparam is not analysis.cpasignature.DoNotCare:
             # Initialize the varargs tuple with the correct length
-            vparamObj = self.initializeVParam(
-                sys, cop, callee.vparam, numArgs - numParam
-            )
+            vparamObj = self.initializeVParam(sys, cop, callee.vparam, numArgs - numParam)
 
             # Bind each vararg element to its corresponding tuple slot
             for i in range(numParam, numArgs):
@@ -410,9 +398,7 @@ class AnalysisContext(CanonicalObject):
                 # This can happen with dynamically analyzed code
                 # Use the minimum length to avoid index errors
                 min_len = min(len(callee.returnparams), len(caller.returnargs))
-                for param, arg in zip(
-                    callee.returnparams[:min_len], caller.returnargs[:min_len]
-                ):
+                for param, arg in zip(callee.returnparams[:min_len], caller.returnargs[:min_len]):
                     sys.createAssign(param, arg)
             else:
                 for param, arg in zip(callee.returnparams, caller.returnargs):

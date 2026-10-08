@@ -8,6 +8,7 @@ class MyClass:
     def func2(self):
         self.func1()
 
+
 a = MyClass()
 
 a.func2()

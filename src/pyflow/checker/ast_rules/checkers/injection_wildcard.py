@@ -4,6 +4,7 @@ B105: Test for shell wildcard injection.
 Using user input in shell wildcard operations can lead to
 argument injection or unexpected file matching.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
@@ -13,9 +14,12 @@ from ..core import test_properties as test
 def wildcard_injection(context):
     qualname = context.call_function_name_qual
     if qualname not in {
-        "glob.glob", "glob.iglob",
-        "fnmatch.fnmatch", "fnmatch.filter",
-        "pathlib.Path.glob", "pathlib.Path.rglob",
+        "glob.glob",
+        "glob.iglob",
+        "fnmatch.fnmatch",
+        "fnmatch.filter",
+        "pathlib.Path.glob",
+        "pathlib.Path.rglob",
     }:
         return None
     for arg in context.node.args:

@@ -32,13 +32,11 @@ def _analyze_source(source, configuration=None):
 
 
 def test_dynamic_getter_path_and_write_is_class_pollution():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     target = getattr(obj, key)
     setattr(target, key, value)
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     finding = result.findings[0]
@@ -50,24 +48,20 @@ def main(obj, key, value):
 
 
 def test_plain_dynamic_setattr_is_not_mislabeled_as_class_pollution():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     setattr(obj, key, value)
-"""
-    )
+""")
 
     assert result.findings == ()
 
 
 def test_static_class_traversal_plus_controlled_write_is_reported():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     target = obj.__class__
     setattr(target, key, value)
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     assert "__class__" in result.findings[0].dangerous_components
@@ -75,13 +69,11 @@ def main(obj, key, value):
 
 
 def test_global_namespace_path_is_ranked_as_gadget_reachable():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     target = obj.__globals__
     setattr(target, key, value)
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     assert result.findings[0].proof_level == "gadget-reachable"
@@ -89,9 +81,7 @@ def main(obj, key, value):
 
 
 def test_allowlisted_key_language_blocks_magic_path():
-    config = ClassPollutionConfiguration(
-        key_allowlists={"allow_key": frozenset({"name", "title"})}
-    )
+    config = ClassPollutionConfiguration(key_allowlists={"allow_key": frozenset({"name", "title"})})
     result = _analyze_source(
         """
 def main(obj, raw, value):
@@ -106,13 +96,11 @@ def main(obj, raw, value):
 
 
 def test_dynamic_item_path_and_subscript_write_is_reported():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     target = obj[key]
     target[key] = value
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     assert result.findings[0].mutation_kind == "item"
@@ -120,25 +108,21 @@ def main(obj, key, value):
 
 
 def test_direct_dunder_dict_item_write_is_reported():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, key, value):
     obj.__dict__[key] = value
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     assert "__dict__" in result.findings[0].dangerous_components
 
 
 def test_vars_namespace_update_is_reported():
-    result = _analyze_source(
-        """
+    result = _analyze_source("""
 def main(obj, data):
     namespace = vars(obj)
     namespace.update(data)
-"""
-    )
+""")
 
     assert len(result.findings) == 1
     assert result.findings[0].mutation_kind == "namespace"
@@ -183,6 +167,4 @@ def test_interprocedural_target_path_is_preserved():
 
     assert len(result.findings) == 1
     facts = result._ifds_result.facts_at(result.findings[0].sink)
-    assert any(
-        getattr(fact, "role", None) is PollutionRole.TARGET_OBJECT for fact in facts
-    )
+    assert any(getattr(fact, "role", None) is PollutionRole.TARGET_OBJECT for fact in facts)

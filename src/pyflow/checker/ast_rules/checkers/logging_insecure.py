@@ -9,6 +9,7 @@ The logging.config.listen function opens a socket server that
 passes received config through eval(). Use with a 'verify'
 argument to authenticate the source.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

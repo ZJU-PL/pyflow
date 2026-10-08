@@ -12,7 +12,6 @@ from enum import Enum
 import os
 from typing import Generic, Hashable, Iterable, TypeVar
 
-
 ProcedureT = TypeVar("ProcedureT", bound=Hashable)
 
 
@@ -121,9 +120,7 @@ def select_entry_points(
         if procedure.synthetic_module and not options.include_synthetic_modules:
             continue
         is_root = incoming[procedure.identity] == 0
-        in_file = bool(
-            procedure.filename and os.path.realpath(procedure.filename) in target_files
-        )
+        in_file = bool(procedure.filename and os.path.realpath(procedure.filename) in target_files)
         reason: str | None = None
         if options.mode is EntryPointMode.DECLARED_ONLY and procedure.declared:
             reason = "declared"

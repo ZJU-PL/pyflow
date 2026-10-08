@@ -218,9 +218,7 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         help="Verify an artifact against a local Sigstore bundle",
     )
     audit.add_argument("--cert-identity", help="Expected Sigstore certificate identity")
-    audit.add_argument(
-        "--cert-oidc-issuer", help="Expected Sigstore certificate OIDC issuer"
-    )
+    audit.add_argument("--cert-oidc-issuer", help="Expected Sigstore certificate OIDC issuer")
 
 
 def run_supply_chain(args: Any) -> int:
@@ -269,8 +267,7 @@ def run_supply_chain(args: Any) -> int:
                 and not getattr(args, "schema", None)
             ):
                 print(
-                    "Supply-chain command failed: --require-schema-validation "
-                    "requires --schema",
+                    "Supply-chain command failed: --require-schema-validation " "requires --schema",
                     file=sys.stderr,
                 )
                 return 2
@@ -297,9 +294,7 @@ def run_supply_chain(args: Any) -> int:
                 for finding in scan.findings
             )
             commit_output = True
-            return (
-                2 if incomplete and not getattr(args, "allow_incomplete", False) else 0
-            )
+            return 2 if incomplete and not getattr(args, "allow_incomplete", False) else 0
 
         if args.supply_chain_command == "audit":
             findings = list(scan.findings)
@@ -347,9 +342,7 @@ def run_supply_chain(args: Any) -> int:
                         findings.extend(reachability_findings)
                     except (OSError, ValueError, json.JSONDecodeError) as exc:
                         findings.append(
-                            _configuration_finding(
-                                f"Could not load reachability import map: {exc}"
-                            )
+                            _configuration_finding(f"Could not load reachability import map: {exc}")
                         )
                 findings.extend(
                     audit_vulnerabilities(
@@ -363,9 +356,7 @@ def run_supply_chain(args: Any) -> int:
                     )
                 )
             artifacts = [
-                Path(value)
-                for value in scan.metadata.get("artifacts", ())
-                if Path(value).is_file()
+                Path(value) for value in scan.metadata.get("artifacts", ()) if Path(value).is_file()
             ]
             authenticated_inputs: frozenset[Path] = frozenset()
             sigstore_bundles = getattr(args, "sigstore_bundle", ()) or ()
@@ -404,9 +395,7 @@ def run_supply_chain(args: Any) -> int:
                 try:
                     write_baseline(args.write_baseline, findings)
                 except OSError as exc:
-                    print(
-                        f"Could not write supply-chain baseline: {exc}", file=sys.stderr
-                    )
+                    print(f"Could not write supply-chain baseline: {exc}", file=sys.stderr)
                     return 2
 
             policy = FindingPolicy()
@@ -440,8 +429,7 @@ def run_supply_chain(args: Any) -> int:
                 results = [f.to_dict() for f in findings]
                 if getattr(args, "show_suppressed", False):
                     results.extend(
-                        {**finding.to_dict(), "suppressed": True}
-                        for finding in suppressed
+                        {**finding.to_dict(), "suppressed": True} for finding in suppressed
                     )
                 json.dump(
                     {
@@ -475,9 +463,7 @@ def run_supply_chain(args: Any) -> int:
                 )
                 suppressed_ids = {finding.to_dict()["id"] for finding in suppressed}
                 for result in sarif_document["runs"][0]["results"]:
-                    finding_id = result.get("partialFingerprints", {}).get(
-                        "pyflowFindingId"
-                    )
+                    finding_id = result.get("partialFingerprints", {}).get("pyflowFindingId")
                     if finding_id in suppressed_ids:
                         result["suppressions"] = [
                             {
@@ -545,9 +531,7 @@ def _add_common_args(parser: Any) -> None:
         help="Target Python version for PEP 508 marker evaluation (for example 3.12)",
     )
     parser.add_argument("--platform", help="Target sys_platform marker value")
-    parser.add_argument(
-        "--implementation", help="Target implementation_name marker value"
-    )
+    parser.add_argument("--implementation", help="Target implementation_name marker value")
     parser.add_argument(
         "--extra",
         action="append",
@@ -648,13 +632,10 @@ def _load_license_policy(path: Path) -> tuple[list[str], list[str] | None]:
         if raw_exceptions is not None and not isinstance(raw_exceptions, list):
             raise ValueError("allowed_exceptions must be a JSON array")
         return [str(item) for item in data["allowed_licenses"]], (
-            [str(item) for item in raw_exceptions]
-            if raw_exceptions is not None
-            else None
+            [str(item) for item in raw_exceptions] if raw_exceptions is not None else None
         )
     raise ValueError(
-        "License policy file must be a JSON array or an object with an "
-        "allowed_licenses array"
+        "License policy file must be a JSON array or an object with an " "allowed_licenses array"
     )
 
 
@@ -668,9 +649,7 @@ def _scan_limits(args: Any) -> ScanLimits:
         max_archive_size=int(
             getattr(args, "max_archive_mb", defaults.max_archive_size / mib) * mib
         ),
-        max_archive_members=getattr(
-            args, "max_archive_members", defaults.max_archive_members
-        ),
+        max_archive_members=getattr(args, "max_archive_members", defaults.max_archive_members),
         max_archive_member_size=int(
             getattr(
                 args,
@@ -690,9 +669,7 @@ def _scan_limits(args: Any) -> ScanLimits:
         max_compression_ratio=getattr(
             args, "max_compression_ratio", defaults.max_compression_ratio
         ),
-        max_archive_depth=getattr(
-            args, "max_archive_depth", defaults.max_archive_depth
-        ),
+        max_archive_depth=getattr(args, "max_archive_depth", defaults.max_archive_depth),
         max_scan_entries=getattr(args, "max_scan_entries", defaults.max_scan_entries),
     )
 

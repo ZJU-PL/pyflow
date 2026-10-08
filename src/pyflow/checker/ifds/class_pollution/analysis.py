@@ -38,7 +38,6 @@ from .domain import (
     PollutionRole,
 )
 
-
 ZERO_CLASS_POLLUTION = "ZERO_CLASS_POLLUTION"
 _INTERNAL_ORIGIN = PollutionOrigin("<internal>", "<internal>")
 MutationKind = Literal["attribute", "item", "namespace"]
@@ -97,9 +96,7 @@ class ClassPollutionConfiguration:
     bound_attribute_get_names: FrozenSet[str] = frozenset({"__getattribute__"})
     bound_item_get_names: FrozenSet[str] = frozenset({"get", "pop", "__getitem__"})
     bound_attribute_set_names: FrozenSet[str] = frozenset({"__setattr__"})
-    bound_item_set_names: FrozenSet[str] = frozenset(
-        {"__setitem__", "setdefault"}
-    )
+    bound_item_set_names: FrozenSet[str] = frozenset({"__setitem__", "setdefault"})
     preserving_call_names: FrozenSet[str] = frozenset(
         {
             "items",
@@ -242,9 +239,7 @@ class ClassPollutionProblem(
             access_path=access_path,
         )
 
-    def _make_expression_fact(
-        self, procedure, expression, result_index=0, template_fact=None
-    ):
+    def _make_expression_fact(self, procedure, expression, result_index=0, template_fact=None):
         if not isinstance(template_fact, (PollutionFact, ExpressionPollutionFact)):
             raise ValueError("class-pollution facts require a typed template")
         return ExpressionPollutionFact(
@@ -308,24 +303,15 @@ class ClassPollutionProblem(
         leaf_name = (effect.call_name or "").rsplit(".", 1)[-1]
         receiver = self._call_receiver(effect.call_expression)
         if receiver is not None and (
-            (
-                leaf_name in self.configuration.bound_attribute_get_names
-                and len(actuals) == 1
-            )
-            or (
-                leaf_name in self.configuration.bound_item_get_names
-                and 1 <= len(actuals) <= 2
-            )
+            (leaf_name in self.configuration.bound_attribute_get_names and len(actuals) == 1)
+            or (leaf_name in self.configuration.bound_item_get_names and 1 <= len(actuals) <= 2)
         ):
             return receiver
         if model is not None and model.kind in {"get", "namespace"}:
             if model.object_position < len(actuals):
                 return actuals[model.object_position]
             return None
-        if (
-            effect.call_name
-            and effect.call_name.rsplit(".", 1)[-1] == "get"
-        ):
+        if effect.call_name and effect.call_name.rsplit(".", 1)[-1] == "get":
             return self._call_receiver(effect.call_expression)
         return None
 
@@ -364,11 +350,7 @@ class ClassPollutionProblem(
                 and self._call_leaf_name(iterable.expr) == "interpreter__add__"
             ):
                 parts = actual_argument_expressions(iterable)
-                if (
-                    len(parts) == 2
-                    and isinstance(parts[0], py_ast.BuildList)
-                    and parts[0].args
-                ):
+                if len(parts) == 2 and isinstance(parts[0], py_ast.BuildList) and parts[0].args:
                     return parts[0].args[0], parts[1], mutation_kind
             # Conservative fallback for non-canonical reduce-based getters.
             return outer_actuals[1], outer_actuals[1], mutation_kind
@@ -378,11 +360,7 @@ class ClassPollutionProblem(
         summaries = {}
         for procedure in self.supergraph.ordered_procedures():
             formals = formal_parameters(procedure.code.codeparameters)
-            positions = {
-                formal.name: index
-                for index, formal in enumerate(formals)
-                if formal.name
-            }
+            positions = {formal.name: index for index, formal in enumerate(formals) if formal.name}
             for node in self.supergraph.ordered_nodes_of(procedure):
                 operation = self.adapter.operation_of(node)
                 if not isinstance(operation, py_ast.Return):
@@ -432,13 +410,9 @@ class ClassPollutionProblem(
             operation = self.adapter.operation_of(node)
             if isinstance(operation, (py_ast.Assign, py_ast.AnnAssign)):
                 expression = (
-                    operation.value
-                    if isinstance(operation, py_ast.AnnAssign)
-                    else operation.expr
+                    operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
                 )
-                targets = {
-                    local.name for local in assigned_locals(operation) if local.name
-                }
+                targets = {local.name for local in assigned_locals(operation) if local.name}
                 assignments.append((targets, expression))
         roots = set()
         for targets, expression in assignments:
@@ -471,17 +445,11 @@ class ClassPollutionProblem(
             if site is not None:
                 candidates.update(self._local_names(site[2]))
             operation = self.adapter.operation_of(node)
-            if isinstance(
-                operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-            ):
+            if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
                 expression = (
-                    operation.value
-                    if isinstance(operation, py_ast.AnnAssign)
-                    else operation.expr
+                    operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
                 )
-                targets = {
-                    local.name for local in assigned_locals(operation) if local.name
-                }
+                targets = {local.name for local in assigned_locals(operation) if local.name}
                 assignments.append((targets, self._local_names(expression)))
 
         changed = True
@@ -492,9 +460,7 @@ class ClassPollutionProblem(
                     candidates.update(sources)
                     changed = True
         candidates.update(self._eval_root_parameter_names(procedure))
-        result = frozenset(
-            formal.name for formal in formals if formal.name in candidates
-        )
+        result = frozenset(formal.name for formal in formals if formal.name in candidates)
         self._root_parameter_cache[procedure] = result
         return result
 
@@ -531,14 +497,18 @@ class ClassPollutionProblem(
                     candidates.update(self._local_names(summary[1]))
                 elif effect.call_name in {"eval", "builtins.eval"} and actuals:
                     candidates.update(self._local_names(actuals[0]))
-                elif receiver is not None and actuals and (
-                    (
-                        leaf_name in self.configuration.bound_attribute_get_names
-                        and len(actuals) == 1
-                    )
-                    or (
-                        leaf_name in self.configuration.bound_item_get_names
-                        and len(actuals) <= 2
+                elif (
+                    receiver is not None
+                    and actuals
+                    and (
+                        (
+                            leaf_name in self.configuration.bound_attribute_get_names
+                            and len(actuals) == 1
+                        )
+                        or (
+                            leaf_name in self.configuration.bound_item_get_names
+                            and len(actuals) <= 2
+                        )
                     )
                 ):
                     candidates.update(self._local_names(actuals[0]))
@@ -548,9 +518,7 @@ class ClassPollutionProblem(
                     and model.key_position is not None
                     and model.key_position < len(actuals)
                 ):
-                    candidates.update(
-                        self._local_names(actuals[model.key_position])
-                    )
+                    candidates.update(self._local_names(actuals[model.key_position]))
                 elif (
                     model is None
                     and effect.call_name
@@ -559,17 +527,11 @@ class ClassPollutionProblem(
                 ):
                     candidates.update(self._local_names(actuals[0]))
             operation = self.adapter.operation_of(node)
-            if isinstance(
-                operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-            ):
+            if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
                 expression = (
-                    operation.value
-                    if isinstance(operation, py_ast.AnnAssign)
-                    else operation.expr
+                    operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
                 )
-                targets = {
-                    local.name for local in assigned_locals(operation) if local.name
-                }
+                targets = {local.name for local in assigned_locals(operation) if local.name}
                 assignments.append((targets, self._local_names(expression)))
             if node.kind == "foriter" and isinstance(node.block, cfg_graph.ForIter):
                 iterations.append(
@@ -586,18 +548,14 @@ class ClassPollutionProblem(
                 if candidates.intersection(targets) and not sources.issubset(candidates):
                     candidates.update(sources)
                     changed = True
-        result = frozenset(
-            formal.name for formal in formals if formal.name in candidates
-        )
+        result = frozenset(formal.name for formal in formals if formal.name in candidates)
         self._controlled_parameter_cache[procedure] = result
         return result
 
     def initial_seeds(self):
         seeds = {
             node: set(facts)
-            for node, facts in build_entry_seeds(
-                self.entry_nodes, ZERO_CLASS_POLLUTION
-            ).items()
+            for node, facts in build_entry_seeds(self.entry_nodes, ZERO_CLASS_POLLUTION).items()
         }
         if not self.configuration.seed_entrypoint_parameters:
             return {node: frozenset(facts) for node, facts in seeds.items()}
@@ -606,20 +564,12 @@ class ClassPollutionProblem(
             controlled_parameters = self._controlled_parameter_names(entry.procedure)
             root_parameters = self._root_parameter_names(entry.procedure)
             for index, parameter in enumerate(parameters):
-                origin = PollutionOrigin(
-                    entry.procedure, parameter.name or "<parameter>", index
-                )
+                origin = PollutionOrigin(entry.procedure, parameter.name or "<parameter>", index)
                 for location in self._locations_for_local(entry.procedure, parameter):
                     if parameter.name in controlled_parameters:
-                        seeds[entry].add(
-                            PollutionFact(location, origin, PollutionRole.INPUT)
-                        )
+                        seeds[entry].add(PollutionFact(location, origin, PollutionRole.INPUT))
                     if parameter.name in root_parameters:
-                        seeds[entry].add(
-                            PollutionFact(
-                                location, origin, PollutionRole.ROOT_OBJECT
-                            )
-                        )
+                        seeds[entry].add(PollutionFact(location, origin, PollutionRole.ROOT_OBJECT))
         return {node: frozenset(facts) for node, facts in seeds.items()}
 
     @staticmethod
@@ -632,12 +582,8 @@ class ClassPollutionProblem(
 
     def _same_storage(self, left, right) -> bool:
         if isinstance(left, PollutionFact) and isinstance(right, PollutionFact):
-            return self._fact_prefix_matches(left, right) or self._fact_prefix_matches(
-                right, left
-            )
-        if isinstance(left, ExpressionPollutionFact) and isinstance(
-            right, ExpressionPollutionFact
-        ):
+            return self._fact_prefix_matches(left, right) or self._fact_prefix_matches(right, left)
+        if isinstance(left, ExpressionPollutionFact) and isinstance(right, ExpressionPollutionFact):
             return (
                 left.procedure is right.procedure
                 and left.expression is right.expression
@@ -768,9 +714,7 @@ class ClassPollutionProblem(
                     magic_seen.add(identity)
                 continue
             if candidate.static_name is None and not dynamic_seen:
-                canonical.append(
-                    ObjectPathStep(candidate.kind, KeyLanguage.top())
-                )
+                canonical.append(ObjectPathStep(candidate.kind, KeyLanguage.top()))
                 dynamic_seen = True
         return tuple(canonical)
 
@@ -795,9 +739,7 @@ class ClassPollutionProblem(
                     role=PollutionRole.TARGET_OBJECT,
                     object_path=self._extend_object_path(
                         fact,
-                        ObjectPathStep(
-                            "attribute", KeyLanguage.finite({name}), name
-                        ),
+                        ObjectPathStep("attribute", KeyLanguage.finite({name}), name),
                     ),
                     access_path=(),
                 )
@@ -809,9 +751,7 @@ class ClassPollutionProblem(
             return replace(
                 fact,
                 role=PollutionRole.TARGET_OBJECT,
-                object_path=self._extend_object_path(
-                    fact, ObjectPathStep("item", language, name)
-                ),
+                object_path=self._extend_object_path(fact, ObjectPathStep("item", language, name)),
                 access_path=(),
             )
         return fact
@@ -843,9 +783,7 @@ class ClassPollutionProblem(
         bound_item_get = (
             receiver is not None
             and leaf_name in self.configuration.bound_item_get_names
-            and 1
-            <= len(actual_argument_expressions(effect.call_expression))
-            <= 2
+            and 1 <= len(actual_argument_expressions(effect.call_expression)) <= 2
         )
         method_get = bound_attribute_get or bound_item_get
         eval_get = effect.call_name in {"eval", "builtins.eval"}
@@ -855,9 +793,7 @@ class ClassPollutionProblem(
             and higher_order is None
             and summary is None
             and not eval_get
-        ) or (
-            model is not None and model.kind not in {"get", "namespace"}
-        ):
+        ) or (model is not None and model.kind not in {"get", "namespace"}):
             return set()
         actuals = actual_argument_expressions(effect.call_expression)
         if higher_order is not None:
@@ -881,8 +817,7 @@ class ClassPollutionProblem(
             object_expr = actuals[model.object_position]
             key_expr = (
                 actuals[model.key_position]
-                if model.key_position is not None
-                and model.key_position < len(actuals)
+                if model.key_position is not None and model.key_position < len(actuals)
                 else None
             )
             mutation_kind = model.mutation_kind
@@ -892,9 +827,7 @@ class ClassPollutionProblem(
                 return set()
             if not self._expr_has_fact(node.procedure, actuals[model.object_position], fact):
                 return set()
-            step = ObjectPathStep(
-                "attribute", KeyLanguage.finite({"__dict__"}), "__dict__"
-            )
+            step = ObjectPathStep("attribute", KeyLanguage.finite({"__dict__"}), "__dict__")
             target = replace(
                 fact,
                 role=PollutionRole.TARGET_OBJECT,
@@ -946,11 +879,7 @@ class ClassPollutionProblem(
                 and literal not in MAGIC_PATH_COMPONENTS
             ):
                 return outputs
-            language = (
-                KeyLanguage.finite({literal})
-                if literal is not None
-                else KeyLanguage.top()
-            )
+            language = KeyLanguage.finite({literal}) if literal is not None else KeyLanguage.top()
             step = ObjectPathStep(mutation_kind, language, literal)
             target = replace(
                 base,
@@ -994,18 +923,14 @@ class ClassPollutionProblem(
         call_name = effect.call_name or ""
         if (
             call_name not in self.configuration.preserving_call_names
-            and call_name.rsplit(".", 1)[-1]
-            not in self.configuration.preserving_call_names
+            and call_name.rsplit(".", 1)[-1] not in self.configuration.preserving_call_names
         ):
             return set()
         inputs = list(actual_argument_expressions(effect.call_expression))
         receiver = self._call_receiver(effect.call_expression)
         if receiver is not None:
             inputs.append(receiver)
-        if not any(
-            self._expr_has_fact(node.procedure, expression, fact)
-            for expression in inputs
-        ):
+        if not any(self._expr_has_fact(node.procedure, expression, fact) for expression in inputs):
             return set()
         return self._call_result_facts(node, fact)
 
@@ -1044,14 +969,10 @@ class ClassPollutionProblem(
                 ):
                     template = replace(
                         fact,
-                        object_path=self._canonical_recursive_path(
-                            fact.object_path
-                        ),
+                        object_path=self._canonical_recursive_path(fact.object_path),
                         recursive_summary=True,
                     )
-                outputs.update(
-                    self._facts_for_locals(node.procedure, (formal,), template)
-                )
+                outputs.update(self._facts_for_locals(node.procedure, (formal,), template))
         return outputs
 
     def _synthetic_getter_updates(self, node, fact):
@@ -1063,8 +984,7 @@ class ClassPollutionProblem(
             not isinstance(call, py_ast.DirectCall)
             or call.code is None
             or not isinstance(fact, (PollutionFact, ExpressionPollutionFact))
-            or fact.role
-            not in {PollutionRole.ROOT_OBJECT, PollutionRole.TARGET_OBJECT}
+            or fact.role not in {PollutionRole.ROOT_OBJECT, PollutionRole.TARGET_OBJECT}
         ):
             return set()
         ast_root = getattr(call.code, "ast", None)
@@ -1077,9 +997,7 @@ class ClassPollutionProblem(
                 return
             if isinstance(current, py_ast.Code):
                 return
-            if isinstance(current, py_ast.NamedExpr) and isinstance(
-                current.value, py_ast.Call
-            ):
+            if isinstance(current, py_ast.NamedExpr) and isinstance(current.value, py_ast.Call):
                 nested = current.value
                 name = self._call_leaf_name(nested.expr)
                 actuals = actual_argument_expressions(nested)
@@ -1111,11 +1029,7 @@ class ClassPollutionProblem(
             if not self._expr_has_fact(node.procedure, object_expr, fact):
                 continue
             literal = self._constant_string(key_expr)
-            language = (
-                KeyLanguage.finite({literal})
-                if literal is not None
-                else KeyLanguage.top()
-            )
+            language = KeyLanguage.finite({literal}) if literal is not None else KeyLanguage.top()
             target_fact = replace(
                 fact,
                 role=PollutionRole.TARGET_OBJECT,
@@ -1124,9 +1038,7 @@ class ClassPollutionProblem(
                 ),
                 access_path=(),
             )
-            outputs.update(
-                self._facts_for_locals(node.procedure, (target,), target_fact)
-            )
+            outputs.update(self._facts_for_locals(node.procedure, (target,), target_fact))
         return outputs
 
     def _guard_refined_fact(self, node, successor, fact):
@@ -1145,29 +1057,27 @@ class ClassPollutionProblem(
         if isinstance(condition, py_ast.Not):
             condition = condition.expr
             negated = True
-        elif isinstance(condition, py_ast.Call) and self._call_leaf_name(
-            condition.expr
-        ) == "interpreter__not__":
+        elif (
+            isinstance(condition, py_ast.Call)
+            and self._call_leaf_name(condition.expr) == "interpreter__not__"
+        ):
             actuals = actual_argument_expressions(condition)
             if actuals and isinstance(actuals[0], py_ast.Call):
                 condition = actuals[0]
                 negated = True
         true_branch = successor in guard.true_successors
         predicate_holds = not true_branch if negated else true_branch
-        if isinstance(condition, py_ast.Call) and self._call_leaf_name(
-            condition.expr
-        ) == "interpreter__contains__":
+        if (
+            isinstance(condition, py_ast.Call)
+            and self._call_leaf_name(condition.expr) == "interpreter__contains__"
+        ):
             actuals = actual_argument_expressions(condition)
-            if len(actuals) >= 2 and self._expr_has_fact(
-                node.procedure, actuals[1], fact
-            ):
+            if len(actuals) >= 2 and self._expr_has_fact(node.procedure, actuals[1], fact):
                 values = self._constant_string_collection(actuals[0])
                 if predicate_holds and values is not None:
                     return replace(fact, key_language=KeyLanguage.finite(values))
             return fact
-        if not isinstance(condition, py_ast.Call) or not isinstance(
-            condition.expr, py_ast.GetAttr
-        ):
+        if not isinstance(condition, py_ast.Call) or not isinstance(condition.expr, py_ast.GetAttr):
             return fact
         method = self._constant_string(condition.expr.name)
         if method not in {"startswith", "endswith"}:
@@ -1224,21 +1134,13 @@ class ClassPollutionProblem(
             if isinstance(fact, (PollutionFact, ExpressionPollutionFact)) and self._expr_has_fact(
                 node.procedure, node.block.iterator, fact
             ):
-                outputs.update(
-                    self._facts_for_locals(node.procedure, (node.block.index,), fact)
-                )
+                outputs.update(self._facts_for_locals(node.procedure, (node.block.index,), fact))
             return tuple(outputs)
 
         killed = self._killed_locations_for_node(node)
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity(fact, killed))
-            expr = (
-                operation.value
-                if isinstance(operation, py_ast.AnnAssign)
-                else operation.expr
-            )
+            expr = operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
             targets = assigned_locals(operation)
             self._update_aliases_for_assignment(node.procedure, targets, expr)
             if isinstance(
@@ -1280,27 +1182,21 @@ class ClassPollutionProblem(
                 } and isinstance(expr, py_ast.GetAttr):
                     name = self._constant_string(expr.name)
                     if name is not None:
-                        step = ObjectPathStep(
-                            "attribute", KeyLanguage.finite({name}), name
-                        )
+                        step = ObjectPathStep("attribute", KeyLanguage.finite({name}), name)
                         template = replace(
                             fact,
                             role=PollutionRole.TARGET_OBJECT,
                             object_path=self._extend_object_path(fact, step),
                             access_path=(),
                         )
-                outputs.update(
-                    self._facts_for_locals(node.procedure, targets, template)
-                )
+                outputs.update(self._facts_for_locals(node.procedure, targets, template))
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
             outputs = set(self._identity(fact))
             if isinstance(fact, (PollutionFact, ExpressionPollutionFact)):
                 for index, expression in enumerate(operation.exprs):
-                    if self._semantic_expr_has_fact(
-                        node.procedure, expression, fact
-                    ):
+                    if self._semantic_expr_has_fact(node.procedure, expression, fact):
                         outputs.update(
                             self._facts_for_return_location(
                                 node.procedure, index, template_fact=fact
@@ -1324,9 +1220,7 @@ class ClassPollutionProblem(
                 outputs.update(self._facts_for_locals(callee, (formal,), fact))
         return tuple(outputs)
 
-    def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact
-    ):
+    def return_flow(self, call_node, callee, exit_node, return_site, call_fact, exit_fact):
         del exit_node, return_site
         outputs = set()
         if call_fact == ZERO_CLASS_POLLUTION and exit_fact == ZERO_CLASS_POLLUTION:
@@ -1336,8 +1230,7 @@ class ClassPollutionProblem(
         returnparams = tuple(callee.code.codeparameters.returnparams)
         for index, parameter in enumerate(returnparams):
             if any(
-                isinstance(exit_fact, PollutionFact)
-                and exit_fact.location == location
+                isinstance(exit_fact, PollutionFact) and exit_fact.location == location
                 for location in self._locations_for_local(callee, parameter)
             ):
                 effect = self._call_effect(call_node)
@@ -1462,12 +1355,8 @@ class ClassPollutionProblem(
             )
         )
         if isinstance(expression, py_ast.ConditionalExpr):
-            targets.extend(
-                self._target_facts(node, expression.body, facts)
-            )
-            targets.extend(
-                self._target_facts(node, expression.orelse, facts)
-            )
+            targets.extend(self._target_facts(node, expression.body, facts))
+            targets.extend(self._target_facts(node, expression.orelse, facts))
         if isinstance(expression, py_ast.GetAttr):
             name = self._constant_string(expression.name)
             if name is not None:
@@ -1479,15 +1368,9 @@ class ClassPollutionProblem(
                         PollutionRole.TARGET_OBJECT,
                     }:
                         continue
-                    if not self._expr_has_fact(
-                        node.procedure, expression.expr, fact
-                    ):
+                    if not self._expr_has_fact(node.procedure, expression.expr, fact):
                         continue
-                    targets.append(
-                        self._static_access_template(
-                            node.procedure, expression, fact
-                        )
-                    )
+                    targets.append(self._static_access_template(node.procedure, expression, fact))
         return tuple(dict.fromkeys(targets))
 
     def _is_static_safe_projection(self, procedure, expression):
@@ -1500,11 +1383,7 @@ class ClassPollutionProblem(
             targets = assigned_locals(operation)
             if not any(target.name == expression.name for target in targets):
                 continue
-            value = (
-                operation.value
-                if isinstance(operation, py_ast.AnnAssign)
-                else operation.expr
-            )
+            value = operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
             if not isinstance(value, py_ast.Call):
                 continue
             if self._call_leaf_name(value.expr) != "interpreter_getitem":
@@ -1544,24 +1423,19 @@ class ClassPollutionProblem(
                     continue
                 sink_name, mutation_kind, target_expr, key_expr, value_expr = site
                 facts = result.facts_at(node)
-                keys = self._facts_matching(
-                    node, key_expr, facts, {PollutionRole.INPUT}
-                )
+                keys = self._facts_matching(node, key_expr, facts, {PollutionRole.INPUT})
                 targets = sorted(
                     self._target_facts(node, target_expr, facts),
                     key=lambda fact: (
                         not any(
-                            step.static_name in MAGIC_PATH_COMPONENTS
-                            for step in fact.object_path
+                            step.static_name in MAGIC_PATH_COMPONENTS for step in fact.object_path
                         ),
                         len(fact.object_path),
                         repr(fact.object_path),
                     ),
                 )
                 values = (
-                    self._facts_matching(
-                        node, value_expr, facts, {PollutionRole.INPUT}
-                    )
+                    self._facts_matching(node, value_expr, facts, {PollutionRole.INPUT})
                     if value_expr is not None
                     else ()
                 )
@@ -1570,18 +1444,11 @@ class ClassPollutionProblem(
                         continue
                     for target in targets:
                         controlled_path = target.controller == key.origin
-                        same_boundary = (
-                            target.origin.procedure == key.origin.procedure
-                        )
+                        same_boundary = target.origin.procedure == key.origin.procedure
                         explicit_magic_path = any(
-                            step.static_name in MAGIC_PATH_COMPONENTS
-                            for step in target.object_path
+                            step.static_name in MAGIC_PATH_COMPONENTS for step in target.object_path
                         )
-                        if (
-                            not controlled_path
-                            and not same_boundary
-                            and not explicit_magic_path
-                        ):
+                        if not controlled_path and not same_boundary and not explicit_magic_path:
                             continue
                         if (
                             key.origin == target.origin
@@ -1603,9 +1470,7 @@ class ClassPollutionProblem(
                             step.static_name in GADGET_PATH_COMPONENTS
                             for step in target.object_path
                         ) or bool(
-                            set(key.key_language.literals).intersection(
-                                GADGET_PATH_COMPONENTS
-                            )
+                            set(key.key_language.literals).intersection(GADGET_PATH_COMPONENTS)
                         )
                         reports.append(
                             ClassPollutionFinding(
@@ -1613,9 +1478,7 @@ class ClassPollutionProblem(
                                 sink_name=sink_name,
                                 mutation_kind=mutation_kind,
                                 proof_level=(
-                                    "gadget-reachable"
-                                    if gadget_reachable
-                                    else "pollutable-object"
+                                    "gadget-reachable" if gadget_reachable else "pollutable-object"
                                 ),
                                 key_origin=key.origin,
                                 target_origin=target.origin,
@@ -1623,14 +1486,10 @@ class ClassPollutionProblem(
                                 object_path=target.object_path,
                                 value_controlled=value_controlled,
                                 severity=(
-                                    "critical"
-                                    if value_controlled or gadget_reachable
-                                    else "high"
+                                    "critical" if value_controlled or gadget_reachable else "high"
                                 ),
                                 confidence=(
-                                    "high"
-                                    if explicit_magic_path or gadget_reachable
-                                    else "medium"
+                                    "high" if explicit_magic_path or gadget_reachable else "medium"
                                 ),
                             )
                         )

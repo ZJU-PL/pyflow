@@ -46,9 +46,7 @@ def test_retain_live_contexts_filters_contextual_facts_and_targets():
     catalog.facts.publish_many(
         "test",
         {
-            Capabilities.CONTEXTS: {
-                code_id: FactResult.exact((first_id, dead_id), "test")
-            },
+            Capabilities.CONTEXTS: {code_id: FactResult.exact((first_id, dead_id), "test")},
             Capabilities.REFERENCES: {
                 ContextualKey(symbol_id, first_id): FactResult.exact(("live",), "test"),
                 ContextualKey(symbol_id, dead_id): FactResult.exact(("dead",), "test"),

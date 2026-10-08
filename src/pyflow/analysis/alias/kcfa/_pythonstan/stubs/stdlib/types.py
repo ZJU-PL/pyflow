@@ -22,9 +22,25 @@ class LambdaType(FunctionType):
 
 
 class CodeType:
-    def __init__(self, argcount, posonlyargcount, kwonlyargcount, nlocals, stacksize,
-                 flags, codestring, constants, names, varnames, filename, name,
-                 firstlineno, linetable, freevars=(), cellvars=()):
+    def __init__(
+        self,
+        argcount,
+        posonlyargcount,
+        kwonlyargcount,
+        nlocals,
+        stacksize,
+        flags,
+        codestring,
+        constants,
+        names,
+        varnames,
+        filename,
+        name,
+        firstlineno,
+        linetable,
+        freevars=(),
+        cellvars=(),
+    ):
         self.co_argcount = argcount
         self.co_posonlyargcount = posonlyargcount
         self.co_kwonlyargcount = kwonlyargcount
@@ -79,7 +95,7 @@ class ClassMethodDescriptorType:
 class GeneratorType:
     def __init__(self, frame):
         self.gi_frame = frame
-        self.gi_code = frame.f_code if hasattr(frame, 'f_code') else None
+        self.gi_code = frame.f_code if hasattr(frame, "f_code") else None
         self.gi_running = False
         self.gi_yieldfrom = None
 
@@ -218,7 +234,7 @@ class DynamicClassAttribute:
 
 
 def new_class(name, bases=(), kwds=None, exec_body=None):
-    meta = kwds.get('metaclass', type) if kwds else type
+    meta = kwds.get("metaclass", type) if kwds else type
     ns = {}
     if exec_body is not None:
         exec_body(ns)
@@ -226,7 +242,7 @@ def new_class(name, bases=(), kwds=None, exec_body=None):
 
 
 def prepare_class(name, bases=(), kwds=None):
-    meta = kwds.get('metaclass', type) if kwds else type
+    meta = kwds.get("metaclass", type) if kwds else type
     ns = {}
     return meta, ns, {}
 

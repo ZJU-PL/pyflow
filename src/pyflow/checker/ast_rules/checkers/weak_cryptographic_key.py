@@ -4,6 +4,7 @@ B505: Test for weak cryptographic key generation.
 Using weak key sizes in cryptographic operations can be
 trivially broken. Use recommended key sizes for each algorithm.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

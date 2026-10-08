@@ -63,12 +63,8 @@ class AbstractTypeValue:
         return cls(
             frozenset(() if typ is None else (typ,)),
             unknown=unknown or typ is None,
-            callable_targets=frozenset(
-                () if callable_target is None else (callable_target,)
-            ),
-            class_targets=frozenset(
-                () if class_target is None else (class_target,)
-            ),
+            callable_targets=frozenset(() if callable_target is None else (callable_target,)),
+            class_targets=frozenset(() if class_target is None else (class_target,)),
         )
 
     @property

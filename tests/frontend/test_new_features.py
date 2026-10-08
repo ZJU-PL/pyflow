@@ -18,9 +18,9 @@ class TestAsyncAwait(unittest.TestCase):
     def test_convert_await(self):
         """Test converting await expression."""
         source = "await coro"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Await)
 
@@ -67,9 +67,9 @@ class TestWalrusOperator(unittest.TestCase):
     def test_convert_walrus_simple(self):
         """Test converting simple walrus operator."""
         source = "(x := 5)"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.NamedExpr)
 
@@ -149,7 +149,7 @@ class TestTypeAnnotations(unittest.TestCase):
         source = "x: int = 5"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.AnnAssign)
         self.assertIsNotNone(result.value)
@@ -159,7 +159,7 @@ class TestTypeAnnotations(unittest.TestCase):
         source = "x: int"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.AnnAssign)
         self.assertIsNone(result.value)
@@ -206,7 +206,7 @@ class TestGlobalNonlocal(unittest.TestCase):
         source = "global x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
@@ -215,7 +215,7 @@ class TestGlobalNonlocal(unittest.TestCase):
         source = "nonlocal x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
@@ -260,9 +260,7 @@ def outer():
         result = self.converter.convert_python_ast_to_pyflow(tree.body)
         outer = result.blocks[0]
         inner_defs = [
-            block
-            for block in outer.code.ast.blocks
-            if isinstance(block, pyflow_ast.FunctionDef)
+            block for block in outer.code.ast.blocks if isinstance(block, pyflow_ast.FunctionDef)
         ]
         self.assertTrue(inner_defs)
         inner = inner_defs[0]
@@ -289,16 +287,11 @@ def outer():
         result = self.converter.convert_python_ast_to_pyflow(tree.body)
         outer = result.blocks[0]
         inner = next(
-            block
-            for block in outer.code.ast.blocks
-            if isinstance(block, pyflow_ast.FunctionDef)
+            block for block in outer.code.ast.blocks if isinstance(block, pyflow_ast.FunctionDef)
         )
         self.assertTrue(code_closure_cells(inner.code))
         self.assertTrue(
-            any(
-                isinstance(block, pyflow_ast.SetCellDeref)
-                for block in outer.code.ast.blocks
-            )
+            any(isinstance(block, pyflow_ast.SetCellDeref) for block in outer.code.ast.blocks)
         )
         self.assertIsInstance(
             inner.code.ast.blocks[-1].exprs[0],
@@ -315,7 +308,7 @@ class TestComprehensions(unittest.TestCase):
     def test_list_comp_returns_suite(self):
         """List comprehension should lower to callable expression IR."""
         source = "[x for x in range(10)]"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
 
         result = self.converter._convert_expression(node)
@@ -326,9 +319,9 @@ class TestComprehensions(unittest.TestCase):
     def test_gen_exp_not_none(self):
         """Generator expressions create a deferred generator activation."""
         source = "(x for x in range(10))"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.DirectCall)
         self.assertIn("converted_genexpr", result.code.annotation.origin)
@@ -408,8 +401,7 @@ async with cm() as value:
         awaited_assigns = [
             block
             for block in outer.body.blocks
-            if isinstance(block, pyflow_ast.Assign)
-            and isinstance(block.expr, pyflow_ast.Await)
+            if isinstance(block, pyflow_ast.Assign) and isinstance(block.expr, pyflow_ast.Await)
         ]
         self.assertTrue(awaited_assigns)
         self.assertEqual(len(outer.handlers), 1)
@@ -502,8 +494,7 @@ match x:
         slice_binds = [
             block
             for block in match_switch.t.blocks
-            if isinstance(block, pyflow_ast.Assign)
-            and block.lcls[0].name == "rest"
+            if isinstance(block, pyflow_ast.Assign) and block.lcls[0].name == "rest"
         ]
         self.assertTrue(slice_binds)
         rest_value = slice_binds[0].expr.args[0]
@@ -532,9 +523,7 @@ match x:
         ]
         self.assertTrue(rest_binds)
         self.assertIsInstance(rest_binds[0].expr, pyflow_ast.Call)
-        self.assertEqual(
-            rest_binds[0].expr.expr.object.pyobj, "interpreter_match_mapping_rest"
-        )
+        self.assertEqual(rest_binds[0].expr.expr.object.pyobj, "interpreter_match_mapping_rest")
 
     @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
     def test_try_star_handlers_keep_original_group_for_residual_raise(self):

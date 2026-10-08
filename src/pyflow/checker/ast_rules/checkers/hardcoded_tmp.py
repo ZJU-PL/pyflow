@@ -4,6 +4,7 @@ B108: Test for hardcoded /tmp directory usage.
 Using hardcoded /tmp is insecure as it can be exploited via symlink attacks
 to overwrite or access files. Use tempfile.mkstemp() or tempfile.mkdtemp().
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

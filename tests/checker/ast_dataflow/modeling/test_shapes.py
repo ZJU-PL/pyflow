@@ -32,7 +32,4 @@ def f():
 
     assert [event.line for event in events] == [4]
     assert result.status == "partial"
-    assert any(
-        diagnostic.code == "shape-contract-assumption"
-        for diagnostic in result.diagnostics
-    )
+    assert any(diagnostic.code == "shape-contract-assumption" for diagnostic in result.diagnostics)

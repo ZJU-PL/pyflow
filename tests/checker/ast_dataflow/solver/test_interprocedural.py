@@ -79,9 +79,7 @@ def test_interprocedural_relational_summaries_connect_source_and_sink():
     )
 
     assert events
-    assert identity_return[SummaryPort(SummaryPortKind.RETURN)] == frozenset(
-        {"user_input"}
-    )
+    assert identity_return[SummaryPort(SummaryPortKind.RETURN)] == frozenset({"user_input"})
     assert result.rounds >= 2
 
 
@@ -90,15 +88,11 @@ def test_interprocedural_analysis_resolves_module_import_aliases(tmp_path):
         source_kinds_by_call={"input": frozenset({"user_input"})},
         sink_kinds_by_call={"eval": frozenset({"code_execution"})},
         sink_positions_by_call={"eval": frozenset({0})},
-        sanitizer_kinds_by_call={
-            "html.escape": frozenset({"user_input"})
-        },
+        sanitizer_kinds_by_call={"html.escape": frozenset({"user_input"})},
         rules=POLICY.rules,
     )
     module_source = (
-        "import html as html_escape\n"
-        "def main():\n"
-        "    eval(html_escape.escape(input()))\n"
+        "import html as html_escape\n" "def main():\n" "    eval(html_escape.escape(input()))\n"
     )
     module = tmp_path / "aliased_module.py"
     module.write_text(module_source, encoding="utf-8")
@@ -120,16 +114,12 @@ def test_interprocedural_summary_does_not_create_flow_after_strong_kill():
     result = ASTInterproceduralAnalyzer(POLICY).analyze(
         {
             "clean_identity": (
-                "def clean_identity(value):\n"
-                "    value = 'safe'\n"
-                "    return value\n"
+                "def clean_identity(value):\n" "    value = 'safe'\n" "    return value\n"
             )
         }
     )
     summary = result.summaries["clean_identity"]
-    values = summary.propagate(
-        {SummaryPort(SummaryPortKind.PARAMETER, index=0): {"user_input"}}
-    )
+    values = summary.propagate({SummaryPort(SummaryPortKind.PARAMETER, index=0): {"user_input"}})
 
     assert SummaryPort(SummaryPortKind.RETURN) not in values
 
@@ -155,9 +145,7 @@ def test_unique_method_suffix_resolves_to_relational_summary():
         {
             "identity": "def identity(self, value):\n    return value\n",
             "main": (
-                "def main(self):\n"
-                "    value = input()\n"
-                "    eval(self.identity(value))\n"
+                "def main(self):\n" "    value = input()\n" "    eval(self.identity(value))\n"
             ),
         }
     )

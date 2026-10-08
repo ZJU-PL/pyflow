@@ -43,6 +43,7 @@ class ClassInfo:
         ast_node: Reference to the AST node (if available)
         code: Reference to PyFlow Code object (if converted)
     """
+
     name: str
     qualified_name: str
     module: str
@@ -56,6 +57,7 @@ class ClassInfo:
 
 class MROError(Exception):
     """Raised when MRO cannot be computed (e.g., inconsistent hierarchy)."""
+
     pass
 
 
@@ -81,9 +83,26 @@ class ClassHierarchy:
     """
 
     BUILTIN_TYPES = {
-        "object", "type", "int", "float", "str", "bool", "List", "Dict",
-        "Set", "Tuple", "Frozenset", "bytes", "bytearray", "complex",
-        "NoneType", "ellipsis", "range", "slice", "Exception", "BaseException",
+        "object",
+        "type",
+        "int",
+        "float",
+        "str",
+        "bool",
+        "List",
+        "Dict",
+        "Set",
+        "Tuple",
+        "Frozenset",
+        "bytes",
+        "bytearray",
+        "complex",
+        "NoneType",
+        "ellipsis",
+        "range",
+        "slice",
+        "Exception",
+        "BaseException",
     }
 
     def __init__(self, verbose: bool = False):
@@ -219,11 +238,7 @@ class ClassHierarchy:
 
     def get_classes_for_module(self, module: str) -> Dict[str, ClassInfo]:
         names = self.name_to_qualified.get(module, {})
-        return {
-            name: self.classes[qual]
-            for name, qual in names.items()
-            if qual in self.classes
-        }
+        return {name: self.classes[qual] for name, qual in names.items() if qual in self.classes}
 
     def resolve_bases(
         self,
@@ -270,9 +285,7 @@ class ClassHierarchy:
             # Bug I fix: snapshot keys before iterating so that deletions
             # inside the loop do not mutate the dict we are iterating over.
             keys_to_delete = [
-                (cls, method)
-                for (cls, method) in list(self._method_cache.keys())
-                if cls == qname
+                (cls, method) for (cls, method) in list(self._method_cache.keys()) if cls == qname
             ]
             for key in keys_to_delete:
                 self._method_cache.pop(key, None)
@@ -363,9 +376,7 @@ class ClassHierarchy:
                 head = lst[0]
 
                 is_in_tail = any(
-                    head in tail_lst[1:]
-                    for tail_lst in non_empty
-                    if len(tail_lst) > 1
+                    head in tail_lst[1:] for tail_lst in non_empty if len(tail_lst) > 1
                 )
 
                 if not is_in_tail:
@@ -441,7 +452,9 @@ class ClassHierarchy:
 
         return None
 
-    def get_all_subclasses(self, qualified_name: str, _visited: Optional[Set[str]] = None) -> Set[str]:
+    def get_all_subclasses(
+        self, qualified_name: str, _visited: Optional[Set[str]] = None
+    ) -> Set[str]:
         """Get all subclasses of a class (transitive closure).
 
         Args:

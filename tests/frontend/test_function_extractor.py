@@ -24,9 +24,10 @@ class TestFunctionExtractor(unittest.TestCase):
 
     def test_convert_function_simple(self):
         """Test converting a simple function."""
+
         def test_func():
             return 1
-        
+
         source = "def test_func(): return 1"
         code = self.extractor.convert_function(test_func, source_code=source)
         self.assertIsInstance(code, pyflow_ast.Code)
@@ -34,9 +35,10 @@ class TestFunctionExtractor(unittest.TestCase):
 
     def test_convert_function_with_parameters(self):
         """Test converting a function with parameters."""
+
         def test_func(a, b):
             return a + b
-        
+
         source = "def test_func(a, b): return a + b"
         code = self.extractor.convert_function(test_func, source_code=source)
         self.assertIsInstance(code, pyflow_ast.Code)
@@ -44,9 +46,10 @@ class TestFunctionExtractor(unittest.TestCase):
 
     def test_convert_function_with_defaults(self):
         """Test converting a function with default parameters."""
+
         def test_func(a, b=10):
             return a + b
-        
+
         source = "def test_func(a, b=10): return a + b"
         code = self.extractor.convert_function(test_func, source_code=source)
         self.assertIsInstance(code, pyflow_ast.Code)
@@ -54,9 +57,10 @@ class TestFunctionExtractor(unittest.TestCase):
 
     def test_convert_function_with_args_kwargs(self):
         """Test converting a function with *args and **kwargs."""
+
         def test_func(*args, **kwargs):
             return len(args) + len(kwargs)
-        
+
         source = "def test_func(*args, **kwargs): return len(args) + len(kwargs)"
         code = self.extractor.convert_function(test_func, source_code=source)
         self.assertIsInstance(code, pyflow_ast.Code)
@@ -65,28 +69,31 @@ class TestFunctionExtractor(unittest.TestCase):
 
     def test_convert_function_with_return_statement(self):
         """Test converting a function with return statement."""
+
         def test_func(x):
             return x * 2
-        
+
         source = "def test_func(x): return x * 2"
         code = self.extractor.convert_function(test_func, source_code=source)
         self.assertIsInstance(code, pyflow_ast.Code)
 
     def test_convert_function_without_source_code(self):
         """Test converting a function without source code."""
+
         def test_func():
             return 1
-        
+
         code = self.extractor.convert_function(test_func)
         # Should fall back to inspect.getsource or create minimal code
         self.assertIsNotNone(code)
 
     def test_convert_function_with_multiple_statements(self):
         """Test converting a function with multiple statements."""
+
         def test_func(x):
             y = x * 2
             return y
-        
+
         source = """
 def test_func(x):
     y = x * 2
@@ -97,12 +104,13 @@ def test_func(x):
 
     def test_convert_function_with_conditional(self):
         """Test converting a function with conditional."""
+
         def test_func(x):
             if x > 0:
                 return x
             else:
                 return -x
-        
+
         source = """
 def test_func(x):
     if x > 0:
@@ -115,12 +123,13 @@ def test_func(x):
 
     def test_convert_function_with_loop(self):
         """Test converting a function with a loop."""
+
         def test_func(n):
             total = 0
             for i in range(n):
                 total += i
             return total
-        
+
         source = """
 def test_func(n):
     total = 0
@@ -133,9 +142,10 @@ def test_func(n):
 
     def test_convert_function_error_handling(self):
         """Test error handling in convert_function."""
+
         def test_func():
             return 1
-        
+
         # Use invalid source code
         source = "invalid syntax here"
         code = self.extractor.convert_function(test_func, source_code=source)
@@ -145,9 +155,10 @@ def test_func(n):
 
     def test_create_minimal_code(self):
         """Test creating minimal code."""
+
         def test_func():
             return 1
-        
+
         code = self.extractor._create_minimal_code(test_func)
         self.assertIsInstance(code, pyflow_ast.Code)
         self.assertEqual(code.name, "test_func")
@@ -157,9 +168,10 @@ def test_func(n):
 
     def test_create_minimal_code_annotation(self):
         """Test that minimal code has correct annotation."""
+
         def test_func():
             return 1
-        
+
         code = self.extractor._create_minimal_code(test_func)
         annotation = code.annotation
         self.assertIsNotNone(annotation)
@@ -170,6 +182,7 @@ def test_func(n):
 
     def test_convert_function_records_fallback_reason_on_error(self):
         """Fallback minimal code should preserve the reason in its origin."""
+
         def test_func():
             return 1
 
@@ -188,12 +201,12 @@ def test_func(n):
         source = "def test_func(): return 1"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         program = Program()
         self.extractor.extract_function(func_node, program)
-        
+
         # Should add function to program's liveCode
-        self.assertTrue(hasattr(program, 'liveCode'))
+        self.assertTrue(hasattr(program, "liveCode"))
         self.assertIsNotNone(program.liveCode)
         self.assertGreater(len(program.liveCode), 0)
 
@@ -202,15 +215,15 @@ def test_func(n):
         source = "def test_func(): return 1"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         program = Program()
         # Remove liveCode if it exists
-        if hasattr(program, 'liveCode'):
-            delattr(program, 'liveCode')
-        
+        if hasattr(program, "liveCode"):
+            delattr(program, "liveCode")
+
         self.extractor.extract_function(func_node, program)
         # Should create liveCode
-        self.assertTrue(hasattr(program, 'liveCode'))
+        self.assertTrue(hasattr(program, "liveCode"))
 
     def test_extract_class(self):
         """Test extracting a class from AST."""
@@ -221,7 +234,7 @@ class TestClass:
 """
         tree = python_ast.parse(source)
         class_node = tree.body[0]
-        
+
         program = Program()
         # Should not raise an exception
         self.extractor.extract_class(class_node, program)
@@ -231,7 +244,7 @@ class TestClass:
         source = "def test_func(a, b, c=10): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.extractor._convert_function_args(func_node.args, None)
         self.assertIsInstance(codeparams, pyflow_ast.CodeParameters)
         self.assertEqual(len(codeparams.params), 3)
@@ -242,7 +255,7 @@ class TestClass:
         source = "def test_func(*args): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.extractor._convert_function_args(func_node.args, None)
         self.assertIsNotNone(codeparams.vparam)
 
@@ -251,7 +264,7 @@ class TestClass:
         source = "def test_func(**kwargs): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.extractor._convert_function_args(func_node.args, None)
         self.assertIsNotNone(codeparams.kparam)
 
@@ -292,7 +305,7 @@ class TestClass:
         source = "def test_func(): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.extractor._convert_function_args(func_node.args, None)
         self.assertIsNotNone(codeparams.returnparams)
         self.assertGreater(len(codeparams.returnparams), 0)
@@ -302,10 +315,10 @@ class TestClass:
         source = "def test_func(x): return x + 1"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         def test_func(x):
             return x + 1
-        
+
         code = self.extractor._convert_python_function_to_pyflow(func_node, test_func)
         self.assertIsInstance(code, pyflow_ast.Code)
         self.assertEqual(code.name, "test_func")
@@ -316,7 +329,7 @@ class TestClass:
         source = "def test_func(x): return x + 1"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         code = self.extractor._convert_python_function_to_pyflow(func_node, None)
         self.assertIsInstance(code, pyflow_ast.Code)
         self.assertEqual(code.name, "test_func")
@@ -341,26 +354,20 @@ def outer2():
         code = self.extractor.convert_function(inner, source_code=source)
         self.assertEqual(code.ast.blocks[0].exprs[0].object.pyobj, 2)
 
-    @unittest.skipUnless(
-        hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)"
-    )
+    @unittest.skipUnless(hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)")
     def test_convert_function_preserves_type_params(self):
         """PEP 695 type parameters survive the FunctionExtractor path."""
         source = "def test_func[T](x: T) -> T: return x"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
 
-        code = self.extractor._convert_python_function_to_pyflow(
-            func_node, None, filename="m.py"
-        )
+        code = self.extractor._convert_python_function_to_pyflow(func_node, None, filename="m.py")
         type_params = code.codeparameters.type_params
         self.assertIsNotNone(type_params)
         self.assertEqual(len(type_params.params), 1)
         self.assertEqual(type_params.params[0].name, "T")
 
-    @unittest.skipUnless(
-        hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)"
-    )
+    @unittest.skipUnless(hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+ (PEP 695)")
     def test_extract_module_body_preserves_generic_class_type_params(self):
         """Generic classes keep type_params through the module extraction path."""
         source = (

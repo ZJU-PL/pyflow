@@ -35,9 +35,7 @@ from ..core import test_properties as test
 # Regular expression for password-related keywords
 RE_WORDS = "(pas+wo?r?d|pass(phrase)?|pwd|token|secrete?)"
 # Pattern matches: start, end, or anywhere in variable name (case-insensitive)
-RE_CANDIDATES = re.compile(
-    f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE
-)
+RE_CANDIDATES = re.compile(f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE)
 
 # Patterns that are likely placeholders, not real passwords
 PLACEHOLDER_PATTERNS = [
@@ -123,6 +121,7 @@ def _report(value):
 # is harmless in this case because both definitions are identical, but it
 # is dead code that creates confusion and maintenance risk.  The duplicate
 # definitions have been removed.
+
 
 @test.checks("Str")
 @test.with_id("B105")

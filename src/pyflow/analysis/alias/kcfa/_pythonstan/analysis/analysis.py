@@ -8,12 +8,14 @@ class AnalysisConfig:
     name: str
     id: str
     description: str
-    type: Literal['dataflow analysis', 'transform', 'pointer analysis']
+    type: Literal["dataflow analysis", "transform", "pointer analysis"]
     inter_procedure: bool
     prev_analysis: List[str]  # previous analysis name
     options: Dict[str, Any]
 
-    def __init__(self, name, id, description="", prev_analysis=None, inter_procedure=False, options=None):
+    def __init__(
+        self, name, id, description="", prev_analysis=None, inter_procedure=False, options=None
+    ):
         if options.get("type") is None:
             print(name, id, description, prev_analysis, inter_procedure, options)
             print(options)
@@ -31,9 +33,9 @@ class AnalysisConfig:
             self.prev_analysis = []
         else:
             self.prev_analysis = prev_analysis
-    
+
     def __str__(self):
-        return f'''
+        return f"""
 AnalysisConfig(
     name={self.name},
     id={self.id},
@@ -43,14 +45,14 @@ AnalysisConfig(
     prev_analysis={self.prev_analysis},
     options={self.options}
 )
-'''
-    
+"""
+
     def __repr__(self):
         return self.__str__()
 
 
 class Analysis(ABC):
-    analysis_dict: 'Dict[str, Type[Analysis]]' = {}
+    analysis_dict: "Dict[str, Type[Analysis]]" = {}
     config: AnalysisConfig
 
     @abstractmethod

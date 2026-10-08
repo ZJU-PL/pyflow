@@ -5,4 +5,5 @@ class MyClass:
     def func(self):
         pass
 
+
 MyClass().func()

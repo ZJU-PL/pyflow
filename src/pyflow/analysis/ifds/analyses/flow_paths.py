@@ -10,7 +10,6 @@ from ..core.problem import IDEProblem, IdentityEdgeFunction, ValueTransition
 from ..core.solver import IDESolver
 from .base import AnnotatedFactProblemBase
 
-
 ZERO_COLLECTOR = "ZERO_COLLECTOR"
 
 
@@ -67,9 +66,7 @@ class InterproceduralFlowPathProblem(
     def bottom_value(self) -> frozenset[str]:
         return frozenset()
 
-    def join_values(
-        self, left: frozenset[str], right: frozenset[str]
-    ) -> frozenset[str]:
+    def join_values(self, left: frozenset[str], right: frozenset[str]) -> frozenset[str]:
         return left | right
 
     def initial_seed_values(self):

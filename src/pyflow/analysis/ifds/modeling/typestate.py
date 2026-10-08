@@ -13,7 +13,6 @@ from .calls import (
     CallModelRegistry,
 )
 
-
 STATE_OPEN = "open"
 STATE_CLOSED = "closed"
 STATE_LOCKED = "locked"
@@ -115,9 +114,7 @@ class TypestateProtocol:
 
     def exit_violations_for(self, state: str) -> tuple[TypestateExitObligation, ...]:
         return tuple(
-            obligation
-            for obligation in self.exit_obligations
-            if state in obligation.states
+            obligation for obligation in self.exit_obligations if state in obligation.states
         )
 
     def to_call_model_registry(self) -> CallModelRegistry:
@@ -130,12 +127,8 @@ class TypestateProtocol:
                         typestate_actions=frozenset({action_model.action}),
                         resource_arg_positions=action_model.resource_arg_positions,
                         track_method_receiver=action_model.track_method_receiver,
-                        typestate_action_protocols=frozenset(
-                            {(action_model.action, self.name)}
-                        ),
-                        return_kind=(
-                            "fresh" if action_model.creates_resource else None
-                        ),
+                        typestate_action_protocols=frozenset({(action_model.action, self.name)}),
+                        return_kind=("fresh" if action_model.creates_resource else None),
                     )
                 )
         return CallModelRegistry(models)

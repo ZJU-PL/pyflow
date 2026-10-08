@@ -175,11 +175,17 @@ def test_pass_execution_order_matches_pipeline():
         def tracker(*args, **kwargs):
             execution_order.append(pass_name)
             return Mock()
+
         return tracker
 
-    with patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=make_tracker("ipa")), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=make_tracker("cpa")), \
-         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", side_effect=make_tracker("lifetime")):
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=make_tracker("ipa")),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=make_tracker("cpa")),
+        patch(
+            "pyflow.application.passes.builtin.lifetimeanalysis.evaluate",
+            side_effect=make_tracker("lifetime"),
+        ),
+    ):
 
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime"])
 
@@ -214,9 +220,14 @@ def test_pass_failure_stops_pipeline():
         execution_order.append("lifetime")
         return Mock()
 
-    with patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=ipa_success), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=cpa_failure), \
-         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", side_effect=lifetime_should_not_run):
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", side_effect=ipa_success),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", side_effect=cpa_failure),
+        patch(
+            "pyflow.application.passes.builtin.lifetimeanalysis.evaluate",
+            side_effect=lifetime_should_not_run,
+        ),
+    ):
 
         results = manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime"])
 

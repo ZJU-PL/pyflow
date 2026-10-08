@@ -1,7 +1,7 @@
-
 import os
 
 from .base import PyFlowTestBase
+
 
 class DynamicTest(PyFlowTestBase):
     snippet_dir = "dynamic"

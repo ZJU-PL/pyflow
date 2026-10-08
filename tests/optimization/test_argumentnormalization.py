@@ -148,23 +148,30 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
             codeparameters=SimpleNamespace(vparam=object(), selfparam=None),
             ast=ast.Suite([]),
         )
-        prgm = SimpleNamespace(
-            storeGraph=None, liveCode=[candidate], ir=IRCatalog()
-        )
+        prgm = SimpleNamespace(storeGraph=None, liveCode=[candidate], ir=IRCatalog())
 
         def _blocked(self, _code, _vlen):
             self.last_skip_reason = "vparam_local_referenced_in_body"
             return False
 
-        with patch.object(ArgumentNormalizationAnalysis, "process", return_value=(True, 1)), patch(
-            "pyflow.optimization.argumentnormalization.codeOps",
-            return_value=[],
-        ), patch.object(ArgumentNormalizationTransform, "process", autospec=True, side_effect=_blocked):
+        with (
+            patch.object(ArgumentNormalizationAnalysis, "process", return_value=(True, 1)),
+            patch(
+                "pyflow.optimization.argumentnormalization.codeOps",
+                return_value=[],
+            ),
+            patch.object(
+                ArgumentNormalizationTransform, "process", autospec=True, side_effect=_blocked
+            ),
+        ):
             changed = evaluate(compiler, prgm)
 
         self.assertFalse(changed)
         self.assertTrue(
-            any("skipped" in message and "safety guards" in message for message in compiler.console.messages)
+            any(
+                "skipped" in message and "safety guards" in message
+                for message in compiler.console.messages
+            )
         )
 
     def test_evaluate_skips_entry_point_normalization(self):
@@ -197,17 +204,20 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         def _process_analysis(self, code):
             return (True, 1) if code is candidate else (False, 0)
 
-        with patch.object(
-            ArgumentNormalizationAnalysis,
-            "process",
-            autospec=True,
-            side_effect=_process_analysis,
-        ), patch.object(
-            ArgumentNormalizationTransform,
-            "process",
-            autospec=True,
-            return_value=True,
-        ) as transform_process:
+        with (
+            patch.object(
+                ArgumentNormalizationAnalysis,
+                "process",
+                autospec=True,
+                side_effect=_process_analysis,
+            ),
+            patch.object(
+                ArgumentNormalizationTransform,
+                "process",
+                autospec=True,
+                return_value=True,
+            ) as transform_process,
+        ):
             changed = evaluate(compiler, prgm)
 
         self.assertFalse(changed)
@@ -232,6 +242,7 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
                 return _Scope()
 
         compiler = SimpleNamespace(console=_Console())
+
         class _Candidate:
             def __init__(self):
                 self.codeparameters = SimpleNamespace(vparam=object(), selfparam=None)
@@ -261,17 +272,22 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         def _process_analysis(self, code):
             return (True, 1) if code is candidate else (False, 0)
 
-        with patch.object(
-            ArgumentNormalizationAnalysis,
-            "process",
-            autospec=True,
-            side_effect=_process_analysis,
-        ), patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
-            ArgumentNormalizationTransform,
-            "process",
-            autospec=True,
-            return_value=True,
-        ) as transform_process:
+        with (
+            patch.object(
+                ArgumentNormalizationAnalysis,
+                "process",
+                autospec=True,
+                side_effect=_process_analysis,
+            ),
+            patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts),
+            patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops,
+            patch.object(
+                ArgumentNormalizationTransform,
+                "process",
+                autospec=True,
+                return_value=True,
+            ) as transform_process,
+        ):
             mock_code_ops.side_effect = lambda code: [incoming] if code is caller else []
             changed = evaluate(compiler, prgm)
 
@@ -297,6 +313,7 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
                 return _Scope()
 
         compiler = SimpleNamespace(console=_Console())
+
         class _Candidate:
             def __init__(self):
                 self.codeparameters = SimpleNamespace(
@@ -331,17 +348,22 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         def _process_analysis(self, code):
             return (True, 1) if code is candidate else (False, 0)
 
-        with patch.object(
-            ArgumentNormalizationAnalysis,
-            "process",
-            autospec=True,
-            side_effect=_process_analysis,
-        ), patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
-            ArgumentNormalizationTransform,
-            "process",
-            autospec=True,
-            return_value=True,
-        ) as transform_process:
+        with (
+            patch.object(
+                ArgumentNormalizationAnalysis,
+                "process",
+                autospec=True,
+                side_effect=_process_analysis,
+            ),
+            patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts),
+            patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops,
+            patch.object(
+                ArgumentNormalizationTransform,
+                "process",
+                autospec=True,
+                return_value=True,
+            ) as transform_process,
+        ):
             mock_code_ops.side_effect = lambda code: [incoming] if code is caller else []
             changed = evaluate(compiler, prgm)
 

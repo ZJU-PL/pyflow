@@ -200,9 +200,7 @@ class SecurityTester:
         """
         nosec_tests_to_skip = set()
         # Get nosec tests from the issue's line number
-        base_tests = (
-            self.nosec_lines.get(test_result.lineno, None) if test_result else None
-        )
+        base_tests = self.nosec_lines.get(test_result.lineno, None) if test_result else None
         # Get nosec tests from the context line
         context_tests = utils.get_nosec(self.nosec_lines, context)
 

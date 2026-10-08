@@ -57,9 +57,7 @@ class ProjectTypeInferenceEngine:
                 engine = StaticTypeInferenceEngine(
                     self.project_context,
                     type_system=self.type_system,
-                    external_symbol_resolver=lambda name: self._external_type(
-                        name, results
-                    ),
+                    external_symbol_resolver=lambda name: self._external_type(name, results),
                     call_model_providers=self.call_model_providers,
                     options=self.options,
                 )
@@ -151,9 +149,7 @@ class ProjectTypeInferenceEngine:
             if discover_imports:
                 pending.extend(
                     imported
-                    for imported in self._project_imports(
-                        module_name, source, path
-                    )
+                    for imported in self._project_imports(module_name, source, path)
                     if imported not in sources
                 )
         return sources, paths, diagnostics
@@ -195,9 +191,7 @@ class ProjectTypeInferenceEngine:
         for module_name in sorted(results, key=len, reverse=True):
             prefix = f"{module_name}."
             if qualified_name.startswith(prefix):
-                return results[module_name].type_of(
-                    qualified_name.removeprefix(prefix)
-                )
+                return results[module_name].type_of(qualified_name.removeprefix(prefix))
         return None
 
     @staticmethod
@@ -208,13 +202,9 @@ class ProjectTypeInferenceEngine:
             (
                 module_name,
                 tuple(
-                    (name, repr(symbol.value))
-                    for name, symbol in sorted(result.symbols.items())
+                    (name, repr(symbol.value)) for name, symbol in sorted(result.symbols.items())
                 ),
-                tuple(
-                    (name, repr(summary))
-                    for name, summary in sorted(result.functions.items())
-                ),
+                tuple((name, repr(summary)) for name, summary in sorted(result.functions.items())),
             )
             for module_name, result in sorted(results.items())
         )

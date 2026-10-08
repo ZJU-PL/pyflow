@@ -92,9 +92,7 @@ def raiseTypeError(nodeName, typeName, fieldName, fieldSource):
     )
 
 
-def makeScalarTypecheckStatement(
-    name, fieldName, fieldSource, tn, optional, tabs, output
-):
+def makeScalarTypecheckStatement(name, fieldName, fieldSource, tn, optional, tabs, output):
     """Generate type check statement for a scalar value.
 
     Appends code to check if a scalar value matches the expected type.
@@ -132,14 +130,11 @@ def makeTypecheckStatement(name, field, tn, optional, repeated, tabs, output):
         # Check that it's a list/tuple, then check each element
         output.append("%sif isinstance(%s, (list, tuple)):\n" % (tabs, field))
         output.append("%s\tfor _i in %s:\n" % (tabs, field))
-        makeScalarTypecheckStatement(
-            name, field + "[]", "_i", tn, optional, tabs + "\t\t", output
-        )
+        makeScalarTypecheckStatement(name, field + "[]", "_i", tn, optional, tabs + "\t\t", output)
         # Also allow SymbolBase for symbolic matching
         output.append("%selif not isinstance(%s, SymbolBase):\n" % (tabs, field))
         output.append(
-            "%s\t%s\n"
-            % (tabs, raiseTypeError(name, "(list, tuple, SymbolBase)", field, field))
+            "%s\t%s\n" % (tabs, raiseTypeError(name, "(list, tuple, SymbolBase)", field, field))
         )
     else:
         # Scalar field - check directly
@@ -306,9 +301,7 @@ def makeSharedRepr(name, desc):
     """
     code = """def __repr__(self):
     return "%s(%%d)" %% (id(self),)
-""" % (
-        name
-    )
+""" % (name)
 
     return code
 
@@ -327,9 +320,7 @@ def makeAccept(name):
     """
     code = """def accept(self, visitor, *args):
     return visitor.visit%s(self, *args)
-""" % (
-        name
-    )
+""" % (name)
 
     return code
 
@@ -348,9 +339,7 @@ def makeGetChildren(desc):
     children = " ".join(["self.%s," % field.internalname for field in desc])
     code = """def children(self):
     return (%s)
-""" % (
-        children
-    )
+""" % (children)
 
     return code
 
@@ -367,14 +356,10 @@ def makeGetFields(desc):
     Returns:
         String containing fields method definition.
     """
-    children = " ".join(
-        ["(%r, self.%s)," % (field.name, field.internalname) for field in desc]
-    )
+    children = " ".join(["(%r, self.%s)," % (field.name, field.internalname) for field in desc])
     code = """def fields(self):
     return (%s)
-""" % (
-        children
-    )
+""" % (children)
 
     return code
 
@@ -394,9 +379,7 @@ def makeSetter(clsname, field):
     inits = []
 
     tn = typeName(field.type)
-    makeTypecheckStatement(
-        clsname, field.name, tn, field.optional, field.repeated, "\t", inits
-    )
+    makeTypecheckStatement(clsname, field.name, tn, field.optional, field.repeated, "\t", inits)
     inits.append("\tself.%s = %s\n" % (field.internalname, field.name))
 
     code = "def __set_%s__(self, %s):\n%s" % (field.name, field.name, "".join(inits))
@@ -419,9 +402,7 @@ def makeGetter(clsname, desc):
     return code
 
 
-def makeVisit(
-    clsname, desc, reverse=False, shared=False, forced=False, vargs=False, kargs=False
-):
+def makeVisit(clsname, desc, reverse=False, shared=False, forced=False, vargs=False, kargs=False):
     """Generate visitChildren method code.
 
     Creates a method that visits all child nodes, calling a callback
@@ -460,22 +441,17 @@ def makeVisit(
 
             # Handle optional fields
             if field.optional:
-                statements.append(
-                    "%sif self.%s is not None:\n" % (indent, field.internalname)
-                )
+                statements.append("%sif self.%s is not None:\n" % (indent, field.internalname))
                 indent += "\t"
 
             # Handle repeated fields (lists/tuples)
             if field.repeated:
                 if reverse:
                     statements.append(
-                        "%sfor _child in reversed(self.%s):\n"
-                        % (indent, field.internalname)
+                        "%sfor _child in reversed(self.%s):\n" % (indent, field.internalname)
                     )
                 else:
-                    statements.append(
-                        "%sfor _child in self.%s:\n" % (indent, field.internalname)
-                    )
+                    statements.append("%sfor _child in self.%s:\n" % (indent, field.internalname))
                 indent += "\t"
                 src = "_child"
             else:
@@ -575,9 +551,11 @@ def makeRewrite(
                     )
 
                 # Guard against symbols - if field is a SymbolBase, call callback directly
-                expr = (
-                    "_callback(self.%s%s) if isinstance(self.%s, SymbolBase) else %s"
-                    % (field.internalname, additionalargs, field.internalname, expr)
+                expr = "_callback(self.%s%s) if isinstance(self.%s, SymbolBase) else %s" % (
+                    field.internalname,
+                    additionalargs,
+                    field.internalname,
+                    expr,
                 )
             else:
                 # Handle scalar fields

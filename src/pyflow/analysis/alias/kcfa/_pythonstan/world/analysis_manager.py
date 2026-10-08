@@ -14,35 +14,19 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer import PointerAnaly
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.closure import ClosureAnalysis
 
 DEFAULT_ANALYSIS = [
+    AnalysisConfig(name="three address", id="ThreeAddress", options={"type": "transform"}),
     AnalysisConfig(
-        name="three address",
-        id="ThreeAddress",
-        options={"type": "transform"}
+        name="ir", id="IR", prev_analysis=["three address"], options={"type": "transform"}
     ),
     AnalysisConfig(
-        name="ir",
-        id="IR",
-        prev_analysis=["three address"],
-        options={"type": "transform"}
+        name="block cfg", id="BlockCFG", prev_analysis=["ir"], options={"type": "transform"}
     ),
     AnalysisConfig(
-        name="block cfg",
-        id="BlockCFG",
-        prev_analysis=["ir"],
-        options={"type": "transform"}
+        name="cfg", id="CFG", prev_analysis=["block cfg"], options={"type": "transform"}
     ),
     AnalysisConfig(
-        name="cfg",
-        id="CFG",
-        prev_analysis=["block cfg"],
-        options={"type": "transform"}
+        name="closure", id="Closure", prev_analysis=["cfg"], options={"type": "closure analysis"}
     ),
-    AnalysisConfig(
-        name="closure",
-        id="Closure",
-        prev_analysis=["cfg"],
-        options={"type": "closure analysis"}
-    )
 ]
 
 
@@ -75,7 +59,7 @@ class AnalysisManager:
             self.add_analyzer(config)
         for config in configs:
             self.add_analyzer(config)
-    
+
     def set_time_count(self, time_count: bool):
         """Enable or disable wall-clock reporting for analyses."""
         self.time_count = time_count
@@ -112,16 +96,18 @@ class AnalysisManager:
         """Run a named analysis on ``module``, optionally recording duration."""
         if self.time_count:
             start_time = time.perf_counter()
-            
+
         analyzer = self.analyzers.get(analyzer_name, None)
         if analyzer is None:
             raise NotImplementedError(f"Analysis {analyzer_name} not implemented!")
         self.do_analysis(analyzer, module)
-        
+
         if self.time_count:
             end_time = time.perf_counter()
             if not isinstance(analyzer, TransformDriver):
-                print(f"Analysis {analyzer_name} for module {module.get_qualname()} took {end_time - start_time:.2f} seconds")
+                print(
+                    f"Analysis {analyzer_name} for module {module.get_qualname()} took {end_time - start_time:.2f} seconds"
+                )
 
     def do_analysis(self, analyzer: AnalysisDriver, module: IRModule):
         """Run a driver with prerequisite results and cache its output."""
@@ -142,10 +128,10 @@ class AnalysisManager:
             cur_name = queue.get()
             visited.add(cur_name)
             cur_analyzer = self.analyzers[cur_name]
-            
+
             if cur_analyzer.config not in DEFAULT_ANALYSIS:
                 yield cur_analyzer
-                
+
             for succ in self.next_analyzers[cur_name]:
                 if succ not in visited:
                     queue.put(succ)

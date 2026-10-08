@@ -46,11 +46,37 @@ def sha512(data=b""):
     return _Hash("sha512", data)
 
 
-def blake2b(data=b"", digest_size=64, key=b"", salt=b"", person=b"", fanout=1, depth=1, leaf_size=0, node_offset=0, node_depth=0, inner_size=0, last_node=False):
+def blake2b(
+    data=b"",
+    digest_size=64,
+    key=b"",
+    salt=b"",
+    person=b"",
+    fanout=1,
+    depth=1,
+    leaf_size=0,
+    node_offset=0,
+    node_depth=0,
+    inner_size=0,
+    last_node=False,
+):
     return _Hash("blake2b", data)
 
 
-def blake2s(data=b"", digest_size=32, key=b"", salt=b"", person=b"", fanout=1, depth=1, leaf_size=0, node_offset=0, node_depth=0, inner_size=0, last_node=False):
+def blake2s(
+    data=b"",
+    digest_size=32,
+    key=b"",
+    salt=b"",
+    person=b"",
+    fanout=1,
+    depth=1,
+    leaf_size=0,
+    node_offset=0,
+    node_depth=0,
+    inner_size=0,
+    last_node=False,
+):
     return _Hash("blake2s", data)
 
 

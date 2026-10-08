@@ -70,9 +70,7 @@ class _ExpressionCallMixin:
                     )
                 )
             )
-        result = (
-            HeapLocation(self.effect_builder.call_return_object(procedure, expression)),
-        )
+        result = (HeapLocation(self.effect_builder.call_return_object(procedure, expression)),)
         call_name = resolve_call_name(expression)
         if (
             kind == CALL_RETURN_FRESH
@@ -83,9 +81,7 @@ class _ExpressionCallMixin:
             )
             in self._class_definitions
         ):
-            result = tuple(
-                dict.fromkeys((*result, self._external_value_location(procedure)))
-            )
+            result = tuple(dict.fromkeys((*result, self._external_value_location(procedure))))
         if kind == CALL_RETURN_COPY:
             self._copy_call_result_contents(
                 procedure,

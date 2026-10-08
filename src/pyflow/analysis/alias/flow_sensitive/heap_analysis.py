@@ -55,9 +55,7 @@ class HeapAnalysis:
         intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
     ) -> None:
         self._policy = policy or HeapPolicy()
-        self._raw_storage_provider: RawStorageProvider = (
-            raw_storage_provider or _empty_raw_storage
-        )
+        self._raw_storage_provider: RawStorageProvider = raw_storage_provider or _empty_raw_storage
         self._intrinsics = intrinsics
         self._heap: HeapAbstraction | None = None
         self._graph: PointsToGraph | None = None
@@ -106,8 +104,7 @@ class HeapAnalysis:
             identity = engine.program_point_identities.get(operation, operation)
             degradations.setdefault(identity, set()).add(reason)
         self._precision_degradations = {
-            operation_id: frozenset(reasons)
-            for operation_id, reasons in degradations.items()
+            operation_id: frozenset(reasons) for operation_id, reasons in degradations.items()
         }
         graph = self._heap.to_points_to_graph(
             state=engine.state,
@@ -118,9 +115,7 @@ class HeapAnalysis:
         )
         self._graph = graph
         catalogs = {
-            code.ir_catalog
-            for code in codes
-            if getattr(code, "ir_catalog", None) is not None
+            code.ir_catalog for code in codes if getattr(code, "ir_catalog", None) is not None
         }
         if len(catalogs) == 1:
             publish_alias_facts(next(iter(catalogs)), graph, self._heap, codes)
@@ -165,9 +160,7 @@ class HeapAnalysis:
 
     def _require_heap(self) -> HeapAbstraction:
         if self._heap is None:
-            raise RuntimeError(
-                "HeapAnalysis.analyze() must be called before querying heap state"
-            )
+            raise RuntimeError("HeapAnalysis.analyze() must be called before querying heap state")
         return self._heap
 
     def location_for(self, raw: object) -> HeapLocation:
@@ -198,9 +191,7 @@ class HeapAnalysis:
 
     def _require_graph(self) -> PointsToGraph:
         if self._graph is None:
-            raise RuntimeError(
-                "HeapAnalysis.analyze() must be called before querying the graph"
-            )
+            raise RuntimeError("HeapAnalysis.analyze() must be called before querying the graph")
         return self._graph
 
     def points_to(self, location: "HeapLocation") -> "frozenset[HeapLocation]":

@@ -313,9 +313,7 @@ class _SemanticMixin:
                 method, owner = method_with_owner
                 result = self._call_method(method, owner, value, [], {})
                 if not isinstance(result, _BoolValue):
-                    raise _TargetException(
-                        "TypeError", "__bool__ should return bool"
-                    )
+                    raise _TargetException("TypeError", "__bool__ should return bool")
                 return result
             method_with_owner = self._method_with_owner(value.class_value, "__len__")
             if method_with_owner is not None:

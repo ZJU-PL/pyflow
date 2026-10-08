@@ -86,9 +86,7 @@ def get_modules(path, prepend_module_root=True):
                 else:
                     module_path = file_path
 
-                if not prepend_module_root and qualified_name.startswith(
-                    module_root + "."
-                ):
+                if not prepend_module_root and qualified_name.startswith(module_root + "."):
                     qualified_name = qualified_name[len(module_root) + 1 :]
 
                 modules.append((qualified_name, module_path))

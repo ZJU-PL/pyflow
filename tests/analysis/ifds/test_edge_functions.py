@@ -135,9 +135,7 @@ def test_joined_edge_function_joins_values():
 
 def test_joined_edge_function_deduplicates_identical():
     identity = IdentityEdgeFunction[int]()
-    joined = JoinedEdgeFunction.from_functions(
-        identity, identity, join_values=lambda a, b: a
-    )
+    joined = JoinedEdgeFunction.from_functions(identity, identity, join_values=lambda a, b: a)
     assert joined == identity
 
 
@@ -163,9 +161,7 @@ def test_joined_edge_function_compose_distributes():
     const3 = ConstantEdgeFunction[int](constant=3)
     const5 = ConstantEdgeFunction[int](constant=5)
 
-    joined = JoinedEdgeFunction.from_functions(
-        const3, const5, join_values=lambda a, b: a + b
-    )
+    joined = JoinedEdgeFunction.from_functions(const3, const5, join_values=lambda a, b: a + b)
     composed = joined.compose(mul2)
     assert composed.compute(1) == 8
 
@@ -182,9 +178,7 @@ def test_joined_compose_with_identity():
     const3 = ConstantEdgeFunction[int](constant=3)
     const5 = ConstantEdgeFunction[int](constant=5)
 
-    joined = JoinedEdgeFunction.from_functions(
-        const3, const5, join_values=lambda a, b: a + b
-    )
+    joined = JoinedEdgeFunction.from_functions(const3, const5, join_values=lambda a, b: a + b)
     composed = joined.compose(identity)
     assert composed.compute(0) == 8
 

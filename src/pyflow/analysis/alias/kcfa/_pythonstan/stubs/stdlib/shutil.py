@@ -22,7 +22,15 @@ def copy2(src, dst):
     return dst
 
 
-def copytree(src, dst, symlinks=False, ignore=None, copy_function=None, ignore_dangling_symlinks=False, dirs_exist_ok=False):
+def copytree(
+    src,
+    dst,
+    symlinks=False,
+    ignore=None,
+    copy_function=None,
+    ignore_dangling_symlinks=False,
+    dirs_exist_ok=False,
+):
     return dst
 
 
@@ -40,6 +48,7 @@ def disk_usage(path):
             self.total = 0
             self.used = 0
             self.free = 0
+
     return Usage()
 
 
@@ -51,7 +60,17 @@ def which(cmd, mode=None, path=None):
     return cmd
 
 
-def make_archive(base_name, format, root_dir=None, base_dir=None, verbose=0, dry_run=0, owner=None, group=None, logger=None):
+def make_archive(
+    base_name,
+    format,
+    root_dir=None,
+    base_dir=None,
+    verbose=0,
+    dry_run=0,
+    owner=None,
+    group=None,
+    logger=None,
+):
     return base_name
 
 
@@ -67,7 +86,7 @@ def get_unpack_formats():
     return [("zip", "", ""), ("tar", "", "")]
 
 
-def register_archive_format(name, function, extra_args=None, description=''):
+def register_archive_format(name, function, extra_args=None, description=""):
     return None
 
 
@@ -75,7 +94,7 @@ def unregister_archive_format(name):
     return None
 
 
-def register_unpack_format(name, extensions, function, extra_args=None, description=''):
+def register_unpack_format(name, extensions, function, extra_args=None, description=""):
     return None
 
 

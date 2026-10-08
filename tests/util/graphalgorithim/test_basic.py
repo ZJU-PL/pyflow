@@ -107,14 +107,7 @@ class TestFindEntryPoints(unittest.TestCase):
 
     def test_complex_graph(self):
         """Finding entry points in a more complex graph."""
-        G = {
-            1: [2, 3],
-            2: [4],
-            3: [4, 5],
-            4: [6],
-            5: [6],
-            6: []
-        }
+        G = {1: [2, 3], 2: [4], 3: [4, 5], 4: [6], 5: [6], 6: []}
         result = findEntryPoints(G)
         self.assertEqual(result, [1])
 

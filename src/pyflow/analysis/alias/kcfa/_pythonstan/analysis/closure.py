@@ -14,12 +14,12 @@ class ClosureAnalysis(AnalysisDriver):
 
     def __init__(self, config: AnalysisConfig):
         live_config = AnalysisConfig(
-            name="liveness-analysis",
-            id="LivenessAnalysis",
-            options={"type": "dataflow analysis"})
+            name="liveness-analysis", id="LivenessAnalysis", options={"type": "dataflow analysis"}
+        )
         self.liveness_analysis = DataflowAnalysisDriver[Set[stmt]](live_config)
 
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
+
         self.world = World()
 
         super().__init__(config)
@@ -37,10 +37,7 @@ class ClosureAnalysis(AnalysisDriver):
                 postorder.append(current)
                 continue
             pending.append((current, True))
-            pending.extend(
-                (subscope, False)
-                for subscope in scope_manager.get_subscopes(current)
-            )
+            pending.extend((subscope, False) for subscope in scope_manager.get_subscopes(current))
 
         for current in postorder:
             cfg = scope_manager.get_ir(current, "cfg")

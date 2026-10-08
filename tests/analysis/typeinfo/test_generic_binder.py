@@ -21,7 +21,6 @@ from pyflow.analysis.typeinfo.resolution.generics import (
     merge_bindings,
 )
 
-
 _INT = Instance(ClassDescriptor(int))
 _STR = Instance(ClassDescriptor(str))
 _LIST_INT = Instance(ClassDescriptor(list), (_INT,))

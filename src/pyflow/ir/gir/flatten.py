@@ -67,8 +67,7 @@ class GirFlattener:
     ) -> Dict[str, Any]:
         if not isinstance(stmt, dict):
             raise ValueError(
-                "[Input format error] The input node should be a dictionary: "
-                + str(stmt)
+                "[Input format error] The input node should be a dictionary: " + str(stmt)
             )
 
         flattened_node: Dict[str, Any] = {}
@@ -93,9 +92,7 @@ class GirFlattener:
             if isinstance(myvalue, list):
                 if not self.is_gir_format(myvalue):
                     if "body" in mykey and mykey not in OPTIONAL_CLAUSE_BODY_KEYS:
-                        block_id = self.flatten_block(
-                            myvalue, flattened_node["stmt_id"], dataframe
-                        )
+                        block_id = self.flatten_block(myvalue, flattened_node["stmt_id"], dataframe)
                         flattened_node[mykey] = block_id
                         continue
                     if len(myvalue) == 0:
@@ -103,14 +100,10 @@ class GirFlattener:
                     else:
                         flattened_node[mykey] = str(myvalue)
                 else:
-                    block_id = self.flatten_block(
-                        myvalue, flattened_node["stmt_id"], dataframe
-                    )
+                    block_id = self.flatten_block(myvalue, flattened_node["stmt_id"], dataframe)
                     flattened_node[mykey] = block_id
             elif isinstance(myvalue, dict):
-                raise ValueError(
-                    "[Input format error] Dictionary is not allowed: " + str(myvalue)
-                )
+                raise ValueError("[Input format error] Dictionary is not allowed: " + str(myvalue))
             else:
                 flattened_node[mykey] = myvalue
 

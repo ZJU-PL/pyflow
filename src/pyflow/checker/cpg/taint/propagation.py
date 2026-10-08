@@ -154,9 +154,7 @@ class _TaintPropagationMixin:
                 return tstate
 
         if isinstance(rhs, py_ast.BinaryOp):
-            op_type = (
-                type(getattr(rhs, "op", None)).__name__ if hasattr(rhs, "op") else ""
-            )
+            op_type = type(getattr(rhs, "op", None)).__name__ if hasattr(rhs, "op") else ""
             if op_type == "Mod" or self._contains_tainted_local(rhs, mem):
                 mem.mark_tainted(var_name, tstate)
                 return tstate
@@ -173,9 +171,7 @@ class _TaintPropagationMixin:
             elts = getattr(rhs, "elts", None) or getattr(rhs, "elements", None)
             if elts:
                 for elt in elts:
-                    if isinstance(elt, py_ast.Local) and mem.is_tainted(
-                        getattr(elt, "name", "")
-                    ):
+                    if isinstance(elt, py_ast.Local) and mem.is_tainted(getattr(elt, "name", "")):
                         mem.mark_tainted(var_name, tstate)
                         return tstate
 
@@ -245,17 +241,9 @@ class _TaintPropagationMixin:
     ) -> Optional[TaintState]:
         left = getattr(binop_node, "left", None)
         right = getattr(binop_node, "right", None)
-        if (
-            left
-            and isinstance(left, py_ast.Local)
-            and mem.is_tainted(getattr(left, "name", ""))
-        ):
+        if left and isinstance(left, py_ast.Local) and mem.is_tainted(getattr(left, "name", "")):
             return tstate
-        if (
-            right
-            and isinstance(right, py_ast.Local)
-            and mem.is_tainted(getattr(right, "name", ""))
-        ):
+        if right and isinstance(right, py_ast.Local) and mem.is_tainted(getattr(right, "name", "")):
             return tstate
         return tstate
 
@@ -312,8 +300,7 @@ class _TaintPropagationMixin:
         if isinstance(node, py_ast.Local):
             return mem.is_tainted(getattr(node, "name", "") or "")
         return any(
-            cls._contains_tainted_local(child, mem)
-            for child in cls._iter_ast_children(node)
+            cls._contains_tainted_local(child, mem) for child in cls._iter_ast_children(node)
         )
 
     @staticmethod
@@ -360,9 +347,7 @@ class _TaintPropagationMixin:
             method_name = self._literal_string(args[1])
             if method_name:
                 for sink_name in self._sinks:
-                    if sink_name == method_name or sink_name.endswith(
-                        "." + method_name
-                    ):
+                    if sink_name == method_name or sink_name.endswith("." + method_name):
                         return tstate
             if isinstance(args[1], py_ast.Local) and mem.is_tainted(
                 getattr(args[1], "name", "") or ""
@@ -370,17 +355,11 @@ class _TaintPropagationMixin:
                 return tstate
         return tstate
 
-    def _has_tainted_dict_unpack(
-        self, call_node: py_ast.Call, mem: MemoryLayout
-    ) -> bool:
+    def _has_tainted_dict_unpack(self, call_node: py_ast.Call, mem: MemoryLayout) -> bool:
         kargs = getattr(call_node, "kargs", None)
-        if isinstance(kargs, py_ast.Local) and mem.is_tainted(
-            getattr(kargs, "name", "") or ""
-        ):
+        if isinstance(kargs, py_ast.Local) and mem.is_tainted(getattr(kargs, "name", "") or ""):
             return True
         for _key, value in getattr(call_node, "kwds", None) or []:
-            if isinstance(value, py_ast.Local) and mem.is_tainted(
-                getattr(value, "name", "") or ""
-            ):
+            if isinstance(value, py_ast.Local) and mem.is_tainted(getattr(value, "name", "") or ""):
                 return True
         return False

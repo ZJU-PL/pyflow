@@ -57,9 +57,7 @@ class _DefinitionTransferMixin:
             # clients can therefore soundly analyze programs regardless of
             # whether a later operation materializes ``__value__``.
             forced_state = self._capture_flow_state()
-            self._restore_flow_state(
-                self._join_flow_states((deferred_state, forced_state))
-            )
+            self._restore_flow_state(self._join_flow_states((deferred_state, forced_state)))
             alias_values = (alias,)
             if self._is_module_scope(procedure):
                 target = self.effect_builder.global_location(
@@ -119,9 +117,7 @@ class _DefinitionTransferMixin:
             decorated_or_dynamic = (self._external_value_location(procedure),)
         values = tuple(dict.fromkeys((definition, *decorated_or_dynamic)))
         if isinstance(operation, py_ast.ClassDef):
-            self._class_definitions[(self._module_owner(procedure), operation.name)] = (
-                definition
-            )
+            self._class_definitions[(self._module_owner(procedure), operation.name)] = definition
             self._class_locations_by_root[definition.root] = definition
             self._class_locations_by_definition[operation] = definition
         if self._is_module_scope(procedure):
@@ -181,8 +177,7 @@ class _DefinitionTransferMixin:
                 self._class_definitions[(self._module_owner(procedure), base.name)]
                 for base in getattr(operation, "bases", ())
                 if isinstance(base, py_ast.Local)
-                and (self._module_owner(procedure), base.name)
-                in self._class_definitions
+                and (self._module_owner(procedure), base.name) in self._class_definitions
             )
             base_locations = tuple(dict.fromkeys((*base_locations, *named_bases)))
             if base_locations:
@@ -220,9 +215,7 @@ class _DefinitionTransferMixin:
         initial: tuple[HeapLocation, ...],
     ) -> tuple[HeapLocation, ...]:
         current = initial
-        for decorator_expression in reversed(
-            tuple(getattr(operation, "decorators", ()))
-        ):
+        for decorator_expression in reversed(tuple(getattr(operation, "decorators", ()))):
             decorator_locations = self.locations_for_expression(
                 procedure,
                 decorator_expression,
@@ -285,10 +278,7 @@ class _DefinitionTransferMixin:
         return recognized or "dynamic"
 
     def _is_module_scope(self, procedure: object) -> bool:
-        return (
-            isinstance(procedure, py_ast.Code)
-            and procedure not in self._lexical_parents
-        )
+        return isinstance(procedure, py_ast.Code) and procedure not in self._lexical_parents
 
     def _module_owner(self, procedure: object) -> object:
         explicit = getattr(procedure, "module", None)
@@ -343,9 +333,7 @@ class _DefinitionTransferMixin:
             if not name:
                 continue
             storage = self.heap._environment_storage(environment, key)
-            members.setdefault(name, []).extend(
-                self.heap.location_for_raw(raw) for raw in storage
-            )
+            members.setdefault(name, []).extend(self.heap.location_for_raw(raw) for raw in storage)
         return {
             name: tuple(dict.fromkeys(locations))
             for name, locations in members.items()
@@ -360,11 +348,7 @@ class _DefinitionTransferMixin:
         if isinstance(operation, py_ast.ClassDef):
             expressions.extend(getattr(operation, "bases", ()))
             expressions.extend(
-                (
-                    keyword[1]
-                    if isinstance(keyword, tuple) and len(keyword) == 2
-                    else keyword
-                )
+                (keyword[1] if isinstance(keyword, tuple) and len(keyword) == 2 else keyword)
                 for keyword in getattr(operation, "keywords", ())
             )
         expressions.extend(getattr(operation, "decorators", ()))

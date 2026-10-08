@@ -229,9 +229,7 @@ INSTANCE_ALLOC_SEPARATOR = "#"
 def make_instance(name: str, allocation_site: Optional[str] = None) -> AbstractValue:
     """Create an instance abstract value (optionally allocation-site-sensitive)."""
     if allocation_site:
-        return make_value(
-            INSTANCE_KIND, f"{name}{INSTANCE_ALLOC_SEPARATOR}{allocation_site}"
-        )
+        return make_value(INSTANCE_KIND, f"{name}{INSTANCE_ALLOC_SEPARATOR}{allocation_site}")
     return make_value(INSTANCE_KIND, name)
 
 

@@ -13,7 +13,6 @@ from pyflow.util.antlr3.exceptions import (
     NoViableAltException,
 )
 
-
 ############################################################################
 #
 # tree related exceptions
@@ -526,11 +525,7 @@ class TreeAdaptor(object):
             ##                 )
             return self.createFromToken(args[0], args[1], args[2])
 
-        if (
-            len(args) == 2
-            and isinstance(args[0], (int, int))
-            and isinstance(args[1], str)
-        ):
+        if len(args) == 2 and isinstance(args[0], (int, int)) and isinstance(args[1], str):
             # Object create(int tokenType, String text);
             ##             warnings.warn(
             ##                 "Using create() is deprecated, use createFromType()",
@@ -679,9 +674,7 @@ class BaseTree(Tree):
         children to set their childindex; could be slow.
         """
 
-        if startChildIndex >= len(self.children) or stopChildIndex >= len(
-            self.children
-        ):
+        if startChildIndex >= len(self.children) or stopChildIndex >= len(self.children):
             raise IndexError("indexes invalid")
 
         replacingHowMany = stopChildIndex - startChildIndex + 1
@@ -725,9 +718,7 @@ class BaseTree(Tree):
 
     def sanityCheckParentAndChildIndexes(self, parent=None, i=-1):
         if parent != self.parent:
-            raise ValueError(
-                "parents don't match; expected %r found %r" % (parent, self.parent)
-            )
+            raise ValueError("parents don't match; expected %r found %r" % (parent, self.parent))
 
         if i != self.childIndex:
             raise ValueError(
@@ -1167,9 +1158,7 @@ class CommonErrorNode(CommonTree):
     def __init__(self, input, start, stop, exc):
         CommonTree.__init__(self, None)
 
-        if stop is None or (
-            stop.getTokenIndex() < start.getTokenIndex() and stop.getType() != EOF
-        ):
+        if stop is None or (stop.getTokenIndex() < start.getTokenIndex() and stop.getType() != EOF):
             # sometimes resync does not consume a token (when LT(1) is
             # in follow set.  So, stop will be 1 to left to start. adjust.
             # Also handle case where start is the first token and no token
@@ -1933,9 +1922,7 @@ class TreeParser(BaseRecognizer):
             adaptor = e.input.getTreeAdaptor()
             e.token = adaptor.getToken(e.node)
             if e.token is not None:  # could be an UP/DOWN node
-                e.token = CommonToken(
-                    type=adaptor.getType(e.node), text=adaptor.getText(e.node)
-                )
+                e.token = CommonToken(type=adaptor.getType(e.node), text=adaptor.getText(e.node))
 
         return BaseRecognizer.getErrorMessage(self, e, tokenNames)
 

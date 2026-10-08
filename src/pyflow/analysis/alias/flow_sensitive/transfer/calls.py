@@ -188,11 +188,7 @@ class _CallTransferMixin:
             iterable_expressions = actuals[1:]
         elif short in {"sorted", "sort", "min", "max"}:
             for keyword in getattr(call, "kwds", ()):
-                if (
-                    isinstance(keyword, tuple)
-                    and len(keyword) == 2
-                    and keyword[0] == "key"
-                ):
+                if isinstance(keyword, tuple) and len(keyword) == 2 and keyword[0] == "key":
                     callback_expression = keyword[1]
                     break
             iterable_expressions = actuals[:1]
@@ -224,9 +220,7 @@ class _CallTransferMixin:
             if code is None:
                 continue
             callback_groups = (
-                (argument_group, argument_group)
-                if short == "reduce"
-                else (argument_group,)
+                (argument_group, argument_group) if short == "reduce" else (argument_group,)
             )
             groups = (receivers, *callback_groups) if receivers else callback_groups
             results.extend(self._evaluate_known_code(procedure, code, groups))
@@ -268,9 +262,7 @@ class _CallTransferMixin:
         operands = self._last_call_operands.get(call_id)
         if operands is None:
             operands = self._evaluate_call_operands(procedure, call)
-        receivers = operands.get(
-            self._program_point_identity(procedure, actuals[0]), ()
-        )
+        receivers = operands.get(self._program_point_identity(procedure, actuals[0]), ())
         groups = tuple(
             operands.get(self._program_point_identity(procedure, actual), ())
             for actual in actuals[1:]
@@ -333,8 +325,7 @@ class _CallTransferMixin:
                 code,
                 direct,
                 receiver_supplied=bool(receiver_locations),
-                receiver_consumes_positional=bool(receiver_locations)
-                and not method_call,
+                receiver_consumes_positional=bool(receiver_locations) and not method_call,
             )
             bindings = dict(binding_result.bindings)
             if receiver_locations:
@@ -373,9 +364,7 @@ class _CallTransferMixin:
                             return_index,
                             frozenset(),
                         ):
-                            return_slots[return_index].extend(
-                                bindings.get(formal_index, ())
-                            )
+                            return_slots[return_index].extend(bindings.get(formal_index, ()))
             # A target that raises exclusively only contributes its abrupt
             # outcome, already recorded by _evaluate_direct_call_with_bindings.
             self._operation_normal_possible[-1] = True
@@ -391,16 +380,10 @@ class _CallTransferMixin:
                 slots = (values,)
             else:
                 slots = tuple(
-                    (
-                        tuple(dict.fromkeys(return_slots[index]))
-                        if index < len(return_slots)
-                        else ()
-                    )
+                    (tuple(dict.fromkeys(return_slots[index])) if index < len(return_slots) else ())
                     for index, _target in enumerate(targets)
                 )
-            self._pending_call_results[
-                self._program_point_identity(caller, operation)
-            ] = (
+            self._pending_call_results[self._program_point_identity(caller, operation)] = (
                 targets,
                 slots,
             )
@@ -409,9 +392,7 @@ class _CallTransferMixin:
         )
         return True
 
-    def _call_application_key(
-        self, procedure: object, call: object
-    ) -> tuple[object, ...]:
+    def _call_application_key(self, procedure: object, call: object) -> tuple[object, ...]:
         return (
             self._program_point_identity(procedure, call),
             self._evaluation_epoch,
@@ -423,15 +404,11 @@ class _CallTransferMixin:
         procedure: object,
         call: object,
     ) -> tuple[tuple[py_ast.Code, tuple[HeapLocation, ...]], ...]:
-        operands = self._last_call_operands.get(
-            self._program_point_identity(procedure, call)
-        )
+        operands = self._last_call_operands.get(self._program_point_identity(procedure, call))
         if operands is None:
             operands = self._evaluate_call_operands(procedure, call)
         if isinstance(call, py_ast.Call):
-            functions = operands.get(
-                self._program_point_identity(procedure, call.expr), ()
-            )
+            functions = operands.get(self._program_point_identity(procedure, call.expr), ())
             if not functions:
                 return ()
             codes: list[tuple[py_ast.Code, tuple[HeapLocation, ...]]] = []
@@ -465,9 +442,7 @@ class _CallTransferMixin:
         if not isinstance(call, py_ast.MethodCall):
             return ()
         name = self.effect_builder._constant_string(call.name)
-        receivers = operands.get(
-            self._program_point_identity(procedure, call.expr), ()
-        )
+        receivers = operands.get(self._program_point_identity(procedure, call.expr), ())
         if name is None or not receivers:
             return ()
         candidates: list[tuple[py_ast.Code, tuple[HeapLocation, ...]]] = []
@@ -653,9 +628,7 @@ class _CallTransferMixin:
             )
             captured = tuple(
                 dict.fromkeys(
-                    location
-                    for locations in actual_bindings.values()
-                    for location in locations
+                    location for locations in actual_bindings.values() for location in locations
                 )
             )
             if captured:
@@ -681,9 +654,7 @@ class _CallTransferMixin:
             summary = self._callee_summary(callee, actual_bindings)
         finally:
             self._current_context = previous_context
-        self._last_direct_call_summary[
-            self._program_point_identity(caller, call)
-        ] = summary
+        self._last_direct_call_summary[self._program_point_identity(caller, call)] = summary
         if summary.raise_state is not None and self._operation_call_raises:
             raised_state = summary.raise_state.copy()
             if summary.raises:
@@ -806,16 +777,12 @@ class _CallTransferMixin:
         keyword_bindable = {
             name: formal for name, formal in (*regular_entries, *keyword_only_entries)
         }
-        posonly_names = {
-            name for name, _formal in posonly_entries if isinstance(name, str)
-        }
+        posonly_names = {name for name, _formal in posonly_entries if isinstance(name, str)}
         keyword_names: list[str] = []
         definitely_keyword: set[py_ast.Local] = set()
         for keyword in getattr(call, "kwds", ()):
             if not (
-                isinstance(keyword, tuple)
-                and len(keyword) == 2
-                and isinstance(keyword[0], str)
+                isinstance(keyword, tuple) and len(keyword) == 2 and isinstance(keyword[0], str)
             ):
                 if getattr(params, "kparam", None) is None:
                     reasons.add("unknown-keyword")
@@ -860,9 +827,7 @@ class _CallTransferMixin:
                     defaulted.add(formal)
 
         possibly_positional = (
-            {formal for _name, formal in positional_entries}
-            if positional_spread
-            else set()
+            {formal for _name, formal in positional_entries} if positional_spread else set()
         )
         possibly_keyword = set(keyword_bindable.values()) if keyword_spread else set()
         for _name, formal in (*positional_entries, *keyword_only_entries):
@@ -999,9 +964,7 @@ class _CallTransferMixin:
                 )
                 if state is not None
             )
-            normal_flow = (
-                self._join_flow_states(normal_candidates) if normal_candidates else None
-            )
+            normal_flow = self._join_flow_states(normal_candidates) if normal_candidates else None
             raise_flow = outcome.abrupt.get("raise")
             all_exit_states = tuple(
                 state
@@ -1042,9 +1005,7 @@ class _CallTransferMixin:
             # inflate caller reference counts.  Preserve caller bindings plus
             # globally relevant object labels and escape facts only.
             caller_environment.object_labels.update(callee_environment.object_labels)
-            caller_environment.escaped_objects.update(
-                callee_environment.escaped_objects
-            )
+            caller_environment.escaped_objects.update(callee_environment.escaped_objects)
 
             def cleaned(flow: _FlowState | None) -> HeapState | None:
                 if flow is None:
@@ -1061,9 +1022,7 @@ class _CallTransferMixin:
             normal_state = cleaned(normal_flow)
             raise_state = cleaned(raise_flow)
             raised_locations = (
-                raise_flow.heap_state.raised.get(callee, ())
-                if raise_flow is not None
-                else ()
+                raise_flow.heap_state.raised.get(callee, ()) if raise_flow is not None else ()
             )
             yielded_locations = summary_state.yields.get(callee, ())
             yield_steps_list = []
@@ -1119,8 +1078,7 @@ class _CallTransferMixin:
                 param_escapes=param_escapes,
                 effects=HeapSummary.from_effects(summary_effects),
                 precision_degradations=frozenset(
-                    reason
-                    for _node, reason in self.precision_degradations[degradation_start:]
+                    reason for _node, reason in self.precision_degradations[degradation_start:]
                 ),
             )
             previous_summary = self.procedure_summaries.get(callee)
@@ -1153,11 +1111,7 @@ class _CallTransferMixin:
         # is the complete post-call state.  Joining it with the pre-call state
         # would resurrect values removed by strong writes and must-deletes.
         selected_state = summary.normal_state or summary.state
-        self.state = (
-            self.state.join(selected_state)
-            if preserve_current
-            else selected_state.copy()
-        )
+        self.state = self.state.join(selected_state) if preserve_current else selected_state.copy()
         selected_environment = summary.normal_environment or summary.environment
         if selected_environment is not None and not preserve_current:
             self.heap.restore_environment(selected_environment)
@@ -1314,12 +1268,9 @@ class _CallTransferMixin:
         formals = self._callee_formals(callee)
         evaluated_operands = self._evaluate_call_operands(caller, call)
         formal_indices = {
-            self._reference_identity(callee, formal): index
-            for index, formal in enumerate(formals)
+            self._reference_identity(callee, formal): index for index, formal in enumerate(formals)
         }
-        bindings: dict[int, list[HeapLocation]] = {
-            index: [] for index in range(len(formals))
-        }
+        bindings: dict[int, list[HeapLocation]] = {index: [] for index in range(len(formals))}
         uncertainly_bound: set[int] = set()
 
         def evaluate(expression_procedure, expression):
@@ -1334,9 +1285,7 @@ class _CallTransferMixin:
             )
 
         def bind(formal, locations):
-            bindings[
-                formal_indices[self._reference_identity(callee, formal)]
-            ].extend(locations)
+            bindings[formal_indices[self._reference_identity(callee, formal)]].extend(locations)
 
         selfparam = getattr(params, "selfparam", None)
         selfarg = getattr(call, "selfarg", None)
@@ -1363,24 +1312,16 @@ class _CallTransferMixin:
             uncertain_spread = False
             for is_spread, actual in positional_items:
                 locations = evaluate(caller, actual)
-                expanded = (
-                    self._ordered_contained_values(locations)
-                    if is_spread
-                    else locations
-                )
+                expanded = self._ordered_contained_values(locations) if is_spread else locations
                 if is_spread and not expanded:
                     possible = tuple(
-                        dict.fromkeys(
-                            (*locations, self._external_value_location(caller))
-                        )
+                        dict.fromkeys((*locations, self._external_value_location(caller)))
                     )
                     for formal in positional_slots[positional_index:]:
                         if isinstance(formal, py_ast.Local):
                             bind(formal, possible)
                             uncertainly_bound.add(
-                                formal_indices[
-                                    self._reference_identity(callee, formal)
-                                ]
+                                formal_indices[self._reference_identity(callee, formal)]
                             )
                     extra_positional.append(possible)
                     uncertain_spread = True
@@ -1390,9 +1331,7 @@ class _CallTransferMixin:
                         if isinstance(formal, py_ast.Local):
                             bind(formal, expanded)
                             uncertainly_bound.add(
-                                formal_indices[
-                                    self._reference_identity(callee, formal)
-                                ]
+                                formal_indices[self._reference_identity(callee, formal)]
                             )
                     extra_positional.append(expanded)
                     continue
@@ -1430,9 +1369,7 @@ class _CallTransferMixin:
             locations = evaluate(caller, actual)
             formal = named_formals.get(name)
             if formal is None:
-                extra_keywords.append(
-                    (name if isinstance(name, str) else None, locations)
-                )
+                extra_keywords.append((name if isinstance(name, str) else None, locations))
                 continue
             bind(formal, locations)
 
@@ -1454,9 +1391,7 @@ class _CallTransferMixin:
         if keyword_spreads:
             kargs_locations = tuple(
                 dict.fromkeys(
-                    location
-                    for spread in keyword_spreads
-                    for location in evaluate(caller, spread)
+                    location for spread in keyword_spreads for location in evaluate(caller, spread)
                 )
             )
         elif getattr(call, "kargs", None) is not None:
@@ -1508,9 +1443,7 @@ class _CallTransferMixin:
                 *encoded_params,
             ]
             default_formals = defaultable_formals[-len(defaults) :]
-            for default_index, (formal, default) in enumerate(
-                zip(default_formals, defaults)
-            ):
+            for default_index, (formal, default) in enumerate(zip(default_formals, defaults)):
                 if not isinstance(formal, py_ast.Local):
                     continue
                 if (
@@ -1522,10 +1455,7 @@ class _CallTransferMixin:
                 if (
                     not bindings[index]
                     or index in uncertainly_bound
-                    or (
-                        index not in explicitly_bound
-                        and (vargs_locations or kargs_locations)
-                    )
+                    or (index not in explicitly_bound and (vargs_locations or kargs_locations))
                 ):
                     locations = self._definition_default_locations.get(
                         (self._procedure_identity(callee), default_index)
@@ -1585,11 +1515,7 @@ class _CallTransferMixin:
                 self.state.write(
                     self.heap.dynamic_subscript_location(
                         packed,
-                        (
-                            f"[{name!r}]"
-                            if name is not None
-                            else DYNAMIC_SUBSCRIPT_WILDCARD
-                        ),
+                        (f"[{name!r}]" if name is not None else DYNAMIC_SUBSCRIPT_WILDCARD),
                     ),
                     locations,
                     UpdatePolicy.STRONG if name is not None else UpdatePolicy.WEAK,
@@ -1607,8 +1533,7 @@ class _CallTransferMixin:
             bind(kparam, (packed,))
 
         resolved_bindings = {
-            index: tuple(dict.fromkeys(locations))
-            for index, locations in bindings.items()
+            index: tuple(dict.fromkeys(locations)) for index, locations in bindings.items()
         }
         definitely_invalid, maybe_invalid, reasons = self._call_binding_status(
             callee,
@@ -1669,9 +1594,7 @@ class _CallTransferMixin:
                 if modeled_locations:
                     result_locations = modeled_locations
                 else:
-                    result_locations = (
-                        HeapLocation(self.heap.summary_object(site, label=label)),
-                    )
+                    result_locations = (HeapLocation(self.heap.summary_object(site, label=label)),)
             elif modeled_locations:
                 result_locations = modeled_locations
                 call_name = resolve_call_name(call_expression)
@@ -1717,9 +1640,7 @@ class _CallTransferMixin:
                         (result_location,),
                     )
             elif kind == CALL_RETURN_SUMMARY:
-                result_locations = (
-                    HeapLocation(self.heap.summary_object(site, label=label)),
-                )
+                result_locations = (HeapLocation(self.heap.summary_object(site, label=label)),)
             else:
                 result_locations = (
                     HeapLocation(

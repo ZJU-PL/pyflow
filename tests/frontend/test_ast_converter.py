@@ -39,7 +39,7 @@ class TestASTConverter(unittest.TestCase):
         source = "return 42"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Return)
         self.assertEqual(len(result.exprs), 1)
@@ -49,7 +49,7 @@ class TestASTConverter(unittest.TestCase):
         source = "return"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Return)
         self.assertEqual(len(result.exprs), 0)
@@ -59,7 +59,7 @@ class TestASTConverter(unittest.TestCase):
         source = "x = 42"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Assign)
 
@@ -68,7 +68,7 @@ class TestASTConverter(unittest.TestCase):
         source = "x = y = 42"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Assign)
         self.assertEqual(len(result.lcls), 2)
@@ -78,7 +78,7 @@ class TestASTConverter(unittest.TestCase):
         source = "x += 1"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Assign)
 
@@ -92,7 +92,7 @@ else:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Switch)
 
@@ -104,7 +104,7 @@ for i in range(10):
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.For)
 
@@ -120,9 +120,7 @@ for a, b in items:
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.For)
         self.assertIsInstance(result.index, pyflow_ast.Local)
-        self.assertTrue(
-            any(isinstance(b, pyflow_ast.Assign) for b in result.bodyPreamble.blocks)
-        )
+        self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.bodyPreamble.blocks))
 
     def test_convert_while_loop(self):
         """Test converting while loop."""
@@ -132,7 +130,7 @@ while x > 0:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.While)
 
@@ -141,7 +139,7 @@ while x > 0:
         source = "break"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Break)
 
@@ -150,7 +148,7 @@ while x > 0:
         source = "continue"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Continue)
 
@@ -159,7 +157,7 @@ while x > 0:
         source = "pass"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
@@ -168,52 +166,52 @@ while x > 0:
         source = "print('hello')"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Discard)
 
     def test_convert_name_expression(self):
         """Test converting name expression."""
         source = "x"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Local)
 
     def test_convert_constant_expression(self):
         """Test converting constant expression."""
         source = "42"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Existing)
 
     def test_convert_string_constant(self):
         """Test converting string constant."""
         source = "'hello'"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Existing)
 
     def test_convert_call_expression(self):
         """Test converting function call expression."""
         source = "func(1, 2, 3)"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
     def test_convert_call_with_keywords(self):
         """Test converting function call with keywords."""
         source = "func(a=1, b=2)"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
@@ -265,7 +263,7 @@ while x > 0:
 
     def test_dict_unpack_preserves_key_before_value_evaluation(self):
         result = self.converter._convert_expression(
-            python_ast.parse('{**mapping, key(): value()}', mode="eval").body
+            python_ast.parse("{**mapping, key(): value()}", mode="eval").body
         )
         explicit_entry = result.args[0].args[1]
 
@@ -275,9 +273,9 @@ while x > 0:
     def test_convert_binop_expression(self):
         """Test converting binary operation."""
         source = "a + b"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
@@ -293,9 +291,9 @@ while x > 0:
     def test_convert_compare_expression(self):
         """Test converting comparison expression."""
         source = "a == b"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, (pyflow_ast.Call, pyflow_ast.Existing))
 
@@ -332,9 +330,9 @@ while x > 0:
     def test_convert_subscript_expression(self):
         """Test converting subscript expression."""
         source = "arr[0]"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
@@ -369,36 +367,36 @@ while x > 0:
     def test_convert_attribute_expression(self):
         """Test converting attribute expression."""
         source = "obj.attr"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.GetAttr)
 
     def test_convert_list_expression(self):
         """Test converting list expression."""
         source = "[1, 2, 3]"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.BuildList)
 
     def test_convert_tuple_expression(self):
         """Test converting tuple expression."""
         source = "(1, 2, 3)"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.BuildTuple)
 
     def test_convert_dict_expression(self):
         """Test converting dict expression."""
         source = "{'a': 1, 'b': 2}"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, (pyflow_ast.Existing, pyflow_ast.BuildMap))
 
@@ -431,9 +429,9 @@ while x > 0:
     def test_convert_lambda_expression(self):
         """Test converting lambda expression."""
         source = "lambda x: x + 1"
-        tree = python_ast.parse(source, mode='eval')
+        tree = python_ast.parse(source, mode="eval")
         node = tree.body
-        
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.MakeFunction)
 
@@ -478,6 +476,7 @@ while x > 0:
 
     def test_unhandled_expression_emits_tagged_helper(self):
         """Unsupported expression nodes should be explicit, not silent None."""
+
         class UnknownExpr(python_ast.AST):
             _fields = ()
 
@@ -510,7 +509,7 @@ except ZeroDivisionError:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
 
@@ -536,7 +535,7 @@ finally:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
 
@@ -545,7 +544,7 @@ finally:
         source = "raise ValueError('error')"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Raise)
 
@@ -554,7 +553,7 @@ finally:
         source = "assert x > 0"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Assert)
 
@@ -563,7 +562,7 @@ finally:
         source = "global x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
@@ -572,7 +571,7 @@ finally:
         source = "nonlocal x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
@@ -621,7 +620,7 @@ with open('file.txt') as f:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
         self.assertEqual(len(result.blocks), 1)
@@ -636,7 +635,7 @@ with open('file.txt') as f:
         source = "import math"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
         self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
@@ -646,7 +645,7 @@ with open('file.txt') as f:
         source = "from math import sqrt"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
         self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
@@ -659,7 +658,7 @@ def test_func(x):
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.FunctionDef)
 
@@ -672,7 +671,7 @@ class TestClass:
 """
         tree = python_ast.parse(source)
         node = tree.body[0]
-        
+
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.ClassDef)
 
@@ -713,7 +712,7 @@ class TestClass:
         """Test convert_expression_safe with None result."""
         # Create a mock node that returns None
         mock_node = Mock()
-        with patch.object(self.converter, '_convert_expression', return_value=None):
+        with patch.object(self.converter, "_convert_expression", return_value=None):
             result = self.converter._convert_expression_safe(mock_node)
             self.assertIsInstance(result, pyflow_ast.Existing)
 
@@ -722,7 +721,7 @@ class TestClass:
         source = "def func(a, b, c=10): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.converter._convert_function_args(func_node.args)
         self.assertIsInstance(codeparams, pyflow_ast.CodeParameters)
         self.assertEqual(len(codeparams.params), 3)
@@ -732,7 +731,7 @@ class TestClass:
         source = "def func(*args): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.converter._convert_function_args(func_node.args)
         self.assertIsNotNone(codeparams.vparam)
 
@@ -741,7 +740,7 @@ class TestClass:
         source = "def func(**kwargs): pass"
         tree = python_ast.parse(source)
         func_node = tree.body[0]
-        
+
         codeparams = self.converter._convert_function_args(func_node.args)
         self.assertIsNotNone(codeparams.kparam)
 
@@ -767,9 +766,7 @@ class TestClass:
 
     def test_convert_lambda_captures_enclosing_local(self):
         tree = python_ast.parse(
-            "def outer():\n"
-            "    captured = value\n"
-            "    return lambda: captured\n"
+            "def outer():\n" "    captured = value\n" "    return lambda: captured\n"
         )
         outer = self.converter._convert_node(tree.body[0])
         make_function = outer.code.ast.blocks[-1].exprs[0]

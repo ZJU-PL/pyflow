@@ -22,9 +22,7 @@ from ..modeling import CallShapeContractRegistry, SanitizerContractRegistry
 from ..solver import ProcedureTaintSummary, SummaryPort, SummaryPortKind
 from .events import TaintSinkEvent
 
-_SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
-    {"call", "check_call", "check_output", "popen", "run"}
-)
+_SHELL_OPTION_SUBPROCESS_CALLS = frozenset({"call", "check_call", "check_output", "popen", "run"})
 _SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
 _TAINT_PRESERVING_PURE_CALLS = frozenset(
     {
@@ -84,9 +82,7 @@ class PythonExpressionSemantics:
     def __init__(self, context: ExpressionContext) -> None:
         self.context = context
 
-    def evaluate(
-        self, expression: ast.AST | None, state: TaintState
-    ) -> ExpressionResult:
+    def evaluate(self, expression: ast.AST | None, state: TaintState) -> ExpressionResult:
         if expression is None:
             return ExpressionResult(state)
         if isinstance(expression, ast.Name):
@@ -162,9 +158,7 @@ class PythonExpressionSemantics:
                 events=tested.events | body.events | alternate.events,
             )
         if isinstance(expression, ast.BoolOp):
-            return self._evaluate_boolean_values(
-                expression.values, expression.op, state
-            )
+            return self._evaluate_boolean_values(expression.values, expression.op, state)
         if isinstance(expression, ast.BinOp):
             return self._evaluate_many((expression.left, expression.right), state)
         if isinstance(expression, ast.UnaryOp):
@@ -173,9 +167,7 @@ class PythonExpressionSemantics:
                 return ExpressionResult(evaluated.state, events=evaluated.events)
             return evaluated
         if isinstance(expression, ast.Compare):
-            evaluated = self._evaluate_many(
-                (expression.left, *expression.comparators), state
-            )
+            evaluated = self._evaluate_many((expression.left, *expression.comparators), state)
             return ExpressionResult(evaluated.state, events=evaluated.events)
         if isinstance(expression, ast.JoinedStr):
             return self._evaluate_many(expression.values, state)
@@ -240,9 +232,7 @@ class PythonExpressionSemantics:
             return current
 
         truth = self._static_truthiness(values[0])
-        short_circuits = (
-            isinstance(operator, ast.And) and truth is False
-        ) or (
+        short_circuits = (isinstance(operator, ast.And) and truth is False) or (
             isinstance(operator, ast.Or) and truth is True
         )
         if short_circuits:
@@ -250,9 +240,7 @@ class PythonExpressionSemantics:
 
         remainder = self._evaluate_boolean_values(values[1:], operator, current.state)
         events = current.events | remainder.events
-        must_continue = (
-            isinstance(operator, ast.And) and truth is True
-        ) or (
+        must_continue = (isinstance(operator, ast.And) and truth is True) or (
             isinstance(operator, ast.Or) and truth is False
         )
         if must_continue:
@@ -401,9 +389,7 @@ class PythonExpressionSemantics:
                     )
             retained = tuple(fact for fact in all_argument_facts if fact.kind in kinds)
             mapped_origins = {
-                kind: next(iter(all_argument_facts)).origin
-                for kind in kinds
-                if all_argument_facts
+                kind: next(iter(all_argument_facts)).origin for kind in kinds if all_argument_facts
             }
             current = current.write(
                 call_location,
@@ -602,9 +588,7 @@ class PythonExpressionSemantics:
         leaf = name.rsplit(".", 1)[-1].lower()
         if leaf not in _SHELL_OPTION_SUBPROCESS_CALLS:
             return True
-        shell = next(
-            (item.value for item in call.keywords if item.arg == "shell"), None
-        )
+        shell = next((item.value for item in call.keywords if item.arg == "shell"), None)
         if shell is None:
             return False
         return not (isinstance(shell, ast.Constant) and shell.value is False)
@@ -612,25 +596,18 @@ class PythonExpressionSemantics:
     def _sink_behavior_is_active(self, call: ast.Call, name: str) -> bool:
         """Evaluate the context-dependent behavior declared by the sink model."""
         constants = tuple(
-            argument.value if isinstance(argument, ast.Constant) else None
-            for argument in call.args
+            argument.value if isinstance(argument, ast.Constant) else None for argument in call.args
         )
-        return sink_behavior_is_active(
-            self.context.policy.sink_behavior_for(name), constants
-        )
+        return sink_behavior_is_active(self.context.policy.sink_behavior_for(name), constants)
 
-    def _sink_positions_for_call(
-        self, name: str, argument_count: int
-    ) -> frozenset[int]:
+    def _sink_positions_for_call(self, name: str, argument_count: int) -> frozenset[int]:
         """Normalize source-level argument positions for known API families."""
         if (
             self.context.policy.sink_cwe_for(name) == "CWE-89"
             and name.rsplit(".", 1)[-1].lower() in _SQL_QUERY_ARGUMENT_CALLS
         ):
             return frozenset({0})
-        return self.context.policy.sink_positions_for(name) or frozenset(
-            range(argument_count)
-        )
+        return self.context.policy.sink_positions_for(name) or frozenset(range(argument_count))
 
     def _evaluate_container_literal(
         self,
@@ -649,14 +626,10 @@ class PythonExpressionSemantics:
         events: set[object] = set()
 
         if isinstance(expression, ast.Dict):
-            for key_expression, value_expression in zip(
-                expression.keys, expression.values
-            ):
+            for key_expression, value_expression in zip(expression.keys, expression.values):
                 if key_expression is None:
                     value = self.evaluate(value_expression, current)
-                    current = value.state.write(
-                        location.wildcard(), value.facts, strong=False
-                    )
+                    current = value.state.write(location.wildcard(), value.facts, strong=False)
                     events.update(value.events)
                     continue
                 key = self.evaluate(key_expression, current)
@@ -664,9 +637,7 @@ class PythonExpressionSemantics:
                 events.update(key.events)
                 literal_key = self._literal_selector(key_expression)
                 child = (
-                    location.key(literal_key)
-                    if literal_key is not None
-                    else location.wildcard()
+                    location.key(literal_key) if literal_key is not None else location.wildcard()
                 )
                 value = self.evaluate(value_expression, current)
                 current = value.state
@@ -678,9 +649,7 @@ class PythonExpressionSemantics:
                 else:
                     current = current.write(child, value.facts, strong=True)
                 if key.facts:
-                    key_location = location.select(
-                        AccessSelector.mapping_key()
-                    ).wildcard()
+                    key_location = location.select(AccessSelector.mapping_key()).wildcard()
                     current = current.write(key_location, key.facts, strong=False)
         else:
             for index, element in enumerate(expression.elts):
@@ -735,9 +704,7 @@ class PythonExpressionSemantics:
             key_location = receiver.select(AccessSelector.mapping_key())
             return state, state.facts_at(receiver) | state.facts_at(key_location), True
         if method in {"append", "add", "extend", "insert", "update", "setdefault"}:
-            facts = frozenset(
-                fact for value in (*positional, *keywords) for fact in value.facts
-            )
+            facts = frozenset(fact for value in (*positional, *keywords) for fact in value.facts)
             mutated = state.write(
                 receiver.wildcard(),
                 facts,
@@ -789,9 +756,7 @@ class PythonExpressionSemantics:
             inputs[SummaryPort(SummaryPortKind.PARAMETER, index=0)] = {
                 (fact.kind, fact) for fact in receiver_result.facts
             }
-        parameter_indices = {
-            parameter: index for index, parameter in enumerate(summary.parameters)
-        }
+        parameter_indices = {parameter: index for index, parameter in enumerate(summary.parameters)}
         for keyword, result in zip(call.keywords, keywords):
             if keyword.arg is None or keyword.arg not in parameter_indices:
                 continue
@@ -799,9 +764,7 @@ class PythonExpressionSemantics:
                 SummaryPortKind.PARAMETER,
                 index=parameter_indices[keyword.arg],
             )
-            inputs[port] = inputs.get(port, set()) | {
-                (fact.kind, fact) for fact in result.facts
-            }
+            inputs[port] = inputs.get(port, set()) | {(fact.kind, fact) for fact in result.facts}
         values = summary.propagate_tokens(inputs)
         returned = values.get(SummaryPort(SummaryPortKind.RETURN), frozenset())
         for kind, token in returned:
@@ -951,9 +914,7 @@ class PythonExpressionSemantics:
 
     @staticmethod
     def _literal_selector(expression: ast.AST):
-        if isinstance(expression, ast.Constant) and isinstance(
-            expression.value, (str, int)
-        ):
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, (str, int)):
             return expression.value
         return None
 

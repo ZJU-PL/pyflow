@@ -185,9 +185,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         index = extract_call_site_edge_index_constraint(source)
 
         apply_sites = [
-            (site, callees)
-            for site, callees in index.items()
-            if site.caller_scope == "main.apply"
+            (site, callees) for site, callees in index.items() if site.caller_scope == "main.apply"
         ]
         self.assertEqual(len(apply_sites), 1)
         site, callees = apply_sites[0]
@@ -237,9 +235,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 analyze_reachable_only=True,
             )
 
-        self.assertFalse(
-            any(site.source_path == os.path.realpath(extra_path) for site in index)
-        )
+        self.assertFalse(any(site.source_path == os.path.realpath(extra_path) for site in index))
 
     def test_entry_file_method_seeds_have_lexical_receiver_types(self):
         source = textwrap.dedent("""
@@ -457,9 +453,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             identity(leak_from_other_site)
             """)
 
-        context_insensitive = extract_call_graph_constraint(
-            source, context_sensitive=False
-        ).get()
+        context_insensitive = extract_call_graph_constraint(source, context_sensitive=False).get()
         context_sensitive = extract_call_graph_constraint(
             source, context_sensitive=True, context_depth=1
         ).get()
@@ -659,9 +653,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return await task
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.worker", improved.get("main.run", set()))
         self.assertIn("main.leaf", improved.get("main.worker", set()))
 
@@ -785,9 +777,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     group.create_task(worker())
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.callback", run_edges)
         self.assertIn("main.worker", run_edges)
@@ -816,9 +806,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.managed", run_edges)
         self.assertIn("main.cleanup", run_edges)
@@ -841,9 +829,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     pass
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.managed", improved.get("main.run", set()))
         self.assertIn("main.helper", improved.get("main.managed", set()))
 
@@ -1033,9 +1019,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(False)
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
         self.assertIn("main.b", run_edges)
@@ -1059,9 +1043,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(False)
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
         self.assertIn("main.b", run_edges)
@@ -1146,9 +1128,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         run_edges = improved.get("main.run", set())
         self.assertIn("main.CallableDescriptor.__get__", run_edges)
         self.assertIn("main.CallableDescriptor.__call__", run_edges)
-        self.assertIn(
-            "main.helper", improved.get("main.CallableDescriptor.__call__", set())
-        )
+        self.assertIn("main.helper", improved.get("main.CallableDescriptor.__call__", set()))
 
     def test_container_comprehension_and_closure_capture(self):
         source = textwrap.dedent("""
@@ -1195,9 +1175,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
-        lambda_edges = [
-            edge for edge in run_edges if edge.startswith("main.run.<lambda")
-        ]
+        lambda_edges = [edge for edge in run_edges if edge.startswith("main.run.<lambda")]
         self.assertTrue(lambda_edges, run_edges)
         for lambda_name in lambda_edges:
             self.assertIn("main.target", improved.get(lambda_name, set()))
@@ -1369,9 +1347,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
-            improved = extract_call_graph_constraint(
-                source, source_path=main_path
-            ).get()
+            improved = extract_call_graph_constraint(source, source_path=main_path).get()
             self.assertIn("mod.target", improved.get("main.run", set()))
 
     def test_classmethod_assignments_update_class_fields(self):
@@ -1457,9 +1433,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.coro", run_edges)
         self.assertNotIn("main.target", run_edges)
@@ -1479,9 +1453,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.gen", run_edges)
         self.assertNotIn("main.target", run_edges)
@@ -1505,9 +1477,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             pkg_dir = os.path.join(temp_dir, "pkg")
             os.makedirs(pkg_dir, exist_ok=True)
-            with open(
-                os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"
-            ) as handle:
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8") as handle:
                 handle.write("")
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
                 handle.write("def target():\n    return 1\n")
@@ -1524,18 +1494,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
-            improved = extract_call_graph_constraint(
-                source, source_path=main_path
-            ).get()
+            improved = extract_call_graph_constraint(source, source_path=main_path).get()
             self.assertIn("pkg.sub.target", improved.get("main.run", set()))
 
     def test_from_import_submodule_loads_transitive_body_edges(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             pkg_dir = os.path.join(temp_dir, "pkg")
             os.makedirs(pkg_dir, exist_ok=True)
-            with open(
-                os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"
-            ) as handle:
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8") as handle:
                 handle.write("")
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
                 handle.write(textwrap.dedent("""
@@ -1577,10 +1543,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(lib_py, "w", encoding="utf-8") as handle:
                 handle.write("class Client:\n    pass\n")
             with open(lib_pyi, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "class Client:\n"
-                    "    def ping(self) -> None: ...\n"
-                )
+                handle.write("class Client:\n" "    def ping(self) -> None: ...\n")
             source = textwrap.dedent("""
                 from lib import Client
 
@@ -1593,11 +1556,15 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(entry, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
-            graph = ConstraintCallGraphBuilder(
-                source,
-                entry_path=entry,
-                options=AnalysisOptions(allow_fixture_graph_loading=False),
-            ).build().get()
+            graph = (
+                ConstraintCallGraphBuilder(
+                    source,
+                    entry_path=entry,
+                    options=AnalysisOptions(allow_fixture_graph_loading=False),
+                )
+                .build()
+                .get()
+            )
 
         self.assertIn("lib.Client.ping", graph.get("main.run", set()))
 
@@ -1627,11 +1594,15 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(entry, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
-            graph = ConstraintCallGraphBuilder(
-                source,
-                entry_path=entry,
-                options=AnalysisOptions(allow_fixture_graph_loading=False),
-            ).build().get()
+            graph = (
+                ConstraintCallGraphBuilder(
+                    source,
+                    entry_path=entry,
+                    options=AnalysisOptions(allow_fixture_graph_loading=False),
+                )
+                .build()
+                .get()
+            )
 
         self.assertIn("lib.make_client", graph.get("main.run", set()))
         self.assertIn("lib.Client.ping", graph.get("main.run", set()))
@@ -1646,9 +1617,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 handle.write("")
             with open(lib_pyi, "w", encoding="utf-8") as handle:
                 handle.write(
-                    "class Client:\n"
-                    "    def ping(self) -> None: ...\n"
-                    "client: Client\n"
+                    "class Client:\n" "    def ping(self) -> None: ...\n" "client: Client\n"
                 )
             source = textwrap.dedent("""
                 from lib import client
@@ -1661,11 +1630,15 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(entry, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
-            graph = ConstraintCallGraphBuilder(
-                source,
-                entry_path=entry,
-                options=AnalysisOptions(allow_fixture_graph_loading=False),
-            ).build().get()
+            graph = (
+                ConstraintCallGraphBuilder(
+                    source,
+                    entry_path=entry,
+                    options=AnalysisOptions(allow_fixture_graph_loading=False),
+                )
+                .build()
+                .get()
+            )
 
         self.assertIn("lib.Client.ping", graph.get("main.run", set()))
 
@@ -1687,9 +1660,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.b", run_edges)
-        self.assertFalse(
-            any(edge.startswith("<dynamic>.main.run@") for edge in run_edges)
-        )
+        self.assertFalse(any(edge.startswith("<dynamic>.main.run@") for edge in run_edges))
 
     def test_global_write_updates_following_calls(self):
         source = textwrap.dedent("""
@@ -1766,9 +1737,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 target()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.target", improved.get("main.C", set()))
 
     def test_class_body_bindings_publish_class_attributes(self):
@@ -1785,9 +1754,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_relative_import_in_entry_module_uses_package_context(self):
@@ -1796,9 +1763,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             os.makedirs(pkg_dir, exist_ok=True)
             with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
                 pass
-            with open(
-                os.path.join(pkg_dir, "helpers.py"), "w", encoding="utf-8"
-            ) as handle:
+            with open(os.path.join(pkg_dir, "helpers.py"), "w", encoding="utf-8") as handle:
                 handle.write("def target():\n    return 1\n")
 
             entry_path = os.path.join(pkg_dir, "main.py")
@@ -1833,9 +1798,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.C.__new__", improved.get("main.run", set()))
 
     def test_class_definition_invokes_init_subclass_hook(self):
@@ -1851,9 +1814,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 pass
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         main_edges = improved.get("main", set())
         self.assertIn("main.Base.__init_subclass__", main_edges)
         self.assertIn("main.target", improved.get("main.Base.__init_subclass__", set()))
@@ -1877,9 +1838,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.Meta.__call__", run_edges)
         self.assertIn("main.target", run_edges)
@@ -1896,9 +1855,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         main_edges = improved.get("main", set())
         self.assertIn("main.target", main_edges)
         self.assertIn("main.anno", main_edges)
@@ -1921,9 +1878,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(Child())
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.choose", improved.get("main", set()))
         self.assertIn("main.Base.f", improved.get("main.run", set()))
 
@@ -2177,9 +2132,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             os.makedirs(pkg_dir)
             with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
                 pass
-            with open(
-                os.path.join(pkg_dir, "helper.py"), "w", encoding="utf-8"
-            ) as handle:
+            with open(os.path.join(pkg_dir, "helper.py"), "w", encoding="utf-8") as handle:
                 handle.write(textwrap.dedent("""
                         def sink():
                             return 1
@@ -2264,9 +2217,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(Box(), False)
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.target", run_edges)
         self.assertIn("main.fallback", run_edges)
@@ -2289,9 +2240,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.kill", run_edges)
         self.assertIn("main.target", run_edges)
@@ -2313,9 +2262,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(True)
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
         self.assertIn("main.b", run_edges)
@@ -2336,9 +2283,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
         self.assertIn("main.b", run_edges)
@@ -2365,9 +2310,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
         self.assertIn("main.b", run_edges)
@@ -2390,9 +2333,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(C())
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.C.__getattribute__", run_edges)
         self.assertIn("main.actual", run_edges)
@@ -2444,9 +2385,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(False)
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.target", run_edges)
         self.assertIn("main.fallback", run_edges)
@@ -2509,9 +2448,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_eval_literal_string_is_analyzed(self):
@@ -2526,15 +2463,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run()
             """)
 
-        improved = extract_call_graph_constraint(
-            source, allow_fixture_graph_loading=False
-        ).get()
+        improved = extract_call_graph_constraint(source, allow_fixture_graph_loading=False).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_callable_capping_preserves_all_bound_method_targets(self):
         class_defs = "\n".join(
-            f"class C{i}:\n" f"    def f(self):\n" f"        return {i}\n"
-            for i in range(140)
+            f"class C{i}:\n" f"    def f(self):\n" f"        return {i}\n" for i in range(140)
         )
         items = ", ".join(f"C{i}().f" for i in range(140))
         source = (
@@ -2708,10 +2642,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             warnings.simplefilter("always")
             improved = extract_call_graph_constraint(source).get()
         self.assertTrue(
-            any(
-                "Inconsistent MRO detected for main.F" in str(item.message)
-                for item in caught
-            ),
+            any("Inconsistent MRO detected for main.F" in str(item.message) for item in caught),
             caught,
         )
         run_edges = improved.get("main.run", set())
@@ -2840,9 +2771,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             warnings.simplefilter("always")
             builder.build()
         self.assertTrue(
-            any(
-                "fixpoint hit the iteration cap" in str(item.message) for item in caught
-            ),
+            any("fixpoint hit the iteration cap" in str(item.message) for item in caught),
             caught,
         )
         self.assertTrue(builder.fixpoint_truncated)
@@ -2933,9 +2862,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 handle.write("{ invalid json")
 
             source = "def local_only():\n    return 1\n"
-            improved = extract_call_graph_constraint(
-                source, source_path=main_path
-            ).get()
+            improved = extract_call_graph_constraint(source, source_path=main_path).get()
             self.assertIn("main.local_only", improved)
 
     def test_unresolved_dynamic_calls_have_summary_nodes(self):

@@ -120,9 +120,7 @@ def _name_looks_user_controlled(name):
 
 def _looks_like_user_source_attr(node):
     if isinstance(node, ast.Attribute):
-        return _name_looks_user_controlled(node.attr) or _looks_like_user_source_attr(
-            node.value
-        )
+        return _name_looks_user_controlled(node.attr) or _looks_like_user_source_attr(node.value)
     if isinstance(node, ast.Name):
         return _name_looks_user_controlled(node.id)
     if isinstance(node, ast.Subscript):
@@ -234,8 +232,7 @@ def _is_user_input(node):
 
     if isinstance(node, ast.JoinedStr):
         return any(
-            isinstance(v, ast.FormattedValue) and _is_user_input(v.value)
-            for v in node.values
+            isinstance(v, ast.FormattedValue) and _is_user_input(v.value) for v in node.values
         )
 
     if isinstance(node, ast.BinOp):
@@ -274,9 +271,7 @@ def subprocess_run_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue(
-            "subprocess.run() with shell=True uses user-controlled command input."
-        )
+        return _new_issue("subprocess.run() with shell=True uses user-controlled command input.")
     return None
 
 
@@ -290,9 +285,7 @@ def subprocess_call_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue(
-            "subprocess.call() with shell=True uses user-controlled command input."
-        )
+        return _new_issue("subprocess.call() with shell=True uses user-controlled command input.")
     return None
 
 
@@ -306,9 +299,7 @@ def subprocess_popen_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue(
-            "subprocess.Popen() with shell=True uses user-controlled command input."
-        )
+        return _new_issue("subprocess.Popen() with shell=True uses user-controlled command input.")
     return None
 
 
@@ -377,9 +368,7 @@ def command_string_formatting(context):
         )
 
     if call_qual == "shlex.join" and node.args and _is_user_input(node.args[0]):
-        return _new_issue(
-            "shlex.join() is used with user input to construct a shell command."
-        )
+        return _new_issue("shlex.join() is used with user input to construct a shell command.")
 
     return None
 

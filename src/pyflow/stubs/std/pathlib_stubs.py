@@ -228,7 +228,7 @@ def makePathlibStubs(collector):
     ### File operations ###
     @attachPtr(pathlib.Path, "open")
     @llfunc
-    def path_open(self, mode='r', buffering=-1, encoding=None, errors=None, newline=None):
+    def path_open(self, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
         return allocate(type(open(".")))
 
     @attachPtr(pathlib.Path, "read_bytes")

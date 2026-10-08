@@ -44,11 +44,7 @@ def _describe(value: Any) -> str:
         )
     if hasattr(value, "to_string") and callable(value.to_string):
         return f"{type(value).__qualname__}:{value.to_string()}"
-    if (
-        hasattr(value, "statement")
-        and hasattr(value, "scope_name")
-        and hasattr(value, "index")
-    ):
+    if hasattr(value, "statement") and hasattr(value, "scope_name") and hasattr(value, "index"):
         return (
             f"{type(value).__qualname__}:{value.scope_name}:"
             f"{value.index}:{_describe(value.statement)}"

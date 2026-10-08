@@ -61,7 +61,7 @@ def test_argument_normalization_blocks_methods():
             returnparams=[ast.Local("ret")],
             type_params=None,
         ),
-        ast.Suite([])
+        ast.Suite([]),
     )
     code.annotation = Mock()
     code.annotation.descriptive = False
@@ -80,10 +80,7 @@ def test_method_call_optimization_checks_single_target():
     # Create a call with multiple targets
     node = Mock()
     node.annotation = Mock()
-    node.annotation.invokes = [
-        {(Mock(), Mock()), (Mock(), Mock())},  # Multiple code targets
-        []
-    ]
+    node.annotation.invokes = [{(Mock(), Mock()), (Mock(), Mock())}, []]  # Multiple code targets
 
     pattern = Mock()
     pattern.icallsC = node.annotation.invokes[0]
@@ -205,8 +202,11 @@ def test_inlining_warns_experimental():
     codeinlining.evaluate(compiler, program)
 
     # Should have output a warning
-    warning_calls = [call for call in compiler.console.output.call_args_list
-                     if "WARNING" in str(call) or "experimental" in str(call).lower()]
+    warning_calls = [
+        call
+        for call in compiler.console.output.call_args_list
+        if "WARNING" in str(call) or "experimental" in str(call).lower()
+    ]
     assert len(warning_calls) > 0
 
 
@@ -248,8 +248,10 @@ def test_inlining_raises_on_unsupported_patterns():
                 codeinlining.evaluate(compiler, program)
                 # If we get here, the exception wasn't raised
                 # Check that at least the warning was output
-                assert any("WARNING" in str(call) or "experimental" in str(call).lower()
-                          for call in compiler.console.output.call_args_list)
+                assert any(
+                    "WARNING" in str(call) or "experimental" in str(call).lower()
+                    for call in compiler.console.output.call_args_list
+                )
             except RuntimeError as e:
                 # This is what we expect
                 assert "Code inlining failed" in str(e)

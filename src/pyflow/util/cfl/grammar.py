@@ -86,9 +86,7 @@ class Grammar:
         production_rules = match_instance.group(2).split(";")
         return production_rules
 
-    def ebnf_grammar_loader(
-        self, production_rules: List[str]
-    ) -> Dict[str, List[List[str]]]:
+    def ebnf_grammar_loader(self, production_rules: List[str]) -> Dict[str, List[List[str]]]:
         # paser the string to dict datastructure
         grammar: Dict[str, List[List[str]]] = {}
         for rule in production_rules:
@@ -137,9 +135,7 @@ class Grammar:
                             repetition_start = self.ebnf_bracket_match(rule, i)
                         repetition = " ".join(rule[repetition_start : i + 1])
                         if repetition in new_rule_checker:
-                            rule[repetition_start : i + 1] = [
-                                new_rule_checker[repetition]
-                            ]
+                            rule[repetition_start : i + 1] = [new_rule_checker[repetition]]
                         else:
                             x_var = f"X{self.num_generator()}"
                             rule[repetition_start : i + 1] = [x_var]
@@ -158,9 +154,7 @@ class Grammar:
 
     # Convert every group ( E ) to a fresh non-terminal X and add
     # X = E.
-    def ebnf_group_replace(
-        self, grammar: Dict[str, List[List[str]]]
-    ) -> Dict[str, List[List[str]]]:
+    def ebnf_group_replace(self, grammar: Dict[str, List[List[str]]]) -> Dict[str, List[List[str]]]:
         for head in grammar:
             for rule in grammar[head]:
                 for element in rule:
@@ -168,18 +162,14 @@ class Grammar:
                         rule.remove(element)
         return grammar
 
-    def check_head(
-        self, grammar: Dict[str, List[List[str]]], rule: List[str]
-    ) -> Union[str, bool]:
+    def check_head(self, grammar: Dict[str, List[List[str]]], rule: List[str]) -> Union[str, bool]:
         for in_head in grammar:
             for in_rule in grammar[in_head]:
                 if rule == in_rule:
                     return in_head
         return False
 
-    def ebnf_bin(
-        self, grammar: Dict[str, List[List[str]]]
-    ) -> Dict[str, List[List[str]]]:
+    def ebnf_bin(self, grammar: Dict[str, List[List[str]]]) -> Dict[str, List[List[str]]]:
         new_grammar: Dict[str, List[List[str]]] = {}
         for head in grammar:
             for rule in grammar[head]:

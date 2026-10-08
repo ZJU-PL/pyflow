@@ -214,9 +214,7 @@ class TestCopyConstraint(TestConstraintBase):
 
         # b = a
         self.setConstraint(
-            analysis.shape.constraints.CopyConstraint(
-                self.sys, self.inputPoint, self.outputPoint
-            )
+            analysis.shape.constraints.CopyConstraint(self.sys, self.inputPoint, self.outputPoint)
         )
 
     def testNoAlias(self):

@@ -64,8 +64,7 @@ def f():
 
     assert any(isinstance(event, TaintSinkEvent) for event in result.events)
     assert any(
-        diagnostic.code == "conditional-sanitizer-guard"
-        for diagnostic in result.diagnostics
+        diagnostic.code == "conditional-sanitizer-guard" for diagnostic in result.diagnostics
     )
 
 
@@ -96,6 +95,5 @@ def test_contract_assumptions_make_completeness_explicit():
 
     assert result.status == "partial"
     assert any(
-        diagnostic.code == "sanitizer-contract-assumption"
-        for diagnostic in result.diagnostics
+        diagnostic.code == "sanitizer-contract-assumption" for diagnostic in result.diagnostics
     )

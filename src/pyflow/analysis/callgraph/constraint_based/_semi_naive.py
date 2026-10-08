@@ -45,12 +45,12 @@ class SemiNaiveConstraintSolver:
     def __init__(self, builder) -> None:
         self.builder = builder
         self.facts: DefaultDict[BindingKey, set[AbstractValue]] = defaultdict(set)
-        self.dependents: DefaultDict[
-            BindingKey, set[CopyConstraint | CallConstraint]
-        ] = defaultdict(set)
-        self.constraints_by_owner: DefaultDict[
-            str, set[CopyConstraint | CallConstraint]
-        ] = defaultdict(set)
+        self.dependents: DefaultDict[BindingKey, set[CopyConstraint | CallConstraint]] = (
+            defaultdict(set)
+        )
+        self.constraints_by_owner: DefaultDict[str, set[CopyConstraint | CallConstraint]] = (
+            defaultdict(set)
+        )
         self.queue: deque[tuple[BindingKey, frozenset[AbstractValue]]] = deque()
         self.activation_queue: deque[str] = deque()
         self.active_scopes: set[str] = set()
@@ -124,14 +124,8 @@ class SemiNaiveConstraintSolver:
             function_info = self.builder.functions.get(value.name)
             decorators = getattr(getattr(function_info, "node", None), "decorator_list", ())
             is_singledispatch = any(
-                (
-                    isinstance(decorator, ast.Name)
-                    and decorator.id == "singledispatch"
-                )
-                or (
-                    isinstance(decorator, ast.Attribute)
-                    and decorator.attr == "singledispatch"
-                )
+                (isinstance(decorator, ast.Name) and decorator.id == "singledispatch")
+                or (isinstance(decorator, ast.Attribute) and decorator.attr == "singledispatch")
                 for decorator in decorators
             )
             if value.name in self.builder.singledispatch_functions or is_singledispatch:
@@ -213,8 +207,7 @@ class SemiNaiveConstraintSolver:
         if target is None and not fixed_targets:
             return
         arguments = tuple(
-            self._expression_key(scope, local_names, argument)
-            for argument in call.args
+            self._expression_key(scope, local_names, argument) for argument in call.args
         )
         self._register_call(
             CallConstraint(
@@ -244,11 +237,7 @@ class SemiNaiveConstraintSolver:
                 continue
             if isinstance(statement, ast.ClassDef):
                 qualname = next(
-                    (
-                        name
-                        for name, info in self.builder.classes.items()
-                        if info.node is statement
-                    ),
+                    (name for name, info in self.builder.classes.items() if info.node is statement),
                     None,
                 )
                 if qualname:
@@ -257,9 +246,7 @@ class SemiNaiveConstraintSolver:
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 value = statement.value
                 targets = (
-                    statement.targets
-                    if isinstance(statement, ast.Assign)
-                    else [statement.target]
+                    statement.targets if isinstance(statement, ast.Assign) else [statement.target]
                 )
                 for target in targets:
                     if not isinstance(target, ast.Name) or value is None:
@@ -267,9 +254,7 @@ class SemiNaiveConstraintSolver:
                     destination = (scope.name, target.id)
                     source = self._expression_key(scope, local_names, value)
                     if source is not None:
-                        self._register_copy(
-                            CopyConstraint(scope.name, source, destination)
-                        )
+                        self._register_copy(CopyConstraint(scope.name, source, destination))
                     elif isinstance(value, ast.Call):
                         self._compile_call(scope, local_names, value, destination)
                 continue
@@ -280,13 +265,9 @@ class SemiNaiveConstraintSolver:
                 destination = self._return_key(scope.name)
                 source = self._expression_key(scope, local_names, statement.value)
                 if source is not None:
-                    self._register_copy(
-                        CopyConstraint(scope.name, source, destination)
-                    )
+                    self._register_copy(CopyConstraint(scope.name, source, destination))
                 elif isinstance(statement.value, ast.Call):
-                    self._compile_call(
-                        scope, local_names, statement.value, destination
-                    )
+                    self._compile_call(scope, local_names, statement.value, destination)
                 break
             if isinstance(statement, (ast.Return, ast.Raise)):
                 break
@@ -300,9 +281,7 @@ class SemiNaiveConstraintSolver:
         for name in local_names:
             if name in scope.params or name in scope.closure_vars:
                 continue
-            module_values = self.builder.module_bindings.get(scope.module, {}).get(
-                name, set()
-            )
+            module_values = self.builder.module_bindings.get(scope.module, {}).get(name, set())
             if module_values:
                 self._add((scope.name, name), module_values)
         self._compile_statements(scope, local_names, scope.body)
@@ -315,8 +294,7 @@ class SemiNaiveConstraintSolver:
         for scope_name, scope in self.builder.scopes.items():
             if self.builder.options.analyze_reachable_only:
                 seed = scope_name == "main" or (
-                    self.builder.options.seed_entry_file_scopes
-                    and scope.module == "main"
+                    self.builder.options.seed_entry_file_scopes and scope.module == "main"
                 )
             else:
                 function = self.builder.functions.get(scope_name)
@@ -355,9 +333,7 @@ class SemiNaiveConstraintSolver:
                 inputs = self.builder.scope_inputs.setdefault(
                     scope_key, {parameter: set() for parameter in scope.params}
                 )
-                self.builder._merge_value_set(
-                    inputs.setdefault(name, set()), set(values), True
-                )
+                self.builder._merge_value_set(inputs.setdefault(name, set()), set(values), True)
         for caller, callees in self.edges.items():
             caller_key = (caller, GLOBAL_CONTEXT)
             self.builder.scope_callees[caller_key].update(callees)

@@ -13,9 +13,7 @@ from pyflow.language.modules.imports import discover_module_exports
 
 class TestProjectResolution(unittest.TestCase):
     def test_discover_exports_uses_top_level_dotted_import_binding(self):
-        exports = discover_module_exports(
-            "import package.module\nimport package.other as alias\n"
-        )
+        exports = discover_module_exports("import package.module\nimport package.other as alias\n")
 
         self.assertEqual(exports, ["alias", "package"])
 
@@ -28,9 +26,7 @@ class TestProjectResolution(unittest.TestCase):
             module = pkg / "mod.py"
             module.write_text("VALUE = 1\n", encoding="utf-8")
 
-            dotted, is_package = transform_path_to_dotted(
-                [str(root), str(nested)], module
-            )
+            dotted, is_package = transform_path_to_dotted([str(root), str(nested)], module)
 
             self.assertEqual(dotted, ("pkg", "mod"))
             self.assertFalse(is_package)
@@ -106,9 +102,7 @@ class TestProjectResolution(unittest.TestCase):
             current.parent.mkdir(parents=True)
             current.write_text("", encoding="utf-8")
 
-            resolved = context.resolve_import_name(
-                "pkg.sub.mod", "tools", 2, current_path=current
-            )
+            resolved = context.resolve_import_name("pkg.sub.mod", "tools", 2, current_path=current)
 
             self.assertEqual(resolved, "pkg.tools")
 

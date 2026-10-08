@@ -73,13 +73,9 @@ class IRCatalog:
         self._code_keys: dict[tuple[str, str, SourceAnchor], int] = {}
         self._nodes: dict[NodeId, object] = {}
         self._node_ids: dict[tuple[CodeId, _IdentityKey], NodeId] = {}
-        self._node_occurrences: dict[
-            _IdentityKey, NodeId | list[NodeId]
-        ] = {}
+        self._node_occurrences: dict[_IdentityKey, NodeId | list[NodeId]] = {}
         self._reference_symbols: dict[tuple[ScopeId, _IdentityKey], SymbolId] = {}
-        self._reference_occurrences: dict[
-            _IdentityKey, SymbolId | list[SymbolId]
-        ] = {}
+        self._reference_occurrences: dict[_IdentityKey, SymbolId | list[SymbolId]] = {}
         self._reference_values: dict[tuple[CodeId, _IdentityKey], object] = {}
         self._contexts: dict[ContextId, object] = {}
         self._context_ids: dict[tuple[CodeId, _IdentityKey], ContextId] = {}
@@ -101,9 +97,7 @@ class IRCatalog:
         preserved_capabilities=(),
     ) -> IRRevision:
         self.revision = self.revision.next()
-        self.facts.advance_ir_revision(
-            self.revision, preserved=preserved_capabilities
-        )
+        self.facts.advance_ir_revision(self.revision, preserved=preserved_capabilities)
         return self.revision
 
     def register_code(
@@ -164,9 +158,7 @@ class IRCatalog:
 
     def mark_procedure_indexed(self, code_or_id: object | CodeId) -> None:
         code_id = (
-            code_or_id
-            if isinstance(code_or_id, CodeId)
-            else self.procedure(code_or_id).code_id
+            code_or_id if isinstance(code_or_id, CodeId) else self.procedure(code_or_id).code_id
         )
         self._indexed_procedures.add(code_id)
 
@@ -262,9 +254,7 @@ class IRCatalog:
             return self._node_ids[key]
         occurrences = self._node_occurrences[_identity(node)]
         if isinstance(occurrences, list):
-            raise KeyError(
-                "IR node occurs in multiple procedures; pass code= to node_id()"
-            )
+            raise KeyError("IR node occurs in multiple procedures; pass code= to node_id()")
         return occurrences
 
     def has_node(self, node: object, code: object | CodeId | None = None) -> bool:
@@ -310,9 +300,7 @@ class IRCatalog:
         replacement_key = (code_id, replacement_identity)
         occupied = self._node_ids.get(replacement_key)
         if occupied is not None and occupied != node_id:
-            raise ValueError(
-                f"replacement node already has a different identity: {occupied}"
-            )
+            raise ValueError(f"replacement node already has a different identity: {occupied}")
 
         del self._node_ids[original_key]
         self._node_ids[replacement_key] = node_id
@@ -414,32 +402,16 @@ class IRCatalog:
         self, node_or_id: object | NodeId, *, code: object | CodeId | None = None
     ) -> object | None:
         """Return source metadata for an IR node through the public catalog API."""
-        node_id = (
-            node_or_id
-            if isinstance(node_or_id, NodeId)
-            else self.node_id(node_or_id, code)
-        )
+        node_id = node_or_id if isinstance(node_or_id, NodeId) else self.node_id(node_or_id, code)
         return self.source_map.origin(node_id)
 
-    def provenance_of(
-        self, node_or_id: object | NodeId, *, code: object | CodeId | None = None
-    ):
-        node_id = (
-            node_or_id
-            if isinstance(node_or_id, NodeId)
-            else self.node_id(node_or_id, code)
-        )
+    def provenance_of(self, node_or_id: object | NodeId, *, code: object | CodeId | None = None):
+        node_id = node_or_id if isinstance(node_or_id, NodeId) else self.node_id(node_or_id, code)
         return self.source_map.provenance(node_id)
 
-    def semantics_of(
-        self, node_or_id: object | NodeId, *, code: object | CodeId | None = None
-    ):
+    def semantics_of(self, node_or_id: object | NodeId, *, code: object | CodeId | None = None):
         """Return mandatory context-independent semantics for an operation."""
-        node_id = (
-            node_or_id
-            if isinstance(node_or_id, NodeId)
-            else self.node_id(node_or_id, code)
-        )
+        node_id = node_or_id if isinstance(node_or_id, NodeId) else self.node_id(node_or_id, code)
         return self.semantics.operation(node_id)
 
     def bind_symbol(
@@ -475,9 +447,7 @@ class IRCatalog:
             _identity(reference),
         ) in self._reference_symbols
 
-    def symbol_id(
-        self, reference: object, code: object | CodeId | None = None
-    ) -> SymbolId:
+    def symbol_id(self, reference: object, code: object | CodeId | None = None) -> SymbolId:
         if code is not None:
             scope = self.procedure(code).root_scope
             key = (scope, _identity(reference))
@@ -488,9 +458,7 @@ class IRCatalog:
             return self._reference_symbols[key]
         occurrences = self._reference_occurrences[_identity(reference)]
         if isinstance(occurrences, list):
-            raise KeyError(
-                "IR reference occurs in multiple procedures; pass code= to symbol_id()"
-            )
+            raise KeyError("IR reference occurs in multiple procedures; pass code= to symbol_id()")
         return occurrences
 
     def symbol_for(self, reference: object, code: object | CodeId | None = None):

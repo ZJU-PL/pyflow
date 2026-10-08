@@ -6,5 +6,6 @@ class MyClass:
         a = self
         a.func1()
 
+
 a = MyClass()
 a.func2()

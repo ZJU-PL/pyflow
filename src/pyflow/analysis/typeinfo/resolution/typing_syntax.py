@@ -121,25 +121,19 @@ def substitute_type_vars(
         return substitutions.get(type_.name, type_)
 
     if isinstance(type_, Instance) and type_.args:
-        new_args = tuple(
-            substitute_type_vars(a, substitutions) for a in type_.args
-        )
+        new_args = tuple(substitute_type_vars(a, substitutions) for a in type_.args)
         if new_args != type_.args:
             return Instance(type_.type, new_args)
         return type_
 
     if isinstance(type_, TupleType) and type_.args:
-        new_args = tuple(
-            substitute_type_vars(a, substitutions) for a in type_.args
-        )
+        new_args = tuple(substitute_type_vars(a, substitutions) for a in type_.args)
         if new_args != type_.args:
             return TupleType(new_args, unknown_size=type_.unknown_size)
         return type_
 
     if isinstance(type_, UnionType):
-        new_items = tuple(
-            substitute_type_vars(i, substitutions) for i in type_.items
-        )
+        new_items = tuple(substitute_type_vars(i, substitutions) for i in type_.items)
         if new_items != type_.items:
             return UnionType(new_items)
         return type_

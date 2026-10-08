@@ -29,11 +29,7 @@ def isZero(arg):
     Returns:
         True if arg is a constant zero, False otherwise
     """
-    return (
-        isinstance(arg, ast.Existing)
-        and arg.object.isConstant()
-        and arg.object.pyobj == 0
-    )
+    return isinstance(arg, ast.Existing) and arg.object.isConstant() and arg.object.pyobj == 0
 
 
 def isOne(arg):
@@ -45,11 +41,7 @@ def isOne(arg):
     Returns:
         True if arg is a constant one, False otherwise
     """
-    return (
-        isinstance(arg, ast.Existing)
-        and arg.object.isConstant()
-        and arg.object.pyobj == 1
-    )
+    return isinstance(arg, ast.Existing) and arg.object.isConstant() and arg.object.pyobj == 1
 
 
 def isNegativeOne(arg):
@@ -61,11 +53,7 @@ def isNegativeOne(arg):
     Returns:
         True if arg is a constant -1, False otherwise
     """
-    return (
-        isinstance(arg, ast.Existing)
-        and arg.object.isConstant()
-        and arg.object.pyobj == -1
-    )
+    return isinstance(arg, ast.Existing) and arg.object.isConstant() and arg.object.pyobj == -1
 
 
 def hasNumArgs(node, count):
@@ -171,23 +159,17 @@ class DirectCallRewriter(object):
         self.extractor = extractor
         self.catalog = catalog
         intrinsic_manager = getattr(extractor, "intrinsic_manager", None)
-        self.exports = (
-            intrinsic_manager.stubs.exports if intrinsic_manager is not None else {}
-        )
+        self.exports = intrinsic_manager.stubs.exports if intrinsic_manager is not None else {}
         self.rewrites = {}
 
     @staticmethod
     def _code_key(code):
         catalog = getattr(code, "ir_catalog", None)
         if catalog is None or not catalog.has_node(code, code):
-            raise MissingAnalysisFact(
-                f"direct-call target has no indexed metadata: {code!r}"
-            )
+            raise MissingAnalysisFact(f"direct-call target has no indexed metadata: {code!r}")
         origin = catalog.source_of(code, code=code)
         if origin is None:
-            raise MissingAnalysisFact(
-                f"direct-call target has no source identity: {code!r}"
-            )
+            raise MissingAnalysisFact(f"direct-call target has no source identity: {code!r}")
         return origin
 
     def _getCode(self, func):
@@ -257,9 +239,7 @@ class DirectCallRewriter(object):
         """
         if code:
             if self.catalog is None:
-                raise MissingAnalysisFact(
-                    "direct-call rewrites require an IR catalog"
-                )
+                raise MissingAnalysisFact("direct-call rewrites require an IR catalog")
             if not self.catalog.has_procedure(code):
                 from pyflow.ir.core import index_code
 

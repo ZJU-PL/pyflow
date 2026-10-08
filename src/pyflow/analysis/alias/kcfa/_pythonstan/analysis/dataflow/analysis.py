@@ -5,7 +5,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import CFGEdge, BaseBlock,
 from pyflow.analysis.alias.kcfa._pythonstan.ir import *
 from ..analysis import Analysis, AnalysisConfig
 
-Fact = TypeVar('Fact')
+Fact = TypeVar("Fact")
 
 
 class DataflowAnalysis(Generic[Fact], Analysis):

@@ -34,19 +34,25 @@ class TestPDGCypher(unittest.TestCase):
 
     def test_match_nodes_return_properties(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
-        rows = pdg.cypher('MATCH (n:stmt) RETURN n.kind AS k, n.node_id AS id ORDER BY id ASC LIMIT 10')
+        rows = pdg.cypher(
+            "MATCH (n:stmt) RETURN n.kind AS k, n.node_id AS id ORDER BY id ASC LIMIT 10"
+        )
         self.assertGreaterEqual(len(rows), 1)
         self.assertTrue(all(r["k"] == "stmt" for r in rows))
         self.assertTrue(all(isinstance(r["id"], int) for r in rows))
 
     def test_match_data_edges_with_where_and_params(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher(
-            'MATCH (a:stmt)-[e:data]->(b:stmt) WHERE e.label = $lbl RETURN a.node_id AS src, b.node_id AS dst LIMIT 20',
+            "MATCH (a:stmt)-[e:data]->(b:stmt) WHERE e.label = $lbl RETURN a.node_id AS src, b.node_id AS dst LIMIT 20",
             params={"lbl": "y"},
         )
         self.assertGreaterEqual(len(rows), 1)
@@ -56,15 +62,21 @@ class TestPDGCypher(unittest.TestCase):
 
     def test_match_control_edges(self):
         cfg = self.build_cfg(simple_if)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=False)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=True, include_data=False
+        )
 
-        rows = pdg.cypher("MATCH (c:cond)-[:control]->(n) RETURN c.node_id AS cid, n.kind AS nk LIMIT 50")
+        rows = pdg.cypher(
+            "MATCH (c:cond)-[:control]->(n) RETURN c.node_id AS cid, n.kind AS nk LIMIT 50"
+        )
         self.assertGreaterEqual(len(rows), 1)
         self.assertTrue(all(isinstance(r["cid"], int) for r in rows))
 
     def test_return_star_includes_bound_variables(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher("MATCH (a:stmt)-[e:data]->(b) RETURN * LIMIT 5")
         self.assertGreaterEqual(len(rows), 1)
@@ -75,7 +87,9 @@ class TestPDGCypher(unittest.TestCase):
 
     def test_skip_and_limit(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher("MATCH (n:stmt) RETURN n.node_id AS id ORDER BY id ASC SKIP 1 LIMIT 1")
         self.assertEqual(len(rows), 1)
@@ -83,15 +97,21 @@ class TestPDGCypher(unittest.TestCase):
 
     def test_variable_length_relationship(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         # Two-hop data path should exist: y-assign -> z-assign -> return
-        rows = pdg.cypher("MATCH (a:stmt)-[:data*2]->(b:stmt) RETURN a.node_id AS a, b.node_id AS b LIMIT 50")
+        rows = pdg.cypher(
+            "MATCH (a:stmt)-[:data*2]->(b:stmt) RETURN a.node_id AS a, b.node_id AS b LIMIT 50"
+        )
         self.assertGreaterEqual(len(rows), 1)
 
     def test_variable_length_relationship_binds_edge_sequence(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher("MATCH (a:stmt)-[p:data*2]->(b:stmt) RETURN p LIMIT 5")
         self.assertGreaterEqual(len(rows), 1)
@@ -101,21 +121,29 @@ class TestPDGCypher(unittest.TestCase):
 
     def test_undirected_relationship_matches(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
-        rows = pdg.cypher("MATCH (a:stmt)-[:data]-(b:stmt) RETURN a.node_id AS a, b.node_id AS b LIMIT 50")
+        rows = pdg.cypher(
+            "MATCH (a:stmt)-[:data]-(b:stmt) RETURN a.node_id AS a, b.node_id AS b LIMIT 50"
+        )
         self.assertGreaterEqual(len(rows), 1)
 
     def test_node_pattern_property_map(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher('MATCH (n {kind: "stmt"}) RETURN count(n) AS c')
         self.assertEqual(rows[0]["c"], 3)
 
     def test_aggregations_count_and_collect(self):
         cfg = self.build_cfg(simple_assignment)
-        pdg = construct_pdg(cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True)
+        pdg = construct_pdg(
+            cfg, run_ssa=True, expand_phi=True, include_control=False, include_data=True
+        )
 
         rows = pdg.cypher("MATCH (n:stmt) RETURN count(*) AS c, collect(n.kind) AS kinds")
         self.assertEqual(rows[0]["c"], 3)

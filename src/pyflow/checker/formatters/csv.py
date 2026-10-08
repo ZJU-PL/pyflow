@@ -2,6 +2,7 @@
 
 Outputs issues in comma-separated values format.
 """
+
 import csv
 import logging
 import sys

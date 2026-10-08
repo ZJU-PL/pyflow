@@ -94,9 +94,7 @@ client = Client()
     service = TypeInfoService(ProjectContext(None))
     service.collect_module("pkg.mod", source=source)
 
-    assert _instance_name(service.type_of("pkg.mod", "client")) == (
-        "pkg.mod.Client"
-    )
+    assert _instance_name(service.type_of("pkg.mod", "client")) == ("pkg.mod.Client")
     members = service.members_of("pkg.mod.Client")
     assert members["attr"] == TypeFact(
         name="attr",
@@ -169,8 +167,7 @@ def test_service_resolves_project_imported_annotations() -> None:
         package.mkdir()
         package.joinpath("__init__.py").write_text("", encoding="utf-8")
         package.joinpath("models.py").write_text(
-            "class Client:\n"
-            "    value: int\n",
+            "class Client:\n" "    value: int\n",
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
@@ -185,12 +182,8 @@ def test_service_resolves_project_imported_annotations() -> None:
 
         service.collect_module("pkg.service")
 
-        assert _instance_name(service.type_of("pkg.service", "client")) == (
-            "pkg.models.Client"
-        )
-        assert _instance_name(service.type_of("pkg.service", "made")) == (
-            "pkg.models.Client"
-        )
+        assert _instance_name(service.type_of("pkg.service", "client")) == ("pkg.models.Client")
+        assert _instance_name(service.type_of("pkg.service", "made")) == ("pkg.models.Client")
         signature = service.signature_of("pkg.service", "make")
         assert signature is not None
         assert _instance_name(signature.params["item"]) == "pkg.models.Client"
@@ -212,21 +205,15 @@ def test_service_resolves_imported_module_alias_annotations() -> None:
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
-            "import pkg.models as models\n\n"
-            "client: models.Client\n"
-            "made = models.Client()\n",
+            "import pkg.models as models\n\n" "client: models.Client\n" "made = models.Client()\n",
             encoding="utf-8",
         )
         service = TypeInfoService(ProjectContext(root))
 
         service.collect_module("pkg.service")
 
-        assert _instance_name(service.type_of("pkg.service", "client")) == (
-            "pkg.models.Client"
-        )
-        assert _instance_name(service.type_of("pkg.service", "made")) == (
-            "pkg.models.Client"
-        )
+        assert _instance_name(service.type_of("pkg.service", "client")) == ("pkg.models.Client")
+        assert _instance_name(service.type_of("pkg.service", "made")) == ("pkg.models.Client")
 
 
 def test_service_resolves_relative_imports_and_package_exports() -> None:
@@ -235,8 +222,7 @@ def test_service_resolves_relative_imports_and_package_exports() -> None:
         package = root / "pkg"
         package.mkdir()
         package.joinpath("__init__.py").write_text(
-            "from .models import Client\n"
-            "exported: Client\n",
+            "from .models import Client\n" "exported: Client\n",
             encoding="utf-8",
         )
         package.joinpath("models.py").write_text(
@@ -244,8 +230,7 @@ def test_service_resolves_relative_imports_and_package_exports() -> None:
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
-            "from .models import Client\n\n"
-            "client: Client\n",
+            "from .models import Client\n\n" "client: Client\n",
             encoding="utf-8",
         )
         service = TypeInfoService(ProjectContext(root))
@@ -253,12 +238,8 @@ def test_service_resolves_relative_imports_and_package_exports() -> None:
         service.collect_module("pkg.service")
         service.collect_module("pkg")
 
-        assert _instance_name(service.type_of("pkg.service", "client")) == (
-            "pkg.models.Client"
-        )
-        assert _instance_name(service.type_of("pkg", "exported")) == (
-            "pkg.models.Client"
-        )
+        assert _instance_name(service.type_of("pkg.service", "client")) == ("pkg.models.Client")
+        assert _instance_name(service.type_of("pkg", "exported")) == ("pkg.models.Client")
 
 
 def test_service_resolves_namespace_package_imports() -> None:
@@ -271,8 +252,7 @@ def test_service_resolves_namespace_package_imports() -> None:
             encoding="utf-8",
         )
         namespace.joinpath("service.py").write_text(
-            "from ns_pkg.models import Client\n\n"
-            "client: Client\n",
+            "from ns_pkg.models import Client\n\n" "client: Client\n",
             encoding="utf-8",
         )
         service = TypeInfoService(ProjectContext(root))
@@ -295,8 +275,7 @@ def test_service_resolves_imported_stub_annotations() -> None:
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
-            "def make(item):\n"
-            "    return item\n",
+            "def make(item):\n" "    return item\n",
             encoding="utf-8",
         )
         package.joinpath("service.pyi").write_text(
@@ -309,9 +288,7 @@ def test_service_resolves_imported_stub_annotations() -> None:
 
         service.collect_module("pkg.service")
 
-        assert _instance_name(service.type_of("pkg.service", "client")) == (
-            "pkg.models.Client"
-        )
+        assert _instance_name(service.type_of("pkg.service", "client")) == ("pkg.models.Client")
         signature = service.signature_of("pkg.service", "make")
         assert signature is not None
         assert _instance_name(signature.params["item"]) == "pkg.models.Client"
@@ -319,12 +296,8 @@ def test_service_resolves_imported_stub_annotations() -> None:
         function_type = service.type_of("pkg.service", "make")
         assert isinstance(function_type, CallableType)
         assert function_type.arg_types is not None
-        assert _instance_name(function_type.arg_types[0]) == (
-            "pkg.models.Client"
-        )
-        assert _instance_name(function_type.return_type) == (
-            "pkg.models.Client"
-        )
+        assert _instance_name(function_type.arg_types[0]) == ("pkg.models.Client")
+        assert _instance_name(function_type.return_type) == ("pkg.models.Client")
 
 
 def test_service_prefers_module_local_class_names() -> None:
@@ -334,13 +307,11 @@ def test_service_prefers_module_local_class_names() -> None:
         package.mkdir()
         package.joinpath("__init__.py").write_text("", encoding="utf-8")
         package.joinpath("a.py").write_text(
-            "class Client: ...\n"
-            "value: Client\n",
+            "class Client: ...\n" "value: Client\n",
             encoding="utf-8",
         )
         package.joinpath("b.py").write_text(
-            "class Client: ...\n"
-            "value: Client\n",
+            "class Client: ...\n" "value: Client\n",
             encoding="utf-8",
         )
         service = TypeInfoService(ProjectContext(root))
@@ -348,12 +319,8 @@ def test_service_prefers_module_local_class_names() -> None:
         service.collect_module("pkg.a")
         service.collect_module("pkg.b")
 
-        assert _instance_name(service.type_of("pkg.a", "value")) == (
-            "pkg.a.Client"
-        )
-        assert _instance_name(service.type_of("pkg.b", "value")) == (
-            "pkg.b.Client"
-        )
+        assert _instance_name(service.type_of("pkg.a", "value")) == ("pkg.a.Client")
+        assert _instance_name(service.type_of("pkg.b", "value")) == ("pkg.b.Client")
 
 
 def test_service_resolves_reexported_import_alias_assignment() -> None:
@@ -362,8 +329,7 @@ def test_service_resolves_reexported_import_alias_assignment() -> None:
         package = root / "pkg"
         package.mkdir()
         package.joinpath("__init__.py").write_text(
-            "from pkg.impl import Client\n\n"
-            "PublicClient = Client\n",
+            "from pkg.impl import Client\n\n" "PublicClient = Client\n",
             encoding="utf-8",
         )
         package.joinpath("impl.py").write_text(
@@ -371,20 +337,15 @@ def test_service_resolves_reexported_import_alias_assignment() -> None:
             encoding="utf-8",
         )
         package.joinpath("service.py").write_text(
-            "import pkg\n\n"
-            "client: pkg.PublicClient\n",
+            "import pkg\n\n" "client: pkg.PublicClient\n",
             encoding="utf-8",
         )
         service = TypeInfoService(ProjectContext(root))
 
         service.collect_module("pkg.service")
 
-        assert _instance_name(service.type_of("pkg", "PublicClient")) == (
-            "pkg.impl.Client"
-        )
-        assert _instance_name(service.type_of("pkg.service", "client")) == (
-            "pkg.impl.Client"
-        )
+        assert _instance_name(service.type_of("pkg", "PublicClient")) == ("pkg.impl.Client")
+        assert _instance_name(service.type_of("pkg.service", "client")) == ("pkg.impl.Client")
 
 
 def test_service_stub_overrides_source_signature() -> None:

@@ -80,9 +80,7 @@ class TestSetUnion(unittest.TestCase):
 class TestStructureSchema(unittest.TestCase):
     def testCreate(self):
         intSchema = structure.TypeSchema(int)
-        s = structure.StructureSchema(
-            ("a", intSchema), ("b", intSchema), ("c", intSchema)
-        )
+        s = structure.StructureSchema(("a", intSchema), ("b", intSchema), ("c", intSchema))
 
         self.assertEqual(s.field("b"), intSchema)
         self.assertRaises(structure.base.SchemaError, s.field, "z")
@@ -99,9 +97,7 @@ class TestStructureSchema(unittest.TestCase):
 
     def testValidate(self):
         intSchema = structure.TypeSchema(int)
-        s = structure.StructureSchema(
-            ("a", intSchema), ("b", intSchema), ("c", intSchema)
-        )
+        s = structure.StructureSchema(("a", intSchema), ("b", intSchema), ("c", intSchema))
 
         self.assertTrue(s.validateNoRaise((1, 2, 3)))
         self.assertTrue(not s.validateNoRaise((1, 2, 3.0)))

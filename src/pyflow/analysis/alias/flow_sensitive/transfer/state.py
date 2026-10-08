@@ -21,9 +21,7 @@ class ExpressionValue:
     def join(self, other: "ExpressionValue") -> "ExpressionValue":
         return ExpressionValue(
             refs=tuple(dict.fromkeys((*self.refs, *other.refs))),
-            may_non_reference=(
-                self.may_non_reference or other.may_non_reference
-            ),
+            may_non_reference=(self.may_non_reference or other.may_non_reference),
         )
 
 
@@ -39,9 +37,7 @@ class _CallSummary:
     deletes: tuple[HeapLocation, ...] = ()
     raises: tuple[HeapLocation, ...] = ()
     yields: tuple[HeapLocation, ...] = ()
-    yield_steps: tuple[
-        tuple[HeapState, HeapEnvironment, tuple[HeapLocation, ...]], ...
-    ] = ()
+    yield_steps: tuple[tuple[HeapState, HeapEnvironment, tuple[HeapLocation, ...]], ...] = ()
     param_returns: dict[int, frozenset[int]] = field(default_factory=dict)
     param_escapes: frozenset[int] = field(default_factory=frozenset)
 

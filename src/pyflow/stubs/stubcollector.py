@@ -372,9 +372,7 @@ class StubCollector(object):
             The code object (for chaining)
         """
         assert code.isCode(), type(code)
-        code.rewriteAnnotation(
-            descriptive=True, primitive=True, runtime=False, interpreter=False
-        )
+        code.rewriteAnnotation(descriptive=True, primitive=True, runtime=False, interpreter=False)
         return code
 
     def replaceAttr(self, o, attr):

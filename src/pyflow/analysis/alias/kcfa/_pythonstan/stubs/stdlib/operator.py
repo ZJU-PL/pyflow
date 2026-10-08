@@ -95,7 +95,7 @@ def pos(a):
 
 
 def pow(a, b):
-    return a ** b
+    return a**b
 
 
 def rshift(a, b):
@@ -150,7 +150,7 @@ def setitem(a, b, c):
 
 
 def length_hint(obj, default=0):
-    return len(obj) if hasattr(obj, '__len__') else default
+    return len(obj) if hasattr(obj, "__len__") else default
 
 
 def call(obj, *args, **kwargs):
@@ -168,7 +168,7 @@ class attrgetter:
 
 
 def _get_nested_attr(obj, attr):
-    for name in attr.split('.'):
+    for name in attr.split("."):
         obj = getattr(obj, name)
     return obj
 

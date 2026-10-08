@@ -21,7 +21,6 @@ import operator
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-
 _MAX_FOLDED_REPR_LENGTH = 10_000
 _MAX_PROPAGATION_PASSES = 16
 
@@ -191,11 +190,7 @@ class _LiteralFolder(ast.NodeTransformer):
                 return False, None
             # Avoid expensive exponentiation before it gets a chance to exceed
             # the rendered-source limit below.
-            if (
-                isinstance(node.op, ast.Pow)
-                and isinstance(right, int)
-                and abs(right) > 10_000
-            ):
+            if isinstance(node.op, ast.Pow) and isinstance(right, int) and abs(right) > 10_000:
                 return False, None
             try:
                 return True, operation(left, right)
@@ -263,10 +258,7 @@ class _LiteralFolder(ast.NodeTransformer):
             return node
 
         # Avoid turning a compact expression into a huge source file.
-        if (
-            not _is_renderable_literal(value)
-            or len(repr(value)) > _MAX_FOLDED_REPR_LENGTH
-        ):
+        if not _is_renderable_literal(value) or len(repr(value)) > _MAX_FOLDED_REPR_LENGTH:
             return node
 
         self.constant_folds += 1
@@ -284,22 +276,28 @@ class _LiteralFolder(ast.NodeTransformer):
         for index, value_node in enumerate(node.values):
             known, value = self._literal_value(value_node)
             if not known:
-                if index and all(
-                    self._literal_value(prefix)[0]
-                    and bool(self._literal_value(prefix)[1])
-                    for prefix in node.values[:index]
-                ) and isinstance(node.op, ast.And):
+                if (
+                    index
+                    and all(
+                        self._literal_value(prefix)[0] and bool(self._literal_value(prefix)[1])
+                        for prefix in node.values[:index]
+                    )
+                    and isinstance(node.op, ast.And)
+                ):
                     self.boolean_simplifications += 1
                     remaining = node.values[index:]
                     if len(remaining) == 1:
                         return remaining[0]
                     node.values = remaining
                     return node
-                if index and all(
-                    self._literal_value(prefix)[0]
-                    and not bool(self._literal_value(prefix)[1])
-                    for prefix in node.values[:index]
-                ) and isinstance(node.op, ast.Or):
+                if (
+                    index
+                    and all(
+                        self._literal_value(prefix)[0] and not bool(self._literal_value(prefix)[1])
+                        for prefix in node.values[:index]
+                    )
+                    and isinstance(node.op, ast.Or)
+                ):
                     self.boolean_simplifications += 1
                     remaining = node.values[index:]
                     if len(remaining) == 1:
@@ -315,9 +313,7 @@ class _LiteralFolder(ast.NodeTransformer):
                 skipped = node.values[index + 1 :]
                 if not _has_scope_effect(skipped):
                     self.boolean_simplifications += 1
-                    return ast.copy_location(
-                        ast.parse(repr(value), mode="eval").body, node
-                    )
+                    return ast.copy_location(ast.parse(repr(value), mode="eval").body, node)
                 return node
 
         return self._try_fold_expression(node)
@@ -357,9 +353,7 @@ class _LiteralFolder(ast.NodeTransformer):
     def visit_Assert(self, node: ast.Assert) -> ast.stmt | list[ast.stmt]:
         node = self.generic_visit(node)
         known, value = self._literal_value(node.test)
-        if not known or not value or (
-            node.msg is not None and _has_scope_effect([node.msg])
-        ):
+        if not known or not value or (node.msg is not None and _has_scope_effect([node.msg])):
             return node
         # Python never evaluates an assert message when the condition holds,
         # so deleting a statically true assertion is semantics-preserving.
@@ -378,9 +372,7 @@ class _UnreachableStatementPruner(ast.NodeTransformer):
     def generic_visit(self, node: ast.AST) -> ast.AST:
         node = super().generic_visit(node)
         for field, value in ast.iter_fields(node):
-            if not isinstance(value, list) or not all(
-                isinstance(item, ast.stmt) for item in value
-            ):
+            if not isinstance(value, list) or not all(isinstance(item, ast.stmt) for item in value):
                 continue
             for index, statement in enumerate(value):
                 if isinstance(statement, self._TERMINATORS):
@@ -412,16 +404,8 @@ def _candidate_span(candidate: Mapping[str, Any]):
         return (
             int(origin["start_line"]),
             int(origin["start_column"]),
-            (
-                int(origin["end_line"])
-                if origin.get("end_line") is not None
-                else None
-            ),
-            (
-                int(origin["end_column"])
-                if origin.get("end_column") is not None
-                else None
-            ),
+            (int(origin["end_line"]) if origin.get("end_line") is not None else None),
+            (int(origin["end_column"]) if origin.get("end_column") is not None else None),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -602,10 +586,7 @@ class _O2SafetyGuard(ast.NodeVisitor):
         function = node.func
         if isinstance(function, ast.Name) and function.id in self._DYNAMIC_BUILTINS:
             self.unsafe = True
-        elif (
-            isinstance(function, ast.Attribute)
-            and function.attr in self._DYNAMIC_BUILTINS
-        ):
+        elif isinstance(function, ast.Attribute) and function.attr in self._DYNAMIC_BUILTINS:
             self.unsafe = True
         self.generic_visit(node)
 
@@ -730,8 +711,7 @@ class _BasicBlockConstantPropagator(ast.NodeTransformer):
             return self.generic_visit(node)
         node.left = self._replace_name(self.visit(node.left))
         node.comparators = [
-            self._replace_name(self.visit(comparator))
-            for comparator in node.comparators
+            self._replace_name(self.visit(comparator)) for comparator in node.comparators
         ]
         return node
 
@@ -797,14 +777,10 @@ def optimize_source(
         optimized = candidate_rewriter.visit(optimized)
         legacy_candidates_applied = candidate_rewriter.applied
         legacy_candidates_rejected = candidate_rewriter.rejected
-        legacy_candidate_rejections = tuple(
-            sorted(candidate_rewriter.rejection_counts.items())
-        )
+        legacy_candidate_rejections = tuple(sorted(candidate_rewriter.rejection_counts.items()))
     else:
         legacy_candidates_rejected = len(candidate_list)
-        legacy_candidate_rejections = (
-            ("optimization_level_disabled", len(candidate_list)),
-        )
+        legacy_candidate_rejections = (("optimization_level_disabled", len(candidate_list)),)
 
     if level >= 1:
         folder = _LiteralFolder()
@@ -1016,6 +992,7 @@ def legacy_source_candidate_report(
     """Report source-addressable candidates produced by legacy passes."""
     records = [dict(candidate) for candidate in candidates]
     from pyflow.optimization.source_candidates import source_candidate_coverage
+
     by_kind: dict[str, int] = {}
     for candidate in records:
         kind = str(candidate.get("kind", "unknown"))

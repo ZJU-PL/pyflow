@@ -49,11 +49,7 @@ class HeapInformationProvider(object):
             Slot name for the load operation.
         """
         return next(
-            iter(
-                self.facts.merged_operation_effect(
-                    Capabilities.LIFETIME_OP_READS, code, node
-                )
-            )
+            iter(self.facts.merged_operation_effect(Capabilities.LIFETIME_OP_READS, code, node))
         )
         # return (node.fieldtype, node.name.object)
 
@@ -67,11 +63,7 @@ class HeapInformationProvider(object):
             Slot name for the store operation.
         """
         return next(
-            iter(
-                self.facts.merged_operation_effect(
-                    Capabilities.LIFETIME_OP_WRITES, code, node
-                )
-            )
+            iter(self.facts.merged_operation_effect(Capabilities.LIFETIME_OP_WRITES, code, node))
         )
         # return (node.fieldtype, node.name.object)
 
@@ -382,9 +374,7 @@ class RegionBasedShapeAnalysis(object):
 
                 maxFieldRefs[field] = max(maxFieldRefs.get(field, 0), count)
                 fieldShares[field] = (
-                    fieldShares.get(field, False)
-                    or count > 1
-                    or len(index.currentSet.counts) > 1
+                    fieldShares.get(field, False) or count > 1 or len(index.currentSet.counts) > 1
                 )
 
         print("Obj Refs")
@@ -428,9 +418,7 @@ def evaluate(compiler):
         storeGraph = program.storeGraph
         facts = AnalysisFacts(program.ir)
 
-        regions = regionanalysis.evaluate(
-            compiler.extractor, interface.entryPoint, liveCode, facts
-        )
+        regions = regionanalysis.evaluate(compiler.extractor, interface.entryPoint, liveCode, facts)
 
         rbsa = RegionBasedShapeAnalysis(
             compiler.extractor,

@@ -20,9 +20,7 @@ class TestSimpleCase(TestCompoundConstraintBase):
         q, self.qSlot, self.qExpr = self.makeLocalObjs("q")
         ret, self.retSlot, self.retExpr = self.makeLocalObjs("internal_return")
 
-        self.nSlot = self.sys.canonical.fieldSlot(
-            None, ("LowLevel", self.extractor.getObject("n"))
-        )
+        self.nSlot = self.sys.canonical.fieldSlot(None, ("LowLevel", self.extractor.getObject("n")))
 
         self.xRef = self.refs(self.xSlot)
         self.yRef = self.refs(self.ySlot)
@@ -177,9 +175,7 @@ class TestCallLoadCase(TestCompoundConstraintBase):
         x, self.xSlot, self.xExpr = self.makeLocalObjs("x")
         y, self.ySlot, self.yExpr = self.makeLocalObjs("y")
         ret, self.retSlot, self.retExpr = self.makeLocalObjs("internal_return")
-        self.nSlot = self.sys.canonical.fieldSlot(
-            None, ("LowLevel", self.extractor.getObject("n"))
-        )
+        self.nSlot = self.sys.canonical.fieldSlot(None, ("LowLevel", self.extractor.getObject("n")))
 
         self.xRef = self.refs(self.xSlot)
         self.retRef = self.refs(self.retSlot)
@@ -286,12 +282,8 @@ class TestVArgCase(TestCompoundConstraintBase):
         ret, self.retSlot, self.retExpr = self.makeLocalObjs("internal_return")
 
         # Fields
-        self.lSlot = self.sys.canonical.fieldSlot(
-            None, ("LowLevel", self.extractor.getObject("l"))
-        )
-        self.rSlot = self.sys.canonical.fieldSlot(
-            None, ("LowLevel", self.extractor.getObject("r"))
-        )
+        self.lSlot = self.sys.canonical.fieldSlot(None, ("LowLevel", self.extractor.getObject("l")))
+        self.rSlot = self.sys.canonical.fieldSlot(None, ("LowLevel", self.extractor.getObject("r")))
 
         # Expressions
         self.retlExpr = self.expr(self.retExpr, self.lSlot)
@@ -345,15 +337,9 @@ class TestVArgCase(TestCompoundConstraintBase):
             ]
         )
 
-        self.v0Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(0))
-        )
-        self.v1Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(1))
-        )
-        self.v2Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(2))
-        )
+        self.v0Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(0)))
+        self.v1Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(1)))
+        self.v2Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(2)))
 
         self.v0Ref = self.refs(self.v0Slot)
         self.v1Ref = self.refs(self.v1Slot)
@@ -513,15 +499,9 @@ class TestVParamCase(TestCompoundConstraintBase):
             ]
         )
 
-        self.v0Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(0))
-        )
-        self.v1Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(1))
-        )
-        self.v2Slot = self.sys.canonical.fieldSlot(
-            None, ("Array", self.extractor.getObject(2))
-        )
+        self.v0Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(0)))
+        self.v1Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(1)))
+        self.v2Slot = self.sys.canonical.fieldSlot(None, ("Array", self.extractor.getObject(2)))
         self.v0Ref = self.refs(self.v0Slot)
         self.v1Ref = self.refs(self.v1Slot)
         self.v2Ref = self.refs(self.v2Slot)
@@ -828,7 +808,7 @@ class TestAllocateCase(TestCompoundConstraintBase):
                 returnparams=[],
                 type_params=None,
             ),
-            self.code
+            self.code,
         )
 
         lc = self.sys.cpacanonical.localName(fakecode, x, self.context)

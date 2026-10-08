@@ -102,14 +102,9 @@ class Pipeline:
                 # self.analysis_manager.analysis("ssa", mod)
                 imports = World().scope_manager.get_ir(mod, "imports")
 
-                should_traverse = (
-                    self.config.import_level < 0
-                    or level < self.config.import_level
-                )
+                should_traverse = self.config.import_level < 0 or level < self.config.import_level
                 if not should_traverse:
-                    World().truncated_imports.extend(
-                        (mod, stmt, level + 1) for stmt in imports
-                    )
+                    World().truncated_imports.extend((mod, stmt, level + 1) for stmt in imports)
                     continue
 
                 for stmt in imports:
@@ -123,10 +118,7 @@ class Pipeline:
 
                         g.add_edge(mod, stmt, new_mod)
                         new_name = new_mod.get_qualname()
-                        if (
-                            new_name not in lowered_modules
-                            and new_name not in scheduled_modules
-                        ):
+                        if new_name not in lowered_modules and new_name not in scheduled_modules:
                             scheduled_modules.add(new_name)
                             q.append((mod_ns, new_mod, level + 1))
                         World().import_manager.set_import(mod, stmt, new_mod)
@@ -175,14 +167,14 @@ class Pipeline:
                     self.analyse_inter_procedure(analyzer)
                 else:
                     self.analyse_intra_procedure(analyzer)
-            elif analyzer.config.type == 'transform':
+            elif analyzer.config.type == "transform":
                 self.do_transform(analyzer)
-            elif analyzer.config.type == 'inter-procedure':
+            elif analyzer.config.type == "inter-procedure":
                 self.analyse_inter_procedure(analyzer)
-            elif analyzer.config.type == 'pointer analysis':
+            elif analyzer.config.type == "pointer analysis":
                 # Pointer analysis is typically inter-procedural
                 self.analyse_inter_procedure(analyzer)
-            elif analyzer.config.type == 'ai analysis':
+            elif analyzer.config.type == "ai analysis":
                 self.analyse_inter_procedure(analyzer)
 
     def run(self):

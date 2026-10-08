@@ -89,19 +89,13 @@ def _build_type_system_from_module(module_name: str) -> TypeSystem:
     # Register subclass edges from Python's MRO
     for _name, obj in classes.items():
         type_info = ts.to_class_descriptor(obj)
-        bases = [
-            b for b in obj.__bases__ if b is not object and b is not None
-        ]
+        bases = [b for b in obj.__bases__ if b is not object and b is not None]
         if not bases:
-            ts.add_subclass_edge(
-                super_class=object_info, sub_class=type_info
-            )
+            ts.add_subclass_edge(super_class=object_info, sub_class=type_info)
         else:
             for base in bases:
                 super_info = ts.to_class_descriptor(base)
-                ts.add_subclass_edge(
-                    super_class=super_info, sub_class=type_info
-                )
+                ts.add_subclass_edge(super_class=super_info, sub_class=type_info)
 
     # Collect attributes from each class (dir + instance attrs from __init__)
     for _name, obj in classes.items():
@@ -119,9 +113,7 @@ def _build_type_system_from_module(module_name: str) -> TypeSystem:
 @pytest.fixture(scope="module")
 def subtyping_cluster():
     """Fixture that provides a type system with the subtyping fixture classes."""
-    ts = _build_type_system_from_module(
-        "tests.analysis.typeinfo.fixtures.types.subtyping"
-    )
+    ts = _build_type_system_from_module("tests.analysis.typeinfo.fixtures.types.subtyping")
     # Simple namespace object to match Pynguin's cluster API
     return type("Cluster", (), {"type_system": ts})()
 

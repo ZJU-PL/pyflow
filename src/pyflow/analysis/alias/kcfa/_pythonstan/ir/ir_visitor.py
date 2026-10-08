@@ -1,7 +1,7 @@
 from abc import ABC
 from .ir_statements import IRStatement
 
-__all__ = ['IRVisitor']
+__all__ = ["IRVisitor"]
 
 
 class IRVisitor(ABC):
@@ -13,7 +13,7 @@ class IRVisitor(ABC):
             if hasattr(self, m_name):
                 m = getattr(self, m_name)
                 return m(ir)
-        
+
         # If no visitor method was found, use the default
         return self.visit_default(ir)
 

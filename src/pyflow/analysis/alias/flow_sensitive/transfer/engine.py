@@ -80,9 +80,7 @@ class HeapTransferEngine(
         self._class_method_kinds_by_root: dict[object, dict[str, str]] = {}
         self._function_codes_by_root: dict[object, py_ast.Code] = {}
         self._function_binding_kinds: dict[object, str] = {}
-        self._bound_methods_by_root: dict[
-            object, tuple[py_ast.Code, tuple[HeapLocation, ...]]
-        ] = {}
+        self._bound_methods_by_root: dict[object, tuple[py_ast.Code, tuple[HeapLocation, ...]]] = {}
         self._super_methods_by_root: dict[
             object,
             dict[str, tuple[py_ast.Code, tuple[HeapLocation, ...]]],
@@ -104,32 +102,16 @@ class HeapTransferEngine(
         self._summary_delete_stack: list[list[HeapLocation]] = []
         self._summary_effect_stack: list[list[object]] = []
         self._exception_prefix_stack: list[list[_FlowState]] = []
-        self._yield_state_stack: list[
-            list[tuple[int, _FlowState, tuple[HeapLocation, ...]]]
-        ] = []
+        self._yield_state_stack: list[list[tuple[int, _FlowState, tuple[HeapLocation, ...]]]] = []
         self._resume_input_stack: list[tuple[int, tuple[HeapLocation, ...]]] = []
-        self._direct_call_evaluation_cache: dict[
-            tuple[object, ...], tuple[HeapLocation, ...]
-        ] = {}
+        self._direct_call_evaluation_cache: dict[tuple[object, ...], tuple[HeapLocation, ...]] = {}
         self._last_direct_call_summary: dict[object, _CallSummary] = {}
-        self._last_call_operands: dict[
-            object, dict[object, tuple[HeapLocation, ...]]
-        ] = {}
+        self._last_call_operands: dict[object, dict[object, tuple[HeapLocation, ...]]] = {}
         self._applied_calls: set[tuple[object, ...]] = set()
-        self._finite_call_results: dict[
-            tuple[object, ...], tuple[HeapLocation, ...]
-        ] = {}
-        self._protocol_call_results: dict[
-            tuple[object, ...], tuple[HeapLocation, ...]
-        ] = {}
-        self._callback_call_results: dict[
-            tuple[object, ...], tuple[HeapLocation, ...]
-        ] = {}
-        self._operation_expression_caches: list[
-            dict[object, ExpressionValue]
-        ] = (
-            []
-        )
+        self._finite_call_results: dict[tuple[object, ...], tuple[HeapLocation, ...]] = {}
+        self._protocol_call_results: dict[tuple[object, ...], tuple[HeapLocation, ...]] = {}
+        self._callback_call_results: dict[tuple[object, ...], tuple[HeapLocation, ...]] = {}
+        self._operation_expression_caches: list[dict[object, ExpressionValue]] = []
         self._operation_call_raises: list[list[_FlowState]] = []
         self._operation_normal_possible: list[bool] = []
         self._pending_call_results: dict[
@@ -143,9 +125,7 @@ class HeapTransferEngine(
         self._deferred_activations: dict[object, _DeferredActivation] = {}
         self._evaluation_epoch = 0
         self._current_context: tuple[object, ...] = ()
-        self._definition_default_locations: dict[
-            tuple[object, int], tuple[HeapLocation, ...]
-        ] = {}
+        self._definition_default_locations: dict[tuple[object, int], tuple[HeapLocation, ...]] = {}
         self._definition_locals: dict[tuple[object, str], py_ast.Local] = {}
         self._lexical_parents: dict[object, object] = {}
         self._global_declarations: dict[object, set[str]] = {}
@@ -158,9 +138,7 @@ class HeapTransferEngine(
     def analyze_program(self, program: object) -> None:
         """Analyze every discoverable code object in *program*."""
         declared_entries = getattr(program, "entryPoints", None)
-        codes = tuple(
-            self.iter_code_objects(declared_entries if declared_entries else program)
-        )
+        codes = tuple(self.iter_code_objects(declared_entries if declared_entries else program))
         if len(codes) <= 1:
             for code in codes:
                 self.analyze_code(code)
@@ -307,9 +285,7 @@ class HeapTransferEngine(
                 body_outcome.normal.environment,
             )
             self._restore_flow_state(body_outcome.normal)
-            outer_environment.object_labels.update(
-                body_outcome.normal.environment.object_labels
-            )
+            outer_environment.object_labels.update(body_outcome.normal.environment.object_labels)
             outer_environment.escaped_objects.update(
                 body_outcome.normal.environment.escaped_objects
             )
@@ -341,12 +317,10 @@ class HeapTransferEngine(
                         operation.name
                     ] = self._definition_decorator_kind(operation)
                     if operation.name == "__init__":
-                        self._class_initializers[
-                            (self._module_owner(procedure), node.name)
-                        ] = operation.code
-                        self._class_initializers_by_root[definition.root] = (
+                        self._class_initializers[(self._module_owner(procedure), node.name)] = (
                             operation.code
                         )
+                        self._class_initializers_by_root[definition.root] = operation.code
                     elif operation.name == "__new__":
                         self._class_allocators_by_root[definition.root] = operation.code
                 self._apply_known_class_creation_hooks(
@@ -552,12 +526,8 @@ class HeapTransferEngine(
         targets: list[py_ast.Local] = []
         for field_name in ("target", "targets", "lcls", "index"):
             candidate = getattr(node, field_name, None)
-            candidates = (
-                candidate if isinstance(candidate, (tuple, list)) else (candidate,)
-            )
-            targets.extend(
-                target for target in candidates if isinstance(target, py_ast.Local)
-            )
+            candidates = candidate if isinstance(candidate, (tuple, list)) else (candidate,)
+            targets.extend(target for target in candidates if isinstance(target, py_ast.Local))
         for target in dict.fromkeys(targets):
             self._bind_runtime_local(procedure, target, (unknown,))
         return _FlowOutcome(self._capture_flow_state(), abrupt)
@@ -717,9 +687,7 @@ class HeapTransferEngine(
             writes,
             stored_value=semantics.stored_value,
         )
-        raw_deletes = (
-            prepared_deletes if prepared_deletes is not None else effect.deletes
-        )
+        raw_deletes = prepared_deletes if prepared_deletes is not None else effect.deletes
         deletes = self._effective_deletes(operation, raw_deletes)
         self._record_summary_deletes(deletes)
         self._apply_deletes(deletes)
@@ -741,9 +709,7 @@ class HeapTransferEngine(
         if isinstance(operation, py_ast.Raise):
             raised_locations = tuple(
                 location
-                for expression in self.effect_builder.raise_escape_expressions(
-                    operation
-                )
+                for expression in self.effect_builder.raise_escape_expressions(operation)
                 for location in self.locations_for_expression(procedure, expression)
             )
             if not raised_locations:
@@ -799,11 +765,7 @@ class HeapTransferEngine(
         raise_states = self._operation_call_raises.pop()
         self._operation_normal_possible.pop()
         self._operation_expression_caches.pop()
-        abrupt = (
-            {"raise": self._join_flow_states(tuple(raise_states))}
-            if raise_states
-            else {}
-        )
+        abrupt = {"raise": self._join_flow_states(tuple(raise_states))} if raise_states else {}
         return _FlowOutcome(
             self._capture_flow_state() if normal_possible else None,
             abrupt,
@@ -827,9 +789,7 @@ class HeapTransferEngine(
         false_entry = self._capture_flow_state()
         true_outcome = self._outcome_after(procedure, node.t, true_entry)
         false_outcome = self._outcome_after(procedure, node.f, false_entry)
-        normal = self._join_optional_flow_states(
-            (true_outcome.normal, false_outcome.normal)
-        )
+        normal = self._join_optional_flow_states((true_outcome.normal, false_outcome.normal))
         abrupt = self._merge_abrupt_maps(
             condition.abrupt,
             true_outcome.abrupt,
@@ -855,9 +815,7 @@ class HeapTransferEngine(
         right_locations = self.locations_for_expression(procedure, right)
         if not left_locations or not right_locations:
             return
-        shared = tuple(
-            location for location in left_locations if location in right_locations
-        )
+        shared = tuple(location for location in left_locations if location in right_locations)
         if identity_holds:
             if shared:
                 self._bind_runtime_local(procedure, left, shared)
@@ -865,17 +823,13 @@ class HeapTransferEngine(
             return
         if len(left_locations) == 1 and left_locations[0].root.has_stable_identity():
             narrowed = tuple(
-                location
-                for location in right_locations
-                if location != left_locations[0]
+                location for location in right_locations if location != left_locations[0]
             )
             if narrowed:
                 self._bind_runtime_local(procedure, right, narrowed)
         if len(right_locations) == 1 and right_locations[0].root.has_stable_identity():
             narrowed = tuple(
-                location
-                for location in left_locations
-                if location != right_locations[0]
+                location for location in left_locations if location != right_locations[0]
             )
             if narrowed:
                 self._bind_runtime_local(procedure, left, narrowed)
@@ -986,9 +940,7 @@ class HeapTransferEngine(
             if else_entry is not None
             else _FlowOutcome(None)
         )
-        normal = self._join_optional_flow_states(
-            (else_outcome.normal, *breaks, bound_exit)
-        )
+        normal = self._join_optional_flow_states((else_outcome.normal, *breaks, bound_exit))
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -1061,9 +1013,7 @@ class HeapTransferEngine(
             current = self._widen_loop_state(node, entry, current)
             bound_exit = current
         else_outcome = self._outcome_after(procedure, node.else_, current)
-        normal = self._join_optional_flow_states(
-            (else_outcome.normal, *breaks, bound_exit)
-        )
+        normal = self._join_optional_flow_states((else_outcome.normal, *breaks, bound_exit))
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -1076,9 +1026,7 @@ class HeapTransferEngine(
         element_locations: list[HeapLocation] = []
         seen: set[HeapLocation] = set()
         for loc in iter_locations:
-            wildcard_loc = self.heap.dynamic_subscript_location(
-                loc, DYNAMIC_SUBSCRIPT_WILDCARD
-            )
+            wildcard_loc = self.heap.dynamic_subscript_location(loc, DYNAMIC_SUBSCRIPT_WILDCARD)
             for val in self.state.read_contained(wildcard_loc):
                 if val not in seen:
                     seen.add(val)
@@ -1113,11 +1061,7 @@ class HeapTransferEngine(
         exception_state = self._join_flow_states(tuple(exception_prefixes))
 
         normal_states: list[_FlowState] = []
-        abrupt = {
-            kind: state
-            for kind, state in body_outcome.abrupt.items()
-            if kind != "raise"
-        }
+        abrupt = {kind: state for kind, state in body_outcome.abrupt.items() if kind != "raise"}
 
         else_suite = getattr(node, "else_", None)
         if body_outcome.normal is not None:
@@ -1191,11 +1135,7 @@ class HeapTransferEngine(
             if conditional_outcome.normal is None:
                 return _FlowOutcome(
                     None,
-                    (
-                        {"raise": conditional_raise}
-                        if conditional_raise is not None
-                        else {}
-                    ),
+                    ({"raise": conditional_raise} if conditional_raise is not None else {}),
                 )
             self._restore_flow_state(conditional_outcome.normal)
         base = self._capture_flow_state()
@@ -1455,15 +1395,11 @@ class HeapTransferEngine(
             self._restore_flow_state(outcome.normal)
             return
         if outcome.abrupt:
-            self._restore_flow_state(
-                self._join_flow_states(tuple(outcome.abrupt.values()))
-            )
+            self._restore_flow_state(self._join_flow_states(tuple(outcome.abrupt.values())))
 
     def _joined_outcome_state(self, outcome: _FlowOutcome) -> _FlowState:
         states = tuple(
-            state
-            for state in (outcome.normal, *outcome.abrupt.values())
-            if state is not None
+            state for state in (outcome.normal, *outcome.abrupt.values()) if state is not None
         )
         return self._join_flow_states(states)
 
@@ -1475,10 +1411,7 @@ class HeapTransferEngine(
         for mapping in maps:
             for kind, state in mapping.items():
                 grouped.setdefault(kind, []).append(state)
-        return {
-            kind: self._join_flow_states(tuple(states))
-            for kind, states in grouped.items()
-        }
+        return {kind: self._join_flow_states(tuple(states)) for kind, states in grouped.items()}
 
     def _join_optional_flow_states(
         self,
@@ -1570,9 +1503,7 @@ class HeapTransferEngine(
             ),
             (entry.precise_shadows, current.precise_shadows),
         ):
-            locations.update(
-                before_presence.symmetric_difference(after_presence)
-            )
+            locations.update(before_presence.symmetric_difference(after_presence))
         return tuple(locations)
 
     @staticmethod

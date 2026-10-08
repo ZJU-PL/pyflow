@@ -71,9 +71,7 @@ def _memory_slot_key(slot: Any) -> Any:
     canonical = canonicalize(slot)
 
     slot_name = canonicalize(getattr(canonical, "name", None))
-    if slot_name is not None and (
-        hasattr(slot_name, "object") or hasattr(slot_name, "slotName")
-    ):
+    if slot_name is not None and (hasattr(slot_name, "object") or hasattr(slot_name, "slotName")):
         return slot_name
 
     slot_object = canonicalize(getattr(canonical, "object", None))
@@ -111,9 +109,7 @@ class DDGConstructor(object):
         """Initialize a DDG constructor."""
         self.ddg = DataDependenceGraph()
 
-    def construct_from_dataflow(
-        self, dataflow: df.DataflowGraph
-    ) -> DataDependenceGraph:
+    def construct_from_dataflow(self, dataflow: df.DataflowGraph) -> DataDependenceGraph:
         """
         Construct a DDG from a dataflow IR graph.
 
@@ -280,9 +276,7 @@ class DDGConstructor(object):
                 if isinstance(child, df.OpNode):
                     result.add(child)
                 elif isinstance(child, df.SlotNode):
-                    result.update(
-                        user for user in child.forward() if isinstance(user, df.OpNode)
-                    )
+                    result.update(user for user in child.forward() if isinstance(user, df.OpNode))
             return result & op_set
 
         successors = {ir: operation_successors(ir) for ir in ir_ops}
@@ -364,20 +358,14 @@ class DDGConstructor(object):
                 if key in reads:
                     for writer in reaching_writes:
                         if writer is not ir:
-                            self.ddg.add_mem_dep(
-                                op_nodes[writer], op, label="RAW", location=key
-                            )
+                            self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW", location=key)
                 if key in writes:
                     for reader in reaching_reads:
                         if reader is not ir:
-                            self.ddg.add_mem_dep(
-                                op_nodes[reader], op, label="WAR", location=key
-                            )
+                            self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
                     for writer in reaching_writes:
                         if writer is not ir:
-                            self.ddg.add_mem_dep(
-                                op_nodes[writer], op, label="WAW", location=key
-                            )
+                            self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW", location=key)
 
 
 def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:

@@ -138,13 +138,9 @@ def test_cfg_adapter_does_not_resolve_ambiguous_named_calls_by_short_name():
     compiler = context.CompilerContext(None)
 
     x1 = ast.Local("x1")
-    helper_code_a, _ = make_code(
-        "helper", [x1], [ast.Return([x1])], return_name="helper_ret_a"
-    )
+    helper_code_a, _ = make_code("helper", [x1], [ast.Return([x1])], return_name="helper_ret_a")
     x2 = ast.Local("x2")
-    helper_code_b, _ = make_code(
-        "helper", [x2], [ast.Return([x2])], return_name="helper_ret_b"
-    )
+    helper_code_b, _ = make_code("helper", [x2], [ast.Return([x2])], return_name="helper_ret_b")
 
     a = ast.Local("a")
     b = ast.Local("b")
@@ -230,11 +226,11 @@ def test_cfg_adapter_routes_try_body_raise_into_except_handler():
     adapter = build_supergraph_from_cfgs([cfg])
 
     raise_node = next(
-        node
-        for node in adapter.supergraph.nodes_of(cfg)
-        if node.scope == ("0", "try", "body", "0")
+        node for node in adapter.supergraph.nodes_of(cfg) if node.scope == ("0", "try", "body", "0")
     )
-    successor_scopes = {successor.scope for successor in adapter.supergraph.normal_successors(raise_node)}
+    successor_scopes = {
+        successor.scope for successor in adapter.supergraph.normal_successors(raise_node)
+    }
     assert ("0", "try", "handler", "0", "preamble", "empty") in successor_scopes
 
 
@@ -283,7 +279,9 @@ def test_cfg_adapter_routes_try_finally_normal_and_exceptional_paths_through_fin
         for node in normal_adapter.supergraph.nodes_of(normal_cfg)
         if node.scope == ("0", "try", "body", "0")
     )
-    normal_successors = {successor.scope for successor in normal_adapter.supergraph.normal_successors(normal_body)}
+    normal_successors = {
+        successor.scope for successor in normal_adapter.supergraph.normal_successors(normal_body)
+    }
     assert ("0", "try", "finally", "normal", "0") in normal_successors
 
     exceptional_body = next(
@@ -322,7 +320,9 @@ def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally
         [],
         [
             ast.TryExceptFinally(
-                ast.Suite([ast.Discard(ast.DirectCall(helper_code, None, [value], [], None, None))]),
+                ast.Suite(
+                    [ast.Discard(ast.DirectCall(helper_code, None, [value], [], None, None))]
+                ),
                 [],
                 None,
                 None,
@@ -337,11 +337,7 @@ def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally
     main_cfg = build_cfg(compiler, main_code)
     adapter = build_supergraph_from_cfgs([main_cfg, helper_cfg])
 
-    call_node = next(
-        node
-        for node in adapter.supergraph.nodes_of(main_cfg)
-        if node.kind == "call"
-    )
+    call_node = next(node for node in adapter.supergraph.nodes_of(main_cfg) if node.kind == "call")
     return_sites = adapter.supergraph.return_sites_of_call_at(call_node)
     assert {site.scope for site in return_sites} == {("0", "try", "body", "0")}
 
@@ -367,9 +363,7 @@ def test_cfg_adapter_exposes_call_effect_bindings_and_result_route():
     main_cfg = build_cfg(compiler, main_code)
     adapter = build_supergraph_from_cfgs([main_cfg, helper_cfg])
 
-    call_node = next(
-        node for node in adapter.supergraph.nodes_of(main_cfg) if node.kind == "call"
-    )
+    call_node = next(node for node in adapter.supergraph.nodes_of(main_cfg) if node.kind == "call")
     effect = adapter.effect_of(call_node)
 
     assert isinstance(effect, CallEffect)
@@ -400,7 +394,15 @@ def test_cfg_adapter_orders_nested_calls_by_evaluation_index():
             ast.Discard(
                 ast.Call(
                     ast.Local("sink"),
-                    [ast.Call(ast.Local("helper"), [ast.Call(ast.Local("source"), [], [], None, None)], [], None, None)],
+                    [
+                        ast.Call(
+                            ast.Local("helper"),
+                            [ast.Call(ast.Local("source"), [], [], None, None)],
+                            [],
+                            None,
+                            None,
+                        )
+                    ],
                     [],
                     None,
                     None,
@@ -741,8 +743,7 @@ def test_bind_call_arguments_skips_missing_kwonly_default_placeholders():
 
     assert tuple(formal for _actual, formal in bindings) == (a, c)
     assert tuple(
-        getattr(getattr(actual, "object", None), "pyobj", None)
-        for actual, _formal in bindings
+        getattr(getattr(actual, "object", None), "pyobj", None) for actual, _formal in bindings
     ) == (1, 2)
 
 
@@ -772,7 +773,10 @@ def test_cfg_adapter_handles_await_expression_in_operation():
     main_code, _ = make_code(
         "main",
         [value],
-        [ast.Discard(ast.Await(ast.Call(ast.Local("coro"), [], [], None, None))), ast.Return([value])],
+        [
+            ast.Discard(ast.Await(ast.Call(ast.Local("coro"), [], [], None, None))),
+            ast.Return([value]),
+        ],
         return_name="main_ret",
     )
 

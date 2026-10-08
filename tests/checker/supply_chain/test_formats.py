@@ -74,9 +74,7 @@ dev = ["pytest"]
 
 
 def test_build_requirements_text_formats_components(tmp_path):
-    (tmp_path / "requirements.txt").write_text(
-        "requests==2.31.0\nflask>=3\n", encoding="utf-8"
-    )
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\nflask>=3\n", encoding="utf-8")
     scan = scan_targets([tmp_path], recursive=True)
     text = build_requirements_text(scan)
     assert "requests==2.31.0" in text

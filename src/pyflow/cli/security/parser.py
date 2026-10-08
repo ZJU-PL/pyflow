@@ -141,9 +141,7 @@ def add_security_parser(subparsers):
             "partial edges and using the direct-call fallback (default: 256)."
         ),
     )
-    p.add_argument(
-        "--ifds-context-depth", type=_non_negative_int, default=argparse.SUPPRESS
-    )
+    p.add_argument("--ifds-context-depth", type=_non_negative_int, default=argparse.SUPPRESS)
     p.add_argument(
         "--ifds-trace-mode",
         choices=["none", "findings", "all"],

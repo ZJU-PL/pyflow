@@ -24,9 +24,7 @@ class _ControlFlowMixin:
             if value is None:
                 return None
             return value if isinstance(expr.op, ast.UAdd) else -value
-        if isinstance(expr, ast.BinOp) and isinstance(
-            expr.op, (ast.Add, ast.Sub, ast.Mult)
-        ):
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, (ast.Add, ast.Sub, ast.Mult)):
             left = self._const_int(expr.left)
             right = self._const_int(expr.right)
             if left is None or right is None:
@@ -36,11 +34,7 @@ class _ControlFlowMixin:
             if isinstance(expr.op, ast.Sub):
                 return left - right
             return left * right
-        if (
-            isinstance(expr, ast.Call)
-            and self._call_fullname(expr.func) == "len"
-            and expr.args
-        ):
+        if isinstance(expr, ast.Call) and self._call_fullname(expr.func) == "len" and expr.args:
             arg0 = expr.args[0]
             if isinstance(arg0, ast.Name) and arg0.id in self.list_lengths:
                 return self.list_lengths[arg0.id]
@@ -60,11 +54,7 @@ class _ControlFlowMixin:
                 return all(values)  # type: ignore[arg-type]
             if isinstance(expr.op, ast.Or):
                 return any(values)  # type: ignore[arg-type]
-        if (
-            isinstance(expr, ast.Compare)
-            and len(expr.ops) == 1
-            and len(expr.comparators) == 1
-        ):
+        if isinstance(expr, ast.Compare) and len(expr.ops) == 1 and len(expr.comparators) == 1:
             left = expr.left
             right = expr.comparators[0]
             left_int = self._const_int(left)
@@ -120,9 +110,7 @@ class _ControlFlowMixin:
         self.tainted_paths.add(path)
         self.paths_by_root.setdefault(path[0], set()).add(path)
 
-    def _record_literal_taint_paths(
-        self, prefix: Tuple[str, ...], expr: ast.AST
-    ) -> None:
+    def _record_literal_taint_paths(self, prefix: Tuple[str, ...], expr: ast.AST) -> None:
         """Record tainted leaf paths inside dict/list/tuple literals under prefix."""
         if isinstance(expr, ast.Dict):
             for k, v in zip(expr.keys, expr.values):

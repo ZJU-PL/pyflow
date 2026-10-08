@@ -374,8 +374,7 @@ def graph_from_dot_data(data):
     """
     if dot_parser is None:
         raise ImportError(
-            "dot_parser module is not available. "
-            "Please install it to enable DOT file parsing."
+            "dot_parser module is not available. " "Please install it to enable DOT file parsing."
         )
 
     return dot_parser.parse_dot_data(data)
@@ -771,9 +770,7 @@ class Common(object):
 
             # Generate all the Getter methods.
             #
-            self.__setattr__(
-                "get_" + attr, lambda a=attr: self._get_default_attribute(a)
-            )
+            self.__setattr__("get_" + attr, lambda a=attr: self._get_default_attribute(a))
 
 
 class Error(Exception):
@@ -1025,21 +1022,13 @@ class Edge(Common, object):
         if not isinstance(node_str, str):
             return node_str
 
-        if (
-            node_str.startswith('"')
-            and node_str.endswith('"')
-            and node_str.count('"') % 2 != 0
-        ):
+        if node_str.startswith('"') and node_str.endswith('"') and node_str.count('"') % 2 != 0:
 
             return node_str
 
         node_port_idx = node_str.rfind(":")
 
-        if (
-            node_port_idx > 0
-            and node_str[0] == '"'
-            and node_str[node_port_idx - 1] == '"'
-        ):
+        if node_port_idx > 0 and node_str[0] == '"' and node_str[node_port_idx - 1] == '"':
 
             return node_str
 
@@ -1339,9 +1328,7 @@ class Graph(Common, object):
 
         if name in self.obj_dict["nodes"]:
 
-            match.extend(
-                [Node(obj_dict=obj_dict) for obj_dict in self.obj_dict["nodes"][name]]
-            )
+            match.extend([Node(obj_dict=obj_dict) for obj_dict in self.obj_dict["nodes"][name]])
 
         if len(match) == 1:
             return match[0]
@@ -1409,8 +1396,7 @@ class Graph(Common, object):
         match = list()
 
         if (src, dst) in self.obj_dict["edges"] or (
-            self.get_top_graph_type() == "graph"
-            and (dst, src) in self.obj_dict["edges"]
+            self.get_top_graph_type() == "graph" and (dst, src) in self.obj_dict["edges"]
         ):
 
             edges_obj_dict = self.obj_dict["edges"].get(
@@ -1418,9 +1404,7 @@ class Graph(Common, object):
             )
 
             for edge_obj_dict in edges_obj_dict:
-                match.append(
-                    Edge(edge_points[0], edge_points[1], obj_dict=edge_obj_dict)
-                )
+                match.append(Edge(edge_points[0], edge_points[1], obj_dict=edge_obj_dict))
 
         if len(match) == 1:
             return match[0]
@@ -1577,8 +1561,7 @@ class Graph(Common, object):
             sgraph_obj_dicts.extend(sg)
 
         obj_list = [
-            (obj["sequence"], obj)
-            for obj in (edge_obj_dicts + node_obj_dicts + sgraph_obj_dicts)
+            (obj["sequence"], obj) for obj in (edge_obj_dicts + node_obj_dicts + sgraph_obj_dicts)
         ]
         obj_list.sort()
 
@@ -1590,10 +1573,7 @@ class Graph(Common, object):
 
                 if self.obj_dict.get("suppress_disconnected", False):
 
-                    if (
-                        node.get_name() not in edge_src_set
-                        and node.get_name() not in edge_dst_set
-                    ):
+                    if node.get_name() not in edge_src_set and node.get_name() not in edge_dst_set:
 
                         continue
 
@@ -1786,18 +1766,20 @@ class Dot(Graph):
                 lambda f=frmt, prog=self.prog: self.create(format=f, prog=prog),
             )
             f = self.__dict__["create_" + frmt]
-            f.__doc__ = """Refer to the docstring accompanying the 'create' method for more information."""
+            f.__doc__ = (
+                """Refer to the docstring accompanying the 'create' method for more information."""
+            )
 
         for frmt in self.formats + ["raw"]:
             self.__setattr__(
                 "write_" + frmt,
-                lambda path, f=frmt, prog=self.prog: self.write(
-                    path, format=f, prog=prog
-                ),
+                lambda path, f=frmt, prog=self.prog: self.write(path, format=f, prog=prog),
             )
 
             f = self.__dict__["write_" + frmt]
-            f.__doc__ = """Refer to the docstring accompanying the 'write' method for more information."""
+            f.__doc__ = (
+                """Refer to the docstring accompanying the 'write' method for more information."""
+            )
 
     def __getstate__(self):
 
@@ -1806,9 +1788,7 @@ class Dot(Graph):
             del dict["set_" + attr]
             del dict["get_" + attr]
 
-        for k in [
-            x for x in dict.keys() if x.startswith("write_") or x.startswith("create_")
-        ]:
+        for k in [x for x in dict.keys() if x.startswith("write_") or x.startswith("create_")]:
 
             del dict[k]
 
@@ -1918,8 +1898,7 @@ class Dot(Graph):
 
         if not os.path.exists(self.progs[prog]) or not os.path.isfile(self.progs[prog]):
             raise InvocationException(
-                "GraphViz's executable \"%s\" is not a file or doesn't exist"
-                % self.progs[prog]
+                "GraphViz's executable \"%s\" is not a file or doesn't exist" % self.progs[prog]
             )
 
         tmp_fd, tmp_name = tempfile.mkstemp()

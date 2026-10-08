@@ -45,9 +45,7 @@ def test_strong_write_none_clears_field():
                 py_ast.Assign(py_ast.BuildList([]), [obj]),
                 py_ast.SetAttr(old_value, obj, _existing("field")),
                 py_ast.SetAttr(new_value, obj, _existing("field")),
-                py_ast.Assign(
-                    py_ast.GetAttr(obj, _existing("field")), [loaded]
-                ),
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded]),
             ]
         ),
         params=(old_value, new_value),
@@ -86,9 +84,7 @@ def test_strong_write_constant_clears_nested_field():
         params=(old_value,),
     )
 
-    analysis = HeapAnalysis(
-        policy=HeapPolicy(allow_strong_nested_fresh=True)
-    )
+    analysis = HeapAnalysis(policy=HeapPolicy(allow_strong_nested_fresh=True))
     graph = analysis.analyze(None, code)
     heap = analysis.heap
     assert heap is not None
@@ -96,6 +92,6 @@ def test_strong_write_constant_clears_nested_field():
     loaded_locations = heap.locations_for_local(code, loaded)
     old_location = heap.locations_for_local(code, old_value)[0]
 
-    assert old_location not in loaded_locations, (
-        "Constant STRONG write should clear the previous binding"
-    )
+    assert (
+        old_location not in loaded_locations
+    ), "Constant STRONG write should clear the previous binding"

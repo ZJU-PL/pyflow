@@ -18,12 +18,8 @@ def test_console_entrypoint_freezes_heap_after_main(monkeypatch):
 def test_main_lists_opt_passes_without_input(monkeypatch):
     called = []
 
-    monkeypatch.setattr(
-        cli_main, "list_optimization_passes", lambda: called.append(True)
-    )
-    monkeypatch.setattr(
-        cli_main.sys, "argv", ["pyflow", "optimize", "--list-opt-passes"]
-    )
+    monkeypatch.setattr(cli_main, "list_optimization_passes", lambda: called.append(True))
+    monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "optimize", "--list-opt-passes"])
 
     assert cli_main.main() == 0
     assert called == [True]
@@ -95,9 +91,7 @@ def test_main_dispatches_supply_chain(monkeypatch, tmp_path):
         return 3
 
     monkeypatch.setattr(cli_main, "run_supply_chain", fake_run_supply_chain)
-    monkeypatch.setattr(
-        cli_main.sys, "argv", ["pyflow", "supply-chain", "sbom", str(tmp_path)]
-    )
+    monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "supply-chain", "sbom", str(tmp_path)])
 
     assert cli_main.main() == 3
     assert seen["command"] == "supply-chain"

@@ -16,7 +16,7 @@ __all__ = ["Config", "DEFAULT_MAX_ITERATIONS"]
 @dataclass(frozen=True)
 class Config:
     """Analysis configuration.
-    
+
     Attributes:
         context_policy: Context sensitivity policy string
         max_iterations: Maximum solver iterations
@@ -39,7 +39,7 @@ class Config:
         export_debug_data: Export debug data to files
         debug_output_dir: Directory for debug output files
     """
-    
+
     context_policy: str = "2-cfa"
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_points_to_size: Optional[int] = None
@@ -59,7 +59,7 @@ class Config:
     native_effects: Optional[List[Dict]] = None
     worklist_policy: str = "fifo"
     worklist_seed: int = 0
-    
+
     # Debug monitoring options
     enable_debug_monitor: bool = False
     debug_log_interval: int = 1000
@@ -68,7 +68,7 @@ class Config:
     export_debug_data: bool = False
     debug_output_dir: str = "debug_output"
     debug_inheritance: bool = False  # Debug class field inheritance
-    
+
     @classmethod
     def from_dict(cls, config_dict: Dict):
         defaults = cls()
@@ -90,7 +90,7 @@ class Config:
                         f"k={k} but context_policy={values['context_policy']!r}"
                     )
         return cls(**values)
-    
+
     def to_dict(self) -> Dict:
         return {
             "context_policy": self.context_policy,
@@ -118,30 +118,28 @@ class Config:
             "export_debug_data": self.export_debug_data,
             "debug_output_dir": self.debug_output_dir,
             "debug_inheritance": self.debug_inheritance,
-            "type": self.type
+            "type": self.type,
         }
-    
+
     def __post_init__(self):
         """Validate configuration."""
         if self.max_iterations <= 0:
             raise ValueError("max_iterations must be positive")
-        
+
         if self.log_level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
             raise ValueError(f"Invalid log level: {self.log_level}")
-        
+
         if self.max_points_to_size is not None and self.max_points_to_size <= 0:
             raise ValueError("max_points_to_size must be positive if set")
-        
+
         if self.max_import_depth < -1:
             raise ValueError("max_import_depth must be >= -1 (-1 = unlimited, 0 = no imports)")
 
         if self.worklist_policy not in ("fifo", "lifo", "random"):
-            raise ValueError(
-                "worklist_policy must be one of: fifo, lifo, random"
-            )
-    
+            raise ValueError("worklist_policy must be one of: fifo, lifo, random")
+
     def __str__(self):
         return f"""Pointer Analysis Config: {json.dumps(self.to_dict(), indent=4)}"""
-    
+
     def __repr__(self):
         return self.__str__()

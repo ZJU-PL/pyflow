@@ -5,6 +5,7 @@ Extracting tar archives without validating member paths can lead to
 path traversal attacks (zip/tar slip). Always use the 'data' filter
 or validate member names.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 

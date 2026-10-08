@@ -3,11 +3,10 @@
 from typing import Dict, Set, Optional, TypeVar, Generic, Tuple
 from enum import Enum
 
-
 __all__ = ["CallKind", "CallEdge"]
 
 CallSite = TypeVar("CallSite")
-Method = TypeVar('Method')
+Method = TypeVar("Method")
 
 
 class CallKind(Enum):

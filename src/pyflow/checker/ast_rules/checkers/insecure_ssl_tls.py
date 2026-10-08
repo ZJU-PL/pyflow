@@ -4,12 +4,15 @@ B501/B502/B503: Test for insecure SSL/TLS configuration.
 Using weak SSL/TLS protocol versions or ciphers exposes
 connections to downgrade and decryption attacks.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
 WEAK_SSL_METHODS = {
-    "PROTOCOL_SSLv2", "PROTOCOL_SSLv3",
-    "PROTOCOL_TLSv1", "PROTOCOL_TLSv1_1",
+    "PROTOCOL_SSLv2",
+    "PROTOCOL_SSLv3",
+    "PROTOCOL_TLSv1",
+    "PROTOCOL_TLSv1_1",
 }
 
 

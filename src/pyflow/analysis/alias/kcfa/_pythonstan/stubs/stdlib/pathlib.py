@@ -72,7 +72,7 @@ class PurePath:
     def relative_to(self, other):
         other_str = str(other)
         if self._path.startswith(other_str):
-            return PurePath(self._path[len(other_str):].lstrip("/"))
+            return PurePath(self._path[len(other_str) :].lstrip("/"))
         raise ValueError(f"{self._path} is not relative to {other_str}")
 
     def with_name(self, name):
@@ -115,6 +115,7 @@ class Path(PurePath):
                 self.st_size = 0
                 self.st_mtime = 0
                 self.st_mode = 0
+
         return StatResult()
 
     def glob(self, pattern):
@@ -126,20 +127,26 @@ class Path(PurePath):
     def iterdir(self):
         return [self]
 
-    def open(self, mode='r', buffering=-1, encoding=None, errors=None, newline=None):
+    def open(self, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
         class File:
             def __init__(self, path):
                 self.path = path
+
             def read(self):
                 return ""
+
             def write(self, s):
                 return len(s)
+
             def close(self):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, exc_type, exc, tb):
                 return False
+
         return File(self)
 
     def read_text(self, encoding=None, errors=None):

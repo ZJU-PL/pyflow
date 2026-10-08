@@ -149,9 +149,7 @@ class _SourceIndex:
 
     @staticmethod
     def _slice(indexed: _IndexedSpan) -> str:
-        return _slice_lines(
-            indexed.source, indexed.span.lineno, indexed.span.end_lineno
-        )
+        return _slice_lines(indexed.source, indexed.span.lineno, indexed.span.end_lineno)
 
     def resolve(
         self,
@@ -178,8 +176,7 @@ class _SourceIndex:
                     qual_matches = [
                         item
                         for item in candidates
-                        if _normalize_qualname(item.span.qualname)
-                        == normalized_qualname
+                        if _normalize_qualname(item.span.qualname) == normalized_qualname
                     ]
                     if qual_matches:
                         candidates = qual_matches
@@ -331,9 +328,7 @@ def _resolve_best_source(
     )
 
 
-def best_source_for_callable(
-    func: object, sources_by_filename: Dict[str, str]
-) -> Optional[str]:
+def best_source_for_callable(func: object, sources_by_filename: Dict[str, str]) -> Optional[str]:
     filename = getattr(getattr(func, "__code__", None), "co_filename", None)
     firstlineno = getattr(getattr(func, "__code__", None), "co_firstlineno", None)
     name = getattr(func, "__name__", None)
@@ -344,9 +339,7 @@ def best_source_for_callable(
     if cache_key in cache:
         return cache[cache_key]
 
-    result = _resolve_best_source(
-        filename, firstlineno, name, qualname, sources_by_filename
-    )
+    result = _resolve_best_source(filename, firstlineno, name, qualname, sources_by_filename)
     cache[cache_key] = result
     return result
 
@@ -385,11 +378,7 @@ def find_function_source_segment(
     # Next: exact qualname match (class/method aware).
     if qualname:
         normalized_qualname = _normalize_qualname(qualname)
-        candidates = [
-            s
-            for s in spans
-            if _normalize_qualname(s.qualname) == normalized_qualname
-        ]
+        candidates = [s for s in spans if _normalize_qualname(s.qualname) == normalized_qualname]
         if name:
             candidates = [s for s in candidates if s.name == name]
         if candidates:

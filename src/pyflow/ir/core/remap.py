@@ -17,14 +17,11 @@ from .ids import (
     ValueId,
 )
 
-
 Identity = TypeVar("Identity")
 
 
 def _freeze(mapping: Mapping[Identity, tuple[Identity, ...]]):
-    return MappingProxyType(
-        {identity: tuple(targets) for identity, targets in mapping.items()}
-    )
+    return MappingProxyType({identity: tuple(targets) for identity, targets in mapping.items()})
 
 
 @dataclass(frozen=True)
@@ -39,15 +36,11 @@ class IRRemap:
     before: IRRevision
     after: IRRevision
     transform: str
-    nodes: Mapping[NodeId, tuple[NodeId, ...]] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    nodes: Mapping[NodeId, tuple[NodeId, ...]] = field(default_factory=lambda: MappingProxyType({}))
     blocks: Mapping[BlockId, tuple[BlockId, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
-    edges: Mapping[EdgeId, tuple[EdgeId, ...]] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    edges: Mapping[EdgeId, tuple[EdgeId, ...]] = field(default_factory=lambda: MappingProxyType({}))
     symbols: Mapping[SymbolId, tuple[SymbolId, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -57,9 +50,9 @@ class IRRemap:
     call_sites: Mapping[CallSiteId, tuple[CallSiteId, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
-    allocation_sites: Mapping[
-        AllocationSiteId, tuple[AllocationSiteId, ...]
-    ] = field(default_factory=lambda: MappingProxyType({}))
+    allocation_sites: Mapping[AllocationSiteId, tuple[AllocationSiteId, ...]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     created_nodes: frozenset[NodeId] = frozenset()
     created_blocks: frozenset[BlockId] = frozenset()
     created_edges: frozenset[EdgeId] = frozenset()
@@ -81,10 +74,7 @@ class IRRemap:
         symbols: Mapping[SymbolId, tuple[SymbolId, ...]] | None = None,
         values: Mapping[ValueId, tuple[ValueId, ...]] | None = None,
         call_sites: Mapping[CallSiteId, tuple[CallSiteId, ...]] | None = None,
-        allocation_sites: Mapping[
-            AllocationSiteId, tuple[AllocationSiteId, ...]
-        ]
-        | None = None,
+        allocation_sites: Mapping[AllocationSiteId, tuple[AllocationSiteId, ...]] | None = None,
         created_nodes: frozenset[NodeId] = frozenset(),
         created_blocks: frozenset[BlockId] = frozenset(),
         created_edges: frozenset[EdgeId] = frozenset(),

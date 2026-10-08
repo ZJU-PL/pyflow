@@ -117,9 +117,7 @@ class CFGOptPost(TypeDispatcher):
         return ae is None or be is None or ae is be
 
     def nonlocalFlowMatches(self, a, b):
-        return self.exitMatchesOrNone(a, b, "fail") and self.exitMatchesOrNone(
-            a, b, "error"
-        )
+        return self.exitMatchesOrNone(a, b, "fail") and self.exitMatchesOrNone(a, b, "error")
 
     @dispatch(cfg.Merge)
     def visitMerge(self, node):
@@ -149,9 +147,7 @@ class CFGOptPost(TypeDispatcher):
 
 
 def evaluate(compiler, g, *, commit_revision=True):
-    transaction = (
-        CFGTransformTransaction(g, "cfg-optimize") if commit_revision else None
-    )
+    transaction = CFGTransformTransaction(g, "cfg-optimize") if commit_revision else None
     post = CFGOptPost(compiler)
     dfs = CFGDFS(post=post)
     dfs.process(g.entryTerminal)

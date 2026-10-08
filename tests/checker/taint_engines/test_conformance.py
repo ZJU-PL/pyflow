@@ -45,9 +45,7 @@ POLICY = TaintPolicy.from_call_models(MODELS, RULES)
         ("clean(value)", False),
     ],
 )
-def test_taint_engines_agree_on_direct_and_sanitized_flows(
-    tmp_path, expression, expected
-):
+def test_taint_engines_agree_on_direct_and_sanitized_flows(tmp_path, expression, expected):
     source = (
         "def source():\n"
         "    return 1\n"
@@ -91,9 +89,7 @@ def test_taint_engines_agree_on_direct_and_sanitized_flows(
         ("subprocess.run(f'tool {value}', shell=True)", True),
     ],
 )
-def test_taint_engines_distinguish_argv_execution_from_shell_execution(
-    tmp_path, command, expected
-):
+def test_taint_engines_distinguish_argv_execution_from_shell_execution(tmp_path, command, expected):
     models = CallModelRegistry(
         [
             CallModel("source", source_kinds=frozenset({"user_input"})),
@@ -151,9 +147,7 @@ def test_taint_engines_distinguish_argv_execution_from_shell_execution(
         ("cursor.execute(f'SELECT * FROM users WHERE name = {value}')", True),
     ],
 )
-def test_taint_engines_only_treat_sql_statement_as_execute_sink(
-    tmp_path, statement, expected
-):
+def test_taint_engines_only_treat_sql_statement_as_execute_sink(tmp_path, statement, expected):
     models = CallModelRegistry(
         [
             CallModel("source", source_kinds=frozenset({"user_input"})),

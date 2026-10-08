@@ -42,9 +42,7 @@ class StronglyConnectedComponents(DFS.Searcher):
     def _component(self, vertices):
         """Make a new SCC."""
         vertices = set(vertices)
-        induced = dict(
-            [(v, set([w for w in self._graph[v] if w in vertices])) for v in vertices]
-        )
+        induced = dict([(v, set([w for w in self._graph[v] if w in vertices])) for v in vertices])
         self._components.append(induced)
 
     def preorder(self, parent, child):

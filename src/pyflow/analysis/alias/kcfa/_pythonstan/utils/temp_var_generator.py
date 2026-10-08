@@ -4,13 +4,14 @@ from typing import Dict
 
 TEMP_VAR_TEMPLATE = "$tmp_%d"
 
+
 def destructable(node):
     return isinstance(node, ast.Tuple) or isinstance(node, ast.List)
 
 
 def update_ctx(node, ctx):
     new_node = copy.deepcopy(node)
-    if hasattr(node, 'ctx'):
+    if hasattr(node, "ctx"):
         new_node.ctx = ctx
     return new_node
 
@@ -26,15 +27,11 @@ class TempVarGenerator:
 
     def __init__(self, next_idx=0, template=TEMP_VAR_TEMPLATE):
         self.reset(next_idx, template)
-    
+
     def reset(self, next_idx=0, template=TEMP_VAR_TEMPLATE):
         self.next_idx = next_idx
         self.template = template
-        self.var_dict = {
-            'Store': {},
-            'Load': {},
-            'Del': {}
-        }
+        self.var_dict = {"Store": {}, "Load": {}, "Del": {}}
 
     def gen(self, idx=None, ctxs=None):
         if ctxs is None:
@@ -49,10 +46,10 @@ class TempVarGenerator:
             self.var_dict[cname][var_name] = var
             ret.append(var)
         return ret
-    
+
     def __call__(self, *args, **kwargs):
         return self.gen(*args, **kwargs)
-    
+
     def gen_idx(self):
         idx = self.next_idx
         self.next_idx += 1

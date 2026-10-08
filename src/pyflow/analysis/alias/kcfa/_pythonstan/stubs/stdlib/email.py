@@ -43,15 +43,15 @@ class Message:
         self._headers[_name.lower()] = _value
 
     def get_content_type(self):
-        return self.get('content-type', 'text/plain')
+        return self.get("content-type", "text/plain")
 
     def get_content_maintype(self):
-        return self.get_content_type().split('/')[0]
+        return self.get_content_type().split("/")[0]
 
     def get_content_subtype(self):
         ctype = self.get_content_type()
-        parts = ctype.split('/')
-        return parts[1] if len(parts) > 1 else ''
+        parts = ctype.split("/")
+        return parts[1] if len(parts) > 1 else ""
 
     def get_payload(self, i=None, decode=False):
         if i is not None and isinstance(self._payload, list):
@@ -104,7 +104,7 @@ class EmailMessage(Message):
         super().__init__(policy)
         self._attachments = []
 
-    def get_body(self, preferencelist=('related', 'html', 'plain')):
+    def get_body(self, preferencelist=("related", "html", "plain")):
         return self
 
     def iter_attachments(self):
@@ -143,37 +143,37 @@ class EmailMessage(Message):
 class MIMEBase(Message):
     def __init__(self, _maintype, _subtype, policy=None, **_params):
         super().__init__(policy)
-        self._headers['content-type'] = f"{_maintype}/{_subtype}"
+        self._headers["content-type"] = f"{_maintype}/{_subtype}"
 
 
 class MIMEText(MIMEBase):
-    def __init__(self, _text, _subtype='plain', _charset=None, policy=None):
-        super().__init__('text', _subtype, policy)
+    def __init__(self, _text, _subtype="plain", _charset=None, policy=None):
+        super().__init__("text", _subtype, policy)
         self._payload = _text
         self._charset = _charset
 
 
 class MIMEImage(MIMEBase):
     def __init__(self, _imagedata, _subtype=None, _encoder=None, policy=None, **_params):
-        super().__init__('image', _subtype or 'octet-stream', policy)
+        super().__init__("image", _subtype or "octet-stream", policy)
         self._payload = _imagedata
 
 
 class MIMEAudio(MIMEBase):
     def __init__(self, _audiodata, _subtype=None, _encoder=None, policy=None, **_params):
-        super().__init__('audio', _subtype or 'octet-stream', policy)
+        super().__init__("audio", _subtype or "octet-stream", policy)
         self._payload = _audiodata
 
 
 class MIMEApplication(MIMEBase):
-    def __init__(self, _data, _subtype='octet-stream', _encoder=None, policy=None, **_params):
-        super().__init__('application', _subtype, policy)
+    def __init__(self, _data, _subtype="octet-stream", _encoder=None, policy=None, **_params):
+        super().__init__("application", _subtype, policy)
         self._payload = _data
 
 
 class MIMEMultipart(MIMEBase):
-    def __init__(self, _subtype='mixed', boundary=None, _subparts=None, policy=None, **_params):
-        super().__init__('multipart', _subtype, policy)
+    def __init__(self, _subtype="mixed", boundary=None, _subparts=None, policy=None, **_params):
+        super().__init__("multipart", _subtype, policy)
         self._payload = list(_subparts) if _subparts else []
         self._boundary = boundary
 

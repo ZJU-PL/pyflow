@@ -23,5 +23,4 @@ class Transform(Analysis):
         return self.inputs[key]
 
     @abstractmethod
-    def transform(self, module: IRScope):
-        ...
+    def transform(self, module: IRScope): ...

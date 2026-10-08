@@ -174,9 +174,9 @@ class MarkLive(TypeDispatcher):
         if self.descriptive():
             return isinstance(node, (ast.Local, ast.Existing))
         else:
-            return isinstance(
-                node, nodesWithNoSideEffects
-            ) or not tools.mightHaveSideEffect(self.code, node)
+            return isinstance(node, nodesWithNoSideEffects) or not tools.mightHaveSideEffect(
+                self.code, node
+            )
 
     def descriptive(self):
         """Check if we're in descriptive mode.

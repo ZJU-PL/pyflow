@@ -82,9 +82,7 @@ class _ExpressionControlMixin:
         if self._yield_state_stack:
             event_state = self._capture_flow_state()
             for depth in self.state.current_yield_depths(procedure):
-                self._yield_state_stack[-1].append(
-                    (depth, event_state, expanded or yielded)
-                )
+                self._yield_state_stack[-1].append((depth, event_state, expanded or yielded))
         self.state.advance_yield_depths(procedure)
         return tuple(
             dict.fromkeys(
@@ -114,9 +112,7 @@ class _ExpressionControlMixin:
         possible_value = ExpressionValue()
         prefix_states: list[object] = []
         for term in terms:
-            possible_value = possible_value.join(
-                self.value_for_expression(procedure, term)
-            )
+            possible_value = possible_value.join(self.value_for_expression(procedure, term))
             # Evaluation may stop after every term.  Joining all prefixes
             # preserves both skipped and executed side effects from later
             # terms without pretending they execute unconditionally.

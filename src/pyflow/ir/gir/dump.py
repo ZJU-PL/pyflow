@@ -100,9 +100,7 @@ def _fmt_block(rows: List[Dict[str, Any]], level: int) -> List[str]:
     return out
 
 
-def _method_param_rows(
-    rows: List[Dict[str, Any]], start_index: int
-) -> List[Dict[str, Any]]:
+def _method_param_rows(rows: List[Dict[str, Any]], start_index: int) -> List[Dict[str, Any]]:
     """Collect the flattened parameter_decl rows owned by a method_decl."""
     block_id = rows[start_index].get("parameters")
     if not isinstance(block_id, int):
@@ -111,9 +109,7 @@ def _method_param_rows(
     for row in rows[start_index + 1 :]:
         if row.get("operation") == "block_end" and row.get("stmt_id") == block_id:
             break
-        if row.get("operation") == "parameter_decl" and row.get(
-            "parent_stmt_id"
-        ) == block_id:
+        if row.get("operation") == "parameter_decl" and row.get("parent_stmt_id") == block_id:
             params.append(row)
     return params
 
@@ -148,8 +144,7 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
         type_parameters = row.get("type_parameters")
         generic = f"[{type_parameters}]" if type_parameters else ""
         out.append(
-            f"{indent}class {row.get('name', '')}{generic}"
-            f"({_fmt_arg(row.get('supers'))}):"
+            f"{indent}class {row.get('name', '')}{generic}" f"({_fmt_arg(row.get('supers'))}):"
         )
     elif op == "assign_stmt":
         if row.get("operator"):
@@ -159,14 +154,10 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
                 f"{_fmt_arg(row.get('operand2'))}"
             )
         else:
-            out.append(
-                f"{indent}{row.get('target', '')} = "
-                f"{_fmt_arg(row.get('operand'))}"
-            )
+            out.append(f"{indent}{row.get('target', '')} = " f"{_fmt_arg(row.get('operand'))}")
     elif op == "call_stmt":
         out.append(
-            f"{indent}{row.get('target', '')} = "
-            f"{row.get('name', '')}({_fmt_call_args(row)})"
+            f"{indent}{row.get('target', '')} = " f"{row.get('name', '')}({_fmt_call_args(row)})"
         )
     elif op == "object_call_stmt":
         out.append(
@@ -195,13 +186,9 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
             f"{_fmt_arg(row.get('source'))}"
         )
     elif op == "array_append":
-        out.append(
-            f"{indent}{row.get('array', '')}.append({_fmt_arg(row.get('source'))})"
-        )
+        out.append(f"{indent}{row.get('array', '')}.append({_fmt_arg(row.get('source'))})")
     elif op == "array_extend":
-        out.append(
-            f"{indent}{row.get('array', '')}.extend({_fmt_arg(row.get('source'))})"
-        )
+        out.append(f"{indent}{row.get('array', '')}.extend({_fmt_arg(row.get('source'))})")
     elif op == "slice_read":
         out.append(
             f"{indent}{row.get('target', '')} = "
@@ -223,17 +210,14 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
             f"[{_fmt_arg(row.get('key'))}] = {_fmt_arg(row.get('value'))}"
         )
     elif op == "record_extend":
-        out.append(
-            f"{indent}{row.get('record', '')}.update({_fmt_arg(row.get('source'))})"
-        )
+        out.append(f"{indent}{row.get('record', '')}.update({_fmt_arg(row.get('source'))})")
     elif op == "if_stmt":
         out.append(f"{indent}if ({_fmt_arg(row.get('condition'))}):")
     elif op == "while_stmt":
         out.append(f"{indent}while ({_fmt_arg(row.get('condition'))}):")
     elif op == "forin_stmt":
         out.append(
-            f"{indent}for {_fmt_arg(row.get('name'))} in "
-            f"{_fmt_arg(row.get('receiver'))}:"
+            f"{indent}for {_fmt_arg(row.get('name'))} in " f"{_fmt_arg(row.get('receiver'))}:"
         )
     elif op == "return_stmt":
         out.append(f"{indent}return {_fmt_arg(row.get('name'))}")
@@ -261,8 +245,7 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
         out.append(f"{indent}try:")
     elif op == "catch_clause":
         out.append(
-            f"{indent}except {_fmt_arg(row.get('expcetion'))} as "
-            f"{_fmt_arg(row.get('as'))}:"
+            f"{indent}except {_fmt_arg(row.get('expcetion'))} as " f"{_fmt_arg(row.get('as'))}:"
         )
     elif op == "with_stmt":
         out.append(f"{indent}with {_fmt_arg(row.get('receiver'))}:")
@@ -273,9 +256,7 @@ def _fmt_row(rows: List[Dict[str, Any]], index: int, level: int) -> List[str]:
     elif op == "default_stmt":
         out.append(f"{indent}default:")
     elif op == "type_alias_decl":
-        out.append(
-            f"{indent}type {row.get('name', '')} = {_fmt_arg(row.get('data_type'))}"
-        )
+        out.append(f"{indent}type {row.get('name', '')} = {_fmt_arg(row.get('data_type'))}")
     elif op == "import_stmt":
         name = row.get("name", "")
         alias = row.get("alias")

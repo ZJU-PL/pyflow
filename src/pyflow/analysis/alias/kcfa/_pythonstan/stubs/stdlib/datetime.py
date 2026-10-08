@@ -1,5 +1,7 @@
 class timedelta:
-    def __init__(self, days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0):
+    def __init__(
+        self, days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0
+    ):
         self.days = days
         self.seconds = seconds
         self.microseconds = microseconds
@@ -42,7 +44,7 @@ class date:
         return date(
             year if year is not None else self.year,
             month if month is not None else self.month,
-            day if day is not None else self.day
+            day if day is not None else self.day,
         )
 
     def strftime(self, fmt):
@@ -69,7 +71,7 @@ class time:
             minute if minute is not None else self.minute,
             second if second is not None else self.second,
             microsecond if microsecond is not None else self.microsecond,
-            tzinfo if tzinfo is not None else self.tzinfo
+            tzinfo if tzinfo is not None else self.tzinfo,
         )
 
     def strftime(self, fmt):
@@ -110,7 +112,16 @@ class datetime(date):
 
     @classmethod
     def combine(cls, date, time, tzinfo=None):
-        return cls(date.year, date.month, date.day, time.hour, time.minute, time.second, time.microsecond, tzinfo)
+        return cls(
+            date.year,
+            date.month,
+            date.day,
+            time.hour,
+            time.minute,
+            time.second,
+            time.microsecond,
+            tzinfo,
+        )
 
     @classmethod
     def strptime(cls, date_string, format):
@@ -122,7 +133,17 @@ class datetime(date):
     def time(self):
         return time(self.hour, self.minute, self.second, self.microsecond)
 
-    def replace(self, year=None, month=None, day=None, hour=None, minute=None, second=None, microsecond=None, tzinfo=None):
+    def replace(
+        self,
+        year=None,
+        month=None,
+        day=None,
+        hour=None,
+        minute=None,
+        second=None,
+        microsecond=None,
+        tzinfo=None,
+    ):
         return datetime(
             year if year is not None else self.year,
             month if month is not None else self.month,
@@ -131,7 +152,7 @@ class datetime(date):
             minute if minute is not None else self.minute,
             second if second is not None else self.second,
             microsecond if microsecond is not None else self.microsecond,
-            tzinfo if tzinfo is not None else self.tzinfo
+            tzinfo if tzinfo is not None else self.tzinfo,
         )
 
     def timestamp(self):

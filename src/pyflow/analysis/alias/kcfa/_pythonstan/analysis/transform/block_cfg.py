@@ -7,13 +7,12 @@ from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import *
 from pyflow.analysis.alias.kcfa._pythonstan.world import World
 from pyflow.analysis.alias.kcfa._pythonstan.ir import *
 
-
-__all__ = ['STAGE_NAME', 'BlockCFG', 'BlockCFGBuilder']
-STAGE_NAME = 'block cfg'
+__all__ = ["STAGE_NAME", "BlockCFG", "BlockCFGBuilder"]
+STAGE_NAME = "block cfg"
 
 
 class BlockCFG(Transform):
-    transformer: 'BlockCFGBuilder'
+    transformer: "BlockCFGBuilder"
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
@@ -36,7 +35,11 @@ class BlockCFG(Transform):
 class BaseBlockHelper:
     @staticmethod
     def get_goto_stmts(blk: BaseBlock) -> List[IRStatement]:
-        return [s for s in blk.get_stmts() if isinstance(s, (Goto, JumpIfTrue, JumpIfFalse, IRCatchException))]
+        return [
+            s
+            for s in blk.get_stmts()
+            if isinstance(s, (Goto, JumpIfTrue, JumpIfFalse, IRCatchException))
+        ]
 
     @staticmethod
     def will_directly_jump(blk: BaseBlock) -> bool:
@@ -75,8 +78,9 @@ class BlockCFGBuilder:
             if isinstance(stmt, Label):
                 cur_blk = [stmt]
                 ret_blks.append(cur_blk)
-            elif isinstance(stmt, (Goto, JumpIfTrue, JumpIfFalse,
-                                   IRCatchException, IRReturn, IRRaise)):
+            elif isinstance(
+                stmt, (Goto, JumpIfTrue, JumpIfFalse, IRCatchException, IRReturn, IRRaise)
+            ):
                 cur_blk.append(stmt)
                 cur_blk = []
                 ret_blks.append(cur_blk)

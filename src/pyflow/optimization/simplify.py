@@ -44,7 +44,7 @@ def _snapshot_code(node):
             return ("DoNotCare",)
         if isinstance(value, ast.Local):
             # Include annotation hash for locals
-            ann_hash = hash(repr(getattr(value, 'annotation', None)))
+            ann_hash = hash(repr(getattr(value, "annotation", None)))
             return ("Local", value.name, ann_hash)
         if isinstance(value, ast.Existing):
             return ("Existing", repr(value.object))
@@ -52,7 +52,7 @@ def _snapshot_code(node):
             return value
         if hasattr(value, "children"):
             # Include annotation information in snapshot
-            ann_repr = repr(getattr(value, 'annotation', None))
+            ann_repr = repr(getattr(value, "annotation", None))
             return (
                 type(value).__name__,
                 tuple(snapshot_value(child) for child in value.children()),

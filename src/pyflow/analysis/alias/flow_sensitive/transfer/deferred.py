@@ -89,18 +89,12 @@ class _DeferredTransferMixin:
             if use_yields:
                 if activation.resume_index < len(summary.yield_steps):
                     resume_index = activation.resume_index
-                    step_state, step_environment, yielded = summary.yield_steps[
-                        resume_index
-                    ]
+                    step_state, step_environment, yielded = summary.yield_steps[resume_index]
                     activation.resume_index += 1
                     activation.frame_environment = step_environment
                     caller_environment = self.heap.snapshot_environment()
-                    caller_environment.object_labels.update(
-                        step_environment.object_labels
-                    )
-                    caller_environment.escaped_objects.update(
-                        step_environment.escaped_objects
-                    )
+                    caller_environment.object_labels.update(step_environment.object_labels)
+                    caller_environment.escaped_objects.update(step_environment.escaped_objects)
                     previous_frontier = (
                         resume_base
                         if resume_index == 0
@@ -170,8 +164,7 @@ class _DeferredTransferMixin:
             else:
                 rebased.scalar_present.discard(location)
         changed_definite_scalars = (
-            previous.definitely_scalar_present
-            ^ current.definitely_scalar_present
+            previous.definitely_scalar_present ^ current.definitely_scalar_present
         )
         for location in changed_definite_scalars:
             if location in current.definitely_scalar_present:
@@ -236,19 +229,14 @@ class _DeferredTransferMixin:
             source_exprs = actuals[:1]
         if not source_exprs:
             return
-        evaluated = self._last_call_operands.get(
-            self._program_point_identity(procedure, call), {}
-        )
+        evaluated = self._last_call_operands.get(self._program_point_identity(procedure, call), {})
         source_locations = tuple(
             dict.fromkeys(
                 location
                 for source_expr in source_exprs
                 for location in (
-                    evaluated.get(
-                        self._program_point_identity(procedure, source_expr)
-                    )
-                    if self._program_point_identity(procedure, source_expr)
-                    in evaluated
+                    evaluated.get(self._program_point_identity(procedure, source_expr))
+                    if self._program_point_identity(procedure, source_expr) in evaluated
                     else self.locations_for_expression(procedure, source_expr)
                 )
             )

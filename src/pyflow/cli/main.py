@@ -45,11 +45,10 @@ def main():
     )
 
     from pyflow import __version__
+
     parser.add_argument("--version", action="version", version=f"PyFlow {__version__}")
 
-    subparsers = parser.add_subparsers(
-        dest="command", help="Available commands", required=True
-    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands", required=True)
 
     # Optimization command
     add_optimize_parser(subparsers)
@@ -83,11 +82,7 @@ def main():
     args = parser.parse_args()
 
     # Handle special commands that don't require input
-    if (
-        args.command == "optimize"
-        and hasattr(args, "list_opt_passes")
-        and args.list_opt_passes
-    ):
+    if args.command == "optimize" and hasattr(args, "list_opt_passes") and args.list_opt_passes:
         list_optimization_passes()
         return 0
 

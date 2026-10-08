@@ -33,8 +33,7 @@ def test_heap_state_join_is_commutative_associative_and_idempotent():
     root = HeapLocation(heap.allocation_object(None, "root", label="root"))
     field = heap.dynamic_attribute_location(root, "field")
     values = tuple(
-        HeapLocation(heap.allocation_object(None, index, label=f"v{index}"))
-        for index in range(3)
+        HeapLocation(heap.allocation_object(None, index, label=f"v{index}")) for index in range(3)
     )
 
     states = []
@@ -46,9 +45,7 @@ def test_heap_state_join_is_commutative_associative_and_idempotent():
 
     assert left.join(left).equivalent(left)
     assert left.join(middle).equivalent(middle.join(left))
-    assert left.join(middle).join(right).equivalent(
-        left.join(middle.join(right))
-    )
+    assert left.join(middle).join(right).equivalent(left.join(middle.join(right)))
 
 
 def test_scalar_presence_is_not_absence_or_unknown_reference():
@@ -109,9 +106,7 @@ def test_heap_write_preserves_mixed_reference_and_scalar_state():
     heap = _heap()
     root = HeapLocation(heap.allocation_object(None, "root", label="root"))
     field = heap.dynamic_attribute_location(root, "field")
-    reference = HeapLocation(
-        heap.allocation_object(None, "reference", label="reference")
-    )
+    reference = HeapLocation(heap.allocation_object(None, "reference", label="reference"))
 
     strong = HeapState()
     strong.write(
@@ -146,9 +141,7 @@ def test_strong_exact_write_shadows_older_wildcard_contaminant():
     state.write(exact, (new,), UpdatePolicy.STRONG)
 
     assert state.read(exact) == (new,)
-    assert heap.to_points_to_graph(state=state).possible_values_at(exact).locations == {
-        new
-    }
+    assert heap.to_points_to_graph(state=state).possible_values_at(exact).locations == {new}
 
 
 def test_later_wildcard_write_clears_exact_shadow():
@@ -177,9 +170,7 @@ def test_exact_delete_shadows_older_wildcard_contaminant():
 
     assert not state.read(exact)
     assert state.definitely_absent(exact)
-    assert heap.to_points_to_graph(state=state).possible_values_at(
-        exact
-    ).definitely_absent
+    assert heap.to_points_to_graph(state=state).possible_values_at(exact).definitely_absent
 
 
 def test_summary_builder_and_effect_builder_share_operation_semantics():
@@ -252,9 +243,7 @@ def test_execution_summary_carries_effects_for_ifds_consumers():
             [],
             None,
         ),
-        py_ast.Suite(
-            [py_ast.SetAttr(value, obj, py_ast.Existing(py_ast.program.Object("field")))]
-        ),
+        py_ast.Suite([py_ast.SetAttr(value, obj, py_ast.Existing(py_ast.program.Object("field")))]),
     )
     actual_obj = py_ast.Local("actual_obj")
     actual_value = py_ast.Local("actual_value")

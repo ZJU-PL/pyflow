@@ -40,9 +40,7 @@ def compileExample(filename):
         module = make.module
 
         # HACK mangle the module name
-        spec = importlib.util.spec_from_file_location(
-            make.moduleName + "gen", make.outfile
-        )
+        spec = importlib.util.spec_from_file_location(make.moduleName + "gen", make.outfile)
         generated = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generated)
 

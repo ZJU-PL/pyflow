@@ -28,7 +28,6 @@ from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     substitute_type_vars,
 )
 
-
 # ---------------------------------------------------------------------------
 # Type alias resolution
 # ---------------------------------------------------------------------------
@@ -154,9 +153,7 @@ def test_substitute_and_collect_type_vars_in_callable() -> None:
 
     t = TypeVarType("T")
     callable_ = CallableType((t,), Instance(ClassDescriptor(list), (t,)))
-    result = substitute_type_vars(
-        callable_, {"T": Instance(ClassDescriptor(int))}
-    )
+    result = substitute_type_vars(callable_, {"T": Instance(ClassDescriptor(int))})
 
     assert isinstance(result, CallableType)
     assert result.arg_types is not None
@@ -220,7 +217,9 @@ def test_collect_type_vars_dedup() -> None:
 
 
 def test_type_var_constraints() -> None:
-    t = TypeVarType("T", constraints=(Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))))
+    t = TypeVarType(
+        "T", constraints=(Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str)))
+    )
     assert t.has_constraints is True
     assert t.has_bound is False
     assert len(t.constraints) == 2
@@ -267,16 +266,12 @@ def test_type_var_hash() -> None:
         ("", []),
     ],
 )
-def test_split_comment_param_declaration(
-    decl_text: str, expected: list[str]
-) -> None:
+def test_split_comment_param_declaration(decl_text: str, expected: list[str]) -> None:
     assert split_comment_param_declaration(decl_text) == expected
 
 
 def test_split_nested_brackets() -> None:
-    result = split_comment_param_declaration(
-        "Mapping[str, List[int]], Callable[[int], str]"
-    )
+    result = split_comment_param_declaration("Mapping[str, List[int]], Callable[[int], str]")
     assert result == ["Mapping[str, List[int]]", "Callable[[int], str]"]
 
 
@@ -285,13 +280,14 @@ def test_split_nested_brackets() -> None:
     [
         ("# type: (int, str) -> bool", ["int", "str"], "bool"),
         ("# type: (int) -> None", ["int"], "None"),
-        ("# type: (Dict[str, int], bool) -> Optional[str]",
-         ["Dict[str, int]", "bool"], "Optional[str]"),
+        (
+            "# type: (Dict[str, int], bool) -> Optional[str]",
+            ["Dict[str, int]", "bool"],
+            "Optional[str]",
+        ),
     ],
 )
-def test_parse_type_comment(
-    comment: str, expected_params: list[str], expected_return: str
-) -> None:
+def test_parse_type_comment(comment: str, expected_params: list[str], expected_return: str) -> None:
     params, ret = parse_type_comment(comment)
     assert params == expected_params
     assert ret == expected_return

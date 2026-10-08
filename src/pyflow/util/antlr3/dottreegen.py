@@ -129,9 +129,7 @@ class DOTTreeGenerator(object):
             return self.nodeNumber - 1
 
 
-def toDOT(
-    tree, adaptor=None, treeST=DOTTreeGenerator._treeST, edgeST=DOTTreeGenerator._edgeST
-):
+def toDOT(tree, adaptor=None, treeST=DOTTreeGenerator._treeST, edgeST=DOTTreeGenerator._edgeST):
     """
     Generate DOT (graphviz) for a whole tree not just a node.
     For example, 3+4*5 should generate:

@@ -24,12 +24,12 @@ from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign, IR
 
 class TestIRTranslatorInitialization:
     """Tests for IRTranslator initialization."""
-    
+
     def test_basic_initialization(self):
         """Test creating IR translator."""
         config = Config()
         translator = IRTranslator(config)
-        
+
         assert translator.config == config
         assert translator._var_factory is not None
         assert isinstance(translator._var_factory, VariableFactory)
@@ -49,17 +49,13 @@ class TestIRTranslatorInitialization:
             )
         )
 
-        constraints = translator._translate_unary_op(
-            operand, target, ast.Not(), statement
-        )
+        constraints = translator._translate_unary_op(operand, target, ast.Not(), statement)
 
         assert sum(isinstance(item, LoadConstraint) for item in constraints) == 2
         calls = [item for item in constraints if isinstance(item, CallConstraint)]
         assert len(calls) == 2
         assert all(item.target is None for item in calls)
-        allocations = [
-            item for item in constraints if isinstance(item, AllocConstraint)
-        ]
+        allocations = [item for item in constraints if isinstance(item, AllocConstraint)]
         assert len(allocations) == 1
         assert allocations[0].target == target
 

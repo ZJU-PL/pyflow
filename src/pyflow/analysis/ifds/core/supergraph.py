@@ -36,9 +36,7 @@ class Supergraph(Generic[ProcT, NodeT]):
         self._call_to_return_succs: DefaultDict[NodeT, set[NodeT]] = defaultdict(set)
         self._callers_by_proc: DefaultDict[ProcT, set[NodeT]] = defaultdict(set)
 
-    def add_procedure(
-        self, procedure: ProcT, entry: NodeT, exits: Iterable[NodeT] = ()
-    ) -> None:
+    def add_procedure(self, procedure: ProcT, entry: NodeT, exits: Iterable[NodeT] = ()) -> None:
         """Register a new procedure and its entry/exit nodes."""
         if procedure in self._entries:
             raise SupergraphError(f"Procedure {procedure!r} is already registered")
@@ -54,9 +52,7 @@ class Supergraph(Generic[ProcT, NodeT]):
             raise SupergraphError(f"Unknown procedure {procedure!r}")
         existing = self._node_to_proc.get(node)
         if existing is not None and existing != procedure:
-            raise SupergraphError(
-                f"Node {node!r} is already owned by procedure {existing!r}"
-            )
+            raise SupergraphError(f"Node {node!r} is already owned by procedure {existing!r}")
         self._node_to_proc[node] = procedure
         if node not in self._node_ids:
             self._node_ids[node] = len(self._node_ids)
@@ -97,9 +93,7 @@ class Supergraph(Generic[ProcT, NodeT]):
         self._require_known_node(call_node)
         self._require_known_node(return_site)
         if self.procedure_of(call_node) != self.procedure_of(return_site):
-            raise SupergraphError(
-                "Call nodes and return sites must belong to the same procedure"
-            )
+            raise SupergraphError("Call nodes and return sites must belong to the same procedure")
         self._return_sites_by_call[call_node].add(return_site)
         self._call_to_return_succs[call_node].add(return_site)
 

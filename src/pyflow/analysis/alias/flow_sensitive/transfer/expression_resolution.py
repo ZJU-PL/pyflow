@@ -32,11 +32,7 @@ class _ExpressionResolverMixin(
         procedure: object,
         expression: object,
     ) -> ExpressionValue:
-        cache = (
-            self._operation_expression_caches[-1]
-            if self._operation_expression_caches
-            else None
-        )
+        cache = self._operation_expression_caches[-1] if self._operation_expression_caches else None
         cacheable = not isinstance(
             expression,
             (
@@ -84,9 +80,7 @@ class _ExpressionResolverMixin(
             return ExpressionValue(
                 refs,
                 may_non_reference=(
-                    local_value.may_non_reference
-                    if local_value is not None
-                    else False
+                    local_value.may_non_reference if local_value is not None else False
                 ),
             )
         if isinstance(expression, py_ast.GetGlobal):
@@ -106,9 +100,7 @@ class _ExpressionResolverMixin(
         if isinstance(expression, py_ast.Existing):
             refs = self._resolve_existing(procedure, expression)
             return ExpressionValue(refs, may_non_reference=not refs)
-        return ExpressionValue(
-            self._locations_for_expression_impl(procedure, expression)
-        )
+        return ExpressionValue(self._locations_for_expression_impl(procedure, expression))
 
     def _locations_for_expression_impl(
         self,
@@ -140,9 +132,7 @@ class _ExpressionResolverMixin(
             return self._resolve_attribute(procedure, expression)
         if isinstance(expression, py_ast.GetSubscript):
             return self._resolve_subscript(procedure, expression)
-        if isinstance(expression, py_ast.DirectCall) and isinstance(
-            expression.code, py_ast.Code
-        ):
+        if isinstance(expression, py_ast.DirectCall) and isinstance(expression.code, py_ast.Code):
             return self._resolve_direct_call(procedure, expression)
         if isinstance(expression, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
             return self._resolve_call(procedure, expression)
@@ -259,9 +249,7 @@ class _ExpressionResolverMixin(
     ) -> ExpressionValue:
         return ExpressionValue(
             refs=self._read_heap_locations(locations),
-            may_non_reference=any(
-                location in self.state.scalar_present for location in locations
-            ),
+            may_non_reference=any(location in self.state.scalar_present for location in locations),
         )
 
     def _merge_expression_locations(self, procedure, *expressions):

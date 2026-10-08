@@ -69,6 +69,7 @@ This formatter outputs the issues in JSON format.
     New field `CWE` added to output
 
 """
+
 import json
 import logging
 import sys

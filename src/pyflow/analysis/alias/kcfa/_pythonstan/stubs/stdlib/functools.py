@@ -20,10 +20,12 @@ def lru_cache(maxsize=128, typed=False):
     def decorator(func):
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
+
         wrapper.__wrapped__ = func
         wrapper.cache_info = lambda: _CacheInfo()
         wrapper.cache_clear = lambda: None
         return wrapper
+
     return decorator
 
 
@@ -32,6 +34,7 @@ def wraps(wrapped, assigned=None, updated=None):
         wrapper.__wrapped__ = wrapped
         wrapper.__name__ = wrapped.__name__
         return wrapper
+
     return decorator
 
 
@@ -60,12 +63,14 @@ def cached_property(func):
 
         def __get__(self, obj, objtype=None):
             return self.func(obj)
+
     return _CachedProperty(func)
 
 
 def singledispatch(func):
     def wrapper(*args, **kwargs):
         return func(*args, **kwargs)
+
     wrapper.__wrapped__ = func
     wrapper.register = lambda typ: lambda f: f
     return wrapper
@@ -75,8 +80,10 @@ def cmp_to_key(mycmp):
     class K:
         def __init__(self, obj):
             self.obj = obj
+
         def __lt__(self, other):
             return mycmp(self.obj, other.obj) < 0
+
     return K
 
 

@@ -33,9 +33,7 @@ def flattenTypesInto(l, result):
             flattenTypesInto(child, result)
         else:
             if not isinstance(child, type):
-                raise TypeDispatchDeclarationError(
-                    "Expected a type, got %r instead." % child
-                )
+                raise TypeDispatchDeclarationError("Expected a type, got %r instead." % child)
             result.append(child)
 
 

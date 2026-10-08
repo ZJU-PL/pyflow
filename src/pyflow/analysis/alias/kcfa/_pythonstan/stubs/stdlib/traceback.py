@@ -69,7 +69,7 @@ def walk_tb(tb):
 
 
 class FrameSummary:
-    __slots__ = ('filename', 'lineno', 'name', 'line', 'locals', '_line')
+    __slots__ = ("filename", "lineno", "name", "line", "locals", "_line")
 
     def __init__(self, filename, lineno, name, lookup_line=True, locals=None, line=None):
         self.filename = filename
@@ -113,7 +113,9 @@ class StackSummary(list):
             if isinstance(item, FrameSummary):
                 result.append(item)
             else:
-                result.append(FrameSummary(item[0], item[1], item[2], line=item[3] if len(item) > 3 else None))
+                result.append(
+                    FrameSummary(item[0], item[1], item[2], line=item[3] if len(item) > 3 else None)
+                )
         return result
 
     def format(self):
@@ -121,20 +123,29 @@ class StackSummary(list):
         for frame in self:
             result.append(f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}\n')
             if frame.line:
-                result.append(f'    {frame.line.strip()}\n')
+                result.append(f"    {frame.line.strip()}\n")
         return result
 
 
 class TracebackException:
-    def __init__(self, exc_type, exc_value, exc_traceback, limit=None,
-                 lookup_lines=True, capture_locals=False, compact=False, _seen=None):
+    def __init__(
+        self,
+        exc_type,
+        exc_value,
+        exc_traceback,
+        limit=None,
+        lookup_lines=True,
+        capture_locals=False,
+        compact=False,
+        _seen=None,
+    ):
         self.exc_type = exc_type
         self._str = str(exc_value) if exc_value else ""
         self.stack = StackSummary()
         self.__cause__ = None
         self.__context__ = None
         self.__suppress_context__ = False
-        self.__notes__ = getattr(exc_value, '__notes__', None)
+        self.__notes__ = getattr(exc_value, "__notes__", None)
 
     @classmethod
     def from_exception(cls, exc, limit=None, lookup_lines=True, capture_locals=False):

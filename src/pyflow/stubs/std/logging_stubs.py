@@ -162,14 +162,14 @@ def makeLoggingStubs(collector):
     @export
     @attachPtr(logging, "FileHandler")
     @llfunc
-    def logging_FileHandler(filename, mode='a', encoding=None, delay=False, errors=None):
+    def logging_FileHandler(filename, mode="a", encoding=None, delay=False, errors=None):
         return allocate(logging.FileHandler)
 
     ### Formatter ###
     @export
     @attachPtr(logging, "Formatter")
     @llfunc
-    def logging_Formatter(fmt=None, datefmt=None, style='%'):
+    def logging_Formatter(fmt=None, datefmt=None, style="%"):
         return allocate(logging.Formatter)
 
     @attachPtr(logging.Formatter, "format")
@@ -186,7 +186,7 @@ def makeLoggingStubs(collector):
     @export
     @attachPtr(logging, "Filter")
     @llfunc
-    def logging_Filter(name=''):
+    def logging_Filter(name=""):
         return allocate(logging.Filter)
 
     @attachPtr(logging.Filter, "filter")
@@ -198,7 +198,9 @@ def makeLoggingStubs(collector):
     @export
     @attachPtr(logging, "LogRecord")
     @llfunc
-    def logging_LogRecord(name, level, pathname, lineno, msg, args, exc_info, func=None, sinfo=None):
+    def logging_LogRecord(
+        name, level, pathname, lineno, msg, args, exc_info, func=None, sinfo=None
+    ):
         return allocate(logging.LogRecord)
 
     @attachPtr(logging.LogRecord, "getMessage")
@@ -210,7 +212,17 @@ def makeLoggingStubs(collector):
     @export
     @attachPtr(logging, "basicConfig")
     @llfunc
-    def logging_basicConfig(filename=None, filemode='a', format=None, datefmt=None, style='%', level=None, stream=None, handlers=None, force=False):
+    def logging_basicConfig(
+        filename=None,
+        filemode="a",
+        format=None,
+        datefmt=None,
+        style="%",
+        level=None,
+        stream=None,
+        handlers=None,
+        force=False,
+    ):
         return allocate(type(None))
 
     ### log functions ###

@@ -80,10 +80,7 @@ class TypeInfoService:
         path: str | None = None,
     ) -> None:
         """Collect source and stub facts for a module."""
-        if (
-            module_name in self._collected_modules
-            or module_name in self._collecting_modules
-        ):
+        if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
         self._collecting_modules.add(module_name)
         if source is None:
@@ -226,10 +223,7 @@ class TypeInfoService:
                 )
 
         for node in tree.body:
-            if (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-            ):
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 raw_annotation = _annotation_to_str(node.annotation)
                 facts[node.target.id] = TypeFact(
                     name=node.target.id,
@@ -307,9 +301,7 @@ class TypeInfoService:
                 if name in params and params[name] is None:
                     params[name] = value.public_type()
                     public_type = value.public_type()
-                    raw_params[name] = (
-                        None if public_type is None else str(public_type)
-                    )
+                    raw_params[name] = None if public_type is None else str(public_type)
             returns = existing_function.returns or summary.return_type
             raw_returns = existing_function.raw_returns
             if raw_returns is None and returns is not None:
@@ -478,10 +470,7 @@ class TypeInfoService:
         qualified_name = f"{module_name}.{node.name}"
         class_typ = self._synthetic_instance(qualified_name)
         for stmt in node.body:
-            if (
-                isinstance(stmt, ast.AnnAssign)
-                and isinstance(stmt.target, ast.Name)
-            ):
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                 raw_annotation = _annotation_to_str(stmt.annotation)
                 members[stmt.target.id] = TypeFact(
                     name=stmt.target.id,
@@ -542,11 +531,7 @@ class TypeInfoService:
         raw_params: dict[str, str | None] = {}
         params: dict[str, ProperType | None] = {}
         for arg in _iter_arguments(node.args):
-            raw = (
-                _annotation_to_str(arg.annotation)
-                if arg.annotation is not None
-                else None
-            )
+            raw = _annotation_to_str(arg.annotation) if arg.annotation is not None else None
             raw_params[arg.arg] = raw
             params[arg.arg] = self._resolve_annotation(
                 raw,
@@ -577,11 +562,7 @@ class TypeInfoService:
                 module_name=module_name,
                 imports=imports,
             )
-        raw_returns = (
-            _annotation_to_str(node.returns)
-            if node.returns is not None
-            else None
-        )
+        raw_returns = _annotation_to_str(node.returns) if node.returns is not None else None
         return FunctionTypeInfo(
             name=node.name,
             params=params,
@@ -683,14 +664,9 @@ class TypeInfoService:
         )
 
     def _callable_type(self, function_info: FunctionTypeInfo) -> CallableType:
-        return_type = (
-            function_info.returns if function_info.returns is not None else ANY
-        )
+        return_type = function_info.returns if function_info.returns is not None else ANY
         return CallableType(
-            tuple(
-                typ if typ is not None else ANY
-                for typ in function_info.params.values()
-            ),
+            tuple(typ if typ is not None else ANY for typ in function_info.params.values()),
             return_type,
         )
 
@@ -746,10 +722,7 @@ class TypeInfoService:
                 return self._synthetic_instance(alias)
         if module_name is None:
             for class_name, class_info in self._classes.items():
-                if (
-                    name == class_name
-                    or normalized == class_name.rsplit(".", 1)[-1]
-                ):
+                if name == class_name or normalized == class_name.rsplit(".", 1)[-1]:
                     return class_info.typ
 
         builtin = BuiltinTypeLookup()(name)
@@ -808,10 +781,7 @@ class TypeInfoService:
         if fact is not None:
             return fact.typ
 
-        if (
-            allow_synthetic
-            and self.project_context.find_module(module_name) is not None
-        ):
+        if allow_synthetic and self.project_context.find_module(module_name) is not None:
             return self._synthetic_instance(qualified_name)
         return None
 

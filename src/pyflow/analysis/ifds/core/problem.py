@@ -8,7 +8,6 @@ from typing import Callable, Generic, Hashable, Mapping, TypeVar
 
 from .supergraph import NodeT, ProcT, Supergraph
 
-
 FactT = TypeVar("FactT", bound=Hashable)
 ValueT = TypeVar("ValueT")
 
@@ -46,9 +45,7 @@ class EdgeFunction(Generic[ValueT], ABC):
     ) -> "EdgeFunction[ValueT]":
         if self == other:
             return self
-        if isinstance(self, IdentityEdgeFunction) and isinstance(
-            other, IdentityEdgeFunction
-        ):
+        if isinstance(self, IdentityEdgeFunction) and isinstance(other, IdentityEdgeFunction):
             return self
         return JoinedEdgeFunction.from_functions(self, other, join_values)
 
@@ -103,9 +100,7 @@ class ComposedEdgeFunction(EdgeFunction[ValueT]):
         return composed
 
     @classmethod
-    def _iter_terms(
-        cls, function: EdgeFunction[ValueT]
-    ) -> tuple[EdgeFunction[ValueT], ...]:
+    def _iter_terms(cls, function: EdgeFunction[ValueT]) -> tuple[EdgeFunction[ValueT], ...]:
         if isinstance(function, ComposedEdgeFunction):
             return (*cls._iter_terms(function.outer), *cls._iter_terms(function.inner))
         return (function,)
@@ -116,11 +111,7 @@ class ComposedEdgeFunction(EdgeFunction[ValueT]):
     ) -> tuple[EdgeFunction[ValueT], ...]:
         normalized: list[EdgeFunction[ValueT]] = []
         for term in terms:
-            if (
-                normalized
-                and normalized[-1] == term
-                and term.is_idempotent()
-            ):
+            if normalized and normalized[-1] == term and term.is_idempotent():
                 continue
             normalized.append(term)
         return tuple(normalized)

@@ -97,18 +97,14 @@ class ConstraintCallGraphBuilder(
         self.options = options or AnalysisOptions()
         self.additional_sources = dict(additional_sources or {})
         self.project_root = (
-            self._infer_project_root(self.entry_path)
-            if self.entry_path
-            else os.getcwd()
+            self._infer_project_root(self.entry_path) if self.entry_path else os.getcwd()
         )
         self.project_context = ProjectContext(
             self.project_root, source_files=self.additional_sources
         )
         self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
-            self._infer_entry_module_import_name(self.entry_path)
-            if self.entry_path
-            else "main"
+            self._infer_entry_module_import_name(self.entry_path) if self.entry_path else "main"
         )
 
         self.modules: Dict[str, ModuleInfo] = {}
@@ -126,69 +122,53 @@ class ConstraintCallGraphBuilder(
             lambda: defaultdict(set)
         )
         self.container_elements: Dict[str, Set[AbstractValue]] = defaultdict(set)
-        self.container_key_values: Dict[str, Dict[str, Set[AbstractValue]]] = (
-            defaultdict(lambda: defaultdict(set))
+        self.container_key_values: Dict[str, Dict[str, Set[AbstractValue]]] = defaultdict(
+            lambda: defaultdict(set)
         )
         self.container_maybe_missing_keys: DefaultDict[str, Set[str]] = defaultdict(set)
-        self.instance_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(
-            set
-        )
+        self.instance_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
         self.class_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
 
-        self.scope_inputs: Dict[
-            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
-        ] = {}
+        self.scope_inputs: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = {}
         # Monotone scope-local may-bindings.  These bindings are fed back into
         # subsequent analyses of the same scope-context so values discovered
         # later in a block are visible at earlier uses (loop back-edges,
         # exceptional paths, and ordinary reassignments).
-        self.scope_flow_bindings: Dict[
-            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
-        ] = {}
-        self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = (
-            defaultdict(set)
-        )
+        self.scope_flow_bindings: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = {}
+        self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = defaultdict(set)
         self.scope_callees: Dict[Tuple[str, ContextKey], Set[str]] = defaultdict(set)
-        self.callsite_callees: DefaultDict[ConstraintCallSite, Set[str]] = defaultdict(
-            set
-        )
+        self.callsite_callees: DefaultDict[ConstraintCallSite, Set[str]] = defaultdict(set)
         self._callsite_ordinals: Dict[int, int] = {}
-        self.scope_global_writes: Dict[
-            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
-        ] = defaultdict(dict)
-        self.scope_nonlocal_writes: Dict[
-            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
-        ] = defaultdict(dict)
-        self._suspended_value_cache: Dict[
-            Tuple[str, ContextKey, str], AbstractValue
-        ] = {}
+        self.scope_global_writes: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = (
+            defaultdict(dict)
+        )
+        self.scope_nonlocal_writes: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = (
+            defaultdict(dict)
+        )
+        self._suspended_value_cache: Dict[Tuple[str, ContextKey, str], AbstractValue] = {}
         self.coroutine_sources: Dict[str, Tuple[str, ContextKey]] = {}
         self.generator_sources: Dict[str, Tuple[str, ContextKey]] = {}
 
         # Caches/indexes used by resolver and dependency-driven requeueing.
         self._mro_cache: Dict[str, List[str]] = {}
         self._invalid_mro_classes: Set[str] = set()
-        self._container_cache: Dict[
-            Tuple[str, ContextKey, str, int, int], AbstractValue
-        ] = {}
+        self._container_cache: Dict[Tuple[str, ContextKey, str, int, int], AbstractValue] = {}
         self.lambda_functions: Dict[Tuple[str, int, int], str] = {}
         self.lambda_functions_by_node: Dict[int, str] = {}
         self._active_scope_context: Optional[Tuple[str, ContextKey]] = None
-        self.module_dependents: DefaultDict[str, Set[Tuple[str, ContextKey]]] = (
-            defaultdict(set)
-        )
+        self.module_dependents: DefaultDict[str, Set[Tuple[str, ContextKey]]] = defaultdict(set)
         self.instance_field_dependents: DefaultDict[
             Tuple[str, str], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
-        self.class_field_dependents: DefaultDict[
-            Tuple[str, str], Set[Tuple[str, ContextKey]]
-        ] = defaultdict(set)
-        self.container_dependents: DefaultDict[
-            Tuple[str, str], Set[Tuple[str, ContextKey]]
-        ] = defaultdict(set)
-        self.call_dependents: DefaultDict[
-            Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
-        ] = defaultdict(set)
+        self.class_field_dependents: DefaultDict[Tuple[str, str], Set[Tuple[str, ContextKey]]] = (
+            defaultdict(set)
+        )
+        self.container_dependents: DefaultDict[Tuple[str, str], Set[Tuple[str, ContextKey]]] = (
+            defaultdict(set)
+        )
+        self.call_dependents: DefaultDict[Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]] = (
+            defaultdict(set)
+        )
         self.closure_dependents: DefaultDict[
             Tuple[str, ContextKey, str], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
@@ -197,9 +177,7 @@ class ConstraintCallGraphBuilder(
         self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_container_state: Optional[Set[Tuple[str, str]]] = None
-        self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = (
-            None
-        )
+        self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = None
         self._active_singledispatch_changed = False
         self.singledispatch_functions: Set[str] = set()
         self.singledispatch_registrations: DefaultDict[
@@ -210,9 +188,7 @@ class ConstraintCallGraphBuilder(
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
         self.solver_stats = SolverStats()
-        self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(
-            set
-        )
+        self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(set)
         self._state_input_fingerprints: Dict[Tuple[str, ContextKey], int] = {}
         self._global_module_stamp = 0
         self._global_heap_stamp = 0
@@ -236,9 +212,7 @@ class ConstraintCallGraphBuilder(
 
     def _infer_entry_module_import_name(self, entry_path: str) -> str:
         """Infer the import-qualified module name for the entry file."""
-        return self.project_context.module_name_from_path(
-            entry_path, allow_absolute_fallback=False
-        )
+        return self.project_context.module_name_from_path(entry_path, allow_absolute_fallback=False)
 
     def build(self) -> CallGraph:
         """Execute the full analysis pipeline and return the call graph."""
@@ -273,9 +247,7 @@ class ConstraintCallGraphBuilder(
 
     def call_site_edge_index(self) -> CallSiteEdgeIndex:
         """Return contextful direct call-site edges collected during analysis."""
-        return {
-            site: frozenset(callees) for site, callees in self.callsite_callees.items()
-        }
+        return {site: frozenset(callees) for site, callees in self.callsite_callees.items()}
 
     def _index_call_sites(self) -> None:
         """Assign stable per-scope ordinals to source AST call nodes."""
@@ -357,9 +329,7 @@ class ConstraintCallGraphBuilder(
     def _root_context(self) -> ContextKey:
         return GLOBAL_CONTEXT
 
-    def _normalize_context_for_scope(
-        self, scope_name: str, context: ContextKey
-    ) -> ContextKey:
+    def _normalize_context_for_scope(self, scope_name: str, context: ContextKey) -> ContextKey:
         if scope_name in self.modules:
             return GLOBAL_CONTEXT
         if not self.options.context_sensitive:
@@ -442,11 +412,7 @@ class ConstraintCallGraphBuilder(
             if callable_values:
                 kept = set(callable_values)
                 non_callables = sorted(
-                    (
-                        value
-                        for value in values
-                        if value not in kept and value != UNKNOWN_VALUE
-                    ),
+                    (value for value in values if value not in kept and value != UNKNOWN_VALUE),
                     key=lambda item: (item.kind, item.name),
                 )
                 remaining = max(0, cap - len(kept))
@@ -506,9 +472,7 @@ class ConstraintCallGraphBuilder(
         """
         line = getattr(node, "lineno", -1)
         col = getattr(node, "col_offset", -1)
-        normalized_context = self._normalize_context_for_scope(
-            scope.name, scope_context
-        )
+        normalized_context = self._normalize_context_for_scope(scope.name, scope_context)
         key = (scope.name, normalized_context, kind, line, col)
         existing = self._container_cache.get(key)
         if existing is not None:
@@ -570,9 +534,7 @@ class ConstraintCallGraphBuilder(
             return
         scope_name, scope_context = target
         normalized = self._normalize_context_for_scope(scope_name, scope_context)
-        self.class_field_dependents[(class_name, attr_name)].add(
-            (scope_name, normalized)
-        )
+        self.class_field_dependents[(class_name, attr_name)].add((scope_name, normalized))
 
     def _register_container_dependency(
         self,
@@ -585,9 +547,7 @@ class ConstraintCallGraphBuilder(
             return
         scope_name, scope_context = target
         normalized = self._normalize_context_for_scope(scope_name, scope_context)
-        self.container_dependents[(container_name, key_name)].add(
-            (scope_name, normalized)
-        )
+        self.container_dependents[(container_name, key_name)].add((scope_name, normalized))
 
     def _container_impacted_scope_contexts(
         self,
@@ -603,9 +563,7 @@ class ConstraintCallGraphBuilder(
                     if dep_container == container_name:
                         impacted.update(dependents)
                 continue
-            impacted.update(
-                self.container_dependents.get((container_name, key_name), set())
-            )
+            impacted.update(self.container_dependents.get((container_name, key_name), set()))
             impacted.update(self.container_dependents.get((container_name, "*"), set()))
         return impacted
 
@@ -614,13 +572,11 @@ class ConstraintCallGraphBuilder(
     ) -> Set[Tuple[str, ContextKey]]:
         class_name, attr_name = changed_field
         if attr_name != "*":
-            return set(
-                self.class_field_dependents.get((class_name, attr_name), set())
-            ) | set(self.class_field_dependents.get((class_name, "*"), set()))
+            return set(self.class_field_dependents.get((class_name, attr_name), set())) | set(
+                self.class_field_dependents.get((class_name, "*"), set())
+            )
         impacted: Set[Tuple[str, ContextKey]] = set()
-        for (dependency_class, _dependency_attr), dependents in (
-            self.class_field_dependents.items()
-        ):
+        for (dependency_class, _dependency_attr), dependents in self.class_field_dependents.items():
             if dependency_class == class_name:
                 impacted.update(dependents)
         return impacted
@@ -771,9 +727,7 @@ class ConstraintCallGraphBuilder(
                 return None
             if any(not isinstance(value, str) for value in callees):
                 return None
-            ordered_callees = {
-                OrderedStr(value, index) for index, value in enumerate(callees)
-            }
+            ordered_callees = {OrderedStr(value, index) for index, value in enumerate(callees)}
             mapped[caller] = cast(Set[str], ordered_callees)
         graph._graph = mapped  # type: ignore[attr-defined]
         graph._modules = {}  # type: ignore[attr-defined]

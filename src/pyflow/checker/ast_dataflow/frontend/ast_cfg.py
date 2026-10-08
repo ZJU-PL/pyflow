@@ -68,9 +68,7 @@ class ASTCFGBuilder:
         self._nodes: list[ASTCFGNode] = []
         self._edges: list[CFGEdge[ASTCFGNode]] = []
 
-    def build(
-        self, function: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> ASTControlFlowGraph:
+    def build(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> ASTControlFlowGraph:
         self._next_index = 0
         self._nodes = []
         self._edges = []
@@ -276,9 +274,7 @@ class ASTCFGBuilder:
                 )
                 self._connect(handler_dispatch, handler_entry, EdgeKind.EXCEPTION)
             if outer_exception_target is not None:
-                self._connect(
-                    handler_dispatch, outer_exception_target, EdgeKind.EXCEPTION
-                )
+                self._connect(handler_dispatch, outer_exception_target, EdgeKind.EXCEPTION)
 
         body_entry = self._build_block(
             statement.body,
@@ -291,14 +287,9 @@ class ASTCFGBuilder:
         return try_node
 
 
-def find_function(
-    tree: ast.AST, name: str
-) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+def find_function(tree: ast.AST, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     leaf_name = name.rsplit(".", 1)[-1]
     for node in ast.walk(tree):
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == leaf_name
-        ):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == leaf_name:
             return node
     return None

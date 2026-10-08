@@ -113,11 +113,7 @@ def tokenize(query: str) -> List[Token]:
             emit("RANGE", i, i + 2)
             i += 2
             continue
-        if (
-            query.startswith("<=", i)
-            or query.startswith(">=", i)
-            or query.startswith("!=", i)
-        ):
+        if query.startswith("<=", i) or query.startswith(">=", i) or query.startswith("!=", i):
             emit("OP", i, i + 2)
             i += 2
             continue
@@ -154,9 +150,7 @@ def tokenize(query: str) -> List[Token]:
                 c = query[i]
                 if c == "\\":
                     if i + 1 >= n:
-                        raise CypherSyntaxError(
-                            f"Unterminated string at position {start}"
-                        )
+                        raise CypherSyntaxError(f"Unterminated string at position {start}")
                     esc = query[i + 1]
                     if esc in ("\\", '"', "'"):
                         out.append(esc)
@@ -345,9 +339,7 @@ class _Parser:
 
     def expect(self, kind: str, text_upper: Optional[str] = None) -> Token:
         tok = self.peek()
-        if tok.kind != kind or (
-            text_upper is not None and tok.text.upper() != text_upper
-        ):
+        if tok.kind != kind or (text_upper is not None and tok.text.upper() != text_upper):
             want = text_upper if text_upper is not None else kind
             raise CypherSyntaxError(f"Expected {want} at position {tok.pos}")
         return self.pop()
@@ -449,9 +441,7 @@ class _Parser:
                 while True:
                     key_tok = self.peek()
                     if key_tok.kind not in ("IDENT", "STRING"):
-                        raise CypherSyntaxError(
-                            f"Expected property key at position {key_tok.pos}"
-                        )
+                        raise CypherSyntaxError(f"Expected property key at position {key_tok.pos}")
                     key = self.pop().text
                     if key_tok.kind == "STRING":
                         key = key[1:-1]
@@ -532,9 +522,7 @@ class _Parser:
             self.expect("-")
 
         if direction_left and direction_right:
-            raise CypherSyntaxError(
-                "Relationship cannot be both left and right directed"
-            )
+            raise CypherSyntaxError("Relationship cannot be both left and right directed")
 
         direction = "--"
         if direction_left:
@@ -664,9 +652,7 @@ class _Parser:
                 expr = Attr(expr, attr)
             return expr
 
-        raise CypherSyntaxError(
-            f"Unexpected token {tok.kind}:{tok.text!r} at position {tok.pos}"
-        )
+        raise CypherSyntaxError(f"Unexpected token {tok.kind}:{tok.text!r} at position {tok.pos}")
 
 
 def parse(query: str) -> Query:
@@ -712,14 +698,10 @@ def _get_attr(obj: Any, name: str) -> Any:
     if isinstance(obj, dict) and name in obj:
         return obj[name]
 
-    raise CypherExecutionError(
-        f"Cannot access property {name!r} on {type(obj).__name__}"
-    )
+    raise CypherExecutionError(f"Cannot access property {name!r} on {type(obj).__name__}")
 
 
-def _eval_expr(
-    expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]
-) -> Any:
+def _eval_expr(expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]) -> Any:
     if isinstance(expr, Literal):
         return expr.value
     if isinstance(expr, ParamRef):
@@ -781,9 +763,7 @@ def _eval_expr(
             return a
         if fname == "type" and len(args) == 1:
             return type(args[0]).__name__
-        raise CypherExecutionError(
-            f"Unsupported function: {expr.name}({len(args)} args)"
-        )
+        raise CypherExecutionError(f"Unsupported function: {expr.name}({len(args)} args)")
     raise CypherExecutionError(f"Unsupported expression node: {type(expr).__name__}")
 
 
@@ -822,9 +802,7 @@ def _edge_matches(
     return True
 
 
-def _bind_var(
-    row: Dict[str, Any], name: Optional[str], value: Any
-) -> Optional[Dict[str, Any]]:
+def _bind_var(row: Dict[str, Any], name: Optional[str], value: Any) -> Optional[Dict[str, Any]]:
     if name is None:
         return row
     if name in row:
@@ -834,9 +812,7 @@ def _bind_var(
     return new
 
 
-def _iter_edges_for_direction(
-    node: PDGNode, direction: str
-) -> Iterator[Tuple[PDGEdge, PDGNode]]:
+def _iter_edges_for_direction(node: PDGNode, direction: str) -> Iterator[Tuple[PDGEdge, PDGNode]]:
     if direction == "->":
         for e in node.edges_out:
             yield e, e.target
@@ -1036,11 +1012,7 @@ def execute(
 
         def eval_for_order(expr: Expr, row: Dict[str, Any]) -> Any:
             # Allow ORDER BY <return-alias> (Cypher-like behavior)
-            if (
-                isinstance(expr, VarRef)
-                and expr.name not in row
-                and expr.name in alias_expr
-            ):
+            if isinstance(expr, VarRef) and expr.name not in row and expr.name in alias_expr:
                 return _eval_expr(alias_expr[expr.name], row, params)
             return _eval_expr(expr, row, params)
 
@@ -1067,12 +1039,9 @@ def execute(
                 "collect",
             )
 
-        has_agg = any(
-            item.expr is not None and is_aggregate(item.expr) for item in ast.returns
-        )
+        has_agg = any(item.expr is not None and is_aggregate(item.expr) for item in ast.returns)
         has_non_agg = any(
-            item.expr is not None and not is_aggregate(item.expr)
-            for item in ast.returns
+            item.expr is not None and not is_aggregate(item.expr) for item in ast.returns
         )
         if has_agg and has_non_agg:
             raise CypherExecutionError(
@@ -1122,9 +1091,7 @@ def execute(
                     if key is None:
                         if isinstance(item.expr, VarRef):
                             key = item.expr.name
-                        elif isinstance(item.expr, Attr) and isinstance(
-                            item.expr.base, VarRef
-                        ):
+                        elif isinstance(item.expr, Attr) and isinstance(item.expr.base, VarRef):
                             key = f"{item.expr.base.name}.{item.expr.name}"
                         else:
                             key = "expr"

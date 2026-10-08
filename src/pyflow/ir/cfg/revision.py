@@ -36,10 +36,7 @@ def _blocks(cfg) -> tuple[object, ...]:
         seen.add(block)
         ordered.append(block)
         pending.extend(
-            target
-            for _label, target in sorted(
-                block.next.items(), key=lambda item: str(item[0])
-            )
+            target for _label, target in sorted(block.next.items(), key=lambda item: str(item[0]))
         )
     ordered.extend(terminal for terminal in terminals if terminal not in seen)
     return tuple(ordered)
@@ -96,9 +93,7 @@ class CFGTransformTransaction:
         self.catalog: IRCatalog = ensure_code_indexed(cfg.code)
         index_cfg(self.catalog, cfg)
         self.before_revision: IRRevision = self.catalog.revision
-        self.before_nodes = {
-            node: self.catalog.node_id(node, cfg.code) for node in _ast_nodes(cfg)
-        }
+        self.before_nodes = {node: self.catalog.node_id(node, cfg.code) for node in _ast_nodes(cfg)}
         self.before_blocks = {
             block: self.catalog.block_id(block, cfg.code) for block in _blocks(cfg)
         }
@@ -145,12 +140,10 @@ class CFGTransformTransaction:
         generated_from = generated_from or {}
         index_cfg(self.catalog, self.cfg)
         after_nodes = {
-            node: self.catalog.node_id(node, self.cfg.code)
-            for node in _ast_nodes(self.cfg)
+            node: self.catalog.node_id(node, self.cfg.code) for node in _ast_nodes(self.cfg)
         }
         after_blocks = {
-            block: self.catalog.block_id(block, self.cfg.code)
-            for block in _blocks(self.cfg)
+            block: self.catalog.block_id(block, self.cfg.code) for block in _blocks(self.cfg)
         }
         after_edges = {
             edge_id
@@ -158,9 +151,7 @@ class CFGTransformTransaction:
             if edge_id.source.code == self.catalog.procedure(self.cfg.code).code_id
         }
         changed = self.before_fingerprint != self._fingerprint()
-        after_revision = (
-            self.catalog.commit_revision() if changed else self.before_revision
-        )
+        after_revision = self.catalog.commit_revision() if changed else self.before_revision
 
         if changed:
             for generated, sources in generated_from.items():
@@ -174,8 +165,7 @@ class CFGTransformTransaction:
                         else self.catalog.node_id(source)
                     )
                     for source in sources
-                    if source in self.before_nodes
-                    or self.catalog.has_node(source)
+                    if source in self.before_nodes or self.catalog.has_node(source)
                 )
                 self.catalog.source_map.append_provenance(
                     generated_id,
@@ -198,9 +188,7 @@ class CFGTransformTransaction:
         }
         after_node_ids = frozenset(after_nodes.values())
         created_nodes = after_node_ids - frozenset(self.before_nodes.values())
-        created_blocks = frozenset(after_blocks.values()) - frozenset(
-            self.before_blocks.values()
-        )
+        created_blocks = frozenset(after_blocks.values()) - frozenset(self.before_blocks.values())
         created_edges = after_edges - self.before_edges
         after_symbols = {symbol.id for symbol in self.catalog.symbols}
         symbol_targets = {
@@ -256,9 +244,7 @@ class CFGTransformTransaction:
             created_edges=frozenset(created_edges),
             created_symbols=frozenset(after_symbols - self.before_symbols),
             created_values=frozenset(after_values - self.before_values),
-            created_call_sites=frozenset(
-                after_call_sites - self.before_call_sites
-            ),
+            created_call_sites=frozenset(after_call_sites - self.before_call_sites),
             created_allocation_sites=frozenset(
                 after_allocation_sites - self.before_allocation_sites
             ),

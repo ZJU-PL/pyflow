@@ -517,8 +517,7 @@ class TestStrictV2Validation:
 
     def test_path_propagation_and_transforming_sanitizer_are_loaded(self, tmp_path):
         pack = tmp_path / "advanced.json"
-        pack.write_text(
-            """{
+        pack.write_text("""{
               "schema_version": 2,
               "framework": "advanced",
               "version": "1.0",
@@ -540,8 +539,7 @@ class TestStrictV2Validation:
                 }]
               }],
               "rules": []
-            }"""
-        )
+            }""")
         registry = Registry()
 
         registry.load_custom(pack)

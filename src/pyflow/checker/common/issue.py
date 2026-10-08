@@ -205,9 +205,7 @@ class Issue:
         self.linerange = []
 
     def __str__(self):
-        return (
-            "Issue: '%s' from %s:%s: CWE: %s, Severity: %s Confidence: %s at %s:%i:%i"
-        ) % (
+        return ("Issue: '%s' from %s:%s: CWE: %s, Severity: %s Confidence: %s at %s:%i:%i") % (
             self.text,
             self.test_id,
             (self.ident or self.test),
@@ -229,9 +227,7 @@ class Issue:
             "test",
             "test_id",
         ]
-        return all(
-            getattr(self, field) == getattr(other, field) for field in match_fields
-        )
+        return all(getattr(self, field) == getattr(other, field) for field in match_fields)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -255,9 +251,9 @@ class Issue:
         """
         from .constants import RANKING
 
-        return RANKING.index(self.severity) >= RANKING.index(
-            severity
-        ) and RANKING.index(self.confidence) >= RANKING.index(confidence)
+        return RANKING.index(self.severity) >= RANKING.index(severity) and RANKING.index(
+            self.confidence
+        ) >= RANKING.index(confidence)
 
     def get_code(self, max_lines=3, tabbed=False):
         """

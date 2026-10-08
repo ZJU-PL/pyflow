@@ -199,9 +199,7 @@ def test_dict_literal_with_dynamic_key_writes_wildcard_value():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
 
 
 def test_append_writes_value_to_container():
@@ -215,13 +213,9 @@ def test_append_writes_value_to_container():
             [
                 py_ast.Assign(py_ast.BuildList([]), [container]),
                 py_ast.Discard(
-                    py_ast.MethodCall(
-                        container, _existing("append"), [value], [], None, None
-                    )
+                    py_ast.MethodCall(container, _existing("append"), [value], [], None, None)
                 ),
-                py_ast.Assign(
-                    py_ast.GetSubscript(container, _existing("0")), [loaded]
-                ),
+                py_ast.Assign(py_ast.GetSubscript(container, _existing("0")), [loaded]),
             ]
         ),
         params=(value,),
@@ -235,9 +229,9 @@ def test_append_writes_value_to_container():
     loaded_locations = heap.locations_for_local(code, loaded)
     value_location = heap.locations_for_local(code, value)[0]
 
-    assert value_location in loaded_locations, (
-        "Value written via .append() should be readable from container"
-    )
+    assert (
+        value_location in loaded_locations
+    ), "Value written via .append() should be readable from container"
 
 
 def test_extend_writes_all_values():
@@ -252,13 +246,9 @@ def test_extend_writes_all_values():
             [
                 py_ast.Assign(py_ast.BuildList([]), [container]),
                 py_ast.Discard(
-                    py_ast.MethodCall(
-                        container, _existing("extend"), [a, b], [], None, None
-                    )
+                    py_ast.MethodCall(container, _existing("extend"), [a, b], [], None, None)
                 ),
-                py_ast.Assign(
-                    py_ast.GetSubscript(container, _existing("0")), [loaded]
-                ),
+                py_ast.Assign(py_ast.GetSubscript(container, _existing("0")), [loaded]),
             ]
         ),
         params=(a, b),
@@ -312,9 +302,7 @@ def test_extend_reads_elements_from_iterable_argument():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
 
 
 def test_slice_assignment_reads_elements_from_iterable_value():
@@ -343,9 +331,7 @@ def test_slice_assignment_reads_elements_from_iterable_value():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
 
 
 def test_setdefault_writes_value():
@@ -369,9 +355,7 @@ def test_setdefault_writes_value():
                         None,
                     )
                 ),
-                py_ast.Assign(
-                    py_ast.GetSubscript(mapping, key), [loaded]
-                ),
+                py_ast.Assign(py_ast.GetSubscript(mapping, key), [loaded]),
             ]
         ),
         params=(value,),

@@ -310,15 +310,9 @@ class ProjectContext:
                 if add_parent_paths:
                     traversed: List[str] = []
                     for parent_path in script.parents:
-                        if (
-                            parent_path == self.path
-                            or self.path not in parent_path.parents
-                        ):
+                        if parent_path == self.path or self.path not in parent_path.parents:
                             break
-                        if (
-                            not add_init_paths
-                            and parent_path.joinpath("__init__.py").is_file()
-                        ):
+                        if not add_init_paths and parent_path.joinpath("__init__.py").is_file():
                             continue
                         traversed.append(str(parent_path))
                     suffixed += list(reversed(traversed))
@@ -413,10 +407,7 @@ class ProjectContext:
         # calls this once per unresolved base, which previously rebuilt the map
         # over the whole project each time.
         current_keys = frozenset(self.source_files.keys())
-        if (
-            self._source_map_cache is not None
-            and self._source_map_cache_keys == current_keys
-        ):
+        if self._source_map_cache is not None and self._source_map_cache_keys == current_keys:
             return self._source_map_cache
         mapping: Dict[str, str] = {}
         roots = [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
@@ -484,12 +475,9 @@ class ProjectContext:
                     for filename in ("__init__.py", "__init__.pyi")
                 )
                 has_module_file = any(
-                    os.path.isfile(f"{package_dir}{suffix}")
-                    for suffix in (".py", ".pyi")
+                    os.path.isfile(f"{package_dir}{suffix}") for suffix in (".py", ".pyi")
                 )
-                if has_package_init or (
-                    os.path.isdir(package_dir) and not has_module_file
-                ):
+                if has_package_init or (os.path.isdir(package_dir) and not has_module_file):
                     parent = package_dir
                     continue
                 blocked = True
@@ -543,9 +531,7 @@ class ProjectContext:
             self._find_module_cache[cache_key] = result
             self._find_module_cache_order.append(cache_key)
             if len(self._find_module_cache_order) > self._max_find_module_cache:
-                for stale_key in self._find_module_cache_order[
-                    : -self._max_find_module_cache
-                ]:
+                for stale_key in self._find_module_cache_order[: -self._max_find_module_cache]:
                     self._find_module_cache.pop(stale_key, None)
                 self._find_module_cache_order = self._find_module_cache_order[
                     -self._max_find_module_cache :

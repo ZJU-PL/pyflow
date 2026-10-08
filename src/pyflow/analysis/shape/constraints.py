@@ -155,9 +155,7 @@ class CopyConstraint(Constraint):
             secondary: Secondary information
         """
         # Simply changes the program point.
-        transferfunctions.gcMerge(
-            sys, self.outputPoint, context, configuration, secondary
-        )
+        transferfunctions.gcMerge(sys, self.outputPoint, context, configuration, secondary)
 
 
 class ForgetConstraint(Constraint):
@@ -246,9 +244,7 @@ class SplitMergeInfo(object):
 
     def registerLocal(self, sys, splitIndex, index, secondary):
         # The local secondary can always be stolen.
-        changed = self._mergeLUT(
-            splitIndex, index, secondary, self.localLUT, canSteal=True
-        )
+        changed = self._mergeLUT(splitIndex, index, secondary, self.localLUT, canSteal=True)
 
         if changed:
             remote = self.remoteLUT.get(splitIndex)
@@ -359,9 +355,7 @@ class SplitConstraint(Constraint):
 
         # Create the local data
         localconfig = configuration.rewrite(sys, currentSet=localRC)
-        localsecondary = sys.canonical.secondary(
-            localpaths, secondary.externalReferences
-        )
+        localsecondary = sys.canonical.secondary(localpaths, secondary.externalReferences)
 
         # Create the remote data
         remoteExternalReferences = (
@@ -441,13 +435,9 @@ class MergeConstraint(Constraint):
             key = self.info.makeKey(sys, configuration)
             self.info.registerRemote(sys, key, configuration, secondary)
 
-    def combine(
-        self, sys, context, localIndex, localSecondary, remoteIndex, remoteSecondary
-    ):
+    def combine(self, sys, context, localIndex, localSecondary, remoteIndex, remoteSecondary):
         # Merge the index
-        mergedRC = sys.canonical.rcm.merge(
-            localIndex.currentSet, remoteIndex.currentSet
-        )
+        mergedRC = sys.canonical.rcm.merge(localIndex.currentSet, remoteIndex.currentSet)
 
         # Merge the secondary
         try:
@@ -484,9 +474,7 @@ class MergeConstraint(Constraint):
 
     def remap(self, sys, context, mergedRC, paths, index, secondary):
         # Remap the index
-        mergedIndex = index.rewrite(
-            sys, currentSet=mergedRC.remap(sys, self.info.mapping)
-        )
+        mergedIndex = index.rewrite(sys, currentSet=mergedRC.remap(sys, self.info.mapping))
 
         # Remap the secondary
         paths = paths.remap(self.info.mapping)

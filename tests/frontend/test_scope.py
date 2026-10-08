@@ -79,9 +79,7 @@ def test_single_pass_function_analysis_matches_legacy_collectors(source):
     analysis = analyze_function_body(body)
 
     global_names, nonlocal_names, bound, loaded = collect_function_scope(body)
-    descendant_global, descendant_nonlocal = collect_descendant_scope_directives(
-        body
-    )
+    descendant_global, descendant_nonlocal = collect_descendant_scope_directives(body)
     parameter_names = {
         argument.arg
         for argument in (
@@ -102,8 +100,6 @@ def test_single_pass_function_analysis_matches_legacy_collectors(source):
     assert set(analysis.loaded) == loaded
     assert set(analysis.descendant_global_names) == descendant_global
     assert set(analysis.descendant_nonlocal_names) == descendant_nonlocal
-    assert analysis.direct_child_captures(parent_bound) == direct_child_captures(
-        body, parent_bound
-    )
+    assert analysis.direct_child_captures(parent_bound) == direct_child_captures(body, parent_bound)
     assert analysis.has_zero_arg_super == body_contains_zero_arg_super(body)
     assert analysis.has_yield == _legacy_contains_yield(node)

@@ -68,9 +68,7 @@ def validate_observed_types(
         if value is not None and value.unknown:
             continue
         inferred = None if value is None else value.public_type()
-        if inferred is not None and _admits_runtime_type(
-            inferred, observation.raw_type
-        ):
+        if inferred is not None and _admits_runtime_type(inferred, observation.raw_type):
             continue
         location = observation.symbol or str(observation.span)
         violations.append(

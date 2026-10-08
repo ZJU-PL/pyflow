@@ -214,9 +214,7 @@ def test_may_alias_for_unknown_is_true():
     graph = _build_graph_with_two_objects()
     from pyflow.analysis.alias.flow_sensitive import HeapLocation, HeapObject, HeapObjectKind
 
-    unknown = HeapLocation(
-        HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
-    )
+    unknown = HeapLocation(HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown"))
     entries = list(graph.iter_entries())
     assert graph.may_alias(unknown, entries[0].location)
 
@@ -299,9 +297,7 @@ def test_never_escapes_for_unknown_location():
     graph = _build_graph_with_two_objects()
     from pyflow.analysis.alias.flow_sensitive import HeapLocation, HeapObject, HeapObjectKind
 
-    unknown = HeapLocation(
-        HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
-    )
+    unknown = HeapLocation(HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown"))
     assert not graph.never_escapes(unknown)
     assert graph.is_escaped(unknown)
 
@@ -310,9 +306,7 @@ def test_single_reference_for_unknown_location():
     graph = _build_graph_with_two_objects()
     from pyflow.analysis.alias.flow_sensitive import HeapLocation, HeapObject, HeapObjectKind
 
-    unknown = HeapLocation(
-        HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
-    )
+    unknown = HeapLocation(HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown"))
     assert not graph.single_reference(unknown)
     assert graph.reference_count(unknown) > 1
 
@@ -321,9 +315,7 @@ def test_points_to_for_unknown_location_returns_self():
     graph = _build_graph_with_two_objects()
     from pyflow.analysis.alias.flow_sensitive import HeapLocation, HeapObject, HeapObjectKind
 
-    unknown = HeapLocation(
-        HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
-    )
+    unknown = HeapLocation(HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown"))
     result = graph.points_to(unknown)
     assert unknown in result
 
@@ -332,9 +324,7 @@ def test_get_returns_none_for_unknown():
     graph = _build_graph_with_two_objects()
     from pyflow.analysis.alias.flow_sensitive import HeapLocation, HeapObject, HeapObjectKind
 
-    unknown = HeapLocation(
-        HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
-    )
+    unknown = HeapLocation(HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown"))
     assert graph.get(unknown) is None
 
 

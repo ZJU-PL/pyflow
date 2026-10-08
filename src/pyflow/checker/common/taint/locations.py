@@ -79,15 +79,10 @@ class AccessSelector:
             return cast(int, other.value) % modulus == residue
         if self.kind is SelectorKind.INDEX and other.kind is SelectorKind.INDEX_CLASS:
             return other.may_match(self)
-        if (
-            self.kind is SelectorKind.INDEX_CLASS
-            and other.kind is SelectorKind.INDEX_CLASS
-        ):
+        if self.kind is SelectorKind.INDEX_CLASS and other.kind is SelectorKind.INDEX_CLASS:
             left_modulus, left_residue = self.index_class_parts()
             right_modulus, right_residue = other.index_class_parts()
-            return (left_residue - right_residue) % gcd(
-                left_modulus, right_modulus
-            ) == 0
+            return (left_residue - right_residue) % gcd(left_modulus, right_modulus) == 0
         return self == other
 
     def index_class_parts(self) -> tuple[int, int]:
@@ -133,20 +128,14 @@ class TaintLocation:
 
         if self.root != other.root or len(self.selectors) > len(other.selectors):
             return False
-        return all(
-            left.may_match(right)
-            for left, right in zip(self.selectors, other.selectors)
-        )
+        return all(left.may_match(right) for left, right in zip(self.selectors, other.selectors))
 
     def may_overlap(self, other: "TaintLocation") -> bool:
         """Whether the two access paths may denote overlapping storage."""
 
         if self.root != other.root:
             return False
-        return all(
-            left.may_match(right)
-            for left, right in zip(self.selectors, other.selectors)
-        )
+        return all(left.may_match(right) for left, right in zip(self.selectors, other.selectors))
 
     def descendants(self, selectors: Iterable[AccessSelector]) -> "TaintLocation":
         return TaintLocation(self.root, (*self.selectors, *tuple(selectors)))

@@ -3,7 +3,6 @@ from io import StringIO
 from pyflow.util.antlr3.constants import DEFAULT_CHANNEL, EOF
 from pyflow.util.antlr3.tokens import Token, EOF_TOKEN
 
-
 ############################################################################
 #
 # basic interfaces
@@ -696,9 +695,7 @@ class CommonTokenStream(TokenStream):
             types = set([types])
 
         filteredTokens = [
-            token
-            for token in self.tokens[start:stop]
-            if types is None or token.type in types
+            token for token in self.tokens[start:stop] if types is None or token.type in types
         ]
 
         if len(filteredTokens) == 0:

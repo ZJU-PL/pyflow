@@ -1,5 +1,9 @@
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import Config
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import AllocConstraint, CallConstraint, CopyConstraint
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import (
+    AllocConstraint,
+    CallConstraint,
+    CopyConstraint,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import attr
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     AbstractObject,
@@ -12,9 +16,13 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import
     CallStringContext,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import NormalNode
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
+    NormalNode,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor import Processor
-from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor.normal_call import NormalCallProcessor
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.processor.normal_call import (
+    NormalCallProcessor,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.solver import PointerSolver
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.state import PointerAnalysisState
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import Variable
@@ -52,7 +60,9 @@ def test_solver_requires_current_constructor_dependencies(module_scope):
     assert solver.config.max_iterations == 10
 
 
-def test_add_alloc_constraint_records_static_constraint(module_scope, simple_context, alloc_site_factory):
+def test_add_alloc_constraint_records_static_constraint(
+    module_scope, simple_context, alloc_site_factory
+):
     solver, state, processor = _solver(module_scope)
     constraint = AllocConstraint(Variable("x"), alloc_site_factory(AllocKind.OBJECT))
 
@@ -80,9 +90,7 @@ def test_empty_solver_fixpoint_terminates(module_scope):
     assert solver.query().get_statistics()["complete"] is True
 
 
-def test_solver_query_field_is_read_only(
-    module_scope, simple_context, object_factory
-):
+def test_solver_query_field_is_read_only(module_scope, simple_context, object_factory):
     solver, state, _processor = _solver(module_scope)
     obj = object_factory()
     value = object_factory(AllocKind.LIST)
@@ -110,9 +118,7 @@ def test_frontend_failure_is_distinct_from_fixpoint_completion(module_scope):
     assert stats["complete"] is False
 
 
-def test_budget_exhaustion_makes_negative_alias_answer_conservative(
-    module_scope, simple_context
-):
+def test_budget_exhaustion_makes_negative_alias_answer_conservative(module_scope, simple_context):
     state = PointerAnalysisState()
     solver = PointerSolver(state, Config(max_iterations=1), RecordingProcessor())
     solver.add_constraint(
@@ -195,11 +201,13 @@ def test_points_to_widening_stops_recursive_context_growth(
                 1,
             )
             next_obj = AbstractObject(next_context, shared_site)
-            solver.state._worklist.add((
-                scope,
-                NormalNode(target),
-                PointsToSet.singleton(next_obj),
-            ))
+            solver.state._worklist.add(
+                (
+                    scope,
+                    NormalNode(target),
+                    PointsToSet.singleton(next_obj),
+                )
+            )
             return True
 
     shared_site = alloc_site_factory(AllocKind.OBJECT)
@@ -210,14 +218,14 @@ def test_points_to_widening_stops_recursive_context_growth(
         Config(max_iterations=100, max_points_to_size=3),
         processor,
     )
-    target = state.get_variable(
-        module_scope, simple_context, Variable("recursive")
+    target = state.get_variable(module_scope, simple_context, Variable("recursive"))
+    state._worklist.add(
+        (
+            module_scope,
+            NormalNode(target),
+            PointsToSet.singleton(AbstractObject(simple_context, shared_site)),
+        )
     )
-    state._worklist.add((
-        module_scope,
-        NormalNode(target),
-        PointsToSet.singleton(AbstractObject(simple_context, shared_site)),
-    ))
 
     solver.solve_to_fixpoint()
 
@@ -264,9 +272,7 @@ def test_random_schedule_interleaves_all_solver_queue_classes(
     module_scope, simple_context, object_factory
 ):
     def agenda_order(seed):
-        state = PointerAnalysisState(
-            worklist_policy="random", worklist_seed=seed
-        )
+        state = PointerAnalysisState(worklist_policy="random", worklist_seed=seed)
         solver = PointerSolver(
             state,
             Config(
@@ -277,31 +283,29 @@ def test_random_schedule_interleaves_all_solver_queue_classes(
             Processor(),
         )
         events = []
-        state._static_constraints.append((
-            module_scope,
-            simple_context,
-            CopyConstraint(Variable("a"), Variable("b")),
-        ))
+        state._static_constraints.append(
+            (
+                module_scope,
+                simple_context,
+                CopyConstraint(Variable("a"), Variable("b")),
+            )
+        )
         state.dependencies.subscribe(
             "agenda-dependency",
             (),
             lambda: events.append("dependency"),
             run_initial=True,
         )
-        dynamic_var = state.get_variable(
-            module_scope, simple_context, Variable("dynamic")
+        dynamic_var = state.get_variable(module_scope, simple_context, Variable("dynamic"))
+        state._worklist.add(
+            (
+                module_scope,
+                NormalNode(dynamic_var),
+                PointsToSet.singleton(object_factory()),
+            )
         )
-        state._worklist.add((
-            module_scope,
-            NormalNode(dynamic_var),
-            PointsToSet.singleton(object_factory()),
-        ))
-        solver._apply_static = (
-            lambda *_args: events.append("static") or state
-        )
-        solver._apply_dynamic = (
-            lambda *_args: events.append("dynamic") or state
-        )
+        solver._apply_static = lambda *_args: events.append("static") or state
+        solver._apply_dynamic = lambda *_args: events.append("dynamic") or state
 
         for _ in range(3):
             next(solver)

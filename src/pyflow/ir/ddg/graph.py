@@ -146,9 +146,7 @@ class DDGNode(object):
         self.edges_in: Set[DDGEdge] = set()
         self.edges_out: Set[DDGEdge] = set()
 
-    def add_edge_to(
-        self, other: "DDGNode", kind: str, label: str = "", location: Any = None
-    ):
+    def add_edge_to(self, other: "DDGNode", kind: str, label: str = "", location: Any = None):
         """
         Add an edge from this node to another node.
 
@@ -312,9 +310,7 @@ class DataDependenceGraph(object):
         """
         return def_node.add_edge_to(use_node, "def-use", label)
 
-    def add_mem_dep(
-        self, src: DDGNode, dst: DDGNode, label: str = "", location: Any = None
-    ):
+    def add_mem_dep(self, src: DDGNode, dst: DDGNode, label: str = "", location: Any = None):
         """
         Add a memory dependence edge.
 

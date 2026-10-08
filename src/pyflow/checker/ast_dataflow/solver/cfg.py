@@ -44,8 +44,7 @@ class ControlFlowGraph(Generic[Node]):
         if self.entry not in self.nodes:
             raise ValueError("CFG entry must be a member of nodes")
         if any(
-            edge.source not in self.nodes or edge.target not in self.nodes
-            for edge in self.edges
+            edge.source not in self.nodes or edge.target not in self.nodes for edge in self.edges
         ):
             raise ValueError("CFG edges must connect declared nodes")
 
@@ -120,17 +119,11 @@ class MonotoneCFGDataflowSolver(Generic[Node]):
         )
         in_states: dict[Node, TaintState] = {node: bottom for node in graph.nodes}
         in_states[graph.entry] = initial_state
-        edge_states: dict[CFGEdge[Node], TaintState] = {
-            edge: bottom for edge in graph.edges
-        }
-        outgoing_lists: dict[Node, list[CFGEdge[Node]]] = {
-            node: [] for node in graph.nodes
-        }
+        edge_states: dict[CFGEdge[Node], TaintState] = {edge: bottom for edge in graph.edges}
+        outgoing_lists: dict[Node, list[CFGEdge[Node]]] = {node: [] for node in graph.nodes}
         for edge in graph.edges:
             outgoing_lists[edge.source].append(edge)
-        outgoing_by_node = {
-            node: tuple(edges) for node, edges in outgoing_lists.items()
-        }
+        outgoing_by_node = {node: tuple(edges) for node, edges in outgoing_lists.items()}
         returned: FlowOutcome | None = None
         raised: FlowOutcome | None = None
         yielded: FlowOutcome | None = None

@@ -24,7 +24,7 @@ __all__ = ["ContextPolicy", "CallStringPolicy", "ContextSelector", "parse_policy
 
 class ContextPolicy(Enum):
     """Available context sensitivity policies."""
-    
+
     INSENSITIVE = "0-cfa"
     CALL_1 = "1-cfa"
     CALL_2 = "2-cfa"
@@ -59,16 +59,16 @@ class CallStringPolicy:
 
 class ContextSelector:
     """Selects contexts based on policy."""
-    
+
     def __init__(self, policy: ContextPolicy | CallStringPolicy = ContextPolicy.CALL_2):
         """Initialize context selector.
-        
+
         Args:
             policy: Context sensitivity policy
         """
         self.policy = policy
         self._empty_context = self._create_empty_context()
-    
+
     def _create_empty_context(self) -> AbstractContext:
         """Create empty context for policy."""
         if isinstance(self.policy, CallStringPolicy):
@@ -98,7 +98,7 @@ class ContextSelector:
         elif self.policy == ContextPolicy.RECEIVER_2:
             return ReceiverContext((), 2)
         elif self.policy == ContextPolicy.RECEIVER_3:
-            return ReceiverContext((), 3)        
+            return ReceiverContext((), 3)
         elif self.policy == ContextPolicy.PARAM_1:
             return ParamContext((), 1)
         elif self.policy == ContextPolicy.PARAM_2:
@@ -113,27 +113,27 @@ class ContextSelector:
             return HybridContext((), (), 1, 2)
         else:
             raise ValueError(f"Unknown policy: {self.policy}")
-    
+
     def empty_context(self) -> AbstractContext:
         """Get empty context."""
         return self._empty_context
-    
+
     def select_call_context(
         self,
         call_site: CallSite,
         caller_ctx: AbstractContext,
-        callee_obj: Optional['AbstractObject'] = None,
+        callee_obj: Optional["AbstractObject"] = None,
         params: Optional[Tuple[Any, ...]] = None,
     ) -> AbstractContext:
         """Select context for function call.
-        
+
         Args:
             caller_ctx: Current calling context
             call_site: Call site being invoked
             callee: Name of the called function
             receiver_alloc: Allocation site of receiver (for method calls)
             receiver_type: Type of receiver (for method calls)
-        
+
         Returns:
             New context for the called function
         """
@@ -143,13 +143,13 @@ class ContextSelector:
             return self._empty_context.append(call_site)
         if self.policy == ContextPolicy.INSENSITIVE:
             return caller_ctx
-        
+
         elif self.policy in (ContextPolicy.CALL_1, ContextPolicy.CALL_2, ContextPolicy.CALL_3):
             if isinstance(caller_ctx, CallStringContext):
                 return caller_ctx.append(call_site)
             else:
                 return self._empty_context.append(call_site)
-        
+
         elif self.policy in (ContextPolicy.OBJ_1, ContextPolicy.OBJ_2, ContextPolicy.OBJ_3):
             if not isinstance(caller_ctx, ObjectContext):
                 caller_ctx = ObjectContext((), self._get_depth())
@@ -157,7 +157,7 @@ class ContextSelector:
                 return caller_ctx.append(callee_obj)
             else:
                 return caller_ctx.append(call_site)
-        
+
         elif self.policy in (ContextPolicy.TYPE_1, ContextPolicy.TYPE_2, ContextPolicy.TYPE_3):
             if not isinstance(caller_ctx, TypeContext):
                 caller_ctx = TypeContext((), self._get_depth())
@@ -168,15 +168,19 @@ class ContextSelector:
                     return caller_ctx.append(callee_obj)
             else:
                 return caller_ctx.append(call_site)
-        
-        elif self.policy in (ContextPolicy.RECEIVER_1, ContextPolicy.RECEIVER_2, ContextPolicy.RECEIVER_3):
+
+        elif self.policy in (
+            ContextPolicy.RECEIVER_1,
+            ContextPolicy.RECEIVER_2,
+            ContextPolicy.RECEIVER_3,
+        ):
             if not isinstance(caller_ctx, ReceiverContext):
                 caller_ctx = ReceiverContext((), self._get_depth())
             if callee_obj:
                 return caller_ctx.append(callee_obj.alloc_site)
             else:
                 return caller_ctx.append(call_site)
-        
+
         elif self.policy in (ContextPolicy.PARAM_1, ContextPolicy.PARAM_2, ContextPolicy.PARAM_3):
             if not isinstance(caller_ctx, ParamContext):
                 caller_ctx = ParamContext((), self._get_depth())
@@ -186,9 +190,11 @@ class ContextSelector:
                 # return caller_ctx.append(call_site)
                 return caller_ctx
 
-        elif self.policy in (ContextPolicy.HYBRID_CALL1_OBJ1, 
-                            ContextPolicy.HYBRID_CALL2_OBJ1,
-                            ContextPolicy.HYBRID_CALL1_OBJ2):
+        elif self.policy in (
+            ContextPolicy.HYBRID_CALL1_OBJ1,
+            ContextPolicy.HYBRID_CALL2_OBJ1,
+            ContextPolicy.HYBRID_CALL1_OBJ2,
+        ):
             if not isinstance(caller_ctx, HybridContext):
                 caller_ctx = HybridContext((), (), self._get_call_k(), self._get_obj_depth())
             if callee_obj:
@@ -197,20 +203,20 @@ class ContextSelector:
                 return caller_ctx.append(call_site, None)
         else:
             raise ValueError(f"Unknown policy: {self.policy}")
-    
+
     def select_alloc_context(
         self,
         current_ctx: AbstractContext,
-        alloc_site: 'AbstractObject',
-        alloc_type: Optional['AbstractObject'] = None
+        alloc_site: "AbstractObject",
+        alloc_type: Optional["AbstractObject"] = None,
     ) -> AbstractContext:
         """Select context for object allocation.
-        
+
         Args:
             current_ctx: Current context
             alloc_site: Allocation site identifier
             alloc_type: Type being allocated (optional)
-        
+
         Returns:
             Context for the allocated object
         """
@@ -220,7 +226,7 @@ class ContextSelector:
             else:
                 ctx = ObjectContext((), self._get_depth())
                 return ctx.append(alloc_site)
-        
+
         elif self.policy in (ContextPolicy.TYPE_1, ContextPolicy.TYPE_2, ContextPolicy.TYPE_3):
             # For TYPE-sensitive policies, use alloc_type if provided, otherwise alloc_site
             type_elem = alloc_type if alloc_type is not None else alloc_site
@@ -229,59 +235,77 @@ class ContextSelector:
             else:
                 ctx = TypeContext((), self._get_depth())
                 return ctx.append(type_elem)
-        
-        elif self.policy in (ContextPolicy.HYBRID_CALL1_OBJ1,
-                            ContextPolicy.HYBRID_CALL2_OBJ1,
-                            ContextPolicy.HYBRID_CALL1_OBJ2):
+
+        elif self.policy in (
+            ContextPolicy.HYBRID_CALL1_OBJ1,
+            ContextPolicy.HYBRID_CALL2_OBJ1,
+            ContextPolicy.HYBRID_CALL1_OBJ2,
+        ):
             if isinstance(current_ctx, HybridContext):
                 return current_ctx.append_object(alloc_site)
             else:
                 ctx = HybridContext((), (), self._get_call_k(), self._get_obj_depth())
                 return ctx.append_object(alloc_site)
-        
+
         else:
             return current_ctx
-    
+
     def _get_depth(self) -> int:
         """Get depth parameter for current policy."""
-        if self.policy in (ContextPolicy.OBJ_1, ContextPolicy.TYPE_1, ContextPolicy.PARAM_1, ContextPolicy.HYBRID_CALL1_OBJ1, ContextPolicy.RECEIVER_1):
+        if self.policy in (
+            ContextPolicy.OBJ_1,
+            ContextPolicy.TYPE_1,
+            ContextPolicy.PARAM_1,
+            ContextPolicy.HYBRID_CALL1_OBJ1,
+            ContextPolicy.RECEIVER_1,
+        ):
             return 1
-        elif self.policy in (ContextPolicy.OBJ_2, ContextPolicy.TYPE_2, ContextPolicy.PARAM_2, ContextPolicy.RECEIVER_2):
+        elif self.policy in (
+            ContextPolicy.OBJ_2,
+            ContextPolicy.TYPE_2,
+            ContextPolicy.PARAM_2,
+            ContextPolicy.RECEIVER_2,
+        ):
             return 2
-        elif self.policy in (ContextPolicy.OBJ_3, ContextPolicy.TYPE_3, ContextPolicy.PARAM_3, ContextPolicy.RECEIVER_3):
+        elif self.policy in (
+            ContextPolicy.OBJ_3,
+            ContextPolicy.TYPE_3,
+            ContextPolicy.PARAM_3,
+            ContextPolicy.RECEIVER_3,
+        ):
             return 3
         elif self.policy in (ContextPolicy.HYBRID_CALL1_OBJ2, ContextPolicy.HYBRID_CALL2_OBJ1):
             return 2
         else:
             return 1
-    
+
     def _get_call_k(self) -> int:
         """Get call-string depth for hybrid policies."""
         if self.policy in (ContextPolicy.HYBRID_CALL2_OBJ1,):
             return 2
         else:
             return 1
-    
+
     def _get_obj_depth(self) -> int:
         """Get object depth for hybrid policies."""
         if self.policy == ContextPolicy.HYBRID_CALL1_OBJ2:
             return 2
         else:
             return 1
-    
+
     def __repr__(self) -> str:
         return f"ContextSelector(policy={self.policy.value})"
 
 
 def parse_policy(policy_str: str) -> ContextPolicy | CallStringPolicy:
     """Parse policy string to enum.
-    
+
     Args:
         policy_str: Policy string (e.g., "2-cfa", "1-obj")
-    
+
     Returns:
         ContextPolicy enum value
-    
+
     Raises:
         ValueError: If policy string is not recognized
     """
@@ -306,7 +330,7 @@ def parse_policy(policy_str: str) -> ContextPolicy | CallStringPolicy:
         "2c1o": ContextPolicy.HYBRID_CALL2_OBJ1,
         "1c2o": ContextPolicy.HYBRID_CALL1_OBJ2,
     }
-    
+
     call_match = re.fullmatch(r"(\d+)-cfa", policy_str)
     if call_match:
         depth = int(call_match.group(1))
@@ -314,8 +338,7 @@ def parse_policy(policy_str: str) -> ContextPolicy | CallStringPolicy:
 
     if policy_str not in policy_map:
         raise ValueError(
-            f"Unknown policy: {policy_str}. "
-            f"Available policies: {', '.join(policy_map.keys())}"
+            f"Unknown policy: {policy_str}. " f"Available policies: {', '.join(policy_map.keys())}"
         )
-    
+
     return policy_map[policy_str]

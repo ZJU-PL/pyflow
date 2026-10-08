@@ -187,39 +187,42 @@ class TestDirectCallRewriter(unittest.TestCase):
 
     def test_init(self):
         """Test DirectCallRewriter initialization."""
+
         class MockExtractor:
             pass
-        
+
         rewriter = termrewrite.DirectCallRewriter(MockExtractor())
         self.assertIsNotNone(rewriter)
         self.assertEqual(rewriter.rewrites, {})
 
     def test_init_with_stubs(self):
         """Test DirectCallRewriter with stubs."""
+
         class MockStubs:
             exports = {}
-        
+
         class MockExtractor:
             stubs = MockStubs()
-        
+
         rewriter = termrewrite.DirectCallRewriter(MockExtractor())
         self.assertIsNotNone(rewriter)
 
     def test_add_rewrite(self):
         """Test adding rewrite rules."""
+
         class MockStubs:
             exports = {}
-        
+
         class MockExtractor:
             stubs = MockStubs()
-        
+
         rewriter = termrewrite.DirectCallRewriter(MockExtractor())
-        
+
         def my_rewrite(self, node):
             return None
-        
+
         rewriter.addRewrite("test_pattern", my_rewrite)
-        self.assertTrue(hasattr(rewriter, 'addRewrite'))
+        self.assertTrue(hasattr(rewriter, "addRewrite"))
 
 
 class TestTermRewriteUtilities(unittest.TestCase):

@@ -228,8 +228,7 @@ class SimpleExprGen(TypeDispatcher):
 
     def visitImport(self, node):
         return (
-            "__import__(%r, globals(), locals(), %r, %d)"
-            % (node.name, node.fromlist, node.level)
+            "__import__(%r, globals(), locals(), %r, %d)" % (node.name, node.fromlist, node.level)
         ), 4
 
     def visitGetIter(self, node):
@@ -278,9 +277,7 @@ class SimpleExprGen(TypeDispatcher):
         # prec = 6
         prec = 4
 
-        return (
-            "%s[%s]" % (self.process(node.expr, prec), self.process(node.subscript, 2))
-        ), prec
+        return ("%s[%s]" % (self.process(node.expr, prec), self.process(node.subscript, 2))), prec
 
     def visitUnaryPrefixOp(self, node):
         prec = opnames.unaryPrefixPrecedence[node.op]
@@ -325,9 +322,7 @@ class SimpleExprGen(TypeDispatcher):
 
     def visitBuildTuple(self, node):
         args = [self.process(arg, 24) for arg in node.args]
-        return (
-            "%s," % ", ".join(args)
-        ), 24  # No parenth, so low precedence.	Otherwise, 3?
+        return ("%s," % ", ".join(args)), 24  # No parenth, so low precedence.	Otherwise, 3?
 
     def visitBuildList(self, node):
         args = [self.process(arg, 24) for arg in node.args]
@@ -349,10 +344,7 @@ class SimpleExprGen(TypeDispatcher):
             return self.process(node, prec)
 
     def visitBuildSlice(self, node):
-        args = [
-            self.processNone(arg, 24, "None")
-            for arg in (node.start, node.stop, node.step)
-        ]
+        args = [self.processNone(arg, 24, "None") for arg in (node.start, node.stop, node.step)]
         return ("slice(%s)" % ", ".join(args)), 4
 
     def visitGetSlice(self, node):
@@ -370,9 +362,7 @@ class SimpleExprGen(TypeDispatcher):
     def getArgString(self, node):
         args = [self.process(arg, 24) for arg in node.args]
 
-        args.extend(
-            ["%s=%s" % (name, self.process(arg, 24)) for name, arg in node.kwds]
-        )
+        args.extend(["%s=%s" % (name, self.process(arg, 24)) for name, arg in node.kwds])
 
         if node.vargs:
             args.append("*%s" % self.process(node.vargs, 24))
@@ -397,7 +387,9 @@ class SimpleExprGen(TypeDispatcher):
         if node.code is not None:
             funcname = node.code.name
         else:
-            funcname = "???"  # This is an error, but if it occurs we need to be able to visualize it.
+            funcname = (
+                "???"  # This is an error, but if it occurs we need to be able to visualize it.
+            )
 
         if node.selfarg:
             selfarg = self.process(node.selfarg, prec)
@@ -695,11 +687,7 @@ class SimpleCodeGen(TypeDispatcher):
         ##			stmt = "%s = %s" % (self.seg.process(node.lcl), expr)
         ##			self.emitStatement(stmt)
         else:
-            if (
-                len(node.lcls) == 1
-                and node.lcls[0] in self.collapsable
-                and self.supressStatements
-            ):
+            if len(node.lcls) == 1 and node.lcls[0] in self.collapsable and self.supressStatements:
                 # if node.lcl in self.collapsable:
                 self.seg.processCollapsed(node.lcls[0], node.expr)
             else:
@@ -794,9 +782,7 @@ class SimpleCodeGen(TypeDispatcher):
         elseBlock = node.f
 
         while elseBlock and elseBlock.significant():
-            if len(elseBlock.blocks) == 1 and isinstance(
-                elseBlock.blocks[0], ast.Switch
-            ):
+            if len(elseBlock.blocks) == 1 and isinstance(elseBlock.blocks[0], ast.Switch):
                 switch = elseBlock.blocks[0]
                 cond, prec = self(switch.condition)
                 self.out.startBlock("elif %s" % cond)
@@ -895,9 +881,7 @@ class SimpleCodeGen(TypeDispatcher):
     def visitFor(self, node):
         iterator = node.iterator
         index = node.index
-        self.out.startBlock(
-            "for %s in %s" % (self.seg.process(index), self.seg.process(iterator))
-        )
+        self.out.startBlock("for %s in %s" % (self.seg.process(index), self.seg.process(iterator)))
 
         self(node.body)
 

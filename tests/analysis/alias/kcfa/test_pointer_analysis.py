@@ -31,11 +31,13 @@ from pyflow.analysis.alias.kcfa._pythonstan.world.scope_manager import ScopeMana
 
 
 def _module_points_to(result, name: str) -> set[str]:
-    return set().union(*(
-        points_to
-        for binding, points_to in result.bindings_for_name(name)
-        if "<module " in binding
-    ))
+    return set().union(
+        *(
+            points_to
+            for binding, points_to in result.bindings_for_name(name)
+            if "<module " in binding
+        )
+    )
 
 
 class TestBasicPointerAnalysis:
@@ -60,22 +62,14 @@ class TestBasicPointerAnalysis:
             max_points_to_size=1,
         ).run()
         assert widened.points_to_query("x").complete is False
-        assert any(
-            detail["kind"] == "points_to_widening"
-            for detail in widened.unknown_details()
-        )
+        assert any(detail["kind"] == "points_to_widening" for detail in widened.unknown_details())
 
-        budgeted = PointerAnalysis(
-            "x = object()\n", max_iterations=1
-        ).run()
+        budgeted = PointerAnalysis("x = object()\n", max_iterations=1).run()
         assert budgeted.complete is False
         assert budgeted.fixpoint_complete is False
         assert budgeted.stop_reason == "solver_budget"
         assert budgeted.statistics()["iterations"] == 1
-        assert any(
-            detail["kind"] == "solver_budget"
-            for detail in budgeted.unknown_details()
-        )
+        assert any(detail["kind"] == "solver_budget" for detail in budgeted.unknown_details())
 
     def test_complete_result_surfaces_fixpoint_status(self) -> None:
         result = PointerAnalysis("x = object()\n").run()
@@ -85,19 +79,13 @@ class TestBasicPointerAnalysis:
         assert result.stop_reason == "fixpoint"
 
     def test_project_import_depth_has_a_public_name(self, tmp_path) -> None:
-        (tmp_path / "grandchild.py").write_text(
-            "value = object()\n", encoding="utf-8"
-        )
-        (tmp_path / "child.py").write_text(
-            "import grandchild\n", encoding="utf-8"
-        )
+        (tmp_path / "grandchild.py").write_text("value = object()\n", encoding="utf-8")
+        (tmp_path / "child.py").write_text("import grandchild\n", encoding="utf-8")
         entry = tmp_path / "main.py"
         entry.write_text("import child\n", encoding="utf-8")
 
         unlimited = PointerAnalysis.from_project(entry)
-        depth_zero = PointerAnalysis.from_project(
-            entry, max_import_depth=0
-        ).run()
+        depth_zero = PointerAnalysis.from_project(entry, max_import_depth=0).run()
 
         assert unlimited._import_level == -1
         zero_modules = depth_zero.state.scope_manager.module_graph.get_modules()
@@ -105,23 +93,15 @@ class TestBasicPointerAnalysis:
         assert str(tmp_path / "child.py") not in depth_zero.state.scope_manager.file2mod
         assert depth_zero.statistics()["frontend_complete"] is True
         assert depth_zero.statistics()["semantic_complete"] is False
-        assert any(
-            detail["kind"] == "import_depth"
-            for detail in depth_zero.unknown_details()
-        )
+        assert any(detail["kind"] == "import_depth" for detail in depth_zero.unknown_details())
 
-        depth_one = PointerAnalysis.from_project(
-            entry, max_import_depth=1
-        ).run()
+        depth_one = PointerAnalysis.from_project(entry, max_import_depth=1).run()
         one_modules = depth_one.state.scope_manager.module_graph.get_modules()
         assert {module.get_filename() for module in one_modules} == {
             str(entry),
             str(tmp_path / "child.py"),
         }
-        assert (
-            str(tmp_path / "grandchild.py")
-            not in depth_one.state.scope_manager.file2mod
-        )
+        assert str(tmp_path / "grandchild.py") not in depth_one.state.scope_manager.file2mod
         with pytest.raises(ValueError, match="must agree"):
             PointerAnalysis.from_project(
                 entry,
@@ -129,9 +109,7 @@ class TestBasicPointerAnalysis:
                 max_import_depth=2,
             )
 
-    def test_scope_manager_reuses_namespace_for_a_new_resolved_path(
-        self, tmp_path
-    ) -> None:
+    def test_scope_manager_reuses_namespace_for_a_new_resolved_path(self, tmp_path) -> None:
         first = tmp_path / "time.py"
         second = tmp_path / "alternate_time.py"
         first.write_text("value = 1\n", encoding="utf-8")
@@ -145,9 +123,7 @@ class TestBasicPointerAnalysis:
         assert manager.add_module(namespace, str(second)) is module
         assert manager.file2mod[str(second)] is module
 
-    def test_import_resolution_caches_missing_modules(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    def test_import_resolution_caches_missing_modules(self, tmp_path, monkeypatch) -> None:
         manager = NamespaceManager()
         manager.build(str(tmp_path), [], mock_libs=False)
         original = manager.find_ns_in_path
@@ -164,9 +140,7 @@ class TestBasicPointerAnalysis:
         assert manager.resolve_import("missing_dependency") is None
         assert lookups == 1
 
-    def test_project_closure_analysis_visits_each_scope_once(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    def test_project_closure_analysis_visits_each_scope_once(self, tmp_path, monkeypatch) -> None:
         (tmp_path / "first.py").write_text(
             "def outer():\n"
             "    value = object()\n"
@@ -176,9 +150,7 @@ class TestBasicPointerAnalysis:
             encoding="utf-8",
         )
         (tmp_path / "second.py").write_text(
-            "class Container:\n"
-            "    def method(self):\n"
-            "        return object()\n",
+            "class Container:\n" "    def method(self):\n" "        return object()\n",
             encoding="utf-8",
         )
         entry = tmp_path / "main.py"
@@ -213,9 +185,7 @@ class TestBasicPointerAnalysis:
         }
         assert Counter(visits) == Counter({name: 1 for name in expected})
 
-    def test_nested_imports_do_not_expand_the_eager_module_graph(
-        self, tmp_path
-    ) -> None:
+    def test_nested_imports_do_not_expand_the_eager_module_graph(self, tmp_path) -> None:
         eager = tmp_path / "eager.py"
         nested = tmp_path / "nested.py"
         eager.write_text("value = object()\n", encoding="utf-8")
@@ -238,9 +208,7 @@ class TestBasicPointerAnalysis:
         }
         assert str(nested) not in result.state.scope_manager.file2mod
 
-    def test_type_checking_imports_do_not_expand_the_module_graph(
-        self, tmp_path
-    ) -> None:
+    def test_type_checking_imports_do_not_expand_the_module_graph(self, tmp_path) -> None:
         type_only = tmp_path / "type_only.py"
         runtime = tmp_path / "runtime.py"
         type_only.write_text("value = object()\n", encoding="utf-8")
@@ -280,7 +248,9 @@ result = first(*items)
                 k=1,
                 worklist_policy=policy,
                 worklist_seed=seed,
-            ).run().points_to("result")
+            )
+            .run()
+            .points_to("result")
             for policy, seed in (
                 ("fifo", 0),
                 ("lifo", 0),
@@ -442,10 +412,7 @@ y = C.x
         variants = result.state.class_variants(class_c)
         assert len(variants) == 2
         assert all(len(variant.effective_bases) == 1 for variant in variants)
-        assert all(
-            variant.effective_bases[0].kind is TypeRefKind.USER
-            for variant in variants
-        )
+        assert all(variant.effective_bases[0].kind is TypeRefKind.USER for variant in variants)
 
     def test_metaclass_conflict_does_not_publish_class_variant(self) -> None:
         source = """
@@ -683,22 +650,22 @@ c = Computed().m()
         assert any("AllocKind.OBJECT" in obj for obj in result.points_to("c"))
 
     def test_dict_constructor_keyword_value_flows_to_subscript_load(self) -> None:
-        source = '''
+        source = """
 v = object()
 d = dict(a=v)
 y = d["a"]
-'''
+"""
         result = PointerAnalysis(source, k=1).run()
 
         assert result.points_to("y") == result.points_to("v")
 
     def test_dict_constructor_unpack_flows_to_subscript_load(self) -> None:
-        source = '''
+        source = """
 v = object()
 base = {"a": v}
 d = dict(**base)
 y = d["a"]
-'''
+"""
         result = PointerAnalysis(source, k=1).run()
 
         assert result.points_to("y") == result.points_to("v")
@@ -764,9 +731,7 @@ y = f()
         assert result.points_to_name_union("x") == set().union(*precise_sets)
 
     def test_completeness_aware_queries_do_not_treat_empty_as_impossible(self) -> None:
-        incomplete = PointerAnalysis(
-            'code = input()\nexec(code)\ny = x\n', k=1
-        ).run()
+        incomplete = PointerAnalysis("code = input()\nexec(code)\ny = x\n", k=1).run()
         query = incomplete.points_to_query("y")
 
         assert query.objects == frozenset()
@@ -774,9 +739,7 @@ y = f()
         assert query.reasons
         assert incomplete.alias_status("x", "y") is AliasStatus.UNKNOWN
 
-        constant_exec = PointerAnalysis(
-            'exec("x = object()")\ny = x\n', k=1
-        ).run()
+        constant_exec = PointerAnalysis('exec("x = object()")\ny = x\n', k=1).run()
         assert constant_exec.points_to("y")
         assert constant_exec.points_to_query("y").complete is True
 
@@ -811,12 +774,14 @@ result = missing_native.identity(sentinel)
         analysis = PointerAnalysis(
             source,
             k=1,
-            native_effects=({
-                "access_path": "missing_native.identity",
-                "kind": "return_argument",
-                "arguments": [0],
-                "exhaustive": True,
-            },),
+            native_effects=(
+                {
+                    "access_path": "missing_native.identity",
+                    "kind": "return_argument",
+                    "arguments": [0],
+                    "exhaustive": True,
+                },
+            ),
         ).run()
 
         assert analysis.points_to("result") == analysis.points_to("sentinel")
@@ -878,11 +843,9 @@ y = ident(b)
         result = PointerAnalysis(source, k=1).run()
 
         def module_points_to(name: str) -> set[str]:
-            return set().union(*(
-                pts
-                for binding, pts in result.bindings_for_name(name)
-                if "<module " in binding
-            ))
+            return set().union(
+                *(pts for binding, pts in result.bindings_for_name(name) if "<module " in binding)
+            )
 
         assert module_points_to("x") == module_points_to("a")
         assert module_points_to("y") == module_points_to("b")
@@ -948,9 +911,7 @@ r2 = first(y, x)
         assert len(callees) == 2
         assert len(set(callees)) == 2
 
-    def test_pointer_stdlib_stubs_are_resolved_from_vendor_tree(
-        self, monkeypatch
-    ) -> None:
+    def test_pointer_stdlib_stubs_are_resolved_from_vendor_tree(self, monkeypatch) -> None:
         from pyflow.analysis.alias.kcfa._pythonstan.world import namespace
 
         monkeypatch.setattr(namespace, "builtin_module_names", lambda: {"math"})
@@ -1020,11 +981,9 @@ y = C(b, a)
             if not isinstance(scope.context, ParamContext):
                 continue
             signature = scope.context.params[-1]
-            signatures.append(tuple(
-                entry[2].content.name
-                for entry in signature
-                if entry[0] == "pos"
-            ))
+            signatures.append(
+                tuple(entry[2].content.name for entry in signature if entry[0] == "pos")
+            )
 
         assert set(signatures) == {("a", "b"), ("b", "a")}
 
@@ -1134,8 +1093,7 @@ z = f(x, a=y)
         assert not result.points_to("z")
         assert not any("f" in callee for _, callee in result.call_edges())
         assert any(
-            detail["kind"] == "invalid_call"
-            and "multiple values" in detail["message"]
+            detail["kind"] == "invalid_call" and "multiple values" in detail["message"]
             for detail in result.unknown_details()
         )
 
@@ -1152,10 +1110,7 @@ result = f(**d)
         analysis = PointerAnalysis(source, k=1).run()
 
         assert analysis.points_to("result") == analysis.points_to("x")
-        assert not any(
-            detail["kind"] == "invalid_call"
-            for detail in analysis.unknown_details()
-        )
+        assert not any(detail["kind"] == "invalid_call" for detail in analysis.unknown_details())
 
     def test_unknown_star_flows_to_every_feasible_position(self) -> None:
         source = """
@@ -1186,8 +1141,7 @@ result = f(*items)
 
         assert not analysis.points_to("result")
         assert any(
-            detail["kind"] == "invalid_call"
-            and "too many positional" in detail["message"]
+            detail["kind"] == "invalid_call" and "too many positional" in detail["message"]
             for detail in analysis.unknown_details()
         )
 
@@ -1204,9 +1158,7 @@ x = C()
         analysis = PointerAnalysis(source, k=1).run()
 
         assert analysis.points_to("x") == analysis.points_to("sentinel")
-        assert all(
-            "AllocKind.INSTANCE" not in obj for obj in analysis.points_to("x")
-        )
+        assert all("AllocKind.INSTANCE" not in obj for obj in analysis.points_to("x"))
 
     def test_call_default_is_evaluated_when_definition_executes(self) -> None:
         source = """
@@ -1260,8 +1212,7 @@ x = C()
 
         assert not analysis.points_to("x")
         assert any(
-            detail["kind"] == "invalid_call"
-            and "missing required" in detail["message"]
+            detail["kind"] == "invalid_call" and "missing required" in detail["message"]
             for detail in analysis.unknown_details()
         )
 
@@ -1292,7 +1243,6 @@ x = C()
 
         assert not analysis.points_to("x")
         assert any(
-            detail["kind"] == "invalid_call"
-            and "non-None" in detail["message"]
+            detail["kind"] == "invalid_call" and "non-None" in detail["message"]
             for detail in analysis.unknown_details()
         )

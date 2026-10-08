@@ -636,9 +636,7 @@ def test_nullness_propagates_default_none_parameter():
         "main",
         [],
         [
-            ast.Assign(
-                ast.DirectCall(helper_code, None, [], [], None, None), [out]
-            ),
+            ast.Assign(ast.DirectCall(helper_code, None, [], [], None, None), [out]),
             ast.Discard(ast.GetAttr(out, payload)),
             ast.Return([]),
         ],
@@ -684,9 +682,11 @@ def test_nullness_respects_configuration_call_models():
     """NullnessConfiguration.call_models should merge with nullable_return_names."""
     from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 
-    custom_models = CallModelRegistry([
-        CallModel(name="custom_lookup", nullness_nullable_return=True),
-    ])
+    custom_models = CallModelRegistry(
+        [
+            CallModel(name="custom_lookup", nullness_nullable_return=True),
+        ]
+    )
     config = NullnessConfiguration(
         nullable_return_names=frozenset({"get"}),
         call_models=custom_models,

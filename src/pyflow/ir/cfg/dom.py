@@ -196,6 +196,7 @@ class MakeDJGraph(object):
 # so any call to PlacePhi would have raised AttributeError immediately.
 # Both classes have been removed.
 
+
 # Note that this doesn't actually find the entire dominance frontier,
 # just the closest merges.
 # loose upper bound -> O(|E|*depth(DJTree))

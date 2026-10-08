@@ -8,7 +8,11 @@ from pyflow.analysis.alias.flow_sensitive.model import (
     HeapObjectKind,
 )
 from pyflow.checker.common.taint import TaintLocation
-from pyflow.checker.common.taint.refinement import AdaptiveRefinementProvider, HeapGraphRefinementProvider, heap_location_adapter
+from pyflow.checker.common.taint.refinement import (
+    AdaptiveRefinementProvider,
+    HeapGraphRefinementProvider,
+    heap_location_adapter,
+)
 
 
 @dataclass(frozen=True)
@@ -44,9 +48,7 @@ def test_heap_refinement_proves_strong_precise_field_update():
     graph = _Graph(_heap_location(), True)
     provider = HeapGraphRefinementProvider(graph, heap_location_adapter(graph))
 
-    decision = provider.update_decision(
-        TaintLocation(("f", "payload")).key("command"), None
-    )
+    decision = provider.update_decision(TaintLocation(("f", "payload")).key("command"), None)
 
     assert decision.strong
     assert decision.reasons == ("heap-singleton",)
@@ -70,9 +72,7 @@ def test_heap_refinement_falls_back_to_weak_for_ambiguous_root():
     }
     provider = HeapGraphRefinementProvider(graph, heap_location_adapter(graph))
 
-    decision = provider.update_decision(
-        TaintLocation(("f", "payload")).key("command"), None
-    )
+    decision = provider.update_decision(TaintLocation(("f", "payload")).key("command"), None)
 
     assert not decision.strong
 
@@ -84,12 +84,8 @@ def test_adaptive_refinement_only_queries_heap_for_object_paths():
     )
 
     local = adaptive.update_decision(TaintLocation(("f", "payload")), None)
-    field = adaptive.update_decision(
-        TaintLocation(("f", "payload")).key("command"), None
-    )
-    repeated = adaptive.update_decision(
-        TaintLocation(("f", "payload")).key("command"), None
-    )
+    field = adaptive.update_decision(TaintLocation(("f", "payload")).key("command"), None)
+    repeated = adaptive.update_decision(TaintLocation(("f", "payload")).key("command"), None)
 
     assert local.strong
     assert field.strong

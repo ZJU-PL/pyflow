@@ -35,9 +35,7 @@ class _GraphAssemblyMixin:
                 "col",
                 getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
             )
-            meta.setdefault(
-                "value", self._ast_value(ast_node) or node.label or node.kind
-            )
+            meta.setdefault("value", self._ast_value(ast_node) or node.label or node.kind)
             meta.setdefault("func_name", fname)
             meta.setdefault("kind", node.kind)
 
@@ -222,9 +220,7 @@ class _GraphAssemblyMixin:
                     self._append_meta_entry(pe.target, "ssa_uses", target_entry)
                 self._add_edge(pe.source, pe.target, kind, label)
 
-    def _build_ast_edges(
-        self, pdg: ProgramDependenceGraph, pdg_ast_ids: Set[int]
-    ) -> None:
+    def _build_ast_edges(self, pdg: ProgramDependenceGraph, pdg_ast_ids: Set[int]) -> None:
         """Derive AST_CHILD edges from ``PDGNode.ast_node`` references.
 
         For every PDG node with an ``ast_node``, walks the AST from the
@@ -366,15 +362,11 @@ class _GraphAssemblyMixin:
             callee_entry = callee_pdg.entry
             caller_exit = next((n for n in caller_pdg.exit_nodes), None) or caller_entry
             callee_exit = next((n for n in callee_pdg.exit_nodes), None) or callee_entry
-            call_site = (
-                self._find_call_site_node(caller_pdg, callee_name) or caller_exit
-            )
+            call_site = self._find_call_site_node(caller_pdg, callee_name) or caller_exit
             if call_site is not None and callee_entry is not None:
                 self._add_edge(call_site, callee_entry, CPGEdgeKind.CALL, callee_name)
             if callee_exit is not None and call_site is not None:
-                self._add_edge(
-                    callee_exit, call_site, CPGEdgeKind.RETURN_EDGE, caller_name
-                )
+                self._add_edge(callee_exit, call_site, CPGEdgeKind.RETURN_EDGE, caller_name)
 
     def _build_inferred_call_edges(self, *, deadline: float | None = None) -> bool:
         """Add unambiguous intra-CPG call/return edges from call-site syntax.
@@ -410,9 +402,7 @@ class _GraphAssemblyMixin:
                     callee_entry = callee_pdg.entry
                     if callee_entry is None:
                         continue
-                    self._add_edge(
-                        call_site, callee_entry, CPGEdgeKind.CALL, callee_name
-                    )
+                    self._add_edge(call_site, callee_entry, CPGEdgeKind.CALL, callee_name)
                     for callee_exit in callee_pdg.exit_nodes:
                         self._add_edge(
                             callee_exit,

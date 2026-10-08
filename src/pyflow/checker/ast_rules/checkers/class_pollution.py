@@ -154,9 +154,15 @@ def _is_user_input(node):
     """Check if node represents user input"""
     if isinstance(node, ast.Name):
         name = node.id.lower()
-        return any(
-            indicator in name for indicator in USER_INPUT_INDICATORS
-        ) or name in {"request", "req", "params", "args", "kwargs", "data", "form"}
+        return any(indicator in name for indicator in USER_INPUT_INDICATORS) or name in {
+            "request",
+            "req",
+            "params",
+            "args",
+            "kwargs",
+            "data",
+            "form",
+        }
     elif isinstance(node, ast.Call) and hasattr(node.func, "attr"):
         return node.func.attr.lower() in {
             "get",
@@ -210,15 +216,11 @@ def _has_user_input_in_string(node):
             return any(_is_user_input(arg) for arg in node.args)
         return _is_user_input(node)
     elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _has_user_input_in_string(node.left) or _has_user_input_in_string(
-            node.right
-        )
+        return _has_user_input_in_string(node.left) or _has_user_input_in_string(node.right)
     elif isinstance(node, ast.Mod):
         return _has_user_input_in_string(node.left) or any(
             _is_user_input(arg)
-            for arg in (
-                node.right.elts if isinstance(node.right, ast.Tuple) else [node.right]
-            )
+            for arg in (node.right.elts if isinstance(node.right, ast.Tuple) else [node.right])
         )
     return False
 

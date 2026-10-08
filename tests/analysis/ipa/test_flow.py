@@ -57,6 +57,7 @@ class TestFlowConstraints(TestIPABase):
 
     def test_interprocedural_data_flow(self):
         """Test data flow across function boundaries."""
+
         # Create two functions with data dependency
         def helper(x):
             return x + 1

@@ -53,6 +53,6 @@ def test_string_subtype_regex_matches_and_rejects(cls, valid, invalid):
     assert regex.search(valid), f"{cls.__name__} failed to match valid example: {valid}"
 
     # invalid should not be accepted
-    assert not regex.search(invalid), (
-        f"{cls.__name__} incorrectly matched invalid example: {invalid}"
-    )
+    assert not regex.search(
+        invalid
+    ), f"{cls.__name__} incorrectly matched invalid example: {invalid}"

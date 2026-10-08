@@ -11,9 +11,7 @@ class Configuration(object):
         "allocated",
     )
 
-    def __init__(
-        self, object_, region, entrySet, currentSet, externalReferences, allocated
-    ):
+    def __init__(self, object_, region, entrySet, currentSet, externalReferences, allocated):
         assert not (externalReferences and allocated), "Invariant violated."
 
         self.object = object_

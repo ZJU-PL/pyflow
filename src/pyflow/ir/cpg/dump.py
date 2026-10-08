@@ -53,8 +53,13 @@ def to_dot(
         DOT-format graph description.
     """
     cpg._ensure_built()
-    lines = ["digraph CPG {", "  rankdir=TB;", '  node [fontname="monospace",fontsize=10];',
-             '  edge [fontname="monospace",fontsize=8];', ""]
+    lines = [
+        "digraph CPG {",
+        "  rankdir=TB;",
+        '  node [fontname="monospace",fontsize=10];',
+        '  edge [fontname="monospace",fontsize=8];',
+        "",
+    ]
 
     node_index: Dict[int, int] = {}
     for i, node in enumerate(cpg.nodes()):
@@ -62,14 +67,12 @@ def to_dot(
         shape = _NODE_SHAPES.get(node.kind, "ellipse")
         style = ""
         if highlight_nodes and node.node_id in highlight_nodes:
-            style = ' style=filled,fillcolor=lightcoral,penwidth=2'
+            style = " style=filled,fillcolor=lightcoral,penwidth=2"
         label = node.label or node.kind
         if len(label) > 40:
             label = label[:37] + "..."
         label = label.replace('"', '\\"')
-        lines.append(
-            f'  n{node.node_id} [label="{label}",shape={shape}{style}];'
-        )
+        lines.append(f'  n{node.node_id} [label="{label}",shape={shape}{style}];')
 
     lines.append("")
     for edge in cpg.all_edges(kinds=kinds):
@@ -79,14 +82,14 @@ def to_dot(
             elabel = elabel[:27] + "..."
         elabel = elabel.replace('"', '\\"')
         lines.append(
-            f'  n{edge.source.node_id} -> n{edge.target.node_id} '
+            f"  n{edge.source.node_id} -> n{edge.target.node_id} "
             f'[color={color},label="{elabel}",fontcolor={color}];'
         )
 
     lines.append("")
     lines.append("  // Legend")
     for kind, color in _EDGE_COLORS.items():
-        lines.append(f'  //   {kind.value}: {color}')
+        lines.append(f"  //   {kind.value}: {color}")
 
     lines.append("}")
     return "\n".join(lines)

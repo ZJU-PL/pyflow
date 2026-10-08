@@ -48,8 +48,7 @@ class ControlFlowGraph(Graph):
             if isinstance(pred, BaseBlock):
                 preds.append(pred)
             else:
-                raise ValueError(
-                    "The type of Node in the current CFG can only be BaseBlock!")
+                raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
         return preds
 
     def succs_of(self, node: Node) -> List[BaseBlock]:
@@ -59,53 +58,46 @@ class ControlFlowGraph(Graph):
             if isinstance(succ, BaseBlock):
                 succs.append(succ)
             else:
-                raise ValueError(
-                    "The type of Node in the current CFG can only be BaseBlock!")
+                raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
         return succs
 
     def in_edges_of(self, node: Node):
         if isinstance(node, BaseBlock):
             return self.in_edges[node]
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def out_edges_of(self, node: Node):
         if isinstance(node, BaseBlock):
             return self.out_edges[node]
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def in_degree_of(self, node: Node) -> int:
         if isinstance(node, BaseBlock):
             return len(self.in_edges_of(node))
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def out_degree_of(self, node: Node) -> int:
         if isinstance(node, BaseBlock):
             return len(self.out_edges_of(node))
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def get_entry(self) -> BaseBlock:
         return self.entry_blk
 
     def get_exit(self) -> BaseBlock:
         if self.super_exit_blk is None:
-            raise ValueError(
-                "Super Exit Block in current CFG does not exists!")
+            raise ValueError("Super Exit Block in current CFG does not exists!")
         return self.super_exit_blk
 
     def add_node(self, node: Node):
         if isinstance(node, BaseBlock):
             self.add_blk(node)
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def add_blk(self, blk: BaseBlock):
         if blk not in self.blks:
@@ -130,8 +122,7 @@ class ControlFlowGraph(Graph):
             self.in_edges[tgt].append(edge)
             self.out_edges[src].append(edge)
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def add_exit(self, blk: BaseBlock):
         self.exit_blks.add(blk)
@@ -159,8 +150,7 @@ class ControlFlowGraph(Graph):
         if isinstance(node, BaseBlock):
             self.delete_block(node)
         else:
-            raise ValueError(
-                "The type of Node in the current CFG can only be BaseBlock!")
+            raise ValueError("The type of Node in the current CFG can only be BaseBlock!")
 
     def delete_block(self, blk: BaseBlock):
         if blk in self.exit_blks:
@@ -181,8 +171,7 @@ class ControlFlowGraph(Graph):
         self.in_edges_of(e.get_tgt()).remove(e)
 
     def delete_invalid_blk(self):
-        q = {blk for blk in self.blks
-             if blk != self.entry_blk and self.in_degree_of(blk) == 0}
+        q = {blk for blk in self.blks if blk != self.entry_blk and self.in_degree_of(blk) == 0}
         while len(q) > 0:
             cur = q.pop()
             out_list = self.succs_of(cur)

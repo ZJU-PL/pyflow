@@ -29,29 +29,27 @@ class TypeRef:
     """A type-like value independent of its implementation origin."""
 
     kind: TypeRefKind
-    target: Optional['AbstractObject'] = None
+    target: Optional["AbstractObject"] = None
     name: str = ""
 
     @classmethod
-    def user(cls, target: 'ClassObject') -> 'TypeRef':
+    def user(cls, target: "ClassObject") -> "TypeRef":
         return cls(TypeRefKind.USER, target, target.ir.name)
 
     @classmethod
-    def builtin(
-        cls, name: str, target: Optional['AbstractObject'] = None
-    ) -> 'TypeRef':
+    def builtin(cls, name: str, target: Optional["AbstractObject"] = None) -> "TypeRef":
         return cls(TypeRefKind.BUILTIN, target, name)
 
     @classmethod
-    def native(cls, target: 'AbstractObject', name: str) -> 'TypeRef':
+    def native(cls, target: "AbstractObject", name: str) -> "TypeRef":
         return cls(TypeRefKind.NATIVE, target, name)
 
     @classmethod
     def opaque(
         cls,
         name: str = "<opaque-type>",
-        target: Optional['AbstractObject'] = None,
-    ) -> 'TypeRef':
+        target: Optional["AbstractObject"] = None,
+    ) -> "TypeRef":
         return cls(TypeRefKind.OPAQUE, target, name)
 
     @property
@@ -63,7 +61,7 @@ class TypeRef:
 class ClassVariant:
     """One feasible abstract class-construction alternative."""
 
-    owner: 'ClassObject'
+    owner: "ClassObject"
     effective_bases: Tuple[TypeRef, ...]
     metaclass: TypeRef
     mro: Tuple[TypeRef, ...]
@@ -74,7 +72,7 @@ class ClassVariant:
 class InvalidClassVariant:
     """A concrete base/metaclass tuple rejected by class construction."""
 
-    owner: 'ClassObject'
+    owner: "ClassObject"
     effective_bases: Tuple[TypeRef, ...]
     reason: str
 

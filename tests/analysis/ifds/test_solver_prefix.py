@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pyflow.analysis.ifds import GenFlow, IFDSProblem, IFDSResult, IFDSSolver, IdentityFlow, Supergraph, ZERO, ZeroFact
+from pyflow.analysis.ifds import (
+    GenFlow,
+    IFDSProblem,
+    IFDSResult,
+    IFDSSolver,
+    IdentityFlow,
+    Supergraph,
+    ZERO,
+    ZeroFact,
+)
 from pyflow.checker.ifds import TaintFact
 from pyflow.analysis.ifds.queries import (
     _fact_prefix_match,

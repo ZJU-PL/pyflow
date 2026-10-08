@@ -133,9 +133,7 @@ class CalleeParams(object):
         "returnparams",
     )
 
-    def __init__(
-        self, selfparam, params, paramnames, defaults, vparam, kparam, returnparams
-    ):
+    def __init__(self, selfparam, params, paramnames, defaults, vparam, kparam, returnparams):
         """
         Initialize a CalleeParams object.
 
@@ -391,9 +389,7 @@ def isDoNotCare(node):
     return hasattr(node, "isDoNotCare") and node.isDoNotCare()  # HACK oh my, yes.
 
 
-def callStackToParamsInfo(
-    callee, selfarg, numArgs, uncertainVArgs, certainKwds, isUncertainKwds
-):
+def callStackToParamsInfo(callee, selfarg, numArgs, uncertainVArgs, certainKwds, isUncertainKwds):
     """
     Match call-site arguments to function parameters and determine call feasibility.
 

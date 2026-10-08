@@ -22,6 +22,8 @@ from .transform import PytTransformer
 
 log = logging.getLogger(__name__)
 BLACK_LISTED_CALL_NAMES = ["self"]
+
+
 def _convert_to_3(path):  # pragma: no cover
     """Convert Python 2 file to Python 3 using 2to3.
 
@@ -38,9 +40,7 @@ def _convert_to_3(path):  # pragma: no cover
         log.warn("##### Trying to convert %s to Python 3. #####", path)
         subprocess.call(["2to3", "-w", path])
     except subprocess.SubprocessError:
-        log.exception(
-            "Check if 2to3 is installed. https://docs.python.org/2/library/2to3.html"
-        )
+        log.exception("Check if 2to3 is installed. https://docs.python.org/2/library/2to3.html")
         exit(1)
 
 

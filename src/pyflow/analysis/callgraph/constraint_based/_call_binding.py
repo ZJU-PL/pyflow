@@ -42,9 +42,7 @@ class _CallBindingMixin:
                 if idx + 1 >= len(order):
                     continue
                 next_base = order[idx + 1]
-                out.add(
-                    make_instance(next_base, parse_instance_name(obj_value.name)[1])
-                )
+                out.add(make_instance(next_base, parse_instance_name(obj_value.name)[1]))
             elif obj_value.kind == CLASS_KIND:
                 order = self._class_lookup_order(obj_value.name)
                 if start_class not in order:
@@ -130,9 +128,7 @@ class _CallBindingMixin:
     ) -> Set[AbstractValue]:
         out: Set[AbstractValue] = set()
         source_map = (
-            self.coroutine_sources
-            if expected_kind == COROUTINE_KIND
-            else self.generator_sources
+            self.coroutine_sources if expected_kind == COROUTINE_KIND else self.generator_sources
         )
         caller_scope_key = (
             caller_scope.name,
@@ -236,9 +232,7 @@ class _CallBindingMixin:
             call_node,
             callee_name,
         )
-        raw_context = self._derive_callee_context(
-            caller_scope.name, caller_context, call_node
-        )
+        raw_context = self._derive_callee_context(caller_scope.name, caller_context, call_node)
         callee_context = self._normalize_context_for_scope(callee_name, raw_context)
         callee_function_info = self.functions.get(callee_name)
         if callee_function_info and callee_function_info.closure_vars:
@@ -254,10 +248,7 @@ class _CallBindingMixin:
                 ), context_inputs in self.scope_inputs.items():
                     if scope_key != callee_name:
                         continue
-                    if any(
-                        context_inputs.get(name)
-                        for name in callee_function_info.closure_vars
-                    ):
+                    if any(context_inputs.get(name) for name in callee_function_info.closure_vars):
                         candidate_contexts.append(context_key)
                 if candidate_contexts:
                     fallback_context = sorted(candidate_contexts)[0]
@@ -298,9 +289,7 @@ class _CallBindingMixin:
         type_values = self._resolve_type_expression_values(annotation, module_name)
         if not type_values:
             return set(values)
-        return {
-            value for value in values if self._matches_type_values(value, type_values)
-        }
+        return {value for value in values if self._matches_type_values(value, type_values)}
 
     def _refine_values_with_type_filter(
         self,
@@ -355,18 +344,13 @@ class _CallBindingMixin:
         if origin is None:
             return
 
-        for dependent_scope_key in self.closure_dependents.get(
-            (origin[0], origin[1], name), set()
-        ):
+        for dependent_scope_key in self.closure_dependents.get((origin[0], origin[1], name), set()):
             dependent_scope = self.scopes[dependent_scope_key[0]]
             param_inputs = self.scope_inputs.setdefault(
                 dependent_scope_key,
                 {
                     **{param: set() for param in dependent_scope.params},
-                    **{
-                        closure_var: set()
-                        for closure_var in dependent_scope.closure_vars
-                    },
+                    **{closure_var: set() for closure_var in dependent_scope.closure_vars},
                 },
             )
             current = param_inputs.setdefault(name, set())
@@ -406,9 +390,7 @@ class _CallBindingMixin:
                 )
                 current = param_inputs.setdefault(param_name, set())
                 changed = (
-                    self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    )
+                    self._merge_value_set(current, filtered_values, preserve_callables=True)
                     or changed
                 )
             elif scope.vararg:
@@ -417,9 +399,7 @@ class _CallBindingMixin:
                 )
                 current = param_inputs.setdefault(scope.vararg, set())
                 changed = (
-                    self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    )
+                    self._merge_value_set(current, filtered_values, preserve_callables=True)
                     or changed
                 )
 
@@ -437,9 +417,7 @@ class _CallBindingMixin:
                     )
                     current = param_inputs.setdefault(param_name, set())
                     changed = (
-                        self._merge_value_set(
-                            current, filtered_values, preserve_callables=True
-                        )
+                        self._merge_value_set(current, filtered_values, preserve_callables=True)
                         or changed
                     )
                 if scope.vararg:
@@ -450,9 +428,7 @@ class _CallBindingMixin:
                     )
                     current = param_inputs.setdefault(scope.vararg, set())
                     changed = (
-                        self._merge_value_set(
-                            current, filtered_values, preserve_callables=True
-                        )
+                        self._merge_value_set(current, filtered_values, preserve_callables=True)
                         or changed
                     )
 
@@ -463,9 +439,7 @@ class _CallBindingMixin:
                 )
                 current = param_inputs.setdefault(kw_name, set())
                 changed = (
-                    self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    )
+                    self._merge_value_set(current, filtered_values, preserve_callables=True)
                     or changed
                 )
             elif kw_name in posonly_set:
@@ -477,9 +451,7 @@ class _CallBindingMixin:
                 )
                 current = param_inputs.setdefault(scope.kwarg, set())
                 changed = (
-                    self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    )
+                    self._merge_value_set(current, filtered_values, preserve_callables=True)
                     or changed
                 )
 
@@ -491,8 +463,7 @@ class _CallBindingMixin:
             )
             current = param_inputs.setdefault(scope.kwarg, set())
             changed = (
-                self._merge_value_set(current, filtered_values, preserve_callables=True)
-                or changed
+                self._merge_value_set(current, filtered_values, preserve_callables=True) or changed
             )
 
         return changed
@@ -525,16 +496,15 @@ class _CallBindingMixin:
             )
             self.closure_origins[scope_key] = normalized_origin
             for name in scope.closure_vars:
-                self.closure_dependents[
-                    (normalized_origin[0], normalized_origin[1], name)
-                ].add(scope_key)
+                self.closure_dependents[(normalized_origin[0], normalized_origin[1], name)].add(
+                    scope_key
+                )
         changed = False
         for name, values in captured.items():
             if name not in scope.closure_vars:
                 continue
             current = param_inputs.setdefault(name, set())
             changed = (
-                self._merge_value_set(current, set(values), preserve_callables=True)
-                or changed
+                self._merge_value_set(current, set(values), preserve_callables=True) or changed
             )
         return changed

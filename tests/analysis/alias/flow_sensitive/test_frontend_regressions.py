@@ -38,23 +38,19 @@ def _walk(node: object):
 
 def _local(code: object, name: str) -> py_ast.Local:
     return next(
-        node
-        for node in _walk(code.ast)
-        if isinstance(node, py_ast.Local) and node.name == name
+        node for node in _walk(code.ast) if isinstance(node, py_ast.Local) and node.name == name
     )
 
 
 def test_source_loop_idempotent_write_converges_without_degradation():
-    compiler, code = _code_from_source(
-        """
+    compiler, code = _code_from_source("""
 def main(cond, value):
     obj = []
     while cond:
         obj.payload = value
     loaded = obj.payload
     return loaded
-"""
-    )
+""")
 
     analysis = HeapAnalysis()
     analysis.analyze(compiler, code)
@@ -70,8 +66,7 @@ def main(cond, value):
 
 
 def test_source_branch_join_retains_both_field_values():
-    compiler, code = _code_from_source(
-        """
+    compiler, code = _code_from_source("""
 def main(cond, left, right):
     obj = []
     if cond:
@@ -80,8 +75,7 @@ def main(cond, left, right):
         obj.payload = right
     loaded = obj.payload
     return loaded
-"""
-    )
+""")
 
     analysis = HeapAnalysis()
     analysis.analyze(compiler, code)

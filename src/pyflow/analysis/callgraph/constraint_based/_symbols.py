@@ -42,9 +42,7 @@ class _SymbolAnalysisMixin:
             for case in stmt.cases:
                 yield case.body
 
-    def _infer_closure_vars(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> set[str]:
+    def _infer_closure_vars(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
         """
         Infer free variables referenced by a function body.
 
@@ -90,9 +88,7 @@ class _SymbolAnalysisMixin:
             visitor.visit(stmt)
 
         closure = {
-            name
-            for name in loaded_names
-            if name not in local_names and name not in global_names
+            name for name in loaded_names if name not in local_names and name not in global_names
         }
         closure.update(nonlocal_names)
         return closure
@@ -118,9 +114,7 @@ class _SymbolAnalysisMixin:
         local_names.update(stored_names)
         return {name for name in loaded_names if name not in local_names}
 
-    def _infer_scope_directives(
-        self, statements: Sequence[ast.stmt]
-    ) -> tuple[set[str], set[str]]:
+    def _infer_scope_directives(self, statements: Sequence[ast.stmt]) -> tuple[set[str], set[str]]:
         """Collect direct-scope `global` and `nonlocal` declarations."""
         global_names: Set[str] = set()
         nonlocal_names: Set[str] = set()
@@ -213,9 +207,7 @@ class _SymbolAnalysisMixin:
             visitor.visit(stmt)
 
         closure = {
-            name
-            for name in loaded_names
-            if name not in local_names and name not in global_names
+            name for name in loaded_names if name not in local_names and name not in global_names
         }
         closure.update(nonlocal_names)
         return closure
@@ -285,11 +277,7 @@ class _SymbolAnalysisMixin:
             closure_vars=self._infer_class_closure_vars(node),
             bases_raw=list(node.bases),
             metaclass_raw=next(
-                (
-                    keyword.value
-                    for keyword in node.keywords
-                    if keyword.arg == "metaclass"
-                ),
+                (keyword.value for keyword in node.keywords if keyword.arg == "metaclass"),
                 None,
             ),
             bases=[],
@@ -300,9 +288,7 @@ class _SymbolAnalysisMixin:
         )
         self.classes[class_qualname] = class_info
         if parent_class_qualname is not None:
-            self.class_fields[parent_class_qualname][node.name].add(
-                make_class(class_qualname)
-            )
+            self.class_fields[parent_class_qualname][node.name].add(make_class(class_qualname))
 
         for child in node.body:
             if isinstance(child, ast.ClassDef):
@@ -318,12 +304,9 @@ class _SymbolAnalysisMixin:
             if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             method_qualname = f"{class_qualname}.{child.name}"
-            decorator_names = {
-                extract_decorator_name(deco) for deco in child.decorator_list
-            }
+            decorator_names = {extract_decorator_name(deco) for deco in child.decorator_list}
             is_staticmethod = (
-                "staticmethod" in decorator_names
-                or "builtins.staticmethod" in decorator_names
+                "staticmethod" in decorator_names or "builtins.staticmethod" in decorator_names
             )
             is_classmethod = (
                 "classmethod" in decorator_names
@@ -358,9 +341,7 @@ class _SymbolAnalysisMixin:
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     qualname = f"{module_name}.{node.name}"
-                    global_names, nonlocal_names = self._infer_global_nonlocal_names(
-                        node
-                    )
+                    global_names, nonlocal_names = self._infer_global_nonlocal_names(node)
                     self.functions[qualname] = self._build_function_info(
                         module_name,
                         qualname,
@@ -534,9 +515,7 @@ class _SymbolAnalysisMixin:
             if node.args.kwarg and node.args.kwarg.annotation is not None:
                 param_annotations[node.args.kwarg.arg] = node.args.kwarg.annotation
             return_annotation = (
-                node.returns
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                else None
+                node.returns if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else None
             )
         else:
             raise TypeError(f"Unsupported function node type: {type(node)!r}")
@@ -668,9 +647,7 @@ class _SymbolAnalysisMixin:
             ]
             if (
                 function_info.is_method
-                and isinstance(
-                    function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef)
-                )
+                and isinstance(function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and positional_method_params
             ):
                 if function_info.is_classmethod:

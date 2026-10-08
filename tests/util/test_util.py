@@ -36,9 +36,7 @@ class TestCallingUtility(unittest.TestCase):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 2, False, 0, False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 2, False, 0, False)
 
         self.assertEqual(info.willSucceed, TVLTrue)
 
@@ -74,29 +72,21 @@ class TestCallingUtility(unittest.TestCase):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 3, False, 0, False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 3, False, 0, False)
         self.assertHardFail(info)
 
     def testTooFewArgs(self):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, False, 0, False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, False, 0, False)
         self.assertHardFail(info)
 
     ### Vargs ###
 
     def testExactSpill(self):
-        callee = pyflow.util.python.calling.CalleeParams(
-            None, [0, 1], ["a", "b"], [], 2, None, []
-        )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 4, False, 0, False
-        )
+        callee = pyflow.util.python.calling.CalleeParams(None, [0, 1], ["a", "b"], [], 2, None, [])
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 4, False, 0, False)
 
         self.assertHardSucceed(info)
 
@@ -107,12 +97,8 @@ class TestCallingUtility(unittest.TestCase):
         self.assertEqual(info.uncertainVParam, False)
 
     def testUncertainPullVargs(self):
-        callee = pyflow.util.python.calling.CalleeParams(
-            None, [0, 1], ["a", "b"], [], 2, None, []
-        )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, True, 0, False
-        )
+        callee = pyflow.util.python.calling.CalleeParams(None, [0, 1], ["a", "b"], [], 2, None, [])
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, True, 0, False)
 
         self.assertEqual(info.willSucceed, TVLMaybe)
 
@@ -128,9 +114,7 @@ class TestCallingUtility(unittest.TestCase):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, True, 0, False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, True, 0, False)
 
         self.assertEqual(info.willSucceed, TVLMaybe)
 
@@ -212,18 +196,14 @@ class TestCallingUtility(unittest.TestCase):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [2], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 0, False, (), False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 0, False, (), False)
         self.assertHardFail(info)
 
     def testUsedDefaults(self):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [2], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, False, (), False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, False, (), False)
 
         self.assertEqual(info.willSucceed, TVLTrue)
         self.assertTransfer(info.argParam, 0, 1, 0, 1, 1)
@@ -237,9 +217,7 @@ class TestCallingUtility(unittest.TestCase):
         callee = pyflow.util.python.calling.CalleeParams(
             None, [0, 1], ["a", "b"], [2], None, None, []
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 2, False, (), False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 2, False, (), False)
 
         self.assertEqual(info.willSucceed, TVLTrue)
         self.assertTransfer(info.argParam, 0, 2, 0, 2, 2)
@@ -259,37 +237,25 @@ class TestCallingUtility(unittest.TestCase):
             None,
             [],
         )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 0, False, (), False
-        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 0, False, (), False)
         self.assertHardFail(info)
 
     def test_unknown_keyword_absorbed_by_kparam(self):
-        callee = pyflow.util.python.calling.CalleeParams(
-            None, [0], ["a"], [], None, "kwargs", []
-        )
+        callee = pyflow.util.python.calling.CalleeParams(None, [0], ["a"], [], None, "kwargs", [])
         info = pyflow.util.python.calling.callStackToParamsInfo(
             callee, False, 1, False, ("extra",), False
         )
         self.assertHardSucceed(info)
 
     def test_uncertain_kwargs_with_kparam_degrades_to_maybe(self):
-        callee = pyflow.util.python.calling.CalleeParams(
-            None, [0], ["a"], [], None, "kwargs", []
-        )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, False, (), True
-        )
+        callee = pyflow.util.python.calling.CalleeParams(None, [0], ["a"], [], None, "kwargs", [])
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, False, (), True)
         self.assertEqual(info.willSucceed, TVLMaybe)
         self.assertTrue(TypeError in info.exceptions)
 
     def test_uncertain_kwargs_without_kparam_degrades_to_maybe(self):
-        callee = pyflow.util.python.calling.CalleeParams(
-            None, [0], ["a"], [], None, None, []
-        )
-        info = pyflow.util.python.calling.callStackToParamsInfo(
-            callee, False, 1, False, (), True
-        )
+        callee = pyflow.util.python.calling.CalleeParams(None, [0], ["a"], [], None, None, [])
+        info = pyflow.util.python.calling.callStackToParamsInfo(callee, False, 1, False, (), True)
         self.assertEqual(info.willSucceed, TVLMaybe)
         self.assertTrue(TypeError in info.exceptions)
 

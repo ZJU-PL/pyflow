@@ -5,5 +5,6 @@ class MyClass:
 
         nested()
 
+
 a = MyClass()
 a.func()

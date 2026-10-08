@@ -318,13 +318,7 @@ class FailedPredicateException(RecognitionException):
         self.predicateText = predicateText
 
     def __str__(self):
-        return (
-            "FailedPredicateException("
-            + self.ruleName
-            + ",{"
-            + self.predicateText
-            + "}?)"
-        )
+        return "FailedPredicateException(" + self.ruleName + ",{" + self.predicateText + "}?)"
 
     __repr__ = __str__
 

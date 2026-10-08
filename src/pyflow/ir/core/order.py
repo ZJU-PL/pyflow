@@ -86,9 +86,7 @@ def stable_ir_key(
             "operation-context",
             stable_ir_key(operation_code, catalog, code, nested_seen),
             stable_ir_key(getattr(value, "op"), catalog, operation_code, nested_seen),
-            stable_ir_key(
-                getattr(value, "context"), catalog, operation_code, nested_seen
-            ),
+            stable_ir_key(getattr(value, "context"), catalog, operation_code, nested_seen),
         )
 
     slots = getattr(type(value), "__slots__", ())
@@ -114,9 +112,7 @@ def canonical_context_signature(
 ) -> ContextSignature:
     """Encode a solver context without discovery order or object addresses."""
     key = stable_ir_key(context, catalog, code)
-    return ContextSignature(
-        json.dumps(key, ensure_ascii=False, separators=(",", ":"))
-    )
+    return ContextSignature(json.dumps(key, ensure_ascii=False, separators=(",", ":")))
 
 
 __all__ = ["canonical_context_signature", "stable_ir_key"]

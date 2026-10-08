@@ -8,10 +8,13 @@ from pyflow.util.monkeypatch.xcollections import lazydict, weakcache
 
 class CacheableObject:
     """A simple class that supports weak references."""
+
     def __init__(self, value):
         self.value = value
+
     def __hash__(self):
         return hash(self.value)
+
     def __eq__(self, other):
         if isinstance(other, CacheableObject):
             return self.value == other.value
@@ -36,6 +39,7 @@ class TestLazyDict(unittest.TestCase):
     def test_existing_key(self):
         """Test that existing key returns cached value."""
         factory_calls = [0]
+
         def factory(key):
             factory_calls[0] += 1
             return f"value_{key}"
@@ -61,6 +65,7 @@ class TestLazyDict(unittest.TestCase):
     def test_key_based_factory(self):
         """Test that factory receives the key."""
         received_keys = []
+
         def factory(key):
             received_keys.append(key)
             return key

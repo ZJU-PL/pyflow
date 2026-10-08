@@ -21,9 +21,7 @@ class TestRepoLevelCorpus:
     """Validate end-to-end call-graph repository corpus execution."""
 
     def test_manifest_has_all_projects(self) -> None:
-        manifest = json.loads(
-            (CORPUS_ROOT / "manifest.json").read_text(encoding="utf-8")
-        )
+        manifest = json.loads((CORPUS_ROOT / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["version"] == 1
 
         expected_projects = {

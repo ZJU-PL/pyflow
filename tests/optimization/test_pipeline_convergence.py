@@ -19,29 +19,33 @@ def test_two_pass_pipeline_includes_path_sensitive_cpa():
     register_standard_passes(manager)
 
     # Build the full two-pass pipeline
-    pipeline = manager.build_pipeline([
-        "ipa",
-        "cpa",
-        "first_pass_methodcall",
-        "first_pass_lifetime",
-        "first_pass_simplify",
-        "first_pass_clone",
-        "first_pass_argument_normalization",
-        "first_pass_cull_program",
-        "first_pass_store_elimination",
-        "first_pass_complete",
-        "ipa_refresh",
-        "cpa_path_sensitive",
-        "lifetime_refresh",
-        "simplify_final",
-        "store_elimination_final",
-    ])
+    pipeline = manager.build_pipeline(
+        [
+            "ipa",
+            "cpa",
+            "first_pass_methodcall",
+            "first_pass_lifetime",
+            "first_pass_simplify",
+            "first_pass_clone",
+            "first_pass_argument_normalization",
+            "first_pass_cull_program",
+            "first_pass_store_elimination",
+            "first_pass_complete",
+            "ipa_refresh",
+            "cpa_path_sensitive",
+            "lifetime_refresh",
+            "simplify_final",
+            "store_elimination_final",
+        ]
+    )
 
     # Should include path-sensitive CPA
     assert "cpa_path_sensitive" in pipeline.passes
 
     # Path-sensitive CPA should come after first pass
-    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index("cpa_path_sensitive")
+    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
+        "cpa_path_sensitive"
+    )
 
 
 def test_ipa_refresh_runs_after_transformations():
@@ -49,15 +53,19 @@ def test_ipa_refresh_runs_after_transformations():
     manager = PassManager()
     register_standard_passes(manager)
 
-    pipeline = manager.build_pipeline([
-        "first_pass_clone",
-        "first_pass_argument_normalization",
-        "ipa_refresh",
-    ])
+    pipeline = manager.build_pipeline(
+        [
+            "first_pass_clone",
+            "first_pass_argument_normalization",
+            "ipa_refresh",
+        ]
+    )
 
     # ipa_refresh should come after transformations
     assert "ipa_refresh" in pipeline.passes
-    assert pipeline.passes.index("first_pass_argument_normalization") < pipeline.passes.index("ipa_refresh")
+    assert pipeline.passes.index("first_pass_argument_normalization") < pipeline.passes.index(
+        "ipa_refresh"
+    )
 
 
 def test_cpa_path_sensitive_depends_on_ipa_refresh():
@@ -121,11 +129,13 @@ def test_pipeline_invalidates_analysis_between_passes():
     compiler.console.output = Mock()
 
     # Mock all passes
-    with patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()) as mock_ipa, \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True), \
-         patch("pyflow.application.passes.builtin.clone.evaluate", return_value=True):
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()) as mock_ipa,
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True),
+        patch("pyflow.application.passes.builtin.clone.evaluate", return_value=True),
+    ):
 
         # Run first pass with transformation
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime", "simplify", "clone"])
@@ -157,18 +167,12 @@ def test_default_pipeline_matches_legacy_pipeline_structure():
     assert "simplify" in default_passes
     assert "clone" in default_passes
     assert "argument_normalization" in default_passes
-    assert default_passes.index("simplify") < default_passes.index(
-        "ipa_after_simplify"
-    )
-    assert default_passes.index("ipa_after_simplify") < default_passes.index(
-        "cpa_after_simplify"
-    )
+    assert default_passes.index("simplify") < default_passes.index("ipa_after_simplify")
+    assert default_passes.index("ipa_after_simplify") < default_passes.index("cpa_after_simplify")
     assert default_passes.index("cpa_after_simplify") < default_passes.index(
         "lifetime_after_simplify"
     )
-    assert default_passes.index("lifetime_after_simplify") < default_passes.index(
-        "clone"
-    )
+    assert default_passes.index("lifetime_after_simplify") < default_passes.index("clone")
 
     # Should NOT include inlining by default
     assert "inlining" not in default_passes
@@ -228,14 +232,18 @@ def test_two_pass_pipeline_convergence():
         call_counts["clone"] += 1
         return call_counts["clone"] == 1
 
-    with patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.simplify.evaluate", side_effect=mock_simplify), \
-         patch("pyflow.application.passes.builtin.clone.evaluate", side_effect=mock_clone), \
-         patch("pyflow.application.passes.builtin.argumentnormalization.evaluate", return_value=False), \
-         patch("pyflow.application.passes.builtin.cullprogram.evaluate", return_value=False), \
-         patch("pyflow.application.passes.builtin.storeelimination.evaluate", return_value=False):
+    with (
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.simplify.evaluate", side_effect=mock_simplify),
+        patch("pyflow.application.passes.builtin.clone.evaluate", side_effect=mock_clone),
+        patch(
+            "pyflow.application.passes.builtin.argumentnormalization.evaluate", return_value=False
+        ),
+        patch("pyflow.application.passes.builtin.cullprogram.evaluate", return_value=False),
+        patch("pyflow.application.passes.builtin.storeelimination.evaluate", return_value=False),
+    ):
 
         # Run pipeline twice
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime", "simplify", "clone"])

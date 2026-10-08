@@ -127,9 +127,7 @@ class SourceMap:
     def declaration(self, symbol: SymbolId) -> object | None:
         return self._symbol_origins.get(symbol)
 
-    def set_provenance(
-        self, node: NodeId, frames: tuple[TransformationFrame, ...]
-    ) -> None:
+    def set_provenance(self, node: NodeId, frames: tuple[TransformationFrame, ...]) -> None:
         self._provenance[node] = tuple(frames)
 
     def append_provenance(self, node: NodeId, frame: TransformationFrame) -> None:

@@ -269,8 +269,7 @@ def _classify_result(result: Mapping[str, Any]) -> ScanStatus:
     if any(
         replay.get("status") == "replay_error"
         and any(
-            "SideEffectDetected" in str(difference)
-            for difference in replay.get("differences", [])
+            "SideEffectDetected" in str(difference) for difference in replay.get("differences", [])
         )
         for replay in replays
     ):

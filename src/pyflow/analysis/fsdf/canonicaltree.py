@@ -206,9 +206,7 @@ class LeafNode(AbstractNode):
 
     def __eq__(self, other):
         """Check equality (same type and value)."""
-        return self is other or (
-            type(self) == type(other) and self.value == other.value
-        )
+        return self is other or (type(self) == type(other) and self.value == other.value)
 
     def __hash__(self):
         return self._hash
@@ -588,10 +586,7 @@ class BinaryTreeFunction(object):
             result = self.manager.leaf(self.func(a.value, b.value))
         else:
             branches = tuple(
-                [
-                    self._apply(*branches)
-                    for branches in zip(a.iter(maxcond), b.iter(maxcond))
-                ]
+                [self._apply(*branches) for branches in zip(a.iter(maxcond), b.iter(maxcond))]
             )
             result = self.manager.tree(maxcond, branches)
 
@@ -661,16 +656,12 @@ class TreeFunction(object):
                 result = self.manager.leaf(unwrapped)
         else:
             branches = tuple(
-                self._apply(branches)
-                for branches in zip(*[arg.iter(maxcond) for arg in args])
+                self._apply(branches) for branches in zip(*[arg.iter(maxcond) for arg in args])
             )
 
             if self.multiout:
                 result = tuple(
-                    [
-                        self.manager.tree(maxcond, branches)
-                        for branches in zip(*branches)
-                    ]
+                    [self.manager.tree(maxcond, branches) for branches in zip(*branches)]
                 )
             else:
                 result = self.manager.tree(maxcond, branches)
@@ -865,9 +856,7 @@ class CanonicalTreeManager(object):
             result = self._restrict(a.branch(index), d, bound)
         else:
             # No restriction on this condition, recursively restrict branches
-            branches = tuple(
-                [self._restrict(branch, d, bound) for branch in a.branches]
-            )
+            branches = tuple([self._restrict(branch, d, bound) for branch in a.branches])
             result = self.tree(a.cond, branches)
 
         self.cache[a] = result
@@ -918,16 +907,12 @@ class CanonicalTreeManager(object):
             return self.cache[key]
 
         if domain.cond < tree.cond:
-            branches = tuple(
-                [self._simplify(domain, branch, default) for branch in tree.branches]
-            )
+            branches = tuple([self._simplify(domain, branch, default) for branch in tree.branches])
             result = self.tree(tree.cond, branches)
         else:
             interesting = set()
             newbranches = []
-            for domainbranch, treebranch in zip(
-                domain.branches, tree.iter(domain.cond)
-            ):
+            for domainbranch, treebranch in zip(domain.branches, tree.iter(domain.cond)):
                 newbranch = self._simplify(domainbranch, treebranch, default)
                 newbranches.append(newbranch)
 

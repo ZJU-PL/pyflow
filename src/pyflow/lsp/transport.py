@@ -205,9 +205,7 @@ class JsonRpcServer:
                     await self._send(
                         self._error(
                             None,
-                            JsonRpcError(
-                                ErrorCodes.InvalidRequest, "Empty JSON-RPC batch"
-                            ),
+                            JsonRpcError(ErrorCodes.InvalidRequest, "Empty JSON-RPC batch"),
                         )
                     )
                     return
@@ -219,9 +217,7 @@ class JsonRpcServer:
                     await self._send(payload)
                 return
 
-            request_id = (
-                msg.get("id") if isinstance(msg, dict) and "id" in msg else None
-            )
+            request_id = msg.get("id") if isinstance(msg, dict) and "id" in msg else None
             has_request_id = isinstance(msg, dict) and "id" in msg
             task = asyncio.current_task()
             if has_request_id and task is not None:
@@ -235,18 +231,14 @@ class JsonRpcServer:
                     await self._send(
                         self._error(
                             request_id,
-                            JsonRpcError(
-                                ErrorCodes.RequestCancelled, "Request cancelled"
-                            ),
+                            JsonRpcError(ErrorCodes.RequestCancelled, "Request cancelled"),
                         )
                     )
             finally:
                 if has_request_id and self._request_tasks.get(request_id) is task:
                     self._request_tasks.pop(request_id, None)
 
-    async def _dispatch_one(
-        self, msg: Any, *, strict: bool = False
-    ) -> Optional[dict[str, Any]]:
+    async def _dispatch_one(self, msg: Any, *, strict: bool = False) -> Optional[dict[str, Any]]:
         if not isinstance(msg, dict):
             return self._error(
                 None,
@@ -265,9 +257,7 @@ class JsonRpcServer:
         if not isinstance(method, str) or not method:
             return self._error(
                 msg_id if has_id else None,
-                JsonRpcError(
-                    ErrorCodes.InvalidRequest, "Missing or invalid 'method' field"
-                ),
+                JsonRpcError(ErrorCodes.InvalidRequest, "Missing or invalid 'method' field"),
             )
 
         params = msg.get("params")
@@ -275,9 +265,7 @@ class JsonRpcServer:
             return (
                 self._error(
                     msg_id,
-                    JsonRpcError(
-                        ErrorCodes.InvalidParams, "params must be an object or array"
-                    ),
+                    JsonRpcError(ErrorCodes.InvalidParams, "params must be an object or array"),
                 )
                 if has_id
                 else None
@@ -295,9 +283,7 @@ class JsonRpcServer:
             return (
                 self._error(
                     msg_id,
-                    JsonRpcError(
-                        ErrorCodes.MethodNotFound, f"Method not found: {method}"
-                    ),
+                    JsonRpcError(ErrorCodes.MethodNotFound, f"Method not found: {method}"),
                 )
                 if has_id
                 else None

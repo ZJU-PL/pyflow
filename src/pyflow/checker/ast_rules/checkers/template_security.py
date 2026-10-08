@@ -16,7 +16,6 @@ import ast
 from ...common import issue
 from ..core import test_properties as test
 
-
 # Jinja2 template functions and methods
 JINJA2_FUNCTIONS = [
     "Environment",

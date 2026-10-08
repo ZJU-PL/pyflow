@@ -32,7 +32,6 @@ from .intrinsics import (  # noqa: F401 - selected names are public re-exports
 )
 from ..model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
 
-
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"
 DYNAMIC_SUBSCRIPT_WILDCARD = "[*]"
 LocationReader = Callable[[object, object], tuple[object, ...]]
@@ -52,9 +51,7 @@ class HeapEffect:
     def strong_write_locations(self) -> tuple[HeapLocation, ...]:
         return tuple(
             dict.fromkeys(
-                write.location
-                for write in self.writes
-                if write.policy is UpdatePolicy.STRONG
+                write.location for write in self.writes if write.policy is UpdatePolicy.STRONG
             )
         )
 
@@ -168,16 +165,13 @@ class HeapEffectBuilder:
             *self.dynamic_slice_write_locations(procedure, operation),
         )
         ambiguous_write_roots = (
-            len({location.root for location in write_locations if location.is_nested()})
-            > 1
+            len({location.root for location in write_locations if location.is_nested()}) > 1
         )
         writes = [
             self.heap.write_for_location(
                 location,
                 policy=(
-                    UpdatePolicy.WEAK
-                    if ambiguous_write_roots and location.is_nested()
-                    else None
+                    UpdatePolicy.WEAK if ambiguous_write_roots and location.is_nested() else None
                 ),
             )
             for location in write_locations
@@ -200,9 +194,7 @@ class HeapEffectBuilder:
             operation,
             collection_mutator_names,
         )
-        writes.extend(
-            self.heap.write_for_location(location) for location in collection_locations
-        )
+        writes.extend(self.heap.write_for_location(location) for location in collection_locations)
 
         model_escape_exprs: list[object] = []
         call = self._call_from_expression_or_statement(operation)
@@ -213,9 +205,7 @@ class HeapEffectBuilder:
             actuals = actual_argument_expressions(call)
             if isinstance(call, py_ast.MethodCall):
                 if function_model.reads_self:
-                    reads.extend(
-                        self._locations_for_expressions(procedure, (call.expr,))
-                    )
+                    reads.extend(self._locations_for_expressions(procedure, (call.expr,)))
                 if function_model.escapes_self:
                     model_escape_exprs.append(call.expr)
             reads.extend(
@@ -239,9 +229,7 @@ class HeapEffectBuilder:
             if collection_model is None:
                 mutated_roots: list[HeapLocation] = []
                 if function_model.mutates_self and isinstance(call, py_ast.MethodCall):
-                    mutated_roots.extend(
-                        self._locations_for_expressions(procedure, (call.expr,))
-                    )
+                    mutated_roots.extend(self._locations_for_expressions(procedure, (call.expr,)))
                 mutated_roots.extend(
                     self._locations_for_expressions(
                         procedure,
@@ -325,9 +313,7 @@ class HeapEffectBuilder:
             writes=tuple(dict.fromkeys(writes)),
             deletes=tuple(dict.fromkeys(deletes)),
             escapes=tuple(
-                dict.fromkeys(
-                    self._locations_for_expressions(procedure, tuple(escape_exprs))
-                )
+                dict.fromkeys(self._locations_for_expressions(procedure, tuple(escape_exprs)))
             ),
             returns=self._locations_for_expressions(procedure, return_exprs),
             allocations=self._allocation_objects_for_operation(procedure, operation),
@@ -410,9 +396,7 @@ class HeapEffectBuilder:
         intrinsic_kind = self.intrinsics.return_kind(call_name)
         if intrinsic_kind is not None:
             return intrinsic_kind
-        if policy.treat_capitalized_calls_as_fresh and self._is_capitalized_call_name(
-            call_name
-        ):
+        if policy.treat_capitalized_calls_as_fresh and self._is_capitalized_call_name(call_name):
             return CALL_RETURN_FRESH
         return CALL_RETURN_OPAQUE
 
@@ -494,9 +478,10 @@ class HeapEffectBuilder:
     ) -> tuple[HeapLocation, ...]:
         if not isinstance(operation, (py_ast.SetAttr, py_ast.Store)):
             return ()
-        if isinstance(operation, py_ast.Store) and getattr(
-            operation, "fieldtype", None
-        ) in {"Dictionary", "Array"}:
+        if isinstance(operation, py_ast.Store) and getattr(operation, "fieldtype", None) in {
+            "Dictionary",
+            "Array",
+        }:
             return self.dynamic_subscript_locations(
                 procedure,
                 operation.expr,
@@ -696,9 +681,7 @@ class HeapEffectBuilder:
         actuals = actual_argument_expressions(call)
         if len(actuals) < 2:
             return ()
-        return self.dynamic_subscript_locations_for_key(
-            procedure, actuals[0], actuals[1]
-        )
+        return self.dynamic_subscript_locations_for_key(procedure, actuals[0], actuals[1])
 
     def dynamic_attribute_delete_locations(
         self,
@@ -945,15 +928,11 @@ class HeapEffectBuilder:
         expr: object,
     ) -> py_ast.PythonASTNode | None:
         candidate = expr
-        if not isinstance(
-            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
-        ):
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             wrapped = getattr(expr, "expr", None)
             if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
                 candidate = wrapped
-        if not isinstance(
-            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
-        ):
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             return None
         return candidate
 
@@ -1133,9 +1112,7 @@ class HeapEffectBuilder:
         expressions: list[object] = []
         if isinstance(operation, py_ast.Phi):
             expressions.extend(
-                argument
-                for argument in getattr(operation, "arguments", ())
-                if argument is not None
+                argument for argument in getattr(operation, "arguments", ()) if argument is not None
             )
         elif isinstance(operation, py_ast.AnnAssign):
             expressions.append(operation.annotation_expr)
@@ -1162,17 +1139,11 @@ class HeapEffectBuilder:
             if type_params is not None:
                 expressions.append(type_params)
             if isinstance(operation, py_ast.FunctionDef):
-                expressions.extend(
-                    getattr(operation.code.codeparameters, "defaults", ())
-                )
+                expressions.extend(getattr(operation.code.codeparameters, "defaults", ()))
             else:
                 expressions.extend(getattr(operation, "bases", ()))
                 expressions.extend(
-                    (
-                        keyword[1]
-                        if isinstance(keyword, tuple) and len(keyword) == 2
-                        else keyword
-                    )
+                    (keyword[1] if isinstance(keyword, tuple) and len(keyword) == 2 else keyword)
                     for keyword in getattr(operation, "keywords", ())
                 )
         return self._locations_for_expressions(procedure, tuple(expressions))
@@ -1200,8 +1171,7 @@ class HeapEffectBuilder:
         locations: list[HeapLocation] = []
         for default in getattr(expr, "defaults", ()):
             locations.extend(
-                self.heap.location_for_raw(raw)
-                for raw in self.read_locations(procedure, default)
+                self.heap.location_for_raw(raw) for raw in self.read_locations(procedure, default)
             )
         for cell in getattr(expr, "cells", ()):
             locations.append(self.cell_location(cell, procedure))

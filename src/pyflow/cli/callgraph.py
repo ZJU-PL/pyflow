@@ -63,9 +63,7 @@ def _analyze_file(
     if args.algorithm == "simple":
         output = analyze_file_ast(str(file_path))
     elif args.algorithm == "constraint":
-        analyze_reachable_only = project_entry and not getattr(
-            args, "all_scopes", False
-        )
+        analyze_reachable_only = project_entry and not getattr(args, "all_scopes", False)
         output = analyze_file_constraint(
             str(file_path),
             verbose=args.verbose,
@@ -73,9 +71,7 @@ def _analyze_file(
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
-            allocation_site_sensitive_instances=(
-                args.allocation_site_sensitive_instances
-            ),
+            allocation_site_sensitive_instances=(args.allocation_site_sensitive_instances),
             skip_stdlib_modules=args.skip_stdlib,
             analyze_reachable_only=analyze_reachable_only,
             seed_entry_file_scopes=analyze_reachable_only,
@@ -117,9 +113,7 @@ def _analyze_file(
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
-            allocation_site_sensitive_instances=(
-                args.allocation_site_sensitive_instances
-            ),
+            allocation_site_sensitive_instances=(args.allocation_site_sensitive_instances),
             skip_stdlib_modules=args.skip_stdlib,
             analyze_reachable_only=analyze_reachable_only,
             seed_entry_file_scopes=analyze_reachable_only,
@@ -156,9 +150,7 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
                 )
                 for candidate in candidates:
                     command = (
-                        f" (command: {candidate.command})"
-                        if candidate.command is not None
-                        else ""
+                        f" (command: {candidate.command})" if candidate.command is not None else ""
                     )
                     print(
                         f"  {candidate.path} [{candidate.source}]{command}",
@@ -230,9 +222,7 @@ def run_callgraph(input_path, args):
 
 
 def add_callgraph_parser(subparsers):
-    parser = subparsers.add_parser(
-        "callgraph", help="Extract call graphs from Python code"
-    )
+    parser = subparsers.add_parser("callgraph", help="Extract call graphs from Python code")
 
     parser.add_argument(
         "input",
@@ -267,13 +257,9 @@ def add_callgraph_parser(subparsers):
         ),
     )
 
-    parser.add_argument(
-        "--output", "-o", type=Path, help="Output file (default: stdout)"
-    )
+    parser.add_argument("--output", "-o", type=Path, help="Output file (default: stdout)")
 
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose output"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
 
     parser.add_argument(
         "--context-sensitive",

@@ -16,8 +16,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         depth = 120
         lines = ["def target(): return 1", "def f0(value): return value"]
         lines.extend(
-            f"def f{index}(value): return f{index - 1}(value)"
-            for index in range(1, depth)
+            f"def f{index}(value): return f{index - 1}(value)" for index in range(1, depth)
         )
         lines.append(f"f{depth - 1}(target)")
         source = "\n".join(lines)
@@ -40,9 +39,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         semi_naive_graph = semi_naive.build().get()
 
         self.assertEqual(semi_naive_graph, legacy_graph)
-        self.assertLess(
-            semi_naive.fixpoint_iterations, legacy.fixpoint_iterations
-        )
+        self.assertLess(semi_naive.fixpoint_iterations, legacy.fixpoint_iterations)
         self.assertGreater(semi_naive.solver_stats.semi_naive_constraints, 0)
         self.assertGreater(semi_naive.solver_stats.semi_naive_facts, 0)
 
@@ -78,9 +75,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
             options=AnalysisOptions(max_concrete_string_length=4),
         )
 
-        combined = builder._combine_string_values(
-            {make_string("abcd")}, {make_string("e")}
-        )
+        combined = builder._combine_string_values({make_string("abcd")}, {make_string("e")})
 
         self.assertEqual(combined, {UNKNOWN_VALUE})
 
@@ -92,9 +87,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            strict_builder._combine_string_values(
-                {make_string("abcd")}, {make_string("e")}
-            ),
+            strict_builder._combine_string_values({make_string("abcd")}, {make_string("e")}),
             {make_string("abcde")},
         )
 
@@ -102,15 +95,12 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         builder = ConstraintCallGraphBuilder("")
 
         self.assertEqual(
-            builder._combine_string_values(
-                {make_string("#1")}, {make_string("#2")}
-            ),
+            builder._combine_string_values({make_string("#1")}, {make_string("#2")}),
             {make_string("#int")},
         )
 
     def test_high_fanout_callsites_converge(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def f0(): return 0
             def f1(): return 1
             def f2(): return 2
@@ -123,8 +113,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
 
             def run():
                 call_all([f0, f1, f2, f3, f4])
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -138,8 +127,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         self.assertGreater(builder.solver_stats.iterations, 0)
 
     def test_deep_context_chains_respect_context_budget(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def id_fn(fn):
                 return fn
 
@@ -150,8 +138,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
 
             def run():
                 id_fn(a); id_fn(b); id_fn(c); id_fn(d)
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -166,8 +153,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         self.assertGreaterEqual(builder.solver_stats.contexts_capped, 1)
 
     def test_reflective_dispatch_converges_with_dynamic_summaries(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Box:
                 pass
 
@@ -184,8 +170,7 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
             install(box, "do", a)
             run(box, "do")
             run(box, "unknown")
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(requeue_policy="priority", emit_solver_stats=True),

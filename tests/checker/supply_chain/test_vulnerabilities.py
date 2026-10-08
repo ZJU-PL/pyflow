@@ -188,8 +188,7 @@ def test_osv_database_can_be_pinned_to_an_external_trusted_digest(tmp_path):
 
     assert not any("trusted-digest" in finding.kind for finding in accepted)
     assert any(
-        finding.kind == "vulnerability-database-trusted-digest-mismatch"
-        for finding in rejected
+        finding.kind == "vulnerability-database-trusted-digest-mismatch" for finding in rejected
     )
 
 
@@ -230,14 +229,10 @@ def test_vex_not_affected_suppresses_vulnerability(tmp_path):
         encoding="utf-8",
     )
 
-    findings = audit_vulnerabilities(
-        scan_targets([requirements]), [osv], vex_documents=[vex]
-    )
+    findings = audit_vulnerabilities(scan_targets([requirements]), [osv], vex_documents=[vex])
 
     assert not any(finding.kind == "known-vulnerability" for finding in findings)
-    assert any(
-        finding.kind == "vulnerability-suppressed-by-vex" for finding in findings
-    )
+    assert any(finding.kind == "vulnerability-suppressed-by-vex" for finding in findings)
 
 
 def test_vex_requires_justification_before_suppressing(tmp_path):
@@ -274,9 +269,7 @@ def test_vex_requires_justification_before_suppressing(tmp_path):
         encoding="utf-8",
     )
 
-    findings = audit_vulnerabilities(
-        scan_targets([requirements]), [osv], vex_documents=[vex]
-    )
+    findings = audit_vulnerabilities(scan_targets([requirements]), [osv], vex_documents=[vex])
     kinds = {finding.kind for finding in findings}
 
     assert "vex-missing-justification" in kinds
@@ -318,14 +311,10 @@ def test_vex_product_substring_cannot_suppress_another_component(tmp_path):
         encoding="utf-8",
     )
 
-    findings = audit_vulnerabilities(
-        scan_targets([requirements]), [osv], vex_documents=[vex]
-    )
+    findings = audit_vulnerabilities(scan_targets([requirements]), [osv], vex_documents=[vex])
 
     assert any(finding.kind == "known-vulnerability" for finding in findings)
-    assert not any(
-        finding.kind == "vulnerability-suppressed-by-vex" for finding in findings
-    )
+    assert not any(finding.kind == "vulnerability-suppressed-by-vex" for finding in findings)
 
 
 def test_reachability_adds_non_conclusive_vulnerability_evidence(tmp_path):
@@ -383,9 +372,7 @@ def test_reachability_adds_non_conclusive_vulnerability_evidence(tmp_path):
 def test_reachability_uses_distribution_top_level_metadata(tmp_path):
     dist_info = tmp_path / "beautifulsoup4-4.0.dist-info"
     dist_info.mkdir()
-    (dist_info / "METADATA").write_text(
-        "Name: beautifulsoup4\nVersion: 4.0\n", encoding="utf-8"
-    )
+    (dist_info / "METADATA").write_text("Name: beautifulsoup4\nVersion: 4.0\n", encoding="utf-8")
     (dist_info / "top_level.txt").write_text("bs4\n", encoding="utf-8")
     (dist_info / "RECORD").write_text("", encoding="utf-8")
     (tmp_path / "app.py").write_text("import bs4\n", encoding="utf-8")

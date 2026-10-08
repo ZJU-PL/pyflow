@@ -25,9 +25,7 @@ def verify_catalog(catalog: IRCatalog) -> None:
             raise IRVerificationError(f"node has no structural semantics: {node_id}")
         for call_id in semantics.calls:
             if call_id.node != node_id:
-                raise IRVerificationError(
-                    f"call site belongs to the wrong operation: {call_id}"
-                )
+                raise IRVerificationError(f"call site belongs to the wrong operation: {call_id}")
             try:
                 call = catalog.semantics.call_site(call_id)
             except KeyError as exc:
@@ -35,14 +33,11 @@ def verify_catalog(catalog: IRCatalog) -> None:
                     f"operation refers to unknown call site: {call_id}"
                 ) from exc
             if call.operation != node_id:
-                raise IRVerificationError(
-                    f"call record belongs to the wrong operation: {call_id}"
-                )
+                raise IRVerificationError(f"call record belongs to the wrong operation: {call_id}")
         for allocation_id in semantics.allocations:
             if allocation_id.node != node_id:
                 raise IRVerificationError(
-                    "allocation site belongs to the wrong operation: "
-                    f"{allocation_id}"
+                    "allocation site belongs to the wrong operation: " f"{allocation_id}"
                 )
 
     blocks = {block_id for block_id, _block in catalog.blocks()}
@@ -58,27 +53,19 @@ def verify_catalog(catalog: IRCatalog) -> None:
     symbols = {symbol.id for symbol in catalog.symbols}
     for symbol in catalog.symbols:
         if symbol.id.scope.code not in procedures:
-            raise IRVerificationError(
-                f"symbol belongs to unknown code: {symbol.id}"
-            )
+            raise IRVerificationError(f"symbol belongs to unknown code: {symbol.id}")
         if symbol.source_symbol is not None and symbol.source_symbol not in symbols:
-            raise IRVerificationError(
-                f"symbol has unknown source binding: {symbol.id}"
-            )
+            raise IRVerificationError(f"symbol has unknown source binding: {symbol.id}")
 
     values = {value.id for value in catalog.values}
     for value in catalog.values:
         if value.id.symbol not in symbols:
-            raise IRVerificationError(
-                f"value belongs to unknown symbol: {value.id}"
-            )
+            raise IRVerificationError(f"value belongs to unknown symbol: {value.id}")
         if value.definition is not None:
             try:
                 catalog.node(value.definition)
             except KeyError as exc:
-                raise IRVerificationError(
-                    f"value has unknown definition: {value.id}"
-                ) from exc
+                raise IRVerificationError(f"value has unknown definition: {value.id}") from exc
 
     for _node_id, semantics in catalog.semantics.items():
         for identity in (*semantics.definitions, *semantics.uses):
@@ -89,6 +76,4 @@ def verify_catalog(catalog: IRCatalog) -> None:
 
     for context_id, _context in catalog.contexts():
         if context_id.code not in procedures:
-            raise IRVerificationError(
-                f"context belongs to unknown code: {context_id}"
-            )
+            raise IRVerificationError(f"context belongs to unknown code: {context_id}")

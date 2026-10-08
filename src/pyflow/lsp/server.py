@@ -131,11 +131,7 @@ class AnalysisManager:
         invalid = [path for path in roots if not Path(path).is_dir()]
         if invalid:
             raise ValueError(f"Workspace root is not a directory: {invalid[0]}")
-        files = [
-            file
-            for root in roots
-            for file in self._discover_python_files(Path(root))
-        ]
+        files = [file for root in roots for file in self._discover_python_files(Path(root))]
         if not files:
             raise ValueError("No Python files found in workspace folders")
         try:
@@ -388,9 +384,7 @@ class AnalysisManager:
             self._python_files = []
             self._loaded = False
 
-    def _configure_workspace(
-        self, workspace_roots: tuple[str, ...], root_path: str
-    ) -> int:
+    def _configure_workspace(self, workspace_roots: tuple[str, ...], root_path: str) -> int:
         """Invalidate previous analysis work and start a new analysis universe."""
         with self._state_lock:
             self._generation += 1

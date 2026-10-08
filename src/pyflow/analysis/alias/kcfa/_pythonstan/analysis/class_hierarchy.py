@@ -1,7 +1,13 @@
 from ast import stmt
 from typing import Set, Iterator
 
-from pyflow.analysis.alias.kcfa._pythonstan.ir import IRScope, IRStatement, IRFunc, IRModule, IRClass
+from pyflow.analysis.alias.kcfa._pythonstan.ir import (
+    IRScope,
+    IRStatement,
+    IRFunc,
+    IRModule,
+    IRClass,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.graph.cfg import ControlFlowGraph
 from pyflow.analysis.alias.kcfa._pythonstan.utils.toposort import topo_edges
 from pyflow.analysis.alias.kcfa._pythonstan.utils.var_collector import VarCollector
@@ -17,20 +23,22 @@ class ClosureAnalysis(AnalysisDriver):
 
     def __init__(self, config: AnalysisConfig):
         live_config = AnalysisConfig(
-            name="liveness-analysis",
-            id="LivenessAnalysis",
-            options={"type": "dataflow analysis"})
+            name="liveness-analysis", id="LivenessAnalysis", options={"type": "dataflow analysis"}
+        )
         self.liveness_analysis = DataflowAnalysisDriver[Set[stmt]](live_config)
 
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
+
         self.world = World()
 
         super().__init__(config)
-    
+
     def analyze(self, scope: IRScope, prev_results):
         scope_manager = self.world.scope_manager
         hier = self.world.class_hierarchy
-        m_edges = [(u, v) for (u, _), v in scope_manager.get_module_graph().succ_module_index.items()]
+        m_edges = [
+            (u, v) for (u, _), v in scope_manager.get_module_graph().succ_module_index.items()
+        ]
         for module in topo_edges(m_edges):
             for cls in scope_manager.get_subscopes(module):
                 if isinstance(cls, IRClass):
@@ -38,15 +46,12 @@ class ClosureAnalysis(AnalysisDriver):
                         base_name = base.id
                         ...
 
-
-
-
         scopes = scope_manager.get_scopes()
         parent_scope = {}
         subscopes = {}
-        
 
         from queue import Queue
+
         q = Queue()
 
         for scope in scopes:
@@ -56,7 +61,7 @@ class ClosureAnalysis(AnalysisDriver):
                 subscopes[scope].add(subscope)
             if len(subscopes[scope]) == 0:
                 q.put(scope)
-        
+
         while not q.empty():
             scope = q.get()
 
@@ -79,5 +84,5 @@ class ClosureAnalysis(AnalysisDriver):
                 subscopes[parent].remove(scope)
                 if len(subscopes[parent]) == 0:
                     q.put(parent)
-        
+
         self.results = None

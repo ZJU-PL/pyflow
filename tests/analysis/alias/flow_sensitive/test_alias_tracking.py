@@ -282,9 +282,10 @@ class TestAllocationSites:
 
         p._alias_locals(None, y, x)
         heap = p._heap()
-        assert p._allocation_sites[heap._local_key(None, y)] == p._allocation_sites[
-            heap._local_key(None, x)
-        ]
+        assert (
+            p._allocation_sites[heap._local_key(None, y)]
+            == p._allocation_sites[heap._local_key(None, x)]
+        )
         p._unalias_locals(None, y)
         y_new_site = p._allocation_sites[heap._local_key(None, y)]
         x_site = p._allocation_sites[heap._local_key(None, x)]
@@ -378,9 +379,7 @@ class TestHeapPolicyIntegration:
         operation = py_ast.Assign(call, [target])
         p = _problem()
         p.adapter = _NameAdapter("library_value")
-        p._heap().policy = HeapPolicy(
-            summary_return_names=frozenset({"library_value"})
-        )
+        p._heap().policy = HeapPolicy(summary_return_names=frozenset({"library_value"}))
 
         p._materialize_call_result_location(None, operation, call, 0)
 

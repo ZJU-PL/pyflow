@@ -48,10 +48,7 @@ def sast_python3_benchmark_shapes() -> CallShapeContractRegistry:
                 input_index=1,
                 index_partitions=(IndexPartition(2, frozenset({0})),),
                 assumptions=frozenset(
-                    {
-                        "SAST-Python3 fixture treats array.array output as tainted "
-                        "at even indices"
-                    }
+                    {"SAST-Python3 fixture treats array.array output as tainted " "at even indices"}
                 ),
             ),
         )

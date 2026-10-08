@@ -37,8 +37,19 @@ class BaseResolutionProcessor(Processor):
     """Expand non-type bases through ``__mro_entries__`` incrementally."""
 
     _BUILTIN_TYPE_NAMES = {
-        "bool", "bytes", "dict", "float", "frozenset", "int", "list",
-        "object", "range", "set", "str", "tuple", "type",
+        "bool",
+        "bytes",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "object",
+        "range",
+        "set",
+        "str",
+        "tuple",
+        "type",
     }
 
     def __init__(self) -> None:
@@ -47,9 +58,9 @@ class BaseResolutionProcessor(Processor):
 
     def handle_new_constraint(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        constraint: 'Constraint',
+        solver: "PointerSolver",
+        scope: "Scope",
+        constraint: "Constraint",
     ) -> bool:
         state = solver.state
         if isinstance(constraint, BaseResolutionConstraint):
@@ -77,20 +88,20 @@ class BaseResolutionProcessor(Processor):
 
     def handle_constraint(
         self,
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
-        scope: 'Scope',
-        constraint: 'Constraint',
-        pts: 'PointsToSet',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        constraint: "Constraint",
+        pts: "PointsToSet",
     ) -> bool:
         return False
 
     def _apply_base_candidates(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         constraint: BaseResolutionConstraint,
-        pts: 'PointsToSet',
+        pts: "PointsToSet",
     ) -> None:
         owner = constraint.owner
         if not isinstance(owner, ClassObject):
@@ -115,20 +126,13 @@ class BaseResolutionProcessor(Processor):
             if call_key in self._scheduled_calls:
                 continue
             self._scheduled_calls.add(call_key)
-            token = (
-                f"{stable_token(owner)}@{constraint.position}@"
-                f"{stable_token(base_obj)}"
-            )
+            token = f"{stable_token(owner)}@{constraint.position}@" f"{stable_token(base_obj)}"
             receiver = Variable(
                 name=f"$mro_entries_receiver@{token}",
                 kind=VariableKind.TEMPORARY,
             )
-            receiver_ctx = solver.state.get_variable(
-                scope, scope.context, receiver
-            )
-            solver.handle_new_points_to(
-                receiver_ctx, scope, PointsToSet.singleton(base_obj)
-            )
+            receiver_ctx = solver.state.get_variable(scope, scope.context, receiver)
+            solver.handle_new_points_to(receiver_ctx, scope, PointsToSet.singleton(base_obj))
             method = Variable(
                 name=f"$mro_entries_method@{token}",
                 kind=VariableKind.TEMPORARY,
@@ -157,9 +161,7 @@ class BaseResolutionProcessor(Processor):
                     call_site=self._call_site(owner, constraint.position),
                 ),
             )
-            result_ctx = solver.state.get_variable(
-                scope, scope.context, result
-            )
+            result_ctx = solver.state.get_variable(scope, scope.context, result)
             solver.state.dependencies.subscribe(
                 ("mro-entries-result", owner, constraint.position, result_ctx),
                 (result_ctx,),
@@ -183,11 +185,11 @@ class BaseResolutionProcessor(Processor):
 
     def _apply_result_candidates(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         owner: ClassObject,
         position: int,
-        pts: 'PointsToSet',
+        pts: "PointsToSet",
     ) -> None:
         if not isinstance(owner, ClassObject):
             return
@@ -212,9 +214,7 @@ class BaseResolutionProcessor(Processor):
                 )
                 continue
             if tuple_length == 0:
-                solver.state.record_effective_base_sequence(
-                    owner, position, ()
-                )
+                solver.state.record_effective_base_sequence(owner, position, ())
                 continue
 
             elements = tuple(
@@ -229,16 +229,11 @@ class BaseResolutionProcessor(Processor):
             )
             for index, element_var in enumerate(elements):
                 field = key(index) if solver.config.index_sensitive else elem()
-                field_ctx = solver.state.get_field(
-                    scope, scope.context, result_obj, field
-                )
-                element_ctx = solver.state.get_variable(
-                    scope, scope.context, element_var
-                )
+                field_ctx = solver.state.get_field(scope, scope.context, result_obj, field)
+                element_ctx = solver.state.get_variable(scope, scope.context, element_var)
                 solver.state._add_var_points_flow(field_ctx, element_ctx)
             element_contexts = tuple(
-                solver.state.get_variable(scope, scope.context, element)
-                for element in elements
+                solver.state.get_variable(scope, scope.context, element) for element in elements
             )
             solver.state.dependencies.subscribe(
                 ("mro-entries-elements", owner, position, result_obj),
@@ -247,14 +242,12 @@ class BaseResolutionProcessor(Processor):
                     solver, scope, owner, position, elements
                 ),
             )
-            self._refresh_element_sequences(
-                solver, scope, owner, position, elements
-            )
+            self._refresh_element_sequences(solver, scope, owner, position, elements)
 
     def _refresh_element_sequences(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         owner: ClassObject,
         position: int,
         elements: tuple[Variable, ...],
@@ -263,9 +256,7 @@ class BaseResolutionProcessor(Processor):
             return
         position_options = []
         for element_var in elements:
-            element_ctx = solver.state.get_variable(
-                scope, scope.context, element_var
-            )
+            element_ctx = solver.state.get_variable(scope, scope.context, element_var)
             pts = solver.state.get_points_to(element_ctx)
             if pts.is_empty():
                 return
@@ -295,24 +286,19 @@ class BaseResolutionProcessor(Processor):
             )
             for options in position_options:
                 for base_obj in options:
-                    solver.state.record_effective_base_sequence(
-                        owner, position, (base_obj,)
-                    )
+                    solver.state.record_effective_base_sequence(owner, position, (base_obj,))
             return
 
         for sequence in product(*position_options):
-            solver.state.record_effective_base_sequence(
-                owner, position, tuple(sequence)
-            )
+            solver.state.record_effective_base_sequence(owner, position, tuple(sequence))
 
     @staticmethod
-    def _is_builtin_type(base_obj: 'AbstractObject') -> bool:
+    def _is_builtin_type(base_obj: "AbstractObject") -> bool:
         if isinstance(base_obj, BuiltinClassObject):
             return True
         return (
             isinstance(base_obj, BuiltinFunctionObject)
-            and base_obj.function_name
-            in BaseResolutionProcessor._BUILTIN_TYPE_NAMES
+            and base_obj.function_name in BaseResolutionProcessor._BUILTIN_TYPE_NAMES
         )
 
     @staticmethod
@@ -337,7 +323,7 @@ class BaseResolutionProcessor(Processor):
 
     @staticmethod
     def _mark_incomplete(
-        solver: 'PointerSolver',
+        solver: "PointerSolver",
         owner: ClassObject,
         message: str,
     ) -> None:

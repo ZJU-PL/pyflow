@@ -7,9 +7,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.state import W
 
 
 class TestDynamicFeatureSupport:
-    def test_semantic_results_are_stable_under_random_worklist_orders(
-        self, monkeypatch
-    ):
+    def test_semantic_results_are_stable_under_random_worklist_orders(self, monkeypatch):
         source = """
 class Left:
     value = object()
@@ -218,10 +216,7 @@ descriptor = A.field
         result = PointerAnalysis(source, k=1).run()
 
         assert result.points_to("x") == result.points_to("sentinel")
-        assert any(
-            "<slot:__main__.A.field>" in value
-            for value in result.points_to("descriptor")
-        )
+        assert any("<slot:__main__.A.field>" in value for value in result.points_to("descriptor"))
 
     def test_slots_reject_ordinary_undeclared_instance_cell(self):
         source = """
@@ -599,9 +594,7 @@ y = super(Start, receiver).x
         assert result.points_to_query("y").complete is True
 
     def test_constant_eval_flows_to_call_result(self):
-        result = PointerAnalysis(
-            'sentinel = object()\ny = eval("sentinel")\n', k=1
-        ).run()
+        result = PointerAnalysis('sentinel = object()\ny = eval("sentinel")\n', k=1).run()
 
         assert result.points_to("y") == result.points_to("sentinel")
 

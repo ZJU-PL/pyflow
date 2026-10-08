@@ -40,7 +40,6 @@ from .resolution.hierarchy import ClassHierarchy
 from .runtime.intrinsics import IntrinsicManager
 from .runtime.objects import ObjectManager
 
-
 # Cap for the per-instance filename normalization cache.  A run touches at most
 # one entry per distinct source path, so this only guards long-lived processes.
 _MAX_NORMALIZED_FILENAMES = 8192
@@ -120,12 +119,8 @@ class Extractor:
         self.compiler = compiler
         self.verbose = verbose
         self.defer_semantics = defer_semantics
-        self.source_code = (
-            source_code  # Can be a single string or dict of {filename: source}
-        )
-        self.analysis_root = (
-            os.path.realpath(analysis_root) if analysis_root else None
-        )
+        self.source_code = source_code  # Can be a single string or dict of {filename: source}
+        self.analysis_root = os.path.realpath(analysis_root) if analysis_root else None
         if self.analysis_root is None and isinstance(source_code, dict):
             self.analysis_root = _infer_analysis_root(list(source_code.keys()))
         self.functions = []
@@ -158,9 +153,7 @@ class Extractor:
 
         # Initialize class hierarchy for cross-module analysis
         self.class_hierarchy = ClassHierarchy(verbose=verbose)
-        self.cross_module_resolver = CrossModuleResolver(
-            self.class_hierarchy, verbose=verbose
-        )
+        self.cross_module_resolver = CrossModuleResolver(self.class_hierarchy, verbose=verbose)
 
     def _record_file_diagnostic(
         self, filename: str, stage: str, error: BaseException
@@ -172,9 +165,7 @@ class Extractor:
             message=str(error),
             line=getattr(error, "lineno", None),
             column=getattr(error, "offset", None),
-            traceback="".join(
-                traceback.format_exception(type(error), error, error.__traceback__)
-            ),
+            traceback="".join(traceback.format_exception(type(error), error, error.__traceback__)),
         )
         self.diagnostics.append(diagnostic)
         return diagnostic
@@ -277,9 +268,7 @@ class Extractor:
                     print(f"Processing file: {filename}")
 
                 try:
-                    file_program = self.extract_from_source(
-                        source, filename, reset_telemetry=False
-                    )
+                    file_program = self.extract_from_source(source, filename, reset_telemetry=False)
                     # Add extracted functions to combined program
                     if hasattr(file_program, "liveCode") and file_program.liveCode:
                         if (
@@ -296,12 +285,8 @@ class Extractor:
         finally:
             self._batch_extraction = previous_batch
 
-        combined_program.frontend_telemetry = (
-            self.function_extractor.ast_converter.get_telemetry()
-        )
-        combined_program.frontend_diagnostics = tuple(
-            self.diagnostics[diagnostic_start:]
-        )
+        combined_program.frontend_telemetry = self.function_extractor.ast_converter.get_telemetry()
+        combined_program.frontend_diagnostics = tuple(self.diagnostics[diagnostic_start:])
         combined_program.class_hierarchy = self.class_hierarchy
         combined_program.cross_module_resolver = self.cross_module_resolver
         return combined_program
@@ -357,12 +342,8 @@ class Extractor:
             build_program_semantics(program)
 
         if self.verbose:
-            print(
-                f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions"
-            )
-            print(
-                f"DEBUG: Class hierarchy has {len(self.class_hierarchy.classes)} classes"
-            )
+            print(f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions")
+            print(f"DEBUG: Class hierarchy has {len(self.class_hierarchy.classes)} classes")
 
         return program
 
@@ -628,9 +609,7 @@ class Extractor:
         )
         return self._code_by_source.get(key)
 
-    def makeImaginary(
-        self, name: str, t: AbstractObject, preexisting: bool
-    ) -> ImaginaryObject:
+    def makeImaginary(self, name: str, t: AbstractObject, preexisting: bool) -> ImaginaryObject:
         return self.object_manager.make_imaginary(name, t, preexisting)
 
     def ensureLoaded(self, obj: AbstractObject) -> None:
@@ -644,9 +623,7 @@ class Extractor:
         # analysis run.  The debug information is now only emitted when
         # self.verbose is True, consistent with the rest of the class.
         if self.verbose:
-            print(
-                f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}"
-            )
+            print(f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}")
             if isinstance(self.source_code, dict):
                 print(f"DEBUG: source_code keys: {list(self.source_code.keys())}")
         return self.object_manager.get_call(obj, self.source_code)

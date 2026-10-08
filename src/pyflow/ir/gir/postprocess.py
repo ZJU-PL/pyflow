@@ -76,14 +76,8 @@ def _adjust_python_self(
     if isinstance(obj, list):
         for i, item in enumerate(obj):
             if isinstance(item, (list, dict)):
-                _adjust_python_self(
-                    item, first_parameter_name, new_name, under_class_decl
-                )
-            elif (
-                under_class_decl
-                and isinstance(item, str)
-                and item == first_parameter_name
-            ):
+                _adjust_python_self(item, first_parameter_name, new_name, under_class_decl)
+            elif under_class_decl and isinstance(item, str) and item == first_parameter_name:
                 obj[i] = new_name
         return
 
@@ -96,14 +90,8 @@ def _adjust_python_self(
                     decl = each_method.get("method_decl", {})
                     if "attrs" not in decl:
                         continue
-                    if (
-                        first_one
-                        and "body" in decl
-                        and "staticmethod" not in decl["attrs"]
-                    ):
-                        _adjust_python_self(
-                            decl["body"], first_one, under_class_decl=True
-                        )
+                    if first_one and "body" in decl and "staticmethod" not in decl["attrs"]:
+                        _adjust_python_self(decl["body"], first_one, under_class_decl=True)
             return
         if "method_decl" in obj:
             decl = obj["method_decl"]
@@ -117,14 +105,8 @@ def _adjust_python_self(
             if key == "attrs":
                 continue
             if isinstance(value, (list, dict)):
-                _adjust_python_self(
-                    value, first_parameter_name, new_name, under_class_decl
-                )
-            elif (
-                first_parameter_name
-                and isinstance(value, str)
-                and value == first_parameter_name
-            ):
+                _adjust_python_self(value, first_parameter_name, new_name, under_class_decl)
+            elif first_parameter_name and isinstance(value, str) and value == first_parameter_name:
                 obj[key] = new_name
 
 
@@ -310,9 +292,7 @@ def adjust_variable_decls(
                         if p_key == "parameter_decl":
                             method_vars[param[p_key]["name"]] = True
             if "body" in value and value["body"]:
-                sub_frames.append(
-                    StackFrame(stmts=value["body"], variables=method_vars)
-                )
+                sub_frames.append(StackFrame(stmts=value["body"], variables=method_vars))
 
         elif key == "variable_decl":
             _process_variable_decl(
@@ -372,10 +352,7 @@ def add_main_func(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         stmt = rows[index]
         last_stmt_id = max(last_stmt_id, stmt["stmt_id"])
         if stmt["parent_stmt_id"] == 0:
-            if (
-                stmt["operation"].endswith("_decl")
-                or stmt["operation"] in _EXCLUDED_TOP_LEVEL_OPS
-            ):
+            if stmt["operation"].endswith("_decl") or stmt["operation"] in _EXCLUDED_TOP_LEVEL_OPS:
                 regular_stmts.append(stmt)
                 index += 1
             else:

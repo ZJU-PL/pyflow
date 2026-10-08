@@ -28,9 +28,7 @@ def publish_alias_facts(catalog, graph, heap, codes) -> None:
                 continue
             symbol = catalog.symbol_id(node, code)
             references[symbol]
-            references[symbol].update(
-                heap.locations_for_local(code, node)
-            )
+            references[symbol].update(heap.locations_for_local(code, node))
 
     precision: dict[object, FactResult] = {}
     for _operation, identity in graph.operation_identities.items():

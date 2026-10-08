@@ -36,9 +36,7 @@ __all__ = [
 ]
 
 
-def _finish_gir(
-    tree: List[Dict[str, Any]], module_id: str, start_id: int
-) -> List[Dict[str, Any]]:
+def _finish_gir(tree: List[Dict[str, Any]], module_id: str, start_id: int) -> List[Dict[str, Any]]:
     unify_python_self(tree)
     adjust_variable_decls(tree)
     _, rows = GirFlattener(start_id=start_id).flatten(tree)
@@ -47,9 +45,7 @@ def _finish_gir(
     return rows
 
 
-def build_gir(
-    code: "ast.Code", module_id: str, *, start_id: int = 1
-) -> List[Dict[str, Any]]:
+def build_gir(code: "ast.Code", module_id: str, *, start_id: int = 1) -> List[Dict[str, Any]]:
     """Run the full GIR lowering pipeline over a pyflow Code object.
 
     Returns flattened GIR rows (dicts) stamped with ``module_id``.

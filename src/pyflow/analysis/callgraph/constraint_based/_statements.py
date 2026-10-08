@@ -20,7 +20,6 @@ from .model import (
     make_func,
 )
 
-
 _BlockResult = Tuple[
     Dict[str, Set[AbstractValue]],
     Set[AbstractValue],
@@ -46,9 +45,7 @@ class _BlockState:
     env: Dict[str, Set[AbstractValue]]
     returns: Set[AbstractValue] = field(default_factory=set)
     callees: Set[str] = field(default_factory=set)
-    input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = field(
-        default_factory=set
-    )
+    input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = field(default_factory=set)
     changed_instance_fields: Set[Tuple[str, str]] = field(default_factory=set)
     changed_class_fields: Set[Tuple[str, str]] = field(default_factory=set)
     global_writes: Dict[str, Set[AbstractValue]] = field(default_factory=dict)
@@ -206,9 +203,7 @@ class _StatementAnalysisMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            value = self._filter_values_by_annotation(
-                scope.module, stmt.annotation, value
-            )
+            value = self._filter_values_by_annotation(scope.module, stmt.annotation, value)
             self._assign_target(
                 scope,
                 stmt.target,
@@ -366,12 +361,8 @@ class _StatementAnalysisMixin:
             callees,
             input_changed_scope_contexts,
         )
-        then_entry_env = self._refine_env_for_test(
-            scope, scope_context, stmt.test, env, True
-        )
-        else_entry_env = self._refine_env_for_test(
-            scope, scope_context, stmt.test, env, False
-        )
+        then_entry_env = self._refine_env_for_test(scope, scope_context, stmt.test, env, True)
+        else_entry_env = self._refine_env_for_test(scope, scope_context, stmt.test, env, False)
         (
             then_env,
             then_ret,
@@ -613,12 +604,8 @@ class _StatementAnalysisMixin:
             callees,
             input_changed_scope_contexts,
         )
-        body_entry_env = self._refine_env_for_test(
-            scope, scope_context, stmt.test, env, True
-        )
-        else_entry_env = self._refine_env_for_test(
-            scope, scope_context, stmt.test, env, False
-        )
+        body_entry_env = self._refine_env_for_test(scope, scope_context, stmt.test, env, True)
+        else_entry_env = self._refine_env_for_test(scope, scope_context, stmt.test, env, False)
         (
             body_env,
             body_ret,
@@ -837,8 +824,7 @@ class _StatementAnalysisMixin:
             self._merge_value_maps(global_writes, final_globals)
             self._merge_value_maps(nonlocal_writes, final_nonlocals)
             falls_through = final_fallthrough and (
-                (body_fallthrough and (not stmt.orelse or else_fallthrough))
-                or handler_fallthrough
+                (body_fallthrough and (not stmt.orelse or else_fallthrough)) or handler_fallthrough
             )
         else:
             env = before_final_env if before_final_env else copy_env(env)
@@ -1293,8 +1279,7 @@ class _StatementAnalysisMixin:
             if scope.name not in self.modules:
                 capture_env = (
                     class_definition_env
-                    if scope.class_owner is not None
-                    and class_definition_env is not None
+                    if scope.class_owner is not None and class_definition_env is not None
                     else env
                 )
                 callee_context = self._normalize_context_for_scope(
@@ -1304,8 +1289,7 @@ class _StatementAnalysisMixin:
                             *scope_context,
                             f"def@{scope.name}:{getattr(stmt, 'lineno', -1)}",
                         )[-self.options.context_depth :]
-                        if self.options.context_sensitive
-                        and self.options.context_depth > 0
+                        if self.options.context_sensitive and self.options.context_depth > 0
                         else GLOBAL_CONTEXT
                     ),
                 )
@@ -1375,8 +1359,7 @@ class _StatementAnalysisMixin:
                 class_info = self.classes[qualname]
                 capture_env = (
                     class_definition_env
-                    if scope.class_owner is not None
-                    and class_definition_env is not None
+                    if scope.class_owner is not None and class_definition_env is not None
                     else env
                 )
                 callee_context = self._normalize_context_for_scope(
@@ -1386,14 +1369,12 @@ class _StatementAnalysisMixin:
                             *scope_context,
                             f"class@{scope.name}:{getattr(stmt, 'lineno', -1)}",
                         )[-self.options.context_depth :]
-                        if self.options.context_sensitive
-                        and self.options.context_depth > 0
+                        if self.options.context_sensitive and self.options.context_depth > 0
                         else GLOBAL_CONTEXT
                     ),
                 )
                 captured = {
-                    name: set(capture_env.get(name, set()))
-                    for name in class_info.closure_vars
+                    name: set(capture_env.get(name, set())) for name in class_info.closure_vars
                 }
                 if class_info.closure_vars and self._bind_closure_values(
                     qualname,

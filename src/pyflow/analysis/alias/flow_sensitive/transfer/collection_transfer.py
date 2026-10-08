@@ -58,9 +58,7 @@ class _CollectionMutationMixin:
         """Move every currently stored element into the wildcard may-set."""
         call = self._call_expression(operation)
         container = None
-        if isinstance(
-            operation, (py_ast.SetSlice, py_ast.DeleteSlice, py_ast.DeleteSubscript)
-        ):
+        if isinstance(operation, (py_ast.SetSlice, py_ast.DeleteSlice, py_ast.DeleteSubscript)):
             container = operation.expr
         elif call is not None:
             model = self.intrinsics.collection_mutator(resolve_call_name(call))
@@ -77,9 +75,7 @@ class _CollectionMutationMixin:
         if container is None:
             return
         evaluated = (
-            self._last_call_operands.get(
-                self._program_point_identity(procedure, call), {}
-            )
+            self._last_call_operands.get(self._program_point_identity(procedure, call), {})
             if call is not None
             else {}
         )

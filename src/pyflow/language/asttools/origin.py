@@ -63,9 +63,7 @@ def originString(origin):
 #   col: Column number (0-indexed, or None/negative if unknown)
 # Methods:
 #   originString(): Returns formatted string representation
-Origin = namedtuple(
-    "Origin", "name filename lineno col", dict(originString=originString)
-)
+Origin = namedtuple("Origin", "name filename lineno col", dict(originString=originString))
 
 
 @dataclass(frozen=True)

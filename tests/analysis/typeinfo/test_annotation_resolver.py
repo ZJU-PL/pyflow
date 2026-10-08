@@ -26,7 +26,6 @@ from pyflow.analysis.typeinfo.resolution.annotations import (
     resolve_forward_reference,
 )
 
-
 # ---------------------------------------------------------------------------
 # Type lookup fixture
 # ---------------------------------------------------------------------------
@@ -195,10 +194,7 @@ def test_resolve_optional_int() -> None:
 def test_resolve_typing_optional_int() -> None:
     result = resolve_annotation("typing.Optional[int]", _BASIC_LOOKUP)
     assert isinstance(result, UnionType)
-    item_types = {
-        i.type.raw_type if isinstance(i, Instance) else type(None)
-        for i in result.items
-    }
+    item_types = {i.type.raw_type if isinstance(i, Instance) else type(None) for i in result.items}
     assert int in item_types
     assert type(None) in item_types
 
@@ -283,9 +279,7 @@ def test_resolve_callable_signature() -> None:
 def test_unresolved_nested_annotation_parts_preserve_shape() -> None:
     union = resolve_annotation("Union[int, Missing]", _BASIC_LOOKUP)
     tuple_ = resolve_annotation("Tuple[int, Missing]", _BASIC_LOOKUP)
-    callable_ = resolve_annotation(
-        "Callable[[int, Missing], str]", _BASIC_LOOKUP
-    )
+    callable_ = resolve_annotation("Callable[[int, Missing], str]", _BASIC_LOOKUP)
     generic = resolve_annotation("list[Missing]", _BASIC_LOOKUP)
 
     assert isinstance(union, UnionType) and ANY in union.items

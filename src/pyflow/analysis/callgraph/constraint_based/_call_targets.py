@@ -176,10 +176,7 @@ class _CallTargetMixin:
                 if (
                     caller_is_root_context
                     and is_parameter_name
-                    and (
-                        unresolved_name not in env
-                        or not env.get(unresolved_name, set())
-                    )
+                    and (unresolved_name not in env or not env.get(unresolved_name, set()))
                 ):
                     # In root/unbound contexts, parameter call targets are not
                     # known yet. Defer emitting dynamic edges until bindings arrive.
@@ -225,9 +222,7 @@ class _CallTargetMixin:
                                 arg_values[0], attr_names, set(arg_values[2])
                             )
                         elif callee_name == "<builtin>.delattr":
-                            self._mark_attribute_maybe_missing(
-                                arg_values[0], attr_names
-                            )
+                            self._mark_attribute_maybe_missing(arg_values[0], attr_names)
                     out.add(NONE_VALUE)
                 elif callee_name in {
                     "<builtin>.hasattr",
@@ -377,9 +372,7 @@ class _CallTargetMixin:
                                     scope_context=caller_context,
                                     env=env,
                                     callees=callees,
-                                    input_changed_scope_contexts=(
-                                        input_changed_scope_contexts
-                                    ),
+                                    input_changed_scope_contexts=(input_changed_scope_contexts),
                                 )
                             )
                     elif method_name == "insert":
@@ -398,9 +391,7 @@ class _CallTargetMixin:
                                 call_node=call_node,
                                 env=env,
                                 callees=callees,
-                                input_changed_scope_contexts=(
-                                    input_changed_scope_contexts
-                                ),
+                                input_changed_scope_contexts=(input_changed_scope_contexts),
                                 callback_values=sort_callbacks,
                             )
                     for receiver in receiver_values:
@@ -412,13 +403,9 @@ class _CallTargetMixin:
                                 incoming_values,
                                 preserve_callables=True,
                             ):
-                                self._note_container_state_changed(
-                                    receiver.name, "*"
-                                )
+                                self._note_container_state_changed(receiver.name, "*")
                         if method_name in {"pop", "popleft"}:
-                            out.update(
-                                self.container_elements.get(receiver.name, set())
-                            )
+                            out.update(self.container_elements.get(receiver.name, set()))
                     if method_name not in {"pop", "popleft"}:
                         out.add(NONE_VALUE)
                 elif callee_name in {
@@ -525,17 +512,9 @@ class _CallTargetMixin:
                     # Task/future wrappers preserve coroutine identities so a
                     # later await can materialize the original async body.
                     for values in arg_values:
-                        out.update(
-                            value
-                            for value in values
-                            if value.kind == COROUTINE_KIND
-                        )
+                        out.update(value for value in values if value.kind == COROUTINE_KIND)
                     for values in star_arg_values:
-                        out.update(
-                            value
-                            for value in values
-                            if value.kind == COROUTINE_KIND
-                        )
+                        out.update(value for value in values if value.kind == COROUTINE_KIND)
                     if not out:
                         out.add(UNKNOWN_VALUE)
                 elif callee_name in {
@@ -575,9 +554,7 @@ class _CallTargetMixin:
                                 caller_scope=caller_scope,
                                 caller_context=caller_context,
                                 env=env,
-                                input_changed_scope_contexts=(
-                                    input_changed_scope_contexts
-                                ),
+                                input_changed_scope_contexts=(input_changed_scope_contexts),
                             )
                         )
                     if not out:
@@ -612,9 +589,7 @@ class _CallTargetMixin:
                     if len(arg_values) > callback_index:
                         async_callback_values.update(arg_values[callback_index])
                     async_callback_values = {
-                        value
-                        for value in async_callback_values
-                        if self._is_callable_value(value)
+                        value for value in async_callback_values if self._is_callable_value(value)
                     }
                     if async_callback_values:
                         out.update(
@@ -624,9 +599,7 @@ class _CallTargetMixin:
                                 call_node=call_node,
                                 env=env,
                                 callees=callees,
-                                input_changed_scope_contexts=(
-                                    input_changed_scope_contexts
-                                ),
+                                input_changed_scope_contexts=(input_changed_scope_contexts),
                                 callback_values=async_callback_values,
                             )
                         )
@@ -659,9 +632,7 @@ class _CallTargetMixin:
                     discard_direct_callee(callee_name)
                     matched_targets: Set[AbstractValue] = set()
                     first_arg_values = arg_values[0] if arg_values else set()
-                    registrations = self.singledispatch_registrations.get(
-                        callee_name, []
-                    )
+                    registrations = self.singledispatch_registrations.get(callee_name, [])
                     has_unmatched_runtime = not first_arg_values
                     for value in first_arg_values:
                         matched_for_value = False
@@ -674,9 +645,7 @@ class _CallTargetMixin:
                             matched_for_value = True
                         if not matched_for_value and value.kind != UNKNOWN_KIND:
                             has_unmatched_runtime = True
-                    for matched_target in sorted(
-                        matched_targets, key=lambda item: item.name
-                    ):
+                    for matched_target in sorted(matched_targets, key=lambda item: item.name):
                         out.update(
                             self._invoke_named_function(
                                 matched_target.name,
@@ -780,48 +749,32 @@ class _CallTargetMixin:
                         receiver_dicts = {
                             value.name
                             for value in receiver_values
-                            if value.kind == CONTAINER_KIND
-                            and value.name.startswith("dict:")
+                            if value.kind == CONTAINER_KIND and value.name.startswith("dict:")
                         }
                         source_dicts: Set[str] = set()
                         for values in arg_values:
                             for value in values:
-                                if (
-                                    value.kind == CONTAINER_KIND
-                                    and value.name.startswith("dict:")
-                                ):
+                                if value.kind == CONTAINER_KIND and value.name.startswith("dict:"):
                                     source_dicts.add(value.name)
                         for receiver_dict in receiver_dicts:
                             for source_dict in source_dicts:
                                 changed = self._merge_value_set(
                                     self.container_elements[receiver_dict],
-                                    set(
-                                        self.container_elements.get(source_dict, set())
-                                    ),
+                                    set(self.container_elements.get(source_dict, set())),
                                     preserve_callables=True,
                                 )
                                 if changed:
-                                    self._note_container_state_changed(
-                                        receiver_dict, "*"
-                                    )
+                                    self._note_container_state_changed(receiver_dict, "*")
                                 self._register_container_read(source_dict)
-                                source_key_map = self.container_key_values.get(
-                                    source_dict, {}
-                                )
+                                source_key_map = self.container_key_values.get(source_dict, {})
                                 for key_name, key_values in source_key_map.items():
-                                    self._register_container_read(
-                                        source_dict, {key_name}
-                                    )
+                                    self._register_container_read(source_dict, {key_name})
                                     if self._merge_value_set(
-                                        self.container_key_values[receiver_dict][
-                                            key_name
-                                        ],
+                                        self.container_key_values[receiver_dict][key_name],
                                         set(key_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed(
-                                            receiver_dict, key_name
-                                        )
+                                        self._note_container_state_changed(receiver_dict, key_name)
                     out.add(UNKNOWN_VALUE)
                 elif callee_name in {
                     "<**PyDict**>.items",
@@ -857,11 +810,8 @@ class _CallTargetMixin:
                                     matched_values.update(existing)
                                 else:
                                     maybe_missing = True
-                            maybe_missing = (
-                                maybe_missing
-                                or self._container_key_maybe_missing(
-                                    receiver.name, key_names
-                                )
+                            maybe_missing = maybe_missing or self._container_key_maybe_missing(
+                                receiver.name, key_names
                             )
                         else:
                             if key_map and len(key_map) <= 8:
@@ -890,12 +840,8 @@ class _CallTargetMixin:
                             callees,
                             input_changed_scope_contexts,
                         )
-                    key_names = (
-                        self._string_constants(arg_values[0]) if arg_values else set()
-                    )
-                    default_values = (
-                        arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
-                    )
+                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
+                    default_values = arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
                     matched_values: Set[AbstractValue] = set()
                     maybe_missing = False
                     for receiver in receiver_values:
@@ -911,34 +857,23 @@ class _CallTargetMixin:
                                 else:
                                     maybe_missing = True
                                     if self._merge_value_set(
-                                        self.container_key_values[receiver.name][
-                                            key_name
-                                        ],
+                                        self.container_key_values[receiver.name][key_name],
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed(
-                                            receiver.name, key_name
-                                        )
+                                        self._note_container_state_changed(receiver.name, key_name)
                                     if self._merge_value_set(
                                         self.container_elements[receiver.name],
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed(
-                                            receiver.name, "*"
-                                        )
-                            maybe_missing = (
-                                maybe_missing
-                                or self._container_key_maybe_missing(
-                                    receiver.name, key_names
-                                )
+                                        self._note_container_state_changed(receiver.name, "*")
+                            maybe_missing = maybe_missing or self._container_key_maybe_missing(
+                                receiver.name, key_names
                             )
                         else:
                             self._register_container_read(receiver.name)
-                            matched_values.update(
-                                self.container_elements.get(receiver.name, set())
-                            )
+                            matched_values.update(self.container_elements.get(receiver.name, set()))
                             maybe_missing = True
                     if matched_values:
                         out.update(matched_values)
@@ -955,9 +890,7 @@ class _CallTargetMixin:
                             callees,
                             input_changed_scope_contexts,
                         )
-                    key_names = (
-                        self._string_constants(arg_values[0]) if arg_values else set()
-                    )
+                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
                     default_values = arg_values[1] if len(arg_values) >= 2 else set()
                     popped_values: Set[AbstractValue] = set()
                     maybe_missing = False
@@ -973,11 +906,8 @@ class _CallTargetMixin:
                                     popped_values.update(existing)
                                 else:
                                     maybe_missing = True
-                            maybe_missing = (
-                                maybe_missing
-                                or self._container_key_maybe_missing(
-                                    receiver.name, key_names
-                                )
+                            maybe_missing = maybe_missing or self._container_key_maybe_missing(
+                                receiver.name, key_names
                             )
                         else:
                             if key_map and len(key_map) <= 8:
@@ -1069,9 +999,7 @@ class _CallTargetMixin:
 
                 if use_default_constructor and new_name is not None:
                     add_direct_callee(new_name)
-                    callee_context = self._normalize_context_for_scope(
-                        new_name, raw_context
-                    )
+                    callee_context = self._normalize_context_for_scope(new_name, raw_context)
                     if new_name in self.scopes:
                         changed = self._bind_call_arguments(
                             new_name,
@@ -1088,27 +1016,19 @@ class _CallTargetMixin:
                             callee_context,
                         ) not in self._analyzed_scope_contexts:
                             input_changed_scope_contexts.add((new_name, callee_context))
-                        self._add_call_dependency(
-                            new_name, callee_context, caller_scope_key
-                        )
-                        new_returns = set(
-                            self.scope_returns[(new_name, callee_context)]
-                        )
+                        self._add_call_dependency(new_name, callee_context, caller_scope_key)
+                        new_returns = set(self.scope_returns[(new_name, callee_context)])
                         if new_returns:
                             constructed_values = set(new_returns)
                             matching_receivers = {
                                 value
                                 for value in new_returns
                                 if value.kind == INSTANCE_KIND
-                                and self._matches_type_values(
-                                    value, {make_class(class_name)}
-                                )
+                                and self._matches_type_values(value, {make_class(class_name)})
                             }
                             if matching_receivers:
                                 init_receivers = matching_receivers
-                            elif any(
-                                value.kind == UNKNOWN_KIND for value in new_returns
-                            ):
+                            elif any(value.kind == UNKNOWN_KIND for value in new_returns):
                                 init_receivers = {instance_value}
                             else:
                                 init_receivers = set()
@@ -1120,9 +1040,7 @@ class _CallTargetMixin:
                 if use_default_constructor and init_name is not None and init_receivers:
                     add_direct_callee(init_name)
                     implicit_values = [init_receivers] + arg_values
-                    callee_context = self._normalize_context_for_scope(
-                        init_name, raw_context
-                    )
+                    callee_context = self._normalize_context_for_scope(init_name, raw_context)
                     if init_name in self.scopes:
                         changed = self._bind_call_arguments(
                             init_name,
@@ -1133,19 +1051,13 @@ class _CallTargetMixin:
                             dynamic_kwarg_values=dynamic_kwarg_values,
                         )
                         if changed:
-                            input_changed_scope_contexts.add(
-                                (init_name, callee_context)
-                            )
+                            input_changed_scope_contexts.add((init_name, callee_context))
                         if (
                             init_name,
                             callee_context,
                         ) not in self._analyzed_scope_contexts:
-                            input_changed_scope_contexts.add(
-                                (init_name, callee_context)
-                            )
-                        self._add_call_dependency(
-                            init_name, callee_context, caller_scope_key
-                        )
+                            input_changed_scope_contexts.add((init_name, callee_context))
+                        self._add_call_dependency(init_name, callee_context, caller_scope_key)
                         self._apply_callee_side_effects(init_name, callee_context, env)
 
             elif target.kind == BOUND_METHOD_KIND:
@@ -1157,15 +1069,11 @@ class _CallTargetMixin:
                     out.add(UNKNOWN_VALUE)
                     continue
                 receiver_class, receiver_alloc = parse_instance_name(receiver_instance)
-                implicit_values = [
-                    {make_instance(receiver_class, receiver_alloc)}
-                ] + arg_values
+                implicit_values = [{make_instance(receiver_class, receiver_alloc)}] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
                 )
-                callee_context = self._normalize_context_for_scope(
-                    method_name, callee_context
-                )
+                callee_context = self._normalize_context_for_scope(method_name, callee_context)
                 changed = self._bind_call_arguments(
                     method_name,
                     callee_context,
@@ -1180,18 +1088,10 @@ class _CallTargetMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 function_info = self.functions.get(method_name)
                 if function_info and function_info.is_async:
-                    out.add(
-                        self._suspended_value(
-                            COROUTINE_KIND, method_name, callee_context
-                        )
-                    )
+                    out.add(self._suspended_value(COROUTINE_KIND, method_name, callee_context))
                     continue
                 if function_info and function_info.is_generator:
-                    out.add(
-                        self._suspended_value(
-                            GENERATOR_KIND, method_name, callee_context
-                        )
-                    )
+                    out.add(self._suspended_value(GENERATOR_KIND, method_name, callee_context))
                     continue
                 self._add_call_dependency(method_name, callee_context, caller_scope_key)
                 out.update(self.scope_returns[(method_name, callee_context)])
@@ -1209,9 +1109,7 @@ class _CallTargetMixin:
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
                 )
-                callee_context = self._normalize_context_for_scope(
-                    method_name, callee_context
-                )
+                callee_context = self._normalize_context_for_scope(method_name, callee_context)
                 changed = self._bind_call_arguments(
                     method_name,
                     callee_context,
@@ -1226,18 +1124,10 @@ class _CallTargetMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 function_info = self.functions.get(method_name)
                 if function_info and function_info.is_async:
-                    out.add(
-                        self._suspended_value(
-                            COROUTINE_KIND, method_name, callee_context
-                        )
-                    )
+                    out.add(self._suspended_value(COROUTINE_KIND, method_name, callee_context))
                     continue
                 if function_info and function_info.is_generator:
-                    out.add(
-                        self._suspended_value(
-                            GENERATOR_KIND, method_name, callee_context
-                        )
-                    )
+                    out.add(self._suspended_value(GENERATOR_KIND, method_name, callee_context))
                     continue
                 self._add_call_dependency(method_name, callee_context, caller_scope_key)
                 out.update(self.scope_returns[(method_name, callee_context)])
@@ -1260,9 +1150,7 @@ class _CallTargetMixin:
                     callee_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
                     )
-                    callee_context = self._normalize_context_for_scope(
-                        call_name, callee_context
-                    )
+                    callee_context = self._normalize_context_for_scope(call_name, callee_context)
                     changed = self._bind_call_arguments(
                         call_name,
                         callee_context,
@@ -1277,26 +1165,16 @@ class _CallTargetMixin:
                         input_changed_scope_contexts.add((call_name, callee_context))
                     function_info = self.functions.get(call_name)
                     if function_info and function_info.is_async:
-                        out.add(
-                            self._suspended_value(
-                                COROUTINE_KIND, call_name, callee_context
-                            )
-                        )
+                        out.add(self._suspended_value(COROUTINE_KIND, call_name, callee_context))
                         if target_class_name not in self._invalid_mro_classes:
                             break
                         continue
                     if function_info and function_info.is_generator:
-                        out.add(
-                            self._suspended_value(
-                                GENERATOR_KIND, call_name, callee_context
-                            )
-                        )
+                        out.add(self._suspended_value(GENERATOR_KIND, call_name, callee_context))
                         if target_class_name not in self._invalid_mro_classes:
                             break
                         continue
-                    self._add_call_dependency(
-                        call_name, callee_context, caller_scope_key
-                    )
+                    self._add_call_dependency(call_name, callee_context, caller_scope_key)
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
                     if target_class_name not in self._invalid_mro_classes:
@@ -1336,9 +1214,7 @@ class _CallTargetMixin:
             reasons = unresolved_reasons or {"unresolved"}
             for reason in sorted(reasons):
                 add_direct_callee(
-                    self._dynamic_summary_node_with_reason(
-                        caller_scope, call_node, reason
-                    )
+                    self._dynamic_summary_node_with_reason(caller_scope, call_node, reason)
                 )
                 self.solver_stats.dynamic_summary_edges += 1
             out.add(UNKNOWN_VALUE)

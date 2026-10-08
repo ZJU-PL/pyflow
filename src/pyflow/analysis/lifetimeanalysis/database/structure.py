@@ -59,9 +59,7 @@ class TypeSchema(base.Schema):
             SchemaError: If value is not instance of type
         """
         if not isinstance(args, self.type_):
-            raise base.SchemaError(
-                "Expected type %r, got %r." % (self.type_, type(args))
-            )
+            raise base.SchemaError("Expected type %r, got %r." % (self.type_, type(args)))
 
     def instance(self):
         """Create instance (not supported for types).
@@ -165,9 +163,7 @@ class StructureSchema(base.Schema):
 
     def __addField(self, name, field):
         if name in self.map:
-            raise base.SchemaError(
-                "Structure has multiple definitions for name '%s'" % (name,)
-            )
+            raise base.SchemaError("Structure has multiple definitions for name '%s'" % (name,))
 
         self.fields.append((name, field))
         self.map[name] = field
@@ -185,8 +181,7 @@ class StructureSchema(base.Schema):
 
         if len(args) != len(self.fields):
             raise base.SchemaError(
-                "Structure has %d fields, but %d fields were given."
-                % (len(self.fields), len(args))
+                "Structure has %d fields, but %d fields were given." % (len(self.fields), len(args))
             )
 
         for (name, field), arg in zip(self.fields, args):
@@ -200,9 +195,7 @@ class StructureSchema(base.Schema):
         accum = []
 
         changed = False
-        for (name, fieldSchema), targetfield, argfields in zip(
-            self.fields, target, zip(*args)
-        ):
+        for (name, fieldSchema), targetfield, argfields in zip(self.fields, target, zip(*args)):
             result, fieldChanged = fieldSchema.inplaceMerge(targetfield, *argfields)
             accum.append(result)
             changed |= fieldChanged

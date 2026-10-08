@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _CWE_PATTERN = re.compile(r"^CWE-(\d+)$", re.IGNORECASE)
 
 # These are direct MITRE CWE parent relationships used by PyFlow's current

@@ -5,7 +5,7 @@ class _EnumMeta(type):
         cls._member_names_ = []
         cls._value2member_map_ = {}
         for key, value in namespace.items():
-            if not key.startswith('_') and not callable(value):
+            if not key.startswith("_") and not callable(value):
                 member = object.__new__(cls)
                 member._name_ = key
                 member._value_ = value
@@ -100,16 +100,17 @@ class _Auto:
 def verify(verification):
     def decorator(cls):
         return cls
+
     return decorator
 
 
-STRICT = 'STRICT'
-CONFORM = 'CONFORM'
-EJECT = 'EJECT'
-KEEP = 'KEEP'
-UNIQUE = 'UNIQUE'
-CONTINUOUS = 'CONTINUOUS'
-NAMED_FLAGS = 'NAMED_FLAGS'
+STRICT = "STRICT"
+CONFORM = "CONFORM"
+EJECT = "EJECT"
+KEEP = "KEEP"
+UNIQUE = "UNIQUE"
+CONTINUOUS = "CONTINUOUS"
+NAMED_FLAGS = "NAMED_FLAGS"
 
 
 class property:

@@ -38,7 +38,8 @@ def add_alias_parser(subparsers):
         help="k-CFA context sensitivity depth (kcfa engine only, default: 1)",
     )
     parser.add_argument(
-        "--recursive", "-r",
+        "--recursive",
+        "-r",
         action="store_true",
         help="Recursively analyze Python files in a directory",
     )
@@ -48,7 +49,8 @@ def add_alias_parser(subparsers):
         help="Output machine-readable JSON instead of human-friendly text",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Include per-entry details",
     )
@@ -92,6 +94,7 @@ def _convert_functions(source: str, filename: str) -> dict[str, object]:
 # Flow-sensitive (heap) engine
 # ---------------------------------------------------------------------------
 
+
 def _format_entry(entry, verbose: bool) -> str:
     loc = entry.location
     sig = "S" if entry.is_singleton else " "
@@ -102,10 +105,7 @@ def _format_entry(entry, verbose: bool) -> str:
         strong = "strong" if entry.is_strong else "weak"
         sel = getattr(loc, "selectors", ())
         sel_str = f"  selectors={list(sel)}" if sel else ""
-        return (
-            f"    [{sig}{esc}] refs={entry.ref_count} {label}  "
-            f"[{strong}]{sel_str}"
-        )
+        return f"    [{sig}{esc}] refs={entry.ref_count} {label}  " f"[{strong}]{sel_str}"
     return f"    [{sig}{esc}] refs={entry.ref_count} {label}"
 
 
@@ -145,11 +145,7 @@ def _build_alias_group_lines(all_entries, graph, verbose: bool) -> list[str]:
             if graph.may_alias(a_entry.location, b_entry.location):
                 a_labels = ", ".join(sorted(e.label for e in groups[group_keys[i]]))
                 b_labels = ", ".join(sorted(e.label for e in groups[group_keys[j]]))
-                exact = (
-                    "≡"
-                    if graph.must_alias(a_entry.location, b_entry.location)
-                    else "~"
-                )
+                exact = "≡" if graph.must_alias(a_entry.location, b_entry.location) else "~"
                 may_pairs.append((f"{{{a_labels}}}", f"{{{b_labels}}}", exact))
 
     if may_pairs:
@@ -207,10 +203,12 @@ def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
         group_count = len(seen_groups)
 
         print(f"  {func_name}({', '.join(param_names)})")
-        print(f"    entries={len(all_entries)}  "
-              f"singletons={singleton_count}  "
-              f"escaped={escaped_count}  "
-              f"alias-groups={group_count}")
+        print(
+            f"    entries={len(all_entries)}  "
+            f"singletons={singleton_count}  "
+            f"escaped={escaped_count}  "
+            f"alias-groups={group_count}"
+        )
 
         for entry in all_entries:
             print(_format_entry(entry, verbose))
@@ -225,11 +223,11 @@ def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
 
 def _to_json_entry_flow_sensitive(entry, graph) -> dict:
     must_aliases = sorted(
-        e.label for e in graph.iter_entries()
-        if graph.must_alias(e.location, entry.location)
+        e.label for e in graph.iter_entries() if graph.must_alias(e.location, entry.location)
     )
     may_aliases = sorted(
-        e.label for e in graph.iter_entries()
+        e.label
+        for e in graph.iter_entries()
         if graph.may_alias(e.location, entry.location)
         and not graph.must_alias(e.location, entry.location)
     )
@@ -272,6 +270,7 @@ def _analyze_file_flow_sensitive_json(filepath: Path) -> dict:
 # ---------------------------------------------------------------------------
 # k-CFA pointer engine
 # ---------------------------------------------------------------------------
+
 
 def _analyze_file_kcfa(filepath: Path, k: int, verbose: bool) -> None:
     source = filepath.read_text()
@@ -332,9 +331,7 @@ def _analyze_file_kcfa_json(filepath: Path, k: int) -> dict:
         return result_data
 
     call_edges = result.call_edges()
-    result_data["call_edges"] = [
-        {"caller": c, "callee": t} for c, t in call_edges
-    ]
+    result_data["call_edges"] = [{"caller": c, "callee": t} for c, t in call_edges]
 
     variables: dict[str, object] = {}
     for name in sorted(_collect_variable_names(source)):
@@ -356,6 +353,7 @@ def _analyze_file_kcfa_json(filepath: Path, k: int) -> dict:
 # Top-level driver
 # ---------------------------------------------------------------------------
 
+
 def run_alias_analysis(input_path: str, args) -> int:
     engine: str = getattr(args, "engine", "flow-sensitive")
     k: int = getattr(args, "k", 1)
@@ -376,6 +374,7 @@ def run_alias_analysis(input_path: str, args) -> int:
     if engine == "kcfa":
         if json_mode:
             import json
+
             all_results: list[dict] = []
             for filepath in files:
                 all_results.append(_analyze_file_kcfa_json(filepath, k))
@@ -386,6 +385,7 @@ def run_alias_analysis(input_path: str, args) -> int:
     else:
         if json_mode:
             import json
+
             all_results: list[dict] = []
             for filepath in files:
                 all_results.append(_analyze_file_flow_sensitive_json(filepath))

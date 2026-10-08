@@ -4,8 +4,10 @@ def func1():
 
     return dec
 
+
 @func1()
 def func2():
     pass
+
 
 func2()

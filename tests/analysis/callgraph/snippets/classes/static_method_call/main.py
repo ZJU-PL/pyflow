@@ -3,4 +3,5 @@ class MyClass:
     def func():
         pass
 
+
 MyClass.func()

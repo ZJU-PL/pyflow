@@ -4,6 +4,7 @@ from pyflow.analysis.ipa.escape import objectescape
 from pyflow.analysis.ipa.constraints import qualifiers
 import unittest
 
+
 class TestObjectEscape(TestIPABase):
     def setUp(self):
         TestIPABase.setUp(self)

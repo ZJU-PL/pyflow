@@ -191,9 +191,7 @@ class LabeledGraphMedium(Medium):
             for w in G[v]:
                 t = G[v][w]
                 if t in self._action[v]:
-                    raise MediumError(
-                        "multiple edges for state %s and token %s" % (v, t)
-                    )
+                    raise MediumError("multiple edges for state %s and token %s" % (v, t))
                 self._action[v][t] = w
                 if t not in self._reverse:
                     rt = G[w][v]

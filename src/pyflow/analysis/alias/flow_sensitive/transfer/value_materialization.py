@@ -10,9 +10,7 @@ from ..semantics.effects import DYNAMIC_SUBSCRIPT_WILDCARD
 
 
 class _ValueMaterializationMixin:
-    def _materialize_assignment_result(
-        self, procedure: object, operation: object
-    ) -> None:
+    def _materialize_assignment_result(self, procedure: object, operation: object) -> None:
         targets = self._direct_assigned_locals(operation)
         if not targets:
             return
@@ -69,23 +67,15 @@ class _ValueMaterializationMixin:
             imported = [HeapLocation(module)]
             if not getattr(expr, "fromlist", None) and "." in expr.name:
                 top_level = expr.name.split(".", 1)[0]
-                if all(
-                    getattr(target, "name", None) == top_level for target in targets
-                ):
-                    imported = [
-                        HeapLocation(
-                            self.heap.module_object(top_level, label=top_level)
-                        )
-                    ]
+                if all(getattr(target, "name", None) == top_level for target in targets):
+                    imported = [HeapLocation(self.heap.module_object(top_level, label=top_level))]
                 else:
                     imported = [HeapLocation(module)]
             if getattr(expr, "fromlist", None):
                 for imported_name in getattr(expr, "fromlist", ()):
                     name = getattr(imported_name, "name", imported_name)
                     if name == "*":
-                        self.precision_degradations.append(
-                            (expr, "star-import-namespace")
-                        )
+                        self.precision_degradations.append((expr, "star-import-namespace"))
                         unknown = self._external_value_location(procedure)
                         self.state.write(
                             self.heap.dynamic_attribute_location(
@@ -118,9 +108,10 @@ class _ValueMaterializationMixin:
                 expr,
                 bind=False,
             )
-            self._pending_call_results[
-                self._program_point_identity(procedure, operation)
-            ] = (targets, slots)
+            self._pending_call_results[self._program_point_identity(procedure, operation)] = (
+                targets,
+                slots,
+            )
             return
         if expr is not None:
             expression_value = self.value_for_expression(procedure, expr)
@@ -155,17 +146,11 @@ class _ValueMaterializationMixin:
     @staticmethod
     def _direct_assigned_locals(operation: object) -> tuple[py_ast.Local, ...]:
         if isinstance(operation, py_ast.Assign):
-            return tuple(
-                local for local in operation.lcls if isinstance(local, py_ast.Local)
-            )
+            return tuple(local for local in operation.lcls if isinstance(local, py_ast.Local))
         if isinstance(operation, py_ast.UnpackSequence):
-            return tuple(
-                local for local in operation.targets if isinstance(local, py_ast.Local)
-            )
+            return tuple(local for local in operation.targets if isinstance(local, py_ast.Local))
         if isinstance(operation, py_ast.AnnAssign):
-            if operation.value is not None and isinstance(
-                operation.target, py_ast.Local
-            ):
+            if operation.value is not None and isinstance(operation.target, py_ast.Local):
                 return (operation.target,)
             return ()
         if isinstance(operation, py_ast.InputBlock):
@@ -259,9 +244,7 @@ class _ValueMaterializationMixin:
             self.heap.mark_all_escaped(bind_locations)
 
         slots = tuple(return_slots)
-        flat_returns = tuple(
-            dict.fromkeys(location for slot in slots for location in slot)
-        )
+        flat_returns = tuple(dict.fromkeys(location for slot in slots for location in slot))
         self.state.set_return_slots(procedure, slots)
         self.state.set_returns(procedure, flat_returns)
 
@@ -290,9 +273,7 @@ class _ValueMaterializationMixin:
                 # Write literal element values into the container's heap state
                 # so subsequent reads and transitive escape propagation can
                 # find them when the container itself escapes.
-                self._write_collection_literal_elements(
-                    procedure, location, expr, value_exprs
-                )
+                self._write_collection_literal_elements(procedure, location, expr, value_exprs)
 
     def _materialize_function_default_values(
         self,
@@ -362,21 +343,15 @@ class _ValueMaterializationMixin:
                         (UpdatePolicy.STRONG if subscript else UpdatePolicy.WEAK),
                     )
         elif isinstance(expr, py_ast.BuildSet):
-            set_loc = self.heap.dynamic_subscript_location(
-                container, DYNAMIC_SUBSCRIPT_WILDCARD
-            )
+            set_loc = self.heap.dynamic_subscript_location(container, DYNAMIC_SUBSCRIPT_WILDCARD)
             all_val_locs: list[HeapLocation] = []
             for val_expr in value_exprs:
                 all_val_locs.extend(self.locations_for_expression(procedure, val_expr))
             if all_val_locs:
-                self.state.write(
-                    set_loc, tuple(dict.fromkeys(all_val_locs)), UpdatePolicy.WEAK
-                )
+                self.state.write(set_loc, tuple(dict.fromkeys(all_val_locs)), UpdatePolicy.WEAK)
         else:
             for index, val_expr in enumerate(value_exprs):
-                index_loc = self.heap.dynamic_subscript_location(
-                    container, f"[{index}]"
-                )
+                index_loc = self.heap.dynamic_subscript_location(container, f"[{index}]")
                 val_locs = self.locations_for_expression(procedure, val_expr)
                 if index_loc and val_locs:
                     self.state.write(index_loc, val_locs, UpdatePolicy.STRONG)

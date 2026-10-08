@@ -134,8 +134,7 @@ def test_detect_entry_file_supports_poetry_script_tables(tmp_path):
     entry = package / "cli.py"
     entry.write_text("def main(): pass\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.poetry.scripts]\n"
-        'demo = { callable = "demo.cli:main", type = "console" }\n',
+        "[tool.poetry.scripts]\n" 'demo = { callable = "demo.cli:main", type = "console" }\n',
         encoding="utf-8",
     )
 
@@ -171,8 +170,7 @@ def test_setuptools_packages_list_form_does_not_crash(tmp_path):
     entry = package / "cli.py"
     entry.write_text("def main(): pass\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.setuptools]\npackages = ["demo"]\n\n'
-        '[project.scripts]\ndemo = "demo.cli:main"\n',
+        '[tool.setuptools]\npackages = ["demo"]\n\n' '[project.scripts]\ndemo = "demo.cli:main"\n',
         encoding="utf-8",
     )
 
@@ -229,8 +227,7 @@ def test_detect_entry_file_supports_poetry_reference_tables(tmp_path):
     entry = package / "cli.py"
     entry.write_text("def main(): pass\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.poetry.scripts]\n"
-        'demo = { reference = "demo.cli:main", type = "console" }\n',
+        "[tool.poetry.scripts]\n" 'demo = { reference = "demo.cli:main", type = "console" }\n',
         encoding="utf-8",
     )
 
@@ -281,9 +278,7 @@ def test_detect_entry_file_supports_setup_cfg_entry_points(tmp_path):
     entry = package / "cli.py"
     entry.write_text("def main(): pass\n", encoding="utf-8")
     (tmp_path / "setup.cfg").write_text(
-        "[options.entry_points]\n"
-        "console_scripts =\n"
-        "    demo = demo.cli:main\n",
+        "[options.entry_points]\n" "console_scripts =\n" "    demo = demo.cli:main\n",
         encoding="utf-8",
     )
 
@@ -307,9 +302,7 @@ def test_discover_entry_files_reports_setup_cfg_entry_points(tmp_path):
 
     assert candidates == [
         EntryCandidate(entry.relative_to(tmp_path), "setup.cfg entry_points", "demo"),
-        EntryCandidate(
-            entry.relative_to(tmp_path), "setup.cfg entry_points", "demo-extra"
-        ),
+        EntryCandidate(entry.relative_to(tmp_path), "setup.cfg entry_points", "demo-extra"),
     ]
 
 
@@ -318,13 +311,11 @@ def test_discover_entry_files_reports_setup_cfg_entry_points(tmp_path):
     [
         pytest.param('[tool]\nsetuptools = "not-a-table"\n', id="tool-setuptools-string"),
         pytest.param('[tool.setuptools]\npackages = ["demo"]\n', id="packages-list"),
-        pytest.param(
-            '[tool.setuptools.packages]\nfind = ["oops"]\n', id="packages-find-list"
-        ),
+        pytest.param('[tool.setuptools.packages]\nfind = ["oops"]\n', id="packages-find-list"),
         pytest.param('project = "not-a-table"\n', id="project-string"),
         pytest.param('[tool.poetry]\nscripts = "oops"\n', id="poetry-scripts-string"),
         pytest.param(
-            '[project.entry-points.console_scripts]\ndemo = 42\n',
+            "[project.entry-points.console_scripts]\ndemo = 42\n",
             id="entry-point-value-int",
         ),
         pytest.param("this is not = = valid toml [[[", id="malformed-toml"),

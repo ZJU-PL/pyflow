@@ -7,42 +7,42 @@ from ast import Module, ClassDef, Name
 from pyflow.analysis.alias.kcfa._pythonstan.utils.var_collector import VarCollector
 from pyflow.analysis.alias.kcfa._pythonstan.utils.ast_rename import RenameTransformer
 
-
 __all__ = [
-    'IRStatement',
-    'IRAbstractStmt',
-    'IRAstStmt',
-    'Label',
-    'IRCatchException',
-    'Goto',
-    'JumpIfFalse',
-    'JumpIfTrue',
-    'IRYield',
-    'IRReturn',
-    'IRRaise',
-    'IRPass',
-    'IRAwait',
-    'IRDel',
-    'IRImport',
-    'IRCall',
-    'IRAnno',
-    'AbstractIRAssign',
-    'IRAssign',
-    'IRCopy',
-    'IRStoreAttr',
-    'IRLoadAttr',
-    'IRStoreSubscr',
-    'IRLoadSubscr',
-    'IRPhi',
-    'IRScope',
-    'IRModule',
-    'IRFunc',
-    'IRClass'
+    "IRStatement",
+    "IRAbstractStmt",
+    "IRAstStmt",
+    "Label",
+    "IRCatchException",
+    "Goto",
+    "JumpIfFalse",
+    "JumpIfTrue",
+    "IRYield",
+    "IRReturn",
+    "IRRaise",
+    "IRPass",
+    "IRAwait",
+    "IRDel",
+    "IRImport",
+    "IRCall",
+    "IRAnno",
+    "AbstractIRAssign",
+    "IRAssign",
+    "IRCopy",
+    "IRStoreAttr",
+    "IRLoadAttr",
+    "IRStoreSubscr",
+    "IRLoadSubscr",
+    "IRPhi",
+    "IRScope",
+    "IRModule",
+    "IRFunc",
+    "IRClass",
 ]
 
 
 class IRStatement(ABC):
     """Abstract base for every normalized IR node emitted after TAC lowering."""
+
     @abstractmethod
     def __str__(self) -> str:
         """Returns the SSA friendly textual form used by downstream analyses."""
@@ -79,7 +79,7 @@ class IRStatement(ABC):
     ) -> None:
         """Renames inbound/outbound symbols matching ``old_name``."""
 
-    def __lt__(self, other: 'IRStatement') -> bool:
+    def __lt__(self, other: "IRStatement") -> bool:
         """Enables deterministic sorting when serialising IR streams."""
         return str(self) < str(other)
 
@@ -198,9 +198,11 @@ class Label(IRAbstractStmt):
         return None
 
 
-'''
+"""
   catch exp from Label_1 to Label_2 goto Label_3
-'''
+"""
+
+
 class IRCatchException(IRAbstractStmt):
     """Metadata emitted for each ``try`` handler in the IR stream."""
 
@@ -454,7 +456,9 @@ class IRReturn(IRAbstractStmt):
         """Normalises return value into a plain ``ast.Name`` when present."""
         ast.fix_missing_locations(stmt)
         if stmt.value is not None:
-            assert isinstance(stmt.value, ast.Name), "Return value of IR should be ast.Name or None!"
+            assert isinstance(
+                stmt.value, ast.Name
+            ), "Return value of IR should be ast.Name or None!"
             self.value = stmt.value.id
         else:
             self.value = None
@@ -765,7 +769,9 @@ class IRCall(IRAbstractStmt):
             self.call = stmt.value
             self.target = stmt.targets[0].id
         else:
-            assert isinstance(stmt, ast.Call), f"stmt must be an ast.Call, but got {ast.dump(stmt, indent=4)}"
+            assert isinstance(
+                stmt, ast.Call
+            ), f"stmt must be an ast.Call, but got {ast.dump(stmt, indent=4)}"
             self.call = stmt
             self.target = None
 
@@ -779,7 +785,7 @@ class IRCall(IRAbstractStmt):
             elif isinstance(arg, ast.Starred) and isinstance(arg.value, ast.Name):
                 self.args.append((arg.value.id, True))
             elif isinstance(arg, ast.Constant):
-                self.args.append((f'<Constant: {str(arg.value)}>', False))
+                self.args.append((f"<Constant: {str(arg.value)}>", False))
             else:
                 raise AssertionError("Args in function call should be Name or Starred[Name]")
         self.keywords = []
@@ -1227,7 +1233,12 @@ class IRPhi(AbstractIRAssign):
 
     def _get_phi_expr(self, lval: ast.Name, items: List[Optional[ast.Name]]) -> ast.Assign:
         """Constructs a fake AST call ``Phi([...])`` for compatibility."""
-        args = ast.List(elts=[ast.Name(id=item.id) if item is not None else ast.Name(id="None") for item in items], ctx=ast.Load())
+        args = ast.List(
+            elts=[
+                ast.Name(id=item.id) if item is not None else ast.Name(id="None") for item in items
+            ],
+            ctx=ast.Load(),
+        )
         phi_expr = ast.Call(func=ast.Name(id="Phi", ctx=ast.Load()), args=args, keywords=[])
         stmt = ast.Assign(targets=[lval], value=phi_expr)
         ast.set_location(stmt, lval.lineno, lval.col_offset)
@@ -1311,7 +1322,9 @@ class IRModule(IRScope, IRStatement):
     stmt: Module
     #: Parsed module AST.
 
-    def __init__(self, qualname: str, module: Module, name: str = "", filename: Optional[str] = None):
+    def __init__(
+        self, qualname: str, module: Module, name: str = "", filename: Optional[str] = None
+    ):
         """Stores parsed module metadata for later IR passes."""
         super().__init__(qualname)
         self.name = name
@@ -1323,7 +1336,7 @@ class IRModule(IRScope, IRStatement):
 
     def get_name(self) -> str:
         """Returns the import-style string shown in dumps."""
-        return f'<module \'{self.name}\' from \'{self.filename}\'>'
+        return f"<module '{self.name}' from '{self.filename}'>"
 
     def get_filename(self) -> str:
         """Returns the module's filesystem path when available."""
@@ -1352,10 +1365,10 @@ class IRModule(IRScope, IRStatement):
         return self.get_name()
 
     @classmethod
-    def load_module(cls, name: str, filename: str, content: Optional[str] = None) -> 'IRModule':
+    def load_module(cls, name: str, filename: str, content: Optional[str] = None) -> "IRModule":
         """Parses raw source and wraps it in an ``IRModule``."""
         if content is None:
-            with open(filename, 'r') as f:
+            with open(filename, "r") as f:
                 content = f.read()
         mod_ast = ast.parse(content, filename)
         mod = cls(mod_ast, name=name, filename=filename)
@@ -1423,16 +1436,18 @@ class IRFunc(IRScope, IRStatement):
         self.is_static_method = self.is_class_method = self.is_setter = self.is_getter = False
         for decr in fn.decorator_list:
             if isinstance(decr, ast.Name):
-                if decr.id == 'staticmethod':
+                if decr.id == "staticmethod":
                     self.is_static_method = True
-                elif decr.id == 'classmethod':
+                elif decr.id == "classmethod":
                     self.is_class_method = True
-                elif decr.id == 'property':
+                elif decr.id == "property":
                     self.is_getter = True
             elif isinstance(decr, ast.Attribute):
-                if decr.attr == 'setter':
+                if decr.attr == "setter":
                     self.is_setter = True
-        self.is_instance_method = (is_method and not self.is_static_method and not self.is_class_method)
+        self.is_instance_method = (
+            is_method and not self.is_static_method and not self.is_class_method
+        )
         self.returns = fn.returns
         self.type_comment = fn.type_comment
         self.stmt = fn
@@ -1467,9 +1482,9 @@ class IRFunc(IRScope, IRStatement):
     def get_name(self) -> str:
         """Returns a descriptive function/async-function label."""
         if self.is_async:
-            return f'<async function {self.name}>'
+            return f"<async function {self.name}>"
         else:
-            return f'<function {self.name}>'
+            return f"<function {self.name}>"
 
     def get_arg_names(self) -> Set[str]:
         """Returns the set of argument names for var liveness tracking."""
@@ -1477,18 +1492,18 @@ class IRFunc(IRScope, IRStatement):
 
     def __repr__(self) -> str:
         """Detailed signature string used in debugging output."""
-        decrs = ', '.join([ast.unparse(decr) for decr in self.decorator_list])
+        decrs = ", ".join([ast.unparse(decr) for decr in self.decorator_list])
         args = ast.unparse(self.args)
         if self.returns is not None:
-            rets = f' -> {ast.unparse(self.returns)}'
+            rets = f" -> {ast.unparse(self.returns)}"
         else:
-            rets = ''
+            rets = ""
         if len(decrs) > 0:
-            fn_repr = f'fn [{decrs}] {self.name}({args}){rets}'
+            fn_repr = f"fn [{decrs}] {self.name}({args}){rets}"
         else:
-            fn_repr = f'fn {self.name}({args}){rets}'
+            fn_repr = f"fn {self.name}({args}){rets}"
         if self.is_async:
-            fn_repr = f'async {fn_repr}'
+            fn_repr = f"async {fn_repr}"
         return fn_repr
 
     def __str__(self):
@@ -1517,7 +1532,9 @@ class IRClass(IRScope, IRStatement):
         """Captures base/keyword/decorator metadata for this class."""
         super().__init__(qualname)
         self.name = cls.name
-        assert all(isinstance(i, ast.Name) for i in cls.bases), f"Base of the class should be ast.Name, {cls.bases} got!"
+        assert all(
+            isinstance(i, ast.Name) for i in cls.bases
+        ), f"Base of the class should be ast.Name, {cls.bases} got!"
         self.bases = cls.bases
         self.keywords = cls.keywords
         self.decorator_list = cls.decorator_list
@@ -1565,9 +1582,7 @@ class IRClass(IRScope, IRStatement):
                 return set().union(*(target_names(item) for item in target.elts))
             return set()
 
-        def analyze_block(
-            statements: list[ast.stmt], incoming: Set[str]
-        ) -> Set[str]:
+        def analyze_block(statements: list[ast.stmt], incoming: Set[str]) -> Set[str]:
             present = set(incoming)
             for statement in statements:
                 if isinstance(
@@ -1603,18 +1618,14 @@ class IRClass(IRScope, IRStatement):
                 elif isinstance(statement, ast.Try):
                     exits = [analyze_block(statement.body, present)]
                     exits.extend(
-                        analyze_block(handler.body, present)
-                        for handler in statement.handlers
+                        analyze_block(handler.body, present) for handler in statement.handlers
                     )
                     if statement.orelse:
                         exits[0] = analyze_block(statement.orelse, exits[0])
                     present = set.intersection(*exits) if exits else present
                     present = analyze_block(statement.finalbody, present)
                 elif isinstance(statement, ast.Match):
-                    exits = [
-                        analyze_block(case.body, present)
-                        for case in statement.cases
-                    ]
+                    exits = [analyze_block(case.body, present) for case in statement.cases]
                     # A match need not select a case.
                     exits.append(present)
                     present = set.intersection(*exits)
@@ -1624,20 +1635,20 @@ class IRClass(IRScope, IRStatement):
 
     def __repr__(self) -> str:
         """Displays decorators, bases, and keywords for the class."""
-        decrs = ', '.join([ast.unparse(decr) for decr in self.decorator_list])
-        bases = ', '.join([ast.unparse(base) for base in self.bases])
-        kws = ', '.join([ast.unparse(kw) for kw in self.keywords])
+        decrs = ", ".join([ast.unparse(decr) for decr in self.decorator_list])
+        bases = ", ".join([ast.unparse(base) for base in self.bases])
+        kws = ", ".join([ast.unparse(kw) for kw in self.keywords])
         if len(decrs) > 0:
-            cls_repr = f'class [{decrs}] {self.name}'
+            cls_repr = f"class [{decrs}] {self.name}"
         else:
-            cls_repr = f'class {self.name}'
+            cls_repr = f"class {self.name}"
         if len(bases) > 0:
             if len(kws) > 0:
-                cls_repr = f'{cls_repr}({bases}, {kws})'
+                cls_repr = f"{cls_repr}({bases}, {kws})"
             else:
-                cls_repr = f'{cls_repr}({bases})'
+                cls_repr = f"{cls_repr}({bases})"
         elif len(kws) > 0:
-            cls_repr = f'{cls_repr}({kws})'
+            cls_repr = f"{cls_repr}({kws})"
         return cls_repr
 
     def __str__(self) -> str:
@@ -1646,4 +1657,4 @@ class IRClass(IRScope, IRStatement):
 
     def get_name(self) -> str:
         """Returns ``<class X>`` for readability."""
-        return f'<class {self.name}>'
+        return f"<class {self.name}>"

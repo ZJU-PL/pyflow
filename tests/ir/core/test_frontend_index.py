@@ -112,12 +112,10 @@ def test_cfg_index_assigns_deterministic_block_and_edge_ids():
         index_cfg(program.ir, cfg)
         code_id = program.ir.procedure(code).code_id
         blocks = tuple(
-            identity for identity, _block in program.ir.blocks()
-            if identity.code == code_id
+            identity for identity, _block in program.ir.blocks() if identity.code == code_id
         )
         edges = tuple(
-            identity for identity, _edge in program.ir.edges()
-            if identity.source.code == code_id
+            identity for identity, _edge in program.ir.edges() if identity.source.code == code_id
         )
         return blocks, edges
 
@@ -134,9 +132,7 @@ def test_catalog_rebuild_preserves_source_and_records_transform_provenance():
     operation = code.ast.blocks[0]
     old_id = program.ir.node_id(operation, code)
     old_origin = program.ir.source_of(old_id)
-    program.ir.source_map.append_provenance(
-        old_id, TransformationFrame("frontend-test")
-    )
+    program.ir.source_map.append_provenance(old_id, TransformationFrame("frontend-test"))
     generated_origin = SyntheticOrigin("rewritten for test")
 
     rebuilt = rebuild_program_ir(
@@ -166,7 +162,7 @@ def test_catalog_rebuild_preserves_source_and_records_transform_provenance():
 
 
 def test_ir_and_graph_snapshots_are_cross_process_deterministic():
-    script = r'''
+    script = r"""
 import json
 from pyflow.application import context
 from pyflow.frontend.extractor import Extractor
@@ -211,7 +207,7 @@ payload = {
     ],
 }
 print("SNAPSHOT=" + json.dumps(payload, sort_keys=True))
-'''
+"""
 
     def snapshot(seed: str) -> str:
         environment = dict(os.environ)

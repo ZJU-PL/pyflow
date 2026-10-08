@@ -7,7 +7,6 @@ from pyflow.ir.pdg.graph import PDGNode
 from pyflow.language.python import ast as py_ast
 from .model import TaintFinding
 
-
 _BARE_ONLY_BUILTIN_SINKS = frozenset({"compile", "eval", "exec"})
 
 
@@ -184,9 +183,7 @@ class _TaintMatchingMixin:
                 ast_node = node.ast_node
                 sink_name, cwe = self._check_sink(node)
                 if sink_name:
-                    source = self._source_for_sink_call(
-                        ast_node, tainted, sink_name=sink_name
-                    )
+                    source = self._source_for_sink_call(ast_node, tainted, sink_name=sink_name)
                     if source is not None:
                         source_node, source_label, source_kinds = source
                         for rule in self._matching_rules(source_kinds, sink_name):
@@ -235,9 +232,7 @@ class _TaintMatchingMixin:
                         for name in self._assigned_names(ast_node):
                             tainted[name] = value_source
                 elif isinstance(ast_node, py_ast.SetAttr):
-                    value_source = self._source_for_expr(
-                        getattr(ast_node, "value", None), tainted
-                    )
+                    value_source = self._source_for_expr(getattr(ast_node, "value", None), tainted)
                     if value_source is not None:
                         attr_name = self._attribute_name(ast_node)
                         if attr_name:
@@ -283,9 +278,7 @@ class _TaintMatchingMixin:
                         continue
                     source_node, source_label, source_kinds = source
                     remaining = (
-                        frozenset()
-                        if "*" in sanitizer_kinds
-                        else source_kinds - sanitizer_kinds
+                        frozenset() if "*" in sanitizer_kinds else source_kinds - sanitizer_kinds
                     )
                     if remaining:
                         return source_node, source_label, remaining
@@ -367,14 +360,10 @@ class _TaintMatchingMixin:
         # Source-loaded ASTs may preserve an imported alias (``request``)
         # rather than its registry-qualified module (``flask.request``).
         suffix_matches = [
-            src
-            for src in self._sources
-            if call_name_suffix_matches(src.lower(), name.lower())
+            src for src in self._sources if call_name_suffix_matches(src.lower(), name.lower())
         ]
         result = len(suffix_matches) == 1 or (
-            bool(suffix_matches)
-            and "." in name
-            and self._equivalent_source_models(suffix_matches)
+            bool(suffix_matches) and "." in name and self._equivalent_source_models(suffix_matches)
         )
         self._source_match_cache[name] = result
         return result
@@ -397,25 +386,18 @@ class _TaintMatchingMixin:
                 self._sink_match_cache[name] = sink
                 return sink
         suffix_matches = [
-            sink
-            for sink in self._sinks
-            if call_name_suffix_matches(sink.lower(), name.lower())
+            sink for sink in self._sinks if call_name_suffix_matches(sink.lower(), name.lower())
         ]
         if len(suffix_matches) == 1:
             result = suffix_matches[0]
             self._sink_match_cache[name] = result
             return result
-        if (
-            suffix_matches
-            and "." in name
-            and self._equivalent_sink_models(suffix_matches)
-        ):
+        if suffix_matches and "." in name and self._equivalent_sink_models(suffix_matches):
             result = next(
                 (
                     sink
                     for sink in suffix_matches
-                    if self._sinks.get(sink, "")
-                    not in self._sink_kinds.get(sink, frozenset())
+                    if self._sinks.get(sink, "") not in self._sink_kinds.get(sink, frozenset())
                 ),
                 suffix_matches[0],
             )
@@ -426,9 +408,7 @@ class _TaintMatchingMixin:
 
     def _equivalent_source_models(self, names: List[str]) -> bool:
         first = self._source_kinds.get(names[0], frozenset())
-        return all(
-            self._source_kinds.get(name, frozenset()) == first for name in names[1:]
-        )
+        return all(self._source_kinds.get(name, frozenset()) == first for name in names[1:])
 
     def _equivalent_sink_models(self, names: List[str]) -> bool:
         kinds = self._sink_kinds.get(names[0], frozenset())

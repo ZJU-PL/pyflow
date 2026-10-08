@@ -193,9 +193,7 @@ class TestPathInfoSplit(PathInfoBase):
 
     def extendBase(self):
         parameterSlots = set((self.t.slot,))
-        self.extendedParams = self.paths.extendParameters(
-            self.canonical, parameterSlots
-        )
+        self.extendedParams = self.paths.extendParameters(self.canonical, parameterSlots)
 
     def testHits(self):
         self.assertEqual(self.paths.hit(self.xf), TVLTrue)
@@ -266,9 +264,7 @@ class TestUglyPathInfoSplit(PathInfoBase):
 
     def extendBase(self):
         parameterSlots = set()
-        self.extendedParams = self.paths.extendParameters(
-            self.canonical, parameterSlots
-        )
+        self.extendedParams = self.paths.extendParameters(self.canonical, parameterSlots)
 
     def testHits(self):
         self.assertEqual(self.paths.hit(self.xlrr), TVLTrue)

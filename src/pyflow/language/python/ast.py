@@ -203,27 +203,31 @@ class Yield(Expression):
 
 class YieldFrom(Expression):
     """Represents a yield from expression (Python 3.3+).
-    
+
     Delegates iteration to another iterable.
     """
+
     __fields__ = "expr:Expression"
 
 
 class Await(Expression):
     """Represents an await expression (Python 3.5+ async/await)."""
+
     __fields__ = "expr:Expression"
 
 
 class AsyncYield(Expression):
     """Represents an async yield (yield in async generator)."""
+
     __fields__ = "expr:Expression"
 
 
 class NamedExpr(Expression):
     """Represents a named/walrus expression (:=) - Python 3.8+.
-    
+
     Both assigns to target and returns the value.
     """
+
     __fields__ = "target:Local value:Expression"
 
     def isPure(self):
@@ -232,17 +236,19 @@ class NamedExpr(Expression):
 
 class TypeParam(PythonASTNode):
     """Represents a type parameter for generics (Python 3.12+).
-    
+
     Used in TypeVar, ParamSpec, TypeVarTuple declarations.
     """
+
     __fields__ = "name:str bound:Expression?"
 
 
 class TypeParams(PythonASTNode):
     """Represents type parameters for a generic class/function (Python 3.12+).
-    
+
     Example: class MyClass[T: int, U]: ...
     """
+
     __fields__ = "params:TypeParam*"
 
 
@@ -252,6 +258,7 @@ class GetIter(Expression):
 
 class AsyncGetIter(Expression):
     """Represents async iteration (async for)."""
+
     __fields__ = "expr:Expression"
 
 
@@ -300,7 +307,9 @@ class GetSlice(Expression):
 
 
 class SetSlice(SimpleStatement):
-    __fields__ = "value:Expression expr:Expression start:Expression? stop:Expression? step:Expression?"
+    __fields__ = (
+        "value:Expression expr:Expression start:Expression? stop:Expression? step:Expression?"
+    )
 
 
 class DeleteSlice(SimpleStatement):
@@ -314,9 +323,7 @@ class Call(Expression):
     determined at runtime. For direct calls with known targets, use DirectCall.
     """
 
-    __fields__ = (
-        "expr:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
-    )
+    __fields__ = "expr:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
 
 
 class MethodCall(Expression):
@@ -327,7 +334,9 @@ class MethodCall(Expression):
     """
 
     # TODO kwds type?
-    __fields__ = "expr:Expression name:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
+    __fields__ = (
+        "expr:Expression name:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
+    )
 
 
 class DirectCall(Expression):
@@ -496,16 +505,19 @@ class Assert(ControlFlow):
 
 class GlobalDecl(Statement):
     """Declares a global variable reference in a function scope."""
+
     __fields__ = "name:Local"
 
 
 class NonlocalDecl(Statement):
     """Declares a nonlocal variable reference (closure cell) in a function scope."""
+
     __fields__ = "name:Local"
 
 
 class AnnAssign(Statement):
     """Annotated assignment: x: int = 5 or just x: int."""
+
     # ``annotation`` is reserved by PythonASTNode for per-node analysis
     # metadata.  Keep the source expression under a distinct field so it is
     # not overwritten during node construction.
@@ -514,6 +526,7 @@ class AnnAssign(Statement):
 
 class TypeAlias(Statement):
     """Type alias declaration: type X = Y (Python 3.12+)."""
+
     __fields__ = "name:str params:* value:Expression"
 
 
@@ -525,9 +538,7 @@ class TypeAlias(Statement):
 class Suite(PythonASTNode):
     __fields__ = "blocks:Statement*"
     __slots__ = ("blocks", "_origin_tag")
-    __mutable__ = (
-        True  # HACK not really mutable, just need to be able to assign to blocks.
-    )
+    __mutable__ = True  # HACK not really mutable, just need to be able to assign to blocks.
 
     def __init__(self, blocks=None):
         self.blocks = []
@@ -635,12 +646,13 @@ ParameterDecl = (Local, DoNotCare)
 
 class CodeParameters(PythonASTNode):
     """Function/method parameters with full Python 3.x support.
-    
+
     Supports:
     - Positional-only parameters (Python 3.8+)
     - Keyword-only parameters
     - Type parameters for generics (Python 3.12+)
     """
+
     __fields__ = """selfparam:ParameterDecl?
             posonlyparams:ParameterDecl* posonlynames:str*
             params:ParameterDecl* paramnames:str?* defaults:Expression*
@@ -750,20 +762,22 @@ class Check(LLExpression):
 
 class FunctionDef(CompoundStatement):
     """Function definition with full Python 3.x support.
-    
+
     Supports type parameters for generic functions (Python 3.12+).
     """
+
     __fields__ = "name:str code:Code decorators:Expression* type_params:TypeParams?"
 
 
 class ClassDef(CompoundStatement):
     """Class definition with full Python 3.x support.
-    
+
     Supports:
     - Metaclass keyword argument
     - __init_subclass__ via keywords
     - Type parameters for generic classes (Python 3.12+)
     """
+
     __fields__ = "name:str bases:Expression* keywords:* body:Suite decorators:Expression* type_params:TypeParams?"
 
 

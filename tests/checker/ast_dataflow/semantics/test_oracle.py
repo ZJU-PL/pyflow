@@ -18,9 +18,7 @@ POLICY = TaintPolicy(
 
 def _static_may_flow(source: str) -> bool:
     function = ast.parse(source).body[0]
-    result = analyze_ast_function(
-        function, procedure="target", filename="oracle.py", policy=POLICY
-    )
+    result = analyze_ast_function(function, procedure="target", filename="oracle.py", policy=POLICY)
     return any(isinstance(event, TaintSinkEvent) for event in result.events)
 
 
@@ -90,7 +88,5 @@ def _concrete_may_flow(source: str, boolean_arity: int) -> bool:
         ),
     ],
 )
-def test_static_may_result_matches_exhaustive_concrete_boolean_oracle(
-    source, boolean_arity
-):
+def test_static_may_result_matches_exhaustive_concrete_boolean_oracle(source, boolean_arity):
     assert _static_may_flow(source) is _concrete_may_flow(source, boolean_arity)

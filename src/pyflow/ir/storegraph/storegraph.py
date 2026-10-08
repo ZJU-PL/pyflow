@@ -150,9 +150,7 @@ class StoreGraph(MergableNode):
         self.canonical = canonical
 
         # HACK this should be centeralized?
-        self.typeSlotName = self.canonical.fieldName(
-            "LowLevel", self.extractor.getObject("type")
-        )
+        self.typeSlotName = self.canonical.fieldName("LowLevel", self.extractor.getObject("type"))
         self.lengthSlotName = self.canonical.fieldName(
             "LowLevel", self.extractor.getObject("length")
         )
@@ -176,9 +174,7 @@ class StoreGraph(MergableNode):
             elif slottype == "Array":
                 # HACK
                 if isinstance(obj.pyobj, list):
-                    return set(
-                        [self.canonical.existingType(t) for t in obj.array.values()]
-                    )
+                    return set([self.canonical.existingType(t) for t in obj.array.values()])
 
                 subdict = obj.array
             elif slottype == "Dictionary":

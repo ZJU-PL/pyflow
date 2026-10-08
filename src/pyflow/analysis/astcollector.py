@@ -219,22 +219,17 @@ class GetOps(TypeDispatcher):
                 continue
             if isinstance(
                 current,
-                ast.leafTypes
-                + (ast.Break, ast.Continue, ast.Code, ast.DoNotCare),
+                ast.leafTypes + (ast.Break, ast.Continue, ast.Code, ast.DoNotCare),
             ):
                 continue
             if isinstance(current, (ast.Local, ast.Existing)):
                 self.locals.add(current)
                 continue
             if isinstance(current, ast.InputBlock):
-                pending.extend(
-                    (input_.lcl, False) for input_ in reversed(current.inputs)
-                )
+                pending.extend((input_.lcl, False) for input_ in reversed(current.inputs))
                 continue
             if isinstance(current, ast.OutputBlock):
-                pending.extend(
-                    (output.expr, False) for output in reversed(current.outputs)
-                )
+                pending.extend((output.expr, False) for output in reversed(current.outputs))
                 continue
             if isinstance(current, ast.Assign) and isinstance(current.expr, ast.Local):
                 self.copies.append(current)

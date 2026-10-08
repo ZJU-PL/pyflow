@@ -1,8 +1,8 @@
 pi = 3.141592653589793
 e = 2.718281828459045
 tau = 6.283185307179586
-inf = float('inf')
-nan = float('nan')
+inf = float("inf")
+nan = float("nan")
 
 
 def ceil(x):
@@ -69,7 +69,7 @@ def isnan(x):
 
 
 def isqrt(n):
-    return int(n ** 0.5)
+    return int(n**0.5)
 
 
 def lcm(*integers):
@@ -80,7 +80,7 @@ def lcm(*integers):
 
 
 def ldexp(x, i):
-    return x * (2 ** i)
+    return x * (2**i)
 
 
 def log(x, base=e):
@@ -118,7 +118,7 @@ def perm(n, k=None):
 
 
 def pow(x, y):
-    return x ** y
+    return x**y
 
 
 def prod(iterable, start=1):
@@ -141,11 +141,11 @@ def ulp(x):
 
 
 def exp(x):
-    return e ** x
+    return e**x
 
 
 def exp2(x):
-    return 2.0 ** x
+    return 2.0**x
 
 
 def expm1(x):
@@ -153,15 +153,15 @@ def expm1(x):
 
 
 def sqrt(x):
-    return x ** 0.5
+    return x**0.5
 
 
 def cbrt(x):
-    return x ** (1/3)
+    return x ** (1 / 3)
 
 
 def hypot(*coordinates):
-    return sqrt(sum(c ** 2 for c in coordinates))
+    return sqrt(sum(c**2 for c in coordinates))
 
 
 def dist(p, q):

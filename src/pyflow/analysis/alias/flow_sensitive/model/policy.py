@@ -169,9 +169,7 @@ class HeapPolicy:
     def from_dict(cls, data: dict) -> "HeapPolicy":
         defaults = cls()
         policy = cls(
-            allocation_sensitivity=AllocationSensitivity(
-                data["allocation_sensitivity"]
-            ),
+            allocation_sensitivity=AllocationSensitivity(data["allocation_sensitivity"]),
             field_sensitivity=FieldSensitivity(data["field_sensitivity"]),
             container_sensitivity=ContainerSensitivity(data["container_sensitivity"]),
             max_selector_depth=data.get("max_selector_depth"),
@@ -189,12 +187,8 @@ class HeapPolicy:
             summary_return_names=frozenset(
                 data.get("summary_return_names", defaults.summary_return_names)
             ),
-            copy_return_names=frozenset(
-                data.get("copy_return_names", defaults.copy_return_names)
-            ),
-            treat_capitalized_calls_as_fresh=data.get(
-                "treat_capitalized_calls_as_fresh", True
-            ),
+            copy_return_names=frozenset(data.get("copy_return_names", defaults.copy_return_names)),
+            treat_capitalized_calls_as_fresh=data.get("treat_capitalized_calls_as_fresh", True),
             immutable_type_hints=frozenset(
                 data.get("immutable_type_hints", defaults.immutable_type_hints)
             ),
@@ -209,17 +203,13 @@ class HeapPolicy:
             and self.max_selector_depth is None
         ):
             raise ValueError(
-                "field_sensitivity=BOUNDED_PATH requires max_selector_depth "
-                "to be set (not None)"
+                "field_sensitivity=BOUNDED_PATH requires max_selector_depth " "to be set (not None)"
             )
         if self.max_selector_depth is not None and self.max_selector_depth < 0:
-            raise ValueError(
-                "max_selector_depth must be >= 0, " f"got {self.max_selector_depth}"
-            )
+            raise ValueError("max_selector_depth must be >= 0, " f"got {self.max_selector_depth}")
         if self.max_index < 0:
             raise ValueError(f"max_index must be >= 0, got {self.max_index}")
         if self.context_sensitivity_depth < 0:
             raise ValueError(
-                f"context_sensitivity_depth must be >= 0, "
-                f"got {self.context_sensitivity_depth}"
+                f"context_sensitivity_depth must be >= 0, " f"got {self.context_sensitivity_depth}"
             )

@@ -44,9 +44,7 @@ class YieldVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
         pass  # Don't recurse into nested functions.
 
-    def visit_AsyncFunctionDef(  # noqa: N802
-        self, node: ast.AsyncFunctionDef
-    ) -> None:
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         pass
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
@@ -72,9 +70,7 @@ class ReturnVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
         pass
 
-    def visit_AsyncFunctionDef(  # noqa: N802
-        self, node: ast.AsyncFunctionDef
-    ) -> None:
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         pass
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
@@ -96,9 +92,7 @@ class AssertVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
         pass
 
-    def visit_AsyncFunctionDef(  # noqa: N802
-        self, node: ast.AsyncFunctionDef
-    ) -> None:
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         pass
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802

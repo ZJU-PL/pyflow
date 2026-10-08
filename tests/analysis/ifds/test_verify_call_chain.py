@@ -237,9 +237,7 @@ def test_max_depth_limit():
     graph = _build_five_proc_chain_supergraph()
     result = IFDSSolver().solve(_MultiCallPassThroughProblem(graph))
 
-    is_reachable, chain = verify_call_chain(
-        result, graph, "h5.exit", ZERO, max_depth=2
-    )
+    is_reachable, chain = verify_call_chain(result, graph, "h5.exit", ZERO, max_depth=2)
 
     assert is_reachable is False
     assert chain == ()

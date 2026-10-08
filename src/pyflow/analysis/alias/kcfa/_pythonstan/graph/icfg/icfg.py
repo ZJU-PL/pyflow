@@ -68,8 +68,12 @@ class InterControlFlowGraph(ControlFlowGraph):
         callee_cfg = self.get_cfg(callee)
         call_edge = CallEdge(call_site, callee_cfg.get_entry(), callee)
         self.add_edge(call_edge)
-        ret_vals = {stmt.get_ast() for blk in callee_cfg.exit_blks
-                    for stmt in blk.stmts if isinstance(stmt, IRReturn)}
+        ret_vals = {
+            stmt.get_ast()
+            for blk in callee_cfg.exit_blks
+            for stmt in blk.stmts
+            if isinstance(stmt, IRReturn)
+        }
         for ret_site in self.return_sites_of(call_site):
             ret_edge = ReturnEdge(callee_cfg.get_entry(), ret_site, call_site, ret_vals)
             self.add_edge(ret_edge)
@@ -91,7 +95,9 @@ class InterControlFlowGraph(ControlFlowGraph):
         return self.callees[call_site]
 
     def return_sites_of(self, call_site: BaseBlock) -> Set[BaseBlock]:
-        assert call_site in self.call_sites, f"block {call_site} is not a call_site of current icfg!"
+        assert (
+            call_site in self.call_sites
+        ), f"block {call_site} is not a call_site of current icfg!"
         return set(self.scope2cfg[self.blk2scope[call_site]].succs_of(call_site))
 
     def entry_of(self, scope: IRScope) -> BaseBlock:

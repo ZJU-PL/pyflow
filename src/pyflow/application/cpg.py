@@ -134,9 +134,7 @@ def build_cpg_from_directory(
     compiler = context.CompilerContext(None)
     try:
         compiler.extractor = Extractor(compiler, verbose=False)
-        program = compiler.extractor.extract_from_multiple_files(
-            sources, deadline=deadline
-        )
+        program = compiler.extractor.extract_from_multiple_files(sources, deadline=deadline)
     except Exception as error:
         cpg = CodePropertyGraph()
         cpg.add_construction_diagnostic(
@@ -187,9 +185,7 @@ def _build_cpg_from_program(
             # not use transformation remaps.  Skipping revision bookkeeping
             # avoids repeatedly indexing and rebuilding full IR semantics for
             # every function in a directory scan.
-            cfg = cfg_transform.evaluate(
-                compiler, code_obj, commit_revision=False
-            )
+            cfg = cfg_transform.evaluate(compiler, code_obj, commit_revision=False)
         except Exception as error:
             cpg.add_construction_diagnostic(
                 code="cpg-cfg-build-failed",

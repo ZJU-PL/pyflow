@@ -69,12 +69,8 @@ def test_unpack_sequence_binds_literal_elements_by_index():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, left)[0] in heap.locations_for_local(
-        code, first
-    )
-    assert heap.locations_for_local(code, right)[0] in heap.locations_for_local(
-        code, second
-    )
+    assert heap.locations_for_local(code, left)[0] in heap.locations_for_local(code, first)
+    assert heap.locations_for_local(code, right)[0] in heap.locations_for_local(code, second)
 
 
 def test_input_block_uses_shared_external_summary():
@@ -135,9 +131,7 @@ def test_named_expression_binds_inside_discard():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, target
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, target)
 
 
 def test_low_level_allocate_store_and_load_flow():
@@ -162,9 +156,7 @@ def test_low_level_allocate_store_and_load_flow():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, loaded
-    )
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(code, loaded)
 
 
 def test_caught_exception_value_flows_to_handler_local():
@@ -199,9 +191,7 @@ def test_caught_exception_value_flows_to_handler_local():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, exception)[0] in heap.locations_for_local(
-        code, ret
-    )
+    assert heap.locations_for_local(code, exception)[0] in heap.locations_for_local(code, ret)
 
 
 def test_finally_return_overrides_pending_return():
@@ -303,9 +293,7 @@ def test_type_alias_and_function_definition_populate_global_bindings():
     assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
         code, alias_value_loaded
     )
-    assert heap.locations_for_local(code, function_loaded)[0].root.label == (
-        "function defined"
-    )
+    assert heap.locations_for_local(code, function_loaded)[0].root.label == ("function defined")
 
 
 def test_output_block_marks_values_escaped():
@@ -315,9 +303,7 @@ def test_output_block_marks_values_escaped():
         py_ast.Suite(
             [
                 py_ast.Assign(py_ast.BuildList([]), [value]),
-                py_ast.OutputBlock(
-                    [py_ast.Output(value, py_ast.IOName("result"))]
-                ),
+                py_ast.OutputBlock([py_ast.Output(value, py_ast.IOName("result"))]),
             ]
         ),
     )
@@ -344,9 +330,7 @@ def test_await_result_conservatively_includes_awaitable():
     heap = analysis.heap
     assert heap is not None
 
-    assert heap.locations_for_local(code, awaitable)[0] in heap.locations_for_local(
-        code, result
-    )
+    assert heap.locations_for_local(code, awaitable)[0] in heap.locations_for_local(code, result)
 
 
 def test_build_slice_and_class_definition_allocate_objects():
@@ -366,9 +350,7 @@ def test_build_slice_and_class_definition_allocate_objects():
                     "Defined",
                     [],
                     [],
-                    py_ast.Suite(
-                        [py_ast.SetGlobal(_existing("body"), body_value)]
-                    ),
+                    py_ast.Suite([py_ast.SetGlobal(_existing("body"), body_value)]),
                     [],
                     None,
                 ),
@@ -524,9 +506,7 @@ def test_short_circuit_joins_skipped_and_executed_named_expression():
                 py_ast.Assign(py_ast.BuildList([]), [replacement]),
                 py_ast.Assign(original, [selected]),
                 py_ast.Assign(
-                    py_ast.ShortCircutAnd(
-                        [condition, py_ast.NamedExpr(selected, replacement)]
-                    ),
+                    py_ast.ShortCircutAnd([condition, py_ast.NamedExpr(selected, replacement)]),
                     [result],
                 ),
             ]
@@ -633,13 +613,7 @@ def test_returned_function_retains_default_value_edges():
     inner = _code("inner", py_ast.Suite([]))
     callee = _code(
         "factory",
-        py_ast.Suite(
-            [
-                py_ast.Return(
-                    [py_ast.MakeFunction([default], [], inner)]
-                )
-            ]
-        ),
+        py_ast.Suite([py_ast.Return([py_ast.MakeFunction([default], [], inner)])]),
         params=(default,),
         returns=(callee_return,),
     )

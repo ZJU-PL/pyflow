@@ -152,14 +152,10 @@ class CDGDumper:
                         f"\nNode {cdg_node.node_id} ({type(cfg_node).__name__}) {title.lower().replace(' ', ' ')}:"
                     )
                     for rel in sorted(relations, key=lambda item: item.node_id):
-                        controller = (
-                            cdg_node if arrow == "->" else rel
-                        )
+                        controller = cdg_node if arrow == "->" else rel
                         dependent = rel if arrow == "->" else cdg_node
                         edge_label = "|".join(
-                            sorted(
-                                controller.get_control_condition_labels(dependent)
-                            )
+                            sorted(controller.get_control_condition_labels(dependent))
                         )
                         f.write(
                             f"\n  {arrow} Node {rel.node_id} ({type(rel.cfg_node).__name__}) [{edge_label}]"
@@ -303,18 +299,14 @@ class CDGDumper:
             "type": type(cfg_node).__name__,
             "cfg_node_id": str(cdg_node.block_id),
             "dependents": sorted(str(dep.block_id) for dep in cdg_node.dependents),
-            "dependencies": sorted(
-                str(dep.block_id) for dep in cdg_node.dependencies
-            ),
+            "dependencies": sorted(str(dep.block_id) for dep in cdg_node.dependencies),
         }
 
         # Add optional fields if present
         if hasattr(cfg_node, "ops"):
             node_data["ops_count"] = len(cfg_node.ops) if cfg_node.ops else 0
         if hasattr(cfg_node, "condition"):
-            node_data["condition"] = (
-                str(cfg_node.condition) if cfg_node.condition else None
-            )
+            node_data["condition"] = str(cfg_node.condition) if cfg_node.condition else None
 
         return node_data
 
@@ -330,9 +322,7 @@ class CDGDumper:
             Color string in hex format (e.g., '#FF0000')
         """
         key = type(obj).__name__ if category == "nodes" else obj
-        return self._colors[category].get(
-            key, "#E0E0E0" if category == "nodes" else "#666666"
-        )
+        return self._colors[category].get(key, "#E0E0E0" if category == "nodes" else "#666666")
 
     def generate_clang_style_cdg(self) -> str:
         """
@@ -349,9 +339,7 @@ class CDGDumper:
 
         # Group nodes by their primary controller (minimum node ID)
         groups = {}
-        for cfg_node, cdg_node in sorted(
-            self.cdg.nodes.items(), key=lambda item: item[1].node_id
-        ):
+        for cfg_node, cdg_node in sorted(self.cdg.nodes.items(), key=lambda item: item[1].node_id):
             controller = (
                 min(cdg_node.dependencies, key=lambda x: x.node_id)
                 if cdg_node.dependencies
@@ -373,9 +361,7 @@ class CDGDumper:
                         "\n".join(
                             f"      -> Node {d.node_id} "
                             f"[{'|'.join(sorted(dep.get_control_condition_labels(d)))}]"
-                            for d in sorted(
-                                dep.dependents, key=lambda item: item.node_id
-                            )
+                            for d in sorted(dep.dependents, key=lambda item: item.node_id)
                         )
                         + "\n"
                     )

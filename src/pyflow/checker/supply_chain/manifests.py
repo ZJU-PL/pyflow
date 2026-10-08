@@ -83,9 +83,7 @@ def _component_from_metadata(
         ]
     top_level = metadata_path.parent / "top_level.txt"
     if top_level.is_file() and not top_level.is_symlink():
-        import_text = _read_text(
-            top_level, findings, limits, "top-level module metadata"
-        )
+        import_text = _read_text(top_level, findings, limits, "top-level module metadata")
         if import_text is not None:
             for module in import_text.splitlines():
                 module = module.strip().split(".", 1)[0]
@@ -108,9 +106,7 @@ def _metadata_dependencies(
     edges: list[tuple[str, str]] = []
     parent_ref = str(parent.get("purl", ""))
     for value in data.get_all("Requires-Dist", []) or []:
-        parsed = _parse_requirement(
-            str(value), metadata_path, None, findings, audit_pin=False
-        )
+        parsed = _parse_requirement(str(value), metadata_path, None, findings, audit_pin=False)
         if parsed is None:
             continue
         components.append(parsed)
@@ -384,8 +380,7 @@ def _requirement_hashes(
                 SupplyChainFinding(
                     kind="unsupported-sbom-hash",
                     message=(
-                        "Requirement hash cannot be represented in the selected "
-                        "SBOM standards"
+                        "Requirement hash cannot be represented in the selected " "SBOM standards"
                     ),
                     location=str(path),
                     severity="LOW",
@@ -414,9 +409,7 @@ def _parse_requirement(
         requirement = Requirement(requirement_text)
     except InvalidRequirement:
         legacy = _component_from_legacy_reference(requirement_text)
-        if requirement_text.startswith(
-            ("git+", "hg+", "svn+", "bzr+", "http://", "https://")
-        ):
+        if requirement_text.startswith(("git+", "hg+", "svn+", "bzr+", "http://", "https://")):
             details["requirement"] = _redacted_url(requirement_text)
             findings.append(
                 SupplyChainFinding(
@@ -522,9 +515,7 @@ def _component_from_legacy_reference(value: str) -> dict[str, Any] | None:
         filename = Path(urlparse(value).path).name
         try:
             if filename.endswith(".whl"):
-                parsed_name, parsed_version, _build, _tags = parse_wheel_filename(
-                    filename
-                )
+                parsed_name, parsed_version, _build, _tags = parse_wheel_filename(filename)
             else:
                 parsed_name, parsed_version = parse_sdist_filename(filename)
         except (InvalidWheelFilename, InvalidSdistFilename):
@@ -532,9 +523,7 @@ def _component_from_legacy_reference(value: str) -> dict[str, Any] | None:
         component = _component(str(parsed_name), version=str(parsed_version))
     else:
         component = _component(names[0])
-    component["externalReferences"] = [
-        {"type": "distribution", "url": _redacted_url(value)}
-    ]
+    component["externalReferences"] = [{"type": "distribution", "url": _redacted_url(value)}]
     return component
 
 
@@ -613,9 +602,7 @@ def _components_from_pyproject(
         )
     root: dict[str, Any] | None = None
     if project.get("name"):
-        root = _component(
-            str(project["name"]), version=_string_or_none(project.get("version"))
-        )
+        root = _component(str(project["name"]), version=_string_or_none(project.get("version")))
         root["type"] = "application"
         project_license = project.get("license")
         if isinstance(project_license, str):
@@ -643,9 +630,7 @@ def _components_from_pyproject(
         ("dev", poetry.get("dev-dependencies", {}) or {}),
     ]
     for group, group_data in (poetry.get("group", {}) or {}).items():
-        poetry_groups.append(
-            (f"group:{group}", (group_data or {}).get("dependencies", {}) or {})
-        )
+        poetry_groups.append((f"group:{group}", (group_data or {}).get("dependencies", {}) or {}))
     for scope, dependency_map in poetry_groups:
         for name, value in dependency_map.items():
             if canonicalize_name(str(name)) == "python":
@@ -677,9 +662,7 @@ def _components_from_pyproject(
                 findings,
                 source.get("priority"),
             )
-    uv_sources = ((data.get("tool", {}) or {}).get("uv", {}) or {}).get(
-        "sources", {}
-    ) or {}
+    uv_sources = ((data.get("tool", {}) or {}).get("uv", {}) or {}).get("sources", {}) or {}
     for name, source in uv_sources.items():
         if not isinstance(source, dict):
             continue
@@ -717,9 +700,7 @@ def _poetry_requirement(name: str, value: Any) -> str | None:
         return None
     marker = value.get("markers")
     extras = value.get("extras") or ()
-    display_name = (
-        f"{name}[{','.join(str(item) for item in extras)}]" if extras else name
-    )
+    display_name = f"{name}[{','.join(str(item) for item in extras)}]" if extras else name
     for key in ("git", "url", "path"):
         if value.get(key):
             requirement = f"{display_name} @ {value[key]}"
@@ -829,9 +810,7 @@ def _components_from_toml_lock(
             )
         _apply_lock_source(component, source, path, findings)
         components.append(component)
-        refs_by_name.setdefault(canonicalize_name(name), []).append(
-            str(component["purl"])
-        )
+        refs_by_name.setdefault(canonicalize_name(name), []).append(str(component["purl"]))
 
         raw_dependencies = package.get("dependencies", {}) or {}
         names: Iterable[tuple[Any, Any]]
@@ -967,9 +946,7 @@ def _components_from_pylock(
             artifact = package.get(key)
             if isinstance(artifact, dict):
                 artifact_hashes.extend(
-                    _hashes_from_mapping(
-                        artifact.get("hashes", {}) or {}, path, findings
-                    )
+                    _hashes_from_mapping(artifact.get("hashes", {}) or {}, path, findings)
                 )
                 _audit_locked_artifact(path, name, artifact, findings)
         for wheel in package.get("wheels", ()) or ():
@@ -984,9 +961,7 @@ def _components_from_pylock(
         if isinstance(vcs, dict):
             url = vcs.get("url") or vcs.get("path")
             if url:
-                component["externalReferences"] = [
-                    {"type": "vcs", "url": _redacted_url(str(url))}
-                ]
+                component["externalReferences"] = [{"type": "vcs", "url": _redacted_url(str(url))}]
                 _audit_embedded_credentials(path, str(url), findings, name)
             commit = str(vcs.get("commit-id", ""))
             if not re.fullmatch(r"[0-9a-fA-F]{40,64}", commit):
@@ -1000,19 +975,13 @@ def _components_from_pylock(
                     )
                 )
         components.append(component)
-        refs_by_name.setdefault(canonicalize_name(name), []).append(
-            str(component["purl"])
-        )
+        refs_by_name.setdefault(canonicalize_name(name), []).append(str(component["purl"]))
         for dependency in package.get("dependencies", ()) or ():
-            dependency_name = (
-                dependency.get("name") if isinstance(dependency, dict) else dependency
-            )
+            dependency_name = dependency.get("name") if isinstance(dependency, dict) else dependency
             if dependency_name:
                 constraint = None
                 if isinstance(dependency, dict):
-                    constraint = dependency.get("version") or dependency.get(
-                        "specifier"
-                    )
+                    constraint = dependency.get("version") or dependency.get("specifier")
                 unresolved_edges.append(
                     (
                         str(component["purl"]),
@@ -1059,9 +1028,7 @@ def _components_from_setup_cfg(
     components: list[dict[str, Any]] = []
     for value in values:
         if value.strip():
-            component = _parse_requirement(
-                value.strip(), path, None, findings, audit_pin=False
-            )
+            component = _parse_requirement(value.strip(), path, None, findings, audit_pin=False)
             if component is not None:
                 components.append(component)
     return components
@@ -1095,10 +1062,7 @@ def _components_from_setup_py(
     _audit_setup_behavior(path, tree, findings)
     components: list[dict[str, Any]] = []
     for node in ast.walk(tree):
-        if (
-            not isinstance(node, ast.Call)
-            or _call_name(node.func).split(".")[-1] != "setup"
-        ):
+        if not isinstance(node, ast.Call) or _call_name(node.func).split(".")[-1] != "setup":
             continue
         for keyword in node.keywords:
             if keyword.arg not in {
@@ -1179,11 +1143,7 @@ def _audit_setup_behavior(
                 kind="install-script-dangerous-behavior",
                 message=f"Package installation script {action}",
                 location=str(path),
-                severity=(
-                    "CRITICAL"
-                    if resolved.endswith(("eval", "exec", "compile"))
-                    else "HIGH"
-                ),
+                severity=("CRITICAL" if resolved.endswith(("eval", "exec", "compile")) else "HIGH"),
                 details={
                     "line": getattr(descendant, "lineno", None),
                     "call": resolved,
@@ -1416,12 +1376,8 @@ def _apply_lock_source(
     source_type = str(source.get("type", "")).lower()
     vcs_url = source.get("git") or (source.get("url") if source_type == "git" else None)
     if vcs_url:
-        component["externalReferences"] = [
-            {"type": "vcs", "url": _redacted_url(str(vcs_url))}
-        ]
-        _audit_embedded_credentials(
-            path, str(vcs_url), findings, str(component.get("name", ""))
-        )
+        component["externalReferences"] = [{"type": "vcs", "url": _redacted_url(str(vcs_url))}]
+        _audit_embedded_credentials(path, str(vcs_url), findings, str(component.get("name", "")))
         commit = str(
             source.get("resolved_reference")
             or source.get("resolved-reference")

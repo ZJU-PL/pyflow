@@ -10,11 +10,7 @@ def test_summary_chain_converges_with_bounded_round_count():
     sources = {
         f"f{index}": (
             f"def f{index}(value):\n"
-            + (
-                f"    return f{index + 1}(value)\n"
-                if index + 1 < count
-                else "    return value\n"
-            )
+            + (f"    return f{index + 1}(value)\n" if index + 1 < count else "    return value\n")
         )
         for index in range(count)
     }

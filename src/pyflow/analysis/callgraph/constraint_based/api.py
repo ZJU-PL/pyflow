@@ -200,8 +200,7 @@ def extract_value_flow_graph_constraint(
     out = {name: sorted(values) for name, values in graph.items()}
     if emit_solver_stats:
         out["__solver_stats__"] = [
-            f"{key}={value}"
-            for key, value in sorted(builder.solver_stats.__dict__.items())
+            f"{key}={value}" for key, value in sorted(builder.solver_stats.__dict__.items())
         ]
     return out
 

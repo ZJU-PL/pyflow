@@ -23,9 +23,7 @@ class NullnessConfiguration:
     """Name-based nullness models for calls whose bodies are not available."""
 
     nullable_return_names: FrozenSet[str] = frozenset()
-    collection_mutator_names: FrozenSet[str] = frozenset(
-        {"append", "add", "extend", "update"}
-    )
+    collection_mutator_names: FrozenSet[str] = frozenset({"append", "add", "extend", "update"})
     collection_accessor_names: FrozenSet[str] = frozenset({"get"})
     call_models: CallModelRegistry | None = None
 
@@ -60,9 +58,7 @@ class NullnessFinding:
 class NullnessAnalysisResult:
     """Query wrapper for nullness results."""
 
-    def __init__(
-        self, ifds_result, findings: Sequence[NullnessFinding], problem
-    ) -> None:
+    def __init__(self, ifds_result, findings: Sequence[NullnessFinding], problem) -> None:
         self._ifds_result = ifds_result
         self.findings = tuple(findings)
         self._problem = problem
@@ -144,9 +140,7 @@ class InterproceduralNullnessProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_NULLNESS)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
-        if node.kind == "call" and self.adapter.is_exceptional_successor(
-            node, successor
-        ):
+        if node.kind == "call" and self.adapter.is_exceptional_successor(node, successor):
             return self._identity_outputs(fact, ())
         local_call_outputs = self._local_call_outputs(node, fact)
         if local_call_outputs is not None:
@@ -162,9 +156,7 @@ class InterproceduralNullnessProblem(
             return self._identity_outputs(fact, ())
 
         killed = self._killed_locations_for_node(node)
-        dynamic_setattr_locations = self._dynamic_setattr_locations(
-            node.procedure, operation
-        )
+        dynamic_setattr_locations = self._dynamic_setattr_locations(node.procedure, operation)
         if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_setattr_value(node.procedure, operation)
@@ -173,8 +165,7 @@ class InterproceduralNullnessProblem(
                 or self._expr_is_nullable(node.procedure, value, fact)
             ):
                 outputs.update(
-                    self._make_location_fact(location)
-                    for location in dynamic_setattr_locations
+                    self._make_location_fact(location) for location in dynamic_setattr_locations
                 )
             return tuple(outputs)
 
@@ -195,8 +186,7 @@ class InterproceduralNullnessProblem(
                     )
                 )
                 outputs.update(
-                    self._make_location_fact(location)
-                    for location in dynamic_subscript_locations
+                    self._make_location_fact(location) for location in dynamic_subscript_locations
                 )
             return tuple(outputs)
 
@@ -219,17 +209,12 @@ class InterproceduralNullnessProblem(
                 for value in collection_values
             ) or (fact_location is not None and fact_location in copy_source_locations):
                 outputs.update(
-                    self._make_location_fact(location)
-                    for location in collection_locations
+                    self._make_location_fact(location) for location in collection_locations
                 )
-                outputs.update(
-                    self._make_location_fact(location) for location in copy_locations
-                )
+                outputs.update(self._make_location_fact(location) for location in copy_locations)
             return tuple(outputs)
 
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
             expr = getattr(operation, "expr", None)
             if isinstance(operation, py_ast.AnnAssign):
@@ -277,9 +262,7 @@ class InterproceduralNullnessProblem(
                     value,
                     fact,
                 ) is not None or self._expr_is_nullable(node.procedure, value, fact):
-                    outputs.update(
-                        self._make_location_fact(location) for location in locations
-                    )
+                    outputs.update(self._make_location_fact(location) for location in locations)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -352,9 +335,7 @@ class InterproceduralNullnessProblem(
             if self._expr_is_nullable(call_node.procedure, actual, fact):
                 path = self._access_path_for_expression(actual)
                 if path:
-                    outputs.update(
-                        self._facts_for_locals_with_path(callee, (formal,), path)
-                    )
+                    outputs.update(self._facts_for_locals_with_path(callee, (formal,), path))
                 else:
                     outputs.update(self._facts_for_locals(callee, (formal,)))
 
@@ -402,14 +383,10 @@ class InterproceduralNullnessProblem(
 
         return tuple(outputs)
 
-    def call_to_return_flow(
-        self, call_node: CFGNode, return_site: CFGNode, fact: object
-    ):
+    def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
         call_effect = self._call_effect(call_node)
-        call_expression = (
-            call_effect.call_expression if call_effect is not None else None
-        )
+        call_expression = call_effect.call_expression if call_effect is not None else None
         self._mark_unresolved_call_arguments_escaped(call_node, call_expression)
         self._materialize_unresolved_call_summary(
             call_node,
@@ -428,15 +405,9 @@ class InterproceduralNullnessProblem(
         if call_effect is None or call_effect.callees:
             return None
 
-        outputs = set(
-            self._identity_outputs(fact, self._killed_locations_for_node(node))
-        )
+        outputs = set(self._identity_outputs(fact, self._killed_locations_for_node(node)))
         model = self._call_model_for_node(node)
-        if (
-            fact == ZERO_NULLNESS
-            and model is not None
-            and model.nullness_nullable_return
-        ):
+        if fact == ZERO_NULLNESS and model is not None and model.nullness_nullable_return:
             outputs.update(
                 self._facts_for_nested_call_result(
                     node.procedure,
@@ -458,9 +429,7 @@ class InterproceduralNullnessProblem(
             if key in seen:
                 return
             seen.add(key)
-            findings.append(
-                NullnessFinding(node=node, kind=kind, expression_label=label)
-            )
+            findings.append(NullnessFinding(node=node, kind=kind, expression_label=label))
 
         for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
@@ -471,9 +440,7 @@ class InterproceduralNullnessProblem(
             if call is not None:
                 self._collect_null_risks(node, call, result, record, inspect_calls=True)
             elif operation is not None:
-                self._collect_null_risks(
-                    node, operation, result, record, inspect_calls=False
-                )
+                self._collect_null_risks(node, operation, result, record, inspect_calls=False)
 
         return tuple(findings)
 
@@ -516,15 +483,11 @@ class InterproceduralNullnessProblem(
     def _identity_outputs(self, fact: object, killed: Sequence[object]):
         if fact == ZERO_NULLNESS:
             return (ZERO_NULLNESS,)
-        if isinstance(fact, NullFact) and any(
-            fact.location == target for target in killed
-        ):
+        if isinstance(fact, NullFact) and any(fact.location == target for target in killed):
             return ()
         return (fact,)
 
-    def _expr_is_nullable(
-        self, procedure: cfg_graph.Code, expr: object, fact: object
-    ) -> bool:
+    def _expr_is_nullable(self, procedure: cfg_graph.Code, expr: object, fact: object) -> bool:
         if fact == ZERO_NULLNESS:
             return self._expr_contains_explicit_null(expr)
         return self._expression_matches(
@@ -539,10 +502,7 @@ class InterproceduralNullnessProblem(
         return self._expression_matches(expr, self._is_explicit_null_expression)
 
     def _is_explicit_null_expression(self, expr: object) -> bool:
-        return (
-            isinstance(expr, py_ast.Existing)
-            and getattr(expr.object, "pyobj", object()) is None
-        )
+        return isinstance(expr, py_ast.Existing) and getattr(expr.object, "pyobj", object()) is None
 
     def _expression_matches(self, expr: object, predicate) -> bool:
         found = False
@@ -582,18 +542,14 @@ class InterproceduralNullnessProblem(
 
         locations = tuple(
             location
-            for candidate in self._facts_for_expression_node(
-                node.procedure, target_expr
-            )
+            for candidate in self._facts_for_expression_node(node.procedure, target_expr)
             for location in (self._location_from_fact(candidate),)
             if location is not None
         )
         if not locations:
             return None
 
-        branch_means_null = (
-            true_means_null if exit_name == "true" else not true_means_null
-        )
+        branch_means_null = true_means_null if exit_name == "true" else not true_means_null
         target_facts = {NullFact(location) for location in locations}
         if branch_means_null:
             outputs = set()
@@ -627,9 +583,7 @@ class InterproceduralNullnessProblem(
                 return target, not true_means_null
         return None, False
 
-    def _nullable_condition_call_target(
-        self, expr: object
-    ) -> tuple[object, bool] | None:
+    def _nullable_condition_call_target(self, expr: object) -> tuple[object, bool] | None:
         if not isinstance(expr, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
             return None
         call_name = self._call_name_from_expression(expr)
@@ -658,14 +612,10 @@ class InterproceduralNullnessProblem(
             if current is None or isinstance(current, py_ast.leafTypes):
                 return
             if isinstance(current, py_ast.Call):
-                if inspect_calls and self._expr_may_be_null_at(
-                    node, current.expr, result
-                ):
+                if inspect_calls and self._expr_may_be_null_at(node, current.expr, result):
                     record(node, "call_target", current.expr)
             elif isinstance(current, py_ast.MethodCall):
-                if inspect_calls and self._expr_may_be_null_at(
-                    node, current.expr, result
-                ):
+                if inspect_calls and self._expr_may_be_null_at(node, current.expr, result):
                     record(node, "method_receiver", current.expr)
             elif isinstance(current, (py_ast.GetAttr, py_ast.Load)):
                 if self._expr_may_be_null_at(node, current.expr, result):
@@ -730,9 +680,7 @@ class InterproceduralNullnessAnalysis:
             else IFDSSolver(record_traces=self.record_traces)
         )
         result = solver.solve(self.problem)
-        return NullnessAnalysisResult(
-            result, self.problem.findings(result), self.problem
-        )
+        return NullnessAnalysisResult(result, self.problem.findings(result), self.problem)
 
 
 def analyze_nullness(

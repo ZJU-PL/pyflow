@@ -18,7 +18,6 @@ from .builtin import (
     DependencyAnchorPass,
 )
 
-
 # Registry of standard passes
 STANDARD_PASSES = {
     "stats": StatisticsPass,

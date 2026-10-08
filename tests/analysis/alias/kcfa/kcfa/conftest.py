@@ -57,7 +57,9 @@ def call_site_factory(ir_stmt_factory):
 
     def _make_call_site(scope_name: str = "test_module") -> CallSite:
         counter["count"] += 1
-        return CallSite(ir_stmt_factory(f"r_{counter['count']} = f()"), scope_name, counter["count"])
+        return CallSite(
+            ir_stmt_factory(f"r_{counter['count']} = f()"), scope_name, counter["count"]
+        )
 
     return _make_call_site
 

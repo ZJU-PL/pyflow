@@ -33,12 +33,10 @@ def test_getattr_dangerous_dunder_is_flagged(scan):
 
 
 def test_direct_dunder_dict_assignment_user_input_is_flagged(scan):
-    res = scan(
-        """
+    res = scan("""
         user_input = {}
         obj.__dict__ = user_input
-        """
-    )
+        """)
     issues = res.issues
 
     assert _ids(issues) == ["B704"]

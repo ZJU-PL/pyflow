@@ -7,7 +7,6 @@ from itertools import count
 
 from ..model import HeapLocation, UpdatePolicy
 
-
 _HEAP_VERSION_IDS = count(1)
 
 
@@ -22,9 +21,7 @@ class HeapState:
     """
 
     values: dict[HeapLocation, tuple[HeapLocation, ...]] = field(default_factory=dict)
-    contaminants: dict[HeapLocation, tuple[HeapLocation, ...]] = field(
-        default_factory=dict
-    )
+    contaminants: dict[HeapLocation, tuple[HeapLocation, ...]] = field(default_factory=dict)
     # Exact locations proven to contain no heap value.  Absence is a must
     # fact: it is retained across a join only when every incoming path proves
     # the same location absent.  This keeps "not modeled" distinct from
@@ -40,9 +37,7 @@ class HeapState:
     versions: dict[HeapLocation, frozenset[int]] = field(default_factory=dict)
     escaped: set[HeapLocation] = field(default_factory=set)
     returns: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
-    return_slots: dict[object, tuple[tuple[HeapLocation, ...], ...]] = field(
-        default_factory=dict
-    )
+    return_slots: dict[object, tuple[tuple[HeapLocation, ...], ...]] = field(default_factory=dict)
     yields: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
     # Possible suspension ordinal(s) reached on the current path. Branches
     # may reach the same syntactic yield at different resume depths, so this
@@ -52,9 +47,7 @@ class HeapState:
     # The exception currently being handled.  This is deliberately separate
     # from ``raised`` so a bare ``raise`` can re-raise the caught object after
     # the handler entry has consumed the pending exceptional edge.
-    active_exceptions: dict[object, tuple[HeapLocation, ...]] = field(
-        default_factory=dict
-    )
+    active_exceptions: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
 
     def read(
         self,
@@ -65,9 +58,9 @@ class HeapState:
         result: list[HeapLocation] = []
         result.extend(self.values.get(location, ()))
         for contaminant, values in self.contaminants.items():
-            if self.locations_may_overlap(
+            if self.locations_may_overlap(location, contaminant) and not self._contaminant_shadowed(
                 location, contaminant
-            ) and not self._contaminant_shadowed(location, contaminant):
+            ):
                 result.extend(values)
         if result:
             return tuple(dict.fromkeys(result))
@@ -221,9 +214,7 @@ class HeapState:
             if not self.locations_may_overlap(stored, location)
         }
         self.absent = {
-            stored
-            for stored in self.absent
-            if not self.locations_may_overlap(stored, location)
+            stored for stored in self.absent if not self.locations_may_overlap(stored, location)
         }
         self.scalar_present = {
             stored
@@ -265,9 +256,7 @@ class HeapState:
         procedure: object,
         locations: tuple[HeapLocation, ...],
     ) -> None:
-        self.raised[procedure] = tuple(
-            dict.fromkeys((*self.raised.get(procedure, ()), *locations))
-        )
+        self.raised[procedure] = tuple(dict.fromkeys((*self.raised.get(procedure, ()), *locations)))
 
     def set_active_exception(
         self,
@@ -281,9 +270,7 @@ class HeapState:
         procedure: object,
         locations: tuple[HeapLocation, ...],
     ) -> None:
-        self.yields[procedure] = tuple(
-            dict.fromkeys((*self.yields.get(procedure, ()), *locations))
-        )
+        self.yields[procedure] = tuple(dict.fromkeys((*self.yields.get(procedure, ()), *locations)))
 
     def current_yield_depths(self, procedure: object) -> frozenset[int]:
         return self.yield_depths.get(procedure, frozenset({0}))
@@ -356,22 +343,16 @@ class HeapState:
                 )
             for procedure, values in source.active_exceptions.items():
                 joined.active_exceptions[procedure] = tuple(
-                    dict.fromkeys(
-                        (*joined.active_exceptions.get(procedure, ()), *values)
-                    )
+                    dict.fromkeys((*joined.active_exceptions.get(procedure, ()), *values))
                 )
         joined.absent = set(self.absent).intersection(other.absent)
         joined.absent.difference_update(joined.values)
         joined.absent.difference_update(joined.scalar_present)
-        joined.definitely_scalar_present = set(
-            self.definitely_scalar_present
-        ).intersection(other.definitely_scalar_present)
-        joined.precise_shadows = set(self.precise_shadows).intersection(
-            other.precise_shadows
+        joined.definitely_scalar_present = set(self.definitely_scalar_present).intersection(
+            other.definitely_scalar_present
         )
-        joined.complete_roots = set(self.complete_roots).intersection(
-            other.complete_roots
-        )
+        joined.precise_shadows = set(self.precise_shadows).intersection(other.precise_shadows)
+        joined.complete_roots = set(self.complete_roots).intersection(other.complete_roots)
         return joined
 
     def copy(self) -> "HeapState":

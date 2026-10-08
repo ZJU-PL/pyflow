@@ -52,15 +52,11 @@ def _star_lengths(state, source_var) -> Optional[FrozenSet[int]]:
 
 def _constant_name_value(state, source_var, name: str):
     for kind in (VariableKind.TEMPORARY, VariableKind.LOCAL, VariableKind.GLOBAL):
-        ctx_var = state._get_variable_direct(
-            source_var.scope, source_var.context, name, kind
-        )
+        ctx_var = state._get_variable_direct(source_var.scope, source_var.context, name, kind)
         if ctx_var is None:
             continue
         values = {
-            obj.value
-            for obj in state.get_points_to(ctx_var)
-            if isinstance(obj, ConstantObject)
+            obj.value for obj in state.get_points_to(ctx_var) if isinstance(obj, ConstantObject)
         }
         if len(values) == 1:
             return next(iter(values))
@@ -144,9 +140,7 @@ def bind_arguments(state, scope, context, func_args, call, *, leading_positional
             uncertain = True
             possible_counts = None
             break
-        possible_counts = {
-            count + length for count, length in product(possible_counts, lengths)
-        }
+        possible_counts = {count + length for count, length in product(possible_counts, lengths)}
 
     explicit_keywords = [name for name, _ in call.kwargs if name is not None]
     dstar_key_options = []
@@ -187,34 +181,23 @@ def bind_arguments(state, scope, context, func_args, call, *, leading_positional
     if not func_args.vararg and possible_counts is not None:
         capacity = len(positional)
         if possible_counts and all(count > capacity for count in possible_counts):
-            diagnostics.append(
-                f"too many positional arguments (expected at most {capacity})"
-            )
+            diagnostics.append(f"too many positional arguments (expected at most {capacity})")
             invalid_for_all = True
         elif any(count > capacity for count in possible_counts):
             uncertain = True
 
     if not func_args.kwarg:
-        unexpected = [
-            name for name in explicit_keywords
-            if name not in accepted_keyword_names
-        ]
+        unexpected = [name for name in explicit_keywords if name not in accepted_keyword_names]
         if unexpected:
-            diagnostics.append(
-                "unexpected keyword argument(s): " + ", ".join(unexpected)
-            )
+            diagnostics.append("unexpected keyword argument(s): " + ", ".join(unexpected))
             invalid_for_all = True
         for options in dstar_key_options:
             if options and all(
-                any(key not in accepted_keyword_names for key in keys)
-                for keys in options
+                any(key not in accepted_keyword_names for key in keys) for keys in options
             ):
                 diagnostics.append("** mapping contains unexpected keyword(s)")
                 invalid_for_all = True
-            elif any(
-                any(key not in accepted_keyword_names for key in keys)
-                for keys in options
-            ):
+            elif any(any(key not in accepted_keyword_names for key in keys) for keys in options):
                 uncertain = True
 
     # Positional-only names passed explicitly are unexpected unless **kwargs
@@ -230,9 +213,7 @@ def bind_arguments(state, scope, context, func_args, call, *, leading_positional
             keys = set(options[0])
             overlap = seen & keys
             if overlap:
-                diagnostics.append(
-                    "multiple values for keyword(s): " + ", ".join(sorted(overlap))
-                )
+                diagnostics.append("multiple values for keyword(s): " + ", ".join(sorted(overlap)))
                 invalid_for_all = True
             seen.update(keys)
     elif dstar_key_options:
@@ -264,13 +245,10 @@ def bind_arguments(state, scope, context, func_args, call, *, leading_positional
             for index, param in enumerate(func_args.kwonlyargs)
             if not func_args.kw_defaults or func_args.kw_defaults[index] is None
         }
-        missing_in_every_alternative.extend(
-            sorted(required_kwonly - supplied_known_keywords)
-        )
+        missing_in_every_alternative.extend(sorted(required_kwonly - supplied_known_keywords))
         if missing_in_every_alternative:
             diagnostics.append(
-                "missing required argument(s): "
-                + ", ".join(missing_in_every_alternative)
+                "missing required argument(s): " + ", ".join(missing_in_every_alternative)
             )
             invalid_for_all = True
 

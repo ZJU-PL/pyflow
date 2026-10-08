@@ -12,25 +12,25 @@ class ParseResult:
 
     @property
     def hostname(self):
-        return self.netloc.split(':')[0] if self.netloc else None
+        return self.netloc.split(":")[0] if self.netloc else None
 
     @property
     def port(self):
-        parts = self.netloc.split(':')
+        parts = self.netloc.split(":")
         return int(parts[1]) if len(parts) > 1 else None
 
     @property
     def username(self):
-        if '@' in self.netloc:
-            userinfo = self.netloc.split('@')[0]
-            return userinfo.split(':')[0]
+        if "@" in self.netloc:
+            userinfo = self.netloc.split("@")[0]
+            return userinfo.split(":")[0]
         return None
 
     @property
     def password(self):
-        if '@' in self.netloc:
-            userinfo = self.netloc.split('@')[0]
-            parts = userinfo.split(':')
+        if "@" in self.netloc:
+            userinfo = self.netloc.split("@")[0]
+            parts = userinfo.split(":")
             return parts[1] if len(parts) > 1 else None
         return None
 
@@ -54,11 +54,11 @@ class SplitResult:
 
     @property
     def hostname(self):
-        return self.netloc.split(':')[0] if self.netloc else None
+        return self.netloc.split(":")[0] if self.netloc else None
 
     @property
     def port(self):
-        parts = self.netloc.split(':')
+        parts = self.netloc.split(":")
         return int(parts[1]) if len(parts) > 1 else None
 
     def __iter__(self):
@@ -80,7 +80,7 @@ class DefragResult:
         return (self.url, self.fragment)[index]
 
 
-def urlparse(url, scheme='', allow_fragments=True):
+def urlparse(url, scheme="", allow_fragments=True):
     return ParseResult(scheme, "", url, "", "", "")
 
 
@@ -101,7 +101,7 @@ def urlunparse(components):
     return url
 
 
-def urlsplit(url, scheme='', allow_fragments=True):
+def urlsplit(url, scheme="", allow_fragments=True):
     return SplitResult(scheme, "", url, "", "")
 
 
@@ -128,23 +128,23 @@ def urldefrag(url):
     return DefragResult(url, "")
 
 
-def quote(string, safe='/', encoding=None, errors=None):
+def quote(string, safe="/", encoding=None, errors=None):
     return string
 
 
-def quote_plus(string, safe='', encoding=None, errors=None):
+def quote_plus(string, safe="", encoding=None, errors=None):
     return string
 
 
-def unquote(string, encoding='utf-8', errors='replace'):
+def unquote(string, encoding="utf-8", errors="replace"):
     return string
 
 
-def unquote_plus(string, encoding='utf-8', errors='replace'):
+def unquote_plus(string, encoding="utf-8", errors="replace"):
     return string
 
 
-def quote_from_bytes(bs, safe=b'/'):
+def quote_from_bytes(bs, safe=b"/"):
     return bs.decode() if isinstance(bs, bytes) else bs
 
 
@@ -152,7 +152,7 @@ def unquote_to_bytes(string):
     return string.encode() if isinstance(string, str) else string
 
 
-def urlencode(query, doseq=False, safe='', encoding=None, errors=None, quote_via=quote_plus):
+def urlencode(query, doseq=False, safe="", encoding=None, errors=None, quote_via=quote_plus):
     if isinstance(query, dict):
         items = query.items()
     else:
@@ -160,13 +160,27 @@ def urlencode(query, doseq=False, safe='', encoding=None, errors=None, quote_via
     return "&".join(f"{k}={v}" for k, v in items)
 
 
-def parse_qs(qs, keep_blank_values=False, strict_parsing=False, encoding='utf-8',
-             errors='replace', max_num_fields=None, separator='&'):
+def parse_qs(
+    qs,
+    keep_blank_values=False,
+    strict_parsing=False,
+    encoding="utf-8",
+    errors="replace",
+    max_num_fields=None,
+    separator="&",
+):
     return {"_": [qs]}
 
 
-def parse_qsl(qs, keep_blank_values=False, strict_parsing=False, encoding='utf-8',
-              errors='replace', max_num_fields=None, separator='&'):
+def parse_qsl(
+    qs,
+    keep_blank_values=False,
+    strict_parsing=False,
+    encoding="utf-8",
+    errors="replace",
+    max_num_fields=None,
+    separator="&",
+):
     return [("_", qs)]
 
 
@@ -214,8 +228,92 @@ def unwrap(url):
     return url
 
 
-uses_relative = ['ftp', 'http', 'gopher', 'nntp', 'imap', 'wais', 'file', 'https', 'shttp', 'mms', 'prospero', 'rtsp', 'rtspu', 'sftp', 'svn', 'svn+ssh', 'ws', 'wss']
-uses_netloc = ['ftp', 'http', 'gopher', 'nntp', 'telnet', 'imap', 'wais', 'file', 'mms', 'https', 'shttp', 'snews', 'prospero', 'rtsp', 'rtspu', 'rsync', 'svn', 'svn+ssh', 'sftp', 'nfs', 'git', 'git+ssh', 'ws', 'wss']
-uses_params = ['ftp', 'hdl', 'prospero', 'http', 'imap', 'https', 'shttp', 'rtsp', 'rtspu', 'sip', 'sips', 'mms', 'sftp', 'tel']
-uses_query = ['http', 'wais', 'imap', 'https', 'shttp', 'mms', 'gopher', 'rtsp', 'rtspu', 'sip', 'sips']
-uses_fragment = ['ftp', 'hdl', 'http', 'gopher', 'news', 'nntp', 'wais', 'https', 'shttp', 'snews', 'file', 'prospero']
+uses_relative = [
+    "ftp",
+    "http",
+    "gopher",
+    "nntp",
+    "imap",
+    "wais",
+    "file",
+    "https",
+    "shttp",
+    "mms",
+    "prospero",
+    "rtsp",
+    "rtspu",
+    "sftp",
+    "svn",
+    "svn+ssh",
+    "ws",
+    "wss",
+]
+uses_netloc = [
+    "ftp",
+    "http",
+    "gopher",
+    "nntp",
+    "telnet",
+    "imap",
+    "wais",
+    "file",
+    "mms",
+    "https",
+    "shttp",
+    "snews",
+    "prospero",
+    "rtsp",
+    "rtspu",
+    "rsync",
+    "svn",
+    "svn+ssh",
+    "sftp",
+    "nfs",
+    "git",
+    "git+ssh",
+    "ws",
+    "wss",
+]
+uses_params = [
+    "ftp",
+    "hdl",
+    "prospero",
+    "http",
+    "imap",
+    "https",
+    "shttp",
+    "rtsp",
+    "rtspu",
+    "sip",
+    "sips",
+    "mms",
+    "sftp",
+    "tel",
+]
+uses_query = [
+    "http",
+    "wais",
+    "imap",
+    "https",
+    "shttp",
+    "mms",
+    "gopher",
+    "rtsp",
+    "rtspu",
+    "sip",
+    "sips",
+]
+uses_fragment = [
+    "ftp",
+    "hdl",
+    "http",
+    "gopher",
+    "news",
+    "nntp",
+    "wais",
+    "https",
+    "shttp",
+    "snews",
+    "file",
+    "prospero",
+]

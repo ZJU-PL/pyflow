@@ -44,25 +44,15 @@ class _StateAnalysisMixin:
                     current = self.instance_fields[target_value.name][attr_name]
                     before = len(current)
                     current.update(assigned_values)
-                    if (
-                        len(current) != before
-                        and self._active_changed_instance_fields is not None
-                    ):
-                        self._active_changed_instance_fields.add(
-                            (target_value.name, attr_name)
-                        )
+                    if len(current) != before and self._active_changed_instance_fields is not None:
+                        self._active_changed_instance_fields.add((target_value.name, attr_name))
             elif target_value.kind == CLASS_KIND:
                 for attr_name in attr_names:
                     current = self.class_fields[target_value.name][attr_name]
                     before = len(current)
                     current.update(assigned_values)
-                    if (
-                        len(current) != before
-                        and self._active_changed_class_fields is not None
-                    ):
-                        self._active_changed_class_fields.add(
-                            (target_value.name, attr_name)
-                        )
+                    if len(current) != before and self._active_changed_class_fields is not None:
+                        self._active_changed_class_fields.add((target_value.name, attr_name))
 
     def _note_container_state_changed(
         self,
@@ -123,9 +113,7 @@ class _StateAnalysisMixin:
         missing_keys = self.container_maybe_missing_keys.get(container_name, set())
         if not key_names:
             return bool(missing_keys)
-        return "*" in missing_keys or any(
-            key_name in missing_keys for key_name in key_names
-        )
+        return "*" in missing_keys or any(key_name in missing_keys for key_name in key_names)
 
     def _mark_attribute_maybe_missing(
         self,
@@ -140,9 +128,7 @@ class _StateAnalysisMixin:
                         continue
                     missing_fields.add(attr_name)
                     if self._active_changed_instance_fields is not None:
-                        self._active_changed_instance_fields.add(
-                            (target_value.name, attr_name)
-                        )
+                        self._active_changed_instance_fields.add((target_value.name, attr_name))
             elif target_value.kind == CLASS_KIND:
                 missing_fields = self.class_maybe_missing_fields[target_value.name]
                 for attr_name in attr_names:
@@ -150,9 +136,7 @@ class _StateAnalysisMixin:
                         continue
                     missing_fields.add(attr_name)
                     if self._active_changed_class_fields is not None:
-                        self._active_changed_class_fields.add(
-                            (target_value.name, attr_name)
-                        )
+                        self._active_changed_class_fields.add((target_value.name, attr_name))
 
     def _clear_attribute_maybe_missing(
         self,
@@ -161,9 +145,7 @@ class _StateAnalysisMixin:
     ) -> None:
         for target_value in target_values:
             if target_value.kind == INSTANCE_KIND:
-                missing_fields = self.instance_maybe_missing_fields.get(
-                    target_value.name
-                )
+                missing_fields = self.instance_maybe_missing_fields.get(target_value.name)
                 if not missing_fields:
                     continue
                 for attr_name in attr_names:
@@ -183,16 +165,10 @@ class _StateAnalysisMixin:
         for target_value in target_values:
             if target_value.kind == INSTANCE_KIND:
                 instance_name = target_value.name
-                if attr_name in self.instance_maybe_missing_fields.get(
-                    instance_name, set()
-                ):
+                if attr_name in self.instance_maybe_missing_fields.get(instance_name, set()):
                     return True
-                for klass in self._class_lookup_order(
-                    instance_class_name(target_value)
-                ):
-                    if attr_name in self.instance_maybe_missing_fields.get(
-                        klass, set()
-                    ):
+                for klass in self._class_lookup_order(instance_class_name(target_value)):
+                    if attr_name in self.instance_maybe_missing_fields.get(klass, set()):
                         return True
                     if attr_name in self.class_maybe_missing_fields.get(klass, set()):
                         return True
@@ -259,9 +235,7 @@ class _StateAnalysisMixin:
 
         if isinstance(target, (ast.Tuple, ast.List)):
             starred_indices = [
-                index
-                for index, elt in enumerate(target.elts)
-                if isinstance(elt, ast.Starred)
+                index for index, elt in enumerate(target.elts) if isinstance(elt, ast.Starred)
             ]
             indexed_values: Dict[int, Set[AbstractValue]] = {}
             for value in values:
@@ -288,9 +262,7 @@ class _StateAnalysisMixin:
                 sequence_len = max_index + 1
                 star_index = starred_indices[0] if starred_indices else None
                 prefix_len = star_index if star_index is not None else len(target.elts)
-                suffix_len = (
-                    len(target.elts) - star_index - 1 if star_index is not None else 0
-                )
+                suffix_len = len(target.elts) - star_index - 1 if star_index is not None else 0
                 for elt_index, elt in enumerate(target.elts):
                     if isinstance(elt, ast.Starred):
                         start = prefix_len
@@ -341,9 +313,7 @@ class _StateAnalysisMixin:
                         src_index = elt_index
                     else:
                         src_index = sequence_len - (len(target.elts) - elt_index)
-                    assign_values = indexed_values.get(src_index, set()) or {
-                        UNKNOWN_VALUE
-                    }
+                    assign_values = indexed_values.get(src_index, set()) or {UNKNOWN_VALUE}
                     changed = (
                         self._assign_target(
                             scope,
@@ -391,17 +361,13 @@ class _StateAnalysisMixin:
                     if receiver_instances:
                         changed = False
                         for receiver_instance in receiver_instances:
-                            current = self.instance_fields[receiver_instance][
-                                target.attr
-                            ]
+                            current = self.instance_fields[receiver_instance][target.attr]
                             did_change = self._merge_value_set(
                                 current, set(values), preserve_callables=True
                             )
                             changed = changed or did_change
                             if did_change and changed_instance_fields is not None:
-                                changed_instance_fields.add(
-                                    (receiver_instance, target.attr)
-                                )
+                                changed_instance_fields.add((receiver_instance, target.attr))
                         return changed
                     owner = self._owner_class_for_scope(scope.name)
                     if owner:
@@ -440,9 +406,7 @@ class _StateAnalysisMixin:
                         return changed
                 base_values = env.get(base_name, set())
                 class_values = {v.name for v in base_values if v.kind == CLASS_KIND}
-                instance_values = {
-                    v.name for v in base_values if v.kind == INSTANCE_KIND
-                }
+                instance_values = {v.name for v in base_values if v.kind == INSTANCE_KIND}
                 changed = False
                 for class_name in class_values:
                     current = self.class_fields[class_name][target.attr]
@@ -459,9 +423,7 @@ class _StateAnalysisMixin:
                     )
                     changed = changed or did_change
                     if did_change and changed_instance_fields is not None:
-                        changed_instance_fields.add(
-                            (instance_or_class_name, target.attr)
-                        )
+                        changed_instance_fields.add((instance_or_class_name, target.attr))
                 return changed
             return False
 
@@ -478,18 +440,14 @@ class _StateAnalysisMixin:
                     if parent_value.kind != CONTAINER_KIND:
                         continue
                     self._register_container_read(parent_value.name, parent_keys)
-                    parent_key_map = self.container_key_values.get(
-                        parent_value.name, {}
-                    )
+                    parent_key_map = self.container_key_values.get(parent_value.name, {})
                     nested_values: Set[AbstractValue] = set()
                     if parent_keys:
                         for key_name in parent_keys:
                             nested_values.update(parent_key_map.get(key_name, set()))
                     else:
                         self._register_container_read(parent_value.name)
-                        nested_values.update(
-                            self.container_elements.get(parent_value.name, set())
-                        )
+                        nested_values.update(self.container_elements.get(parent_value.name, set()))
                     base_values.update(
                         value for value in nested_values if value.kind == CONTAINER_KIND
                     )
@@ -512,9 +470,7 @@ class _StateAnalysisMixin:
                     )
                     changed = key_changed or changed
                     if key_changed:
-                        self._note_container_state_changed(
-                            base_value.name, key_name
-                        )
+                        self._note_container_state_changed(base_value.name, key_name)
             if key_names:
                 self._clear_container_key_maybe_missing(base_values, key_names)
             return changed
@@ -627,9 +583,7 @@ class _StateAnalysisMixin:
 
                 for klass in class_order:
                     self._register_class_field_dependency(klass, attr_name)
-                    class_attr_values = self.class_fields.get(klass, {}).get(
-                        attr_name, set()
-                    )
+                    class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
                     out.update(
                         self._descriptor_bind_values(
                             class_attr_values,
@@ -653,9 +607,7 @@ class _StateAnalysisMixin:
                         if attr_name in class_info.static_methods:
                             out.add(make_func(method_name))
                         elif attr_name in class_info.class_methods:
-                            out.add(
-                                make_bound_class_method(method_name, base_class_name)
-                            )
+                            out.add(make_bound_class_method(method_name, base_class_name))
                         else:
                             out.add(make_bound_method(method_name, base_instance_name))
                         if stop_after_first:
@@ -663,20 +615,12 @@ class _StateAnalysisMixin:
                     if class_info is None and "." in klass:
                         out.add(make_func(f"{klass}.{attr_name}"))
                 self._register_instance_field_dependency(base_instance_name, attr_name)
-                out.update(
-                    self.instance_fields.get(base_instance_name, {}).get(
-                        attr_name, set()
-                    )
-                )
+                out.update(self.instance_fields.get(base_instance_name, {}).get(attr_name, set()))
                 for klass in class_order:
                     self._register_instance_field_dependency(klass, attr_name)
-                    out.update(
-                        self.instance_fields.get(klass, {}).get(attr_name, set())
-                    )
+                    out.update(self.instance_fields.get(klass, {}).get(attr_name, set()))
                     self._register_class_field_dependency(klass, attr_name)
-                    class_attr_values = self.class_fields.get(klass, {}).get(
-                        attr_name, set()
-                    )
+                    class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
                     out.update(
                         self._descriptor_bind_values(
                             class_attr_values,
@@ -684,35 +628,15 @@ class _StateAnalysisMixin:
                             instance_class=base_value.name,
                         )
                     )
-                if (
-                    not out
-                    and base_class_name.startswith("dict:")
-                    and attr_name == "items"
-                ):
+                if not out and base_class_name.startswith("dict:") and attr_name == "items":
                     out.add(make_func("<**PyDict**>.items"))
-                if (
-                    not out
-                    and base_class_name.startswith("dict:")
-                    and attr_name == "update"
-                ):
+                if not out and base_class_name.startswith("dict:") and attr_name == "update":
                     out.add(make_func("<**PyDict**>.update"))
-                if (
-                    not out
-                    and base_class_name.startswith("dict:")
-                    and attr_name == "setdefault"
-                ):
+                if not out and base_class_name.startswith("dict:") and attr_name == "setdefault":
                     out.add(make_func("<**PyDict**>.setdefault"))
-                if (
-                    not out
-                    and base_class_name.startswith("dict:")
-                    and attr_name == "pop"
-                ):
+                if not out and base_class_name.startswith("dict:") and attr_name == "pop":
                     out.add(make_func("<**PyDict**>.pop"))
-                if (
-                    not out
-                    and base_class_name.startswith("dict:")
-                    and attr_name == "get"
-                ):
+                if not out and base_class_name.startswith("dict:") and attr_name == "get":
                     out.add(make_func("<**PyDict**>.get"))
                 if base_class_name == "collections.deque":
                     deque_methods = {
@@ -773,9 +697,7 @@ class _StateAnalysisMixin:
             return None
         return function_info.owner_class
 
-    def _mro(
-        self, class_name: str, active: Optional[Set[str]] = None
-    ) -> List[str]:
+    def _mro(self, class_name: str, active: Optional[Set[str]] = None) -> List[str]:
         """Compute and cache class MRO (C3) with conservative fallback on failure."""
         if class_name in self._mro_cache:
             return list(self._mro_cache[class_name])

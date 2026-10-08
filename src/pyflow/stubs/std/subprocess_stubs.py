@@ -15,35 +15,87 @@ def makeSubprocessStubs(collector):
     @export
     @attachPtr(subprocess, "run")
     @llfunc
-    def subprocess_run(args, stdin=None, input=None, stdout=None, stderr=None, capture_output=False, shell=False, cwd=None, timeout=None, check=False, encoding=None, errors=None, text=None, env=None, universal_newlines=None, **kwargs):
+    def subprocess_run(
+        args,
+        stdin=None,
+        input=None,
+        stdout=None,
+        stderr=None,
+        capture_output=False,
+        shell=False,
+        cwd=None,
+        timeout=None,
+        check=False,
+        encoding=None,
+        errors=None,
+        text=None,
+        env=None,
+        universal_newlines=None,
+        **kwargs,
+    ):
         return allocate(subprocess.CompletedProcess)
 
     ### subprocess.call ###
     @export
     @attachPtr(subprocess, "call")
     @llfunc
-    def subprocess_call(args, stdin=None, stdout=None, stderr=None, shell=False, cwd=None, timeout=None, **kwargs):
+    def subprocess_call(
+        args, stdin=None, stdout=None, stderr=None, shell=False, cwd=None, timeout=None, **kwargs
+    ):
         return allocate(int)
 
     ### subprocess.check_call ###
     @export
     @attachPtr(subprocess, "check_call")
     @llfunc
-    def subprocess_check_call(args, stdin=None, stdout=None, stderr=None, shell=False, cwd=None, timeout=None, **kwargs):
+    def subprocess_check_call(
+        args, stdin=None, stdout=None, stderr=None, shell=False, cwd=None, timeout=None, **kwargs
+    ):
         return allocate(int)
 
     ### subprocess.check_output ###
     @export
     @attachPtr(subprocess, "check_output")
     @llfunc
-    def subprocess_check_output(args, stdin=None, stderr=None, shell=False, cwd=None, timeout=None, encoding=None, errors=None, **kwargs):
+    def subprocess_check_output(
+        args,
+        stdin=None,
+        stderr=None,
+        shell=False,
+        cwd=None,
+        timeout=None,
+        encoding=None,
+        errors=None,
+        **kwargs,
+    ):
         return allocate(bytes)
 
     ### subprocess.Popen ###
     @export
     @attachPtr(subprocess, "Popen")
     @llfunc
-    def subprocess_Popen(args, bufsize=-1, executable=None, stdin=None, stdout=None, stderr=None, preexec_fn=None, close_fds=True, shell=False, cwd=None, env=None, universal_newlines=None, startupinfo=None, creationflags=0, restore_signals=True, start_new_session=False, pass_fds=(), encoding=None, errors=None, text=None):
+    def subprocess_Popen(
+        args,
+        bufsize=-1,
+        executable=None,
+        stdin=None,
+        stdout=None,
+        stderr=None,
+        preexec_fn=None,
+        close_fds=True,
+        shell=False,
+        cwd=None,
+        env=None,
+        universal_newlines=None,
+        startupinfo=None,
+        creationflags=0,
+        restore_signals=True,
+        start_new_session=False,
+        pass_fds=(),
+        encoding=None,
+        errors=None,
+        text=None,
+    ):
         return allocate(subprocess.Popen)
 
     ### Popen methods ###

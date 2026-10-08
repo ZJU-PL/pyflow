@@ -141,7 +141,5 @@ def test_provenance_overflow_uses_an_explicit_top_element():
 
     assert overflowed.provenance_is_top
     assert not overflowed.provenance
-    assert any(
-        item.code == "provenance-budget-exceeded" for item in overflowed.uncertainties
-    )
+    assert any(item.code == "provenance-budget-exceeded" for item in overflowed.uncertainties)
     assert overflowed.join(first).provenance_is_top

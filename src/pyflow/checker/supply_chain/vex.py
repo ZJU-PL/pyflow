@@ -11,7 +11,6 @@ from packaging.utils import canonicalize_name
 from .input_safety import load_json_file
 from .models import SupplyChainFinding
 
-
 VexStatuses = dict[tuple[str, str], dict[str, str]]
 
 

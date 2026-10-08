@@ -296,18 +296,14 @@ def evaluateCode(compiler, prgm, code, simplify=True):
     rm = FindReadModify(facts, code).processCode(code)
     killed = set()
     for context in facts.contexts(code):
-        killed.update(
-            facts.code_effect(Capabilities.LIFETIME_CODE_KILLED, code, context)
-        )
+        killed.update(facts.code_effect(Capabilities.LIFETIME_CODE_KILLED, code, context))
 
     dom = MakeForwardDominance().processCode(code)
 
     fessa = ForwardESSA(rm, killed)
     fessa.processCode(code)
 
-    rle = RedundantLoadEliminator(
-        compiler, prgm, fessa.readLUT, fessa.writeLUT, dom, facts, code
-    )
+    rle = RedundantLoadEliminator(compiler, prgm, fessa.readLUT, fessa.writeLUT, dom, facts, code)
     eliminated = rle.processCode(code, simplify)
     if eliminated:
         print("\t", code, eliminated)
@@ -351,9 +347,7 @@ def evaluate(compiler, prgm):
                 killed = set()
                 for context in facts.contexts(code):
                     killed.update(
-                        facts.code_effect(
-                            Capabilities.LIFETIME_CODE_KILLED, code, context
-                        )
+                        facts.code_effect(Capabilities.LIFETIME_CODE_KILLED, code, context)
                     )
                 fessa = ForwardESSA(rm, killed)
                 fessa.processCode(code)

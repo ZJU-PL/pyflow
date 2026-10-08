@@ -68,8 +68,12 @@ class BuiltinTypeLookup:
         if qualified_name in {"None", "NoneType", "types.NoneType"}:
             return NONE_TYPE
         if qualified_name in {
-            "Never", "NoReturn", "typing.Never", "typing.NoReturn",
-            "typing_extensions.Never", "typing_extensions.NoReturn",
+            "Never",
+            "NoReturn",
+            "typing.Never",
+            "typing.NoReturn",
+            "typing_extensions.Never",
+            "typing_extensions.NoReturn",
         }:
             return NEVER
         if qualified_name in {"tuple", "builtins.tuple"}:

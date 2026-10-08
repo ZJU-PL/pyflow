@@ -103,9 +103,7 @@ class ChainedFunctionTransformer:
                         keywords=call_node.keywords,
                     ),
                     **{
-                        field: value
-                        for field, value in ast.iter_fields(node)
-                        if field != "value"
+                        field: value for field, value in ast.iter_fields(node) if field != "value"
                     },  # e.g. targets
                 )
             )

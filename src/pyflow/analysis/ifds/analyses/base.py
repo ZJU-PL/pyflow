@@ -36,7 +36,6 @@ from ..core.transfers import (
 )
 from ..modeling.calls import CallModelRegistry
 
-
 FactT = TypeVar("FactT")
 DYNAMIC_SUBSCRIPT_WILDCARD = "[*]"
 
@@ -90,9 +89,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         self._site_counter = heap.next_site
         return heap
 
-    def _alias_locals(
-        self, procedure: cfg_graph.Code, target: object, source: object
-    ) -> None:
+    def _alias_locals(self, procedure: cfg_graph.Code, target: object, source: object) -> None:
         """Make *target* share location identity and allocation site with *source*."""
         heap = self._heap()
         heap.alias_locals(procedure, target, source)
@@ -132,9 +129,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             heap.update_assignment_aliases(procedure, targets, expr)
         self._site_counter = heap.next_site
 
-    def _locations_for_local(
-        self, procedure: cfg_graph.Code, local: object
-    ) -> tuple[object, ...]:
+    def _locations_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
         heap = self._heap()
         locations = heap.locations_for_local(procedure, local)
         self._site_counter = heap.next_site
@@ -162,20 +157,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return ()
         catalog = ensure_code_indexed(code)
         try:
-            semantics = catalog.semantics.operation(
-                catalog.node_id(operation, code)
-            )
+            semantics = catalog.semantics.operation(catalog.node_id(operation, code))
         except KeyError:
             return ()
         return tuple(
-            self._heap().location_for_raw(location)
-            for location in getattr(semantics, attribute)
+            self._heap().location_for_raw(location) for location in getattr(semantics, attribute)
         )
 
     @abstractmethod
-    def _make_location_fact(
-        self, location: object, template_fact: FactT | None = None
-    ) -> FactT:
+    def _make_location_fact(self, location: object, template_fact: FactT | None = None) -> FactT:
         raise NotImplementedError
 
     @abstractmethod
@@ -214,12 +204,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[cfg_graph.Code, py_ast.PythonASTNode, int] | None:
         raise NotImplementedError
 
-    def local_locations(
-        self, procedure: cfg_graph.Code, local: py_ast.Local
-    ) -> tuple[object, ...]:
+    def local_locations(self, procedure: cfg_graph.Code, local: py_ast.Local) -> tuple[object, ...]:
         return tuple(
-            self._location_from_fact(fact)
-            for fact in self._facts_for_locals(procedure, (local,))
+            self._location_from_fact(fact) for fact in self._facts_for_locals(procedure, (local,))
         )
 
     def _call_effect(self, node: CFGNode) -> CallEffect | None:
@@ -286,9 +273,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             else ()
         )
         strong_dynamic_kills = (
-            self._strong_dynamic_write_locations_for_operation(
-                node.procedure, operation
-            )
+            self._strong_dynamic_write_locations_for_operation(node.procedure, operation)
             if include_semantic
             else ()
         )
@@ -320,15 +305,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 )
             else:
                 kills = tuple(
-                    dict.fromkeys(
-                        (*semantic_kills, *strong_dynamic_kills, *dynamic_kills)
-                    )
+                    dict.fromkeys((*semantic_kills, *strong_dynamic_kills, *dynamic_kills))
                 )
         return self._expand_kills_through_aliases(kills)
 
-    def _expand_kills_through_aliases(
-        self, kills: tuple[object, ...]
-    ) -> tuple[object, ...]:
+    def _expand_kills_through_aliases(self, kills: tuple[object, ...]) -> tuple[object, ...]:
         heap = self._heap()
         expanded: list[object] = list(kills)
         seen: set[object] = set(kills)
@@ -350,9 +331,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         if operation is None or not self._heap().policy.track_escapes:
             return
-        self._heap().mark_all_escaped(
-            self._heap_effect_for_operation(procedure, operation).escapes
-        )
+        self._heap().mark_all_escaped(self._heap_effect_for_operation(procedure, operation).escapes)
 
     def _mark_unresolved_call_arguments_escaped(
         self,
@@ -396,9 +375,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
             actual_locations = tuple(
                 location
-                for location in self._locations_read_by_node(
-                    call_node.procedure, actual
-                )
+                for location in self._locations_read_by_node(call_node.procedure, actual)
                 if location is not None
             )
             heap.bind_parameter(
@@ -542,8 +519,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 continue
             locations = self._locations_for_local(procedure, local)
             facts.update(
-                self._make_location_fact(location, template_fact)
-                for location in locations
+                self._make_location_fact(location, template_fact) for location in locations
             )
         return facts
 
@@ -583,9 +559,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> set[FactT]:
         if result_index >= len(locals_):
             return set()
-        return self._facts_for_locals(
-            procedure, (locals_[result_index],), template_fact
-        )
+        return self._facts_for_locals(procedure, (locals_[result_index],), template_fact)
 
     def _facts_for_return_location(
         self,
@@ -598,9 +572,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if index >= len(returnparams):
             return set()
         if not access_path:
-            return self._facts_for_locals(
-                procedure, (returnparams[index],), template_fact
-            )
+            return self._facts_for_locals(procedure, (returnparams[index],), template_fact)
         return self._facts_for_locals_with_path(
             procedure,
             (returnparams[index],),
@@ -649,9 +621,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
             return (
                 *dynamic_facts,
-                self._make_expression_fact(
-                    procedure, current, template_fact=template_fact
-                ),
+                self._make_expression_fact(procedure, current, template_fact=template_fact),
             )
         return tuple(
             self._make_location_fact(location, template_fact)
@@ -706,10 +676,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 return_index,
                 template_fact,
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
                 facts = {
                     self._make_expression_fact(
@@ -746,9 +713,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                         template_fact,
                     )
                 }
-            target_index = self._call_result_target_index(
-                operation, call_expression, return_index
-            )
+            target_index = self._call_result_target_index(operation, call_expression, return_index)
             if target_index is not None:
                 return self._facts_for_return_location(
                     procedure, target_index, template_fact=template_fact
@@ -797,11 +762,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         if nested:
             return set()
-        return {
-            self._make_expression_fact(
-                procedure, call_expression, return_index, template_fact
-            )
-        }
+        return {self._make_expression_fact(procedure, call_expression, return_index, template_fact)}
 
     def _materialize_call_result_location(
         self,
@@ -818,10 +779,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.expr is call_expression
         ):
             targets = assigned_locals(operation)
-        elif (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             targets = assigned_locals(operation)
         else:
             return
@@ -849,9 +807,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         heap = self._heap()
         builder = self._heap_effect_builder()
-        model = self.call_models.model_for_name(
-            self.adapter.call_name(call_expression, procedure)
-        )
+        model = self.call_models.model_for_name(self.adapter.call_name(call_expression, procedure))
         kind = (
             model.return_kind
             if model is not None and model.return_kind is not None
@@ -895,10 +851,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.expr is call_expression
         ):
             targets = assigned_locals(operation)
-        elif (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             targets = assigned_locals(operation)
         else:
             return
@@ -919,8 +872,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         for index, local in enumerate(procedure.code.codeparameters.returnparams):
             if any(
-                candidate == location
-                for candidate in self._locations_for_local(procedure, local)
+                candidate == location for candidate in self._locations_for_local(procedure, local)
             ):
                 return index
         return None
@@ -945,14 +897,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 location
-                for fact in self._facts_for_locals(
-                    procedure, assigned_locals(operation)
-                )
+                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -1005,21 +953,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             return tuple(
                 location
-                for fact in self._facts_for_locals(
-                    procedure, assigned_locals(operation)
-                )
+                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 location
-                for fact in self._facts_for_locals(
-                    procedure, assigned_locals(operation)
-                )
+                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -1115,10 +1056,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
         )
         if not access_path:
-            return {
-                self._make_location_fact(location, template_fact)
-                for location in locations
-            }
+            return {self._make_location_fact(location, template_fact) for location in locations}
         return {
             self._make_location_fact_with_path(location, access_path, template_fact)
             for location in locations
@@ -1358,9 +1296,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                     subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
                 writes.append(
                     (
-                        self._collection_constructor_locations(
-                            target_locations, subscripts
-                        ),
+                        self._collection_constructor_locations(target_locations, subscripts),
                         value,
                     )
                 )
@@ -1387,10 +1323,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return ()
 
         source_location = self._location_from_fact(fact)
-        if (
-            not isinstance(source_location, HeapLocation)
-            or not source_location.is_nested()
-        ):
+        if not isinstance(source_location, HeapLocation) or not source_location.is_nested():
             return ()
 
         expr_bases = self._locations_read_by_node(procedure, expr)
@@ -1403,8 +1336,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             for location in self._locations_for_local(procedure, target)
         )
         return tuple(
-            self._heap().extend_location(base, source_location.selectors)
-            for base in target_bases
+            self._heap().extend_location(base, source_location.selectors) for base in target_bases
         )
 
     def _collection_copy_result_locations_for_assignment(
@@ -1421,9 +1353,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return ()
 
         source_location = self._location_from_fact(fact)
-        if not (
-            isinstance(source_location, HeapLocation) and source_location.selectors
-        ):
+        if not (isinstance(source_location, HeapLocation) and source_location.selectors):
             return ()
 
         source_exprs = self._collection_copy_result_sources(procedure, expr)
@@ -1443,8 +1373,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             for location in self._locations_for_local(procedure, target)
         )
         return tuple(
-            self._heap().extend_location(base, source_location.selectors)
-            for base in target_bases
+            self._heap().extend_location(base, source_location.selectors) for base in target_bases
         )
 
     def _collection_copy_result_sources(
@@ -1495,12 +1424,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
         return self._dynamic_subscript_locations(procedure, container, subscripts)
 
-    def _dynamic_setattr_value(
-        self, procedure: cfg_graph.Code, operation: object
-    ) -> object | None:
-        call = self._dynamic_attribute_call(
-            procedure, operation, {"setattr", "builtins.setattr"}
-        )
+    def _dynamic_setattr_value(self, procedure: cfg_graph.Code, operation: object) -> object | None:
+        call = self._dynamic_attribute_call(procedure, operation, {"setattr", "builtins.setattr"})
         if call is None:
             return None
         actuals = actual_argument_expressions(call)
@@ -1518,19 +1443,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return candidate
 
-    def _call_from_expression_or_statement(
-        self, expr: object
-    ) -> py_ast.PythonASTNode | None:
+    def _call_from_expression_or_statement(self, expr: object) -> py_ast.PythonASTNode | None:
         candidate = expr
-        if not isinstance(
-            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
-        ):
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             wrapped = getattr(expr, "expr", None)
             if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
                 candidate = wrapped
-        if not isinstance(
-            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
-        ):
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             return None
         return candidate
 
@@ -1560,9 +1479,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _canonical_location(self, location: object) -> object:
         return self._heap().location_for_raw(location)
 
-    def _canonical_locations(
-        self, locations: Iterable[object]
-    ) -> tuple[HeapLocation, ...]:
+    def _canonical_locations(self, locations: Iterable[object]) -> tuple[HeapLocation, ...]:
         return tuple(self._heap().location_for_raw(location) for location in locations)
 
     def _call_name(self, node: CFGNode) -> str | None:
@@ -1739,8 +1656,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         if problems:
             raise TemporaryLimitation(
-                f"{self.analysis_name} requires indexed IR semantics: "
-                + "; ".join(problems[:5])
+                f"{self.analysis_name} requires indexed IR semantics: " + "; ".join(problems[:5])
             )
 
     def _iter_ast_nodes(self, node):

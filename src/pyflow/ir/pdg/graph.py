@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
-
 PDGEdgeKind = str  # "control" | "data" | ...
 PDGNodeKind = str  # "entry" | "exit" | "block" | "stmt" | "cond" | ...
 
@@ -23,9 +22,7 @@ PDGNodeKind = str  # "entry" | "exit" | "block" | "stmt" | "cond" | ...
 class PDGEdge:
     __slots__ = ("source", "target", "kind", "label")
 
-    def __init__(
-        self, source: "PDGNode", target: "PDGNode", kind: PDGEdgeKind, label: str = ""
-    ):
+    def __init__(self, source: "PDGNode", target: "PDGNode", kind: PDGEdgeKind, label: str = ""):
         self.source = source
         self.target = target
         self.kind = kind
@@ -76,9 +73,7 @@ class PDGNode:
         self.edges_in: Set[PDGEdge] = set()
         self.edges_out: Set[PDGEdge] = set()
 
-    def add_edge_to(
-        self, other: "PDGNode", kind: PDGEdgeKind, label: str = ""
-    ) -> PDGEdge:
+    def add_edge_to(self, other: "PDGNode", kind: PDGEdgeKind, label: str = "") -> PDGEdge:
         edge = PDGEdge(self, other, kind, label)
         self.edges_out.add(edge)
         other.edges_in.add(edge)
@@ -160,9 +155,7 @@ class ProgramDependenceGraph:
         ast_node: Any = None,
         label: str = "",
     ) -> PDGNode:
-        node = PDGNode(
-            self._new_id(), kind, cfg_node=cfg_node, ast_node=ast_node, label=label
-        )
+        node = PDGNode(self._new_id(), kind, cfg_node=cfg_node, ast_node=ast_node, label=label)
         self.nodes.append(node)
         if ast_node is not None:
             self._ast_node_index[ast_node] = node

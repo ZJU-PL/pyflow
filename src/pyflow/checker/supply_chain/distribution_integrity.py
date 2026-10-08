@@ -160,9 +160,7 @@ def audit_distribution_record(
                 for owned_root in candidates:
                     if not owned_root.exists() or owned_root.is_symlink():
                         continue
-                    paths = (
-                        [owned_root] if owned_root.is_file() else owned_root.rglob("*")
-                    )
+                    paths = [owned_root] if owned_root.is_file() else owned_root.rglob("*")
                     try:
                         for file_path in paths:
                             inspected += 1

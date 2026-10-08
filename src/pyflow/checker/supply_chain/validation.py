@@ -41,9 +41,7 @@ def validate_json_schema(document: Mapping[str, Any], schema_path: str | Path) -
         schema = load_json_file(path)
         validator_class = jsonschema.validators.validator_for(schema)
         validator_class.check_schema(schema)
-        dialect = specification_with(
-            str(schema.get("$schema", "")), default=DRAFT202012
-        )
+        dialect = specification_with(str(schema.get("$schema", "")), default=DRAFT202012)
         resources: list[tuple[str, Any]] = []
         for sibling in path.parent.glob("*.json"):
             candidate = load_json_file(sibling)
@@ -72,8 +70,7 @@ def validate_json_schema(document: Mapping[str, Any], schema_path: str | Path) -
         raise SbomValidationError(f"Could not load SBOM schema: {exc}") from exc
     except Unresolvable as exc:
         raise SbomValidationError(
-            "schema reference is not available in the pinned local bundle: "
-            f"{exc.ref}"
+            "schema reference is not available in the pinned local bundle: " f"{exc.ref}"
         ) from exc
 
 
@@ -177,8 +174,6 @@ def validate_spdx_document(document: Mapping[str, Any]) -> None:
         source = str(relationship.get("spdxElementId", ""))
         target = str(relationship.get("relatedSpdxElement", ""))
         if source not in identifiers or target not in identifiers:
-            errors.append(
-                f"relationship references unknown elements {source}, {target}"
-            )
+            errors.append(f"relationship references unknown elements {source}, {target}")
     if errors:
         raise SbomValidationError("; ".join(errors))

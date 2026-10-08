@@ -152,9 +152,7 @@ def test_analysis_finishing_after_close_cannot_republish(tmp_path: Path, monkeyp
         manager.current_snapshot()
 
 
-def test_old_workspace_analysis_cannot_overwrite_new_generation(
-    tmp_path: Path, monkeypatch
-):
+def test_old_workspace_analysis_cannot_overwrite_new_generation(tmp_path: Path, monkeypatch):
     first = tmp_path / "first"
     second = tmp_path / "second"
     first.mkdir()

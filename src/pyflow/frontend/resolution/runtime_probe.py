@@ -6,7 +6,6 @@ import json
 import subprocess
 import sys
 
-
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 _PAYLOAD_PREFIX = "__PYFLOW_RUNTIME_PROBE__:"
 
@@ -130,9 +129,7 @@ def probe_function_names(
             timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired as error:
-        raise RuntimeError(
-            f"runtime probe timed out after {timeout_seconds:g} seconds"
-        ) from error
+        raise RuntimeError(f"runtime probe timed out after {timeout_seconds:g} seconds") from error
 
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()

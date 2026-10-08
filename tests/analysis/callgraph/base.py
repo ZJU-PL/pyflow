@@ -1,4 +1,3 @@
-
 import json
 import os
 import sys
@@ -32,11 +31,12 @@ class TestBase(TestCase):
             self.fail(f"Main file not found: {main_path}")
 
         try:
-            with open(main_path, 'r') as f:
+            with open(main_path, "r") as f:
                 source_code = f.read()
 
             # Use PyFlow's AST-based call graph extraction
             from pyflow.analysis.callgraph import extract_call_graph
+
             cg = extract_call_graph(source_code)
 
             # Convert to the expected format (dict of caller -> list of callees)
@@ -70,11 +70,12 @@ class PyFlowTestBase(TestBase):
             self.fail(f"Main file not found: {main_path}")
 
         try:
-            with open(main_path, 'r') as f:
+            with open(main_path, "r") as f:
                 source_code = f.read()
 
             # Use PyFlow's AST-based call graph extraction
             from pyflow.analysis.callgraph import extract_call_graph
+
             cg = extract_call_graph(source_code)
 
             # Convert to the expected format (dict of caller -> list of callees)

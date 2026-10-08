@@ -24,7 +24,6 @@ from pyflow.util.typedispatch import TypeDispatcher, dispatch, defaultdispatch
 from pyflow.language.python import ast
 from pyflow.language.python import fold
 
-
 # TODO structure like forward flow
 # TODO merge in 'raise' when may raise.
 # TODO integrate with earlier extraction phases?

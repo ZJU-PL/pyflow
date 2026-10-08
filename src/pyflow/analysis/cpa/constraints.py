@@ -130,9 +130,7 @@ class Constraint(object):
         Returns:
             List of SlotNodes that are read but have no refs (unresolved)
         """
-        return [
-            slot for slot in self.reads() if slot is not None and not slotRefs(slot)
-        ]
+        return [slot for slot in self.reads() if slot is not None and not slotRefs(slot)]
 
     def check(self, console):
         """Check for unresolved dependencies and report them.
@@ -787,9 +785,7 @@ class AbstractCallConstraint(CachedConstraint):
     def getVArgLengths(self, vargsType):
         if vargsType is not None:
             try:
-                assert isinstance(vargsType, extendedtypes.ExtendedType), type(
-                    vargsType
-                )
+                assert isinstance(vargsType, extendedtypes.ExtendedType), type(vargsType)
                 vargsObj = self.vargs.region.object(vargsType)
                 slotName = self.sys.storeGraph.lengthSlotName
                 field = vargsObj.field(slotName, None)
@@ -816,9 +812,12 @@ class AbstractCallConstraint(CachedConstraint):
     def finalCombination(self, expr, vargs, kargs, vlength):
         code = self.getCode(expr)
 
-        assert code, (
-            "Attempted to call uncallable object:\n%r\n\nat op:\n%r\n\nwith args:\n%r\n\n"
-            % (expr.obj, self.op, vargs)
+        assert (
+            code
+        ), "Attempted to call uncallable object:\n%r\n\nat op:\n%r\n\nwith args:\n%r\n\n" % (
+            expr.obj,
+            self.op,
+            vargs,
         )
 
         callee = code.codeParameters()
@@ -844,9 +843,7 @@ class AbstractCallConstraint(CachedConstraint):
                     self.sys.logRead(self.op, field)
 
             # HACK this is actually somewhere between caller and callee...
-            caller = calling.CallerArgs(
-                self.selfarg, allslots, [], None, self.kargs, self.targets
-            )
+            caller = calling.CallerArgs(self.selfarg, allslots, [], None, self.kargs, self.targets)
 
             SimpleCallConstraint(self.sys, self.op, code, expr, allslots, caller)
 
@@ -863,14 +860,10 @@ class CallConstraint(AbstractCallConstraint):
     def getCode(self, selfType):
         # Add null check for selfType
         if selfType is None or selfType.obj is None:
-            return self.sys.extractor.intrinsic_manager.stubs.exports[
-                "interpreter_call"
-            ]
+            return self.sys.extractor.intrinsic_manager.stubs.exports["interpreter_call"]
         code = self.sys.getCall(selfType.obj)
         if code is None:
-            return self.sys.extractor.intrinsic_manager.stubs.exports[
-                "interpreter_call"
-            ]
+            return self.sys.extractor.intrinsic_manager.stubs.exports["interpreter_call"]
         else:
             return code
 
@@ -883,9 +876,7 @@ class DirectCallConstraint(AbstractCallConstraint):
         assert code.isCode(), type(code)
         self.code = code
 
-        AbstractCallConstraint.__init__(
-            self, sys, op, selfarg, args, kwds, vargs, kargs, target
-        )
+        AbstractCallConstraint.__init__(self, sys, op, selfarg, args, kwds, vargs, kargs, target)
 
     def getCode(self, selfType):
         return self.code
@@ -917,9 +908,7 @@ class SimpleCallConstraint(CachedConstraint):
         CachedConstraint.__init__(self, sys, *slots)
 
     def concreteUpdate(self, *argsTypes):
-        targetcontext = self.sys.canonicalContext(
-            self.op, self.code, self.selftype, argsTypes
-        )
+        targetcontext = self.sys.canonicalContext(self.op, self.code, self.selftype, argsTypes)
         self.sys.bindCall(self.op, self.caller, targetcontext)
 
     def clearInvocations(self):
@@ -977,9 +966,7 @@ class DeferedSwitchConstraint(Constraint):
 
     def getBranch(self, cobj):
         obj = cobj.obj
-        if isinstance(obj, program.Object) and isinstance(
-            obj.pyobj, (bool, int, float, str)
-        ):
+        if isinstance(obj, program.Object) and isinstance(obj.pyobj, (bool, int, float, str)):
             return tvl.tvl(obj.pyobj)
         else:
             return tvl.TVLMaybe

@@ -108,9 +108,7 @@ class DefensiveCapabilityAnalysis:
             if access_path in {"builtins.open", "io.open"}:
                 patterns = self._filter_open_patterns(event, patterns, state)
             for pattern in patterns:
-                result.findings.append(
-                    self._direct_finding(event, access_path, operation, pattern)
-                )
+                result.findings.append(self._direct_finding(event, access_path, operation, pattern))
 
             if event.kind is PointerEventKind.CALL:
                 result.findings.extend(self._indirect_call_findings(event, state))
@@ -202,9 +200,7 @@ class DefensiveCapabilityAnalysis:
             boundary_effects = (None,)
         for effect in boundary_effects:
             if effect is None:
-                arguments = list(constraint.args) + [
-                    var for _, var in constraint.kwargs
-                ]
+                arguments = list(constraint.args) + [var for _, var in constraint.kwargs]
                 kind = EscapeKind.ARGUMENT
                 reason = f"escapes through unanalyzed call {callee_path}"
                 trace_step = f"argument to {callee_path}"
@@ -309,9 +305,7 @@ class DefensiveCapabilityAnalysis:
                             CapabilityEscapeEvent(
                                 kind=EscapeKind.RAISE,
                                 objects=tuple(state.get_points_to(source_var)),
-                                location=self._location(
-                                    scope, self._constraint_site(constraint)
-                                ),
+                                location=self._location(scope, self._constraint_site(constraint)),
                                 context=str(context),
                                 operation=CapabilityOperation.WRITE,
                                 boundary="exception propagation",
@@ -326,9 +320,7 @@ class DefensiveCapabilityAnalysis:
                 continue
             source_var = state.get_variable(scope, context, source)
             kind = (
-                EscapeKind.YIELD
-                if isinstance(constraint, YieldConstraint)
-                else EscapeKind.RETURN
+                EscapeKind.YIELD if isinstance(constraint, YieldConstraint) else EscapeKind.RETURN
             )
             findings.extend(
                 self._escape_findings(
@@ -398,10 +390,7 @@ class DefensiveCapabilityAnalysis:
                 if not isinstance(field_access, FieldAccess) or field_access.obj != obj:
                     continue
                 label = str(field_access.field)
-                worklist.extend(
-                    (child, (*trace, f"carrier field {label}"))
-                    for child in points_to
-                )
+                worklist.extend((child, (*trace, f"carrier field {label}")) for child in points_to)
 
     def _public_export_findings(
         self,
@@ -425,9 +414,7 @@ class DefensiveCapabilityAnalysis:
                     CapabilityEscapeEvent(
                         kind=EscapeKind.PUBLIC_EXPORT,
                         objects=tuple(state.get_points_to(ctx_var)),
-                        location=self._location(
-                            scope, self._constraint_site(constraint)
-                        ),
+                        location=self._location(scope, self._constraint_site(constraint)),
                         context=str(context),
                         operation=CapabilityOperation.WRITE,
                         boundary=name,
@@ -512,10 +499,12 @@ class DefensiveCapabilityAnalysis:
         diagnostics = []
         for detail in pointer_result.unknown_details():
             kind = "budget" if detail["kind"] == "solver_budget" else "unknown"
-            diagnostics.append(CapabilityDiagnostic(
-                kind=kind,
-                message=f"{detail['kind']}: {detail['message']} ({detail['location']})",
-            ))
+            diagnostics.append(
+                CapabilityDiagnostic(
+                    kind=kind,
+                    message=f"{detail['kind']}: {detail['message']} ({detail['location']})",
+                )
+            )
         return diagnostics
 
     def _unresolved_call_diagnostics(

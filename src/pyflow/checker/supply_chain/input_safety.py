@@ -9,7 +9,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse
 
 from .models import ScanLimits, SupplyChainFinding
 
-
 MAX_POLICY_FILE_SIZE = 10 * 1024 * 1024
 
 

@@ -28,9 +28,7 @@ class _ClassTransferMixin:
         return tuple(
             dict.fromkeys(
                 self._class_locations_by_root[location.root]
-                for location in operands.get(
-                    self._program_point_identity(procedure, call.expr), ()
-                )
+                for location in operands.get(self._program_point_identity(procedure, call.expr), ())
                 if location.root in self._class_locations_by_root
             )
         )
@@ -79,9 +77,7 @@ class _ClassTransferMixin:
                         )
                     ),
                 )
-                self.state.complete_roots.update(
-                    location.root for location in allocated
-                )
+                self.state.complete_roots.update(location.root for location in allocated)
             elif not allocated:
                 allocated = (self._external_value_location(procedure),)
             self._attach_known_class(
@@ -116,9 +112,7 @@ class _ClassTransferMixin:
         for index, actual in enumerate(getattr(call, "args", ()), start=1):
             if index >= len(formals):
                 break
-            locations = operand_locations.get(
-                self._program_point_identity(procedure, actual)
-            )
+            locations = operand_locations.get(self._program_point_identity(procedure, actual))
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
@@ -135,9 +129,7 @@ class _ClassTransferMixin:
             index = named_indices.get(name)
             if index is None:
                 continue
-            locations = operand_locations.get(
-                self._program_point_identity(procedure, actual)
-            )
+            locations = operand_locations.get(self._program_point_identity(procedure, actual))
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
@@ -220,15 +212,11 @@ class _ClassTransferMixin:
         if formals:
             bindings[0] = tuple(compatible)
         actuals = tuple(getattr(call, "args", ()))
-        evaluated = self._last_call_operands.get(
-            self._program_point_identity(procedure, call), {}
-        )
+        evaluated = self._last_call_operands.get(self._program_point_identity(procedure, call), {})
         for index, actual in enumerate(actuals, start=1):
             if index >= len(formals):
                 break
-            locations = evaluated.get(
-                self._program_point_identity(procedure, actual)
-            )
+            locations = evaluated.get(self._program_point_identity(procedure, actual))
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
@@ -240,9 +228,9 @@ class _ClassTransferMixin:
             for index, formal in enumerate(formals)
         }
         named = {
-            (
-                name[len("kwonly:") :] if name.startswith("kwonly:") else name
-            ): formal_indices[self._reference_identity(initializer, formal)]
+            (name[len("kwonly:") :] if name.startswith("kwonly:") else name): formal_indices[
+                self._reference_identity(initializer, formal)
+            ]
             for name, formal in zip(encoded_names, encoded_formals)
             if isinstance(name, str)
             and isinstance(formal, py_ast.Local)
@@ -255,18 +243,11 @@ class _ClassTransferMixin:
             index = named.get(name)
             if index is None:
                 continue
-            locations = evaluated.get(
-                self._program_point_identity(procedure, actual)
-            )
+            locations = evaluated.get(self._program_point_identity(procedure, actual))
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
-            bindings[index] = tuple(
-                dict.fromkeys((*bindings.get(index, ()), *locations))
-            )
-        if (
-            getattr(call, "vargs", None) is not None
-            or getattr(call, "kargs", None) is not None
-        ):
+            bindings[index] = tuple(dict.fromkeys((*bindings.get(index, ()), *locations)))
+        if getattr(call, "vargs", None) is not None or getattr(call, "kargs", None) is not None:
             unknown = (self._external_value_location(procedure),)
             for index in range(len(formals)):
                 bindings.setdefault(index, unknown)
@@ -340,9 +321,7 @@ class _ClassTransferMixin:
         metaclass_expressions = tuple(
             keyword[1]
             for keyword in getattr(class_node, "keywords", ())
-            if isinstance(keyword, tuple)
-            and len(keyword) == 2
-            and keyword[0] == "metaclass"
+            if isinstance(keyword, tuple) and len(keyword) == 2 and keyword[0] == "metaclass"
         )
         metaclasses = self._merge_expression_locations(
             procedure,
@@ -491,17 +470,13 @@ class _ClassTransferMixin:
                 for index, locations in enumerate(actual_groups, start=1):
                     if index >= len(formals):
                         break
-                    bindings[index] = locations or (
-                        self._external_value_location(procedure),
-                    )
+                    bindings[index] = locations or (self._external_value_location(procedure),)
                 summary = self._callee_summary(method, bindings)
                 if summary.normal_state is not None:
                     normal_states.append(
                         _FlowState(
                             summary.normal_state.copy(),
-                            summary.normal_environment
-                            or summary.environment
-                            or base.environment,
+                            summary.normal_environment or summary.environment or base.environment,
                             dict(base.definition_defaults),
                         )
                     )
@@ -509,9 +484,7 @@ class _ClassTransferMixin:
                     self._operation_call_raises[-1].append(
                         _FlowState(
                             summary.raise_state.copy(),
-                            summary.raise_environment
-                            or summary.environment
-                            or base.environment,
+                            summary.raise_environment or summary.environment or base.environment,
                             dict(base.definition_defaults),
                         )
                     )
@@ -634,9 +607,7 @@ class _ClassTransferMixin:
             )
         )
         descriptors = self._class_attribute_values(classes, attribute)
-        descriptor_protocol = (
-            "__set__" if isinstance(operation, py_ast.SetAttr) else "__delete__"
-        )
+        descriptor_protocol = "__set__" if isinstance(operation, py_ast.SetAttr) else "__delete__"
         descriptor_actuals = (
             (receivers, actual_groups[-1])
             if isinstance(operation, py_ast.SetAttr)
@@ -680,9 +651,9 @@ class _ClassTransferMixin:
                 return
             evaluated[self._program_point_identity(procedure, expression)] = (
                 self.locations_for_expression(
-                procedure,
-                expression,
-            )
+                    procedure,
+                    expression,
+                )
             )
 
         if isinstance(call, py_ast.Call):
@@ -698,9 +669,7 @@ class _ClassTransferMixin:
             if isinstance(call, py_ast.DirectCall) and actual is call.selfarg:
                 continue
             evaluate(actual)
-        self._last_call_operands[
-            self._program_point_identity(procedure, call)
-        ] = evaluated
+        self._last_call_operands[self._program_point_identity(procedure, call)] = evaluated
         return evaluated
 
     def _modeled_call_return_locations(
@@ -720,9 +689,7 @@ class _ClassTransferMixin:
 
         def operand_locs(expression: object) -> tuple[HeapLocation, ...]:
             if operand_locations is not None:
-                cached = operand_locations.get(
-                    self._program_point_identity(procedure, expression)
-                )
+                cached = operand_locations.get(self._program_point_identity(procedure, expression))
                 if cached is not None:
                     return cached
             return self.locations_for_expression(procedure, expression)
@@ -743,10 +710,7 @@ class _ClassTransferMixin:
                         code,
                         (
                             bound_receivers,
-                            *tuple(
-                                operand_locs(actual)
-                                for actual in getattr(call, "args", ())
-                            ),
+                            *tuple(operand_locs(actual) for actual in getattr(call, "args", ())),
                         ),
                     )
 
@@ -884,9 +848,7 @@ class _ClassTransferMixin:
                 ),
             )
         if call_name == "logging.getLogger":
-            logger_name = (
-                self.effect_builder._constant_string(actuals[0]) if actuals else "root"
-            )
+            logger_name = self.effect_builder._constant_string(actuals[0]) if actuals else "root"
             return (
                 HeapLocation(
                     self.heap.external_object(
@@ -899,11 +861,7 @@ class _ClassTransferMixin:
         if call_name == "importlib.import_module" and actuals:
             module_name = self.effect_builder._constant_string(actuals[0])
             if module_name is not None:
-                return (
-                    HeapLocation(
-                        self.heap.module_object(module_name, label=module_name)
-                    ),
-                )
+                return (HeapLocation(self.heap.module_object(module_name, label=module_name)),)
 
         if call_name in {
             "next",
@@ -915,9 +873,7 @@ class _ClassTransferMixin:
             "send",
             "throw",
         }:
-            iterable = (
-                receiver if receiver is not None else (actuals[0] if actuals else None)
-            )
+            iterable = receiver if receiver is not None else (actuals[0] if actuals else None)
             if iterable is not None:
                 roots = operand_locs(iterable)
                 values: list[HeapLocation] = list(
@@ -926,9 +882,7 @@ class _ClassTransferMixin:
                         roots,
                         use_yields=True,
                         sent_values=(
-                            operand_locs(
-                                actuals[0] if receiver is not None else actuals[1]
-                            )
+                            operand_locs(actuals[0] if receiver is not None else actuals[1])
                             if call_name == "send"
                             and (
                                 (receiver is not None and actuals)
@@ -966,28 +920,18 @@ class _ClassTransferMixin:
             if len(positional) == 1:
                 values = list(self._contained_values(operand_locs(positional[0])))
                 for keyword in getattr(call, "kwds", ()):
-                    if (
-                        isinstance(keyword, tuple)
-                        and len(keyword) == 2
-                        and keyword[0] == "default"
-                    ):
+                    if isinstance(keyword, tuple) and len(keyword) == 2 and keyword[0] == "default":
                         values.extend(operand_locs(keyword[1]))
-                return tuple(dict.fromkeys(values)) or (
-                    self._external_value_location(procedure),
-                )
+                return tuple(dict.fromkeys(values)) or (self._external_value_location(procedure),)
         if call_name in {"random.choice"} and actuals:
             roots = operand_locs(actuals[0])
             choice_values = self._contained_values(roots)
             return choice_values or (self._external_value_location(procedure),)
         if call_name in {"iter", "builtins.iter", "__iter__"}:
-            iterable = (
-                receiver if receiver is not None else (actuals[0] if actuals else None)
-            )
+            iterable = receiver if receiver is not None else (actuals[0] if actuals else None)
             if iterable is not None:
                 roots = operand_locs(iterable)
-                iterator = HeapLocation(
-                    self.effect_builder.call_return_object(procedure, call)
-                )
+                iterator = HeapLocation(self.effect_builder.call_return_object(procedure, call))
                 self._copy_locations(roots, (iterator,))
                 return tuple(
                     dict.fromkeys(
@@ -1010,9 +954,7 @@ class _ClassTransferMixin:
             )
             return tuple(
                 dict.fromkeys(
-                    location
-                    for expression in expressions
-                    for location in operand_locs(expression)
+                    location for expression in expressions for location in operand_locs(expression)
                 )
             )
 
@@ -1090,10 +1032,7 @@ class _ClassTransferMixin:
                     ]
                 else:
                     values = list(self._read_heap_locations(target_locations))
-                if (
-                    call_name in {"get", "dict.get", "pop", "dict.pop"}
-                    and len(args) >= 2
-                ):
+                if call_name in {"get", "dict.get", "pop", "dict.pop"} and len(args) >= 2:
                     values.extend(operand_locs(args[1]))
                 if call_name in {"setdefault", "dict.setdefault"} and len(args) >= 2:
                     values.extend(operand_locs(args[1]))

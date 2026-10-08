@@ -39,9 +39,7 @@ def test_relational_summary_propagates_paths_and_kind_transforms():
 
 def test_summary_join_is_a_semilattice():
     empty = ProcedureTaintSummary("f")
-    returns = ProcedureTaintSummary(
-        "f", relations=frozenset({SummaryRelation(P0, RETURN)})
-    )
+    returns = ProcedureTaintSummary("f", relations=frozenset({SummaryRelation(P0, RETURN)}))
     sinks = ProcedureTaintSummary(
         "f",
         sinks=frozenset({SummarySinkEvent("eval", 0, P0, 3)}),

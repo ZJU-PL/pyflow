@@ -67,17 +67,11 @@ class LargeLanguageModelConfig:
 class TypeSystemSettings:
     """Aggregate of all type-system-related configuration."""
 
-    generator_selection: GeneratorSelectionConfig = field(
-        default_factory=GeneratorSelectionConfig
-    )
+    generator_selection: GeneratorSelectionConfig = field(default_factory=GeneratorSelectionConfig)
     test_creation: TestCreationConfig = field(default_factory=TestCreationConfig)
     type_inference: TypeInferenceConfig = field(default_factory=TypeInferenceConfig)
-    statistics_output: StatisticsOutputConfig = field(
-        default_factory=StatisticsOutputConfig
-    )
-    large_language_model: LargeLanguageModelConfig = field(
-        default_factory=LargeLanguageModelConfig
-    )
+    statistics_output: StatisticsOutputConfig = field(default_factory=StatisticsOutputConfig)
+    large_language_model: LargeLanguageModelConfig = field(default_factory=LargeLanguageModelConfig)
 
 
 settings = TypeSystemSettings()

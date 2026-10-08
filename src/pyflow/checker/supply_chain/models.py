@@ -9,7 +9,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
-
 MIB = 1024 * 1024
 SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
@@ -64,11 +63,7 @@ def _fingerprint_location(location: str) -> str:
 
     outer, separator, member = location.partition("!/")
     try:
-        relative = (
-            Path(outer)
-            .resolve(strict=False)
-            .relative_to(Path.cwd().resolve(strict=False))
-        )
+        relative = Path(outer).resolve(strict=False).relative_to(Path.cwd().resolve(strict=False))
     except (OSError, ValueError):
         return location
     normalized = relative.as_posix()
@@ -111,10 +106,7 @@ def validate_limits(limits: ScanLimits) -> None:
         "max_scan_entries": limits.max_scan_entries,
     }
     invalid = [name for name, value in integer_limits.items() if value < 0]
-    if (
-        not math.isfinite(limits.max_compression_ratio)
-        or limits.max_compression_ratio <= 0
-    ):
+    if not math.isfinite(limits.max_compression_ratio) or limits.max_compression_ratio <= 0:
         invalid.append("max_compression_ratio")
     if invalid:
         raise ValueError(f"Scan limits must be non-negative: {', '.join(invalid)}")

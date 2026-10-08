@@ -10,9 +10,7 @@ from pyflow.cli.supply_chain import run_supply_chain
 def test_supply_chain_sbom_outputs_cyclonedx(tmp_path, capsys):
     dist_info = tmp_path / "demo-1.0.0.dist-info"
     dist_info.mkdir()
-    (dist_info / "METADATA").write_text(
-        "Name: demo\nVersion: 1.0.0\n", encoding="utf-8"
-    )
+    (dist_info / "METADATA").write_text("Name: demo\nVersion: 1.0.0\n", encoding="utf-8")
     (dist_info / "RECORD").write_text("", encoding="utf-8")
 
     exit_code = run_supply_chain(
@@ -58,9 +56,7 @@ def test_supply_chain_can_require_external_schema_validation(tmp_path, capsys):
 def test_supply_chain_audit_returns_nonzero_for_findings(tmp_path, capsys):
     dist_info = tmp_path / "demo-1.0.0.dist-info"
     dist_info.mkdir()
-    (dist_info / "METADATA").write_text(
-        "Name: demo\nVersion: 1.0.0\n", encoding="utf-8"
-    )
+    (dist_info / "METADATA").write_text("Name: demo\nVersion: 1.0.0\n", encoding="utf-8")
 
     exit_code = run_supply_chain(
         SimpleNamespace(

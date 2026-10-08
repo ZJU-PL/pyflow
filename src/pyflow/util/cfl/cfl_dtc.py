@@ -94,9 +94,7 @@ class RandomCFLSolver:
         self.__cubic_solve(graph, grammar)
 
     # DTC-based CFL-reachability
-    def __cubic_solve(
-        self, graph: List[List[List[int]]], grammar: Dict[str, Any]
-    ) -> None:
+    def __cubic_solve(self, graph: List[List[List[int]]], grammar: Dict[str, Any]) -> None:
         total_classical: int = 0
         total_quantum: int = 0
         # graph is accessed by [i, label, j]

@@ -16,7 +16,6 @@ from pyflow.analysis.typeinfo.resolution.docstrings import (
     strip_rst_role,
 )
 
-
 # ---------------------------------------------------------------------------
 # strip_rst_role
 # ---------------------------------------------------------------------------
@@ -87,9 +86,7 @@ def test_expand_typestr_invalid_syntax() -> None:
         (":type param: :py:obj:`module.Class`", "param", ["module.Class"]),
     ],
 )
-def test_search_param_in_docstr_found(
-    docstr: str, param_name: str, expected: list[str]
-) -> None:
+def test_search_param_in_docstr_found(docstr: str, param_name: str, expected: list[str]) -> None:
     assert search_param_in_docstr(docstr, param_name) == expected
 
 
@@ -101,17 +98,13 @@ def test_search_param_in_docstr_found(
         ("", "param"),
     ],
 )
-def test_search_param_in_docstr_not_found(
-    docstr: str, param_name: str
-) -> None:
+def test_search_param_in_docstr_not_found(docstr: str, param_name: str) -> None:
     assert search_param_in_docstr(docstr, param_name) == []
 
 
 def test_search_param_in_docstr_sphinx_param_with_type() -> None:
     """Sphinx :param Type name: description format."""
-    result = search_param_in_docstr(
-        ":param int param: some description", "param"
-    )
+    result = search_param_in_docstr(":param int param: some description", "param")
     assert "int" in result
 
 

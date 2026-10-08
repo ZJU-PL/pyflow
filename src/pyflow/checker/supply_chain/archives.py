@@ -60,8 +60,7 @@ def extract_archive(
         SupplyChainFinding(
             kind="archive-unrecognized-format",
             message=(
-                "File extension indicates an archive but content is not a "
-                "supported archive"
+                "File extension indicates an archive but content is not a " "supported archive"
             ),
             location=str(path),
             severity="HIGH",
@@ -99,9 +98,7 @@ def _extract_zip(
             seen_casefolded: dict[str, str] = {}
             for info in infos:
                 normalized = _normalized_archive_entry(info.filename)
-                issue = _archive_entry_issue(
-                    path, info.filename, info.file_size, limits
-                )
+                issue = _archive_entry_issue(path, info.filename, info.file_size, limits)
                 if issue is not None:
                     findings.append(issue)
                     continue
@@ -337,11 +334,7 @@ def _archive_entry_issue(
             details={"entry": entry},
         )
     entry_path = PurePosixPath(normalized)
-    if (
-        entry.startswith(("/", "\\"))
-        or entry_path.is_absolute()
-        or _is_windows_absolute(entry)
-    ):
+    if entry.startswith(("/", "\\")) or entry_path.is_absolute() or _is_windows_absolute(entry):
         return SupplyChainFinding(
             kind="archive-absolute-path",
             message="Archive contains an absolute path entry",
@@ -514,9 +507,7 @@ def audit_archive_identity(
         findings.append(
             SupplyChainFinding(
                 kind="archive-metadata-name-mismatch",
-                message=(
-                    "Archive filename and package metadata disagree on the project name"
-                ),
+                message=("Archive filename and package metadata disagree on the project name"),
                 location=str(path),
                 severity="HIGH",
                 details={
@@ -538,9 +529,7 @@ def audit_archive_identity(
             findings.append(
                 SupplyChainFinding(
                     kind="archive-metadata-version-mismatch",
-                    message=(
-                        "Archive filename and package metadata disagree on the version"
-                    ),
+                    message=("Archive filename and package metadata disagree on the version"),
                     location=str(path),
                     severity="HIGH",
                     details={

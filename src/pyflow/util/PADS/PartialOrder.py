@@ -111,9 +111,7 @@ class PartialOrderTest(unittest.TestCase):
     def testHypercubeClosure(self):
         TC = TransitiveClosure(self.cube)
         for i in range(16):
-            self.assertEqual(
-                TC[i], set([j for j in range(16) if i & j == i and i != j])
-            )
+            self.assertEqual(TC[i], set([j for j in range(16) if i & j == i and i != j]))
 
     def testHypercubeAntichain(self):
         A = MaximumAntichain(self.cube)

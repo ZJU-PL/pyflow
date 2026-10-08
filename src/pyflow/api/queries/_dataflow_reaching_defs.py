@@ -27,12 +27,10 @@ class ReachingDefsAnalyzer:
             if node_id.code != procedure.code_id:
                 continue
             if any(
-                (identity in symbols)
-                if isinstance(identity, SymbolId)
-                else (
-                    identity.symbol in symbols
-                    if isinstance(identity, ValueId)
-                    else False
+                (
+                    (identity in symbols)
+                    if isinstance(identity, SymbolId)
+                    else (identity.symbol in symbols if isinstance(identity, ValueId) else False)
                 )
                 for identity in semantics.uses
             ):
@@ -93,13 +91,9 @@ class ReachingDefsAnalyzer:
                     reaching_defs.setdefault(var_name, []).append(
                         ReachingDef(
                             variable=var_name,
-                            def_location=format_source(
-                                catalog.source_of(stmt, code=code)
-                            ),
+                            def_location=format_source(catalog.source_of(stmt, code=code)),
                             def_value=(
-                                self.describe_value(expression)
-                                if expression is not None
-                                else None
+                                self.describe_value(expression) if expression is not None else None
                             ),
                             is_call=isinstance(
                                 expression,

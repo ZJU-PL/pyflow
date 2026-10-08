@@ -11,9 +11,11 @@ class MyClass:
     def func3(self):
         pass
 
+
 class MyClass2:
     def __init__(self):
         pass
+
 
 a, b = MyClass(), MyClass2()
 

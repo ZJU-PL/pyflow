@@ -128,9 +128,11 @@ def uniqueSlotName(descriptor):
         here for compatibility with Python's descriptor system.
     """
     # HACK GetSetDescriptors are not really slots?
-    assert isinstance(
-        descriptor, (types.MemberDescriptorType, types.GetSetDescriptorType)
-    ), (descriptor, type(descriptor), dir(descriptor))
+    assert isinstance(descriptor, (types.MemberDescriptorType, types.GetSetDescriptorType)), (
+        descriptor,
+        type(descriptor),
+        dir(descriptor),
+    )
     name = descriptor.__name__
     objClass = descriptor.__objclass__
     return "%s#%s#%d" % (name, objClass.__name__, id(objClass))

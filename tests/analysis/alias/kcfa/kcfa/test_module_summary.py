@@ -54,7 +54,9 @@ def test_class_summary_merge_combines_methods_and_attributes(alloc_site_factory,
     assert set(merged.attributes["a"]) == {obj_a, obj_b}
 
 
-def test_module_summary_merge_combines_exports_functions_and_classes(object_factory, alloc_site_factory):
+def test_module_summary_merge_combines_exports_functions_and_classes(
+    object_factory, alloc_site_factory
+):
     obj_a = object_factory()
     obj_b = object_factory()
     first = ModuleSummary(

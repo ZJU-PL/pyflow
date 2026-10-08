@@ -255,9 +255,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         # configurations around for soundness in the compound tests.
         pre = self.current
         post = self.advance()
-        constraint = constraints.AssignmentConstraint(
-            self.sys, pre, post, source, destination
-        )
+        constraint = constraints.AssignmentConstraint(self.sys, pre, post, source, destination)
         self.constraints.append(constraint)
 
         if self.debug:
@@ -388,9 +386,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         post = self.advance()
 
         for dstFunc, dstContext in invocations:
-            self.handleInvocation(
-                pre, post, self.context, callerargs, dstFunc, dstContext
-            )
+            self.handleInvocation(pre, post, self.context, callerargs, dstFunc, dstContext)
 
         self.current = post
         self.post(node)
@@ -404,9 +400,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         post = self.advance()
 
         for dstFunc, dstContext in invocations:
-            self.handleInvocation(
-                pre, post, self.context, callerargs, dstFunc, dstContext
-            )
+            self.handleInvocation(pre, post, self.context, callerargs, dstFunc, dstContext)
 
         self.current = post
         self.post(node)
@@ -550,9 +544,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
             max_varg = self.maxVArgLength()
             for i in range(max_varg):
                 paramSlot = self.sys.canonical.localSlot(base + i)
-                idxName = self.sys.info.indexSlotName(
-                    self.function, callerargs.vargs.slot.lcl, i
-                )
+                idxName = self.sys.info.indexSlotName(self.function, callerargs.vargs.slot.lcl, i)
                 fieldSlot = self.sys.canonical.fieldSlot(None, idxName)
                 splitMergeInfo.mapping[paramSlot] = fieldSlot
 
@@ -613,9 +605,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
         self.current = returnPoint
 
-    def handleInvocation(
-        self, callPoint, returnPoint, srcContext, callerargs, dstFunc, dstContext
-    ):
+    def handleInvocation(self, callPoint, returnPoint, srcContext, callerargs, dstFunc, dstContext):
         """Handle a function invocation.
 
         Processes a function call by:
@@ -647,9 +637,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         paramSlots = self.mapArguments(callerargs, calleeparams)
 
         # Make the constraints
-        splitMergeInfo = self.makeSplitMergeInfo(
-            dstFunc, calleeparams, callerargs, paramSlots
-        )
+        splitMergeInfo = self.makeSplitMergeInfo(dstFunc, calleeparams, callerargs, paramSlots)
         self.makeSplit(dstFunc, splitMergeInfo)
         self.makeMerge(dstFunc, splitMergeInfo, returnPoint)
 
@@ -675,9 +663,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
         # Null out fields
         for field in fields:
-            self.assign(
-                expressions.null, self.fieldExpr(target, (field.type, field.name))
-            )
+            self.assign(expressions.null, self.fieldExpr(target, (field.type, field.name)))
 
     @dispatch(ast.Load)
     def visitLoad(self, node, targets):
@@ -731,9 +717,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
             else:
                 next = self.newID()
 
-            constraint = constraints.AssignmentConstraint(
-                self.sys, self.current, next, src, dst
-            )
+            constraint = constraints.AssignmentConstraint(self.sys, self.current, next, src, dst)
             self.constraints.append(constraint)
 
             self.current = next

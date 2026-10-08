@@ -53,9 +53,7 @@ def parseFields(s, addSymbolType=True):
         else:
             internal = field[0]
 
-        result.append(
-            FieldDescriptor(field[0], internal, tuple(types), optional, repeated)
-        )
+        result.append(FieldDescriptor(field[0], internal, tuple(types), optional, repeated))
 
     return result
 
@@ -146,9 +144,7 @@ class ClassBuilder(object):
             getter = self.makeFunc(codegeneration.makeGetter, (self.name, field), {})
 
             if self.mutable:
-                setter = self.makeFunc(
-                    codegeneration.makeSetter, (self.name, field), {}
-                )
+                setter = self.makeFunc(codegeneration.makeSetter, (self.name, field), {})
                 p = property(getter, setter)
             else:
                 p = property(getter)
@@ -193,14 +189,10 @@ class ClassBuilder(object):
         dopostinit = self.hasAttr("__postinit__")
 
         # Generate and attach methods.
-        self.defaultFunc(
-            "__init__", codegeneration.makeInit, (self.name, desc, dopostinit)
-        )
+        self.defaultFunc("__init__", codegeneration.makeInit, (self.name, desc, dopostinit))
 
         if shared:
-            self.defaultFunc(
-                "__repr__", codegeneration.makeSharedRepr, (self.name, desc)
-            )
+            self.defaultFunc("__repr__", codegeneration.makeSharedRepr, (self.name, desc))
         else:
             self.defaultFunc("__repr__", codegeneration.makeRepr, (self.name, desc))
         self.defaultFunc("accept", codegeneration.makeAccept, (self.name,))

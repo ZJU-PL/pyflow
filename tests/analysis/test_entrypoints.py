@@ -18,17 +18,16 @@ def test_declared_and_inferred_roots_share_one_selector():
         ProcedureDescriptor("task", "app.task", declared=True),
     )
 
-    assert _names(
-        procedures, EntryPointOptions(mode=EntryPointMode.DECLARED_PLUS_ROOTS)
-    ) == ("handler", "task")
+    assert _names(procedures, EntryPointOptions(mode=EntryPointMode.DECLARED_PLUS_ROOTS)) == (
+        "handler",
+        "task",
+    )
 
 
 def test_file_public_normalizes_paths_and_can_exclude_module_bodies(tmp_path):
     source = tmp_path / "app.py"
     procedures = (
-        ProcedureDescriptor(
-            "module", "app.<module>", str(source), synthetic_module=True
-        ),
+        ProcedureDescriptor("module", "app.<module>", str(source), synthetic_module=True),
         ProcedureDescriptor("handler", "app.handler", str(source)),
         ProcedureDescriptor("dependency", "dep.run", str(tmp_path / "dep.py")),
     )
@@ -46,9 +45,7 @@ def test_file_public_normalizes_paths_and_can_exclude_module_bodies(tmp_path):
 def test_parameter_taint_does_not_change_entry_selection():
     procedures = (ProcedureDescriptor("entry", "entry", declared=True),)
     clean = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
-    tainted = EntryPointOptions(
-        mode=EntryPointMode.DECLARED_ONLY, taint_parameters=True
-    )
+    tainted = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY, taint_parameters=True)
 
     assert _names(procedures, clean) == _names(procedures, tainted) == ("entry",)
 

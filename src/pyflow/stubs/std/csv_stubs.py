@@ -15,7 +15,7 @@ def makeCSVStubs(collector):
     @export
     @attachPtr(csv, "reader")
     @llfunc
-    def csv_reader(csvfile, dialect='excel', **fmtparams):
+    def csv_reader(csvfile, dialect="excel", **fmtparams):
         return allocate(type(csv.reader([])))
 
     @attachPtr(type(csv.reader([])), "__iter__")
@@ -32,15 +32,15 @@ def makeCSVStubs(collector):
     @export
     @attachPtr(csv, "writer")
     @llfunc
-    def csv_writer(csvfile, dialect='excel', **fmtparams):
-        return allocate(type(csv.writer(open('test', 'w'))))
+    def csv_writer(csvfile, dialect="excel", **fmtparams):
+        return allocate(type(csv.writer(open("test", "w"))))
 
-    @attachPtr(type(csv.writer(open('test', 'w'))), "writerow")
+    @attachPtr(type(csv.writer(open("test", "w"))), "writerow")
     @llfunc
     def csvwriter_writerow(self, row):
         return allocate(int)
 
-    @attachPtr(type(csv.writer(open('test', 'w'))), "writerows")
+    @attachPtr(type(csv.writer(open("test", "w"))), "writerows")
     @llfunc
     def csvwriter_writerows(self, rows):
         return allocate(type(None))
@@ -129,7 +129,9 @@ def makeCSVStubs(collector):
     @export
     @attachPtr(csv, "DictReader")
     @llfunc
-    def csv_DictReader(f, fieldnames=None, restkey=None, restval=None, dialect='excel', *args, **kwds):
+    def csv_DictReader(
+        f, fieldnames=None, restkey=None, restval=None, dialect="excel", *args, **kwds
+    ):
         return allocate(csv.DictReader)
 
     @attachPtr(csv.DictReader, "__iter__")
@@ -156,7 +158,9 @@ def makeCSVStubs(collector):
     @export
     @attachPtr(csv, "DictWriter")
     @llfunc
-    def csv_DictWriter(f, fieldnames, restval='', extrasaction='raise', dialect='excel', *args, **kwds):
+    def csv_DictWriter(
+        f, fieldnames, restval="", extrasaction="raise", dialect="excel", *args, **kwds
+    ):
         return allocate(csv.DictWriter)
 
     @attachPtr(csv.DictWriter, "writeheader")

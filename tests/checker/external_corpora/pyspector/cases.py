@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 ALL_TAINT_ENGINES = ("ast-dataflow", "cpg", "ifds")
 
 

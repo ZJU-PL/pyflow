@@ -137,9 +137,11 @@ class GirEmitter:
         function is entered.
         """
         source = gir_source_node(code)
-        source_function = source if isinstance(
-            source, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-        ) else None
+        source_function = (
+            source
+            if isinstance(source, (python_ast.FunctionDef, python_ast.AsyncFunctionDef))
+            else None
+        )
         parameters, preamble = self._code_parameters(code, source_function)
         body: List[Dict[str, Any]] = []
         for block in code.ast.blocks:
@@ -149,9 +151,7 @@ class GirEmitter:
                 "attrs": (
                     [
                         python_ast.unparse(
-                            decorator.func
-                            if isinstance(decorator, python_ast.Call)
-                            else decorator
+                            decorator.func if isinstance(decorator, python_ast.Call) else decorator
                         )
                         for decorator in source_function.decorator_list
                     ]
@@ -165,8 +165,7 @@ class GirEmitter:
                 ),
                 "data_type": (
                     python_ast.unparse(source_function.returns)
-                    if source_function is not None
-                    and source_function.returns is not None
+                    if source_function is not None and source_function.returns is not None
                     else None
                 ),
                 "name": code.name,
@@ -202,9 +201,7 @@ class GirEmitter:
         return None
 
     @classmethod
-    def add_col_row_info(
-        cls, node: Any, gir_node: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def add_col_row_info(cls, node: Any, gir_node: Dict[str, Any]) -> Dict[str, Any]:
         """Attach source spans to the first dict of ``gir_node``."""
         origin = cls._source_origin(node)
         if origin is not None:
@@ -222,16 +219,10 @@ class GirEmitter:
     @classmethod
     def _row_of(cls, node: Any) -> Optional[int]:
         origin = cls._source_origin(node)
-        return (
-            max(0, int(origin.lineno or 1) - 1)
-            if origin is not None
-            else None
-        )
+        return max(0, int(origin.lineno or 1) - 1) if origin is not None else None
 
     @staticmethod
-    def _add_python_col_row_info(
-        node: python_ast.AST, gir_node: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _add_python_col_row_info(node: python_ast.AST, gir_node: Dict[str, Any]) -> Dict[str, Any]:
         inner = next(iter(gir_node.values()))
         start_row = int(getattr(node, "lineno", 1) or 1)
         start_col = int(getattr(node, "col_offset", 0) or 0)
@@ -328,9 +319,7 @@ class GirEmitter:
             if isinstance(current, python_ast.Constant):
                 return current.value
             if isinstance(current, python_ast.BinOp) and type(current.op) in binary:
-                return binary[type(current.op)](
-                    evaluate(current.left), evaluate(current.right)
-                )
+                return binary[type(current.op)](evaluate(current.left), evaluate(current.right))
             if (
                 isinstance(current, python_ast.Compare)
                 and len(current.ops) == 1
@@ -352,9 +341,7 @@ class GirEmitter:
     ) -> str:
         target = tmp_variable(self.counter)
         if isinstance(node, python_ast.Dict):
-            self._append_python_stmt(
-                statements, node, {"new_record": {"target": target}}
-            )
+            self._append_python_stmt(statements, node, {"new_record": {"target": target}})
             pair_count = 0
             for key, value in zip(node.keys, node.values):
                 if key is None:
@@ -396,9 +383,7 @@ class GirEmitter:
             # Preserve Lian's current Python-parser row sequence: set literals
             # carry an attributed allocation followed by the common array
             # allocation row used for lists and sets.
-            self._append_python_stmt(
-                statements, node, {"new_array": {"target": target}}
-            )
+            self._append_python_stmt(statements, node, {"new_array": {"target": target}})
         elements = list(getattr(node, "elts", ()))
         met_spread = False
         plain_index = 0
@@ -410,9 +395,7 @@ class GirEmitter:
             else:
                 source = self._emit_python_expression(element, statements)
                 if met_spread:
-                    operation = {
-                        "array_append": {"array": target, "source": source}
-                    }
+                    operation = {"array_append": {"array": target, "source": source}}
                 else:
                     operation = {
                         "array_write": {
@@ -425,9 +408,7 @@ class GirEmitter:
             self._append_python_stmt(statements, element, operation)
         return target
 
-    def _emit_python_call(
-        self, node: python_ast.Call, statements: List[Dict[str, Any]]
-    ) -> str:
+    def _emit_python_call(self, node: python_ast.Call, statements: List[Dict[str, Any]]) -> str:
         target = tmp_variable(self.counter)
         receiver: Optional[str] = None
         if isinstance(node.func, python_ast.Attribute):
@@ -440,9 +421,7 @@ class GirEmitter:
         packed_positional: Optional[str] = None
         if any(isinstance(arg, python_ast.Starred) for arg in node.args):
             packed_positional = tmp_variable(self.counter)
-            self._append_python_stmt(
-                statements, node, {"new_array": {"target": packed_positional}}
-            )
+            self._append_python_stmt(statements, node, {"new_array": {"target": packed_positional}})
             met_spread = False
             index = 0
             for argument in node.args:
@@ -476,17 +455,14 @@ class GirEmitter:
                 self._append_python_stmt(statements, argument, operation)
         else:
             positional = [
-                self._emit_python_expression(argument, statements)
-                for argument in node.args
+                self._emit_python_expression(argument, statements) for argument in node.args
             ]
 
         named: Dict[str, str] = {}
         packed_named: Optional[str] = None
         if any(keyword.arg is None for keyword in node.keywords):
             packed_named = tmp_variable(self.counter)
-            self._append_python_stmt(
-                statements, node, {"new_record": {"target": packed_named}}
-            )
+            self._append_python_stmt(statements, node, {"new_record": {"target": packed_named}})
             for keyword in node.keywords:
                 value = self._emit_python_expression(keyword.value, statements)
                 if keyword.arg is None:
@@ -507,9 +483,7 @@ class GirEmitter:
                 self._append_python_stmt(statements, keyword.value, operation)
         else:
             for keyword in node.keywords:
-                named[str(keyword.arg)] = self._emit_python_expression(
-                    keyword.value, statements
-                )
+                named[str(keyword.arg)] = self._emit_python_expression(keyword.value, statements)
 
         if receiver is None:
             operation = {"call_stmt": {"target": target, "name": name}}
@@ -571,9 +545,7 @@ class GirEmitter:
                 if filter_index >= len(generator.ifs):
                     build_clause(index + 1, output)
                     return
-                condition = self._emit_python_expression(
-                    generator.ifs[filter_index], output
-                )
+                condition = self._emit_python_expression(generator.ifs[filter_index], output)
                 then_body: List[Dict[str, Any]] = []
                 build_filters(filter_index + 1, then_body)
                 self._append_python_stmt(
@@ -606,9 +578,7 @@ class GirEmitter:
         build_clause(0, statements)
         return target
 
-    def _emit_python_lambda(
-        self, node: python_ast.Lambda, statements: List[Dict[str, Any]]
-    ) -> str:
+    def _emit_python_lambda(self, node: python_ast.Lambda, statements: List[Dict[str, Any]]) -> str:
         method_name = tmp_method(self.counter)
         parameters: List[Dict[str, Any]] = []
         positional = [*node.args.posonlyargs, *node.args.args]
@@ -667,13 +637,9 @@ class GirEmitter:
                     },
                 )
             )
-        for argument, default in zip(
-            node.args.kwonlyargs, node.args.kw_defaults
-        ):
+        for argument, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
             default_value = (
-                self._emit_python_expression(default, statements)
-                if default is not None
-                else None
+                self._emit_python_expression(default, statements) if default is not None else None
             )
             parameters.append(
                 self._add_python_col_row_info(
@@ -712,11 +678,7 @@ class GirEmitter:
             )
         body: List[Dict[str, Any]] = []
         result = self._emit_python_expression(node.body, body)
-        body.append(
-            self._add_python_col_row_info(
-                node, {"return_stmt": {"name": result}}
-            )
-        )
+        body.append(self._add_python_col_row_info(node, {"return_stmt": {"name": result}}))
         self._append_python_stmt(
             statements,
             node,
@@ -797,15 +759,9 @@ class GirEmitter:
                     "slice_read": {
                         "target": target,
                         "array": array,
-                        "start": self._emit_python_expression(
-                            node.slice.lower, statements
-                        ),
-                        "end": self._emit_python_expression(
-                            node.slice.upper, statements
-                        ),
-                        "step": self._emit_python_expression(
-                            node.slice.step, statements
-                        ),
+                        "start": self._emit_python_expression(node.slice.lower, statements),
+                        "end": self._emit_python_expression(node.slice.upper, statements),
+                        "step": self._emit_python_expression(node.slice.step, statements),
                     }
                 }
             else:
@@ -921,9 +877,7 @@ class GirEmitter:
                 target = tmp_variable(self.counter)
                 branch: List[Dict[str, Any]] = []
                 right = self._emit_python_expression(value_node, branch)
-                branch.append(
-                    {"assign_stmt": {"target": target, "operand": right}}
-                )
+                branch.append({"assign_stmt": {"target": target, "operand": right}})
                 if isinstance(node.op, python_ast.And):
                     then_body, else_body = branch, []
                 else:
@@ -940,13 +894,9 @@ class GirEmitter:
                     },
                 )
                 if isinstance(node.op, python_ast.And):
-                    else_body.append(
-                        {"assign_stmt": {"target": target, "operand": result}}
-                    )
+                    else_body.append({"assign_stmt": {"target": target, "operand": result}})
                 else:
-                    then_body.append(
-                        {"assign_stmt": {"target": target, "operand": result}}
-                    )
+                    then_body.append({"assign_stmt": {"target": target, "operand": result}})
                 result = target
             return result
         if isinstance(node, python_ast.IfExp):
@@ -979,16 +929,12 @@ class GirEmitter:
             return name
         if isinstance(node, python_ast.Await):
             target = self._emit_python_expression(node.value, statements)
-            self._append_python_stmt(
-                statements, node, {"await_stmt": {"target": target}}
-            )
+            self._append_python_stmt(statements, node, {"await_stmt": {"target": target}})
             return target
         if isinstance(node, (python_ast.Yield, python_ast.YieldFrom)):
             value_node = getattr(node, "value", None)
             target = self._emit_python_expression(value_node, statements)
-            self._append_python_stmt(
-                statements, node, {"yield_stmt": {"target": target}}
-            )
+            self._append_python_stmt(statements, node, {"yield_stmt": {"target": target}})
             return ""
         return python_ast.unparse(node)
 
@@ -1040,24 +986,16 @@ class GirEmitter:
                     "slice_write": {
                         "array": array,
                         "source": source,
-                        "start": self._emit_python_expression(
-                            target.slice.lower, statements
-                        ),
-                        "end": self._emit_python_expression(
-                            target.slice.upper, statements
-                        ),
-                        "step": self._emit_python_expression(
-                            target.slice.step, statements
-                        ),
+                        "start": self._emit_python_expression(target.slice.lower, statements),
+                        "end": self._emit_python_expression(target.slice.upper, statements),
+                        "step": self._emit_python_expression(target.slice.step, statements),
                     }
                 }
             else:
                 operation = {
                     "array_write": {
                         "array": array,
-                        "index": self._emit_python_expression(
-                            target.slice, statements
-                        ),
+                        "index": self._emit_python_expression(target.slice, statements),
                         "source": source,
                     }
                 }
@@ -1101,8 +1039,7 @@ class GirEmitter:
             return self._emit_python_pattern(pattern.pattern, statements)
         if isinstance(pattern, python_ast.MatchOr):
             return " | ".join(
-                self._emit_python_pattern(item, statements)
-                for item in pattern.patterns
+                self._emit_python_pattern(item, statements) for item in pattern.patterns
             )
         return python_ast.unparse(pattern)
 
@@ -1114,9 +1051,7 @@ class GirEmitter:
                 content: Dict[str, Any] = {"name": alias.name}
                 if alias.asname:
                     content["alias"] = alias.asname
-                self._append_python_stmt(
-                    statements, node, {"import_stmt": content}
-                )
+                self._append_python_stmt(statements, node, {"import_stmt": content})
             return True
         if isinstance(node, python_ast.ImportFrom):
             source = "." * int(node.level or 0) + (node.module or "")
@@ -1126,9 +1061,7 @@ class GirEmitter:
                 content = {"source": source, "name": alias.name}
                 if alias.asname:
                     content["alias"] = alias.asname
-                self._append_python_stmt(
-                    statements, node, {"from_import_stmt": content}
-                )
+                self._append_python_stmt(statements, node, {"from_import_stmt": content})
             return True
         if isinstance(node, (python_ast.Assign, python_ast.AnnAssign)):
             value_node = getattr(node, "value", None)
@@ -1178,30 +1111,22 @@ class GirEmitter:
                     }
                 },
             )
-            self._emit_python_store(
-                node.target, result, statements, node, declare=False
-            )
+            self._emit_python_store(node.target, result, statements, node, declare=False)
             return True
         if isinstance(node, python_ast.Expr):
             self._emit_python_expression(node.value, statements)
             return True
         if isinstance(node, python_ast.Return):
             name = self._emit_python_expression(node.value, statements)
-            self._append_python_stmt(
-                statements, node, {"return_stmt": {"name": name}}
-            )
+            self._append_python_stmt(statements, node, {"return_stmt": {"name": name}})
             return True
         if isinstance(node, python_ast.Raise):
             name = self._emit_python_expression(node.exc, statements)
-            self._append_python_stmt(
-                statements, node, {"throw_stmt": {"name": name}}
-            )
+            self._append_python_stmt(statements, node, {"throw_stmt": {"name": name}})
             return True
         if isinstance(node, python_ast.Assert):
             condition = self._emit_python_expression(node.test, statements)
-            self._append_python_stmt(
-                statements, node, {"assert_stmt": {"condition": condition}}
-            )
+            self._append_python_stmt(statements, node, {"assert_stmt": {"condition": condition}})
             return True
         if isinstance(node, python_ast.If):
             condition = self._emit_python_expression(node.test, statements)
@@ -1242,17 +1167,13 @@ class GirEmitter:
                         },
                     )
             self._emit_python_body(node.body, body)
-            self._append_python_stmt(
-                statements, node, {"variable_decl": {"name": name}}
-            )
+            self._append_python_stmt(statements, node, {"variable_decl": {"name": name}})
             self._append_python_stmt(
                 statements,
                 node,
                 {
                     "forin_stmt": {
-                        "attrs": ["async"]
-                        if isinstance(node, python_ast.AsyncFor)
-                        else [],
+                        "attrs": ["async"] if isinstance(node, python_ast.AsyncFor) else [],
                         "name": name,
                         "receiver": receiver,
                         "body": body,
@@ -1288,19 +1209,13 @@ class GirEmitter:
             for handler in node.handlers:
                 content: Dict[str, Any] = {}
                 if handler.type is not None:
-                    content["expcetion"] = self._emit_python_expression(
-                        handler.type, statements
-                    )
+                    content["expcetion"] = self._emit_python_expression(handler.type, statements)
                 if handler.name:
                     content["as"] = handler.name
                 handler_body: List[Dict[str, Any]] = []
                 self._emit_python_body(handler.body, handler_body)
                 content["body"] = handler_body
-                catches.append(
-                    self._add_python_col_row_info(
-                        handler, {"catch_clause": content}
-                    )
-                )
+                catches.append(self._add_python_col_row_info(handler, {"catch_clause": content}))
             else_body: List[Dict[str, Any]] = []
             final_body: List[Dict[str, Any]] = []
             self._emit_python_body(node.orelse, else_body)
@@ -1329,9 +1244,7 @@ class GirEmitter:
                 node,
                 {
                     "with_stmt": {
-                        "attrs": ["async"]
-                        if isinstance(node, python_ast.AsyncWith)
-                        else [],
+                        "attrs": ["async"] if isinstance(node, python_ast.AsyncWith) else [],
                         "init_body": init_body,
                         "update_body": update_body,
                     }
@@ -1352,9 +1265,7 @@ class GirEmitter:
                     cases.append({"default_stmt": {"body": body}})
                 else:
                     pattern = self._emit_python_pattern(case.pattern, statements)
-                    cases.append(
-                        {"case_stmt": {"condition": pattern, "body": body}}
-                    )
+                    cases.append({"case_stmt": {"condition": pattern, "body": body}})
             self._append_python_stmt(
                 statements,
                 node,
@@ -1364,38 +1275,26 @@ class GirEmitter:
         if isinstance(node, python_ast.Delete):
             for target in node.targets:
                 name = self._emit_python_expression(target, statements)
-                self._append_python_stmt(
-                    statements, node, {"del_stmt": {"name": name}}
-                )
+                self._append_python_stmt(statements, node, {"del_stmt": {"name": name}})
             return True
         if isinstance(node, python_ast.Global):
             for name in node.names:
-                self._append_python_stmt(
-                    statements, node, {"global_stmt": {"name": name}}
-                )
+                self._append_python_stmt(statements, node, {"global_stmt": {"name": name}})
             return True
         if isinstance(node, python_ast.Nonlocal):
             for name in node.names:
-                self._append_python_stmt(
-                    statements, node, {"nonlocal_stmt": {"name": name}}
-                )
+                self._append_python_stmt(statements, node, {"nonlocal_stmt": {"name": name}})
             return True
         if isinstance(node, python_ast.Break):
-            self._append_python_stmt(
-                statements, node, {"break_stmt": {"name": ""}}
-            )
+            self._append_python_stmt(statements, node, {"break_stmt": {"name": ""}})
             return True
         if isinstance(node, python_ast.Continue):
-            self._append_python_stmt(
-                statements, node, {"continue_stmt": {"name": ""}}
-            )
+            self._append_python_stmt(statements, node, {"continue_stmt": {"name": ""}})
             return True
         if isinstance(node, python_ast.Pass):
             self._append_python_stmt(statements, node, {"pass_stmt": {}})
             return True
-        if hasattr(python_ast, "TypeAlias") and isinstance(
-            node, python_ast.TypeAlias
-        ):
+        if hasattr(python_ast, "TypeAlias") and isinstance(node, python_ast.TypeAlias):
             name = self._python_target_name(node.name)
             data_type = python_ast.unparse(node.value)
             self._append_python_stmt(
@@ -1422,9 +1321,7 @@ class GirEmitter:
             return pyobj
         return str(pyobj)
 
-    def emit_expression(
-        self, expr: Any, statements: List[Dict[str, Any]]
-    ) -> str:
+    def emit_expression(self, expr: Any, statements: List[Dict[str, Any]]) -> str:
         """Emit an expression, appending side-effect statements, and return
         the name of the value it produces (a plain name, temp, or literal)."""
         if expr is None:
@@ -1613,9 +1510,7 @@ class GirEmitter:
         source = self.emit_expression(stmt.value, statements)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                stmt, {"assign_stmt": {"target": target, "operand": source}}
-            )
+            self.add_col_row_info(stmt, {"assign_stmt": {"target": target, "operand": source}})
         )
 
     def _emit_SetCellDeref(self, stmt, statements: List[Dict[str, Any]]) -> None:
@@ -1623,9 +1518,7 @@ class GirEmitter:
         source = self.emit_expression(stmt.value, statements)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                stmt, {"assign_stmt": {"target": target, "operand": source}}
-            )
+            self.add_col_row_info(stmt, {"assign_stmt": {"target": target, "operand": source}})
         )
 
     # ------------------------------------------------------------------
@@ -1633,15 +1526,11 @@ class GirEmitter:
     # ------------------------------------------------------------------
     def _emit_Delete(self, stmt, statements: List[Dict[str, Any]]) -> None:
         name = stmt.lcl.name if isinstance(stmt.lcl, ast.Local) else ""
-        statements.append(
-            self.add_col_row_info(stmt, {"del_stmt": {"name": name}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"del_stmt": {"name": name}}))
 
     def _emit_DeleteGlobal(self, stmt, statements: List[Dict[str, Any]]) -> None:
         name = self._existing_value(stmt.name) or ""
-        statements.append(
-            self.add_col_row_info(stmt, {"del_stmt": {"name": name}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"del_stmt": {"name": name}}))
 
     def _emit_DeleteAttr(self, stmt, statements: List[Dict[str, Any]]) -> None:
         receiver = self.emit_expression(stmt.expr, statements)
@@ -1659,9 +1548,7 @@ class GirEmitter:
             )
         )
 
-    def _emit_DeleteSubscript(
-        self, stmt, statements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_DeleteSubscript(self, stmt, statements: List[Dict[str, Any]]) -> None:
         array = self.emit_expression(stmt.expr, statements)
         index = self.emit_expression(stmt.subscript, statements)
         statements.append(
@@ -1707,15 +1594,9 @@ class GirEmitter:
         # import x as y  ->  Assign(Import(...), [Local(y)])
         if isinstance(expr, ast.Import):
             name = expr.name
-            alias = (
-                targets[0].name
-                if targets and isinstance(targets[0], ast.Local)
-                else name
-            )
+            alias = targets[0].name if targets and isinstance(targets[0], ast.Local) else name
             statements.append(
-                self.add_col_row_info(
-                    stmt, {"import_stmt": {"name": name, "alias": alias}}
-                )
+                self.add_col_row_info(stmt, {"import_stmt": {"name": name, "alias": alias}})
             )
             return
 
@@ -1777,9 +1658,7 @@ class GirEmitter:
         shadow = tmp_variable(self.counter)
         source = self.emit_expression(expr, statements)
         self._emit_variable_decl(shadow, statements)
-        statements.append(
-            {"assign_stmt": {"target": shadow, "operand": source}}
-        )
+        statements.append({"assign_stmt": {"target": shadow, "operand": source}})
         for index, target in enumerate(targets):
             if not isinstance(target, ast.Local):
                 continue
@@ -1806,14 +1685,10 @@ class GirEmitter:
                 }
             )
 
-    def _emit_variable_decl(
-        self, name: str, statements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_variable_decl(self, name: str, statements: List[Dict[str, Any]]) -> None:
         if not name:
             return
-        statements.append(
-            {"variable_decl": {"data_type": None, "name": name}}
-        )
+        statements.append({"variable_decl": {"data_type": None, "name": name}})
 
     # ------------------------------------------------------------------
     # Calls
@@ -1823,13 +1698,9 @@ class GirEmitter:
         if isinstance(callee, ast.Existing):
             name = self._existing_value(callee)
             if name in INTERPRETER_BINARY:
-                return self._emit_binary_op(
-                    expr, INTERPRETER_BINARY[name], statements
-                )
+                return self._emit_binary_op(expr, INTERPRETER_BINARY[name], statements)
             if name in INTERPRETER_UNARY:
-                return self._emit_unary_op(
-                    expr, INTERPRETER_UNARY[name], statements
-                )
+                return self._emit_unary_op(expr, INTERPRETER_UNARY[name], statements)
             if name == INTERPRETER_GETITEM:
                 return self._emit_getitem(expr, statements)
             if name == INTERPRETER_SETITEM:
@@ -1846,9 +1717,7 @@ class GirEmitter:
         name = self.emit_expression(callee, statements)
         return self._emit_named_call(expr, name, statements)
 
-    def _emit_binary_op(
-        self, expr, operator: str, statements: List[Dict[str, Any]]
-    ) -> str:
+    def _emit_binary_op(self, expr, operator: str, statements: List[Dict[str, Any]]) -> str:
         target = tmp_variable(self.counter)
         operand = self.emit_expression(expr.args[0], statements)
         operand2 = self.emit_expression(expr.args[1], statements)
@@ -1868,9 +1737,7 @@ class GirEmitter:
         )
         return target
 
-    def _emit_unary_op(
-        self, expr, operator: str, statements: List[Dict[str, Any]]
-    ) -> str:
+    def _emit_unary_op(self, expr, operator: str, statements: List[Dict[str, Any]]) -> str:
         target = tmp_variable(self.counter)
         operand = self.emit_expression(expr.args[0], statements)
         self._emit_variable_decl(target, statements)
@@ -2006,13 +1873,9 @@ class GirEmitter:
         )
         return target
 
-    def _emit_named_call(
-        self, expr, name: str, statements: List[Dict[str, Any]]
-    ) -> str:
+    def _emit_named_call(self, expr, name: str, statements: List[Dict[str, Any]]) -> str:
         target = tmp_variable(self.counter)
-        positional, named, packed_positional, packed_named = (
-            self._emit_arguments(expr, statements)
-        )
+        positional, named, packed_positional, packed_named = self._emit_arguments(expr, statements)
         gir: Dict[str, Any] = {"call_stmt": {"target": target, "name": name}}
         if positional:
             gir["call_stmt"]["positional_args"] = positional
@@ -2030,9 +1893,7 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         receiver = self.emit_expression(expr.expr.expr, statements)
         field = self.emit_expression(expr.expr.name, statements)
-        positional, named, packed_positional, packed_named = (
-            self._emit_arguments(expr, statements)
-        )
+        positional, named, packed_positional, packed_named = self._emit_arguments(expr, statements)
         gir: Dict[str, Any] = {
             "object_call_stmt": {
                 "target": target,
@@ -2056,9 +1917,7 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         receiver = self.emit_expression(expr.expr, statements)
         field = self.emit_expression(expr.name, statements)
-        positional, named, packed_positional, packed_named = (
-            self._emit_arguments(expr, statements)
-        )
+        positional, named, packed_positional, packed_named = self._emit_arguments(expr, statements)
         gir: Dict[str, Any] = {
             "object_call_stmt": {
                 "target": target,
@@ -2146,9 +2005,7 @@ class GirEmitter:
             spreads = keyword_spreads or (expr.kargs,)
             for spread in spreads:
                 value = self.emit_expression(spread, statements)
-                statements.append(
-                    {"record_extend": {"record": packed_named, "source": value}}
-                )
+                statements.append({"record_extend": {"record": packed_named, "source": value}})
             for key, value in named.items():
                 statements.append(
                     {
@@ -2264,15 +2121,11 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         operand = self.emit_expression(terms[0], statements)
         self._emit_variable_decl(target, statements)
-        statements.append(
-            {"assign_stmt": {"target": target, "operand": operand}}
-        )
+        statements.append({"assign_stmt": {"target": target, "operand": operand}})
         for term in terms[1:]:
             then_body: List[Dict[str, Any]] = []
             operand2 = self.emit_expression(term, then_body)
-            then_body.append(
-                {"assign_stmt": {"target": target, "operand": operand2}}
-            )
+            then_body.append({"assign_stmt": {"target": target, "operand": operand2}})
             statements.append(
                 {
                     "if_stmt": {
@@ -2293,15 +2146,11 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         operand = self.emit_expression(terms[0], statements)
         self._emit_variable_decl(target, statements)
-        statements.append(
-            {"assign_stmt": {"target": target, "operand": operand}}
-        )
+        statements.append({"assign_stmt": {"target": target, "operand": operand}})
         for term in terms[1:]:
             else_body: List[Dict[str, Any]] = []
             operand2 = self.emit_expression(term, else_body)
-            else_body.append(
-                {"assign_stmt": {"target": target, "operand": operand2}}
-            )
+            else_body.append({"assign_stmt": {"target": target, "operand": operand2}})
             statements.append(
                 {
                     "if_stmt": {
@@ -2318,9 +2167,7 @@ class GirEmitter:
         value = self.emit_expression(expr.value, statements)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                expr, {"assign_stmt": {"target": target, "operand": value}}
-            )
+            self.add_col_row_info(expr, {"assign_stmt": {"target": target, "operand": value}})
         )
         return target
 
@@ -2355,9 +2202,7 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                expr, {"new_array": {"target": target, "attrs": []}}
-            )
+            self.add_col_row_info(expr, {"new_array": {"target": target, "attrs": []}})
         )
         for index, value in enumerate(getattr(expr, "args", ()) or ()):
             source = self.emit_expression(value, statements)
@@ -2404,9 +2249,7 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                expr, {"new_array": {"target": target, "attrs": ["set"]}}
-            )
+            self.add_col_row_info(expr, {"new_array": {"target": target, "attrs": ["set"]}})
         )
         for index, value in enumerate(getattr(expr, "args", ()) or ()):
             source = self.emit_expression(value, statements)
@@ -2428,9 +2271,7 @@ class GirEmitter:
         target = tmp_variable(self.counter)
         self._emit_variable_decl(target, statements)
         statements.append(
-            self.add_col_row_info(
-                expr, {"new_record": {"target": target, "attrs": []}}
-            )
+            self.add_col_row_info(expr, {"new_record": {"target": target, "attrs": []}})
         )
         args = list(getattr(expr, "args", ()) or ())
         # BuildMap stores key/value pairs flat: key at even index, value at odd.
@@ -2472,11 +2313,7 @@ class GirEmitter:
     # ------------------------------------------------------------------
     def _emit_Yield(self, expr, statements: List[Dict[str, Any]]) -> str:
         value = self.emit_expression(expr.expr, statements)
-        statements.append(
-            self.add_col_row_info(
-                expr, {"yield_stmt": {"target": value}}
-            )
-        )
+        statements.append(self.add_col_row_info(expr, {"yield_stmt": {"target": value}}))
         return ""
 
     def _emit_YieldFrom(self, expr, statements: List[Dict[str, Any]]) -> str:
@@ -2487,11 +2324,7 @@ class GirEmitter:
 
     def _emit_Await(self, expr, statements: List[Dict[str, Any]]) -> str:
         value = self.emit_expression(expr.expr, statements)
-        statements.append(
-            self.add_col_row_info(
-                expr, {"await_stmt": {"target": value}}
-            )
-        )
+        statements.append(self.add_col_row_info(expr, {"await_stmt": {"target": value}}))
         return value
 
     # ------------------------------------------------------------------
@@ -2500,55 +2333,33 @@ class GirEmitter:
     def _emit_Return(self, stmt, statements: List[Dict[str, Any]]) -> None:
         exprs = list(getattr(stmt, "exprs", ()) or ())
         name = self.emit_expression(exprs[0], statements) if exprs else ""
-        statements.append(
-            self.add_col_row_info(
-                stmt, {"return_stmt": {"name": name}}
-            )
-        )
+        statements.append(self.add_col_row_info(stmt, {"return_stmt": {"name": name}}))
 
     def _emit_Raise(self, stmt, statements: List[Dict[str, Any]]) -> None:
-        exc = getattr(stmt, "exception", None) or getattr(
-            stmt, "parameter", None
-        )
+        exc = getattr(stmt, "exception", None) or getattr(stmt, "parameter", None)
         name = self.emit_expression(exc, statements)
-        statements.append(
-            self.add_col_row_info(
-                stmt, {"throw_stmt": {"name": name}}
-            )
-        )
+        statements.append(self.add_col_row_info(stmt, {"throw_stmt": {"name": name}}))
 
     def _emit_Assert(self, stmt, statements: List[Dict[str, Any]]) -> None:
         test = self.emit_expression(stmt.test, statements)
-        statements.append(
-            self.add_col_row_info(
-                stmt, {"assert_stmt": {"condition": test}}
-            )
-        )
+        statements.append(self.add_col_row_info(stmt, {"assert_stmt": {"condition": test}}))
 
     def _emit_Break(self, stmt, statements: List[Dict[str, Any]]) -> None:
-        statements.append(
-            self.add_col_row_info(stmt, {"break_stmt": {"name": ""}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"break_stmt": {"name": ""}}))
 
     def _emit_Continue(self, stmt, statements: List[Dict[str, Any]]) -> None:
-        statements.append(
-            self.add_col_row_info(stmt, {"continue_stmt": {"name": ""}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"continue_stmt": {"name": ""}}))
 
     def _emit_Pass(self, stmt, statements: List[Dict[str, Any]]) -> None:
         statements.append(self.add_col_row_info(stmt, {"pass_stmt": {}}))
 
     def _emit_GlobalDecl(self, stmt, statements: List[Dict[str, Any]]) -> None:
         name = stmt.name.name if isinstance(stmt.name, ast.Local) else ""
-        statements.append(
-            self.add_col_row_info(stmt, {"global_stmt": {"name": name}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"global_stmt": {"name": name}}))
 
     def _emit_NonlocalDecl(self, stmt, statements: List[Dict[str, Any]]) -> None:
         name = stmt.name.name if isinstance(stmt.name, ast.Local) else ""
-        statements.append(
-            self.add_col_row_info(stmt, {"nonlocal_stmt": {"name": name}})
-        )
+        statements.append(self.add_col_row_info(stmt, {"nonlocal_stmt": {"name": name}}))
 
     def _emit_TypeAlias(self, stmt, statements: List[Dict[str, Any]]) -> None:
         data_type = self.emit_expression(stmt.value, statements)
@@ -2580,9 +2391,7 @@ class GirEmitter:
         else:
             self._emit_store_to(target, stmt.value, statements)
 
-    def _emit_store_to(
-        self, target: Any, value: Any, statements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_store_to(self, target: Any, value: Any, statements: List[Dict[str, Any]]) -> None:
         if isinstance(target, ast.GetAttr):
             receiver = self.emit_expression(target.expr, statements)
             field = self.emit_expression(target.name, statements)
@@ -2665,9 +2474,7 @@ class GirEmitter:
     # Loops
     # ------------------------------------------------------------------
     def _emit_For(self, stmt, statements: List[Dict[str, Any]]) -> None:
-        index_name = (
-            stmt.index.name if isinstance(stmt.index, ast.Local) else ""
-        )
+        index_name = stmt.index.name if isinstance(stmt.index, ast.Local) else ""
         for block in stmt.loopPreamble.blocks:
             self.emit_statement(block, statements)
         if index_name:
@@ -2716,9 +2523,7 @@ class GirEmitter:
     # ------------------------------------------------------------------
     # Try
     # ------------------------------------------------------------------
-    def _emit_TryExceptFinally(
-        self, stmt, statements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_TryExceptFinally(self, stmt, statements: List[Dict[str, Any]]) -> None:
         try_body: List[Dict[str, Any]] = []
         for block in stmt.body.blocks:
             self.emit_statement(block, try_body)
@@ -2733,9 +2538,7 @@ class GirEmitter:
             handler_body: List[Dict[str, Any]] = []
             for block in handler.body.blocks:
                 self.emit_statement(block, handler_body)
-            catch_clause: Dict[str, Any] = {
-                "catch_clause": {"body": handler_body}
-            }
+            catch_clause: Dict[str, Any] = {"catch_clause": {"body": handler_body}}
             if handler_type:
                 catch_clause["catch_clause"]["expcetion"] = handler_type
             if handler_name:
@@ -2745,9 +2548,7 @@ class GirEmitter:
             default_body: List[Dict[str, Any]] = []
             for block in stmt.defaultHandler.blocks:
                 self.emit_statement(block, default_body)
-            catch_rows.append(
-                {"catch_clause": {"body": default_body}}
-            )
+            catch_rows.append({"catch_clause": {"body": default_body}})
         else_body: List[Dict[str, Any]] = []
         if getattr(stmt, "else_", None) is not None:
             for block in stmt.else_.blocks:
@@ -2785,15 +2586,15 @@ class GirEmitter:
         preamble_out: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         source = gir_source_node(stmt)
-        source_function = source if isinstance(
-            source, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-        ) else None
+        source_function = (
+            source
+            if isinstance(source, (python_ast.FunctionDef, python_ast.AsyncFunctionDef))
+            else None
+        )
         if source_function is not None:
             modifiers = [
                 python_ast.unparse(
-                    decorator.func
-                    if isinstance(decorator, python_ast.Call)
-                    else decorator
+                    decorator.func if isinstance(decorator, python_ast.Call) else decorator
                 )
                 for decorator in source_function.decorator_list
             ]
@@ -2810,8 +2611,7 @@ class GirEmitter:
                 "attrs": modifiers,
                 "data_type": (
                     python_ast.unparse(source_function.returns)
-                    if source_function is not None
-                    and source_function.returns is not None
+                    if source_function is not None and source_function.returns is not None
                     else None
                 ),
                 "name": stmt.name,
@@ -2849,9 +2649,7 @@ class GirEmitter:
     def _code_parameters(
         self,
         code: "Optional[ast.Code]",
-        source_function: Optional[
-            python_ast.FunctionDef | python_ast.AsyncFunctionDef
-        ] = None,
+        source_function: Optional[python_ast.FunctionDef | python_ast.AsyncFunctionDef] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Build ``parameter_decl`` rows plus a preamble for default values."""
         parameters: List[Dict[str, Any]] = []
@@ -2859,9 +2657,7 @@ class GirEmitter:
         if code is None:
             return parameters, preamble
         cp = code.codeparameters
-        self._warn_unrepresented_type_params(
-            getattr(cp, "type_params", None), "function"
-        )
+        self._warn_unrepresented_type_params(getattr(cp, "type_params", None), "function")
         posonly = list(getattr(cp, "posonlyparams", ()) or ())
         params = list(getattr(cp, "params", ()) or ())
         paramnames = list(getattr(cp, "paramnames", ()) or ())
@@ -2879,9 +2675,7 @@ class GirEmitter:
                 *source_function.args.kwonlyargs,
             ):
                 source_args[argument.arg] = argument
-            default_offset = len(positional_source_args) - len(
-                source_function.args.defaults
-            )
+            default_offset = len(positional_source_args) - len(source_function.args.defaults)
             for index, argument in enumerate(positional_source_args):
                 source_defaults[argument.arg] = (
                     source_function.args.defaults[index - default_offset]
@@ -2894,13 +2688,9 @@ class GirEmitter:
             ):
                 source_defaults[argument.arg] = default
             if source_function.args.vararg is not None:
-                source_args[source_function.args.vararg.arg] = (
-                    source_function.args.vararg
-                )
+                source_args[source_function.args.vararg.arg] = source_function.args.vararg
             if source_function.args.kwarg is not None:
-                source_args[source_function.args.kwarg.arg] = (
-                    source_function.args.kwarg
-                )
+                source_args[source_function.args.kwarg.arg] = source_function.args.kwarg
         default_offset = len(all_params) - len(defaults)
         for index, param in enumerate(all_params):
             name = param.name if isinstance(param, ast.Local) else ""
@@ -2922,12 +2712,8 @@ class GirEmitter:
                     default_value = self._python_literal(source_default)
                 else:
                     default_value = default_value_variable(self.counter)
-                    preamble.append(
-                        {"variable_decl": {"name": default_value}}
-                    )
-                    source_value = self._emit_python_expression(
-                        source_default, preamble
-                    )
+                    preamble.append({"variable_decl": {"name": default_value}})
+                    source_value = self._emit_python_expression(source_default, preamble)
                     preamble.append(
                         {
                             "assign_stmt": {
@@ -2942,61 +2728,52 @@ class GirEmitter:
                     default_value = self.emit_expression(default_expr, preamble)
             parameter = {
                 "parameter_decl": {
-                        "data_type": (
-                            python_ast.unparse(source_args[name].annotation)
-                            if name in source_args
-                            and source_args[name].annotation is not None
-                            else None
-                        ),
-                        "name": name,
-                        "attrs": attrs,
-                        "default_value": default_value,
-                    }
+                    "data_type": (
+                        python_ast.unparse(source_args[name].annotation)
+                        if name in source_args and source_args[name].annotation is not None
+                        else None
+                    ),
+                    "name": name,
+                    "attrs": attrs,
+                    "default_value": default_value,
+                }
             }
             if name in source_args:
-                parameter = self._add_python_col_row_info(
-                    source_args[name], parameter
-                )
+                parameter = self._add_python_col_row_info(source_args[name], parameter)
             parameters.append(parameter)
         if getattr(cp, "vparam", None) is not None:
             name = cp.vparam.name if isinstance(cp.vparam, ast.Local) else ""
             parameter = {
                 "parameter_decl": {
-                        "data_type": (
-                            python_ast.unparse(source_args[name].annotation)
-                            if name in source_args
-                            and source_args[name].annotation is not None
-                            else None
-                        ),
-                        "name": name,
-                        "attrs": [LIAN_INTERNAL.PACKED_POSITIONAL_PARAMETER],
-                        "default_value": None,
-                    }
+                    "data_type": (
+                        python_ast.unparse(source_args[name].annotation)
+                        if name in source_args and source_args[name].annotation is not None
+                        else None
+                    ),
+                    "name": name,
+                    "attrs": [LIAN_INTERNAL.PACKED_POSITIONAL_PARAMETER],
+                    "default_value": None,
+                }
             }
             if name in source_args:
-                parameter = self._add_python_col_row_info(
-                    source_args[name], parameter
-                )
+                parameter = self._add_python_col_row_info(source_args[name], parameter)
             parameters.append(parameter)
         if getattr(cp, "kparam", None) is not None:
             name = cp.kparam.name if isinstance(cp.kparam, ast.Local) else ""
             parameter = {
                 "parameter_decl": {
-                        "data_type": (
-                            python_ast.unparse(source_args[name].annotation)
-                            if name in source_args
-                            and source_args[name].annotation is not None
-                            else None
-                        ),
-                        "name": name,
-                        "attrs": [LIAN_INTERNAL.PACKED_NAMED_PARAMETER],
-                        "default_value": None,
-                    }
+                    "data_type": (
+                        python_ast.unparse(source_args[name].annotation)
+                        if name in source_args and source_args[name].annotation is not None
+                        else None
+                    ),
+                    "name": name,
+                    "attrs": [LIAN_INTERNAL.PACKED_NAMED_PARAMETER],
+                    "default_value": None,
+                }
             }
             if name in source_args:
-                parameter = self._add_python_col_row_info(
-                    source_args[name], parameter
-                )
+                parameter = self._add_python_col_row_info(source_args[name], parameter)
             parameters.append(parameter)
         return parameters, preamble
 
@@ -3066,9 +2843,7 @@ class GirEmitter:
                         }
                     }
                     if isinstance(source_node, python_ast.AnnAssign):
-                        field_decl = self._add_python_col_row_info(
-                            source_node, field_decl
-                        )
+                        field_decl = self._add_python_col_row_info(source_node, field_decl)
                     fields.append(field_decl)
                     if block.value is not None:
                         value = self.emit_expression(block.value, static_init)
@@ -3080,9 +2855,7 @@ class GirEmitter:
                             }
                         }
                         if isinstance(source_node, python_ast.AnnAssign):
-                            field_write = self._add_python_col_row_info(
-                                source_node, field_write
-                            )
+                            field_write = self._add_python_col_row_info(source_node, field_write)
                         static_init.append(field_write)
             elif isinstance(block, ast.Assign) and getattr(block, "lcls", None):
                 source_node = gir_source_node(block)
@@ -3095,9 +2868,7 @@ class GirEmitter:
                             }
                         }
                         if isinstance(source_node, python_ast.Assign):
-                            field_decl = self._add_python_col_row_info(
-                                source_node, field_decl
-                            )
+                            field_decl = self._add_python_col_row_info(source_node, field_decl)
                         fields.append(field_decl)
                         source = self.emit_expression(block.expr, static_init)
                         field_write = {
@@ -3108,9 +2879,7 @@ class GirEmitter:
                             }
                         }
                         if isinstance(source_node, python_ast.Assign):
-                            field_write = self._add_python_col_row_info(
-                                source_node, field_write
-                            )
+                            field_write = self._add_python_col_row_info(source_node, field_write)
                         static_init.append(field_write)
             elif isinstance(block, ast.Discard):
                 # Lian's class parser keeps only declarations and assignments
@@ -3132,8 +2901,7 @@ class GirEmitter:
         }
         if source_class is not None and getattr(source_class, "type_params", None):
             gir["class_decl"]["type_parameters"] = ", ".join(
-                python_ast.unparse(parameter)
-                for parameter in source_class.type_params
+                python_ast.unparse(parameter) for parameter in source_class.type_params
             )
         if static_init:
             methods.insert(
@@ -3143,7 +2911,7 @@ class GirEmitter:
                         "name": LIAN_INTERNAL.CLASS_STATIC_INIT,
                         "body": static_init,
                     }
-                }
+                },
             )
         return self.add_col_row_info(stmt, gir)
 
@@ -3173,9 +2941,7 @@ class GirEmitter:
         )
         return method_name
 
-    def _emit_UnpackSequence(
-        self, stmt, statements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_UnpackSequence(self, stmt, statements: List[Dict[str, Any]]) -> None:
         source = self.emit_expression(stmt.expr, statements)
         for index, target in enumerate(getattr(stmt, "targets", ()) or ()):
             if not isinstance(target, ast.Local):
@@ -3254,9 +3020,7 @@ class GirEmitter:
     # ------------------------------------------------------------------
     def emit_statement(self, stmt, statements: List[Dict[str, Any]]) -> None:
         source = gir_source_node(stmt)
-        if isinstance(source, python_ast.stmt) and self._emit_python_statement(
-            source, statements
-        ):
+        if isinstance(source, python_ast.stmt) and self._emit_python_statement(source, statements):
             return
         # The frontend wraps some constructs (AugAssign, With, Match, ...) in
         # tagged Suites that do not flatten into their parent; recurse.

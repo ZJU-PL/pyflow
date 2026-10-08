@@ -15,7 +15,7 @@ class TestScopeGraph(unittest.TestCase):
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("Mod", sg.references)
         self.assertIn("Mod", sg.declarations)
 
@@ -28,7 +28,7 @@ def my_function():
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("my_function", sg.declarations["Mod"])
 
     def test_class_declaration(self):
@@ -40,7 +40,7 @@ class MyClass:
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("MyClass", sg.declarations["Mod"])
 
     def test_variable_assignment(self):
@@ -52,7 +52,7 @@ y = 2
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("x", sg.declarations["Mod"])
         self.assertIn("y", sg.declarations["Mod"])
 
@@ -65,7 +65,7 @@ y = x + 1
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # x is declared then referenced
         self.assertIn("x", sg.declarations["Mod"])
         # y is declared, x is referenced
@@ -83,7 +83,7 @@ def outer():
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("outer", sg.declarations["Mod"])
         self.assertIn("inner", sg.declarations["outer"])
 
@@ -98,7 +98,7 @@ class MyClass:
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("MyClass", sg.declarations["Mod"])
         self.assertIn("method", sg.declarations["MyClass"])
         self.assertIn("x", sg.declarations["method"])
@@ -112,7 +112,7 @@ import sys as system
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("os", sg.imports["Mod"])
         # The module stores the original name, not the alias
         self.assertIn("sys", sg.imports["Mod"])
@@ -126,7 +126,7 @@ from collections import OrderedDict as OD
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("path", sg.imports["Mod"])
         # The module stores the original name, not the alias
         self.assertIn("OrderedDict", sg.imports["Mod"])
@@ -143,7 +143,7 @@ class Derived(Base):
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("Base", sg.ig.nodes())
         self.assertIn("Derived", sg.ig.nodes())
         self.assertTrue(sg.ig.has_edge("Derived", "Base"))
@@ -163,7 +163,7 @@ class C(A, B):
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertTrue(sg.ig.has_edge("C", "A"))
         self.assertTrue(sg.ig.has_edge("C", "B"))
 
@@ -180,7 +180,7 @@ def outer():
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # Check that scopes exist
         self.assertIn("outer", sg.declarations)
         self.assertIn("inner", sg.declarations["outer"])
@@ -198,7 +198,7 @@ def outer():
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # x is declared in both outer and inner scopes
         self.assertIn("x", sg.declarations["outer"])
         self.assertIn("x", sg.declarations["inner"])
@@ -212,7 +212,7 @@ for i in range(10):
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # Loop variable i should be declared in module scope
         self.assertIn("i", sg.declarations["Mod"])
 
@@ -225,7 +225,7 @@ result = f(5)
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         self.assertIn("f", sg.declarations["Mod"])
         self.assertIn("f", sg.references["Mod"])
 
@@ -233,7 +233,7 @@ result = f(5)
         """Test the add_scope method."""
         sg = ScopeGraph()
         sg.add_scope("test_scope", "Mod")
-        
+
         self.assertIn("test_scope", sg.parent_relations)
         self.assertEqual(sg.parent_relations["test_scope"], "Mod")
         self.assertIn("test_scope", sg.contained_scopes["Mod"])
@@ -242,14 +242,14 @@ result = f(5)
         """Test the get_parent method."""
         sg = ScopeGraph()
         sg.add_scope("child_scope", "parent_scope")
-        
+
         parent = sg.get_parent("child_scope")
         self.assertEqual(parent, "parent_scope")
 
     def test_get_parent_missing_scope(self):
         """Test that get_parent raises exception for missing scope."""
         sg = ScopeGraph()
-        
+
         with self.assertRaises(Exception):
             sg.get_parent("nonexistent")
 
@@ -271,7 +271,7 @@ result = f(5)
     def test_add_reference_unknown_context(self):
         """Test that unknown context raises exception."""
         sg = ScopeGraph()
-        
+
         with self.assertRaises(Exception):
             sg.add_reference("Mod", "my_var", "unknown")
 
@@ -284,7 +284,7 @@ class MyClass:
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # Should not raise any exception
         sg.print_out()
 
@@ -316,17 +316,17 @@ output = my_function(1, 2)
         tree = ast.parse(code)
         sg = ScopeGraph()
         sg.build(tree)
-        
+
         # Check module-level declarations
         self.assertIn("MODULE_VAR", sg.declarations["Mod"])
         self.assertIn("MyClass", sg.declarations["Mod"])
         self.assertIn("my_function", sg.declarations["Mod"])
         self.assertIn("output", sg.declarations["Mod"])
-        
+
         # Check imports
         self.assertIn("os", sg.imports["Mod"])
         self.assertIn("path", sg.imports["Mod"])
-        
+
         # Check class method
         self.assertIn("method", sg.declarations["MyClass"])
         self.assertIn("__init__", sg.declarations["MyClass"])

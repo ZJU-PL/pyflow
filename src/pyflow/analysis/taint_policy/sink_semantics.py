@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Sequence
 
-
 SINK_BEHAVIOR_JINJA_AUTOESCAPE = "jinja-autoescape"
 SUPPORTED_SINK_BEHAVIORS = frozenset({SINK_BEHAVIOR_JINJA_AUTOESCAPE})
 

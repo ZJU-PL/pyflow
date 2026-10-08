@@ -13,17 +13,18 @@ class ClosureAnalysis(ScopeAnalysis[Set[str]]):
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
-        liveness_config = AnalysisConfig("liveness", "LivenessAnalysis",
-                          options={'solver': 'WorklistSolver'})
+        liveness_config = AnalysisConfig(
+            "liveness", "LivenessAnalysis", options={"solver": "WorklistSolver"}
+        )
         self.liveness_driver = DataflowAnalysisDriver(liveness_config)
-        self.in_place = config.options.get('in_place', False)
-    
+        self.in_place = config.options.get("in_place", False)
+
     def analyze_function(self, fn: IRFunc, fact=None) -> Set[str]:
         if fact is None:
             fact = self.init_function(fn)
         self.liveness_driver.analyze(fn)
         result = self.liveness_driver.results
-        free_vars = result['out'][fn.cfg.entry_blk]
+        free_vars = result["out"][fn.cfg.entry_blk]
         s_colle = VarCollector(ctx="store")
         s_colle.visit(fn.func_def.args)
         free_vars.difference_update(s_colle.get_vars())
@@ -44,7 +45,7 @@ class ClosureAnalysis(ScopeAnalysis[Set[str]]):
             fact = self.init_class(cls)
         self.liveness_driver.analyze(cls)
         result = self.liveness_driver.results
-        free_vars = result['out'][cls.cfg.entry_blk]
+        free_vars = result["out"][cls.cfg.entry_blk]
         for cls in cls.classes:
             fact.update(self.analyze_class(cls, {*()}))
         for fn in cls.funcs:
@@ -59,7 +60,7 @@ class ClosureAnalysis(ScopeAnalysis[Set[str]]):
             fact = self.init_module(mod)
         self.liveness_driver.analyze(mod)
         result = self.liveness_driver.results
-        free_vars = result['out'][mod.cfg.entry_blk]
+        free_vars = result["out"][mod.cfg.entry_blk]
         for cls in mod.classes:
             fact.update(self.analyze_class(cls, {*()}))
         for fn in mod.funcs:
@@ -70,7 +71,7 @@ class ClosureAnalysis(ScopeAnalysis[Set[str]]):
         fact.difference_update(s_colle.get_vars())
         fact.update(free_vars)
         return fact
-    
+
     def init_function(self, fn: IRFunc) -> Set[str]:
         return {*()}
 

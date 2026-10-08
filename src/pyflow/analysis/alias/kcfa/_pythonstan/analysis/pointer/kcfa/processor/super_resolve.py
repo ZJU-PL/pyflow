@@ -24,15 +24,14 @@ class SuperResolveProcessor(Processor):
 
     def handle_allocation(
         self,
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
-        scope: 'Scope',
-        context: 'AbstractContext',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        context: "AbstractContext",
         constraint: AllocConstraint,
     ) -> bool:
-        if (
-            constraint.alloc_site.kind != AllocKind.OBJECT
-            or not self._is_super_alloc(solver, target, constraint)
+        if constraint.alloc_site.kind != AllocKind.OBJECT or not self._is_super_alloc(
+            solver, target, constraint
         ):
             return False
         pending = SuperObject(
@@ -42,22 +41,18 @@ class SuperResolveProcessor(Processor):
             receiver=None,
             receiver_type=None,
         )
-        solver.state._heap.set_obj(
-            scope, context, constraint.alloc_site, pending
-        )
+        solver.state._heap.set_obj(scope, context, constraint.alloc_site, pending)
         solver.state.obj_scope[pending] = scope
-        solver.handle_new_points_to(
-            target, scope, PointsToSet.singleton(pending)
-        )
+        solver.handle_new_points_to(target, scope, PointsToSet.singleton(pending))
         return True
 
     def handle_constraint(
         self,
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
-        scope: 'Scope',
-        constraint: 'Constraint',
-        pts: 'PointsToSet',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        constraint: "Constraint",
+        pts: "PointsToSet",
     ) -> bool:
         if not isinstance(constraint, SuperResolveConstraint):
             return False
@@ -66,9 +61,9 @@ class SuperResolveProcessor(Processor):
 
     def handle_new_constraint(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        constraint: 'Constraint',
+        solver: "PointerSolver",
+        scope: "Scope",
+        constraint: "Constraint",
     ) -> bool:
         if not isinstance(constraint, SuperResolveConstraint):
             return False
@@ -78,13 +73,9 @@ class SuperResolveProcessor(Processor):
         state.constraints.add(scope, target, constraint)
         sources = [target]
         if constraint.class_var is not None:
-            sources.append(state.get_variable(
-                scope, context, constraint.class_var
-            ))
+            sources.append(state.get_variable(scope, context, constraint.class_var))
         if constraint.instance_var is not None:
-            sources.append(state.get_variable(
-                scope, context, constraint.instance_var
-            ))
+            sources.append(state.get_variable(scope, context, constraint.instance_var))
         if constraint.implicit:
             sources.extend(self._implicit_source_cells(solver, scope))
         state.dependencies.subscribe(
@@ -97,31 +88,26 @@ class SuperResolveProcessor(Processor):
 
     def _refresh(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
+        solver: "PointerSolver",
+        scope: "Scope",
         constraint: SuperResolveConstraint,
     ) -> None:
         state = solver.state
         context = scope.context
         target = state.get_variable(scope, context, constraint.target)
         pending = tuple(
-            obj for obj in state.get_points_to(target)
+            obj
+            for obj in state.get_points_to(target)
             if isinstance(obj, SuperObject) and obj.start_type is None
         )
         if not pending:
             return
 
         if constraint.implicit:
-            start_objects, receivers = self._implicit_candidates(
-                solver, scope
-            )
+            start_objects, receivers = self._implicit_candidates(solver, scope)
         else:
-            class_ctx = state.get_variable(
-                scope, context, constraint.class_var
-            )
-            receiver_ctx = state.get_variable(
-                scope, context, constraint.instance_var
-            )
+            class_ctx = state.get_variable(scope, context, constraint.class_var)
+            receiver_ctx = state.get_variable(scope, context, constraint.instance_var)
             start_objects = tuple(state.get_points_to(class_ctx))
             receivers = tuple(state.get_points_to(receiver_ctx))
         if not start_objects or not receivers:
@@ -148,13 +134,15 @@ class SuperResolveProcessor(Processor):
         resolved = []
         for allocation in pending:
             for start_type, receiver in alternatives:
-                resolved.append(SuperObject(
-                    context=allocation.context,
-                    alloc_site=allocation.alloc_site,
-                    start_type=start_type,
-                    receiver=receiver,
-                    receiver_type=state.types.instance_type(receiver),
-                ))
+                resolved.append(
+                    SuperObject(
+                        context=allocation.context,
+                        alloc_site=allocation.alloc_site,
+                        start_type=start_type,
+                        receiver=receiver,
+                        receiver_type=state.types.instance_type(receiver),
+                    )
+                )
         solver.handle_new_points_to(
             target,
             scope,
@@ -163,32 +151,36 @@ class SuperResolveProcessor(Processor):
 
     def _implicit_source_cells(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-    ) -> Iterable['Ctx[Any]']:
+        solver: "PointerSolver",
+        scope: "Scope",
+    ) -> Iterable["Ctx[Any]"]:
         state = solver.state
         context = scope.context
-        cells = [state.get_variable(
-            scope,
-            context,
-            Variable(name="__class__", kind=VariableKind.CELL),
-        )]
-        if isinstance(scope.stmt, IRFunc) and scope.stmt.args.args:
-            cells.append(state.get_variable(
+        cells = [
+            state.get_variable(
                 scope,
                 context,
-                Variable(
-                    name=scope.stmt.args.args[0].arg,
-                    kind=VariableKind.LOCAL,
-                ),
-            ))
+                Variable(name="__class__", kind=VariableKind.CELL),
+            )
+        ]
+        if isinstance(scope.stmt, IRFunc) and scope.stmt.args.args:
+            cells.append(
+                state.get_variable(
+                    scope,
+                    context,
+                    Variable(
+                        name=scope.stmt.args.args[0].arg,
+                        kind=VariableKind.LOCAL,
+                    ),
+                )
+            )
         return cells
 
     def _implicit_candidates(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-    ) -> tuple[tuple['AbstractObject', ...], tuple['AbstractObject', ...]]:
+        solver: "PointerSolver",
+        scope: "Scope",
+    ) -> tuple[tuple["AbstractObject", ...], tuple["AbstractObject", ...]]:
         state = solver.state
         starts = []
         receivers = []
@@ -204,8 +196,8 @@ class SuperResolveProcessor(Processor):
 
     @staticmethod
     def _is_super_alloc(
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
         constraint: AllocConstraint,
     ) -> bool:
         statement = constraint.alloc_site.stmt
@@ -213,7 +205,5 @@ class SuperResolveProcessor(Processor):
             return True
         return any(
             isinstance(other, SuperResolveConstraint)
-            for _, other in solver.state.constraints.iter_scoped_by_variable(
-                target
-            )
+            for _, other in solver.state.constraints.iter_scoped_by_variable(target)
         )

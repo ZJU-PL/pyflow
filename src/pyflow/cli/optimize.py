@@ -51,29 +51,17 @@ ANALYSIS_MODULES = {
 
 def add_optimize_parser(subparsers):
     """Add optimization subcommand parser."""
-    parser = subparsers.add_parser(
-        "optimize", help="Run static analysis and optimization"
-    )
+    parser = subparsers.add_parser("optimize", help="Run static analysis and optimization")
 
     # Input/Output options
     parser.add_argument(
         "input_path", nargs="?", help="Python file, directory, or library to optimize"
     )
-    parser.add_argument(
-        "--output", "-o", help="Output file for dumped analysis results"
-    )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose output"
-    )
-    parser.add_argument(
-        "--dump", "-d", action="store_true", help="Dump analysis results"
-    )
-    parser.add_argument(
-        "--dump-ipa", action="store_true", help="Dump IPA analysis results"
-    )
-    parser.add_argument(
-        "--dump-shape", action="store_true", help="Dump Shape analysis results"
-    )
+    parser.add_argument("--output", "-o", help="Output file for dumped analysis results")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument("--dump", "-d", action="store_true", help="Dump analysis results")
+    parser.add_argument("--dump-ipa", action="store_true", help="Dump IPA analysis results")
+    parser.add_argument("--dump-shape", action="store_true", help="Dump Shape analysis results")
 
     # Analysis options
     parser.add_argument(
@@ -98,9 +86,7 @@ def add_optimize_parser(subparsers):
         help="Recursively analyze subdirectories",
     )
     parser.add_argument("--exclude", nargs="*", default=[], help="Exclude patterns")
-    parser.add_argument(
-        "--include", nargs="*", default=["*.py"], help="Include patterns"
-    )
+    parser.add_argument("--include", nargs="*", default=["*.py"], help="Include patterns")
 
     # Optimization options
     mode_group = parser.add_mutually_exclusive_group()
@@ -143,9 +129,7 @@ def add_optimize_parser(subparsers):
         help="Write a JSON source-optimization report to PATH (requires --emit-optimized)",
     )
     parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
-    parser.add_argument(
-        "--list-opt-passes", action="store_true", help="List available passes"
-    )
+    parser.add_argument("--list-opt-passes", action="store_true", help="List available passes")
     parser.add_argument("--no-opt-passes", action="store_true", help="Analysis only")
 
     return parser
@@ -168,9 +152,7 @@ def _build_analysis_state(python_files, args):
     program.interface, all_source_code = build_interface_from_paths(
         python_files, InterfaceBuildOptions.from_namespace(args)
     )
-    compiler.extractor = Extractor(
-        compiler, verbose=args.verbose, source_code=all_source_code
-    )
+    compiler.extractor = Extractor(compiler, verbose=args.verbose, source_code=all_source_code)
 
     with console.scope("extraction"):
         extract_program(compiler, program)
@@ -178,9 +160,7 @@ def _build_analysis_state(python_files, args):
     return compiler, program
 
 
-def _run_default_pipeline(
-    compiler, program, name, *, include_experimental_inlining: bool = False
-):
+def _run_default_pipeline(compiler, program, name, *, include_experimental_inlining: bool = False):
     """Run the default optimization pipeline through the pass manager."""
     return Pipeline().run(
         program,
@@ -283,9 +263,7 @@ def run_analysis(input_path, args):
                         compiler,
                         program,
                         str(input_path),
-                        include_experimental_inlining=getattr(
-                            args, "experimental_inlining", False
-                        ),
+                        include_experimental_inlining=getattr(args, "experimental_inlining", False),
                     )
             elif args.analysis == "ipa":
                 # Run only IPA analysis (skip CPA and later passes)
@@ -337,9 +315,7 @@ def run_analysis(input_path, args):
         sys.exit(1)
 
 
-def emit_optimized_output(
-    python_files, input_path, output_path, *, level=1, legacy_candidates=()
-):
+def emit_optimized_output(python_files, input_path, output_path, *, level=1, legacy_candidates=()):
     """Write a conservative source-level optimized copy of the input program."""
     from pyflow.optimization.source import emit_optimized_sources
 
@@ -353,23 +329,13 @@ def emit_optimized_output(
     )
     folds = sum(result.constant_folds for result in results.values())
     branches = sum(result.dead_branches_removed for result in results.values())
-    unreachable = sum(
-        result.unreachable_statements_removed for result in results.values()
-    )
-    assertions = sum(
-        result.redundant_assertions_removed for result in results.values()
-    )
-    boolean_simplifications = sum(
-        result.boolean_simplifications for result in results.values()
-    )
+    unreachable = sum(result.unreachable_statements_removed for result in results.values())
+    assertions = sum(result.redundant_assertions_removed for result in results.values())
+    boolean_simplifications = sum(result.boolean_simplifications for result in results.values())
     propagations = sum(result.constant_propagations for result in results.values())
     guarded_functions = sum(result.guarded_functions for result in results.values())
-    legacy_applied = sum(
-        result.legacy_candidates_applied for result in results.values()
-    )
-    legacy_rejected = sum(
-        result.legacy_candidates_rejected for result in results.values()
-    )
+    legacy_applied = sum(result.legacy_candidates_applied for result in results.values())
+    legacy_rejected = sum(result.legacy_candidates_rejected for result in results.values())
     legacy_unrouted = max(0, len(legacy_candidates) - legacy_applied - legacy_rejected)
     print(
         "Optimized Python written to: %s [O%d] (%d constant folds, %d dead "
@@ -435,17 +401,11 @@ def find_python_files(directory, args):
     if args.recursive:
         files = []
         for root, dirs, filenames in os.walk(directory):
-            dirs[:] = [
-                d for d in dirs if not any(fnmatch.fnmatch(d, p) for p in args.exclude)
-            ]
-            files.extend(
-                Path(root) / f for f in filenames if should_include(Path(root) / f)
-            )
+            dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, p) for p in args.exclude)]
+            files.extend(Path(root) / f for f in filenames if should_include(Path(root) / f))
         return sorted(files)
     else:
-        return sorted(
-            f for f in directory.iterdir() if f.is_file() and should_include(f)
-        )
+        return sorted(f for f in directory.iterdir() if f.is_file() and should_include(f))
 
 
 def run_analysis_passes(compiler, program, analysis_type):
@@ -581,9 +541,7 @@ def dump_results(compiler, program, input_path, output_file):
 def run_analysis_only(compiler, program):
     """Run only analysis passes, no optimization."""
     with compiler.console.scope("analysis-only"):
-        results = Pipeline().run_custom_pipeline(
-            compiler, program, ["ipa", "cpa", "lifetime"]
-        )
+        results = Pipeline().run_custom_pipeline(compiler, program, ["ipa", "cpa", "lifetime"])
         compiler.console.output("Analysis-only mode completed")
         return results
 
@@ -682,9 +640,7 @@ def run_suggestions(compiler, program):
         if cpa_analysis is not None:
             if hasattr(cpa_analysis, "unresolved"):
                 unresolved = getattr(cpa_analysis, "unresolved", [])
-                unresolved_count = (
-                    len(unresolved) if isinstance(unresolved, list) else 0
-                )
+                unresolved_count = len(unresolved) if isinstance(unresolved, list) else 0
                 if unresolved_count > 0:
                     suggestions["Type Analysis"].append(
                         f"  {unresolved_count} unresolved calls - add type hints for "
@@ -707,9 +663,7 @@ def run_suggestions(compiler, program):
         print("\n" + "=" * 60)
         print("OPTIMIZATION ANALYSIS RESULTS")
         print("=" * 60)
-        print(
-            f"\nInitial: {initial_code_count} functions, {contexts_before_clone} contexts"
-        )
+        print(f"\nInitial: {initial_code_count} functions, {contexts_before_clone} contexts")
         print(f"After:   {final_code_count} functions, {contexts_after_clone} contexts")
 
         has_suggestions = False
@@ -749,9 +703,7 @@ def run_optimization_passes(compiler, program, passes, args=None):
                 compiler,
                 program,
                 "cli_optimize_all",
-                include_experimental_inlining=getattr(
-                    args, "experimental_inlining", False
-                ),
+                include_experimental_inlining=getattr(args, "experimental_inlining", False),
             )
             compiler.console.output("Completed full optimization pipeline")
             return results
@@ -760,8 +712,6 @@ def run_optimization_passes(compiler, program, passes, args=None):
             compiler.console.output("No optimization passes selected")
             return {}
 
-        results = Pipeline().run_custom_pipeline(
-            compiler, program, normalized
-        )
+        results = Pipeline().run_custom_pipeline(compiler, program, normalized)
         compiler.console.output(f"Completed {len(normalized)} optimization passes")
         return results

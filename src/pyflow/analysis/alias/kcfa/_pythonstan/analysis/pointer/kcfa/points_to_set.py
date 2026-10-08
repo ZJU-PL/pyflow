@@ -29,10 +29,10 @@ class AnalysisArena:
     """
 
     def __init__(self) -> None:
-        self._obj_to_id: Dict['AbstractObject', int] = {}
-        self._id_to_obj: List['AbstractObject'] = []
+        self._obj_to_id: Dict["AbstractObject", int] = {}
+        self._id_to_obj: List["AbstractObject"] = []
 
-    def intern(self, obj: 'AbstractObject') -> int:
+    def intern(self, obj: "AbstractObject") -> int:
         existing = self._obj_to_id.get(obj)
         if existing is not None:
             return existing
@@ -41,10 +41,10 @@ class AnalysisArena:
         self._id_to_obj.append(obj)
         return object_id
 
-    def object_at(self, object_id: int) -> 'AbstractObject':
+    def object_at(self, object_id: int) -> "AbstractObject":
         return self._id_to_obj[object_id]
 
-    def lookup(self, obj: 'AbstractObject') -> Optional[int]:
+    def lookup(self, obj: "AbstractObject") -> Optional[int]:
         return self._obj_to_id.get(obj)
 
     def __len__(self) -> int:
@@ -80,23 +80,23 @@ class PointsToSet:
             raise ValueError("a non-empty points-to set requires an AnalysisArena")
 
     @staticmethod
-    def empty(arena: Optional[AnalysisArena] = None) -> 'PointsToSet':
+    def empty(arena: Optional[AnalysisArena] = None) -> "PointsToSet":
         if arena is None:
             return _EMPTY_PTS
         return PointsToSet(0, 0, 0, arena)
 
     @staticmethod
     def singleton(
-        obj: 'AbstractObject',
+        obj: "AbstractObject",
         arena: Optional[AnalysisArena] = None,
-    ) -> 'PointsToSet':
+    ) -> "PointsToSet":
         return PointsToSet.from_objects((obj,), arena=arena)
 
     @staticmethod
     def from_objects(
-        objs: Iterable['AbstractObject'],
+        objs: Iterable["AbstractObject"],
         arena: Optional[AnalysisArena] = None,
-    ) -> 'PointsToSet':
+    ) -> "PointsToSet":
         from .object import MethodObject
 
         materialized = tuple(objs)
@@ -124,7 +124,7 @@ class PointsToSet:
             owner,
         )
 
-    def rebase(self, arena: AnalysisArena) -> 'PointsToSet':
+    def rebase(self, arena: AnalysisArena) -> "PointsToSet":
         """Return an equivalent set whose bits belong to ``arena``."""
         if self.arena is arena:
             return self
@@ -132,12 +132,12 @@ class PointsToSet:
             return PointsToSet.empty(arena)
         return PointsToSet.from_objects(self, arena=arena)
 
-    def _common_arena(self, other: 'PointsToSet') -> Optional[AnalysisArena]:
+    def _common_arena(self, other: "PointsToSet") -> Optional[AnalysisArena]:
         if self.arena is not None:
             return self.arena
         return other.arena
 
-    def inherit_to(self, new_cls: 'ClassObject') -> 'PointsToSet':
+    def inherit_to(self, new_cls: "ClassObject") -> "PointsToSet":
         if self.classmethods_mask == 0 and self.instancemethods_mask == 0:
             return self
         assert self.arena is not None
@@ -156,7 +156,7 @@ class PointsToSet:
             self.arena,
         )
 
-    def deliver_into(self, new_inst: 'InstanceObject') -> 'PointsToSet':
+    def deliver_into(self, new_inst: "InstanceObject") -> "PointsToSet":
         if self.instancemethods_mask == 0:
             return self
         assert self.arena is not None
@@ -171,7 +171,7 @@ class PointsToSet:
             self.arena,
         )
 
-    def union(self, other: 'PointsToSet') -> 'PointsToSet':
+    def union(self, other: "PointsToSet") -> "PointsToSet":
         arena = self._common_arena(other)
         if arena is None:
             return _EMPTY_PTS
@@ -196,7 +196,7 @@ class PointsToSet:
             return right
         return PointsToSet(*new_masks, arena)
 
-    def intersection(self, other: 'PointsToSet') -> 'PointsToSet':
+    def intersection(self, other: "PointsToSet") -> "PointsToSet":
         arena = self._common_arena(other)
         if arena is None:
             return _EMPTY_PTS
@@ -219,7 +219,7 @@ class PointsToSet:
             + _popcount(self.instancemethods_mask)
         )
 
-    def __iter__(self) -> Iterator['AbstractObject']:
+    def __iter__(self) -> Iterator["AbstractObject"]:
         if self.is_empty():
             return
         assert self.arena is not None
@@ -230,7 +230,7 @@ class PointsToSet:
         for object_id in _iter_bits(self.objs_mask):
             yield self.arena.object_at(object_id)
 
-    def __contains__(self, obj: 'AbstractObject') -> bool:
+    def __contains__(self, obj: "AbstractObject") -> bool:
         if self.arena is None:
             return False
         object_id = self.arena.lookup(obj)
@@ -239,7 +239,7 @@ class PointsToSet:
         mask = self.objs_mask | self.classmethods_mask | self.instancemethods_mask
         return bool(mask & (1 << object_id))
 
-    def __sub__(self, other: 'PointsToSet') -> 'PointsToSet':
+    def __sub__(self, other: "PointsToSet") -> "PointsToSet":
         arena = self._common_arena(other)
         if arena is None:
             return _EMPTY_PTS
@@ -283,30 +283,27 @@ class PointsToSet:
         return f"PointsToSet({self})"
 
     @property
-    def objects(self) -> FrozenSet['AbstractObject']:
+    def objects(self) -> FrozenSet["AbstractObject"]:
         if self.arena is None:
             return frozenset()
         return frozenset(
-            self.arena.object_at(object_id)
-            for object_id in _iter_bits(self.objs_mask)
+            self.arena.object_at(object_id) for object_id in _iter_bits(self.objs_mask)
         )
 
     @property
-    def classmethods(self) -> FrozenSet['MethodObject']:
+    def classmethods(self) -> FrozenSet["MethodObject"]:
         if self.arena is None:
             return frozenset()
         return frozenset(
-            self.arena.object_at(object_id)
-            for object_id in _iter_bits(self.classmethods_mask)
+            self.arena.object_at(object_id) for object_id in _iter_bits(self.classmethods_mask)
         )
 
     @property
-    def instancemethods(self) -> FrozenSet['MethodObject']:
+    def instancemethods(self) -> FrozenSet["MethodObject"]:
         if self.arena is None:
             return frozenset()
         return frozenset(
-            self.arena.object_at(object_id)
-            for object_id in _iter_bits(self.instancemethods_mask)
+            self.arena.object_at(object_id) for object_id in _iter_bits(self.instancemethods_mask)
         )
 
 

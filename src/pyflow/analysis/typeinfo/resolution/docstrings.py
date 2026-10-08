@@ -115,9 +115,7 @@ def _expand_typestr(type_str: str) -> Iterator[str]:
             for elt in node.elts:
                 if isinstance(elt, ast.Constant):
                     val = elt.value
-                    if isinstance(val, float) or (
-                        isinstance(val, int) and "." in type_str
-                    ):
+                    if isinstance(val, float) or (isinstance(val, int) and "." in type_str):
                         yield "float"
                     elif isinstance(val, int):
                         yield "int"
@@ -156,9 +154,7 @@ def _strip_rst_role(type_str: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _search_param_in_numpydocstr(
-    docstr: str, param_str: str
-) -> list[str]:
+def _search_param_in_numpydocstr(docstr: str, param_str: str) -> list[str]:
     """Search a numpydoc-formatted docstring for type(s) of *param_str*.
 
     Requires the optional ``numpydoc`` package.
@@ -238,10 +234,7 @@ def search_param_in_docstr(docstr: str, param_name: str) -> list[str]:
         ...     ':param int param: some description', 'param')
         ['int']
     """
-    patterns = [
-        re.compile(p % re.escape(param_name))
-        for p in DOCSTRING_PARAM_PATTERNS
-    ]
+    patterns = [re.compile(p % re.escape(param_name)) for p in DOCSTRING_PARAM_PATTERNS]
     for pattern in patterns:
         match = pattern.search(docstr)
         if match:

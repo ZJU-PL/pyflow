@@ -102,12 +102,8 @@ def analyze_reachability(
 
 def load_import_map(path: Path) -> dict[str, list[str]]:
     data = load_json_file(path)
-    if not isinstance(data, dict) or not all(
-        isinstance(value, list) for value in data.values()
-    ):
-        raise ValueError(
-            "import map must be an object of distribution-to-module arrays"
-        )
+    if not isinstance(data, dict) or not all(isinstance(value, list) for value in data.values()):
+        raise ValueError("import map must be an object of distribution-to-module arrays")
     return {str(key): [str(item) for item in value] for key, value in data.items()}
 
 

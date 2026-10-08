@@ -57,9 +57,7 @@ class TestConstraintBase(unittest.TestCase):
         self.sys = pyflow.analysis.shape.RegionBasedShapeAnalysis(
             self.extractor, cpacanonical, MockInformationProvider(self)
         )
-        self.root = pyflow.ir.storegraph.storegraph.StoreGraph(
-            self.extractor, cpacanonical
-        )
+        self.root = pyflow.ir.storegraph.storegraph.StoreGraph(self.extractor, cpacanonical)
 
         self.setInOut((None, 0), (None, 1))
 
@@ -175,9 +173,7 @@ class TestConstraintBase(unittest.TestCase):
 
                 secondary = self.sys.environment.secondary(outputPoint, context, econf)
 
-                self.assertNotEqual(
-                    secondary, None, "Expected output %r not found." % econf
-                )
+                self.assertNotEqual(secondary, None, "Expected output %r not found." % econf)
 
                 if len(row) == 3:
                     current, hits, misses = row
@@ -187,9 +183,7 @@ class TestConstraintBase(unittest.TestCase):
 
                 if hits:
                     for e in hits:
-                        self.assertEqual(
-                            secondary.paths.hit(e), TVLTrue, "%r should be a hit." % e
-                        )
+                        self.assertEqual(secondary.paths.hit(e), TVLTrue, "%r should be a hit." % e)
 
                 if misses:
                     for e in misses:
@@ -286,6 +280,4 @@ class TestCompoundConstraintBase(TestConstraintBase):
         self.setInput(conf, secondary)
 
     def setInput(self, conf, secondary):
-        self.sys.environment.merge(
-            self.sys, self.inputPoint, self.context, conf, secondary
-        )
+        self.sys.environment.merge(self.sys, self.inputPoint, self.context, conf, secondary)

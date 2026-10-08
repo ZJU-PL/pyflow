@@ -66,9 +66,7 @@ class CallEffect:
     call_name: str | None
     callees: tuple[cfg_graph.Code, ...]
     actual_arguments: tuple[object, ...]
-    argument_bindings: tuple[
-        tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]], ...
-    ]
+    argument_bindings: tuple[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]], ...]
     return_sites: tuple[CFGNode, ...]
     kill_slots: tuple[object, ...]
     result_route: CallResultRoute
@@ -248,10 +246,7 @@ def direct_call_cfg_resolver(
     call_expression: py_ast.PythonASTNode | None,
 ) -> tuple[cfg_graph.Code, ...]:
     """Resolve callees through ``ast.DirectCall.code``."""
-    if (
-        not isinstance(call_expression, py_ast.DirectCall)
-        or call_expression.code is None
-    ):
+    if not isinstance(call_expression, py_ast.DirectCall) or call_expression.code is None:
         return ()
     callee = adapter.cfg_by_ast_code.get(call_expression.code)
     if callee is None:
@@ -283,9 +278,9 @@ def fact_call_targets_cfg_resolver(
         try:
             target_codes = {
                 target_code
-                for target_code, _context in AnalysisFacts(
-                    catalog
-                ).merged_call_targets(code, call_expression)
+                for target_code, _context in AnalysisFacts(catalog).merged_call_targets(
+                    code, call_expression
+                )
             }
         except (KeyError, MissingAnalysisFact):
             return ()
@@ -381,9 +376,7 @@ class CFGSupergraphAdapter:
         self._local_successors: Dict[CFGNode, set[CFGNode]] = {}
         self._exceptional_local_edges: set[tuple[CFGNode, CFGNode]] = set()
         self._effect_by_node: Dict[CFGNode, object] = {}
-        self._suspension_effects_by_node: Dict[
-            CFGNode, tuple[SuspensionEffect, ...]
-        ] = {}
+        self._suspension_effects_by_node: Dict[CFGNode, tuple[SuspensionEffect, ...]] = {}
         self._procedure_semantics: Dict[cfg_graph.Code, ProcedureSemantics] = {
             cfg: self._infer_procedure_semantics(cfg) for cfg in self.cfgs
         }
@@ -418,9 +411,7 @@ class CFGSupergraphAdapter:
             # source catalog was indexed.  Preserve model lookup through the
             # syntactic leaf instead of failing the entire IFDS solve.
             return self._syntactic_call_leaf(call_expression)
-        sites = catalog.semantics.calls_for(
-            catalog.node_id(call_expression, owner.code)
-        )
+        sites = catalog.semantics.calls_for(catalog.node_id(call_expression, owner.code))
         if len(sites) != 1:
             return None
         symbolic_name = sites[0].symbolic_name
@@ -530,9 +521,7 @@ class CFGSupergraphAdapter:
             return get_forward()
         return slot
 
-    def _slots_for_local(
-        self, procedure: cfg_graph.Code, local: object
-    ) -> tuple[object, ...]:
+    def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
         catalog = self.catalog_by_procedure.get(procedure)
         code = getattr(procedure, "code", None)
         if catalog is None or code is None or not catalog.has_symbol(local, code):
@@ -546,9 +535,7 @@ class CFGSupergraphAdapter:
         if catalog is None:
             return ()
         try:
-            return catalog.semantics.operation(
-                catalog.node_id(operation, procedure.code)
-            ).writes
+            return catalog.semantics.operation(catalog.node_id(operation, procedure.code)).writes
         except KeyError:
             return ()
 
@@ -557,9 +544,7 @@ class CFGSupergraphAdapter:
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -574,9 +559,7 @@ class CFGSupergraphAdapter:
                 if isinstance(lcl, py_ast.Local):
                     locals_.append(lcl)
             return tuple(
-                slot
-                for local in locals_
-                for slot in self._slots_for_local(procedure, local)
+                slot for local in locals_ for slot in self._slots_for_local(procedure, local)
             )
         if isinstance(
             operation,
@@ -598,9 +581,7 @@ class CFGSupergraphAdapter:
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(
-            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
-        ):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return self._written_slots_for_operation(procedure, operation)
         if isinstance(operation, (py_ast.Delete, py_ast.InputBlock)):
             return self._written_slots_for_operation(procedure, operation)
@@ -625,10 +606,7 @@ class CFGSupergraphAdapter:
                 for local in assigned_locals(operation)
                 for slot in self._slots_for_local(node.procedure, local)
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -654,10 +632,7 @@ class CFGSupergraphAdapter:
                 "assigned_locals",
                 assigned_locals=assigned_locals(operation),
             )
-        if (
-            isinstance(operation, py_ast.AnnAssign)
-            and operation.value is call_expression
-        ):
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return CallResultRoute(
                 "assigned_locals",
                 assigned_locals=assigned_locals(operation),
@@ -682,9 +657,7 @@ class CFGSupergraphAdapter:
         ):
             return CallResultRoute(
                 "modified_slots",
-                modified_slots=self._modified_slots_for_operation(
-                    node.procedure, operation
-                ),
+                modified_slots=self._modified_slots_for_operation(node.procedure, operation),
             )
         return CallResultRoute("expression")
 
@@ -713,10 +686,7 @@ class CFGSupergraphAdapter:
         return None, None
 
     def _is_explicit_null_expression(self, expr: object) -> bool:
-        return (
-            isinstance(expr, py_ast.Existing)
-            and getattr(expr.object, "pyobj", object()) is None
-        )
+        return isinstance(expr, py_ast.Existing) and getattr(expr.object, "pyobj", object()) is None
 
     def _build_effect(self, node: CFGNode):
         operation = self.operation_of(node)
@@ -725,9 +695,7 @@ class CFGSupergraphAdapter:
             if call_expression is None:
                 return None
             callees = self.callees_of(node)
-            bindings: list[
-                tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]]
-            ] = []
+            bindings: list[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]]] = []
             for callee in callees:
                 params = getattr(getattr(callee, "code", None), "codeparameters", None)
                 if params is None:
@@ -789,9 +757,7 @@ class CFGSupergraphAdapter:
                 node=node,
                 operation=operation,
                 assigned_locals=assigned_locals(operation),
-                written_slots=self._written_slots_for_operation(
-                    node.procedure, operation
-                ),
+                written_slots=self._written_slots_for_operation(node.procedure, operation),
                 strong_update_slots=self._strong_update_slots_for_operation(
                     node.procedure, operation
                 ),
@@ -807,13 +773,9 @@ class CFGSupergraphAdapter:
                 elif exit_name == "false":
                     false_successors.append(successor)
             condition = (
-                operation.conditional
-                if isinstance(operation, py_ast.Condition)
-                else operation
+                operation.conditional if isinstance(operation, py_ast.Condition) else operation
             )
-            nullable_target, true_branch_means_null = self._guard_nullable_target(
-                condition
-            )
+            nullable_target, true_branch_means_null = self._guard_nullable_target(condition)
             return GuardEffect(
                 node=node,
                 operation=operation,
@@ -883,9 +845,7 @@ class CFGSupergraphAdapter:
         for block in blocks:
             self._make_block_nodes(cfg, block)
         exits = tuple(
-            self._nodes_by_block[block][0]
-            for block in blocks
-            if isinstance(block, cfg_graph.Exit)
+            self._nodes_by_block[block][0] for block in blocks if isinstance(block, cfg_graph.Exit)
         )
         entry = self.first_node_of_block(cfg.entryTerminal)
         self.supergraph.add_procedure(cfg, entry, exits)
@@ -895,9 +855,7 @@ class CFGSupergraphAdapter:
                 if node != entry and node not in exits:
                     self.supergraph.add_node(cfg, node)
 
-    def _make_block_nodes(
-        self, cfg: cfg_graph.Code, block: cfg_graph.CFGBlock
-    ) -> list[CFGNode]:
+    def _make_block_nodes(self, cfg: cfg_graph.Code, block: cfg_graph.CFGBlock) -> list[CFGNode]:
         existing = self._nodes_by_block.get(block)
         if existing is not None:
             return existing
@@ -1032,9 +990,7 @@ class CFGSupergraphAdapter:
                     *composed.exceptional_exits,
                     *fragment.exceptional_exits,
                 },
-                abrupt_exits=_merge_abrupt_exits(
-                    composed.abrupt_exits, fragment.abrupt_exits
-                ),
+                abrupt_exits=_merge_abrupt_exits(composed.abrupt_exits, fragment.abrupt_exits),
             )
         return composed
 
@@ -1168,9 +1124,7 @@ class CFGSupergraphAdapter:
                         *fragment.exceptional_exits,
                         *next_part.exceptional_exits,
                     },
-                    abrupt_exits=_merge_abrupt_exits(
-                        fragment.abrupt_exits, next_part.abrupt_exits
-                    ),
+                    abrupt_exits=_merge_abrupt_exits(fragment.abrupt_exits, next_part.abrupt_exits),
                 )
             handler_fragments.append(fragment)
             handler_types.append(self._exception_type_names(handler.type))
@@ -1259,9 +1213,7 @@ class CFGSupergraphAdapter:
             nodes.extend(finally_abrupt[abrupt_kind].nodes)
         nodes.append(normal_out)
 
-        normal_target = (
-            finally_normal.entry if finally_normal is not None else normal_out
-        )
+        normal_target = finally_normal.entry if finally_normal is not None else normal_out
 
         for exit_node in body.normal_exits:
             self._record_local_edge(
@@ -1271,9 +1223,7 @@ class CFGSupergraphAdapter:
 
         unhandled_body_exits: set[CFGNode] = set()
         for exit_node in body.exceptional_exits:
-            raised_types = self._raised_exception_type_names(
-                self._operation_by_node.get(exit_node)
-            )
+            raised_types = self._raised_exception_type_names(self._operation_by_node.get(exit_node))
             matching_handlers = self._matching_handler_entries(
                 tuple(zip(handler_fragments, handler_types)), raised_types
             )
@@ -1284,9 +1234,7 @@ class CFGSupergraphAdapter:
             if default_fragment is not None:
                 self._record_exceptional_local_edge(exit_node, default_fragment.entry)
             elif finally_exceptional is not None:
-                self._record_exceptional_local_edge(
-                    exit_node, finally_exceptional.entry
-                )
+                self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
             else:
                 unhandled_body_exits.add(exit_node)
 
@@ -1313,18 +1261,14 @@ class CFGSupergraphAdapter:
                 self._record_local_edge(exit_node, normal_target)
             if finally_exceptional is not None:
                 for exit_node in fragment.exceptional_exits:
-                    self._record_exceptional_local_edge(
-                        exit_node, finally_exceptional.entry
-                    )
+                    self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
 
         if default_fragment is not None:
             for exit_node in default_fragment.normal_exits:
                 self._record_local_edge(exit_node, normal_target)
             if finally_exceptional is not None:
                 for exit_node in default_fragment.exceptional_exits:
-                    self._record_exceptional_local_edge(
-                        exit_node, finally_exceptional.entry
-                    )
+                    self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
 
         if finally_normal is not None:
             for exit_node in finally_normal.normal_exits:
@@ -1366,15 +1310,11 @@ class CFGSupergraphAdapter:
             if isinstance(value, tuple):
                 names: list[str] = []
                 for item in value:
-                    name = getattr(item, "__qualname__", None) or getattr(
-                        item, "__name__", None
-                    )
+                    name = getattr(item, "__qualname__", None) or getattr(item, "__name__", None)
                     if name:
                         names.append(str(name))
                 return tuple(names)
-            name = getattr(value, "__qualname__", None) or getattr(
-                value, "__name__", None
-            )
+            name = getattr(value, "__qualname__", None) or getattr(value, "__name__", None)
             return (str(name),) if name else ()
         if isinstance(expr, (list, tuple)):
             names: list[str] = []
@@ -1458,14 +1398,10 @@ class CFGSupergraphAdapter:
                 # Unhandled exceptional termination is represented by the
                 # operation's ExceptionalEffect, not as ordinary intraprocedural
                 # flow to a procedure exit.
-                if exit_name in ("fail", "error") and isinstance(
-                    successor, cfg_graph.Exit
-                ):
+                if exit_name in ("fail", "error") and isinstance(successor, cfg_graph.Exit):
                     continue
                 for source in exit_sources(exit_name):
-                    self._connect_local_successor(
-                        source, self.first_node_of_block(successor)
-                    )
+                    self._connect_local_successor(source, self.first_node_of_block(successor))
 
     def _exit_sources_for_block(
         self,

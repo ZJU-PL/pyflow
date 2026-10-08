@@ -56,10 +56,7 @@ class BindingId:
     kind: str
 
     def __str__(self) -> str:
-        return (
-            f"{self.module}:{self.lexical_scope}:{self.context}:"
-            f"{self.kind}:{self.name}"
-        )
+        return f"{self.module}:{self.lexical_scope}:{self.context}:" f"{self.kind}:{self.name}"
 
 
 @dataclass(frozen=True)
@@ -123,10 +120,7 @@ class PointerAnalysisResult:
                 if variable is not None:
                     candidates.append(variable)
             candidates.extend(getattr(constraint, "args", ()))
-            candidates.extend(
-                variable
-                for _, variable in getattr(constraint, "kwargs", ())
-            )
+            candidates.extend(variable for _, variable in getattr(constraint, "kwargs", ()))
             for variable in candidates:
                 if getattr(variable, "name", None) != var_name:
                     continue
@@ -154,11 +148,13 @@ class PointerAnalysisResult:
         :meth:`points_to_name_union` when that union is intentional.
         """
         if isinstance(binding, BindingId):
-            return set().union(*(
-                {str(obj) for obj in pts}
-                for binding_id, _, pts in self._iter_named_bindings(binding.name)
-                if binding_id == binding
-            ))
+            return set().union(
+                *(
+                    {str(obj) for obj in pts}
+                    for binding_id, _, pts in self._iter_named_bindings(binding.name)
+                    if binding_id == binding
+                )
+            )
         return self.points_to_name_union(binding, scope=scope, context=context)
 
     def points_to_name_union(
@@ -180,10 +176,7 @@ class PointerAnalysisResult:
 
     def binding_ids_for_name(self, var_name: str) -> list[BindingId]:
         """Return stable identifiers for every analyzed binding of a name."""
-        return sorted({
-            binding_id
-            for binding_id, _, _ in self._iter_named_bindings(var_name)
-        })
+        return sorted({binding_id for binding_id, _, _ in self._iter_named_bindings(var_name)})
 
     def bindings_for_name(self, var_name: str) -> list[tuple[str, set[str]]]:
         """Return each context-qualified binding matching ``var_name``.
@@ -241,10 +234,7 @@ class PointerAnalysisResult:
     def call_edges(self) -> list[tuple[str, str]]:
         """Return discovered call-graph edges as ``(call_site, callee)`` pairs."""
         cg = self._inner.query().call_graph()
-        return [
-            (str(edge.callsite), str(edge.callee))
-            for edge in cg.get_edges()
-        ]
+        return [(str(edge.callsite), str(edge.callee)) for edge in cg.get_edges()]
 
     @property
     def semantic_events(self) -> tuple[object, ...]:
@@ -338,9 +328,7 @@ class PointerAnalysis:
         self._source = source
         if k is None:
             policy_match = (
-                re.fullmatch(r"(\d+)-cfa", context_policy)
-                if context_policy is not None
-                else None
+                re.fullmatch(r"(\d+)-cfa", context_policy) if context_policy is not None else None
             )
             k = int(policy_match.group(1)) if policy_match is not None else 1
         self._k = k
@@ -384,14 +372,12 @@ class PointerAnalysis:
         if max_import_depth != -1:
             if import_level != -1 and import_level != max_import_depth:
                 raise ValueError(
-                    "import_level and max_import_depth must agree when both "
-                    "are provided"
+                    "import_level and max_import_depth must agree when both " "are provided"
                 )
             import_level = max_import_depth
         if import_level < -1:
             raise ValueError(
-                "max_import_depth must be >= -1 (-1 = unlimited, "
-                "0 = entry module only)"
+                "max_import_depth must be >= -1 (-1 = unlimited, " "0 = entry module only)"
             )
         analysis = cls(
             entry.read_text(encoding="utf-8"),
@@ -440,39 +426,39 @@ class PointerAnalysis:
     def _run_path(self, entry_path: Path, project_path: Path) -> PointerAnalysisResult:
         pipeline = Pipeline(
             config={
-                    "filename": str(entry_path),
-                    "project_path": str(project_path),
-                    "library_paths": [str(path) for path in self._library_paths],
-                    "mock_libs": True,
-                    "prefer_mock_libs": True,
-                    "lazy_ir_construction": False,
-                    "import_level": self._import_level,
-                    "time_count": False,
-                    "analysis": [
-                        {
-                            "name": "pointer-analysis",
-                            "id": "PointerAnalysis",
-                            "description": "k-CFA pointer analysis",
-                            "prev_analysis": ["cfg"],
-                            "inter_procedure": True,
-                            "options": {
-                                "type": "pointer analysis",
-                                "k": self._k,
-                                "context_policy": self._context_policy,
-                                # The high-level alias query promises precise
-                                # literal container positions/keys.  Keep that
-                                # opt-in explicit now that Config.from_dict({})
-                                # correctly matches Config()'s False default.
-                                "index_sensitive": True,
-                                "native_effects": list(self._native_effects),
-                                "max_iterations": self._max_iterations,
-                                "max_points_to_size": self._max_points_to_size,
-                                "worklist_policy": self._worklist_policy,
-                                "worklist_seed": self._worklist_seed,
-                            },
-                        }
-                    ],
-                }
+                "filename": str(entry_path),
+                "project_path": str(project_path),
+                "library_paths": [str(path) for path in self._library_paths],
+                "mock_libs": True,
+                "prefer_mock_libs": True,
+                "lazy_ir_construction": False,
+                "import_level": self._import_level,
+                "time_count": False,
+                "analysis": [
+                    {
+                        "name": "pointer-analysis",
+                        "id": "PointerAnalysis",
+                        "description": "k-CFA pointer analysis",
+                        "prev_analysis": ["cfg"],
+                        "inter_procedure": True,
+                        "options": {
+                            "type": "pointer analysis",
+                            "k": self._k,
+                            "context_policy": self._context_policy,
+                            # The high-level alias query promises precise
+                            # literal container positions/keys.  Keep that
+                            # opt-in explicit now that Config.from_dict({})
+                            # correctly matches Config()'s False default.
+                            "index_sensitive": True,
+                            "native_effects": list(self._native_effects),
+                            "max_iterations": self._max_iterations,
+                            "max_points_to_size": self._max_points_to_size,
+                            "worklist_policy": self._worklist_policy,
+                            "worklist_seed": self._worklist_seed,
+                        },
+                    }
+                ],
+            }
         )
         pipeline.run()
         result = pipeline.analysis_manager.get_results("pointer-analysis")

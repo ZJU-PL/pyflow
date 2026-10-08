@@ -40,6 +40,7 @@ def _extended_type_label(value):
         return type(value).__qualname__
     return f"{type(value).__qualname__}({obj!r})"
 
+
 # Extended types are names for objects that cannot be merged by the analysis.
 
 

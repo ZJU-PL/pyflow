@@ -6,9 +6,7 @@ from ._helpers import write_record as _write_record
 
 
 def test_audit_license_policy_reports_unlicensed_and_disallowed(tmp_path):
-    (tmp_path / "requirements.txt").write_text(
-        "requests==2.31.0\nflask>=3\n", encoding="utf-8"
-    )
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\nflask>=3\n", encoding="utf-8")
     scan = scan_targets([tmp_path], recursive=True)
     findings = audit_license_policy(scan)
 

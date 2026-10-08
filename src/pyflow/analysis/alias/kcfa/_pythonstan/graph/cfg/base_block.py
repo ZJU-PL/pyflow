@@ -66,13 +66,13 @@ class BaseBlock(Node):
 
     def __str__(self):
         head = self.get_name()
-        stmts_str = '\\n'.join([str(s) for s in self.stmts])
-        return '\\n'.join([head, stmts_str])
+        stmts_str = "\\n".join([str(s) for s in self.stmts])
+        return "\\n".join([head, stmts_str])
 
     def __repr__(self):
         head = self.get_name()
-        stmts_str = '\\n'.join([str(s) for s in self.stmts])
-        return '\\n'.join([head, stmts_str])
+        stmts_str = "\\n".join([str(s) for s in self.stmts])
+        return "\\n".join([head, stmts_str])
 
     def gen_label(self) -> Label:
         """Return the leading label, creating one when necessary."""
@@ -83,7 +83,7 @@ class BaseBlock(Node):
             self.add_front(label)
             return label
 
-    def __lt__(self, other: 'BaseBlock') -> bool:
+    def __lt__(self, other: "BaseBlock") -> bool:
         if self.n_stmt() == 0:
             return True
         if other.n_stmt() == 0:

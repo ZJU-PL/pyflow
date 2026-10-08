@@ -225,11 +225,7 @@ def test_unsigned_or_empty_dsse_provenance_never_establishes_trust(tmp_path):
         authenticated_attestations=[empty_dsse],
     )
 
-    assert "provenance-authenticity-unverified" in {
-        finding.kind for finding in unsigned_findings
-    }
+    assert "provenance-authenticity-unverified" in {finding.kind for finding in unsigned_findings}
     assert "untrusted-provenance" in {finding.kind for finding in unsigned_findings}
-    assert "provenance-dsse-signature-missing" in {
-        finding.kind for finding in empty_findings
-    }
+    assert "provenance-dsse-signature-missing" in {finding.kind for finding in empty_findings}
     assert "untrusted-provenance" in {finding.kind for finding in empty_findings}

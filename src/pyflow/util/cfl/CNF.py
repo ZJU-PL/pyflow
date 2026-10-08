@@ -73,11 +73,7 @@ def loadModel(
 ) -> Tuple[List[str], List[str], List[Tuple[str, List[str]]]]:
     with open(modelPath, "r", encoding="utf-8") as file:
         file_content = file.read()
-    k_var = (
-        file_content.split("Variables:\n")[0]
-        .replace("Terminals:\n", "")
-        .replace("\n", "")
-    )
+    k_var = file_content.split("Variables:\n")[0].replace("Terminals:\n", "").replace("\n", "")
     v_var = (
         file_content.split("Variables:\n")[1]
         .split("Productions:\n")[0]
@@ -137,9 +133,7 @@ def setupDict(
     return result
 
 
-def rewrite(
-    target: str, production: Tuple[str, List[str]]
-) -> List[Tuple[str, List[str]]]:
+def rewrite(target: str, production: Tuple[str, List[str]]) -> List[Tuple[str, List[str]]]:
     result: List[Tuple[str, List[str]]] = []
     # get positions corresponding to the occurrences of target in production right side
     # positions = [m.start() for m in re.finditer(target, production[right])]
@@ -152,9 +146,7 @@ def rewrite(
             # now i've got: [] [1] [4] [6] [1 4] [1 6] [4 6] [1 4 6]
             # erease position corresponding to the target in production right side
             tadan = [
-                production[right][i]
-                for i in range(len(production[right]))
-                if i not in element
+                production[right][i] for i in range(len(production[right])) if i not in element
             ]
             if tadan != []:
                 result.append((production[left], tadan))
@@ -190,11 +182,7 @@ def prettyForm(rules: List[Tuple[str, List[str]]]) -> str:
 
 
 def isUnitary(rule: Tuple[str, List[str]], variables: List[str]) -> bool:
-    if (
-        rule[left] in variables
-        and rule[right][0] in variables
-        and len(rule[right]) == 1
-    ):
+    if rule[left] in variables and rule[right][0] in variables and len(rule[right]) == 1:
         return True
     return False
 
@@ -288,17 +276,11 @@ def DEL(productions: List[Tuple[str, List[str]]]) -> List[Tuple[str, List[str]]]
             if outlaw in production[right]:
                 # the rule is rewrited in all combination of it, rewriting "e" rather than outlaw
                 # this cycle prevent to insert duplicate rules
-                newSet = newSet + [
-                    e for e in rewrite(outlaw, production) if e not in newSet
-                ]
+                newSet = newSet + [e for e in rewrite(outlaw, production) if e not in newSet]
 
     # add unchanged rules and return
     return newSet + (
-        [
-            productions[i]
-            for i in range(len(productions))
-            if productions[i] not in newSet
-        ]
+        [productions[i] for i in range(len(productions)) if productions[i] not in newSet]
     )
 
 

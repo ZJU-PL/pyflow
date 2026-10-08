@@ -124,9 +124,7 @@ def signature_from_ast(args: ast.arguments) -> inspect.Signature:
                 default = ast.literal_eval(defaults[position - default_start])
             except Exception:
                 default = None
-        add_parameter(
-            argument.arg, inspect.Parameter.POSITIONAL_OR_KEYWORD, default
-        )
+        add_parameter(argument.arg, inspect.Parameter.POSITIONAL_OR_KEYWORD, default)
 
     if args.vararg is not None:
         add_parameter(args.vararg.arg, inspect.Parameter.VAR_POSITIONAL)

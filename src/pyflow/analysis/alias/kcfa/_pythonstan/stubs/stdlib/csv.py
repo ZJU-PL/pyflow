@@ -5,10 +5,10 @@ QUOTE_NONE = 3
 
 
 class Dialect:
-    delimiter = ','
+    delimiter = ","
     doublequote = True
     escapechar = None
-    lineterminator = '\r\n'
+    lineterminator = "\r\n"
     quotechar = '"'
     quoting = QUOTE_MINIMAL
     skipinitialspace = False
@@ -20,17 +20,18 @@ class excel(Dialect):
 
 
 class excel_tab(Dialect):
-    delimiter = '\t'
+    delimiter = "\t"
 
 
 class unix_dialect(Dialect):
-    lineterminator = '\n'
+    lineterminator = "\n"
     quoting = QUOTE_ALL
 
 
 class DictReader:
-    def __init__(self, f, fieldnames=None, restkey=None, restval=None,
-                 dialect='excel', *args, **kwds):
+    def __init__(
+        self, f, fieldnames=None, restkey=None, restval=None, dialect="excel", *args, **kwds
+    ):
         self._reader = reader(f, dialect, *args, **kwds)
         self._fieldnames = fieldnames
         self.restkey = restkey
@@ -61,13 +62,14 @@ class DictReader:
             else:
                 d[field] = self.restval
         if len(row) > len(self.fieldnames) and self.restkey is not None:
-            d[self.restkey] = row[len(self.fieldnames):]
+            d[self.restkey] = row[len(self.fieldnames) :]
         return d
 
 
 class DictWriter:
-    def __init__(self, f, fieldnames, restval='', extrasaction='raise',
-                 dialect='excel', *args, **kwds):
+    def __init__(
+        self, f, fieldnames, restval="", extrasaction="raise", dialect="excel", *args, **kwds
+    ):
         self.fieldnames = fieldnames
         self.restval = restval
         self.extrasaction = extrasaction
@@ -99,7 +101,7 @@ class _Reader:
     def __next__(self):
         line = next(self._file)
         self.line_num += 1
-        delimiter = self._params.get('delimiter', ',')
+        delimiter = self._params.get("delimiter", ",")
         return line.strip().split(delimiter)
 
 
@@ -110,9 +112,9 @@ class _Writer:
         self._params = fmtparams
 
     def writerow(self, row):
-        delimiter = self._params.get('delimiter', ',')
+        delimiter = self._params.get("delimiter", ",")
         line = delimiter.join(str(item) for item in row)
-        self._file.write(line + '\n')
+        self._file.write(line + "\n")
         return len(line) + 1
 
     def writerows(self, rows):
@@ -120,11 +122,11 @@ class _Writer:
             self.writerow(row)
 
 
-def reader(csvfile, dialect='excel', **fmtparams):
+def reader(csvfile, dialect="excel", **fmtparams):
     return _Reader(csvfile, dialect, **fmtparams)
 
 
-def writer(csvfile, dialect='excel', **fmtparams):
+def writer(csvfile, dialect="excel", **fmtparams):
     return _Writer(csvfile, dialect, **fmtparams)
 
 
@@ -141,7 +143,7 @@ def get_dialect(name):
 
 
 def list_dialects():
-    return ['excel', 'excel-tab', 'unix']
+    return ["excel", "excel-tab", "unix"]
 
 
 def field_size_limit(new_limit=None):

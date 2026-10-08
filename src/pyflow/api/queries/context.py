@@ -105,9 +105,7 @@ class QueryContext:
             choices = ", ".join(self.code_identifier(code) or "<unknown>" for code in matches[:5])
             if len(matches) > 5:
                 choices += ", ..."
-            raise ValueError(
-                f"Function name '{function_name}' is ambiguous. Use one of: {choices}"
-            )
+            raise ValueError(f"Function name '{function_name}' is ambiguous. Use one of: {choices}")
         return matches[0]
 
     def _dedupe_key(self, code):

@@ -17,17 +17,17 @@ class ref:
 
 class proxy:
     def __init__(self, ob, callback=None):
-        object.__setattr__(self, '_referent', ob)
-        object.__setattr__(self, '_callback', callback)
+        object.__setattr__(self, "_referent", ob)
+        object.__setattr__(self, "_callback", callback)
 
     def __getattr__(self, name):
-        return getattr(object.__getattribute__(self, '_referent'), name)
+        return getattr(object.__getattribute__(self, "_referent"), name)
 
     def __setattr__(self, name, value):
-        setattr(object.__getattribute__(self, '_referent'), name, value)
+        setattr(object.__getattribute__(self, "_referent"), name, value)
 
     def __delattr__(self, name):
-        delattr(object.__getattribute__(self, '_referent'), name)
+        delattr(object.__getattribute__(self, "_referent"), name)
 
 
 class WeakValueDictionary(dict):
@@ -85,7 +85,7 @@ class WeakValueDictionary(dict):
         return r
 
     def update(self, other=(), **kwargs):
-        if hasattr(other, 'items'):
+        if hasattr(other, "items"):
             for k, v in other.items():
                 self[k] = v
         else:
@@ -152,7 +152,7 @@ class WeakKeyDictionary(dict):
         return pair
 
     def update(self, other=(), **kwargs):
-        if hasattr(other, 'items'):
+        if hasattr(other, "items"):
             for k, v in other.items():
                 self[k] = v
         else:

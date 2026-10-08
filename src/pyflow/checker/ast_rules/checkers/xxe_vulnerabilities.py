@@ -56,10 +56,7 @@ def lxml_html_parser_entity_sub(context):
         # HTMLParser may have different dangerous parameters
         for keyword in call_node.keywords:
             if keyword.arg and keyword.arg.lower() in ("entity_substitution",):
-                if (
-                    isinstance(keyword.value, ast.Constant)
-                    and keyword.value.value is True
-                ):
+                if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
                     return xxe_issue()
 
 

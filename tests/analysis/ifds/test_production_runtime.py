@@ -79,9 +79,7 @@ class _GeneratedInterproceduralProblem(IFDSProblem[str, str, str]):
     def call_flow(self, call_node, callee, fact):
         return self.transitions.get(("call", call_node, callee, fact), ())
 
-    def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact
-    ):
+    def return_flow(self, call_node, callee, exit_node, return_site, call_fact, exit_fact):
         return self.transitions.get(
             (
                 "return",
@@ -140,9 +138,7 @@ def _linear_problem(length=8):
 
 
 def test_solver_options_return_partial_result_instead_of_raising():
-    result = IFDSSolver(options=SolverOptions(max_propagated_path_edges=2)).solve(
-        _linear_problem()
-    )
+    result = IFDSSolver(options=SolverOptions(max_propagated_path_edges=2)).solve(_linear_problem())
 
     assert result.status is AnalysisStatus.PARTIAL
     assert "max_propagated_path_edges=2" in result.termination_reason
@@ -189,9 +185,9 @@ def test_solver_enforces_sub_resolution_time_budget(monkeypatch):
         SimpleNamespace(monotonic=lambda: clock_reading),
     )
 
-    result = IFDSSolver(
-        options=SolverOptions(max_seconds=1e-12, budget_check_interval=1)
-    ).solve(_linear_problem())
+    result = IFDSSolver(options=SolverOptions(max_seconds=1e-12, budget_check_interval=1)).solve(
+        _linear_problem()
+    )
 
     assert result.status is AnalysisStatus.PARTIAL
     assert "max_seconds=1e-12" in result.termination_reason
@@ -201,9 +197,7 @@ def test_solver_can_raise_on_budget_exhaustion():
     with pytest.raises(SolverLimitExceeded, match="max_queue_size=1"):
         problem = _linear_problem(3)
         problem.transitions[("n0", "n1", "0")] = ("0", "a", "b")
-        IFDSSolver(
-            options=SolverOptions(max_queue_size=1, limit_behavior="raise")
-        ).solve(problem)
+        IFDSSolver(options=SolverOptions(max_queue_size=1, limit_behavior="raise")).solve(problem)
 
 
 def test_ide_solver_honors_shared_solver_budgets():
@@ -366,8 +360,7 @@ def test_random_interprocedural_problems_match_reference_solver():
 
 
 def test_solver_serialization_is_independent_of_python_hash_seed():
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import json
         from pyflow.analysis.ifds import IFDSProblem, IFDSSolver, Supergraph
 
@@ -392,8 +385,7 @@ def test_solver_serialization_is_independent_of_python_hash_seed():
             [node, result.facts_with_ids_at(node)]
             for node in problem.graph.ordered_nodes()
         ]))
-        """
-    )
+        """)
     outputs = []
     for seed in ("1", "777"):
         environment = {**os.environ, "PYTHONHASHSEED": seed}
@@ -411,8 +403,7 @@ def test_solver_serialization_is_independent_of_python_hash_seed():
 
 def test_ifds_sarif_contains_location_and_code_flow(tmp_path, capsys):
     target = tmp_path / "flow.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source():
     return 1
 
@@ -424,8 +415,7 @@ def main():
     sink(value)
 
 main()
-"""
-    )
+""")
     args = SimpleNamespace(
         entry=None,
         analysis="taint",
@@ -496,14 +486,12 @@ def test_strict_preparation_propagates_pipeline_failure():
 
 def test_cli_uses_distinct_invalid_and_partial_exit_codes(tmp_path, capsys):
     target = tmp_path / "flow.py"
-    target.write_text(
-        """
+    target.write_text("""
 def source(): return 1
 def sink(value): return value
 def main(): sink(source())
 main()
-"""
-    )
+""")
     base = dict(
         entry=None,
         analysis="taint",

@@ -65,28 +65,47 @@ class PythonCallService(Processor):
 
     def handle_new_constraint(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        constraint: 'Constraint',
+        solver: "PointerSolver",
+        scope: "Scope",
+        constraint: "Constraint",
     ) -> bool:
         return False
 
     def handle_constraint(
         self,
-        solver: 'PointerSolver',
-        target: 'Ctx[Any]',
-        scope: 'Scope',
-        constraint: 'Constraint',
-        pts: 'PointsToSet',
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        constraint: "Constraint",
+        pts: "PointsToSet",
     ) -> bool:
         return False
 
-    def handle_call(self, solver: 'PointerSolver', target: 'Ctx[Any]', scope: 'Scope', constraint: 'Constraint', callee_obj: 'AbstractObject') -> bool:
+    def handle_call(
+        self,
+        solver: "PointerSolver",
+        target: "Ctx[Any]",
+        scope: "Scope",
+        constraint: "Constraint",
+        callee_obj: "AbstractObject",
+    ) -> bool:
         if isinstance(callee_obj, MethodObject):
             return self._handle_method_call(solver, scope, scope.context, constraint, callee_obj)
         if isinstance(callee_obj, FunctionObject):
             return self._handle_function_call(solver, scope, scope.context, constraint, callee_obj)
-        if isinstance(callee_obj, (BuiltinObject, BuiltinFunctionObject, BuiltinMethodObject, BuiltinClassObject, BuiltinInstanceObject)) or callee_obj.kind == AllocKind.BUILTIN:
+        if (
+            isinstance(
+                callee_obj,
+                (
+                    BuiltinObject,
+                    BuiltinFunctionObject,
+                    BuiltinMethodObject,
+                    BuiltinClassObject,
+                    BuiltinInstanceObject,
+                ),
+            )
+            or callee_obj.kind == AllocKind.BUILTIN
+        ):
             return self._handle_builtin_call(solver, scope, scope.context, constraint, callee_obj)
         if isinstance(callee_obj, ClassObject):
             return self._handle_class_call(solver, scope, scope.context, constraint, callee_obj)
@@ -96,11 +115,11 @@ class PythonCallService(Processor):
 
     def _handle_builtin_call(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        call: 'CallConstraint',
-        builtin_obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        builtin_obj: "AbstractObject",
     ) -> bool:
         handler = solver.builtin_manager.get_handler() if solver.builtin_manager else None
         builtin_name = (
@@ -128,9 +147,7 @@ class PythonCallService(Processor):
 
         affected = []
         if call.target is not None:
-            affected.append(solver.state.get_variable(
-                scope, context, call.target
-            ))
+            affected.append(solver.state.get_variable(scope, context, call.target))
         dynamic_scope = builtin_name in {"exec", "eval", "compile"}
         solver.mark_semantic_incomplete(
             variables=affected,
@@ -150,19 +167,17 @@ class PythonCallService(Processor):
                 alloc_site=AllocSite(call.call_site.statement, AllocKind.UNKNOWN),
             )
             target_var = solver.state.get_variable(scope, context, call.target)
-            solver.handle_new_points_to(
-                target_var, scope, PointsToSet.singleton(unknown_obj)
-            )
+            solver.handle_new_points_to(target_var, scope, PointsToSet.singleton(unknown_obj))
         return True
 
     def _analyze_function_body(
         self,
-        solver: 'PointerSolver',
-        func_obj: 'FunctionObject',
+        solver: "PointerSolver",
+        func_obj: "FunctionObject",
         func_ir: IRFunc,
-        callee_scope: 'Scope',
-        call_context: 'AbstractContext',
-        call: 'CallConstraint',
+        callee_scope: "Scope",
+        call_context: "AbstractContext",
+        call: "CallConstraint",
     ) -> bool:
         analysis_key = (func_obj, call_context)
         if analysis_key in solver._analyzed_functions:
@@ -182,9 +197,7 @@ class PythonCallService(Processor):
                 context=func_ir.get_name(),
             )
             if solver.config.verbose:
-                logger.warning(
-                    f"[UNKNOWN] Translation error for {func_ir.get_name()}: {e}"
-                )
+                logger.warning(f"[UNKNOWN] Translation error for {func_ir.get_name()}: {e}")
             body_constraints = []
         finally:
             solver.ir_translator._current_scope = old_scope
@@ -214,11 +227,11 @@ class PythonCallService(Processor):
 
     def _handle_class_call(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        call: 'CallConstraint',
-        class_obj: 'ClassObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        class_obj: "ClassObject",
     ) -> bool:
         base_variables = self._effective_base_variables(class_obj)
         construction = solver.state.classes.construction_state(class_obj)
@@ -240,26 +253,17 @@ class PythonCallService(Processor):
             solver.state.dependencies.subscribe(
                 ("pending-class-call", class_obj, call),
                 sources,
-                lambda: self._handle_class_call(
-                    solver, scope, context, call, class_obj
-                ),
+                lambda: self._handle_class_call(solver, scope, context, call, class_obj),
             )
             return True
         if construction.kind is ClassConstructionKind.UNKNOWN:
-            solver.mark_semantic_incomplete(
-                message="; ".join(construction.reasons)
-            )
-            self._apply_default_metaclass_call(
-                solver, scope, call, class_obj
-            )
+            solver.mark_semantic_incomplete(message="; ".join(construction.reasons))
+            self._apply_default_metaclass_call(solver, scope, call, class_obj)
             return True
         if construction.kind is ClassConstructionKind.FEASIBLE:
             for variant in construction.variants:
                 metaclass = variant.metaclass
-                if (
-                    metaclass.kind is TypeRefKind.USER
-                    and isinstance(metaclass.target, ClassObject)
-                ):
+                if metaclass.kind is TypeRefKind.USER and isinstance(metaclass.target, ClassObject):
                     self._apply_metaclass_object(
                         solver,
                         scope,
@@ -268,24 +272,20 @@ class PythonCallService(Processor):
                         metaclass.target,
                     )
                 elif metaclass.kind is TypeRefKind.BUILTIN:
-                    self._apply_default_metaclass_call(
-                        solver, scope, call, class_obj
-                    )
+                    self._apply_default_metaclass_call(solver, scope, call, class_obj)
                 else:
                     solver.mark_semantic_incomplete()
-                    self._apply_default_metaclass_call(
-                        solver, scope, call, class_obj
-                    )
+                    self._apply_default_metaclass_call(solver, scope, call, class_obj)
             return True
         raise AssertionError(f"unknown class construction state: {construction.kind}")
 
     def _apply_metaclass_object(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        class_obj: 'ClassObject',
-        call: 'CallConstraint',
-        meta_obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        class_obj: "ClassObject",
+        call: "CallConstraint",
+        meta_obj: "AbstractObject",
     ) -> None:
         context = scope.context
         if not isinstance(meta_obj, ClassObject):
@@ -294,16 +294,11 @@ class PythonCallService(Processor):
             return
 
         receiver_var = Variable(
-            name=(
-                f"$metaclass_receiver@{call.call_site.short_id()}@"
-                f"{stable_token(class_obj)}"
-            ),
+            name=(f"$metaclass_receiver@{call.call_site.short_id()}@" f"{stable_token(class_obj)}"),
             kind=VariableKind.TEMPORARY,
         )
         receiver_ctx = solver.state.get_variable(scope, context, receiver_var)
-        solver.handle_new_points_to(
-            receiver_ctx, scope, PointsToSet.singleton(class_obj)
-        )
+        solver.handle_new_points_to(receiver_ctx, scope, PointsToSet.singleton(class_obj))
 
         edge_key = (class_obj, call, meta_obj)
         if edge_key not in self._installed_metaclass_call_edges:
@@ -311,14 +306,11 @@ class PythonCallService(Processor):
             meta_scope = solver.state.get_internal_scope(meta_obj)
             if meta_scope is None:
                 solver.mark_semantic_incomplete()
-                self._apply_default_metaclass_call(
-                    solver, scope, call, class_obj
-                )
+                self._apply_default_metaclass_call(solver, scope, call, class_obj)
             else:
                 call_var = Variable(
                     name=(
-                        f"$metaclass_call@{call.call_site.short_id()}@"
-                        f"{stable_token(meta_obj)}"
+                        f"$metaclass_call@{call.call_site.short_id()}@" f"{stable_token(meta_obj)}"
                     ),
                     kind=VariableKind.TEMPORARY,
                 )
@@ -371,9 +363,9 @@ class PythonCallService(Processor):
 
     def _metaclass_default_call_possible(
         self,
-        solver: 'PointerSolver',
-        meta_obj: 'ClassObject',
-        seen: Optional[set['ClassObject']] = None,
+        solver: "PointerSolver",
+        meta_obj: "ClassObject",
+        seen: Optional[set["ClassObject"]] = None,
     ) -> Optional[bool]:
         """Return whether some current MRO alternative reaches type.__call__."""
         if "__call__" in meta_obj.ir.get_definitely_declared_names():
@@ -410,9 +402,7 @@ class PythonCallService(Processor):
             for base_obj in bases:
                 if not isinstance(base_obj, ClassObject):
                     continue
-                base_default = self._metaclass_default_call_possible(
-                    solver, base_obj, set(seen)
-                )
+                base_default = self._metaclass_default_call_possible(solver, base_obj, set(seen))
                 if base_default is None:
                     return None
                 if base_default is False:
@@ -424,16 +414,16 @@ class PythonCallService(Processor):
 
     @staticmethod
     def _effective_base_variables(
-        class_obj: 'ClassObject',
+        class_obj: "ClassObject",
     ) -> tuple[Variable, ...]:
         return class_obj.effective_base_variables or class_obj.base_variables
 
     def _apply_default_metaclass_call(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        call: 'CallConstraint',
-        class_obj: 'ClassObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        call: "CallConstraint",
+        class_obj: "ClassObject",
     ) -> None:
         # The same translated constructor constraint can be activated in
         # several calling contexts.  Deduplicating without the caller scope
@@ -442,17 +432,15 @@ class PythonCallService(Processor):
         if key in self._applied_default_metaclass_calls:
             return
         self._applied_default_metaclass_calls.add(key)
-        solver._handle_class_instantiation(
-            scope, scope.context, call, class_obj
-        )
+        solver._handle_class_instantiation(scope, scope.context, call, class_obj)
 
     def _handle_object_call(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        call: 'CallConstraint',
-        callee_obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        callee_obj: "AbstractObject",
     ) -> bool:
         if call.callee.name.startswith("$call@"):
             return False
@@ -466,9 +454,7 @@ class PythonCallService(Processor):
             attr("__call__"),
             call_var,
         ):
-            call_field = solver.state.raw_field(
-                scope, context, callee_obj, attr("__call__")
-            )
+            call_field = solver.state.raw_field(scope, context, callee_obj, attr("__call__"))
             solver.state._add_var_points_flow(call_field, ctx_call_var)
         solver.add_constraint(
             scope,
@@ -507,23 +493,24 @@ class PythonCallService(Processor):
         return alloc_site
 
     @staticmethod
-    def _default_var_name(func_ir: IRFunc, param_name: str, default_index: int, kind: AllocKind) -> str:
-        return (
-            f"$default_{kind.value}_{stable_token(func_ir)}_"
-            f"{param_name}_{default_index}"
-        )
+    def _default_var_name(
+        func_ir: IRFunc, param_name: str, default_index: int, kind: AllocKind
+    ) -> str:
+        return f"$default_{kind.value}_{stable_token(func_ir)}_" f"{param_name}_{default_index}"
 
     def _materialize_default(
         self,
-        solver: 'PointerSolver',
+        solver: "PointerSolver",
         func_ir: IRFunc,
         def_scope: Scope,
         def_context: AbstractContext,
         param_name: str,
         default_index: int,
         default_expr: ast.expr,
-    ) -> 'Ctx[Variable]':
-        default_var_name = self._default_var_name(func_ir, param_name, default_index, AllocKind.CONSTANT)
+    ) -> "Ctx[Variable]":
+        default_var_name = self._default_var_name(
+            func_ir, param_name, default_index, AllocKind.CONSTANT
+        )
         default_var = solver.variable_factory.make_variable(default_var_name)
         default_ctx_var = solver.state.get_variable(def_scope, def_context, default_var)
 
@@ -574,26 +561,35 @@ class PythonCallService(Processor):
             AllocConstraint(target=default_var, alloc_site=alloc_site),
         )
         return default_ctx_var
-    
-    def _handle_method_call(self, solver: 'PointerSolver', scope: 'Scope', context: 'AbstractContext', call: 'CallConstraint', method_obj: 'MethodObject') -> bool:
+
+    def _handle_method_call(
+        self,
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "MethodObject",
+    ) -> bool:
         # logger.info(f"Handling method call: {call.call_site} -> {method_obj.alloc_site.stmt.get_qualname()}")
-        
+
         if not isinstance(method_obj, MethodObject):
             logger.info(f"is not method object, {type(method_obj)} got!")
             return False
-                
+
         func_ir: IRFunc = method_obj.alloc_site.stmt
-        assert isinstance(func_ir, IRFunc), f"MethodObject alloc site stmt should be IRFunc, {type(func_ir)} got!"
+        assert isinstance(
+            func_ir, IRFunc
+        ), f"MethodObject alloc site stmt should be IRFunc, {type(func_ir)} got!"
         if func_ir.is_static_method:
             return self._handle_function_call(solver, scope, context, call, method_obj)
-        
+
         if func_ir.is_class_method:
             holder_obj = method_obj.class_obj
         else:
             holder_obj = method_obj.instance_obj
             if holder_obj is None:
                 return self._handle_function_call(solver, scope, context, call, method_obj)
-        
+
         if not holder_obj:
             logger.info(f"No holder got in {method_obj}")
             return False
@@ -604,22 +600,18 @@ class PythonCallService(Processor):
             context,
             call,
             method_obj,
-            lambda: self._handle_method_call(
-                solver, scope, context, call, method_obj
-            ),
+            lambda: self._handle_method_call(solver, scope, context, call, method_obj),
         ):
             return True
-        
+
         self_var = solver.state.get_variable(
             scope,
             context,
-            solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}")
+            solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}"),
         )
         solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(holder_obj))
 
-        binding = self._validate_call(
-            solver, scope, context, func_ir, call, leading_positional=1
-        )
+        binding = self._validate_call(solver, scope, context, func_ir, call, leading_positional=1)
         if binding.definitely_invalid:
             return True
 
@@ -628,8 +620,7 @@ class PythonCallService(Processor):
             for arg, is_starred in call.iter_args()
         )
         kwargs = tuple(
-            (name, solver.state.get_variable(scope, context, arg))
-            for name, arg in call.kwargs
+            (name, solver.state.get_variable(scope, context, arg)) for name, arg in call.kwargs
         )
 
         call_context = solver.context_selector.select_call_context(
@@ -638,9 +629,9 @@ class PythonCallService(Processor):
             holder_obj,
             params=argument_source_signature(args, kwargs, receiver=holder_obj),
         )
-        
+
         logger.debug(f"Handling function call: {call.call_site} -> {method_obj.alloc_site.stmt}")
-        
+
         definition_scope = method_obj.container_scope
         callee_scope = Scope.new(
             method_obj,
@@ -655,7 +646,9 @@ class PythonCallService(Processor):
             call_kind = CallKind.CLASS
         else:
             call_kind = CallKind.INSTANCE
-        call_edge = CallEdge(kind=call_kind, callsite=Ctx(context, scope, call.call_site), callee=callee_scope)
+        call_edge = CallEdge(
+            kind=call_kind, callsite=Ctx(context, scope, call.call_site), callee=callee_scope
+        )
         # if self.state.call_graph.has_edge(edge):
         #     return False
 
@@ -672,9 +665,7 @@ class PythonCallService(Processor):
             self_var,
         )
 
-        self._analyze_function_body(
-            solver, method_obj, func_ir, callee_scope, call_context, call
-        )
+        self._analyze_function_body(solver, method_obj, func_ir, callee_scope, call_context, call)
 
         if call.target:
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
@@ -684,30 +675,43 @@ class PythonCallService(Processor):
 
         solver.state.call_graph.add_edge(call_edge)
         logger.debug(f"Adding call edge: {call_edge}")
-        
+
         # Debug monitoring: record call edge creation
         if solver._debug_monitor and solver._debug_monitor.enabled:
-            caller_name = str(scope.stmt.get_qualname() if hasattr(scope.stmt, 'get_qualname') else scope.stmt)
-            callee_name = str(call_edge.callee.stmt.get_qualname() if hasattr(call_edge.callee.stmt, 'get_qualname') else call_edge.callee.stmt)
+            caller_name = str(
+                scope.stmt.get_qualname() if hasattr(scope.stmt, "get_qualname") else scope.stmt
+            )
+            callee_name = str(
+                call_edge.callee.stmt.get_qualname()
+                if hasattr(call_edge.callee.stmt, "get_qualname")
+                else call_edge.callee.stmt
+            )
             solver._debug_monitor.record_call_edge_created(
                 caller=caller_name,
                 callee=callee_name,
                 call_site=str(call.call_site),
-                callee_type="method"
+                callee_type="method",
             )
 
         return True
-    
-    def _handle_function_call(self, solver: 'PointerSolver', scope: 'Scope', context: 'AbstractContext', call: 'CallConstraint', func_obj: 'AbstractObject') -> bool:
+
+    def _handle_function_call(
+        self,
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        func_obj: "AbstractObject",
+    ) -> bool:
         """Handle function call: analyze function body with parameter bindings.
-            1. Selects calling context
-            2. Translates function body to constraints
-            3. Generates parameter passing constraints
-            4. Connects return value to caller
-            5. Adds call edge to call graph
+        1. Selects calling context
+        2. Translates function body to constraints
+        3. Generates parameter passing constraints
+        4. Connects return value to caller
+        5. Adds call edge to call graph
         """
         # logger.info(f"Handling function call: {call.call_site} -> {func_obj.alloc_site.stmt}")
-        
+
         if not isinstance(func_obj, FunctionObject):
             logger.info(f"is not function object, {type(func_obj)} got!")
             return False
@@ -718,12 +722,10 @@ class PythonCallService(Processor):
             context,
             call,
             func_obj,
-            lambda: self._handle_function_call(
-                solver, scope, context, call, func_obj
-            ),
+            lambda: self._handle_function_call(solver, scope, context, call, func_obj),
         ):
             return True
-        
+
         func_ir: IRFunc = func_obj.alloc_site.stmt
         binding = self._validate_call(solver, scope, context, func_ir, call)
         if binding.definitely_invalid:
@@ -734,19 +736,18 @@ class PythonCallService(Processor):
             for arg, is_starred in call.iter_args()
         )
         kwargs = tuple(
-            (name, solver.state.get_variable(scope, context, arg))
-            for name, arg in call.kwargs
+            (name, solver.state.get_variable(scope, context, arg)) for name, arg in call.kwargs
         )
-        
+
         call_context = solver.context_selector.select_call_context(
             call.call_site,
             context,
             None,  # No receiver ffor regular functions
             params=argument_source_signature(args, kwargs),
         )
-        
+
         logger.debug(f"Handling function call: {call.call_site} -> {func_obj.alloc_site.stmt}")
-        
+
         definition_scope = func_obj.container_scope
         callee_scope = Scope.new(
             func_obj,
@@ -756,12 +757,14 @@ class PythonCallService(Processor):
             definition_scope,
         )
         call_kind = CallKind.STATIC if func_ir.is_static_method else CallKind.FUNCTION
-        call_edge = CallEdge(kind=call_kind, callsite=Ctx(context, scope, call.call_site), callee=callee_scope)
+        call_edge = CallEdge(
+            kind=call_kind, callsite=Ctx(context, scope, call.call_site), callee=callee_scope
+        )
         # if self.state.call_graph.has_edge(edge):
         #     return False
 
         self._dispatch_closure(solver, func_obj, call_context, scope, callee_scope)
-        
+
         self._install_parameter_flows(
             solver,
             func_obj,
@@ -772,45 +775,55 @@ class PythonCallService(Processor):
             call_context,
         )
 
-        self._analyze_function_body(
-            solver, func_obj, func_ir, callee_scope, call_context, call
-        )
-        
+        self._analyze_function_body(solver, func_obj, func_ir, callee_scope, call_context, call)
+
         if call.target:
             ret = solver.variable_factory.make_variable("$return", VariableKind.TEMPORARY)
             ret_var = solver.state.get_variable(callee_scope, call_context, ret)
             target_var = solver.state.get_variable(scope, context, call.target)
             if solver.config.verbose:
                 logger.info(f"[RETURN] Connecting return: {ret_var} -> {target_var}")
-                logger.info(f"  Callee scope: {callee_scope.stmt.get_qualname() if hasattr(callee_scope.stmt, 'get_qualname') else callee_scope.stmt}, context={call_context}")
-                logger.info(f"  Caller scope (input): {scope.stmt.get_qualname() if hasattr(scope.stmt, 'get_qualname') else scope.stmt}, context={context}")
-                logger.info(f"  Target var scope (result): {target_var.scope.stmt.get_qualname() if hasattr(target_var.scope.stmt, 'get_qualname') else target_var.scope.stmt}, context={target_var.context}")
+                logger.info(
+                    f"  Callee scope: {callee_scope.stmt.get_qualname() if hasattr(callee_scope.stmt, 'get_qualname') else callee_scope.stmt}, context={call_context}"
+                )
+                logger.info(
+                    f"  Caller scope (input): {scope.stmt.get_qualname() if hasattr(scope.stmt, 'get_qualname') else scope.stmt}, context={context}"
+                )
+                logger.info(
+                    f"  Target var scope (result): {target_var.scope.stmt.get_qualname() if hasattr(target_var.scope.stmt, 'get_qualname') else target_var.scope.stmt}, context={target_var.context}"
+                )
                 logger.info(f"  Call target var: {call.target.name}, kind={call.target.kind}")
             solver.state._add_var_points_flow(ret_var, target_var)
-        
+
         solver.state.call_graph.add_edge(call_edge)
         logger.debug(f"Adding call edge: {call_edge}")
-        
+
         # Debug monitoring: record call edge creation
         if solver._debug_monitor and solver._debug_monitor.enabled:
-            caller_name = str(scope.stmt.get_qualname() if hasattr(scope.stmt, 'get_qualname') else scope.stmt)
-            callee_name = str(call_edge.callee.stmt.get_qualname() if hasattr(call_edge.callee.stmt, 'get_qualname') else call_edge.callee.stmt)
+            caller_name = str(
+                scope.stmt.get_qualname() if hasattr(scope.stmt, "get_qualname") else scope.stmt
+            )
+            callee_name = str(
+                call_edge.callee.stmt.get_qualname()
+                if hasattr(call_edge.callee.stmt, "get_qualname")
+                else call_edge.callee.stmt
+            )
             solver._debug_monitor.record_call_edge_created(
                 caller=caller_name,
                 callee=callee_name,
                 call_site=str(call.call_site),
-                callee_type="function"
+                callee_type="function",
             )
 
         return True
 
     @staticmethod
     def _defer_unpack_dependent_call(
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        call: 'CallConstraint',
-        callee_obj: 'AbstractObject',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        callee_obj: "AbstractObject",
         retry,
     ) -> bool:
         """Retry argument binding whenever a ``*``/``**`` source grows.
@@ -836,20 +849,29 @@ class PythonCallService(Processor):
         solver.state.dependencies.subscribe(key, sources, retry)
         return any(solver.state.get_points_to(source).is_empty() for source in sources)
 
-    def _dispatch_closure(self, solver: 'PointerSolver', callee_obj: 'FunctionObject', call_context: 'AbstractContext', scope: 'Scope', callee_scope: 'Scope'):
+    def _dispatch_closure(
+        self,
+        solver: "PointerSolver",
+        callee_obj: "FunctionObject",
+        call_context: "AbstractContext",
+        scope: "Scope",
+        callee_scope: "Scope",
+    ):
         """Dispatch closure: dispatch closure variables to the callee."""
         state = solver.state
 
         cell_vars = state.get_cell_vars(callee_obj)
         for name, var in cell_vars.items():
-            target_var = state.get_variable(callee_scope, call_context, solver.variable_factory.make_variable(name))
+            target_var = state.get_variable(
+                callee_scope, call_context, solver.variable_factory.make_variable(name)
+            )
             state._add_var_points_flow(var, target_var)
-        
+
         nonlocal_vars = state.get_nonlocal_vars(callee_obj)
         for name, var in nonlocal_vars.items():
             if var is not None:
                 state.set_variable(callee_scope, call_context, var.content, var)
-    
+
         global_vars = state.get_global_vars(callee_obj)
         for name, var in global_vars.items():
             definition_module = callee_obj.container_scope.module
@@ -861,7 +883,7 @@ class PythonCallService(Processor):
             state.set_variable(callee_scope, call_context, captured.content, captured)
 
     @staticmethod
-    def _known_star_lengths(state, source_var: 'Ctx[Variable]'):
+    def _known_star_lengths(state, source_var: "Ctx[Variable]"):
         lengths = set()
         points_to = state.get_points_to(source_var)
         if points_to.is_empty():
@@ -875,19 +897,19 @@ class PythonCallService(Processor):
         return lengths
 
     @staticmethod
-    def _mapping_key_sets(state, source_var: 'Ctx[Variable]'):
+    def _mapping_key_sets(state, source_var: "Ctx[Variable]"):
         return mapping_key_hints(state, source_var)
 
     def _expanded_argument(
         self,
-        solver: 'PointerSolver',
-        scope: 'Scope',
-        context: 'AbstractContext',
-        call: 'CallConstraint',
-        source: 'Variable',
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source: "Variable",
         label: str,
         fields,
-    ) -> 'Ctx[Variable]':
+    ) -> "Ctx[Variable]":
         target = solver.variable_factory.make_variable(
             f"$expand@{call.call_site.short_id()}@{label}",
             VariableKind.TEMPORARY,
@@ -899,28 +921,29 @@ class PythonCallService(Processor):
                 LoadConstraint(base=source, field=field, target=target),
             )
         return solver.state.get_variable(scope, context, target)
-    
-    def _install_parameter_flows(self,
-                          solver: 'PointerSolver',
-                          callee_obj: 'FunctionObject',
-                          call: 'CallConstraint',
-                          scope: 'Scope',
-                          callee_scope: 'Scope',
-                          context: 'AbstractContext',
-                          call_context: 'AbstractContext',                          
-                          self_var: Optional['Ctx[Variable]'] = None
-                          ) -> None:
+
+    def _install_parameter_flows(
+        self,
+        solver: "PointerSolver",
+        callee_obj: "FunctionObject",
+        call: "CallConstraint",
+        scope: "Scope",
+        callee_scope: "Scope",
+        context: "AbstractContext",
+        call_context: "AbstractContext",
+        self_var: Optional["Ctx[Variable]"] = None,
+    ) -> None:
         """Install flows for a call already accepted by ``bind_arguments``."""
         state = solver.state
 
         method_obj = callee_obj
         func_ir: IRFunc = method_obj.alloc_site.stmt
         func_name = func_ir.get_qualname()
-                
-        if hasattr(func_ir, 'args'):
+
+        if hasattr(func_ir, "args"):
             func_args = func_ir.args
             positional_params = []
-            if hasattr(func_args, 'posonlyargs') and func_args.posonlyargs:
+            if hasattr(func_args, "posonlyargs") and func_args.posonlyargs:
                 positional_params.extend(func_args.posonlyargs)
             if func_args.args:
                 positional_params.extend(func_args.args)
@@ -942,8 +965,7 @@ class PythonCallService(Processor):
                     continue
                 known_lengths = self._known_star_lengths(state, source_var)
                 future_plain = sum(
-                    not later_starred
-                    for _, later_starred in raw_args[source_index + 1:]
+                    not later_starred for _, later_starred in raw_args[source_index + 1 :]
                 )
                 positional_room = max(
                     0,
@@ -960,27 +982,31 @@ class PythonCallService(Processor):
                     fields = [key(item_index)]
                     if known_lengths is None:
                         fields.append(elem())
-                    arg_vars.append(self._expanded_argument(
-                        solver,
-                        scope,
-                        context,
-                        call,
-                        source,
-                        f"star{source_index}:{item_index}",
-                        fields,
-                    ))
+                    arg_vars.append(
+                        self._expanded_argument(
+                            solver,
+                            scope,
+                            context,
+                            call,
+                            source,
+                            f"star{source_index}:{item_index}",
+                            fields,
+                        )
+                    )
                 starred_sources.append((source_index, source, known_lengths))
 
                 if known_lengths is None:
-                    uncertain_star_values.append(self._expanded_argument(
-                        solver,
-                        scope,
-                        context,
-                        call,
-                        source,
-                        f"star{source_index}:any-position",
-                        (elem(),),
-                    ))
+                    uncertain_star_values.append(
+                        self._expanded_argument(
+                            solver,
+                            scope,
+                            context,
+                            call,
+                            source,
+                            f"star{source_index}:any-position",
+                            (elem(),),
+                        )
+                    )
 
             # Unknown unpacking may occupy any remaining positional slot.  The
             # following plain arguments consequently also have multiple valid
@@ -1016,8 +1042,7 @@ class PythonCallService(Processor):
                 if param_name in kwarg_vars or not dstar_sources:
                     continue
                 source_key_sets = [
-                    self._mapping_key_sets(state, source_var)
-                    for _, _, source_var in dstar_sources
+                    self._mapping_key_sets(state, source_var) for _, _, source_var in dstar_sources
                 ]
                 possible_presence = any(
                     options is None or any(param_name in keys for keys in options)
@@ -1035,10 +1060,7 @@ class PythonCallService(Processor):
                 for _, source, source_var in dstar_sources:
                     fields = [key(param_name)]
                     key_sets = self._mapping_key_sets(state, source_var)
-                    if (
-                        key_sets is None
-                        or not any(param_name in keys for keys in key_sets)
-                    ):
+                    if key_sets is None or not any(param_name in keys for keys in key_sets):
                         fields.extend((elem(), value()))
                     for field in fields:
                         solver.add_constraint(
@@ -1058,18 +1080,18 @@ class PythonCallService(Processor):
             # Track which parameters have been bound
             arg_index = 0
             consumed_kwargs = set()  # Track which keyword arguments have been matched
-            
+
             # 1. Handle positional-only parameters (Python 3.8+)
             # These can ONLY be filled by positional arguments, not keywords
-            if hasattr(func_args, 'posonlyargs') and func_args.posonlyargs:
+            if hasattr(func_args, "posonlyargs") and func_args.posonlyargs:
                 for param in func_args.posonlyargs:
                     param_name = param.arg
                     param_var = state.get_variable(
-                        callee_scope, 
-                        call_context, 
-                        solver.variable_factory.make_variable(param_name)
+                        callee_scope,
+                        call_context,
+                        solver.variable_factory.make_variable(param_name),
                     )
-                    
+
                     if arg_index < len(arg_vars):
                         # Bind positional argument to parameter
                         state._add_var_points_flow(arg_vars[arg_index], param_var)
@@ -1095,20 +1117,20 @@ class PythonCallService(Processor):
                                 UnknownKind.MISSING_ARGUMENT,
                                 str(call.call_site),
                                 f"Required positional-only parameter {param_name} not provided",
-                                context=func_name
+                                context=func_name,
                             )
-            
+
             # 2. Handle regular positional/keyword parameters
             # These can be filled by either positional OR keyword arguments
             if func_args.args:
                 for param_idx, param in enumerate(func_args.args):
                     param_name = param.arg
                     param_var = state.get_variable(
-                        callee_scope, 
-                        call_context, 
-                        solver.variable_factory.make_variable(param_name)
+                        callee_scope,
+                        call_context,
+                        solver.variable_factory.make_variable(param_name),
                     )
-                    
+
                     # Python assigns positional arguments first.  A simultaneous
                     # keyword was rejected by the pre-call binder as a duplicate.
                     if arg_index < len(arg_vars):
@@ -1155,30 +1177,32 @@ class PythonCallService(Processor):
                                 UnknownKind.MISSING_ARGUMENT,
                                 str(call.call_site),
                                 f"Required parameter {param_name} not provided",
-                                context=func_name
+                                context=func_name,
                             )
-            
+
             # 3. Handle *args (vararg) - collects remaining positional arguments
             if func_args.vararg:
                 vararg_name = func_args.vararg.arg
                 vararg_var = state.get_variable(
-                    callee_scope,
-                    call_context,
-                    solver.variable_factory.make_variable(vararg_name)
+                    callee_scope, call_context, solver.variable_factory.make_variable(vararg_name)
                 )
-                
+
                 # Create a tuple object to hold the varargs
                 vararg_alloc = AllocSite(f"{call.call_site}:*args", AllocKind.TUPLE)
                 vararg_tuple_obj = TupleObject(call_context, vararg_alloc)
-                
+
                 # Add the tuple to the vararg parameter
-                solver.handle_new_points_to(vararg_var, callee_scope, PointsToSet.singleton(vararg_tuple_obj))
-                
+                solver.handle_new_points_to(
+                    vararg_var, callee_scope, PointsToSet.singleton(vararg_tuple_obj)
+                )
+
                 # All remaining positional arguments go into *args
                 for i in range(arg_index, len(arg_vars)):
                     # Store each remaining argument as an element of the tuple
                     field = key(i - arg_index)
-                    element_var = state.get_field(callee_scope, call_context, vararg_tuple_obj, field)
+                    element_var = state.get_field(
+                        callee_scope, call_context, vararg_tuple_obj, field
+                    )
                     state._add_var_points_flow(arg_vars[i], element_var)
                 for source_index, source, known_lengths in starred_sources:
                     if known_lengths is not None:
@@ -1207,9 +1231,9 @@ class PythonCallService(Processor):
                     UnknownKind.MISSING_ARGUMENT,
                     str(call.call_site),
                     f"Too many positional arguments: expected {arg_index}, got {len(arg_vars)}",
-                    context=func_name
+                    context=func_name,
                 )
-            
+
             # 4. Handle keyword-only parameters
             # These MUST be provided by keyword arguments (or use defaults)
             if func_args.kwonlyargs:
@@ -1218,9 +1242,9 @@ class PythonCallService(Processor):
                     param_var = state.get_variable(
                         callee_scope,
                         call_context,
-                        solver.variable_factory.make_variable(param_name)
+                        solver.variable_factory.make_variable(param_name),
                     )
-                    
+
                     # Check if provided as keyword argument
                     if param_name in kwarg_vars:
                         # Bind keyword argument to parameter
@@ -1265,7 +1289,7 @@ class PythonCallService(Processor):
                                 UnknownKind.MISSING_ARGUMENT,
                                 str(call.call_site),
                                 f"Required keyword-only parameter {param_name} not provided",
-                                context=func_name
+                                context=func_name,
                             )
                     else:
                         # Missing required keyword-only parameter with no default
@@ -1273,32 +1297,34 @@ class PythonCallService(Processor):
                             UnknownKind.MISSING_ARGUMENT,
                             str(call.call_site),
                             f"Required keyword-only parameter {param_name} not provided",
-                            context=func_name
+                            context=func_name,
                         )
-            
+
             # 5. Handle **kwargs (kwarg) - collects remaining keyword arguments
             remaining_kwargs = {k: v for k, v in kwarg_vars.items() if k not in consumed_kwargs}
-            
+
             if func_args.kwarg:
                 kwarg_name = func_args.kwarg.arg
                 kwarg_var = state.get_variable(
-                    callee_scope,
-                    call_context,
-                    solver.variable_factory.make_variable(kwarg_name)
+                    callee_scope, call_context, solver.variable_factory.make_variable(kwarg_name)
                 )
-                
+
                 # Create a dict object to hold the kwargs
                 kwarg_alloc = AllocSite(f"{call.call_site}:**kwargs", AllocKind.DICT)
                 kwarg_dict_obj = DictObject(call_context, kwarg_alloc)
-                
+
                 # Add the dict to the kwarg parameter
-                solver.handle_new_points_to(kwarg_var, callee_scope, PointsToSet.singleton(kwarg_dict_obj))
-                
+                solver.handle_new_points_to(
+                    kwarg_var, callee_scope, PointsToSet.singleton(kwarg_dict_obj)
+                )
+
                 # Store all remaining keyword arguments into the **kwargs dict
                 for kw_name, kw_var in remaining_kwargs.items():
                     # Use the keyword name as the dict key (field)
                     field = key(kw_name)
-                    dict_value_var = state.get_field(callee_scope, call_context, kwarg_dict_obj, field)
+                    dict_value_var = state.get_field(
+                        callee_scope, call_context, kwarg_dict_obj, field
+                    )
                     state._add_var_points_flow(kw_var, dict_value_var)
                 for keyword_index, source, source_var in dstar_sources:
                     fields = (elem(), value())
@@ -1320,12 +1346,12 @@ class PythonCallService(Processor):
                     state._add_var_points_flow(expanded, dict_value_var)
             elif remaining_kwargs:
                 # Unexpected keyword arguments and no **kwargs to catch them
-                extra_kw_names = ', '.join(remaining_kwargs.keys())
+                extra_kw_names = ", ".join(remaining_kwargs.keys())
                 solver._unknown_tracker.record(
                     UnknownKind.MISSING_ARGUMENT,
                     str(call.call_site),
                     f"Unexpected keyword arguments: {extra_kw_names}",
-                    context=func_name
+                    context=func_name,
                 )
 
 

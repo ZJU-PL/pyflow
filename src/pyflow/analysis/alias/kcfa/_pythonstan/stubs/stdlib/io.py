@@ -104,17 +104,17 @@ class BufferedIOBase(IOBase):
 
 
 class FileIO(RawIOBase):
-    def __init__(self, name, mode='r', closefd=True, opener=None):
+    def __init__(self, name, mode="r", closefd=True, opener=None):
         super().__init__()
         self.name = name
         self.mode = mode
         self._closefd = closefd
 
     def readable(self):
-        return 'r' in self.mode
+        return "r" in self.mode
 
     def writable(self):
-        return 'w' in self.mode or 'a' in self.mode
+        return "w" in self.mode or "a" in self.mode
 
     def seekable(self):
         return True
@@ -250,12 +250,19 @@ class TextIOBase(IOBase):
 
 
 class TextIOWrapper(TextIOBase):
-    def __init__(self, buffer, encoding=None, errors=None, newline=None,
-                 line_buffering=False, write_through=False):
+    def __init__(
+        self,
+        buffer,
+        encoding=None,
+        errors=None,
+        newline=None,
+        line_buffering=False,
+        write_through=False,
+    ):
         super().__init__()
         self.buffer = buffer
-        self._encoding = encoding or 'utf-8'
-        self._errors = errors or 'strict'
+        self._encoding = encoding or "utf-8"
+        self._errors = errors or "strict"
         self._newline = newline
         self._line_buffering = line_buffering
         self._write_through = write_through
@@ -302,7 +309,7 @@ class TextIOWrapper(TextIOBase):
 
 
 class StringIO(TextIOBase):
-    def __init__(self, initial_value='', newline='\n'):
+    def __init__(self, initial_value="", newline="\n"):
         super().__init__()
         self._value = initial_value
         self._pos = 0
@@ -313,27 +320,27 @@ class StringIO(TextIOBase):
 
     def read(self, size=-1):
         if size < 0:
-            result = self._value[self._pos:]
+            result = self._value[self._pos :]
             self._pos = len(self._value)
         else:
-            result = self._value[self._pos:self._pos + size]
+            result = self._value[self._pos : self._pos + size]
             self._pos += len(result)
         return result
 
     def readline(self, size=-1):
-        end = self._value.find('\n', self._pos)
+        end = self._value.find("\n", self._pos)
         if end < 0:
             end = len(self._value)
         else:
             end += 1
         if size >= 0:
             end = min(end, self._pos + size)
-        result = self._value[self._pos:end]
+        result = self._value[self._pos : end]
         self._pos = end
         return result
 
     def write(self, s):
-        self._value = self._value[:self._pos] + s + self._value[self._pos + len(s):]
+        self._value = self._value[: self._pos] + s + self._value[self._pos + len(s) :]
         self._pos += len(s)
         return len(s)
 
@@ -366,7 +373,7 @@ class StringIO(TextIOBase):
 
 
 class BytesIO(BufferedIOBase):
-    def __init__(self, initial_bytes=b''):
+    def __init__(self, initial_bytes=b""):
         super().__init__()
         self._value = initial_bytes
         self._pos = 0
@@ -379,10 +386,10 @@ class BytesIO(BufferedIOBase):
 
     def read(self, size=-1):
         if size < 0:
-            result = self._value[self._pos:]
+            result = self._value[self._pos :]
             self._pos = len(self._value)
         else:
-            result = self._value[self._pos:self._pos + size]
+            result = self._value[self._pos : self._pos + size]
             self._pos += len(result)
         return result
 
@@ -390,14 +397,14 @@ class BytesIO(BufferedIOBase):
         return self.read(size)
 
     def readline(self, size=-1):
-        end = self._value.find(b'\n', self._pos)
+        end = self._value.find(b"\n", self._pos)
         if end < 0:
             end = len(self._value)
         else:
             end += 1
         if size >= 0:
             end = min(end, self._pos + size)
-        result = self._value[self._pos:end]
+        result = self._value[self._pos : end]
         self._pos = end
         return result
 
@@ -408,7 +415,7 @@ class BytesIO(BufferedIOBase):
         return n
 
     def write(self, b):
-        self._value = self._value[:self._pos] + bytes(b) + self._value[self._pos + len(b):]
+        self._value = self._value[: self._pos] + bytes(b) + self._value[self._pos + len(b) :]
         self._pos += len(b)
         return len(b)
 
@@ -440,18 +447,26 @@ class BytesIO(BufferedIOBase):
         return size
 
 
-def open(file, mode='r', buffering=-1, encoding=None, errors=None,
-         newline=None, closefd=True, opener=None):
-    binary = 'b' in mode
+def open(
+    file,
+    mode="r",
+    buffering=-1,
+    encoding=None,
+    errors=None,
+    newline=None,
+    closefd=True,
+    opener=None,
+):
+    binary = "b" in mode
     raw = FileIO(file, mode, closefd, opener)
     if buffering == 0:
         return raw
     if buffering < 0:
         buffering = DEFAULT_BUFFER_SIZE
     if binary:
-        if 'r' in mode and 'w' not in mode:
+        if "r" in mode and "w" not in mode:
             return BufferedReader(raw, buffering)
-        elif 'w' in mode and 'r' not in mode:
+        elif "w" in mode and "r" not in mode:
             return BufferedWriter(raw, buffering)
         else:
             return BufferedRandom(raw, buffering)

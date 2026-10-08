@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Return-kind constants
 # ═══════════════════════════════════════════════════════════════════════
@@ -99,9 +98,7 @@ class CollectionMutatorModel:
             return ()
         if self.value_arg_indices is None:
             return actuals
-        return tuple(
-            actuals[index] for index in self.value_arg_indices if index < len(actuals)
-        )
+        return tuple(actuals[index] for index in self.value_arg_indices if index < len(actuals))
 
 
 @dataclass(frozen=True)

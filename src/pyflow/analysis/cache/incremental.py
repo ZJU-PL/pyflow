@@ -116,9 +116,7 @@ class IncrementalCache:
         current_hash = self._hash_file(norm)
         if not current_hash:
             return True
-        row = self._conn.execute(
-            "SELECT hash FROM file_hashes WHERE path = ?", (norm,)
-        ).fetchone()
+        row = self._conn.execute("SELECT hash FROM file_hashes WHERE path = ?", (norm,)).fetchone()
         if row is None:
             return True
         return row[0] != current_hash
@@ -140,9 +138,7 @@ class IncrementalCache:
         assert self._conn is not None
         norm = self._normalize(path)
         self._conn.execute("DELETE FROM file_hashes WHERE path = ?", (norm,))
-        self._conn.execute(
-            "DELETE FROM cached_findings WHERE path = ?", (norm,)
-        )
+        self._conn.execute("DELETE FROM cached_findings WHERE path = ?", (norm,))
         self._conn.commit()
 
     # ── Findings cache ───────────────────────────────────────────────────
@@ -152,9 +148,7 @@ class IncrementalCache:
         import json
 
         norm = self._normalize(path)
-        payload = json.dumps(
-            [self._finding_to_dict(f) for f in findings]
-        )
+        payload = json.dumps([self._finding_to_dict(f) for f in findings])
         self._conn.execute(
             "INSERT OR REPLACE INTO cached_findings (path, findings_json, updated_at) "
             "VALUES (?, ?, datetime('now'))",
@@ -177,8 +171,7 @@ class IncrementalCache:
     @staticmethod
     def _finding_to_dict(finding: Any) -> Dict[str, Any]:
         d: Dict[str, Any] = {}
-        for attr in ("cwe", "severity", "source_label", "sink_label",
-                      "source_line", "sink_line"):
+        for attr in ("cwe", "severity", "source_label", "sink_label", "source_line", "sink_line"):
             val = getattr(finding, attr, None)
             if val is not None:
                 d[attr] = val
@@ -189,8 +182,7 @@ class IncrementalCache:
     def record_import(self, importer: str, imported: str) -> None:
         assert self._conn is not None
         self._conn.execute(
-            "INSERT OR IGNORE INTO import_deps (importer, imported) "
-            "VALUES (?, ?)",
+            "INSERT OR IGNORE INTO import_deps (importer, imported) " "VALUES (?, ?)",
             (self._normalize(importer), self._normalize(imported)),
         )
         self._conn.commit()
@@ -205,9 +197,7 @@ class IncrementalCache:
         affected: Set[str] = set(changed_norm)
 
         if candidate_paths is None:
-            rows = self._conn.execute(
-                "SELECT DISTINCT importer FROM import_deps"
-            ).fetchall()
+            rows = self._conn.execute("SELECT DISTINCT importer FROM import_deps").fetchall()
             candidate_paths = [r[0] for r in rows]
 
         cand_norm = {self._normalize(p) for p in candidate_paths}

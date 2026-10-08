@@ -295,9 +295,7 @@ def _log2(n):
 class RandomRangeMinTest(unittest.TestCase):
     def testRangeMin(self):
         for trial in range(20):
-            data = [
-                random.choice(range(1000000)) for i in range(random.randint(1, 100))
-            ]
+            data = [random.choice(range(1000000)) for i in range(random.randint(1, 100))]
             R = RangeMin(data)
             for sample in range(100):
                 i = random.randint(0, len(data) - 1)

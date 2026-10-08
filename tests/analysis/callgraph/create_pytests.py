@@ -19,14 +19,12 @@ test_template = """
         self.validate_snippet(self.get_snippet_path("{name}"))
 """
 
+
 def create_test_case(name):
     test_name = name + "_test.py"
     # TODO: capitalize
     capitalized = "".join([x.title() for x in name.split("_")])
-    template = base_template.format(
-        cls=capitalized,
-        dir=name
-    )
+    template = base_template.format(cls=capitalized, dir=name)
     for name in os.listdir(os.path.join(FILE_DIR, SNIPPETS_DIR, name)):
         if name == "." or name == "..":
             continue
@@ -34,6 +32,7 @@ def create_test_case(name):
 
     with open(os.path.join(FILE_DIR, test_name), "w+") as f:
         f.write(template)
+
 
 for name in os.listdir(os.path.join(FILE_DIR, SNIPPETS_DIR)):
     if name == "." or name == "..":

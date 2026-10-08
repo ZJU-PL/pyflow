@@ -129,9 +129,7 @@ class FoldRewrite(TypeDispatcher):
         self.fact_replacements = {}
 
         # Term rewriter for call optimizations
-        self.callRewrite = makeCallRewrite(
-            extractor, getattr(code, "ir_catalog", None)
-        )
+        self.callRewrite = makeCallRewrite(extractor, getattr(code, "ir_catalog", None))
 
         # Check if we have context annotations for type-based optimizations
         self.annotationsExist = bool(
@@ -174,9 +172,7 @@ class FoldRewrite(TypeDispatcher):
     def visitCall(self, node):
         func = tools.singleCall(self.code, self.factNode(node))
         if func is not None:
-            result = ast.DirectCall(
-                func, node.expr, node.args, node.kwds, node.vargs, node.kargs
-            )
+            result = ast.DirectCall(func, node.expr, node.args, node.kwds, node.vargs, node.kargs)
             copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
             self.recordFactSource(node, result)
@@ -234,9 +230,7 @@ class FoldRewrite(TypeDispatcher):
         )
         build_semantics(catalog)
         if self.fact_replacements:
-            catalog.commit_revision(
-                preserved_capabilities=catalog.facts.capabilities()
-            )
+            catalog.commit_revision(preserved_capabilities=catalog.facts.capabilities())
 
     def getExistingNames(self, ref):
         if isinstance(ref, ast.Local):
@@ -301,9 +295,7 @@ class FoldRewrite(TypeDispatcher):
 
         groupLUT = {}
         try:
-            invmerged = self.facts.merged_call_targets(
-                self.code, self.factNode(node)
-            )
+            invmerged = self.facts.merged_call_targets(self.code, self.factNode(node))
         except MissingAnalysisFact:
             return None
         for type in types:
@@ -348,9 +340,7 @@ class FoldRewrite(TypeDispatcher):
                 stmts.append(ast.Assign(newop, list(targets)))
             suite = ast.Suite(stmts)
 
-            case = ast.TypeSwitchCase(
-                [self.existingFromObj(t) for t in group], expr, suite
-            )
+            case = ast.TypeSwitchCase([self.existingFromObj(t) for t in group], expr, suite)
             cases.append(case)
 
         ts = ast.TypeSwitch(arg, cases)
@@ -368,9 +358,7 @@ class FoldRewrite(TypeDispatcher):
 
             newargs = [node.expr]
             newargs.extend(node.args)
-            result = ast.DirectCall(
-                func, funcobj, newargs, node.kwds, node.vargs, node.kargs
-            )
+            result = ast.DirectCall(func, funcobj, newargs, node.kwds, node.vargs, node.kargs)
             copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
             self.recordFactSource(node, result)
@@ -629,10 +617,7 @@ class FoldTraverse(TypeDispatcher):
         for item in node:
             if isinstance(item, tuple):
                 result.append(
-                    tuple(
-                        self(part) if hasattr(part, "rewriteChildren") else part
-                        for part in item
-                    )
+                    tuple(self(part) if hasattr(part, "rewriteChildren") else part for part in item)
                 )
             elif hasattr(item, "rewriteChildren"):
                 result.append(self(item))

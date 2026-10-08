@@ -368,9 +368,7 @@ class TestPyflowExtensions:
         )
         assert sent[0]["result"]["variable"] == "x"
 
-    def test_stale_semantic_snapshot_suppresses_hover_and_semantic_queries(
-        self, mock_server
-    ):
+    def test_stale_semantic_snapshot_suppresses_hover_and_semantic_queries(self, mock_server):
         snapshot = mock_server.current_snapshot.return_value
         snapshot.semantic_stale = True
         snapshot.source_index.module_for_uri.return_value = "m"
@@ -414,9 +412,7 @@ def test_semantic_reload_coalesces_edit_bursts(mock_server):
 
 
 class TestStandardLspExtensions:
-    def test_rename_and_diagnostics_use_current_source_snapshot(
-        self, mock_server, tmp_path: Path
-    ):
+    def test_rename_and_diagnostics_use_current_source_snapshot(self, mock_server, tmp_path: Path):
         path = tmp_path / "sample.py"
         source = "def target():\n    return target()\n"
         index = SourceIndex({str(path): source}, (tmp_path,))

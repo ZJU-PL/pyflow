@@ -4,6 +4,7 @@ B609: Test for MarkupSafe XSS.
 Using Markup/MarkupSafe without proper escaping can introduce
 cross-site scripting vulnerabilities.
 """
+
 from ...common import issue
 from ..core import test_properties as test
 
@@ -13,7 +14,8 @@ from ..core import test_properties as test
 def markupsafe_xss(context):
     qualname = context.call_function_name_qual
     if qualname not in {
-        "markupsafe.Markup", "markupsafe.escape",
+        "markupsafe.Markup",
+        "markupsafe.escape",
     }:
         return None
     for arg in context.node.args:

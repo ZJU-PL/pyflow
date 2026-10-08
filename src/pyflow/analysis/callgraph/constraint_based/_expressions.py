@@ -68,9 +68,7 @@ class _ExpressionAnalysisMixin:
 
     def _string_constants(self, values) -> Set[str]:
         """Extract concrete string-like keys from abstract value sets."""
-        return {
-            value.name for value in values if value.kind == STRING_KIND and value.name
-        }
+        return {value.name for value in values if value.kind == STRING_KIND and value.name}
 
     def _combine_string_values(
         self, left: Set[AbstractValue], right: Set[AbstractValue]
@@ -97,10 +95,7 @@ class _ExpressionAnalysisMixin:
         for lhs in left_strings:
             for rhs in right_strings:
                 combined = f"{lhs}{rhs}"
-                if (
-                    not self.options.strict_precision_mode
-                    and len(combined) > max_length
-                ):
+                if not self.options.strict_precision_mode and len(combined) > max_length:
                     result.add(UNKNOWN_VALUE)
                 else:
                     result.add(make_string(combined))
@@ -150,9 +145,7 @@ class _ExpressionAnalysisMixin:
                 callees=callees,
                 input_changed_scope_contexts=input_changed_scope_contexts,
             ) or {UNKNOWN_VALUE}
-            self._assign_target(
-                scope, generator.target, iter_members, comp_env, weak=True
-            )
+            self._assign_target(scope, generator.target, iter_members, comp_env, weak=True)
             for cond in generator.ifs:
                 condition_values = self._eval_expr(
                     scope,
@@ -292,11 +285,7 @@ class _ExpressionAnalysisMixin:
             None,
         )
         reflected_name = next(
-            (
-                name
-                for kind, name in reflected_methods.items()
-                if isinstance(operator, kind)
-            ),
+            (name for kind, name in reflected_methods.items() if isinstance(operator, kind)),
             None,
         )
         results: Set[AbstractValue] = {BOOL_VALUE}
@@ -389,9 +378,7 @@ class _ExpressionAnalysisMixin:
                 input_changed_scope_contexts,
             )
             resolved = self._resolve_attribute(base_values, expr.attr)
-            instance_values = {
-                value for value in base_values if value.kind == INSTANCE_KIND
-            }
+            instance_values = {value for value in base_values if value.kind == INSTANCE_KIND}
             if instance_values:
                 # Attribute access itself is dynamically dispatchable in
                 # Python.  Preserve ordinary lookup results, but also include
@@ -400,9 +387,7 @@ class _ExpressionAnalysisMixin:
                 # may fail.  This is deliberately additive: the call graph is
                 # a may-graph, so hooks never remove statically known targets.
                 hook_names = ["__getattribute__"]
-                if not resolved or self._attribute_maybe_missing(
-                    instance_values, expr.attr
-                ):
+                if not resolved or self._attribute_maybe_missing(instance_values, expr.attr):
                     hook_names.append("__getattr__")
                 for hook_name in hook_names:
                     hook_targets = self._resolve_attribute(instance_values, hook_name)
@@ -427,22 +412,15 @@ class _ExpressionAnalysisMixin:
                             input_changed_scope_contexts=input_changed_scope_contexts,
                         )
                     )
-            if (
-                isinstance(expr.value, ast.Name)
-                and expr.value.id == scope.method_self_param
-            ):
+            if isinstance(expr.value, ast.Name) and expr.value.id == scope.method_self_param:
                 owner_class = self._owner_class_for_scope(scope.name)
                 if owner_class:
                     owner_info = self.classes.get(owner_class)
-                    owner_method = (
-                        owner_info.methods.get(expr.attr) if owner_info else None
-                    )
+                    owner_method = owner_info.methods.get(expr.attr) if owner_info else None
                     if owner_method:
                         for base_value in base_values:
                             if base_value.kind == INSTANCE_KIND:
-                                resolved.add(
-                                    make_bound_method(owner_method, base_value.name)
-                                )
+                                resolved.add(make_bound_method(owner_method, base_value.name))
             return resolved
 
         if isinstance(expr, ast.Call):
@@ -530,9 +508,7 @@ class _ExpressionAnalysisMixin:
                             if attr_value.kind == STRING_KIND:
                                 attr_names.add(attr_value.name)
                     for attr_name in attr_names:
-                        target_values.update(
-                            self._resolve_attribute(obj_values, attr_name)
-                        )
+                        target_values.update(self._resolve_attribute(obj_values, attr_name))
                         maybe_missing = (
                             maybe_missing
                             or self._attribute_maybe_missing(obj_values, attr_name)
@@ -583,21 +559,17 @@ class _ExpressionAnalysisMixin:
                     expr.args[0], scope.module, env=env
                 )
                 if target_types:
-                    return self._refine_values_with_type_filter(
-                        cast_values, target_types, True
-                    )
+                    return self._refine_values_with_type_filter(cast_values, target_types, True)
                 return cast_values or {UNKNOWN_VALUE}
 
             if isinstance(expr.func, ast.Call) and expr.args:
-                generic_names, dispatch_types = (
-                    self._singledispatch_registration_payload(
-                        expr.func,
-                        scope,
-                        scope_context,
-                        env,
-                        callees,
-                        input_changed_scope_contexts,
-                    )
+                generic_names, dispatch_types = self._singledispatch_registration_payload(
+                    expr.func,
+                    scope,
+                    scope_context,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 if generic_names:
                     callback_values = self._eval_expr(
@@ -614,9 +586,7 @@ class _ExpressionAnalysisMixin:
                                 continue
                             resolved_types = (
                                 dispatch_types
-                                or self._singledispatch_registration_types(
-                                    callback.name
-                                )
+                                or self._singledispatch_registration_types(callback.name)
                             )
                             self._register_singledispatch_implementation(
                                 generic_name,
@@ -711,10 +681,7 @@ class _ExpressionAnalysisMixin:
 
             function_info = self.functions.get(lambda_qualname)
             if function_info:
-                captured = {
-                    name: set(env.get(name, set()))
-                    for name in function_info.closure_vars
-                }
+                captured = {name: set(env.get(name, set())) for name in function_info.closure_vars}
                 if function_info.closure_vars and self._bind_closure_values(
                     lambda_qualname,
                     callee_context,
@@ -803,9 +770,7 @@ class _ExpressionAnalysisMixin:
                     expr.keys[index].value, int
                 ):
                     self._merge_value_set(
-                        self.container_key_values[container.name][
-                            f"#{expr.keys[index].value}"
-                        ],
+                        self.container_key_values[container.name][f"#{expr.keys[index].value}"],
                         set(evaluated_value),
                         preserve_callables=True,
                     )
@@ -1132,9 +1097,7 @@ class _ExpressionAnalysisMixin:
             )
             out6: Set[AbstractValue] = set()
             last_index = len(expr.ops) - 1
-            for index, (operator, comparator) in enumerate(
-                zip(expr.ops, expr.comparators)
-            ):
+            for index, (operator, comparator) in enumerate(zip(expr.ops, expr.comparators)):
                 right_values = self._eval_expr(
                     scope,
                     scope_context,
@@ -1242,9 +1205,7 @@ class _ExpressionAnalysisMixin:
                     ):
                         step = expr.slice.step.value
                     sliced_values = index_values[slice(start, stop, step)]
-                    slice_container = self._new_container(
-                        "slice", scope, scope_context, expr
-                    )
+                    slice_container = self._new_container("slice", scope, scope_context, expr)
                     for index, values in enumerate(sliced_values):
                         self._merge_value_set(
                             self.container_elements[slice_container.name],
@@ -1252,9 +1213,7 @@ class _ExpressionAnalysisMixin:
                             preserve_callables=True,
                         )
                         self._merge_value_set(
-                            self.container_key_values[slice_container.name][
-                                f"#{index}"
-                            ],
+                            self.container_key_values[slice_container.name][f"#{index}"],
                             set(values),
                             preserve_callables=True,
                         )
@@ -1317,10 +1276,7 @@ class _ExpressionAnalysisMixin:
             max_length = max(1, int(self.options.max_concrete_string_length))
             for parts in product(*pieces):
                 combined = "".join(parts)
-                if (
-                    not self.options.strict_precision_mode
-                    and len(combined) > max_length
-                ):
+                if not self.options.strict_precision_mode and len(combined) > max_length:
                     result.add(UNKNOWN_VALUE)
                 else:
                     result.add(make_string(combined))

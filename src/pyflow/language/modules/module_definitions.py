@@ -13,7 +13,6 @@ Key concepts:
 
 import ast
 
-
 # Contains all project definitions for a program run
 # Only used in framework_adaptor.py, but modified here
 project_definitions = dict()
@@ -67,14 +66,7 @@ class ModuleDefinition:
             name = self.name
         if self.node:
             node = str(self.node)
-        return (
-            "Path:"
-            + self.path
-            + " "
-            + self.__class__.__name__
-            + ": "
-            + ";".join((name, node))
-        )
+        return "Path:" + self.path + " " + self.__class__.__name__ + ": " + ";".join((name, node))
 
 
 class LocalModuleDefinition(ModuleDefinition):
@@ -109,9 +101,7 @@ class ModuleDefinitions:
         import_alias_mapping: Dictionary mapping aliases to actual names
     """
 
-    def __init__(
-        self, import_names=None, module_name=None, is_init=False, filename=None
-    ):
+    def __init__(self, import_names=None, module_name=None, is_init=False, filename=None):
         """Initialize module definitions collection.
 
         Args:
@@ -149,10 +139,7 @@ class ModuleDefinitions:
             self.definitions.append(definition)
         elif self.import_names and definition.name in self.import_names:
             self.definitions.append(definition)
-        elif (
-            self.import_alias_mapping
-            and definition.name in self.import_alias_mapping.values()
-        ):
+        elif self.import_alias_mapping and definition.name in self.import_alias_mapping.values():
             self.definitions.append(definition)
 
         if definition.parent_module_name:

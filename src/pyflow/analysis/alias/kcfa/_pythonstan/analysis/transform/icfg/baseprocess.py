@@ -24,6 +24,7 @@ import os
 from pycg import utils
 from pycg.machinery.definitions import Definition
 
+
 class ProcessingBase(ast.NodeVisitor):
     def __init__(self, filename, modname, modules_analyzed):
         self.modname = modname
@@ -33,7 +34,7 @@ class ProcessingBase(ast.NodeVisitor):
 
         self.filename = os.path.abspath(filename)
 
-        with open(filename, "rt", errors='replace') as f:
+        with open(filename, "rt", errors="replace") as f:
             self.contents = f.read()
 
         self.name_stack = []
@@ -75,8 +76,9 @@ class ProcessingBase(ast.NodeVisitor):
     def visit_Lambda(self, node, lambda_name=None):
         lambda_ns = utils.join_ns(self.current_ns, lambda_name)
         if not self.scope_manager.get_scope(lambda_ns):
-            self.scope_manager.create_scope(lambda_ns,
-                    self.scope_manager.get_scope(self.current_ns))
+            self.scope_manager.create_scope(
+                lambda_ns, self.scope_manager.get_scope(self.current_ns)
+            )
         self.name_stack.append(lambda_name)
         self.method_stack.append(lambda_name)
         self.visit(node.body)
@@ -297,7 +299,6 @@ class ProcessingBase(ast.NodeVisitor):
                 for item in cls.get_mro():
                     names.add(item)
         return names
-
 
     def _retrieve_parent_names(self, node):
         if not isinstance(node, ast.Attribute):

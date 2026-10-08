@@ -10,9 +10,4 @@ from .kcfa import PointerAnalysis, Config, AnalysisResult
 # Create alias for backwards compatibility
 PointerAnalysisDriver = PointerAnalysis
 
-__all__ = [
-    "PointerAnalysis",
-    "PointerAnalysisDriver",
-    "Config",
-    "AnalysisResult"
-]
+__all__ = ["PointerAnalysis", "PointerAnalysisDriver", "Config", "AnalysisResult"]

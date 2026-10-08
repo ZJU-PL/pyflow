@@ -33,8 +33,7 @@ def merge(src, dst):
         "item",
     }
     assert {
-        (finding.key_origin.label, finding.target_origin.label)
-        for finding in result.findings
+        (finding.key_origin.label, finding.target_origin.label) for finding in result.findings
     } == {("src", "dst")}
     assert all(len(finding.object_path) == 1 for finding in result.findings)
 
@@ -194,9 +193,7 @@ def assign_path(obj, key, value):
         ("__getitem__", "__setitem__", "item"),
     ],
 )
-def test_bound_reflective_protocol_methods(
-    tmp_path, getter, setter, mutation_kind
-):
+def test_bound_reflective_protocol_methods(tmp_path, getter, setter, mutation_kind):
     result = _analyze_source(
         tmp_path,
         f"""

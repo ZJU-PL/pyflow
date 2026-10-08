@@ -5,6 +5,7 @@ The assert statement is removed when compiling to optimised byte code
 (Python -O). Projects that use assert to enforce interface constraints
 will lose those protections when optimized.
 """
+
 import fnmatch
 
 from ...common import issue

@@ -5,6 +5,7 @@ from queue import Queue
 
 from . import ControlFlowGraph, BaseBlock
 
+
 def dump(cfg: ControlFlowGraph):
     """Return statements from blocks reachable from ``cfg``'s entry."""
     entry = cfg.get_entry()

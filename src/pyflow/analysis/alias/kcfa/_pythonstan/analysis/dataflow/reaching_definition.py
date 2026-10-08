@@ -16,22 +16,23 @@ class ReachingDefinitionAnalysis(DataflowAnalysis[Set[IRStatement]]):
         self.inter_procedure = False
 
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
+
         cfg = World().scope_manager.get_ir(scope, "cfg")
         self.defs = self.compute_defs(scope, cfg)
         super().__init__(scope, cfg, config)
-    
+
     def new_boundary_fact(self) -> Set[IRStatement]:
         return self.new_init_fact()
-    
+
     def new_init_fact(self) -> Set[IRStatement]:
         return {*()}
-    
+
     def meet(self, fact_1: Set[IRStatement], fact_2: Set[IRStatement]) -> Set[IRStatement]:
         return fact_1.union(fact_2)
 
     def need_transfer_edge(self, edge):
         super().need_transfer_edge(edge)
-    
+
     def compute_defs(self, scope: IRScope, cfg: ControlFlowGraph):
         defs = {}
         for cur_stmt in cfg.stmts:

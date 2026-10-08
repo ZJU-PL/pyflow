@@ -53,9 +53,7 @@ def audit_provenance(
         statements.append((statement, path, is_dsse))
 
     builders = {str(builder) for builder in trusted_builders if str(builder)}
-    authenticated = {
-        Path(value).resolve(strict=False) for value in authenticated_attestations
-    }
+    authenticated = {Path(value).resolve(strict=False) for value in authenticated_attestations}
     for value in artifacts:
         artifact = Path(value)
         if not artifact.is_file():

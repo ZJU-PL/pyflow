@@ -60,18 +60,12 @@ class StatCollector(object):
         self.facts = facts
         self.limit = 16
 
-        self.counts = collections.defaultdict(
-            lambda: collections.defaultdict(lambda: 0)
-        )
+        self.counts = collections.defaultdict(lambda: collections.defaultdict(lambda: 0))
         self.codeCount = collections.defaultdict(lambda: 0)
         self.contextCount = collections.defaultdict(lambda: 0)
 
-        self.opCount = collections.defaultdict(
-            lambda: collections.defaultdict(lambda: 0)
-        )
-        self.contextOpCount = collections.defaultdict(
-            lambda: collections.defaultdict(lambda: 0)
-        )
+        self.opCount = collections.defaultdict(lambda: collections.defaultdict(lambda: 0))
+        self.contextOpCount = collections.defaultdict(lambda: collections.defaultdict(lambda: 0))
 
         self.vargCount = 0
         self.contextVargCount = 0
@@ -92,11 +86,7 @@ class StatCollector(object):
         self.codeCount[cls] += 1
         self.contextCount[cls] += contexts
 
-        if (
-            hasattr(code, "codeparameters")
-            and code.codeparameters
-            and code.codeparameters.vparam
-        ):
+        if hasattr(code, "codeparameters") and code.codeparameters and code.codeparameters.vparam:
             self.vparamCount += 1
             self.contextVparamCount += contexts
 
@@ -121,14 +111,10 @@ class StatCollector(object):
 
             self.access[xtype] += 1
 
-        for slot in self.facts.merged_operation_effect(
-            Capabilities.OP_READS, code, op
-        ):
+        for slot in self.facts.merged_operation_effect(Capabilities.OP_READS, code, op):
             handleSlot(slot)
 
-        for slot in self.facts.merged_operation_effect(
-            Capabilities.OP_WRITES, code, op
-        ):
+        for slot in self.facts.merged_operation_effect(Capabilities.OP_WRITES, code, op):
             handleSlot(slot)
 
         for t, f in ts:
@@ -291,9 +277,7 @@ def opsRemoved(current, old):
             if currentOp:
                 builder.row(name, oldOp, currentOp, 0.0)
 
-    builder.row(
-        "Total", totalOld, totalCurrent, 100.0 * (totalOld - totalCurrent) / totalOld
-    )
+    builder.row("Total", totalOld, totalCurrent, 100.0 * (totalOld - totalCurrent) / totalOld)
 
     f = open(os.path.join(current.reportdir, "ops-removed.tex"), "w")
     builder.dumpLatex(f, "%s-ops-removed" % current.name)

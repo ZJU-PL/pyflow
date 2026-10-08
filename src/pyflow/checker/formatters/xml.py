@@ -2,6 +2,7 @@
 
 Outputs issues in XML format using a JUnit-style testsuite layout.
 """
+
 import logging
 import sys
 from xml.etree import ElementTree as ET
@@ -26,14 +27,9 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
 
     for issue in issues:
         test = issue.test
-        testcase = ET.SubElement(
-            root, "testcase", classname=issue.fname, name=test
-        )
+        testcase = ET.SubElement(root, "testcase", classname=issue.fname, name=test)
 
-        text = (
-            "Test ID: %s Severity: %s Confidence: %s\nCWE: %s\n%s\n"
-            "Location %s:%s"
-        )
+        text = "Test ID: %s Severity: %s Confidence: %s\nCWE: %s\n%s\n" "Location %s:%s"
         text %= (
             issue.test_id,
             issue.severity,

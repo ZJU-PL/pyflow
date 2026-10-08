@@ -94,7 +94,7 @@ class TestMarkLocals(unittest.TestCase):
         """Test visitLeaf does nothing."""
         marker = MarkLocals()
         marker.flow = MockFlow()
-        
+
         # Should not raise
         marker.visitLeaf(ast.Local("x"))
         marker.visitLeaf(None)
@@ -105,10 +105,10 @@ class TestMarkLocals(unittest.TestCase):
         flow = MockFlow()
         flow._current = "current"
         marker.flow = flow
-        
+
         local = ast.Local("x")
         marker.visitLocal(local)
-        
+
         # Flow should have defined the local
         self.assertIsNotNone(flow.lookup(local))
 
@@ -118,10 +118,10 @@ class TestMarkLocals(unittest.TestCase):
         flow = MockFlow()
         flow._current = None
         marker.flow = flow
-        
+
         local = ast.Local("x")
         marker.visitLocal(local)
-        
+
         # Flow should not have defined the local
         self.assertIsNone(flow.lookup(local))
 
@@ -146,7 +146,7 @@ class TestMarkLive(unittest.TestCase):
         """Test MarkLive initialization."""
         code = MockCode()
         marker = MarkLive(code)
-        
+
         self.assertEqual(marker.code, code)
         self.assertIsNotNone(marker.marker)
 
@@ -155,7 +155,7 @@ class TestMarkLive(unittest.TestCase):
         code1 = MockCode(descriptive=True)
         marker1 = MarkLive(code1)
         self.assertTrue(marker1.descriptive())
-        
+
         code2 = MockCode(descriptive=False)
         marker2 = MarkLive(code2)
         self.assertFalse(marker2.descriptive())
@@ -165,10 +165,10 @@ class TestMarkLive(unittest.TestCase):
         code = MockCode()
         marker = MarkLive(code)
         marker.flow = MockFlow()
-        
+
         local = ast.Local("x")
         marker.flow.define(local, "value")
-        
+
         node = ast.Delete(local)
         result = marker.visitDelete(node)
 

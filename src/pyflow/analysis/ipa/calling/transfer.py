@@ -176,9 +176,7 @@ class TransferInfoBuilder(object):
                 self.setParam(i, self.getDefault(i))
             else:
                 # Not enough positional parameters
-                return self.invalidateTransfer(
-                    "Not enough positional parameters (%d)" % i
-                )
+                return self.invalidateTransfer("Not enough positional parameters (%d)" % i)
 
         if cparams.vparam is not None:
             while self.positionalArgsRemain():

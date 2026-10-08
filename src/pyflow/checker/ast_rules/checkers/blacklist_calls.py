@@ -48,7 +48,5 @@ def check_blacklisted_calls(context):
     """
     qualname = getattr(context, "call_function_name_qual", None)
     return (
-        blacklist.blacklist_manager.check_blacklist("Call", qualname, context)
-        if qualname
-        else None
+        blacklist.blacklist_manager.check_blacklist("Call", qualname, context) if qualname else None
     )

@@ -67,9 +67,7 @@ def iter_import_nodes_in_scope(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
         """Return the guard's runtime truth value when it is TYPE_CHECKING."""
         negated = isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
         target = node.operand if negated else node
-        is_guard = (
-            isinstance(target, ast.Name) and target.id == "TYPE_CHECKING"
-        ) or (
+        is_guard = (isinstance(target, ast.Name) and target.id == "TYPE_CHECKING") or (
             isinstance(target, ast.Attribute)
             and target.attr == "TYPE_CHECKING"
             and isinstance(target.value, ast.Name)
@@ -103,9 +101,7 @@ def iter_import_nodes_in_scope(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
         if isinstance(node, (ast.Try, getattr(ast, "TryStar", ast.Try))):
             yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
             for handler in getattr(node, "handlers", ()) or ():
-                yield from iter_import_nodes_in_scope(
-                    getattr(handler, "body", ()) or ()
-                )
+                yield from iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
             yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
             yield from iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
             continue

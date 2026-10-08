@@ -105,9 +105,7 @@ class HeapAbstraction:
     ) -> None:
         self.policy = policy or HeapPolicy()
         self._raw_storage_provider = raw_storage_provider
-        self.storage_overrides = (
-            storage_overrides if storage_overrides is not None else {}
-        )
+        self.storage_overrides = storage_overrides if storage_overrides is not None else {}
         self.allocation_sites = allocation_sites if allocation_sites is not None else {}
         self.site_storage = site_storage if site_storage is not None else {}
         self._raw_locations: dict[object, HeapLocation] = {}
@@ -131,8 +129,7 @@ class HeapAbstraction:
     ) -> tuple[HeapLocation, ...]:
         """Return canonical locations currently bound to a local."""
         locations = tuple(
-            self.location_for_raw(raw)
-            for raw in self._raw_storage_for_local(procedure, local)
+            self.location_for_raw(raw) for raw in self._raw_storage_for_local(procedure, local)
         )
         name = getattr(local, "name", None)
         if isinstance(name, str):
@@ -150,13 +147,9 @@ class HeapAbstraction:
         if isinstance(raw, AttributeStorage):
             return self.dynamic_attribute_location(raw.base, str(raw.field))
         if isinstance(raw, SubscriptStorage):
-            return self.dynamic_subscript_location(
-                raw.base, self._storage_subscript(raw.key)
-            )
+            return self.dynamic_subscript_location(raw.base, self._storage_subscript(raw.key))
         if isinstance(raw, SummaryStorage):
-            return self._append_selector(
-                self.location_for_raw(raw.base), HeapSelector.summary()
-            )
+            return self._append_selector(self.location_for_raw(raw.base), HeapSelector.summary())
 
         raw_identity = self._canonical_raw(raw)
         key = self._raw_location_key(raw_identity)
@@ -194,9 +187,7 @@ class HeapAbstraction:
         updates are always safe.
         """
         if self._is_immutable_type(location.root):
-            return (
-                UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
-            )
+            return UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
         if not location.root.is_singleton():
             return UpdatePolicy.WEAK
         if not location.is_precise():
@@ -218,9 +209,7 @@ class HeapAbstraction:
             local_names=dict(self._local_names),
             escaped_objects=set(self._escaped_objects),
             equiv_parent=dict(self._equiv_parent),
-            equiv_members={
-                root: set(members) for root, members in self._equiv_members.items()
-            },
+            equiv_members={root: set(members) for root, members in self._equiv_members.items()},
             site_ref_counts=dict(self._site_ref_counts),
             local_values=dict(self._local_values),
         )
@@ -273,15 +262,11 @@ class HeapAbstraction:
         site_ref_counts: dict[int, int] = {}
 
         logical_keys = {
-            logical_key
-            for environment in environments
-            for logical_key in environment.local_values
+            logical_key for environment in environments for logical_key in environment.local_values
         }
         for environment in environments:
             logical_keys.update(
-                (key[0], name)
-                for key, name in environment.local_names.items()
-                if name
+                (key[0], name) for key, name in environment.local_names.items() if name
             )
         local_values: dict[tuple[object, str], LocalValue] = {}
         for logical_key in logical_keys:
@@ -295,11 +280,7 @@ class HeapAbstraction:
                         if (key[0], name) == logical_key
                         for raw in self._environment_storage(environment, key)
                     )
-                    value = (
-                        LocalValue(refs=refs)
-                        if refs
-                        else LocalValue(may_unbound=True)
-                    )
+                    value = LocalValue(refs=refs) if refs else LocalValue(may_unbound=True)
                 incoming_values.append(value)
             joined_value = incoming_values[0]
             for value in incoming_values[1:]:
@@ -308,28 +289,19 @@ class HeapAbstraction:
 
         for key in sorted(keys, key=self._binding_sort_key):
             incoming = tuple(
-                self._environment_storage(environment, key)
-                for environment in environments
+                self._environment_storage(environment, key) for environment in environments
             )
             joined = self._join_storage(incoming)
             if not joined:
                 continue
 
             storage_overrides[key] = joined
-            sites = tuple(
-                environment.allocation_sites.get(key) for environment in environments
-            )
+            sites = tuple(environment.allocation_sites.get(key) for environment in environments)
             concrete_sites = tuple(site for site in sites if site is not None)
             same_storage = all(
-                self._canonicalize_storage(storage) == joined
-                for storage in incoming
-                if storage
+                self._canonicalize_storage(storage) == joined for storage in incoming if storage
             )
-            if (
-                concrete_sites
-                and len(concrete_sites) == len(environments)
-                and same_storage
-            ):
+            if concrete_sites and len(concrete_sites) == len(environments) and same_storage:
                 site = concrete_sites[0]
             else:
                 site = self.next_site
@@ -369,8 +341,7 @@ class HeapAbstraction:
         if value is not None or not initialize:
             return value
         refs = frozenset(
-            self.location_for_raw(raw)
-            for raw in self._raw_storage_for_local(procedure, local)
+            self.location_for_raw(raw) for raw in self._raw_storage_for_local(procedure, local)
         )
         if not refs:
             return None
@@ -413,9 +384,7 @@ class HeapAbstraction:
     ) -> tuple[HeapLocation, ...]:
         return tuple(
             dict.fromkeys(
-                location
-                for storage in storages
-                for location in self._canonicalize_storage(storage)
+                location for storage in storages for location in self._canonicalize_storage(storage)
             )
         )
 
@@ -435,10 +404,7 @@ class HeapAbstraction:
         return len(logical_bindings)
 
     def _is_immutable_type(self, root: HeapObject) -> bool:
-        if (
-            root.type_hint is not None
-            and root.type_hint in self.policy.immutable_type_hints
-        ):
+        if root.type_hint is not None and root.type_hint in self.policy.immutable_type_hints:
             return True
         return False
 
@@ -647,9 +613,7 @@ class HeapAbstraction:
         self._set_local_value(
             procedure,
             local,
-            LocalValue(
-                refs=frozenset(self.location_for_raw(item) for item in raw)
-            ),
+            LocalValue(refs=frozenset(self.location_for_raw(item) for item in raw)),
         )
 
     def clear_local_binding(
@@ -759,9 +723,7 @@ class HeapAbstraction:
         """Bind a local to existing abstract locations."""
         if not self._is_named_local(local):
             return
-        storage = tuple(
-            dict.fromkeys(self.location_for_raw(location) for location in locations)
-        )
+        storage = tuple(dict.fromkeys(self.location_for_raw(location) for location in locations))
         if include_provider_storage:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
         if not storage:
@@ -932,9 +894,7 @@ class HeapAbstraction:
         *,
         label: str | None = None,
     ) -> HeapObject:
-        name = (
-            label or getattr(local, "name", None) or self._describe_raw_storage(local)
-        )
+        name = label or getattr(local, "name", None) or self._describe_raw_storage(local)
         key = ("local", self._procedure_key(procedure), self._local_key(procedure, local))
         return self._object(
             HeapObjectKind.LOCAL,
@@ -997,9 +957,7 @@ class HeapAbstraction:
     ) -> HeapObject:
         key = self._site_key("allocation", procedure, site, context)
         freshness = (
-            HeapObjectFreshness.FRESH
-            if self.policy.recency
-            else HeapObjectFreshness.SUMMARY
+            HeapObjectFreshness.FRESH if self.policy.recency else HeapObjectFreshness.SUMMARY
         )
         cardinality = (
             HeapObjectCardinality.ONE
@@ -1063,9 +1021,7 @@ class HeapAbstraction:
             freshness=HeapObjectFreshness.UNKNOWN,
             cardinality=HeapObjectCardinality.UNKNOWN,
             identity=(
-                HeapObjectIdentity.SYMBOLIC
-                if stable_identity
-                else HeapObjectIdentity.SUMMARY
+                HeapObjectIdentity.SYMBOLIC if stable_identity else HeapObjectIdentity.SUMMARY
             ),
             escape=HeapEscapeState.EXTERNAL,
         )
@@ -1135,21 +1091,11 @@ class HeapAbstraction:
             key,
             display,
             type_hint=type_hint,
-            freshness=(
-                HeapObjectFreshness.FRESH
-                if has_identity
-                else HeapObjectFreshness.SUMMARY
-            ),
+            freshness=(HeapObjectFreshness.FRESH if has_identity else HeapObjectFreshness.SUMMARY),
             cardinality=(
-                HeapObjectCardinality.ONE
-                if has_identity
-                else HeapObjectCardinality.UNKNOWN
+                HeapObjectCardinality.ONE if has_identity else HeapObjectCardinality.UNKNOWN
             ),
-            identity=(
-                HeapObjectIdentity.SYMBOLIC
-                if has_identity
-                else HeapObjectIdentity.SUMMARY
-            ),
+            identity=(HeapObjectIdentity.SYMBOLIC if has_identity else HeapObjectIdentity.SUMMARY),
             escape=(HeapEscapeState.LOCAL if has_identity else HeapEscapeState.UNKNOWN),
         )
 
@@ -1241,10 +1187,7 @@ class HeapAbstraction:
         query_path = getattr(query, "access_path", ())
         if stored_path == query_path:
             return True
-        return (
-            len(stored_path) <= len(query_path)
-            and query_path[: len(stored_path)] == stored_path
-        )
+        return len(stored_path) <= len(query_path) and query_path[: len(stored_path)] == stored_path
 
     def to_points_to_graph(
         self,
@@ -1295,15 +1238,11 @@ class HeapAbstraction:
         point_contaminants: dict[object, tuple[dict, dict]] = {}
         point_absent: dict[object, tuple[frozenset, frozenset]] = {}
         point_scalar_present: dict[object, tuple[frozenset, frozenset]] = {}
-        point_definitely_scalar_present: dict[
-            object, tuple[frozenset, frozenset]
-        ] = {}
+        point_definitely_scalar_present: dict[object, tuple[frozenset, frozenset]] = {}
         point_precise_shadows: dict[object, tuple[frozenset, frozenset]] = {}
         point_complete_roots: dict[object, tuple[frozenset, frozenset]] = {}
         point_locals: dict[object, tuple[dict, dict]] = {}
-        point_local_non_reference: dict[
-            object, tuple[frozenset, frozenset]
-        ] = {}
+        point_local_non_reference: dict[object, tuple[frozenset, frozenset]] = {}
         point_local_unbound: dict[object, tuple[frozenset, frozenset]] = {}
         point_outcomes: dict[object, dict[str, HeapValueSnapshot]] = {}
 
@@ -1319,9 +1258,7 @@ class HeapAbstraction:
                 for key, value in environment.local_values.items()
                 if value.refs
             }
-            keys = set(environment.storage_overrides) | set(
-                environment.allocation_sites
-            )
+            keys = set(environment.storage_overrides) | set(environment.allocation_sites)
             for key in keys:
                 name = environment.local_names.get(key)
                 if not name:
@@ -1337,9 +1274,7 @@ class HeapAbstraction:
             if environment is None:
                 return frozenset()
             return frozenset(
-                key
-                for key, value in environment.local_values.items()
-                if getattr(value, attribute)
+                key for key, value in environment.local_values.items() if getattr(value, attribute)
             )
 
         def payloads(mapping) -> dict[object, frozenset[HeapLocation]]:
@@ -1371,15 +1306,11 @@ class HeapAbstraction:
             point_contaminants[key] = (
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(
-                        before_heap, "contaminants", {}
-                    ).items()
+                    for location, stored in getattr(before_heap, "contaminants", {}).items()
                 },
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(
-                        after_heap, "contaminants", {}
-                    ).items()
+                    for location, stored in getattr(after_heap, "contaminants", {}).items()
                 },
             )
             point_absent[key] = (
@@ -1391,12 +1322,8 @@ class HeapAbstraction:
                 frozenset(getattr(after_heap, "scalar_present", ())),
             )
             point_definitely_scalar_present[key] = (
-                frozenset(
-                    getattr(before_heap, "definitely_scalar_present", ())
-                ),
-                frozenset(
-                    getattr(after_heap, "definitely_scalar_present", ())
-                ),
+                frozenset(getattr(before_heap, "definitely_scalar_present", ())),
+                frozenset(getattr(after_heap, "definitely_scalar_present", ())),
             )
             point_precise_shadows[key] = (
                 frozenset(getattr(before_heap, "precise_shadows", ())),
@@ -1420,9 +1347,7 @@ class HeapAbstraction:
                 label: HeapValueSnapshot(
                     values={
                         location: frozenset(stored)
-                        for location, stored in getattr(
-                            heap_state(outcome), "values", {}
-                        ).items()
+                        for location, stored in getattr(heap_state(outcome), "values", {}).items()
                     },
                     contaminants={
                         location: frozenset(stored)
@@ -1433,12 +1358,8 @@ class HeapAbstraction:
                         ).items()
                     },
                     absent=frozenset(getattr(heap_state(outcome), "absent", ())),
-                    complete_roots=frozenset(
-                        getattr(heap_state(outcome), "complete_roots", ())
-                    ),
-                    scalar_present=frozenset(
-                        getattr(heap_state(outcome), "scalar_present", ())
-                    ),
+                    complete_roots=frozenset(getattr(heap_state(outcome), "complete_roots", ())),
+                    scalar_present=frozenset(getattr(heap_state(outcome), "scalar_present", ())),
                     definitely_scalar_present=frozenset(
                         getattr(
                             heap_state(outcome),
@@ -1446,18 +1367,14 @@ class HeapAbstraction:
                             (),
                         )
                     ),
-                    precise_shadows=frozenset(
-                        getattr(heap_state(outcome), "precise_shadows", ())
-                    ),
+                    precise_shadows=frozenset(getattr(heap_state(outcome), "precise_shadows", ())),
                     locals=local_values(outcome),
                     locals_non_reference=local_flag_keys(
                         outcome,
                         "may_non_reference",
                     ),
                     locals_unbound=local_flag_keys(outcome, "may_unbound"),
-                    returns=return_payloads(
-                        getattr(heap_state(outcome), "return_slots", {})
-                    ),
+                    returns=return_payloads(getattr(heap_state(outcome), "return_slots", {})),
                     yields=payloads(getattr(heap_state(outcome), "yields", {})),
                     raised=payloads(getattr(heap_state(outcome), "raised", {})),
                 )
@@ -1466,9 +1383,7 @@ class HeapAbstraction:
         return PointsToGraph(
             entries=entries,
             allow_strong_nested_fresh=self.policy.allow_strong_nested_fresh,
-            heap_values={
-                location: frozenset(stored) for location, stored in values.items()
-            },
+            heap_values={location: frozenset(stored) for location, stored in values.items()},
             heap_contaminants={
                 location: frozenset(stored) for location, stored in contaminants.items()
             },
@@ -1479,15 +1394,11 @@ class HeapAbstraction:
             heap_definitely_scalar_present=frozenset(
                 getattr(state, "definitely_scalar_present", ())
             ),
-            heap_precise_shadows=frozenset(
-                getattr(state, "precise_shadows", ())
-            ),
+            heap_precise_shadows=frozenset(getattr(state, "precise_shadows", ())),
             complete_roots=frozenset(getattr(state, "complete_roots", ())),
             program_point_absent=point_absent,
             program_point_scalar_present=point_scalar_present,
-            program_point_definitely_scalar_present=(
-                point_definitely_scalar_present
-            ),
+            program_point_definitely_scalar_present=(point_definitely_scalar_present),
             program_point_precise_shadows=point_precise_shadows,
             program_point_complete_roots=point_complete_roots,
             program_point_outcomes=point_outcomes,
@@ -1702,13 +1613,9 @@ class HeapAbstraction:
             self._context_key(context),
         )
 
-    def _site_identity(
-        self, node: object, procedure: object | None = None
-    ) -> object:
+    def _site_identity(self, node: object, procedure: object | None = None) -> object:
         if isinstance(node, tuple):
-            return tuple(
-                self._site_identity(item, procedure) for item in node
-            )
+            return tuple(self._site_identity(item, procedure) for item in node)
         if isinstance(node, (str, bytes, int, float, bool, type(None))):
             return node
         catalog = getattr(node, "ir_catalog", None)
@@ -1776,9 +1683,7 @@ class HeapAbstraction:
             return ("storage", raw)
         missing = object()
         pyobj = getattr(raw, "pyobj", missing)
-        if pyobj is not missing and isinstance(
-            pyobj, (str, bytes, int, float, bool, type(None))
-        ):
+        if pyobj is not missing and isinstance(pyobj, (str, bytes, int, float, bool, type(None))):
             return ("literal", type(pyobj).__name__, pyobj)
         slot_name = getattr(raw, "slotName", None)
         if slot_name is not None:
@@ -1850,11 +1755,7 @@ class HeapAbstraction:
 
     @staticmethod
     def _subscript_literal(subscript: str) -> str | None:
-        if (
-            len(subscript) < 3
-            or not subscript.startswith("[")
-            or not subscript.endswith("]")
-        ):
+        if len(subscript) < 3 or not subscript.startswith("[") or not subscript.endswith("]"):
             return None
         inner = subscript[1:-1]
         if not inner or inner == "*":

@@ -51,27 +51,19 @@ def evaluate(compiler, prgm, simplify=False):
         saw_lifetime_data = False
         for code in prgm.liveCode:
             for context in facts.contexts(code):
-                live.update(
-                    facts.code_effect(
-                        Capabilities.LIFETIME_CODE_READS, code, context
-                    )
-                )
+                live.update(facts.code_effect(Capabilities.LIFETIME_CODE_READS, code, context))
                 saw_lifetime_data = True
 
             for op in codeOps(code):
                 for context in facts.contexts(code):
                     live.update(
-                        facts.operation_effect(
-                            Capabilities.LIFETIME_OP_READS, code, op, context
-                        )
+                        facts.operation_effect(Capabilities.LIFETIME_OP_READS, code, op, context)
                     )
                 if isinstance(op, ast.Store):
                     stores[code].append(op)
 
         if not saw_lifetime_data:
-            compiler.console.output(
-                "Skipping dead store elimination: missing lifetime facts."
-            )
+            compiler.console.output("Skipping dead store elimination: missing lifetime facts.")
             return False
 
         # Count total stores
@@ -119,9 +111,7 @@ def evaluate(compiler, prgm, simplify=False):
                             "store_elimination",
                             proof={
                                 "analysis": "lifetime",
-                                "ir_revision": (
-                                    str(revision) if revision is not None else None
-                                ),
+                                "ir_revision": (str(revision) if revision is not None else None),
                             },
                         )
                         eliminated += 1

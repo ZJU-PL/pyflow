@@ -275,7 +275,7 @@ def makeTimeStubs(collector):
     @attachPtr(time, "get_clock_info")
     @llfunc
     def time_get_clock_info(name):
-        return allocate(type(time.get_clock_info('time')))
+        return allocate(type(time.get_clock_info("time")))
 
     ### CLOCKS_PER_SEC ###
     @llfunc

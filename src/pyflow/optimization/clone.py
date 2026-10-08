@@ -268,9 +268,7 @@ class ProgramCloner(object):
         slots = set()
         for context in self.unifier.group(group):
             slots.update(
-                self.facts.operation_effect(
-                    Capabilities.LIFETIME_OP_READS, code, op, context
-                )
+                self.facts.operation_effect(Capabilities.LIFETIME_OP_READS, code, op, context)
             )
         return frozenset(self.slotNames(slots)) if slots else None
 
@@ -278,9 +276,7 @@ class ProgramCloner(object):
         slots = set()
         for context in self.unifier.group(group):
             slots.update(
-                self.facts.operation_effect(
-                    Capabilities.LIFETIME_OP_WRITES, code, op, context
-                )
+                self.facts.operation_effect(Capabilities.LIFETIME_OP_WRITES, code, op, context)
             )
         return frozenset(self.slotNames(slots)) if slots else None
 
@@ -306,9 +302,7 @@ class ProgramCloner(object):
             return False
 
     def labelInvoke(self, code, op, group):
-        targets = set(
-            [other.signature.code for other in self.groupOpInvokes[(group, op)]]
-        )
+        targets = set([other.signature.code for other in self.groupOpInvokes[(group, op)]])
 
         if targets:
             if len(targets) > 1:
@@ -354,9 +348,7 @@ class ProgramCloner(object):
                                 if invCode is otherCode:
                                     if self.isDifferent(invCode, inv, otherInv):
                                         assert inv is not otherInv
-                                        self.markDifferentSimple(
-                                            code, group, otherGroup
-                                        )
+                                        self.markDifferentSimple(code, group, otherGroup)
 
                         lut[group] = inv
 
@@ -712,8 +704,7 @@ def evaluate(compiler, prgm):
             compiler.console.output("=== Split ===")
             cloner.listGroups(compiler.console)
             compiler.console.output(
-                "Num groups %d / %d"
-                % (cloner.clonedNumGroups(), cloner.originalNumGroups())
+                "Num groups %d / %d" % (cloner.clonedNumGroups(), cloner.originalNumGroups())
             )
             compiler.console.output("")
 

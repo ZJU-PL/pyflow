@@ -17,11 +17,7 @@ class _ExpressionProtocolMixin:
         protocol_values = self._evaluate_known_protocol(
             procedure,
             sources,
-            (
-                "__aiter__"
-                if isinstance(expression, py_ast.AsyncGetIter)
-                else "__iter__"
-            ),
+            ("__aiter__" if isinstance(expression, py_ast.AsyncGetIter) else "__iter__"),
         )
         if not protocol_values and isinstance(expression, py_ast.GetIter):
             protocol_values = self._evaluate_known_protocol(
@@ -35,9 +31,7 @@ class _ExpressionProtocolMixin:
                 procedure,
                 expression,
                 label=(
-                    "async iterator"
-                    if isinstance(expression, py_ast.AsyncGetIter)
-                    else "iterator"
+                    "async iterator" if isinstance(expression, py_ast.AsyncGetIter) else "iterator"
                 ),
                 context=self._current_context,
             )
@@ -144,16 +138,12 @@ class _ExpressionProtocolMixin:
                 dict.fromkeys(
                     (
                         *(
-                            self._evaluate_known_protocol(
-                                procedure, left, protocol, (right,)
-                            )
+                            self._evaluate_known_protocol(procedure, left, protocol, (right,))
                             if protocol is not None
                             else ()
                         ),
                         *(
-                            self._evaluate_known_protocol(
-                                procedure, right, reflected, (left,)
-                            )
+                            self._evaluate_known_protocol(procedure, right, reflected, (left,))
                             if reflected is not None
                             else ()
                         ),

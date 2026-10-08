@@ -8,8 +8,7 @@ EnvType: PersistentMap[str, List[Any]]
 
 
 class ICFGTransformBase:
-    def __init__(self):
-        ...
+    def __init__(self): ...
 
     def resolve_node(self, env: PersistentMap, node: ast.expr) -> List:
         if isinstance(node, ast.Name):
@@ -96,11 +95,9 @@ class ICFGTransformBase:
                     ret.append(v)
             return list(set(ret))
 
-    def resolve_attribute(self, cls, attr: str) -> List:
-        ...
+    def resolve_attribute(self, cls, attr: str) -> List: ...
 
-    def resolve_subscript(self, env: PersistentMap, expr: ast.expr) -> List:
-        ...
+    def resolve_subscript(self, env: PersistentMap, expr: ast.expr) -> List: ...
 
     def _const(self, v) -> ast.Constant:
         return ast.Constant(value=v)
@@ -108,5 +105,7 @@ class ICFGTransformBase:
     def analysis_stmt(self, stmt: ast.stmt, env: PersistentMap):
         if isinstance(stmt, ast.Assign):
             ...
-        elif isinstance(stmt, ):
+        elif isinstance(
+            stmt,
+        ):
             ...

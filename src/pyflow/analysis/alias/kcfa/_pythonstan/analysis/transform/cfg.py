@@ -11,7 +11,7 @@ __all__ = ["CFG"]
 
 
 class CFG(Transform):
-    transformer: 'CFGTransformer'
+    transformer: "CFGTransformer"
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)

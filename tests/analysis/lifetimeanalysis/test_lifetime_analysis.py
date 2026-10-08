@@ -77,6 +77,7 @@ class TestFilteredSCC(unittest.TestCase):
     def test_empty_graph(self):
         """Test filtering SCC on empty graph."""
         import networkx as nx
+
         G = nx.DiGraph()
         result = filteredSCC(G)
         self.assertEqual(len(result), 0)
@@ -84,6 +85,7 @@ class TestFilteredSCC(unittest.TestCase):
     def test_single_node(self):
         """Test filtering SCC with single node (trivial SCC)."""
         import networkx as nx
+
         G = nx.DiGraph()
         G.add_node("A")
         result = filteredSCC(G)
@@ -93,6 +95,7 @@ class TestFilteredSCC(unittest.TestCase):
     def test_multiple_disconnected_nodes(self):
         """Test filtering SCC with disconnected nodes."""
         import networkx as nx
+
         G = nx.DiGraph()
         G.add_node("A")
         G.add_node("B")
@@ -102,6 +105,7 @@ class TestFilteredSCC(unittest.TestCase):
     def test_non_trivial_scc(self):
         """Test filtering SCC with a cycle (non-trivial SCC)."""
         import networkx as nx
+
         G = nx.DiGraph()
         G.add_edge("A", "B")
         G.add_edge("B", "A")
@@ -119,6 +123,7 @@ class TestFilteredSCC(unittest.TestCase):
     def test_mixed_graph(self):
         """Test filtering SCC with mixed trivial and non-trivial components."""
         import networkx as nx
+
         G = nx.DiGraph()
         # Non-trivial cycle
         G.add_edge("A", "B")
@@ -137,7 +142,7 @@ class TestObjectInfo(unittest.TestCase):
         """Test ObjectInfo initialization with existing object."""
         obj = MockObjectNode("test", is_existing=True, is_external=False)
         info = ObjectInfo(obj)
-        
+
         self.assertEqual(info.obj, obj)
         self.assertEqual(len(info.refersTo), 0)
         self.assertEqual(len(info.referedFrom), 0)
@@ -150,7 +155,7 @@ class TestObjectInfo(unittest.TestCase):
         """Test ObjectInfo initialization with external object."""
         obj = MockObjectNode("test", is_existing=False, is_external=True)
         info = ObjectInfo(obj)
-        
+
         self.assertFalse(info.globallyVisible)
         self.assertTrue(info.externallyVisible)
 
@@ -158,7 +163,7 @@ class TestObjectInfo(unittest.TestCase):
         """Test ObjectInfo initialization with regular object."""
         obj = MockObjectNode("test", is_existing=False, is_external=False)
         info = ObjectInfo(obj)
-        
+
         self.assertFalse(info.globallyVisible)
         self.assertFalse(info.externallyVisible)
 
@@ -168,10 +173,10 @@ class TestObjectInfo(unittest.TestCase):
         obj2 = MockObjectNode("obj2")
         info1 = ObjectInfo(obj1)
         info2 = ObjectInfo(obj2)
-        
+
         # Initially not reachable
         self.assertFalse(info1.isReachableFrom({info2}))
-        
+
         # Add info2 to heldByClosure of info1
         info1.heldByClosure.add(info2)
         self.assertTrue(info1.isReachableFrom({info2}))
@@ -181,11 +186,11 @@ class TestObjectInfo(unittest.TestCase):
         obj = MockObjectNode("test", is_existing=True, is_external=False)
         info = ObjectInfo(obj)
         self.assertTrue(info.leaks())
-        
+
         obj2 = MockObjectNode("test2", is_existing=False, is_external=True)
         info2 = ObjectInfo(obj2)
         self.assertTrue(info2.leaks())
-        
+
         obj3 = MockObjectNode("test3", is_existing=False, is_external=False)
         info3 = ObjectInfo(obj3)
         self.assertFalse(info3.leaks())
@@ -194,17 +199,17 @@ class TestObjectInfo(unittest.TestCase):
         """Test updateHeldBy method."""
         obj = MockObjectNode("test", is_existing=False, is_external=False)
         info = ObjectInfo(obj)
-        
+
         other_info = ObjectInfo(MockObjectNode("other"))
-        
+
         # Initially empty
         self.assertEqual(len(info.heldByClosure), 0)
-        
+
         # Update with new holder
         result = info.updateHeldBy({other_info})
         self.assertTrue(result)
         self.assertIn(other_info, info.heldByClosure)
-        
+
         # Update with same holder again
         result = info.updateHeldBy({other_info})
         self.assertFalse(result)
@@ -213,9 +218,9 @@ class TestObjectInfo(unittest.TestCase):
         """Test that updateHeldBy raises AssertionError for leaking object."""
         obj = MockObjectNode("test", is_existing=True, is_external=False)
         info = ObjectInfo(obj)
-        
+
         other_info = ObjectInfo(MockObjectNode("other"))
-        
+
         with self.assertRaises(AssertionError):
             info.updateHeldBy({other_info})
 
@@ -233,7 +238,7 @@ class TestDFSSearcher(unittest.TestCase):
         """Test enqueueing a single node."""
         searcher = DFSSearcher()
         searcher.enqueue("A")
-        
+
         self.assertIn("A", searcher._touched)
         self.assertIn("A", searcher._stack)
 
@@ -241,7 +246,7 @@ class TestDFSSearcher(unittest.TestCase):
         """Test enqueueing multiple nodes."""
         searcher = DFSSearcher()
         searcher.enqueue("A", "B", "C")
-        
+
         self.assertEqual(len(searcher._touched), 3)
         self.assertEqual(len(searcher._stack), 3)
 
@@ -250,7 +255,7 @@ class TestDFSSearcher(unittest.TestCase):
         searcher = DFSSearcher()
         searcher.enqueue("A")
         searcher.enqueue("A")
-        
+
         self.assertEqual(len(searcher._touched), 1)
         self.assertEqual(len(searcher._stack), 1)
 
@@ -262,20 +267,21 @@ class TestDFSSearcher(unittest.TestCase):
 
     def test_process_calls_visit(self):
         """Test that process calls visit for each node."""
+
         # Create a custom searcher with visit tracking
         class TrackingSearcher(DFSSearcher):
             def __init__(self):
                 super().__init__()
                 self.visited = []
-            
+
             def visit(self, node):
                 self.visited.append(node)
-        
+
         searcher = TrackingSearcher()
-        
+
         searcher.enqueue("A", "B")
         searcher.process()
-        
+
         self.assertEqual(len(searcher.visited), 2)
 
 
@@ -286,51 +292,52 @@ class TestObjectSearcher(unittest.TestCase):
         """Test ObjectSearcher initialization."""
         la = None  # We'll test with mock
         searcher = ObjectSearcher(la)
-        
+
         self.assertEqual(searcher.la, la)
         self.assertEqual(len(searcher._stack), 0)
         self.assertEqual(len(searcher._touched), 0)
 
     def test_visit_with_mock_object(self):
         """Test visiting a mock object."""
+
         class MockLA:
             def __init__(self):
                 self.obj_infos = {}
-            
+
             def getObjectInfo(self, obj):
                 if obj not in self.obj_infos:
                     self.obj_infos[obj] = ObjectInfo(obj)
                 return self.obj_infos[obj]
-        
+
         class MockSlot:
             def __init__(self, children):
                 self.children = children
-            
+
             def __iter__(self):
                 return iter(self.children)
-        
+
         class MockObj:
             def __init__(self, slots):
                 self.slots = slots
                 self.xtype = MockXType()
-            
+
             def __iter__(self):
                 return iter(self.slots)
-        
+
         la = MockLA()
         searcher = ObjectSearcher(la)
-        
+
         # Create object with a slot that references another object
         child_obj = MockObj([])
         parent_obj = MockObj([MockSlot([child_obj])])
-        
+
         # Visit parent object
         searcher.visit(parent_obj)
-        
+
         # Check that reference relationship was built
         parent_info = la.getObjectInfo(parent_obj)
         child_info = la.getObjectInfo(child_obj)
-        
+
         self.assertIn(child_info, parent_info.refersTo)
         self.assertIn(parent_info, child_info.referedFrom)
 
@@ -342,9 +349,9 @@ class TestReadModifyAnalysis(unittest.TestCase):
         """Test ReadModifyAnalysis initialization with empty live code."""
         liveCode = set()
         invokeSources = {}
-        
+
         analysis = ReadModifyAnalysis(liveCode, invokeSources, object())
-        
+
         self.assertEqual(analysis.invokeSources, invokeSources)
         self.assertEqual(len(analysis.contextReads), 0)
         self.assertEqual(len(analysis.contextModifies), 0)
@@ -355,10 +362,10 @@ class TestReadModifyAnalysis(unittest.TestCase):
         """Test process with empty killed set."""
         liveCode = set()
         invokeSources = {}
-        
+
         analysis = ReadModifyAnalysis(liveCode, invokeSources, object())
         analysis.process({})
-        
+
         # Should not raise any exceptions
         self.assertIsNotNone(analysis.killed)
 
@@ -366,10 +373,10 @@ class TestReadModifyAnalysis(unittest.TestCase):
         """Test handleModifies with empty input."""
         liveCode = set()
         invokeSources = {}
-        
+
         facts = SimpleNamespace(contexts=lambda _code: ())
         analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
-        
+
         # Should handle empty modifies gracefully
         analysis.handleModifies(object(), None)
 
@@ -377,10 +384,10 @@ class TestReadModifyAnalysis(unittest.TestCase):
         """Test handleReads with empty input."""
         liveCode = set()
         invokeSources = {}
-        
+
         facts = SimpleNamespace(contexts=lambda _code: ())
         analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
-        
+
         # Should handle empty reads gracefully
         analysis.handleReads(object(), None)
 
@@ -388,10 +395,10 @@ class TestReadModifyAnalysis(unittest.TestCase):
         """Test handleAllocates with empty input."""
         liveCode = set()
         invokeSources = {}
-        
+
         facts = SimpleNamespace(contexts=lambda _code: ())
         analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
-        
+
         # Should handle empty allocates gracefully
         analysis.handleAllocates(object(), None)
 

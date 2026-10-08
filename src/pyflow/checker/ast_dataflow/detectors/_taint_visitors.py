@@ -62,9 +62,7 @@ class _StatementVisitorMixin:
                     self.tainted.discard(target.id)
                     self._clear_container_taint(target.id)
                     continue
-                elif isinstance(node.value, ast.Constant) and isinstance(
-                    node.value.value, int
-                ):
+                elif isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
                     self.int_values[target.id] = node.value.value
 
                 # Track dict literal key order for destructuring `k1, k2 = d`.
@@ -93,10 +91,7 @@ class _StatementVisitorMixin:
                     else:
                         self.tainted.add(target.id)
                         self.int_values.pop(target.id, None)
-                elif (
-                    isinstance(node.value, ast.Name)
-                    and node.value.id in self.tainted_containers
-                ):
+                elif isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
                     self._mark_container_tainted(target.id)
                 elif isinstance(node.value, ast.Name):
                     src_key = self._alias_key(node.value.id)
@@ -130,9 +125,7 @@ class _StatementVisitorMixin:
 
                 # Tainted keys taint the container structure even when the
                 # stored value is safe.
-                if base and (
-                    value_is_source or value_is_tainted or key_expr_is_tainted
-                ):
+                if base and (value_is_source or value_is_tainted or key_expr_is_tainted):
                     if key_expr_is_tainted:
                         # Only dict keys are exposed via `keys()`; keep this
                         # separate so `values()` remains precise.
@@ -159,10 +152,7 @@ class _StatementVisitorMixin:
             elif isinstance(target, (ast.Tuple, ast.List)):
                 # Destructuring assignment / unpacking.
                 # 1) Dict-key iteration destructuring from a dict literal.
-                if (
-                    isinstance(node.value, ast.Name)
-                    and node.value.id in self.dict_key_order
-                ):
+                if isinstance(node.value, ast.Name) and node.value.id in self.dict_key_order:
                     keys = self.dict_key_order[node.value.id]
                     for idx, elt in enumerate(target.elts):
                         if isinstance(elt, ast.Name) and idx < len(keys):
@@ -172,9 +162,7 @@ class _StatementVisitorMixin:
 
                 # 2) Starred unpacking into a rest list: `a, *rest = [..]`
                 star_indices = [
-                    i
-                    for i, elt in enumerate(target.elts)
-                    if isinstance(elt, ast.Starred)
+                    i for i, elt in enumerate(target.elts) if isinstance(elt, ast.Starred)
                 ]
                 if star_indices and len(star_indices) == 1:
                     star_i = star_indices[0]
@@ -212,15 +200,11 @@ class _StatementVisitorMixin:
                             self._clear_paths_for_root(rest_name)
                             for idx, v in enumerate(rest_values):
                                 if isinstance(v, (ast.Dict, ast.List, ast.Tuple)):
-                                    self._record_literal_taint_paths(
-                                        (rest_name, str(idx)), v
-                                    )
+                                    self._record_literal_taint_paths((rest_name, str(idx)), v)
                                 elif self._expr_is_tainted(v):
                                     self._record_tainted_path((rest_name, str(idx)))
                                 if self._expr_is_tainted(v):
-                                    self._mark_container_key_tainted(
-                                        rest_name, str(idx)
-                                    )
+                                    self._mark_container_key_tainted(rest_name, str(idx))
                             continue
 
                 # 3) Simple positional destructuring.
@@ -275,10 +259,7 @@ class _StatementVisitorMixin:
                 self._update_container_from_expr(target_name, node.value)
             else:
                 self.tainted.add(target_name)
-        elif (
-            isinstance(node.value, ast.Name)
-            and node.value.id in self.tainted_containers
-        ):
+        elif isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
             self._mark_container_tainted(target_name)
         elif isinstance(node.value, ast.Name):
             src_key = self._alias_key(node.value.id)
@@ -298,10 +279,7 @@ class _StatementVisitorMixin:
         if isinstance(node.target, ast.Name):
             if value_is_tainted:
                 self.tainted.add(node.target.id)
-            if (
-                isinstance(node.value, ast.Name)
-                and node.value.id in self.tainted_containers
-            ):
+            if isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
                 self._mark_container_tainted(node.target.id)
             if isinstance(node.value, ast.Name):
                 src_key = self._alias_key(node.value.id)
@@ -373,9 +351,7 @@ class _StatementVisitorMixin:
             if callee in self.known_callees:
                 tainted_params, _ = self._tainted_params_for_call(node, callee)
                 if tainted_params:
-                    self.call_param_taints.setdefault(callee, set()).update(
-                        tainted_params
-                    )
+                    self.call_param_taints.setdefault(callee, set()).update(tainted_params)
                 key_taints = self._tainted_param_keys_for_call(node, callee)
                 if key_taints:
                     merged = self.call_param_key_taints.setdefault(callee, {})
@@ -427,9 +403,7 @@ class _StatementVisitorMixin:
         for case in node.cases:
             bindings = self._collect_match_bindings(case.pattern)
             for name in bindings:
-                if self._binding_captures_subject(
-                    case.pattern, name, subject_is_tainted
-                ):
+                if self._binding_captures_subject(case.pattern, name, subject_is_tainted):
                     self.tainted.add(name)
         self.generic_visit(node)
 
@@ -444,9 +418,7 @@ class _StatementVisitorMixin:
             if iter_fullname == "enumerate":
                 # Mark both index and value as potentially tainted if iter is tainted
                 iter_is_tainted = (
-                    self._expr_is_tainted(node.iter.args[0])
-                    if node.iter.args
-                    else False
+                    self._expr_is_tainted(node.iter.args[0]) if node.iter.args else False
                 )
                 if iter_is_tainted:
                     for target in node.target.elts:

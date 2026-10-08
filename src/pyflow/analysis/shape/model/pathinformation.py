@@ -80,9 +80,7 @@ class EquivalenceClass(object):
     def absorb(self, other):
         assert not self.forward
         assert not other.forward
-        assert not (
-            self.hit ^ other.hit
-        ).mustBeTrue(), "Cannot merge a hit with a miss..."
+        assert not (self.hit ^ other.hit).mustBeTrue(), "Cannot merge a hit with a miss..."
 
         if self is not other:
             if other.hit.certain() and not self.hit.certain():
@@ -403,9 +401,7 @@ class EquivalenceClass(object):
 
         lut = {}
 
-        hidden, pure = self._splitHidden(
-            extendedParameters, sharedEq, accessedCallback, {}, False
-        )
+        hidden, pure = self._splitHidden(extendedParameters, sharedEq, accessedCallback, {}, False)
         return hidden
 
     def forgetRoots(self, kill):
@@ -578,10 +574,7 @@ class PathInformation(object):
                 next = cls.getAttr(attr)
                 if attr is slot:
                     if next and (
-                        keepHits
-                        and next.hit.mustBeTrue()
-                        or keepMisses
-                        and next.hit.mustBeFalse()
+                        keepHits and next.hit.mustBeTrue() or keepMisses and next.hit.mustBeFalse()
                     ):
                         pass
                     else:
@@ -627,9 +620,7 @@ class PathInformation(object):
         # parameters but that may be mutated will be seperated from those that cannot
         # be mutated.
         # Example {s.n, t.m} will be lost if only n is accessed.
-        hidden = PathInformation(
-            self.root.splitHidden(extendedParameters, accessedCallback)
-        )
+        hidden = PathInformation(self.root.splitHidden(extendedParameters, accessedCallback))
         self.root.killHiddenRoots()
         assert not self.containsAged()
         return self, hidden

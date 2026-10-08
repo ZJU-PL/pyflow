@@ -202,9 +202,10 @@ class _ExpressionAccessMixin:
             if isinstance(expression, py_ast.Load)
             else self.effect_builder._constant_string(expression.name) or "*"
         )
-        if isinstance(expression, py_ast.Load) and getattr(
-            expression, "fieldtype", None
-        ) in {"Dictionary", "Array"}:
+        if isinstance(expression, py_ast.Load) and getattr(expression, "fieldtype", None) in {
+            "Dictionary",
+            "Array",
+        }:
             locations = self.heap.dynamic_subscript_locations(
                 bases,
                 (f"[{attribute}]",),

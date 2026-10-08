@@ -49,20 +49,14 @@ def test_call_model_merged_taint_source():
 
 
 def test_call_model_merges_taint_propagations():
-    argument_to_return = TaintPropagation(
-        TaintModelPort("parameter", 0), TaintModelPort("return")
-    )
-    receiver_to_return = TaintPropagation(
-        TaintModelPort("receiver"), TaintModelPort("return")
-    )
+    argument_to_return = TaintPropagation(TaintModelPort("parameter", 0), TaintModelPort("return"))
+    receiver_to_return = TaintPropagation(TaintModelPort("receiver"), TaintModelPort("return"))
     a = CallModel(name="f", taint_propagations=frozenset({argument_to_return}))
     b = CallModel(name="f", taint_propagations=frozenset({receiver_to_return}))
 
     merged = a.merged(b)
 
-    assert merged.taint_propagations == frozenset(
-        {argument_to_return, receiver_to_return}
-    )
+    assert merged.taint_propagations == frozenset({argument_to_return, receiver_to_return})
 
 
 def test_taint_propagation_rejects_invalid_port_directions():
@@ -79,9 +73,7 @@ def test_taint_propagation_supports_paths_mutation_and_kind_mapping():
         mapped_kinds=(("user_input", "validated_input"),),
     )
 
-    assert propagation.transform_kind("user_input") == frozenset(
-        {"validated_input"}
-    )
+    assert propagation.transform_kind("user_input") == frozenset({"validated_input"})
     assert propagation.target.path == ("copy",)
 
 
@@ -127,9 +119,7 @@ def test_call_model_merged_track_method_receiver():
 def test_call_model_merged_raises_on_name_mismatch():
     a = CallModel(name="x")
     b = CallModel(name="y")
-    with pytest.raises(
-        ValueError, match="Cannot merge call models with different names"
-    ):
+    with pytest.raises(ValueError, match="Cannot merge call models with different names"):
         a.merged(b)
 
 
@@ -329,9 +319,7 @@ def test_taint_registry_requires_explicit_typed_models():
     )
     assert registry.model_for_name("input").source_kinds == frozenset({"user_input"})
     assert registry.model_for_name("exec").sink_kinds == frozenset({"rce"})
-    assert registry.model_for_name("escape").sanitizer_kinds == frozenset(
-        {"user_input"}
-    )
+    assert registry.model_for_name("escape").sanitizer_kinds == frozenset({"user_input"})
 
 
 def test_from_nullness_configuration():
@@ -377,9 +365,7 @@ def test_from_typestate_configuration():
 
 
 def test_registry_merged_combines_multiple_registries():
-    r1 = CallModelRegistry(
-        [CallModel(name="f", source_kinds=frozenset({"user_input"}))]
-    )
+    r1 = CallModelRegistry([CallModel(name="f", source_kinds=frozenset({"user_input"}))])
     r2 = CallModelRegistry([CallModel(name="f", sink_kinds=frozenset({"sql"}))])
     r3 = CallModelRegistry([CallModel(name="g", nullness_nullable_return=True)])
 
@@ -391,9 +377,7 @@ def test_registry_merged_combines_multiple_registries():
 
 
 def test_registry_merged_preserves_original():
-    r1 = CallModelRegistry(
-        [CallModel(name="f", source_kinds=frozenset({"user_input"}))]
-    )
+    r1 = CallModelRegistry([CallModel(name="f", source_kinds=frozenset({"user_input"}))])
     r2 = CallModelRegistry([CallModel(name="g", sink_kinds=frozenset({"sql"}))])
 
     merged = r1.merged(r2)

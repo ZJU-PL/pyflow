@@ -74,9 +74,7 @@ def codeShortName(code):
         name = code.codeName()
         callee = code.codeParameters()
 
-        args = [
-            paramName(p, n is None) for p, n in zip(callee.params, callee.paramnames)
-        ]
+        args = [paramName(p, n is None) for p, n in zip(callee.params, callee.paramnames)]
         vargs = paramName(callee.vparam)
         kargs = paramName(callee.kparam)
 

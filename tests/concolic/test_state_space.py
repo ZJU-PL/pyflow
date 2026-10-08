@@ -2,7 +2,6 @@ import pytest
 
 from pyflow.concolic.exploration.state_space import SolverResultCache, SolverStateSpace
 
-
 z3 = pytest.importorskip("z3")
 
 

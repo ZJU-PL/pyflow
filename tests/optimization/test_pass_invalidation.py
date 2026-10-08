@@ -89,9 +89,11 @@ def test_optimization_pass_invalidates_analysis():
     compiler = _compiler()
 
     # Mock simplify to return changed=True
-    with patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True), \
-         patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()):
+    with (
+        patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True),
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()),
+    ):
         manager.run_passes(compiler, program, ["simplify"])
 
     # Analysis results should be cleared after transformation
@@ -156,18 +158,22 @@ def test_stale_annotation_detection():
     compiler = _compiler()
 
     # Run lifetime analysis
-    with patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()):
+    with (
+        patch("pyflow.application.passes.builtin.lifetimeanalysis.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()),
+    ):
         manager.run_passes(compiler, program, ["lifetime"])
 
     # lifetime_analysis should be set
     assert program.session.get_result("lifetime") is not None
 
     # Run transformation that invalidates lifetime
-    with patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True), \
-         patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()), \
-         patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()):
+    with (
+        patch("pyflow.application.passes.builtin.simplify.evaluate", return_value=True),
+        patch("pyflow.application.passes.builtin.ipa.evaluate", return_value=Mock()),
+        patch("pyflow.application.passes.builtin.cpa.evaluate", return_value=Mock()),
+    ):
         manager.run_passes(compiler, program, ["simplify"])
 
     # lifetime_analysis should be cleared

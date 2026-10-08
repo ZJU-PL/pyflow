@@ -83,9 +83,7 @@ class TestDumpGir(unittest.TestCase):
         module = module_code("def main(value: int):\n    return value\n")
         code = module.ast.blocks[0].code
         with tempfile.TemporaryDirectory() as out_dir:
-            ok = ir_cli.dump_gir(
-                None, [code], "main", out_dir, format="json"
-            )
+            ok = ir_cli.dump_gir(None, [code], "main", out_dir, format="json")
             self.assertTrue(ok)
             path = os.path.join(out_dir, "main_gir.json")
             with open(path) as f:
@@ -101,9 +99,7 @@ def parse_mir_args(path, *arguments):
     return parser.parse_args(["ir", str(path), "--dump-mir", *map(str, arguments)])
 
 
-def test_dump_mir_json_does_not_execute_source_or_legacy_frontend(
-    tmp_path, monkeypatch, capsys
-):
+def test_dump_mir_json_does_not_execute_source_or_legacy_frontend(tmp_path, monkeypatch, capsys):
     source = tmp_path / "sample.py"
     marker = tmp_path / "executed.txt"
     source.write_text(
@@ -117,9 +113,7 @@ def test_dump_mir_json_does_not_execute_source_or_legacy_frontend(
 
     monkeypatch.setattr(ir_cli, "build_interface_from_paths", legacy_frontend_must_not_run)
     destination = tmp_path / "out"
-    args = parse_mir_args(
-        source, "--dump-format", "json", "--dump-output", destination
-    )
+    args = parse_mir_args(source, "--dump-format", "json", "--dump-output", destination)
     ir_cli.run_ir_dump(source, args)
 
     data = json.loads((destination / "sample_mir.json").read_text(encoding="utf-8"))
@@ -132,15 +126,11 @@ def test_dump_mir_json_does_not_execute_source_or_legacy_frontend(
 def test_dump_mir_can_select_nested_scope(tmp_path):
     source = tmp_path / "sample.py"
     source.write_text(
-        "def outer():\n"
-        "    def inner():\n        return 1\n"
-        "    return inner\n",
+        "def outer():\n" "    def inner():\n        return 1\n" "    return inner\n",
         encoding="utf-8",
     )
     destination = tmp_path / "out"
-    args = parse_mir_args(
-        source, "inner", "--dump-format", "text", "--dump-output", destination
-    )
+    args = parse_mir_args(source, "inner", "--dump-format", "text", "--dump-output", destination)
     ir_cli.run_ir_dump(source, args)
 
     dumps = list(destination.glob("*_mir.text"))

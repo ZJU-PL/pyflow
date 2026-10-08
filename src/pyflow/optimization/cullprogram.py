@@ -53,10 +53,7 @@ def retain_live_contexts(catalog, live_contexts) -> bool:
 
     if not replacements:
         return False
-    before = {
-        capability: catalog.facts.items(capability)
-        for capability in replacements
-    }
+    before = {capability: catalog.facts.items(capability) for capability in replacements}
     if all(tuple(replacements[name].items()) == before[name] for name in replacements):
         return False
     catalog.facts.replace_many("context-culler", replacements)

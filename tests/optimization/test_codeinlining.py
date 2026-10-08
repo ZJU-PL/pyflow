@@ -60,7 +60,7 @@ class TestCodeInliningAnalysis(unittest.TestCase):
         analysis.terminal = False
         analysis.inlinable = True
         analysis.level = 0
-        
+
         # Should not raise
         analysis.visitLeaf(ast.Local("x"))
         analysis.visitLeaf(None)
@@ -72,7 +72,7 @@ class TestCodeInliningAnalysis(unittest.TestCase):
         analysis.terminal = False
         analysis.inlinable = True
         analysis.level = 0
-        
+
         # Should not raise for Local type
         analysis.visitLeaf(ast.Local("x"))
 
@@ -127,7 +127,7 @@ class TestOpInliningTransform(unittest.TestCase):
         """Test visitLeaf returns node unchanged."""
         analysis = CodeInliningAnalysis()
         transform = make_op_transform(analysis)
-        
+
         node = ast.Local("x")
         result = transform.visitLeaf(node)
         self.assertEqual(result, node)
@@ -136,20 +136,20 @@ class TestOpInliningTransform(unittest.TestCase):
         """Test visitDoNotCare returns new DoNotCare."""
         analysis = CodeInliningAnalysis()
         transform = make_op_transform(analysis)
-        
+
         node = ast.DoNotCare()
         result = transform.visitDoNotCare(node)
-        
+
         self.assertIsInstance(result, ast.DoNotCare)
 
     def test_visitCode(self):
         """Test visitCode returns node unchanged."""
         analysis = CodeInliningAnalysis()
         transform = make_op_transform(analysis)
-        
+
         class MockCode:
             pass
-        
+
         code = MockCode()
         result = transform.visitCode(code)
         self.assertEqual(result, code)
@@ -231,11 +231,11 @@ class TestCodeInliningTransform(unittest.TestCase):
     def test_init(self):
         """Test CodeInliningTransform initialization with required arguments."""
         analysis = CodeInliningAnalysis()
-        
+
         # CodeInliningTransform requires (analysis, compiler, prgm, intrinsics)
         # We test that the class can be imported and its attributes exist
         # Full initialization requires complex compiler/prgm objects
-        self.assertTrue(hasattr(CodeInliningTransform, '__init__'))
+        self.assertTrue(hasattr(CodeInliningTransform, "__init__"))
 
     def test_try_inline_rejects_non_literal_default_re_evaluation(self):
         analysis = CodeInliningAnalysis()
@@ -339,9 +339,11 @@ class TestCodeInliningEvaluate(unittest.TestCase):
             def process(self, _code):
                 return None
 
-        with patch("pyflow.optimization.codeinlining.CodeInliningAnalysis", _Analysis), patch(
-            "pyflow.optimization.codeinlining.CodeInliningTransform", _Transform
-        ), patch("pyflow.optimization.codeinlining.rebuild_program_ir"):
+        with (
+            patch("pyflow.optimization.codeinlining.CodeInliningAnalysis", _Analysis),
+            patch("pyflow.optimization.codeinlining.CodeInliningTransform", _Transform),
+            patch("pyflow.optimization.codeinlining.rebuild_program_ir"),
+        ):
             changed = evaluate(compiler, prgm)
 
         self.assertTrue(changed)

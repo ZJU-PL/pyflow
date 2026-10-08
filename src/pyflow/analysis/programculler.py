@@ -119,6 +119,7 @@ def makeCGF(prgm):
     explicitly instead of being recovered from legacy annotations.
     """
     import logging
+
     _LOG = logging.getLogger(__name__)
 
     cgf = CallGraphFinder(prgm.ir)

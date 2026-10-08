@@ -36,9 +36,7 @@ _CFG_KINDS: Set[CPGEdgeKind] = {
 _AST_KINDS: Set[CPGEdgeKind] = {CPGEdgeKind.AST_CHILD}
 _CALL_KINDS: Set[CPGEdgeKind] = {CPGEdgeKind.CALL}
 _RETURN_KINDS: Set[CPGEdgeKind] = {CPGEdgeKind.RETURN_EDGE}
-_ALL_KINDS: Set[CPGEdgeKind] = (
-    _PDG_KINDS | _CFG_KINDS | _AST_KINDS | _CALL_KINDS | _RETURN_KINDS
-)
+_ALL_KINDS: Set[CPGEdgeKind] = _PDG_KINDS | _CFG_KINDS | _AST_KINDS | _CALL_KINDS | _RETURN_KINDS
 
 
 @dataclass
@@ -120,9 +118,7 @@ def _iter_ast_children(node: Any) -> Iterator[Any]:
             yield child
 
 
-def _build_ast_parent_map(
-    root: Any, *, pdg_ast_set: Optional[Set[int]] = None
-) -> Dict[int, Any]:
+def _build_ast_parent_map(root: Any, *, pdg_ast_set: Optional[Set[int]] = None) -> Dict[int, Any]:
     """Build a parent map from ``id(child)`` → *parent* for every AST node
     reachable from *root*.  When *pdg_ast_set* is provided, only nodes
     whose ``id()`` is in the set are recorded (speeds up PDG-targeted lookups).

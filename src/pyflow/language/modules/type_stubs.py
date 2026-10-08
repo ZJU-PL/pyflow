@@ -229,9 +229,7 @@ def get_cached_stub_map(
     """
     key = (*(str(d) for d in directories), python_version or ())
     if key not in _stub_map_cache:
-        _stub_map_cache[key] = build_stub_map(
-            directories, python_version=python_version
-        )
+        _stub_map_cache[key] = build_stub_map(directories, python_version=python_version)
     return _stub_map_cache[key]
 
 
@@ -581,62 +579,42 @@ class _StubVisitor(ast.NodeVisitor):
         for stmt in node.body:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 cls.methods.append(self._extract_function(stmt))
-            elif isinstance(stmt, ast.AnnAssign) and isinstance(
-                stmt.target, ast.Name
-            ):
-                cls.class_vars.append(
-                    (stmt.target.id, _expr_to_str(stmt.annotation))
-                )
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                cls.class_vars.append((stmt.target.id, _expr_to_str(stmt.annotation)))
         self._info.classes.append(cls)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
         if isinstance(node.target, ast.Name):
-            self._info.variables.append(
-                (node.target.id, _expr_to_str(node.annotation))
-            )
+            self._info.variables.append((node.target.id, _expr_to_str(node.annotation)))
 
     # -- Helpers ------------------------------------------------------------
 
-    def _extract_function(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> StubFunctionInfo:
+    def _extract_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> StubFunctionInfo:
         func = StubFunctionInfo(name=node.name)
         func.decorators = [_expr_to_str(d) for d in node.decorator_list]
 
         for arg in node.args.posonlyargs + node.args.args:
-            annotation = (
-                _expr_to_str(arg.annotation) if arg.annotation else None
-            )
+            annotation = _expr_to_str(arg.annotation) if arg.annotation else None
             func.params.append((arg.arg, annotation))
-            func.param_kinds[arg.arg] = (
-                "posonly"
-                if arg in node.args.posonlyargs
-                else "pos_or_kw"
-            )
+            func.param_kinds[arg.arg] = "posonly" if arg in node.args.posonlyargs else "pos_or_kw"
 
         # *args
         if node.args.vararg:
             annotation = (
-                _expr_to_str(node.args.vararg.annotation)
-                if node.args.vararg.annotation
-                else None
+                _expr_to_str(node.args.vararg.annotation) if node.args.vararg.annotation else None
             )
             func.params.append((f"*{node.args.vararg.arg}", annotation))
             func.param_kinds[f"*{node.args.vararg.arg}"] = "vararg"
 
         for arg in node.args.kwonlyargs:
-            annotation = (
-                _expr_to_str(arg.annotation) if arg.annotation else None
-            )
+            annotation = _expr_to_str(arg.annotation) if arg.annotation else None
             func.params.append((arg.arg, annotation))
             func.param_kinds[arg.arg] = "kwonly"
 
         # **kwargs
         if node.args.kwarg:
             annotation = (
-                _expr_to_str(node.args.kwarg.annotation)
-                if node.args.kwarg.annotation
-                else None
+                _expr_to_str(node.args.kwarg.annotation) if node.args.kwarg.annotation else None
             )
             func.params.append((f"**{node.args.kwarg.arg}", annotation))
             func.param_kinds[f"**{node.args.kwarg.arg}"] = "kwarg"

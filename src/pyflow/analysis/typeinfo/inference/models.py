@@ -182,7 +182,5 @@ class ProjectInferenceResult:
         for module_name in sorted(self.modules, key=len, reverse=True):
             prefix = f"{module_name}."
             if qualified_name.startswith(prefix):
-                return self.modules[module_name].type_of(
-                    qualified_name.removeprefix(prefix)
-                )
+                return self.modules[module_name].type_of(qualified_name.removeprefix(prefix))
         return None

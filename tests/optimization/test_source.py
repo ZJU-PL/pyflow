@@ -31,15 +31,13 @@ def _candidate(kind, node):
 
 
 def test_optimize_source_folds_constants_and_removes_dead_if_branch():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate():
     value = 2 * (3 + 4)
     if 1 < 2:
         return value
     return 0
-"""
-    )
+""")
 
     assert result.constant_folds >= 2
     assert result.dead_branches_removed == 1
@@ -60,28 +58,24 @@ def calculate():
 
 
 def test_optimize_source_preserves_while_else_semantics():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate():
     while False:
         raise AssertionError("unreachable")
     else:
         return 1 + 1
-"""
-    )
+""")
 
     assert result.dead_branches_removed == 1
     assert _run(result.source, "calculate")() == 2
 
 
 def test_optimize_source_removes_statements_after_return():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate():
     return 42
     raise AssertionError("unreachable")
-"""
-    )
+""")
 
     assert result.unreachable_statements_removed == 1
     assert "AssertionError" not in result.source
@@ -118,13 +112,11 @@ def calculate():
 
 
 def test_optimize_source_removes_a_statically_true_assert_without_evaluating_message():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate():
     assert 2 * 3 == 6, fail_if_evaluated()
     return 42
-"""
-    )
+""")
 
     assert result.redundant_assertions_removed == 1
     assert "fail_if_evaluated" not in result.source
@@ -144,12 +136,10 @@ def calculate():
 
 
 def test_optimize_source_eliminates_short_circuited_boolean_operands():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate():
     return False and fail_if_evaluated(), True or fail_if_evaluated()
-"""
-    )
+""")
 
     assert result.boolean_simplifications == 2
     assert "fail_if_evaluated" not in result.source
@@ -157,12 +147,10 @@ def calculate():
 
 
 def test_optimize_source_keeps_tail_after_leading_boolean_identity():
-    result = optimize_source(
-        """\
+    result = optimize_source("""\
 def calculate(first, second):
     return True and first and second, False or first or second
-"""
-    )
+""")
 
     optimized = _run(result.source, "calculate")
     for first, second in ((0, 2), (1, 2), (1, 0)):
@@ -308,9 +296,7 @@ def calculate():
 """
     statement = ast.parse(source).body[0].body[0]
 
-    result = optimize_source(
-        source, legacy_candidates=[_candidate("dce_discard", statement)]
-    )
+    result = optimize_source(source, legacy_candidates=[_candidate("dce_discard", statement)])
 
     assert result.legacy_candidates_applied == 1
     assert result.legacy_candidates_rejected == 0
@@ -326,9 +312,7 @@ def calculate():
 """
     expression = ast.parse(source).body[0].body[0].value
 
-    result = optimize_source(
-        source, legacy_candidates=[_candidate("load_elimination", expression)]
-    )
+    result = optimize_source(source, legacy_candidates=[_candidate("load_elimination", expression)])
 
     assert result.legacy_candidates_applied == 0
     assert result.legacy_candidates_rejected == 1
@@ -466,9 +450,7 @@ def test_optimization_report_distinguishes_candidates_not_routed_to_source(tmp_p
     results = emit_optimized_sources(
         [source_file], source_file, output, legacy_candidates=candidates
     )
-    report = optimization_report(
-        results, level=1, legacy_candidates=candidates
-    )
+    report = optimization_report(results, level=1, legacy_candidates=candidates)
 
     assert report["legacy_source_candidates"]["recorded"] == 1
     assert report["legacy_source_candidates"]["applied"] == 0
@@ -498,9 +480,7 @@ def test_legacy_transformation_report_preserves_ir_provenance():
         },
     )()
     node = "module:answer/n7"
-    frame = type(
-        "Frame", (), {"kind": "fold", "inputs": ("module:answer/n2",), "detail": ""}
-    )()
+    frame = type("Frame", (), {"kind": "fold", "inputs": ("module:answer/n2",), "detail": ""})()
     catalog = type(
         "Catalog",
         (),

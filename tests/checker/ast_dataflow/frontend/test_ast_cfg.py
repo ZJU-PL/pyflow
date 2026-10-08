@@ -47,9 +47,7 @@ def f(flag):
         break
     return flag
 """)
-    break_node = next(
-        node for node in built.graph.nodes if node.kind is ASTNodeKind.BREAK
-    )
+    break_node = next(node for node in built.graph.nodes if node.kind is ASTNodeKind.BREAK)
     edge = built.graph.outgoing(break_node)[0]
 
     assert edge.kind is EdgeKind.BREAK
@@ -74,8 +72,7 @@ def f():
     )
 
     assert any(
-        edge.kind is EdgeKind.EXCEPTION
-        and edge.target.kind is ASTNodeKind.HANDLER_DISPATCH
+        edge.kind is EdgeKind.EXCEPTION and edge.target.kind is ASTNodeKind.HANDLER_DISPATCH
         for edge in built.graph.outgoing(risky)
     )
 
@@ -87,9 +84,7 @@ def f(manager):
         consume(value)
     return value
 """)
-    with_node = next(
-        node for node in built.graph.nodes if isinstance(node.syntax, ast.With)
-    )
+    with_node = next(node for node in built.graph.nodes if isinstance(node.syntax, ast.With))
     body = built.graph.outgoing(with_node)[0].target
 
     assert isinstance(body.syntax, ast.Expr)

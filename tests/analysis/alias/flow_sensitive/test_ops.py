@@ -39,11 +39,13 @@ def test_binary_op_result_conservatively_includes_overloaded_operands():
     z = py_ast.Local("z")
     code = _code(
         "test",
-        py_ast.Suite([
-            py_ast.Assign(py_ast.BuildList([]), [x]),
-            py_ast.Assign(x, [y]),
-            py_ast.Assign(py_ast.BinaryOp(x, "+", y), [z]),
-        ]),
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(x, [y]),
+                py_ast.Assign(py_ast.BinaryOp(x, "+", y), [z]),
+            ]
+        ),
     )
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, code)
@@ -60,10 +62,12 @@ def test_unary_op_result_conservatively_includes_overloaded_operand():
     z = py_ast.Local("z")
     code = _code(
         "test",
-        py_ast.Suite([
-            py_ast.Assign(py_ast.BuildList([]), [x]),
-            py_ast.Assign(py_ast.UnaryPrefixOp("-", x), [z]),
-        ]),
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(py_ast.UnaryPrefixOp("-", x), [z]),
+            ]
+        ),
     )
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, code)
@@ -80,10 +84,12 @@ def test_named_expr_result_flows_value_locations():
     z = py_ast.Local("z")
     code = _code(
         "test",
-        py_ast.Suite([
-            py_ast.Assign(py_ast.BuildList([]), [x]),
-            py_ast.Assign(py_ast.NamedExpr(z, x), [z]),
-        ]),
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(py_ast.NamedExpr(z, x), [z]),
+            ]
+        ),
     )
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, code)
@@ -287,9 +293,7 @@ def test_local_delete_removes_binding():
     y_locations = heap.locations_for_local(code, y)
     assert len(y_locations) == 1, "y should still have the old location"
     x_locations = heap.locations_for_local(code, x)
-    assert len(x_locations) == 0, (
-        "x should have no locations after delete"
-    )
+    assert len(x_locations) == 0, "x should have no locations after delete"
 
 
 def test_getslice_conservatively_allows_custom_getitem_to_return_container():

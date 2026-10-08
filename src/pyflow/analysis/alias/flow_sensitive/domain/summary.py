@@ -58,11 +58,7 @@ class HeapSummary:
 
     def strong_write_locations(self) -> tuple[HeapLocation, ...]:
         return tuple(
-            dict.fromkeys(
-                write.location
-                for write in self.writes
-                if write.policy.value == "strong"
-            )
+            dict.fromkeys(write.location for write in self.writes if write.policy.value == "strong")
         )
 
     def __repr__(self) -> str:
@@ -157,14 +153,11 @@ class ProcedureHeapSummary:
             "normal": self.normal_state is not None,
             "raises_normally": self.raise_state is not None,
             "deletes": [loc.to_dict() for loc in self.deletes],
-            "returns": [
-                [location.to_dict() for location in slot] for slot in self.returns
-            ],
+            "returns": [[location.to_dict() for location in slot] for slot in self.returns],
             "raises": [location.to_dict() for location in self.raises],
             "yields": [location.to_dict() for location in self.yields],
             "param_returns": {
-                str(index): sorted(parameters)
-                for index, parameters in self.param_returns.items()
+                str(index): sorted(parameters) for index, parameters in self.param_returns.items()
             },
             "param_escapes": sorted(self.param_escapes),
             "effects": self.effects.to_dict(),

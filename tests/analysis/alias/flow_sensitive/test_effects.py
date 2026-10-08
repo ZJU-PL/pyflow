@@ -167,10 +167,13 @@ def test_heap_effect_models_pop_as_collection_delete_not_value_escape():
     )
 
     assert effect.escapes == ()
-    assert heap.dynamic_subscript_location(
-        heap.locations_for_local(None, container)[0],
-        "['payload']",
-    ) in effect.deletes
+    assert (
+        heap.dynamic_subscript_location(
+            heap.locations_for_local(None, container)[0],
+            "['payload']",
+        )
+        in effect.deletes
+    )
 
 
 def test_heap_effect_insert_escapes_inserted_value_not_index():
@@ -224,9 +227,7 @@ def test_heap_effect_models_deque_appendleft_as_collection_write():
     )
 
     assert heap.locations_for_local(None, value)[0] in effect.escapes
-    assert any(
-        "[*]" in heap.display_label_for_location(w.location) for w in effect.writes
-    )
+    assert any("[*]" in heap.display_label_for_location(w.location) for w in effect.writes)
 
 
 def test_heap_effect_classifies_sorted_as_copy_and_string_returns_as_fresh():
@@ -267,9 +268,7 @@ def test_heap_effect_accepts_project_specific_intrinsic_models():
         intrinsics=intrinsics,
     )
     array_call = py_ast.Call(py_ast.Local("numpy.array"), [source], [], None, None)
-    push = py_ast.Discard(
-        py_ast.MethodCall(container, _existing("push"), [value], [], None, None)
-    )
+    push = py_ast.Discard(py_ast.MethodCall(container, _existing("push"), [value], [], None, None))
 
     array_effect = builder.operation_effect(None, py_ast.Assign(array_call, [target]))
     push_effect = builder.operation_effect(
@@ -327,16 +326,11 @@ def test_heap_effect_extracts_slice_write_locations():
     stop = _existing(3)
     step = _existing(1)
 
-    effect = builder.operation_effect(
-        None, py_ast.SetSlice(value, container, start, stop, step)
-    )
+    effect = builder.operation_effect(None, py_ast.SetSlice(value, container, start, stop, step))
 
     assert len(effect.writes) >= 1
     write_locations = {w.location for w in effect.writes}
-    assert any(
-        "[*]" in heap.display_label_for_location(loc)
-        for loc in write_locations
-    )
+    assert any("[*]" in heap.display_label_for_location(loc) for loc in write_locations)
 
 
 def test_heap_effect_extracts_slice_delete_locations():
@@ -348,9 +342,7 @@ def test_heap_effect_extracts_slice_delete_locations():
     stop = _existing(3)
     step = _existing(1)
 
-    effect = builder.operation_effect(
-        None, py_ast.DeleteSlice(container, start, stop, step)
-    )
+    effect = builder.operation_effect(None, py_ast.DeleteSlice(container, start, stop, step))
 
     assert len(effect.deletes) >= 1
 

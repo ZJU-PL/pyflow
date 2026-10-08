@@ -44,11 +44,7 @@ def test_applies_standalone_transfers_for_alias_escape_and_return():
             [
                 py_ast.Assign(py_ast.BuildList([]), [x]),
                 py_ast.Assign(x, [y]),
-                py_ast.Discard(
-                    py_ast.MethodCall(
-                        y, _existing("append"), [value], [], None, None
-                    )
-                ),
+                py_ast.Discard(py_ast.MethodCall(y, _existing("append"), [value], [], None, None)),
                 py_ast.Return([x]),
             ]
         ),
@@ -222,9 +218,7 @@ def test_replays_cached_direct_call_summary_side_effects():
     loaded = py_ast.Local("loaded")
     callee = _code(
         "store_payload",
-        py_ast.Suite(
-            [py_ast.SetAttr(formal_value, formal_obj, _existing("payload"))]
-        ),
+        py_ast.Suite([py_ast.SetAttr(formal_value, formal_obj, _existing("payload"))]),
         params=(formal_obj, formal_value),
     )
     caller = _code(
@@ -232,13 +226,9 @@ def test_replays_cached_direct_call_summary_side_effects():
         py_ast.Suite(
             [
                 py_ast.Assign(py_ast.BuildList([]), [obj]),
-                py_ast.Discard(
-                    py_ast.DirectCall(callee, None, [obj, value], [], None, None)
-                ),
+                py_ast.Discard(py_ast.DirectCall(callee, None, [obj, value], [], None, None)),
                 py_ast.DeleteAttr(obj, _existing("payload")),
-                py_ast.Discard(
-                    py_ast.DirectCall(callee, None, [obj, value], [], None, None)
-                ),
+                py_ast.Discard(py_ast.DirectCall(callee, None, [obj, value], [], None, None)),
                 py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
             ]
         ),
@@ -273,13 +263,9 @@ def test_replays_cached_direct_call_summary_deletes():
             [
                 py_ast.Assign(py_ast.BuildList([]), [obj]),
                 py_ast.SetAttr(first_value, obj, _existing("payload")),
-                py_ast.Discard(
-                    py_ast.DirectCall(callee, None, [obj], [], None, None)
-                ),
+                py_ast.Discard(py_ast.DirectCall(callee, None, [obj], [], None, None)),
                 py_ast.SetAttr(second_value, obj, _existing("payload")),
-                py_ast.Discard(
-                    py_ast.DirectCall(callee, None, [obj], [], None, None)
-                ),
+                py_ast.Discard(py_ast.DirectCall(callee, None, [obj], [], None, None)),
                 py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
             ]
         ),
@@ -298,8 +284,7 @@ def test_replays_cached_direct_call_summary_deletes():
     assert first_value_location not in loaded_locations
     assert second_value_location not in loaded_locations
     assert not any(
-        graph.may_alias(location, second_value_location)
-        for location in loaded_locations
+        graph.may_alias(location, second_value_location) for location in loaded_locations
     )
 
 
@@ -326,9 +311,7 @@ def test_dotted_import_binds_top_package_without_as_alias():
     package = py_ast.Local("pkg")
     code = _code(
         "main",
-        py_ast.Suite(
-            [py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [package])]
-        ),
+        py_ast.Suite([py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [package])]),
     )
 
     analysis = HeapAnalysis()
@@ -344,9 +327,7 @@ def test_dotted_import_as_alias_binds_full_module():
     alias = py_ast.Local("alias")
     code = _code(
         "main",
-        py_ast.Suite(
-            [py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [alias])]
-        ),
+        py_ast.Suite([py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [alias])]),
     )
 
     analysis = HeapAnalysis()
@@ -404,9 +385,7 @@ def test_star_import_records_precision_degradation():
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, code)
 
-    assert graph.degradations_at(operation.expr) == frozenset(
-        {"star-import-namespace"}
-    )
+    assert graph.degradations_at(operation.expr) == frozenset({"star-import-namespace"})
 
 
 def test_tracks_instance_field_store_and_load_values():
@@ -557,9 +536,9 @@ def test_param_return_preserves_alias_through_direct_call():
 
     arg_location = heap.locations_for_local(caller, arg)[0]
     result_location = heap.locations_for_local(caller, result)[0]
-    assert graph.must_alias(result_location, arg_location), (
-        "Call result from identity function should alias the argument"
-    )
+    assert graph.must_alias(
+        result_location, arg_location
+    ), "Call result from identity function should alias the argument"
 
 
 def test_direct_call_keyword_arguments_bind_by_name():
@@ -850,9 +829,7 @@ def test_direct_call_preserves_multi_result_positions_across_branches():
     assert set(first_locations) == expected_first
     assert set(second_locations) == expected_second
     assert not any(
-        graph.may_alias(first, second)
-        for first in first_locations
-        for second in second_locations
+        graph.may_alias(first, second) for first in first_locations for second in second_locations
     )
 
 
@@ -1033,6 +1010,6 @@ def test_param_escape_tracked_through_direct_call():
     assert heap is not None
 
     arg_location = heap.locations_for_local(caller, arg)[0]
-    assert graph.is_escaped(arg_location), (
-        "Argument should be escaped after callee stores it in a global"
-    )
+    assert graph.is_escaped(
+        arg_location
+    ), "Argument should be escaped after callee stores it in a global"

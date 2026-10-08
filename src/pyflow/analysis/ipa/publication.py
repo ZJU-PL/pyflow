@@ -36,9 +36,7 @@ def publish_ipa_facts(program, analysis) -> int:
         if isinstance(code, ast.Code)
     }
     for code, contexts in contexts_by_code.items():
-        ordered = sorted(
-            contexts, key=lambda context: stable_ir_key(context, catalog, code)
-        )
+        ordered = sorted(contexts, key=lambda context: stable_ir_key(context, catalog, code))
         ids = []
         for context in ordered:
             context_id = catalog.register_context(
@@ -48,9 +46,7 @@ def publish_ipa_facts(program, analysis) -> int:
             )
             context_ids[(code, context)] = context_id
             ids.append(context_id)
-        published_contexts[catalog.procedure(code).code_id] = FactResult.exact(
-            ids, "ipa"
-        )
+        published_contexts[catalog.procedure(code).code_id] = FactResult.exact(ids, "ipa")
 
     targets_by_key: DefaultDict[ContextualKey, set[CallTarget]] = defaultdict(set)
     summaries_by_code: dict[Hashable, list[PublishedIPASummary]] = {
@@ -95,9 +91,7 @@ def publish_ipa_facts(program, analysis) -> int:
             if node_id.code != catalog.procedure(code).code_id or not semantics.calls:
                 continue
             for context in contexts:
-                targets_by_key[
-                    ContextualKey(node_id, context_ids[(code, context)])
-                ]
+                targets_by_key[ContextualKey(node_id, context_ids[(code, context)])]
     for (code, context), context_id in context_ids.items():
         for (operation, destination), _invocation in context.invokeOut.items():
             target_code = getattr(getattr(destination, "signature", None), "code", None)
@@ -118,8 +112,7 @@ def publish_ipa_facts(program, analysis) -> int:
             {
                 Capabilities.CONTEXTS: published_contexts,
                 Capabilities.CALL_TARGETS: {
-                    key: FactResult.exact(targets, "ipa")
-                    for key, targets in targets_by_key.items()
+                    key: FactResult.exact(targets, "ipa") for key, targets in targets_by_key.items()
                 },
                 Capabilities.IPA_SUMMARIES: {
                     code_id: FactResult.exact(summaries, "ipa")

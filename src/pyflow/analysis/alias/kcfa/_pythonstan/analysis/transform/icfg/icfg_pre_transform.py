@@ -38,20 +38,20 @@ class ICFGPreTransform(ICFGTransformBase):
                 elif isinstance(stmt, JumpIfTrue):
                     if stmt.label in cfg.label2blk:
                         tgt_blk = cfg.label2blk[stmt.label]
-                        cond_assigns[tgt_blk] = [(t, [self._const(True)])
-                                                 for t in self.resolve_node(env, stmt.test)]
+                        cond_assigns[tgt_blk] = [
+                            (t, [self._const(True)]) for t in self.resolve_node(env, stmt.test)
+                        ]
                 elif isinstance(stmt, JumpIfFalse):
                     if stmt.label in cfg.label2blk:
                         tgt_blk = cfg.label2blk[stmt.label]
-                        cond_assigns[tgt_blk] = [(t, [self._const(False)])
-                                                 for t in self.resolve_node(env, stmt.test)]
+                        cond_assigns[tgt_blk] = [
+                            (t, [self._const(False)]) for t in self.resolve_node(env, stmt.test)
+                        ]
             for succ in cfg.succs_of(cur_blk):
                 new_env = PersistentMap(env.backup())
                 if succ in cond_assigns:
                     for k, v in cond_assigns[succ]:
                         new_env[k] = v
-
-
 
     def analysis_cls(self, cls: IRClass, env: PersistentMap):
         if cls.keywords is not None:
@@ -62,8 +62,7 @@ class ICFGPreTransform(ICFGTransformBase):
                             ...
         ...
 
-    def analysis_func(self, func: IRFunc, env: PersistentMap):
-        ...
+    def analysis_func(self, func: IRFunc, env: PersistentMap): ...
 
 
-#self.analysis_stmt(env, stmt.get_ast())
+# self.analysis_stmt(env, stmt.get_ast())

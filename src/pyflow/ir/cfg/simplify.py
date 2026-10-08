@@ -15,9 +15,7 @@ def evaluate(compiler, g, *, commit_revision=True):
         compiler: Compiler context for simplification.
         g: CFG graph to simplify.
     """
-    transaction = (
-        CFGTransformTransaction(g, "cfg-simplify") if commit_revision else None
-    )
+    transaction = CFGTransformTransaction(g, "cfg-simplify") if commit_revision else None
     killflow.evaluate(compiler, g)
     optimize.evaluate(compiler, g, commit_revision=False)
     gc.evaluate(compiler, g)
