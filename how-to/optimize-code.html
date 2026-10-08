@@ -223,8 +223,8 @@ performance of your Python programs.</p>
 <section id="via-python-api">
 <h3>Via Python API<a class="headerlink" href="#via-python-api" title="Link to this heading"></a></h3>
 <p>For programmatic optimization:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
 <span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
@@ -240,8 +240,8 @@ performance of your Python programs.</p>
 <section id="via-pass-manager">
 <h3>Via Pass Manager<a class="headerlink" href="#via-pass-manager" title="Link to this heading"></a></h3>
 <p>For complex optimization pipelines:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
 <span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>

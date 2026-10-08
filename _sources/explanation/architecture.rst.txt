@@ -284,8 +284,8 @@ Orchestrates optimization passes:
 
 .. code-block:: python
 
-   from pyflow.application.passmanager import PassManager
-   from pyflow.application.passes import register_standard_passes
+   from pyflow.application.passes.manager import PassManager
+   from pyflow.application.passes.registry import register_standard_passes
 
    pm = PassManager()
    register_standard_passes(pm)
@@ -312,7 +312,7 @@ Coordinates the overall analysis process:
    from pyflow.application.pipeline import Pipeline
 
    pipeline = Pipeline()
-   results = pipeline.run(program)
+   results = pipeline.run(program, compiler=compiler)
 
 Analysis Context
 ----------------
@@ -321,11 +321,11 @@ Manages analysis configuration and state:
 
 .. code-block:: python
 
-   from pyflow import Context
+   from pyflow.application.program import Program
+   from pyflow.application.session import AnalysisOptions
 
-   context = Context()
-   context.slots["cpa.context_sensitive"] = True
-   context.slots["callgraph.algorithm"] = "constraint"
+   program = Program(options=AnalysisOptions(cpa_path_length=3))
+   session = program.session
 
 Data Flow
 =========

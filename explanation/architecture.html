@@ -397,8 +397,8 @@ representing program structure and analysis results.</p>
 <section id="pass-manager">
 <h3>Pass Manager<a class="headerlink" href="#pass-manager" title="Link to this heading"></a></h3>
 <p>Orchestrates optimization passes:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
 <span class="n">pm</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pm</span><span class="p">)</span>
@@ -422,18 +422,18 @@ representing program structure and analysis results.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 
 <span class="n">pipeline</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">compiler</span><span class="o">=</span><span class="n">compiler</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="analysis-context">
 <h3>Analysis Context<a class="headerlink" href="#analysis-context" title="Link to this heading"></a></h3>
 <p>Manages analysis configuration and state:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Context</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.program</span><span class="w"> </span><span class="kn">import</span> <span class="n">Program</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisOptions</span>
 
-<span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"cpa.context_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"callgraph.algorithm"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"constraint"</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">Program</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">AnalysisOptions</span><span class="p">(</span><span class="n">cpa_path_length</span><span class="o">=</span><span class="mi">3</span><span class="p">))</span>
+<span class="n">session</span> <span class="o">=</span> <span class="n">program</span><span class="o">.</span><span class="n">session</span>
 </pre></div>
 </div>
 </section>

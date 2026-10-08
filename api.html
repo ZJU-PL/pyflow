@@ -140,21 +140,18 @@
 <p>The PyFlow API provides programmatic access to PyFlow’s analysis capabilities.
 The API is organized into two main packages:</p>
 <ul class="simple">
-<li><p><strong>Entry Points</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.entrypoints</span></code>): Define what code to analyze</p></li>
+<li><p><strong>Entry Points</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.model.entrypoints</span></code>): Define what code to analyze</p></li>
 <li><p><strong>Query Components</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>): Query analysis results</p></li>
 </ul>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">InterfaceDeclaration</span><span class="p">,</span>
-    <span class="n">ClassDeclaration</span><span class="p">,</span>
-    <span class="n">create_query_components</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.model.entrypoints</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterfaceDeclaration</span><span class="p">,</span> <span class="n">ClassDeclaration</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_query_components</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
 
 <span class="c1"># Set up the compiler and extractor</span>
-<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
 
 <span class="c1"># Declare entry points</span>
@@ -180,12 +177,12 @@ The API is organized into two main packages:</p>
 </section>
 <section id="entry-points">
 <h2>Entry Points<a class="headerlink" href="#entry-points" title="Link to this heading"></a></h2>
-<p>The entry points module (<code class="docutils literal notranslate"><span class="pre">pyflow.api.entrypoints</span></code>) provides classes for
+<p>The entry points module (<code class="docutils literal notranslate"><span class="pre">pyflow.model.entrypoints</span></code>) provides classes for
 declaring what code should be analyzed.</p>
 <section id="interfacedeclaration">
 <h3>InterfaceDeclaration<a class="headerlink" href="#interfacedeclaration" title="Link to this heading"></a></h3>
 <p>The main entry point for declaring analysis targets.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterfaceDeclaration</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.model.entrypoints</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterfaceDeclaration</span>
 
 <span class="n">interface</span> <span class="o">=</span> <span class="n">InterfaceDeclaration</span><span class="p">()</span>
 
@@ -206,7 +203,7 @@ declaring what code should be analyzed.</p>
 <section id="classdeclaration">
 <h3>ClassDeclaration<a class="headerlink" href="#classdeclaration" title="Link to this heading"></a></h3>
 <p>Declares a class with its initialization, attributes, and methods.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassDeclaration</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.model.entrypoints</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassDeclaration</span>
 
 <span class="n">class_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
 <span class="n">class_decl</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>  <span class="c1"># Constructor arguments</span>
@@ -350,10 +347,12 @@ defined in <code class="docutils literal notranslate"><span class="pre">pyflow.l
 <li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode.ADVANCED</span></code>: Includes heap analysis for alias and points-to queries</p></li>
 </ul>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.lsp.mcp_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.analysis_snapshot</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisSnapshot</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.snapshot</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisSnapshot</span>
 
 <span class="c1"># Create a snapshot from compiler context and program</span>
-<span class="n">snapshot</span> <span class="o">=</span> <span class="n">AnalysisSnapshot</span><span class="o">.</span><span class="n">from_program</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">snapshot</span> <span class="o">=</span> <span class="n">AnalysisSnapshot</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">compiler</span><span class="o">=</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="o">=</span><span class="n">program</span><span class="p">,</span> <span class="n">source_index</span><span class="o">=</span><span class="n">source_index</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="mi">1</span>
+<span class="p">)</span>
 
 <span class="c1"># Query snapshot properties and query components</span>
 <span class="n">queries</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">queries</span>

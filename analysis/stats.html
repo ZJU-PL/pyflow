@@ -164,7 +164,7 @@ quantitative comparison of analysis configurations is needed.</p>
 all analyzed code, categorizing functions by their origin (user, interpreter,
 runtime, or primitive).  It produces LaTeX tables and figures suitable for
 inclusion in research papers.</p>
-<p>The module is activated by the <code class="docutils literal notranslate"><span class="pre">dumpStats</span></code> configuration flag and runs after
+<p>The module is activated by the <code class="docutils literal notranslate"><span class="pre">AnalysisOptions.dump_stats</span></code> option and runs after
 the optimization pipeline via <code class="docutils literal notranslate"><span class="pre">contextStats()</span></code>.</p>
 </section>
 <section id="key-capabilities">
@@ -224,7 +224,7 @@ context counts, operation frequencies, and variable access patterns.</p>
 <dt class="sig sig-object py" id="contextStats">
 <span class="sig-name descname"><span class="pre">contextStats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">compiler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prgm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></span><a class="headerlink" href="#contextStats" title="Link to this definition"></a></dt>
 <dd><p>Run the full statistics pipeline for a program.  Requires
-<code class="docutils literal notranslate"><span class="pre">config.dumpStats</span></code> to be <code class="docutils literal notranslate"><span class="pre">True</span></code>.  Generates LaTeX tables and an index
+<code class="docutils literal notranslate"><span class="pre">program.session.options.dump_stats</span></code> to be <code class="docutils literal notranslate"><span class="pre">True</span></code>.  Generates LaTeX tables and an index
 file in <code class="docutils literal notranslate"><span class="pre">outputDirectory/stats/{name}/</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -301,10 +301,11 @@ distribution visualization.  Requires the <code class="docutils literal notransl
 <h2><a class="toc-backref" href="#id5" role="doc-backlink">Usage</a><a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
 <p>Enable statistics collection in your analysis configuration and call
 <code class="docutils literal notranslate"><span class="pre">contextStats()</span></code> after the pass pipeline has completed:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.program</span><span class="w"> </span><span class="kn">import</span> <span class="n">Program</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisOptions</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextStats</span>
 
-<span class="n">config</span><span class="o">.</span><span class="n">dumpStats</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">Program</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">AnalysisOptions</span><span class="p">(</span><span class="n">dump_stats</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
 
 <span class="c1"># ... run analysis and optimization pipeline ...</span>
 

@@ -147,8 +147,8 @@ order, with each pass building on previous results.
 
 .. code-block:: python
 
-   from pyflow.application.passmanager import PassManager
-   from pyflow.application.passes import register_standard_passes
+   from pyflow.application.passes.manager import PassManager
+   from pyflow.application.passes.registry import register_standard_passes
 
    pm = PassManager()
    register_standard_passes(pm)
@@ -205,7 +205,7 @@ analyses and optimizations.
 
 .. code-block:: python
 
-   from pyflow.application.passes import register_standard_passes
+   from pyflow.application.passes.registry import register_standard_passes
 
    class MyCustomPass:
        """Custom pass example. Passes are registered through the pass manager."""

@@ -17,7 +17,7 @@ all analyzed code, categorizing functions by their origin (user, interpreter,
 runtime, or primitive).  It produces LaTeX tables and figures suitable for
 inclusion in research papers.
 
-The module is activated by the ``dumpStats`` configuration flag and runs after
+The module is activated by the ``AnalysisOptions.dump_stats`` option and runs after
 the optimization pipeline via ``contextStats()``.
 
 Key Capabilities
@@ -64,7 +64,7 @@ API Reference
 .. py:function:: contextStats(compiler, prgm, name: str, classOK: bool = False) -> StatCollector
 
    Run the full statistics pipeline for a program.  Requires
-   ``config.dumpStats`` to be ``True``.  Generates LaTeX tables and an index
+   ``program.session.options.dump_stats`` to be ``True``.  Generates LaTeX tables and an index
    file in ``outputDirectory/stats/{name}/``.
 
    :param compiler: The compiler context.
@@ -121,10 +121,11 @@ Enable statistics collection in your analysis configuration and call
 
 .. code-block:: python
 
-   from pyflow import config
+   from pyflow.application.program import Program
+   from pyflow.application.session import AnalysisOptions
    from pyflow.stats import contextStats
 
-   config.dumpStats = True
+   program = Program(options=AnalysisOptions(dump_stats=True))
 
    # ... run analysis and optimization pipeline ...
 

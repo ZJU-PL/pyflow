@@ -192,16 +192,10 @@ Customize for Your Codebase
 
 .. code-block:: python
 
-   from pyflow import Context
+   from pyflow.application.program import Program
+   from pyflow.application.session import AnalysisOptions
 
-   context = Context()
-   context.slots["cpa.field_sensitive"] = True
-   context.slots["cpa.max_context_depth"] = 5
-
-   [optimization]
-   # Custom optimization settings
-   max_inline_size = 15
-   enable_dce = true
+   program = Program(options=AnalysisOptions(cpa_path_length=5))
 
 Integrate with Development Workflow
 ------------------------------------

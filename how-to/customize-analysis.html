@@ -197,7 +197,7 @@ for your specific needs.</p>
 <section id="custom-optimization-passes">
 <h2>Custom Optimization Passes<a class="headerlink" href="#custom-optimization-passes" title="Link to this heading"></a></h2>
 <p>Create custom optimization passes:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">OptimizationPass</span><span class="p">,</span> <span class="n">PassResult</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">OptimizationPass</span><span class="p">,</span> <span class="n">PassResult</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomOptimization</span><span class="p">(</span><span class="n">OptimizationPass</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""Custom optimization pass."""</span>
@@ -216,7 +216,7 @@ for your specific needs.</p>
         <span class="k">return</span> <span class="kc">False</span>
 
 <span class="c1"># Register the pass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
 
 <span class="n">manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">manager</span><span class="o">.</span><span class="n">register_pass</span><span class="p">(</span><span class="n">MyCustomOptimization</span><span class="p">())</span>
@@ -307,33 +307,22 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span cla
 <section id="programmatic-usage">
 <h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
 <p>Use PyFlow programmatically for fine-grained control:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Context</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisOptions</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterproceduralDataflow</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.constraint_based.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 
-<span class="c1"># Set up compiler and extractor</span>
-<span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
-<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-<span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">"input.py"</span><span class="p">])</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">program</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">compiler</span><span class="o">.</span><span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">compiler</span><span class="o">.</span><span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span>
+<span class="n">program</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">AnalysisOptions</span><span class="p">(</span><span class="n">cpa_path_length</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
 
-<span class="c1"># Create analysis context</span>
-<span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"context_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">"flow_sensitive"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-
-<span class="c1"># Run specific analyses</span>
-<span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
-<span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
-
+<span class="n">results</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span><span class="o">.</span><span class="n">run_custom_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="p">[</span><span class="s2">"ipa"</span><span class="p">,</span> <span class="s2">"cpa"</span><span class="p">])</span>
+<span class="n">cpa</span> <span class="o">=</span> <span class="n">program</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">get_result</span><span class="p">(</span><span class="s2">"cpa"</span><span class="p">)</span>
 <span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
 
-<span class="c1"># Combine results</span>
-<span class="n">combined_results</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"cpa"</span><span class="p">:</span> <span class="n">cpa</span><span class="p">,</span>
-    <span class="s2">"callgraph"</span><span class="p">:</span> <span class="n">graph</span><span class="p">,</span>
-<span class="p">}</span>
+<span class="n">combined_results</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"cpa"</span><span class="p">:</span> <span class="n">cpa</span><span class="p">,</span> <span class="s2">"callgraph"</span><span class="p">:</span> <span class="n">graph</span><span class="p">}</span>
 </pre></div>
 </div>
 </section>

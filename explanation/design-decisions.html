@@ -310,8 +310,8 @@ order, with each pass building on previous results.</p>
 <li><p>DCE after inlining catches new dead code</p></li>
 </ul>
 <p><strong>Customization</strong>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
 <span class="n">pm</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
 <span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pm</span><span class="p">)</span>
@@ -371,7 +371,7 @@ analyses and optimizations.</p>
 <li><p><strong>Constraint Types</strong>: Add domain-specific constraints</p></li>
 </ol>
 <p><strong>Example</strong>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomPass</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Custom pass example. Passes are registered through the pass manager."""</span>
