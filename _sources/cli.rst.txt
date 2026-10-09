@@ -40,6 +40,7 @@ Options:
 - ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``constraint``)
 - ``--recursive, -r``: Analyze all project source files with constraint analysis, including libraries without a unique entry
 - ``--include-external``: Include third-party dependency source (default: project sources only)
+- ``--format {text,json}``: Text is the default; JSON maps caller names to sorted callee lists, with empty lists for leaf nodes
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
 - ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
@@ -199,13 +200,14 @@ Options:
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
 - ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
-- ``-r, --recursive``: Scan directories recursively
+- ``-r, --recursive``: Directory targets automatically enable recursive scanning; IFDS retains entry discovery/selection
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
 - ``--exclude``: Repeatable paths/globs, accepting commas and multiple values; relative directory names work with or without ``./``
 - ``--no-default-excludes``: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
 - ``--severity`` / ``--confidence``: Minimum severity or confidence to report
 - ``--skip-rule`` / ``--skip``: Disable rule IDs or scanner rule names (repeatable; commas accepted)
+- ``--no-deduplicate``: Show every overlapping AST rule individually
 - ``--baseline``: Previous JSON report; suppress matching rule/file/line findings
 - ``--fail-on`` / ``--fail-on-severity``: Return 1 when a reported finding reaches the selected severity, after report filtering
 - ``--json-schema {legacy,unified}``: Existing JSON formats remain the default. Unified JSON has a common versioned envelope and normalized finding fields for every engine
@@ -248,6 +250,13 @@ Internal rule failures also make reports partial, with rule ID, filename,
 line, and reason in JSON errors and SARIF invocation notifications. Scanner
 issue totals count findings; weighted scores are reserved for verbose scores.
 Progress and diagnostics use stderr, including when reports go to stdout.
+Known equivalent AST rules at an identical source span are folded into one
+finding with the strongest severity/confidence. For Flask debug mode, the
+B202/F101/F109 evidence is retained in JSON ``related_rules``, SARIF
+``properties.relatedRules``, and text's related-rule list. Distinct AST nodes
+on one line and unrelated vulnerability families are retained. Report metrics
+count the displayed findings, with ``raw_findings`` and ``folded_findings``
+recording the underlying rule counts. ``--no-deduplicate`` restores raw output.
 
 For IFDS, ``pyflow.json`` in the target directory (or a file target's parent)
 provides defaults. ``--config`` selects another file, and CLI flags override
@@ -462,6 +471,8 @@ Options:
 
 CLI output supports pipelines such as ``pyflow alias app.py --json | head``.
 Closing the consumer ends output without a ``BrokenPipeError`` traceback.
+The guard lives in ``main()`` and also covers legacy console scripts and
+module execution, including output buffered until shutdown.
 - ``--output, -o PATH``: Write query result to file
 
 Global Options

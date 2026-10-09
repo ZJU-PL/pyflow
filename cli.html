@@ -186,6 +186,7 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">constraint</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Analyze all project source files with constraint analysis, including libraries without a unique entry
 - <code class="docutils literal notranslate"><span class="pre">--include-external</span></code>: Include third-party dependency source (default: project sources only)
+- <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json}</span></code>: Text is the default; JSON maps caller names to sorted callee lists, with empty lists for leaf nodes
 - <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output
 - <code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)
@@ -330,13 +331,14 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 - <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">report</span></code> (default) returns zero for complete/partial reports; <code class="docutils literal notranslate"><span class="pre">findings</span></code> enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
-- <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
+- <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Directory targets automatically enable recursive scanning; IFDS retains entry discovery/selection
 - <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
 - <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
 - <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Repeatable paths/globs, accepting commas and multiple values; relative directory names work with or without <code class="docutils literal notranslate"><span class="pre">./</span></code>
 - <code class="docutils literal notranslate"><span class="pre">--no-default-excludes</span></code>: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
 - <code class="docutils literal notranslate"><span class="pre">--severity</span></code> / <code class="docutils literal notranslate"><span class="pre">--confidence</span></code>: Minimum severity or confidence to report
 - <code class="docutils literal notranslate"><span class="pre">--skip-rule</span></code> / <code class="docutils literal notranslate"><span class="pre">--skip</span></code>: Disable rule IDs or scanner rule names (repeatable; commas accepted)
+- <code class="docutils literal notranslate"><span class="pre">--no-deduplicate</span></code>: Show every overlapping AST rule individually
 - <code class="docutils literal notranslate"><span class="pre">--baseline</span></code>: Previous JSON report; suppress matching rule/file/line findings
 - <code class="docutils literal notranslate"><span class="pre">--fail-on</span></code> / <code class="docutils literal notranslate"><span class="pre">--fail-on-severity</span></code>: Return 1 when a reported finding reaches the selected severity, after report filtering
 - <code class="docutils literal notranslate"><span class="pre">--json-schema</span> <span class="pre">{legacy,unified}</span></code>: Existing JSON formats remain the default. Unified JSON has a common versioned envelope and normalized finding fields for every engine
@@ -375,7 +377,14 @@ interpreting findings or <code class="docutils literal notranslate"><span class=
 Internal rule failures also make reports partial, with rule ID, filename,
 line, and reason in JSON errors and SARIF invocation notifications. Scanner
 issue totals count findings; weighted scores are reserved for verbose scores.
-Progress and diagnostics use stderr, including when reports go to stdout.</p>
+Progress and diagnostics use stderr, including when reports go to stdout.
+Known equivalent AST rules at an identical source span are folded into one
+finding with the strongest severity/confidence. For Flask debug mode, the
+B202/F101/F109 evidence is retained in JSON <code class="docutils literal notranslate"><span class="pre">related_rules</span></code>, SARIF
+<code class="docutils literal notranslate"><span class="pre">properties.relatedRules</span></code>, and text’s related-rule list. Distinct AST nodes
+on one line and unrelated vulnerability families are retained. Report metrics
+count the displayed findings, with <code class="docutils literal notranslate"><span class="pre">raw_findings</span></code> and <code class="docutils literal notranslate"><span class="pre">folded_findings</span></code>
+recording the underlying rule counts. <code class="docutils literal notranslate"><span class="pre">--no-deduplicate</span></code> restores raw output.</p>
 <p>For IFDS, <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code> in the target directory (or a file target’s parent)
 provides defaults. <code class="docutils literal notranslate"><span class="pre">--config</span></code> selects another file, and CLI flags override
 configured values. For example:</p>
@@ -573,6 +582,8 @@ code, and unclassified events are ignored.</p>
 </ul>
 <p>CLI output supports pipelines such as <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">alias</span> <span class="pre">app.py</span> <span class="pre">--json</span> <span class="pre">|</span> <span class="pre">head</span></code>.
 Closing the consumer ends output without a <code class="docutils literal notranslate"><span class="pre">BrokenPipeError</span></code> traceback.
+The guard lives in <code class="docutils literal notranslate"><span class="pre">main()</span></code> and also covers legacy console scripts and
+module execution, including output buffered until shutdown.
 - <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p>
 </section>
 </section>
