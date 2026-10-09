@@ -183,7 +183,9 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <p>Options:
 - <code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis
-- <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">constraint</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Analyze all project source files with constraint analysis, including libraries without a unique entry
+- <code class="docutils literal notranslate"><span class="pre">--include-external</span></code>: Include third-party dependency source (default: project sources only)
 - <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output
 - <code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)
@@ -212,9 +214,11 @@ See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal I
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump the whole MIR program or an unambiguous scope
+- <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
+- <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">{source,full}</span></code>: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to <code class="docutils literal notranslate"><span class="pre">source</span></code>; JSON defaults to <code class="docutils literal notranslate"><span class="pre">full</span></code> for compatibility. Explicit <code class="docutils literal notranslate"><span class="pre">source</span></code> JSON is an inspection view with <code class="docutils literal notranslate"><span class="pre">view</span></code> and <code class="docutils literal notranslate"><span class="pre">omitted_runtime_cfgs</span></code> metadata, not a standalone executable MIR program
+- <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: Source views lower input files only and retain imports/unmodeled expressions as opaque boundaries, with partial-coverage diagnostics. Full views remain strict and follow local imports
 - <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function
@@ -325,11 +329,19 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 - <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
 - <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes; <code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records findings and analysis completeness in that report
+- <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">report</span></code> (default) returns zero for complete/partial reports; <code class="docutils literal notranslate"><span class="pre">findings</span></code> enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
 - <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
 - <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
 - <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
-- <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
+- <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Repeatable paths/globs, accepting commas and multiple values; relative directory names work with or without <code class="docutils literal notranslate"><span class="pre">./</span></code>
+- <code class="docutils literal notranslate"><span class="pre">--no-default-excludes</span></code>: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
+- <code class="docutils literal notranslate"><span class="pre">--severity</span></code> / <code class="docutils literal notranslate"><span class="pre">--confidence</span></code>: Minimum severity or confidence to report
+- <code class="docutils literal notranslate"><span class="pre">--skip-rule</span></code> / <code class="docutils literal notranslate"><span class="pre">--skip</span></code>: Disable rule IDs or scanner rule names (repeatable; commas accepted)
+- <code class="docutils literal notranslate"><span class="pre">--baseline</span></code>: Previous JSON report; suppress matching rule/file/line findings
+- <code class="docutils literal notranslate"><span class="pre">--fail-on</span></code> / <code class="docutils literal notranslate"><span class="pre">--fail-on-severity</span></code>: Return 1 when a reported finding reaches the selected severity, after report filtering
+- <code class="docutils literal notranslate"><span class="pre">--json-schema</span> <span class="pre">{legacy,unified}</span></code>: Existing JSON formats remain the default. Unified JSON has a common versioned envelope and normalized finding fields for every engine
+- <code class="docutils literal notranslate"><span class="pre">--ast-unknown-call-policy</span> <span class="pre">{preserve,havoc}</span></code>: Preserve real input kinds by default, disclosing unknown effects as partial coverage, or introduce all possible kinds conservatively
+- <code class="docutils literal notranslate"><span class="pre">--ast-entry-source-kind</span></code>: Source kind for AST entry parameters (repeatable; default: user_input)</p>
 <p>IFDS taint rule packs may model library calls that preserve or transform taint
 without declaring them as sources or sinks. Propagation ports support
 parameters, receivers, returns, yields, raises, sinks, and access paths:</p>
@@ -349,13 +361,36 @@ mutation, and explicit assumptions. These richer propagation and sanitizer
 contracts are consumed by IFDS. The engine-neutral source/sink projection used
 by AST-dataflow and CPG remains backward compatible and ignores unsupported
 contract details.</p>
-<p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
-can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
-All security JSON reports include an explicit status. AST-dataflow, IFDS, and
+<p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. A variable
+URL is a low-confidence review hint, not proof of a user-controlled SSRF flow.
+HTTP checks inspect the URL argument rather than payloads, headers, or request
+methods. Use AST-dataflow, IFDS, or CPG to examine source-to-sink flows.
+<code class="docutils literal notranslate"><span class="pre">copy.copy</span></code> and <code class="docutils literal notranslate"><span class="pre">copy.deepcopy</span></code> preserve input taint and are not filesystem
+sinks; <code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code> remains a filesystem sink.</p>
+<p>All security JSON reports include an explicit status. AST-dataflow, IFDS, and
 CPG also include diagnostics when limitations affect completeness. Automated
 drivers should use <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">report</span></code> and read <code class="docutils literal notranslate"><span class="pre">status</span></code>,
 <code class="docutils literal notranslate"><span class="pre">findings</span></code>/<code class="docutils literal notranslate"><span class="pre">results</span></code>, and <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> from the report instead of
-interpreting findings or <code class="docutils literal notranslate"><span class="pre">partial</span></code> as process failures.</p>
+interpreting findings or <code class="docutils literal notranslate"><span class="pre">partial</span></code> as process failures.
+Internal rule failures also make reports partial, with rule ID, filename,
+line, and reason in JSON errors and SARIF invocation notifications. Scanner
+issue totals count findings; weighted scores are reserved for verbose scores.
+Progress and diagnostics use stderr, including when reports go to stdout.</p>
+<p>For IFDS, <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code> in the target directory (or a file target’s parent)
+provides defaults. <code class="docutils literal notranslate"><span class="pre">--config</span></code> selects another file, and CLI flags override
+configured values. For example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+  <span class="s2">"analysis"</span><span class="p">:</span> <span class="s2">"taint"</span><span class="p">,</span>
+  <span class="s2">"entry"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"app.py"</span><span class="p">],</span>
+  <span class="s2">"frameworks"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"stdlib"</span><span class="p">,</span> <span class="s2">"flask"</span><span class="p">],</span>
+  <span class="s2">"unknown_call_policy"</span><span class="p">:</span> <span class="s2">"preserve"</span><span class="p">,</span>
+  <span class="s2">"solver_options"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"max_seconds"</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span> <span class="s2">"max_path_edges"</span><span class="p">:</span> <span class="mi">100000</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>IFDS text output includes normalized rule IDs, severity, and primary source
+locations. CPG reports and SARIF retain source filenames and line numbers from
+the IR’s source origins. Missing source information is reported explicitly.</p>
 </section>
 </section>
 <section id="supply-chain-command">
@@ -376,7 +411,10 @@ provenance.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">sbom</span></code></dt><dd><p>Generate CycloneDX 1.7, SPDX 2.3, or requirements output. <code class="docutils literal notranslate"><span class="pre">--deterministic</span></code>
 derives document IDs from content and uses <code class="docutils literal notranslate"><span class="pre">SOURCE_DATE_EPOCH</span></code>.
-<code class="docutils literal notranslate"><span class="pre">--schema</span></code> validates JSON output against a pinned local official schema.</p>
+<code class="docutils literal notranslate"><span class="pre">--schema</span></code> validates JSON output against a pinned local official schema.
+An incomplete inventory or high-severity dependency finding returns 2 after
+emitting the SBOM, with an explanation on stderr. Use <code class="docutils literal notranslate"><span class="pre">--allow-incomplete</span></code>
+to accept that inventory and return 0. Diagnostics never enter JSON stdout.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">audit</span></code></dt><dd><p>Report structural anomalies, unsafe dependency sources, license-policy
 violations, local OSV matches, VEX status, provenance failures, and
@@ -456,6 +494,7 @@ policy violation.</p>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry file relative to project root</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Analyze all project Python files instead of selecting one entry</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span> <span class="pre">{0,1,2,3}</span></code>: Context sensitivity depth (default: 1)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-policy</span> <span class="pre">POLICY</span></code>: Specific context policy (e.g. <code class="docutils literal notranslate"><span class="pre">1-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">2-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">1c1o</span></code>, <code class="docutils literal notranslate"><span class="pre">1-param</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--capability-model</span> <span class="pre">PATH</span></code>: Custom capability model JSON file (repeatable)</p></li>
@@ -464,6 +503,9 @@ policy violation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json,sarif}</span></code>: Output format (default: <code class="docutils literal notranslate"><span class="pre">text</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write output to file</p></li>
 </ul>
+<p>Capability reports return 0 by default, including reports with findings or
+partial coverage. Use <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">findings</span></code> to return 1 in those
+cases. Invalid input and failed analysis return 2 with either policy.</p>
 </section>
 <section id="pyflow-capability-run">
 <h3><strong>pyflow capability-run</strong><a class="headerlink" href="#pyflow-capability-run" title="Link to this heading"></a></h3>
@@ -520,7 +562,7 @@ code, and unclassified events are ignored.</p>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--list-functions</span></code>: List functions in source index</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--get-cfg</span> <span class="pre">FUNCTION</span></code>: Extract CFG for a function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--get-cfg</span> <span class="pre">FUNCTION</span></code>: Extract CFG using a listed function name, a qualified name, or an unambiguous suffix such as <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>. Ambiguous or missing names report candidates</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-callgraph</span></code>: Compute call graph</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-callers</span> <span class="pre">SYMBOL</span></code>: Find callers of a function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-callees</span> <span class="pre">SYMBOL</span></code>: Find callees of a function</p></li>
@@ -528,8 +570,10 @@ code, and unclassified events are ignored.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-aliases</span> <span class="pre">SYMBOL</span></code>: Query aliases and points-to information</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{basic,full,advanced}</span></code>: Analysis mode (default: <code class="docutils literal notranslate"><span class="pre">full</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--pretty</span></code>: Pretty-print JSON output</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p></li>
 </ul>
+<p>CLI output supports pipelines such as <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">alias</span> <span class="pre">app.py</span> <span class="pre">--json</span> <span class="pre">|</span> <span class="pre">head</span></code>.
+Closing the consumer ends output without a <code class="docutils literal notranslate"><span class="pre">BrokenPipeError</span></code> traceback.
+- <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p>
 </section>
 </section>
 </section>

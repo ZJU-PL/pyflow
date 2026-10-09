@@ -37,7 +37,9 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 Options:
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
-- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``simple``)
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``constraint``)
+- ``--recursive, -r``: Analyze all project source files with constraint analysis, including libraries without a unique entry
+- ``--include-external``: Include third-party dependency source (default: project sources only)
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
 - ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
@@ -70,9 +72,11 @@ Visualize intermediate representations and analysis results.
   pyflow ir input.py --dump-mir input.main --dump-format text
 
 Options:
-- ``--dump-mir [SCOPE]``: Dump the whole MIR program or an unambiguous scope
+- ``--dump-mir [SCOPE]``: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
+- ``--mir-view {source,full}``: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to ``source``; JSON defaults to ``full`` for compatibility. Explicit ``source`` JSON is an inspection view with ``view`` and ``omitted_runtime_cfgs`` metadata, not a standalone executable MIR program
+- ``--mir-import-policy {strict,opaque}``: Source views lower input files only and retain imports/unmodeled expressions as opaque boundaries, with partial-coverage diagnostics. Full views remain strict and follow local imports
 - ``--dump-ast FUNCTION``: Dump AST for a named function
-- ``--dump-cfg FUNCTION``: Dump CFG for a named function
+- ``--dump-cfg FUNCTION``: Dump CFG using a qualified name or a unique short name (for example ``Class.method``). Ambiguous or missing names report candidates
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
 - ``--dump-cdg FUNCTION``: Dump Control Dependence Graph for a named function
 - ``--dump-ddg FUNCTION``: Dump Data Dependence Graph for a named function
@@ -194,11 +198,19 @@ Options:
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
-- ``--exit-code-policy``: ``findings`` preserves scanner-style exit codes; ``report`` returns zero after a report is successfully emitted and records findings and analysis completeness in that report
+- ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
-- ``--exclude``: Comma-separated list of paths to exclude
+- ``--exclude``: Repeatable paths/globs, accepting commas and multiple values; relative directory names work with or without ``./``
+- ``--no-default-excludes``: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
+- ``--severity`` / ``--confidence``: Minimum severity or confidence to report
+- ``--skip-rule`` / ``--skip``: Disable rule IDs or scanner rule names (repeatable; commas accepted)
+- ``--baseline``: Previous JSON report; suppress matching rule/file/line findings
+- ``--fail-on`` / ``--fail-on-severity``: Return 1 when a reported finding reaches the selected severity, after report filtering
+- ``--json-schema {legacy,unified}``: Existing JSON formats remain the default. Unified JSON has a common versioned envelope and normalized finding fields for every engine
+- ``--ast-unknown-call-policy {preserve,havoc}``: Preserve real input kinds by default, disclosing unknown effects as partial coverage, or introduce all possible kinds conservatively
+- ``--ast-entry-source-kind``: Source kind for AST entry parameters (repeatable; default: user_input)
 
 IFDS taint rule packs may model library calls that preserve or transform taint
 without declaring them as sources or sinks. Propagation ports support
@@ -220,13 +232,37 @@ contracts are consumed by IFDS. The engine-neutral source/sink projection used
 by AST-dataflow and CPG remains backward compatible and ignores unsupported
 contract details.
 
-The default ``ast-scanner`` engine is a fast pattern-based checker. The command
-can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
+The default ``ast-scanner`` engine is a fast pattern-based checker. A variable
+URL is a low-confidence review hint, not proof of a user-controlled SSRF flow.
+HTTP checks inspect the URL argument rather than payloads, headers, or request
+methods. Use AST-dataflow, IFDS, or CPG to examine source-to-sink flows.
+``copy.copy`` and ``copy.deepcopy`` preserve input taint and are not filesystem
+sinks; ``shutil.copy`` remains a filesystem sink.
+
 All security JSON reports include an explicit status. AST-dataflow, IFDS, and
 CPG also include diagnostics when limitations affect completeness. Automated
 drivers should use ``--exit-code-policy report`` and read ``status``,
 ``findings``/``results``, and ``diagnostics`` from the report instead of
 interpreting findings or ``partial`` as process failures.
+Internal rule failures also make reports partial, with rule ID, filename,
+line, and reason in JSON errors and SARIF invocation notifications. Scanner
+issue totals count findings; weighted scores are reserved for verbose scores.
+Progress and diagnostics use stderr, including when reports go to stdout.
+
+For IFDS, ``pyflow.json`` in the target directory (or a file target's parent)
+provides defaults. ``--config`` selects another file, and CLI flags override
+configured values. For example::
+
+  {
+    "analysis": "taint",
+    "entry": ["app.py"],
+    "frameworks": ["stdlib", "flask"],
+    "unknown_call_policy": "preserve",
+    "solver_options": {"max_seconds": 30, "max_path_edges": 100000}
+  }
+IFDS text output includes normalized rule IDs, severity, and primary source
+locations. CPG reports and SARIF retain source filenames and line numbers from
+the IR's source origins. Missing source information is reported explicitly.
 
 Supply Chain Command
 --------------------
@@ -252,6 +288,9 @@ Subcommands:
   Generate CycloneDX 1.7, SPDX 2.3, or requirements output. ``--deterministic``
   derives document IDs from content and uses ``SOURCE_DATE_EPOCH``.
   ``--schema`` validates JSON output against a pinned local official schema.
+  An incomplete inventory or high-severity dependency finding returns 2 after
+  emitting the SBOM, with an explanation on stderr. Use ``--allow-incomplete``
+  to accept that inventory and return 0. Diagnostics never enter JSON stdout.
 
 ``audit``
   Report structural anomalies, unsafe dependency sources, license-policy
@@ -335,6 +374,7 @@ policy violation.
 Options:
 
 - ``--entry``: Entry file relative to project root
+- ``--recursive, -r``: Analyze all project Python files instead of selecting one entry
 - ``--context-depth {0,1,2,3}``: Context sensitivity depth (default: 1)
 - ``--context-policy POLICY``: Specific context policy (e.g. ``1-cfa``, ``2-cfa``, ``1c1o``, ``1-param``)
 - ``--capability-model PATH``: Custom capability model JSON file (repeatable)
@@ -342,6 +382,10 @@ Options:
 - ``--report-callable-boundaries``: Include potential transfers through returns, yields, and exceptions (default: off)
 - ``--format {text,json,sarif}``: Output format (default: ``text``)
 - ``--output, -o PATH``: Write output to file
+
+Capability reports return 0 by default, including reports with findings or
+partial coverage. Use ``--exit-code-policy findings`` to return 1 in those
+cases. Invalid input and failed analysis return 2 with either policy.
 
 **pyflow capability-run**
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -407,7 +451,7 @@ Run one-shot semantic queries against Python code without starting a daemon.
 Options:
 
 - ``--list-functions``: List functions in source index
-- ``--get-cfg FUNCTION``: Extract CFG for a function
+- ``--get-cfg FUNCTION``: Extract CFG using a listed function name, a qualified name, or an unambiguous suffix such as ``Class.method``. Ambiguous or missing names report candidates
 - ``--get-callgraph``: Compute call graph
 - ``--get-callers SYMBOL``: Find callers of a function
 - ``--get-callees SYMBOL``: Find callees of a function
@@ -415,6 +459,9 @@ Options:
 - ``--get-aliases SYMBOL``: Query aliases and points-to information
 - ``--mode {basic,full,advanced}``: Analysis mode (default: ``full``)
 - ``--pretty``: Pretty-print JSON output
+
+CLI output supports pipelines such as ``pyflow alias app.py --json | head``.
+Closing the consumer ends output without a ``BrokenPipeError`` traceback.
 - ``--output, -o PATH``: Write query result to file
 
 Global Options
