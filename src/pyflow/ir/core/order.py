@@ -11,9 +11,9 @@ from .ids import ContextSignature
 
 
 def _object_name(value: object) -> tuple[object, ...] | None:
-    pyobj = getattr(value, "pyobj", None)
-    if pyobj is None:
+    if not hasattr(value, "pyobj"):
         return None
+    pyobj = getattr(value, "pyobj", None)
     module = getattr(pyobj, "__module__", None)
     qualname = getattr(pyobj, "__qualname__", None)
     if module is not None or qualname is not None:
@@ -89,12 +89,19 @@ def stable_ir_key(
             stable_ir_key(getattr(value, "context"), catalog, operation_code, nested_seen),
         )
 
-    slots = getattr(type(value), "__slots__", ())
-    if isinstance(slots, str):
-        slots = (slots,)
+    # ExtendedObjectType subclasses have empty slots of their own; their
+    # inherited obj/opPath fields distinguish CPA argument contexts.
+    slots = []
+    for cls in type(value).__mro__:
+        declared = cls.__dict__.get("__slots__", ())
+        if isinstance(declared, str):
+            declared = (declared,)
+        slots.extend(name for name in declared if name not in slots)
     fields = []
     for name in slots:
-        if name in {"group", "annotation"} or not hasattr(value, name):
+        if name in {"group", "annotation", "canonical", "hash", "__weakref__"} or not hasattr(
+            value, name
+        ):
             continue
         fields.append(
             (

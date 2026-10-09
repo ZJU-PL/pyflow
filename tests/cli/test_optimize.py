@@ -23,6 +23,19 @@ class _Compiler:
         self.console = _Console()
 
 
+def test_class_only_annotated_module_runs_the_requested_optimization_pass(tmp_path, capsys):
+    source = tmp_path / "model.py"
+    source.write_text("class Config:\n    block_size: int = 1024\n")
+    parser = argparse.ArgumentParser()
+    optimize.add_optimize_parser(parser.add_subparsers())
+    args = parser.parse_args(["optimize", str(source), "--opt-passes", "simplify"])
+    optimize.run_analysis(source, args)
+    output = capsys.readouterr()
+    assert "Completed 1 optimization passes" in output.out
+    assert "Analysis complete!" in output.out
+    assert "No functions found" not in output.out
+
+
 def test_run_optimization_passes_always_skips_public_inlining(monkeypatch, capsys):
     compiler = _Compiler()
     program = object()

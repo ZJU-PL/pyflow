@@ -55,6 +55,11 @@ from pyflow.analysis.typeinfo.resolution.annotations import (
     resolve_annotation,
 )
 from pyflow.analysis.typeinfo.resolution.typing_syntax import substitute_type_vars
+from pyflow.analysis.typeinfo.resolution.docstrings import (
+    search_param_in_docstr,
+    search_return_in_docstr,
+)
+from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_documented_type
 from pyflow.language.modules.project_resolution import ProjectContext
 
 ExternalSymbolResolver = Callable[[str], ProperType | None]
@@ -87,6 +92,8 @@ class _FunctionInfo:
     owner: str | None = None
     explicit_parameters: dict[str, AbstractTypeValue] = field(default_factory=dict)
     explicit_return: AbstractTypeValue | None = None
+    documented_parameters: dict[str, AbstractTypeValue] = field(default_factory=dict)
+    documented_return: AbstractTypeValue | None = None
     parameter_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
     closure_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
     specializations: dict[_SpecializationKey, FunctionSpecialization] = field(default_factory=dict)
@@ -183,7 +190,9 @@ class StaticTypeInferenceEngine:
             )
             module_environment = outcome.environment
 
-            for function in self._functions.values():
+            # Function bodies may discover lambda callables. Analyze a stable
+            # snapshot; newly registered functions participate next iteration.
+            for function in list(self._functions.values()):
                 self._analyse_function(function)
 
             self._commit_pending_evidence()
@@ -333,6 +342,27 @@ class StaticTypeInferenceEngine:
                         info.explicit_parameters[arg.arg] = self._annotation_value(arg.annotation)
                 if node.returns is not None:
                     info.explicit_return = self._annotation_value(node.returns)
+                docstring = ast.get_docstring(node)
+                if docstring:
+
+                    def resolve_hint(text: str) -> ProperType | None:
+                        return self._annotation_value(ast.Constant(value=text)).public_type()
+
+                    for arg in _all_arguments(node.args):
+                        if arg.annotation is None:
+                            hint = resolve_documented_type(
+                                search_param_in_docstr(docstring, arg.arg), resolve_hint
+                            )
+                            if hint is not None:
+                                info.documented_parameters[arg.arg] = AbstractTypeValue.from_type(
+                                    hint
+                                )
+                    if node.returns is None:
+                        hint = resolve_documented_type(
+                            search_return_in_docstr(docstring), resolve_hint
+                        )
+                        if hint is not None:
+                            info.documented_return = AbstractTypeValue.from_type(hint)
                 self._functions[qualified] = info
                 self._function_nodes[id(node)] = qualified
                 if owner is not None:
@@ -350,6 +380,9 @@ class StaticTypeInferenceEngine:
         parent: str,
     ) -> None:
         for node in statements:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self._precollect_classes(node.body, parent=f"{parent}.{node.name}")
+                continue
             if not isinstance(node, ast.ClassDef):
                 continue
             qualified = f"{parent}.{node.name}"
@@ -532,7 +565,9 @@ class StaticTypeInferenceEngine:
                     self._classes[function.owner].instance
                 )
             else:
-                parameters[name] = AbstractTypeValue.unresolved()
+                parameters[name] = function.documented_parameters.get(
+                    name, AbstractTypeValue.unresolved()
+                )
         return parameters
 
     def _analyse_function_context(
@@ -616,6 +651,14 @@ class StaticTypeInferenceEngine:
                 context=f"return of {function.qualified_name}",
             )
             return_value = explicit_return
+        elif (
+            return_value.unknown
+            and not return_value.types
+            and function.documented_return is not None
+        ):
+            # Documentation supplies a fallback; concrete body/call evidence
+            # and explicit annotations take precedence over it.
+            return_value = function.documented_return
 
         return FunctionSpecialization(
             parameters=tuple((name, input_parameters[name]) for name in function.parameter_names),
@@ -866,10 +909,38 @@ class StaticTypeInferenceEngine:
                 )
                 if self._is_never_value(context):
                     return _Outcome(result, terminated=True)
+                method = "__aenter__" if isinstance(node, ast.AsyncWith) else "__enter__"
+                attribute = ast.copy_location(
+                    ast.Attribute(value=item.context_expr, attr=method, ctx=ast.Load()),
+                    item.context_expr,
+                )
+                alternatives = []
+                for typ in context.types:
+                    base = AbstractTypeValue.from_type(typ)
+                    value = self._call_attribute(attribute, base, [], {}, result)
+                    if value is None:
+                        value = self._callable_return_type(self._attribute_value(base, method))
+                    if isinstance(node, ast.AsyncWith) and not self._is_never_value(value):
+                        value = self._unwrap_single_generic(value)
+                    alternatives.append(value)
+                if context.unknown or not alternatives:
+                    alternatives.append(AbstractTypeValue.unresolved())
+                entered = join_all(
+                    alternatives, self.type_system, max_union_size=self.options.max_union_size
+                )
+                if entered.unknown:
+                    self._add_diagnostic(
+                        "unmodeled-context-manager",
+                        f"Cannot resolve context manager {method}; bound value remains unknown",
+                        node=item.context_expr,
+                        affects_completeness=True,
+                    )
+                if self._is_never_value(entered):
+                    return _Outcome(result, terminated=True)
                 if item.optional_vars is not None:
                     self._assign_target(
                         item.optional_vars,
-                        context,
+                        entered,
                         result,
                         current_function,
                     )
@@ -1012,9 +1083,16 @@ class StaticTypeInferenceEngine:
         if isinstance(node, (ast.Raise, ast.Break, ast.Continue)):
             return _Outcome(result, terminated=True)
 
-        # Imports, pass, global/nonlocal, and unsupported statements do not
-        # invalidate the complete environment.  Their expressions are still
-        # conservatively unknown when referenced later.
+        if not isinstance(node, (ast.Import, ast.ImportFrom, ast.Pass, ast.Global, ast.Nonlocal)):
+            self._add_diagnostic(
+                "unsupported-statement",
+                f"No type model for {type(node).__name__}",
+                node=node,
+                affects_completeness=True,
+            )
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                    result[child.id] = AbstractTypeValue.unresolved()
         return _Outcome(result)
 
     def _execute_loop(
@@ -1344,6 +1422,12 @@ class StaticTypeInferenceEngine:
             value = self._instance(str)
         else:
             value = AbstractTypeValue.unresolved()
+            self._add_diagnostic(
+                "unsupported-expression",
+                f"No type model for {type(node).__name__}",
+                node=node,
+                affects_completeness=True,
+            )
 
         self._record_expression(node, value)
         return value
@@ -1471,6 +1555,7 @@ class StaticTypeInferenceEngine:
                     "call-model-error",
                     f"Call model for {qualified_name} failed: {exc}",
                     node=node,
+                    affects_completeness=True,
                 )
                 continue
             if result is not None:
@@ -2173,13 +2258,15 @@ class StaticTypeInferenceEngine:
         for name in function.parameter_names:
             explicit = function.explicit_parameters.get(name)
             evidence = function.parameter_evidence.get(name)
-            parameter = explicit or evidence
+            parameter = explicit or evidence or function.documented_parameters.get(name)
             parameter_type = None if parameter is None else parameter.public_type()
             parameters.append(parameter_type or ANY)
         if function.explicit_return is not None:
             returns = function.explicit_return.public_type() or ANY
         elif function.summary is not None:
             returns = function.summary.return_type or ANY
+        elif function.documented_return is not None:
+            returns = function.documented_return.public_type() or ANY
         else:
             returns = ANY
         return AbstractTypeValue.from_type(
@@ -2226,6 +2313,8 @@ class StaticTypeInferenceEngine:
             )
         if function.summary is not None:
             return self._wrap_call_result(function, function.summary.return_value)
+        if function.documented_return is not None:
+            return self._wrap_call_result(function, function.documented_return)
         return AbstractTypeValue.unresolved()
 
     def _wrap_call_result(
@@ -2318,7 +2407,9 @@ class StaticTypeInferenceEngine:
             else:
                 explicit = function.explicit_parameters.get(name)
                 parameters[name] = (
-                    explicit if explicit is not None else AbstractTypeValue.unresolved()
+                    explicit
+                    if explicit is not None
+                    else function.documented_parameters.get(name, AbstractTypeValue.unresolved())
                 )
         return parameters
 
@@ -2748,8 +2839,10 @@ class StaticTypeInferenceEngine:
     def _instance(self, raw_type: type, *args: ProperType) -> AbstractTypeValue:
         return AbstractTypeValue.from_type(self._proper_instance(raw_type, *args))
 
-    def _proper_instance(self, raw_type: type, *args: ProperType) -> Instance:
+    def _proper_instance(self, raw_type: type, *args: ProperType) -> Instance | TupleType:
         self._register_type_hierarchy(raw_type)
+        if raw_type is tuple:
+            return TupleType(tuple(args) or (ANY,), unknown_size=not args)
         return Instance(self.type_system.to_class_descriptor(raw_type), tuple(args))
 
     def _register_type_hierarchy(self, raw_type: type) -> None:
@@ -2770,7 +2863,9 @@ class StaticTypeInferenceEngine:
             module, _, name = full_name.rpartition(".")
             raw = type(name, (), {"__module__": module})
             self._synthetic_types[full_name] = raw
-        return self._proper_instance(raw)
+        # Synthetic source classes are freshly created nominal classes,
+        # never the builtin tuple constructor handled above.
+        return cast(Instance, self._proper_instance(raw))
 
     def _contains_raw(self, value: AbstractTypeValue, raw_type: type) -> bool:
         return any(
@@ -2933,13 +3028,22 @@ class StaticTypeInferenceEngine:
         *,
         node: ast.AST | None = None,
         severity: str = "warning",
+        affects_completeness: bool = False,
     ) -> None:
         span = None if node is None else _span(node)
         key = (code, message, span)
         if key in self._diagnostic_keys:
             return
         self._diagnostic_keys.add(key)
-        self._diagnostics.append(InferenceDiagnostic(code, message, severity=severity, span=span))
+        self._diagnostics.append(
+            InferenceDiagnostic(
+                code,
+                message,
+                severity=severity,
+                span=span,
+                affects_completeness=affects_completeness,
+            )
+        )
 
 
 def _all_arguments(arguments: ast.arguments) -> list[ast.arg]:

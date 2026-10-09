@@ -35,6 +35,7 @@ class InferenceDiagnostic:
     message: str
     severity: str = "warning"
     span: SourceSpan | None = None
+    affects_completeness: bool = False
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,15 @@ class ModuleInferenceResult:
     diagnostics: list[InferenceDiagnostic] = field(default_factory=list)
     iterations: int = 0
     converged: bool = True
+
+    @property
+    def status(self) -> str:
+        """Distinguish a usable partial result from a complete analysis."""
+        if not self.converged or any(
+            item.severity == "error" or item.affects_completeness for item in self.diagnostics
+        ):
+            return "partial"
+        return "complete"
 
     def type_of(self, name: str) -> ProperType | None:
         """Return the inferred type of a module or qualified symbol."""

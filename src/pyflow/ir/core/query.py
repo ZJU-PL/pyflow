@@ -96,8 +96,16 @@ class AnalysisFacts:
     def call_targets(self, code, operation, context) -> frozenset[tuple[object, object]]:
         self._require_current()
         key = ContextualKey(self.catalog.node_id(operation, code), self.context_id(code, context))
+        # Context iteration prefers CPA when available. Its targets must use
+        # the same producer, rather than mixing IPA placeholder contexts into
+        # optimizers that consume CPA references/effects.
+        result = (
+            self.catalog.facts.query_producer(Capabilities.CALL_TARGETS, "cpa", key)
+            if self.catalog.facts.has_producer(Capabilities.CALL_TARGETS, "cpa")
+            else self.catalog.facts.query(Capabilities.CALL_TARGETS, key)
+        )
         targets = _require(
-            self.catalog.facts.query(Capabilities.CALL_TARGETS, key),
+            result,
             Capabilities.CALL_TARGETS,
         )
         return frozenset(

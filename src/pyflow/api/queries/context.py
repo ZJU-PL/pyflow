@@ -73,6 +73,22 @@ class QueryContext:
             for name in (identity.qualname, qualified):
                 if name and name not in aliases:
                     aliases.append(name)
+            # Catalog paths include compiler scope markers that never appear
+            # in the public source index (e.g. color.<module>.<locals>.blend_rgb).
+            public_name = ".".join(
+                part
+                for part in identity.qualname.split(".")
+                if part not in {"<module>", "<locals>"}
+            )
+            if public_name and identity.qualname.rsplit(".", 1)[-1] != "<module>":
+                public_qualified = (
+                    public_name
+                    if public_name.startswith(f"{identity.module}.")
+                    else f"{identity.module}.{public_name}" if identity.module else public_name
+                )
+                for name in (public_name, public_qualified):
+                    if name not in aliases:
+                        aliases.append(name)
         return aliases
 
     def function_codes(self):

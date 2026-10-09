@@ -214,7 +214,7 @@ def run_analysis(input_path, args):
         console = compiler.console
         legacy_results = None
 
-        if not program.interface.func:
+        if not program.interface.func and not getattr(program.interface, "cls", ()):
             emit_path = getattr(args, "emit_optimized", None)
             if emit_path:
                 from pyflow.optimization.source_candidates import source_candidates

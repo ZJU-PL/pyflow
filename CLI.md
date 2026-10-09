@@ -19,6 +19,12 @@ pyflow optimize [OPTIONS] INPUT_PATH
 
 `INPUT_PATH` may be a Python file or directory.
 
+Class-only modules also run the analysis pipeline. Annotated assignments
+(`x: int = 1024` and annotation-only declarations) preserve their targets,
+annotation effects, and initializer dependencies through simplify/DCE.
+Argument normalization leaves a candidate unchanged when required analysis
+facts are unavailable and reports the skipped candidate count.
+
 Key options:
 - `--analysis`, `-a`: `all`, `cpa`, `ipa`, `shape`, or `lifetime`
 - `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
@@ -133,6 +139,21 @@ optional package. Context-sensitivity and fixed-point control options, including
 limits. See [the MIR documentation](docs/source/ir/mir.rst) for details and limitations.
 The stdlib flags affect only constraint analysis and do not extend MIR's
 supported import graph.
+
+## Query
+
+```bash
+pyflow query color.py --list-functions
+pyflow query color.py --get-cfg color.blend_rgb
+pyflow query color.py --get-type color 580 5 --include-diagnostics
+```
+
+Listed names and unambiguous short names work for CFG queries. Type queries
+preserve their existing type/null JSON by default. `--include-diagnostics`
+adds `type`, `status`, and structured `diagnostics`; partial type analysis
+also produces a warning on stderr when the option is omitted. A position with
+no expression type returns null. Source/stub collection failures preserve
+usable facts and appear in diagnostics instead of aborting type queries.
 
 ## Alias
 

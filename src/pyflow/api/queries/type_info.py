@@ -7,6 +7,7 @@ from typing import Optional
 from pyflow.analysis.typeinfo import TypeFact, TypeInfoService
 from pyflow.analysis.typeinfo.core.typesystem import ProperType
 from pyflow.analysis.typeinfo.inference.models import FunctionSummary
+from pyflow.language.modules.type_stubs import StubDiagnostic
 
 
 class TypeInfoQueries:
@@ -47,3 +48,13 @@ class TypeInfoQueries:
             else f"{module_name}.{qualified_name}"
         )
         return result.functions.get(full_name)
+
+    def get_analysis_status(self, module_name: str) -> str:
+        """Report incomplete type analysis without losing usable facts."""
+        if self._service is None:
+            return "unavailable"
+        result = self._service.inference_result(module_name)
+        return result.status if result is not None else "unavailable"
+
+    def get_diagnostics(self) -> list[StubDiagnostic]:
+        return self._service.diagnostics() if self._service is not None else []

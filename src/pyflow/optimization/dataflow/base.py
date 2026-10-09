@@ -753,6 +753,10 @@ class MayRaise(TypeDispatcher):
         """
         return self(node.expr)
 
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        return (node.value is not None and self(node.value)) or self(node.annotation_expr)
+
     @dispatch(ast.Continue, ast.Break)
     def visitLoopFlow(self, node):
         """

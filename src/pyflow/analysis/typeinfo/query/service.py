@@ -39,7 +39,12 @@ from pyflow.analysis.typeinfo.core.typesystem import (
 )
 from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
-from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
+from pyflow.analysis.typeinfo.inference.models import InferenceDiagnostic, ModuleInferenceResult
+from pyflow.analysis.typeinfo.resolution.docstrings import (
+    search_param_in_docstr,
+    search_return_in_docstr,
+)
+from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_documented_type
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -71,6 +76,10 @@ class TypeInfoService:
         self.enable_static_inference = enable_static_inference
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
+        self._collection_diagnostics: list[StubDiagnostic] = []
+        self._failed_modules: set[str] = set()
+        self._documented_parameters: dict[tuple[str, str], set[str]] = {}
+        self._documented_returns: set[tuple[str, str]] = set()
 
     def collect_module(
         self,
@@ -83,30 +92,65 @@ class TypeInfoService:
         if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
         self._collecting_modules.add(module_name)
-        if source is None:
-            source, path = self._load_module_source(module_name, path)
-
         try:
-            if source is not None:
-                self._collect_source_module(module_name, source, path)
+            try:
+                if source is None:
+                    source, path = self._load_module_source(module_name, path)
+                if source is not None:
+                    self._collect_source_module(module_name, source, path)
+            except Exception as exc:
+                self._record_collection_failure(module_name, "type_source_failed", exc, path)
 
-            resolved_stub = self.stub_resolver.resolve(
-                module_name,
-                script_path=path,
-            )
-            if resolved_stub is not None:
-                self._collect_stub_module(
-                    module_name,
-                    resolved_stub.path,
-                    resolved_stub.info.functions,
-                    resolved_stub.info.classes,
-                    resolved_stub.info.variables,
-                    resolved_stub.info.imports,
-                )
+            # A broken source analysis must not prevent authoritative stub
+            # facts from being collected, and vice versa.
+            try:
+                resolved_stub = self.stub_resolver.resolve(module_name, script_path=path)
+                if resolved_stub is not None:
+                    self._collect_stub_module(
+                        module_name,
+                        resolved_stub.path,
+                        resolved_stub.info.functions,
+                        resolved_stub.info.classes,
+                        resolved_stub.info.variables,
+                        resolved_stub.info.imports,
+                    )
+            except Exception as exc:
+                self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
         finally:
             self._collecting_modules.discard(module_name)
+            # Inference may replace the result while recursively resolving a
+            # dependency. Attach collection diagnostics to the final result.
+            for diagnostic in self._collection_diagnostics:
+                if diagnostic.module_name != module_name:
+                    continue
+                result = self._inference_results.setdefault(
+                    module_name, ModuleInferenceResult(module_name, converged=False)
+                )
+                item = InferenceDiagnostic(
+                    diagnostic.code,
+                    diagnostic.message,
+                    severity=diagnostic.severity,
+                    affects_completeness=True,
+                )
+                if item not in result.diagnostics:
+                    result.diagnostics.append(item)
+
+    def _record_collection_failure(
+        self, module_name: str, code: str, exc: Exception, path: str | None
+    ) -> None:
+        self._failed_modules.add(module_name)
+        diagnostic = StubDiagnostic(
+            code=code,
+            category="type_inference",
+            module_name=module_name,
+            message=f"{type(exc).__name__}: {exc}",
+            path=path,
+            severity="error",
+        )
+        if diagnostic not in self._collection_diagnostics:
+            self._collection_diagnostics.append(diagnostic)
 
     def type_of(self, module_name: str, name: str) -> ProperType | None:
         """Return the best known type for ``module.name``."""
@@ -135,8 +179,27 @@ class TypeInfoService:
         return dict(self._module_facts.get(qualified_name, {}))
 
     def diagnostics(self) -> list[StubDiagnostic]:
-        """Return stub-resolution diagnostics."""
-        return self.stub_resolver.get_diagnostics()
+        """Return source, inference, and stub-resolution diagnostics."""
+        diagnostics = [*self.stub_resolver.get_diagnostics(), *self._collection_diagnostics]
+        for module_name, result in self._inference_results.items():
+            for item in result.diagnostics:
+                if any(
+                    d.module_name == module_name
+                    and d.code == item.code
+                    and d.message == item.message
+                    for d in diagnostics
+                ):
+                    continue
+                diagnostics.append(
+                    StubDiagnostic(
+                        code=item.code,
+                        category="type_inference",
+                        module_name=module_name,
+                        message=item.message,
+                        severity=item.severity,
+                    )
+                )
+        return diagnostics
 
     def inference_result(
         self,
@@ -174,10 +237,7 @@ class TypeInfoService:
         source: str,
         path: str | None,
     ) -> None:
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return
+        tree = ast.parse(source)
 
         facts = self._module_facts.setdefault(module_name, {})
         functions = self._functions.setdefault(module_name, {})
@@ -218,7 +278,7 @@ class TypeInfoService:
                     name=node.name,
                     typ=self._callable_type(function_info),
                     raw_annotation=node.name,
-                    source="annotation",
+                    source=function_info.source,
                     kind="function",
                 )
 
@@ -298,13 +358,23 @@ class TypeInfoService:
             params = dict(existing_function.params)
             raw_params = dict(existing_function.raw_params)
             for name, value in summary.parameters.items():
-                if name in params and params[name] is None:
+                if name in params and (
+                    params[name] is None
+                    or name in self._documented_parameters.get((module_name, local_name), set())
+                ):
                     params[name] = value.public_type()
                     public_type = value.public_type()
                     raw_params[name] = None if public_type is None else str(public_type)
             returns = existing_function.returns or summary.return_type
+            if (
+                module_name,
+                local_name,
+            ) in self._documented_returns and summary.return_type is not None:
+                returns = summary.return_type
             raw_returns = existing_function.raw_returns
-            if raw_returns is None and returns is not None:
+            if (
+                raw_returns is None or (module_name, local_name) in self._documented_returns
+            ) and returns is not None:
                 raw_returns = str(returns)
             updated = FunctionTypeInfo(
                 name=existing_function.name,
@@ -314,7 +384,7 @@ class TypeInfoService:
                 raw_returns=raw_returns,
                 source=(
                     existing_function.source
-                    if existing_function.source in {"annotation", "stub"}
+                    if existing_function.source in {"annotation", "stub", "docstring"}
                     else "static_inference"
                 ),
             )
@@ -335,14 +405,10 @@ class TypeInfoService:
         module_name, separator, name = qualified_name.rpartition(".")
         if not separator:
             return None
-        if module_name not in self._collected_modules:
-            if module_name in self._collecting_modules:
-                fact = self._module_facts.get(module_name, {}).get(name)
-                return None if fact is None else fact.typ
-            if self.project_context.find_module(module_name) is not None:
-                self.collect_module(module_name)
-        fact = self._module_facts.get(module_name, {}).get(name)
-        return None if fact is None else fact.typ
+        if module_name in self._collecting_modules:
+            fact = self._module_facts.get(module_name, {}).get(name)
+            return None if fact is None else fact.typ
+        return self._lookup_project_type(qualified_name, allow_synthetic=False)
 
     def _collect_stub_module(
         self,
@@ -489,13 +555,14 @@ class TypeInfoService:
                     module_name=module_name,
                     imports=imports,
                     source="annotation",
+                    symbol_name=f"{node.name}.{stmt.name}",
                 )
                 methods[stmt.name] = method_info
                 members[stmt.name] = TypeFact(
                     name=stmt.name,
                     typ=method_info.returns,
                     raw_annotation=method_info.raw_returns,
-                    source="annotation",
+                    source=method_info.source,
                     kind="method",
                 )
         raw_bases = tuple(_annotation_to_str(base) for base in node.bases)
@@ -527,6 +594,7 @@ class TypeInfoService:
         module_name: str,
         imports: dict[str, str],
         source: str,
+        symbol_name: str | None = None,
     ) -> FunctionTypeInfo:
         raw_params: dict[str, str | None] = {}
         params: dict[str, ProperType | None] = {}
@@ -563,17 +631,40 @@ class TypeInfoService:
                 imports=imports,
             )
         raw_returns = _annotation_to_str(node.returns) if node.returns is not None else None
+        returns = self._resolve_annotation(raw_returns, module_name=module_name, imports=imports)
+        docstring = ast.get_docstring(node)
+        used_documentation = False
+        documentation_key = (module_name, symbol_name or node.name)
+        if docstring:
+
+            def resolve_hint(text: str) -> ProperType | None:
+                return self._resolve_annotation(text, module_name=module_name, imports=imports)
+
+            for name in params:
+                if raw_params[name] is not None:
+                    continue
+                hints = search_param_in_docstr(docstring, name.lstrip("*"))
+                hint = resolve_documented_type(hints, resolve_hint)
+                if hint is not None:
+                    params[name] = hint
+                    raw_params[name] = " | ".join(hints)
+                    used_documentation = True
+                    self._documented_parameters.setdefault(documentation_key, set()).add(name)
+            if node.returns is None:
+                hints = list(search_return_in_docstr(docstring))
+                hint = resolve_documented_type(hints, resolve_hint)
+                if hint is not None:
+                    returns = hint
+                    raw_returns = " | ".join(hints)
+                    used_documentation = True
+                    self._documented_returns.add(documentation_key)
         return FunctionTypeInfo(
             name=node.name,
             params=params,
-            returns=self._resolve_annotation(
-                raw_returns,
-                module_name=module_name,
-                imports=imports,
-            ),
+            returns=returns,
             raw_params=raw_params,
             raw_returns=raw_returns,
-            source=source,
+            source="docstring" if used_documentation else source,
         )
 
     def _function_info_from_stub(
@@ -773,6 +864,22 @@ class TypeInfoService:
             if self.project_context.find_module(module_name) is not None:
                 self.collect_module(module_name)
 
+        result = self._inference_results.get(module_name)
+        partial = module_name in self._failed_modules or (
+            result is not None and result.status == "partial"
+        )
+        if partial:
+            for dependent in sorted(self._collecting_modules - {module_name}):
+                diagnostic = StubDiagnostic(
+                    code="type_dependency_partial",
+                    category="type_inference",
+                    module_name=dependent,
+                    message=f"Type information for dependency {module_name!r} is partial",
+                    severity="warning",
+                )
+                if diagnostic not in self._collection_diagnostics:
+                    self._collection_diagnostics.append(diagnostic)
+
         class_info = self._classes.get(qualified_name)
         if class_info is not None:
             return class_info.typ
@@ -780,6 +887,11 @@ class TypeInfoService:
         fact = self._module_facts.get(module_name, {}).get(attr)
         if fact is not None:
             return fact.typ
+
+        if partial:
+            # A failed import supplies no nominal-class evidence. Any also
+            # prevents the engine from inventing a class for this symbol.
+            return ANY
 
         if allow_synthetic and self.project_context.find_module(module_name) is not None:
             return self._synthetic_instance(qualified_name)

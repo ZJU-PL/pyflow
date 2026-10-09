@@ -591,3 +591,55 @@ def test_function_resolution_reports_ambiguity_and_missing_candidates():
     with pytest.raises(ValueError, match="Available candidates:.*app.Left.run"):
         context.resolve_function("Left.rnu")
     assert context.resolve_function("Left.run") is left
+
+
+def test_public_function_names_flatten_synthetic_module_and_local_scope_markers():
+    code = DummyCode("blend_rgb", "/tmp/color.py", 580)
+    catalog = IRCatalog()
+    procedure = catalog.register_code(
+        code,
+        module="color",
+        qualname="color.<module>.<locals>.blend_rgb",
+        anchor=SourceAnchor("/tmp/color.py", 580, 0),
+    )
+    context = QueryContext(None, SimpleNamespace(liveCode=[code], ir=catalog))
+    for name in ("blend_rgb", "color.blend_rgb", str(procedure.code_id)):
+        assert context.resolve_function(name) is code
+
+
+def test_public_nested_function_aliases_remain_disambiguated():
+    catalog = IRCatalog()
+    codes = []
+    for module in ("left", "right"):
+        code = DummyCode("inner", f"/tmp/{module}.py", 3)
+        catalog.register_code(
+            code,
+            module=module,
+            qualname=f"{module}.<module>.<locals>.outer.<locals>.inner",
+            anchor=SourceAnchor(f"/tmp/{module}.py", 3, 0),
+        )
+        codes.append(code)
+    context = QueryContext(None, SimpleNamespace(liveCode=codes, ir=catalog))
+    assert context.resolve_function("left.outer.inner") is codes[0]
+    assert context.resolve_function("right.outer.inner") is codes[1]
+    with pytest.raises(ValueError, match="ambiguous"):
+        context.resolve_function("outer.inner")
+
+
+def test_synthetic_module_alias_does_not_shadow_a_function_named_main():
+    catalog = IRCatalog()
+    module = DummyCode("main.<module>", "/tmp/main.py", 1)
+    function = DummyCode("main", "/tmp/main.py", 2)
+    catalog.register_code(
+        module, module="main", qualname="main.<module>", anchor=SourceAnchor("/tmp/main.py", 1, 0)
+    )
+    catalog.register_code(
+        function,
+        module="main",
+        qualname="main.<module>.<locals>.main",
+        anchor=SourceAnchor("/tmp/main.py", 2, 0),
+    )
+    context = QueryContext(None, SimpleNamespace(liveCode=[module, function], ir=catalog))
+    assert context.resolve_function("main") is function
+    assert context.resolve_function("main.main") is function
+    assert context.resolve_function("main.<module>") is module

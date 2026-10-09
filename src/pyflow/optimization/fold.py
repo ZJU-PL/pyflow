@@ -555,6 +555,12 @@ class FoldAnalysis(TypeDispatcher):
         self.flow.undefine(node.lcl)
         return node
 
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        if node.value is not None:
+            self.visitAssign(ast.Assign(node.value, [node.target]))
+        return node
+
 
 # Restricted traversal, so not all locals are rewritten.
 class FoldTraverse(TypeDispatcher):
@@ -597,7 +603,7 @@ class FoldTraverse(TypeDispatcher):
         """Visit leaf nodes (no children to process)."""
         return node
 
-    @dispatch(list)
+    @dispatch(list, tuple)
     def visitList(self, node):
         """
         Visit Python lists in AST.
@@ -623,7 +629,7 @@ class FoldTraverse(TypeDispatcher):
                 result.append(self(item))
             else:
                 result.append(item)
-        return result
+        return tuple(result) if isinstance(node, tuple) else result
 
     @defaultdispatch
     def default(self, node):
@@ -696,6 +702,14 @@ class FoldTraverse(TypeDispatcher):
         # Avoids folding delete targets
         node = self.strategy(node)
         return node
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        value = self(node.value) if node.value is not None else None
+        rewritten = ast.AnnAssign(node.target, node.annotation_expr, value)
+        rewritten.annotation = node.annotation
+        self.recordFactSource(node, rewritten)
+        return self.strategy(rewritten)
 
 
 def constMeet(values):

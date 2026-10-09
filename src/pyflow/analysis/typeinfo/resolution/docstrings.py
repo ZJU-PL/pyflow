@@ -161,7 +161,7 @@ def _search_param_in_numpydocstr(docstr: str, param_str: str) -> list[str]:
     """
     try:
         cls = _get_numpy_doc_string_cls()
-    except ImportError:
+    except (ImportError, SyntaxError):
         return []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -182,7 +182,7 @@ def _search_return_in_numpydocstr(docstr: str) -> Iterator[str]:
     """Search a numpydoc-formatted docstring for return type(s)."""
     try:
         cls = _get_numpy_doc_string_cls()
-    except ImportError:
+    except (ImportError, SyntaxError):
         return
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

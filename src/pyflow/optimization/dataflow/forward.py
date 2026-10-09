@@ -96,6 +96,23 @@ class ForwardFlowTraverse(TypeDispatcher):
             self.recordFactSource(fact_source, node)
         node = self.rewrite(node)
 
+        if isinstance(node, ast.AnnAssign):
+            # The value is evaluated and stored before a module/class
+            # annotation is evaluated. An annotation-only declaration does
+            # not overwrite an existing binding.
+            if self.flow.tryLevel > 0 and node.value is not None and self.mayRaise(node.value):
+                normal, exceptional = self.flow.popSplit()
+                self.flow.restore(exceptional)
+                self.flow.save("raise")
+                self.flow.restore(normal)
+            self.analyze(node)
+            if self.flow.tryLevel > 0 and self.mayRaise(node.annotation_expr):
+                normal, exceptional = self.flow.popSplit()
+                self.flow.restore(exceptional)
+                self.flow.save("raise")
+                self.flow.restore(normal)
+            return node
+
         # Assuming exception handing only cares about locals, save the state before the assign.
         # TODO make sound for heap modificaions/interprocedural?
         if self.flow.tryLevel > 0 and self.mayRaise(node):
@@ -110,6 +127,7 @@ class ForwardFlowTraverse(TypeDispatcher):
     # HACK to verify types.
     @dispatch(
         ast.Assign,
+        ast.AnnAssign,
         ast.Discard,
         # ast.ConvertToBool,
         ast.Local,

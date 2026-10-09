@@ -124,23 +124,34 @@ def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
     return {caller: sorted(callees) for caller, callees in sorted(callgraph.get().items())}
 
 
-def _resolve_callgraph_node(graph: dict[str, list[str]], name: str) -> str | None:
+def _resolve_callgraph_node(
+    graph: dict[str, list[str]], name: str, entry_module: str | None = None
+) -> str | None:
     if name in graph:
         return name
+    # The graph's legacy entry namespace is "main", while the source index
+    # lists the entry file's module stem. Accept that alias without changing
+    # graph node IDs consumed by existing clients.
+    if entry_module and name.startswith(f"{entry_module}."):
+        entry_name = "main" + name[len(entry_module) :]
+        if entry_name in graph:
+            return entry_name
     matches = sorted(node for node in graph if node == name or node.endswith(f".{name}"))
     if len(matches) == 1:
         return matches[0]
     return None
 
 
-def _dispatch_callgraph_query(graph: dict[str, list[str]], args) -> object:
+def _dispatch_callgraph_query(
+    graph: dict[str, list[str]], args, entry_module: str | None = None
+) -> object:
     if args.get_callers:
-        target = _resolve_callgraph_node(graph, args.get_callers)
+        target = _resolve_callgraph_node(graph, args.get_callers, entry_module)
         if target is None:
             return []
         return sorted(caller for caller, callees in graph.items() if target in callees)
     if args.get_callees:
-        source = _resolve_callgraph_node(graph, args.get_callees)
+        source = _resolve_callgraph_node(graph, args.get_callees, entry_module)
         return [] if source is None else graph.get(source, [])
     return graph
 
@@ -208,6 +219,11 @@ def add_query_parser(subparsers):
         nargs=3,
         metavar=("MODULE", "LINE", "COL"),
         help="Get type at source position",
+    )
+    p.add_argument(
+        "--include-diagnostics",
+        action="store_true",
+        help="Include type-analysis status and structured diagnostics in --get-type JSON",
     )
     p.add_argument(
         "--get-cfg",
@@ -286,7 +302,9 @@ def run_query(args):
         except (OSError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
-        _write_query_result(_dispatch_callgraph_query(graph, args), args)
+        _write_query_result(
+            _dispatch_callgraph_query(graph, args, _callgraph_entry(input_path).stem), args
+        )
         return
 
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
@@ -339,6 +357,22 @@ def _dispatch_query(server: AnalysisManager, args) -> object:
     if args.get_type:
         module, line, col = args.get_type
         result = snapshot.queries.type_info.get_expression_type(module, int(line), int(col))
+        status = snapshot.queries.type_info.get_analysis_status(module)
+        diagnostics = snapshot.queries.type_info.get_diagnostics()
+        if getattr(args, "include_diagnostics", False):
+            from dataclasses import asdict
+
+            return {
+                "type": str(result) if result is not None else None,
+                "status": status,
+                "diagnostics": [asdict(item) for item in diagnostics],
+            }
+        if status == "partial":
+            print(
+                f"Warning: type analysis for {module!r} is partial; "
+                "use --include-diagnostics for details",
+                file=sys.stderr,
+            )
         return {"type": str(result)} if result is not None else None
     if args.get_cfg:
         return snapshot.queries.control_flow.get_cfg_structure(args.get_cfg)

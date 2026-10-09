@@ -16,7 +16,7 @@ This enables better optimization by making argument passing explicit.
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.analysis.tools import codeOps
-from pyflow.ir.core import AnalysisFacts
+from pyflow.ir.core import AnalysisFacts, MissingAnalysisFact
 
 
 class _ContainsLocalRef(TypeDispatcher):
@@ -387,11 +387,20 @@ def evaluate(compiler, prgm):
         transform = ArgumentNormalizationTransform(prgm.storeGraph)
         changed = False
         safety_blocked = 0
+        missing_facts = 0
 
         for code in prgm.liveCode:
-            applicable, vparamLen = analysis.process(code)
+            try:
+                applicable, vparamLen = analysis.process(code)
+                blocker = (
+                    _normalization_blocker(prgm, facts, code, vparamLen) if applicable else None
+                )
+            except MissingAnalysisFact:
+                # An optional optimization needs proof of argument lengths and
+                # all incoming calls. Unresolved facts cannot justify a rewrite.
+                missing_facts += 1
+                continue
             if applicable:
-                blocker = _normalization_blocker(prgm, facts, code, vparamLen)
                 if blocker is not None:
                     safety_blocked += 1
                     continue
@@ -404,6 +413,10 @@ def evaluate(compiler, prgm):
         if safety_blocked:
             compiler.console.output(
                 f"Argument normalization skipped for {safety_blocked} code objects due to safety guards."
+            )
+        if missing_facts:
+            compiler.console.output(
+                f"Argument normalization skipped for {missing_facts} code objects with incomplete analysis facts."
             )
 
         return changed

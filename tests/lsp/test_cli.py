@@ -77,6 +77,23 @@ def test_listed_method_names_and_unique_suffixes_work_for_cfg(query_parser, tmp_
         assert "Traceback" not in output.err
 
 
+def test_listed_module_functions_work_for_cfg_and_callees(query_parser, tmp_path, capsys):
+    source = tmp_path / "color.py"
+    source.write_text(
+        "def helper(value):\n    return value\ndef blend_rgb(value):\n    return helper(value)\nblend_rgb(1)\n"
+    )
+    run_query(query_parser.parse_args(["query", str(source), "--list-functions"]))
+    listed = json.loads(capsys.readouterr().out)
+    function = next(name for name in listed if name.endswith("blend_rgb"))
+    assert function == "color.blend_rgb"
+    run_query(query_parser.parse_args(["query", str(source), "--get-cfg", function]))
+    graph = json.loads(capsys.readouterr().out)
+    assert graph["name"] == "blend_rgb"
+    assert graph["blocks"]
+    run_query(query_parser.parse_args(["query", str(source), "--get-callees", function]))
+    assert any(name.endswith("helper") for name in json.loads(capsys.readouterr().out))
+
+
 # ---------------------------------------------------------------------------
 # lsp
 # ---------------------------------------------------------------------------

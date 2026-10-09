@@ -457,6 +457,11 @@ Run one-shot semantic queries against Python code without starting a daemon.
   pyflow query module.py --get-type module 12 8
   pyflow query . --mode advanced --get-aliases variable_name
 
+Names returned by ``--list-functions`` work for CFG and call queries,
+including file-qualified module functions such as ``color.blend_rgb``.
+Compiler scope markers are kept in internal identifiers and omitted from
+public aliases; ambiguous short or nested names still require qualification.
+
 Options:
 
 - ``--list-functions``: List functions in source index
@@ -465,15 +470,19 @@ Options:
 - ``--get-callers SYMBOL``: Find callers of a function
 - ``--get-callees SYMBOL``: Find callees of a function
 - ``--get-type MODULE LINE COL``: Query inferred type at source location
+- ``--include-diagnostics``: With ``--get-type``, return an object containing
+  ``type``, ``status`` (``complete``, ``partial``, or ``unavailable``), and
+  structured ``diagnostics``. Without this option, the existing type/null JSON
+  shape is preserved and partial type analysis is reported on stderr
 - ``--get-aliases SYMBOL``: Query aliases and points-to information
 - ``--mode {basic,full,advanced}``: Analysis mode (default: ``full``)
 - ``--pretty``: Pretty-print JSON output
+- ``--output, -o PATH``: Write query result to file
 
 CLI output supports pipelines such as ``pyflow alias app.py --json | head``.
 Closing the consumer ends output without a ``BrokenPipeError`` traceback.
 The guard lives in ``main()`` and also covers legacy console scripts and
 module execution, including output buffered until shutdown.
-- ``--output, -o PATH``: Write query result to file
 
 Global Options
 ==============

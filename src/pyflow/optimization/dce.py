@@ -8,7 +8,7 @@ from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 from pyflow.optimization.dataflow.reverse import *
-from pyflow.optimization.dataflow.base import top, undefined, MutateCodeReversed
+from pyflow.optimization.dataflow.base import top, undefined, MutateCodeReversed, MayRaise
 
 from pyflow.analysis import tools
 from .source_candidates import record_source_candidate
@@ -232,6 +232,19 @@ class MarkLive(TypeDispatcher):
     @dispatch(ast.Delete)
     def visitDelete(self, node):
         self.flow.undefine(node.lcl)
+        return node
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        # Keep the declaration: __annotations__ and annotation evaluation
+        # remain observable even when the assigned value is unused.
+        if node.value is not None:
+            # A failing initializer reaches handlers before the new binding
+            # exists. Keep any merged liveness for the previous value.
+            if self.flow.tryLevel <= 0 or not MayRaise()(node.value):
+                self.flow.undefine(node.target)
+            self.marker(node.value)
+        self.marker(node.annotation_expr)
         return node
 
     @defaultdispatch

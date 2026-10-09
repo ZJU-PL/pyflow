@@ -37,6 +37,37 @@ def _raw_types(typ) -> set[type]:
     return set()
 
 
+def test_builtin_tuple_type_reference_and_guard_use_tuple_types():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "tuple_class = tuple\nvalues = (1, 'two')\nis_tuple = isinstance(values, tuple)\nconverted = tuple([1, 2])\n",
+    )
+    assert result.converged
+    assert isinstance(result.type_of("tuple_class"), TupleType)
+    assert result.type_of("tuple_class").unknown_size
+    assert isinstance(result.type_of("values"), TupleType)
+    assert isinstance(result.type_of("converted"), TupleType)
+    assert _raw_types(result.type_of("is_tuple")) == {bool}
+
+
+def test_lambdas_discovered_inside_uncalled_functions_participate_in_fixed_point():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "def choose(values: list[int]):\n    return sorted(values, key=lambda item: item)\n",
+    )
+    assert result.converged
+    assert any("lambda" in name for name in result.functions)
+    assert _raw_types(result.functions["sample.choose"].return_type) == {list}
+
+
+def test_function_local_classes_are_precollected_before_declaration_resolution():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample", "def factory():\n    class Nested:\n        value: int = 1\n    return Nested()\n"
+    )
+    assert result.converged
+    assert result.functions["sample.factory"].return_type is not None
+
+
 def test_domain_keeps_unknown_distinct_from_any() -> None:
     type_system = TypeSystem()
     unknown = AbstractTypeValue.unresolved()
