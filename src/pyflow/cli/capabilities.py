@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from pyflow.checker.capability import (
@@ -22,6 +23,12 @@ def add_capabilities_parser(subparsers) -> None:
     )
     parser.add_argument("input_path", help="Python entry file or project directory")
     parser.add_argument("--entry", help="Entry file relative to a project directory")
+    parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        help="Analyze all project Python files instead of choosing one entry file",
+    )
     parser.add_argument("--context-depth", type=int, choices=(0, 1, 2, 3), default=1)
     parser.add_argument(
         "--context-policy",
@@ -52,6 +59,12 @@ def add_capabilities_parser(subparsers) -> None:
     parser.add_argument("--format", choices=("text", "json", "sarif"), default="text")
     parser.add_argument("--output", "-o", type=Path)
     parser.add_argument(
+        "--exit-code-policy",
+        choices=("report", "findings"),
+        default="report",
+        help="Return zero for reports (default), or nonzero for findings/partial analysis",
+    )
+    parser.add_argument(
         "--capability-model",
         action="append",
         type=Path,
@@ -73,7 +86,19 @@ def add_capabilities_parser(subparsers) -> None:
 def run_capabilities(args) -> int:
     target = Path(args.input_path).resolve()
     if target.is_dir():
-        entry = resolve_entry_file(target, args.entry)
+        if getattr(args, "recursive", False):
+            from pyflow.frontend.file_selection import (
+                discover_python_files,
+                SECURITY_DEFAULT_EXCLUDES,
+            )
+
+            entries = discover_python_files(
+                target, recursive=True, exclude=SECURITY_DEFAULT_EXCLUDES
+            )
+            entry = entries[0] if entries else None
+        else:
+            entry = resolve_entry_file(target, args.entry)
+            entries = [entry] if entry is not None else []
         if entry is None:
             print(
                 "Error: could not determine a unique project entry file; use --entry",
@@ -83,6 +108,7 @@ def run_capabilities(args) -> int:
         project_root = target
     elif target.is_file() and target.suffix == ".py":
         entry = target
+        entries = [entry]
         project_root = target.parent
     else:
         print(f"Error: expected a Python file or project directory: {target}", file=sys.stderr)
@@ -95,17 +121,26 @@ def run_capabilities(args) -> int:
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"Error: invalid capability model: {exc}", file=sys.stderr)
         return 2
-    result = DefensiveCapabilityAnalysis(
+    analysis = DefensiveCapabilityAnalysis(
         registry,
         k=args.context_depth,
         context_policy=getattr(args, "context_policy", None),
         report_public_exports=not getattr(args, "no_public_exports", False),
         report_callable_boundaries=getattr(args, "report_callable_boundaries", False),
-    ).analyze_project(
-        entry,
-        project_path=project_root,
-        import_level=args.import_depth,
     )
+    from pyflow.checker.capability.model import CapabilityAnalysisResult
+
+    result = CapabilityAnalysisResult()
+    with redirect_stdout(sys.stderr):
+        for entry in entries:
+            analyzed = analysis.analyze_project(
+                entry, project_path=project_root, import_level=args.import_depth
+            )
+            result.findings.extend(analyzed.findings)
+            result.diagnostics.extend(analyzed.diagnostics)
+            if analyzed.status != "complete":
+                result.status = analyzed.status
+    result.finalize()
     if args.format == "json":
         rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True)
     elif args.format == "sarif":
@@ -117,7 +152,11 @@ def run_capabilities(args) -> int:
         args.output.write_text(rendered + "\n", encoding="utf-8")
     else:
         print(rendered)
-    return 1 if result.findings or result.status != "complete" else 0
+    if result.status in {"invalid", "failed"}:
+        return 2
+    if getattr(args, "exit_code_policy", "report") == "findings":
+        return 1 if result.findings or result.status != "complete" else 0
+    return 0
 
 
 def _to_text(result) -> str:

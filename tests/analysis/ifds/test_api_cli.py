@@ -1240,7 +1240,7 @@ def test_security_cli_emits_json_report(tmp_path, capsys):
     exit_code = run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert payload["entry"] == str(target)
     assert len(payload["findings"]) == 1
     assert payload["findings"][0]["tainted_arguments"] == ["b"]
@@ -1272,7 +1272,7 @@ def test_security_cli_emits_class_pollution_proof_level(tmp_path, capsys):
     exit_code = run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert payload["analysis"] == "class-pollution"
     assert payload["findings"][0]["proof_level"] == "pollutable-object"
     assert payload["findings"][0]["mutation_kind"] == "attribute"
@@ -1310,5 +1310,5 @@ main()
     exit_code = run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]

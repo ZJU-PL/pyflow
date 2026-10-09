@@ -515,6 +515,7 @@ def analyze_ast_function(
     solver_options: SolverOptions | None = None,
     known_functions: Iterable[str] = (),
     import_aliases: Mapping[str, str] | None = None,
+    unknown_call_policy: str = "havoc",
 ) -> ASTFunctionAnalysisResult:
     context = ExpressionContext(
         procedure=procedure,
@@ -525,6 +526,7 @@ def analyze_ast_function(
         shape_contracts=shape_contracts or CallShapeContractRegistry(),
         known_functions=frozenset(known_functions),
         import_aliases=import_aliases or {},
+        unknown_call_policy=unknown_call_policy,
     )
     expressions = PythonExpressionSemantics(context)
     transfer = PythonStatementTransfer(expressions, refinement)

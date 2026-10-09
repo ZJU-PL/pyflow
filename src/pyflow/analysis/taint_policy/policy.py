@@ -59,6 +59,7 @@ class TaintPolicy:
     sanitizer_kinds_by_call: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     rules: tuple[TaintRule, ...] = ()
     entry_point_defaults: EntryPointDefaults = EntryPointDefaults()
+    modeled_call_names: FrozenSet[str] = frozenset()
 
     def __post_init__(self) -> None:
         for attribute in (
@@ -86,6 +87,7 @@ class TaintPolicy:
     ) -> "TaintPolicy":
         mapping = call_models.as_mapping()
         return cls(
+            modeled_call_names=frozenset(mapping),
             source_kinds_by_call={
                 name: model.source_kinds for name, model in mapping.items() if model.source_kinds
             },
@@ -149,17 +151,25 @@ class TaintPolicy:
                 return candidates[0]
         return None
 
-    @staticmethod
-    def _matching_names(mapping: Mapping[str, object], name: str | None) -> tuple[str, ...]:
+    def _matching_names(self, mapping: Mapping[str, object], name: str | None) -> tuple[str, ...]:
         if not name:
             return ()
         if name in mapping:
             return (name,)
+        # A known pure call must not borrow source/sink semantics from a
+        # different library that happens to use the same method name.
+        if name in self.modeled_call_names:
+            return ()
         matches = tuple(
             candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
         )
         if matches:
             return matches
+        modeled_roots = {
+            candidate.split(".", 1)[0] for candidate in self.modeled_call_names if "." in candidate
+        }
+        if name.count(".") >= 2 or ("." in name and name.split(".", 1)[0] in modeled_roots):
+            return ()
         leaf = name.rsplit(".", 1)[-1]
         return tuple(candidate for candidate in mapping if candidate.rsplit(".", 1)[-1] == leaf)
 
@@ -181,7 +191,9 @@ class TaintPolicy:
         # borrow metadata from an unrelated API that merely shares its leaf
         # name. For an unresolved receiver such as ``c.execute``, however,
         # consistent metadata across all leaf candidates is conservative.
-        if name in self.sink_kinds_by_call and name not in self.sink_cwe_by_call:
+        if (
+            name in self.modeled_call_names or name in self.sink_kinds_by_call
+        ) and name not in self.sink_cwe_by_call:
             return None
         key = self._resolve_name(self.sink_cwe_by_call, name)
         if key:

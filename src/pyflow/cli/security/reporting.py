@@ -10,6 +10,16 @@ from pyflow.checker.formatters.security import security_json, security_sarif, se
 def _output_results(engine: str, result, args) -> None:
     """Write analysis results in the requested format."""
     fmt = getattr(args, "format", "text")
+    if fmt == "json" and getattr(args, "json_schema", "legacy") == "unified":
+        from .filters import unified_report
+
+        document = unified_report(engine, result)
+        if getattr(args, "output", None):
+            args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        else:
+            json.dump(document, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        return
 
     # Pattern scanning and non-normalized AST-dataflow formats use checker
     # formatters.
@@ -65,8 +75,8 @@ def _output_via_formatter(engine: str, result, args, fmt: str) -> None:
     """Route scanner-based results through the appropriate checker formatter."""
     from pyflow.checker.common import constants as b_constants
 
-    sev_level = getattr(args, "severity", b_constants.LOW)
-    conf_level = getattr(args, "confidence", b_constants.LOW)
+    sev_level = b_constants.LOW
+    conf_level = b_constants.LOW
     lines = -1
 
     out_file = None

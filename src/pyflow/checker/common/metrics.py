@@ -71,6 +71,9 @@ class Metrics:
                 ("SEVERITY", finding.severity, self.issues_by_severity),
                 ("CONFIDENCE", finding.confidence, self.issues_by_confidence),
             ):
+                if criterion == "SEVERITY" and level == "CRITICAL":
+                    totals.setdefault(level, 0)
+                    self.data["_totals"].setdefault("SEVERITY.CRITICAL", 0)
                 if level in totals:
                     totals[level] += 1
                 key = f"{criterion}.{level}"

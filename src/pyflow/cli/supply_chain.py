@@ -294,7 +294,25 @@ def run_supply_chain(args: Any) -> int:
                 for finding in scan.findings
             )
             commit_output = True
-            return 2 if incomplete and not getattr(args, "allow_incomplete", False) else 0
+            if incomplete and not getattr(args, "allow_incomplete", False):
+                print(
+                    "SBOM generated, but the inventory is incomplete or has high-severity "
+                    "dependency findings. Review the document's metadata/findings; "
+                    "use --allow-incomplete to accept this inventory (exit code 2).",
+                    file=sys.stderr,
+                )
+                reasons = sorted(
+                    set(scan.metadata.get("inventoryLimitations", ()))
+                    | {
+                        finding.kind
+                        for finding in scan.findings
+                        if _severity_rank(finding.severity) >= _severity_rank("high")
+                    }
+                )
+                if reasons:
+                    print(f"Reasons: {', '.join(reasons)}", file=sys.stderr)
+                return 2
+            return 0
 
         if args.supply_chain_command == "audit":
             findings = list(scan.findings)
@@ -486,6 +504,8 @@ def run_supply_chain(args: Any) -> int:
             fail_on = getattr(args, "fail_on", "high")
             commit_output = True
             return 1 if _should_fail(findings, fail_on) else 0
+    except BrokenPipeError:
+        raise
     except (OSError, SbomValidationError) as exc:
         print(f"Supply-chain command failed: {exc}", file=sys.stderr)
         return 2

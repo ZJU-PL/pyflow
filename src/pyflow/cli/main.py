@@ -8,6 +8,7 @@ operations.
 import sys
 import argparse
 import gc
+import os
 from pathlib import Path
 
 
@@ -147,7 +148,11 @@ def main():
         run_mcp(args)
         return 0
     elif args.command == "query":
-        run_query(args)
+        try:
+            run_query(args)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
         return 0
     else:
         parser.print_help()
@@ -164,10 +169,21 @@ def entrypoint():
     :func:`main`.
     """
 
-    exit_code = main()
+    try:
+        exit_code = main()
+        # Detect buffered writes before the interpreter's shutdown flush.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # Keep shutdown from flushing the closed pipe a second time.
+        descriptor = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(descriptor, sys.stdout.fileno())
+        finally:
+            os.close(descriptor)
+        exit_code = 0
     gc.freeze()
     return exit_code
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(entrypoint())

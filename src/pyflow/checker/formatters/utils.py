@@ -43,14 +43,25 @@ def issue_report(manager, sev_level, conf_level, *, lines=-1):
     import datetime
 
     errors = sorted(
-        ({"filename": filename, "reason": reason} for filename, reason in manager.get_skipped()),
+        (
+            manager.get_errors()
+            if hasattr(manager, "get_errors")
+            else (
+                {"filename": filename, "reason": reason}
+                for filename, reason in manager.get_skipped()
+            )
+        ),
         key=lambda item: (item["filename"], item["reason"]),
     )
     results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
     collector = []
     for issue in results:
         data = issue.as_dict(max_lines=lines)
-        data["more_info"] = "https://pyflow.readthedocs.io/"
+        data["more_info"] = (
+            issue.cwe.link()
+            if issue.cwe.id
+            else "https://pyflow.readthedocs.io/en/latest/how-to/security-analysis.html"
+        )
         if not isinstance(results, list) and len(results[issue]) > 1:
             data["candidates"] = [
                 candidate.as_dict(max_lines=lines) for candidate in results[issue]

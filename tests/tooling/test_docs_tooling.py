@@ -51,13 +51,17 @@ def test_cli_reference_matches_current_commands() -> None:
         "``--engine ast-dataflow``",
         "``--engine ifds``",
         "``--engine cpg``",
-        "--function FUNCTION",
+        "--entry PATH",
+        "--exit-code-policy",
+        "--fail-on",
+        "--json-schema",
         "--sources NAME [NAME ...]",
         "--sinks NAME [NAME ...]",
     ]
 
     for token in expected:
         assert token in docs
+    assert "--function FUNCTION" not in docs
 
 
 def test_makefile_serve_target_uses_docs_build_dir() -> None:

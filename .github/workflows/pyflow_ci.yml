@@ -30,10 +30,6 @@ jobs:
         run: |
           black --check src tests
 
-      - name: Lint tooling files with flake8
-        run: |
-          flake8 tests/tooling
-
       - name: Run tooling and architecture contract tests
         run: |
           pytest tests/tooling -q

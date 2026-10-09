@@ -77,6 +77,8 @@ class SecurityTester:
         self.debug = debug
         self.nosec_lines = nosec_lines
         self.metrics = metrics
+        self.errors = []
+        self._reported_errors = set()
 
     def run_tests(self, raw_context, checktype):
         """
@@ -110,7 +112,9 @@ class SecurityTester:
             temp_context = copy.copy(raw_context)
             context = b_context.Context(temp_context)
             try:
-                if hasattr(test, "_config"):
+                if hasattr(test, "_takes_config"):
+                    result = test(context, self.testset.get_config(test))
+                elif hasattr(test, "_config"):
                     result = test(context, test._config)
                 else:
                     result = test(context)
@@ -159,8 +163,9 @@ class SecurityTester:
                         self.results.append(issue)
 
                         LOG.debug("Issue identified by %s: %s", name, issue)
-                        sev = constants.RANKING.index(issue.severity)
-                        val = constants.RANKING_VALUES[issue.severity]
+                        scored_severity = "HIGH" if issue.severity == "CRITICAL" else issue.severity
+                        sev = constants.RANKING.index(scored_severity)
+                        val = constants.RANKING_VALUES[scored_severity]
                         scores["SEVERITY"][sev] += val
                         con = constants.RANKING.index(issue.confidence)
                         val = constants.RANKING_VALUES[issue.confidence]
@@ -174,7 +179,7 @@ class SecurityTester:
                         )
 
             except Exception as e:
-                self.report_error(name, context, e)
+                self.report_error(test, context, e)
                 if self.debug:
                     raise
         LOG.debug("Returning scores: %s", scores)
@@ -216,8 +221,7 @@ class SecurityTester:
 
         return nosec_tests_to_skip
 
-    @staticmethod
-    def report_error(test, context, error):
+    def report_error(self, test, context, error):
         """
         Report an error that occurred during test execution.
 
@@ -229,14 +233,28 @@ class SecurityTester:
             context: Context object where error occurred
             error: Exception that was raised
         """
-        what = "Security checker internal error running: "
-        what += f"{test} "
-        what += "on file %s at line %i: " % (
-            context._context["filename"],
-            context._context["lineno"],
+        name = test.__name__
+        filename = context.filename
+        line = context._context.get("lineno")
+        reason = f"{type(error).__name__}: {error}"
+        self.errors.append(
+            {
+                "filename": filename,
+                "line": line,
+                "rule_id": test._test_id,
+                "reason": f"Checker {name} failed: {reason}",
+                "code": "checker-internal-error",
+                "affects_completeness": True,
+            }
         )
-        what += str(error)
-        import traceback
-
-        what += traceback.format_exc()
-        LOG.error(what)
+        key = (name, reason)
+        if self.debug or key not in self._reported_errors:
+            self._reported_errors.add(key)
+            LOG.error(
+                "Checker %s failed at %s:%s: %s (see report errors)",
+                name,
+                filename,
+                line,
+                reason,
+                exc_info=self.debug,
+            )

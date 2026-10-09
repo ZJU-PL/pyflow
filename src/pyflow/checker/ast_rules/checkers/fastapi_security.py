@@ -128,7 +128,7 @@ def get_current_user_validation(context):
         has_db_lookup = False
         for node in ast.walk(context.node):
             if isinstance(node, ast.Call):
-                func = _get_func_name(node.func)
+                func = _get_func_name(node.func) or ""
                 if "decode" in func.lower() or "verify" in func.lower():
                     has_jwt_verify = True
                 if "query" in func.lower() or "get_user" in func.lower():
@@ -163,13 +163,26 @@ def sensitive_data_in_url(context):
 @test.with_id("A105")
 def rate_limiting_missing(context):
     """Detect endpoints without rate limiting."""
-    has_rate_limit = False
-    for node in ast.walk(context.node):
-        if isinstance(node, ast.Call):
-            qual = context.call_function_name_qual or ""
-            if "rate_limit" in qual.lower() or "limiter" in qual.lower():
-                has_rate_limit = True
-                break
+    # A Python function is not necessarily an HTTP endpoint. Require both
+    # framework evidence and a route registration before this review hint.
+    if not context.is_module_imported_like("fastapi"):
+        return None
+    decorators = context.node.decorator_list
+    routes = {"get", "post", "put", "delete", "patch", "head", "options", "api_route", "websocket"}
+    if not any(
+        isinstance(dec, ast.Call)
+        and isinstance(dec.func, ast.Attribute)
+        and dec.func.attr in routes
+        for dec in decorators
+    ):
+        return None
+    has_rate_limit = any(
+        "limiter" in ast.unparse(node.func).lower()
+        or "rate_limit" in ast.unparse(node.func).lower()
+        for root in (context.node, *decorators)
+        for node in ast.walk(root)
+        if isinstance(node, ast.Call)
+    )
     if not has_rate_limit:
         return _fastapi_issue(
             f"Endpoint '{context.node.name}' lacks explicit rate limiting.",

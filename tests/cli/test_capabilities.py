@@ -23,7 +23,7 @@ def test_capabilities_cli_json(tmp_path, capsys) -> None:
         output=None,
     )
 
-    assert run_capabilities(args) == 1
+    assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "complete"
     direct = next(finding for finding in payload["findings"] if finding["report_kind"] == "direct")
@@ -43,7 +43,7 @@ def test_capabilities_cli_sarif(tmp_path, capsys) -> None:
         output=None,
     )
 
-    assert run_capabilities(args) == 1
+    assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     result = payload["runs"][0]["results"][0]
     assert result["ruleId"] == "code.execute"
@@ -82,7 +82,7 @@ def test_capabilities_cli_extends_project_model(tmp_path, capsys) -> None:
         no_public_exports=False,
     )
 
-    assert run_capabilities(args) == 1
+    assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert any(finding["capability"] == "company.audit" for finding in payload["findings"])
 
@@ -125,7 +125,7 @@ def test_capabilities_cli_applies_external_effect_model(tmp_path, capsys) -> Non
         no_public_exports=False,
     )
 
-    assert run_capabilities(args) == 1
+    assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert any(
         finding["capability"] == "process.execute"
@@ -151,7 +151,7 @@ def test_callable_boundary_reports_are_opt_in(tmp_path, capsys, include_boundari
     if include_boundaries:
         argv.append("--report-callable-boundaries")
 
-    assert run_capabilities(parser.parse_args(argv)) == int(include_boundaries)
+    assert run_capabilities(parser.parse_args(argv)) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "complete"
     assert any(finding["escape_kind"] == "return" for finding in payload["findings"]) == (
@@ -168,7 +168,7 @@ def test_indirect_sarif_reports_potential_transfer_as_note(tmp_path, capsys) -> 
     parser = ArgumentParser()
     add_capabilities_parser(parser.add_subparsers(dest="command"))
     args = parser.parse_args(["capabilities", str(target), "--format", "sarif"])
-    assert run_capabilities(args) == 1
+    assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     indirect = [
         result
@@ -178,3 +178,15 @@ def test_indirect_sarif_reports_potential_transfer_as_note(tmp_path, capsys) -> 
     assert indirect
     assert all(result["level"] == "note" for result in indirect)
     assert all("potential capability transfer" in result["message"]["text"] for result in indirect)
+
+
+def test_capabilities_findings_exit_policy_is_opt_in(tmp_path, capsys):
+    source = tmp_path / "app.py"
+    source.write_text("import subprocess\nsubprocess.run(['id'])\n")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["capabilities", str(source), "--exit-code-policy", "findings", "--format", "json"]
+    )
+    assert run_capabilities(args) == 1
+    assert json.loads(capsys.readouterr().out)["findings"]

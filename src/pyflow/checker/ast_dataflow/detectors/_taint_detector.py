@@ -51,6 +51,8 @@ class ASTDataflowTaintDetector(Detector):
         registry_paths: Sequence[str | Path] = (),
         formal_semantics: bool = True,
         shape_contracts=None,
+        unknown_call_policy: str = "havoc",
+        entry_parameter_kinds=None,
     ):
         self._manual_sources = set(sources or ())
         self._manual_sinks = set(sinks or ())
@@ -61,6 +63,12 @@ class ASTDataflowTaintDetector(Detector):
         self.registry_paths = tuple(registry_paths)
         self.formal_semantics = formal_semantics
         self.shape_contracts = shape_contracts
+        if unknown_call_policy not in {"preserve", "havoc"}:
+            raise ValueError("AST unknown-call policy must be preserve or havoc")
+        self.unknown_call_policy = unknown_call_policy
+        self.entry_parameter_kinds = (
+            None if entry_parameter_kinds is None else frozenset(entry_parameter_kinds)
+        )
         self.sources: Set[str] = set()
         self.sinks: Set[str] = set()
         self.sanitizers: Set[str] = set()
@@ -224,6 +232,7 @@ class ASTDataflowTaintDetector(Detector):
             policy,
             refinement=refinement,
             shape_contracts=self.shape_contracts,
+            unknown_call_policy=self.unknown_call_policy,
         ).analyze(
             session.sources_by_name,
             getattr(session, "func_to_file", {}),
@@ -255,6 +264,10 @@ class ASTDataflowTaintDetector(Detector):
                     if (
                         interprocedural.entry_point_options.taint_parameters
                         and name in interprocedural.entries
+                        and (
+                            self.entry_parameter_kinds is None
+                            or fact.kind in self.entry_parameter_kinds
+                        )
                     )
                     or not (fact.origin.symbol or "").startswith("parameter:")
                 )
@@ -491,6 +504,7 @@ class ASTDataflowTaintDetector(Detector):
             return result
 
         return TaintPolicy(
+            modeled_call_names=left.modeled_call_names | right.modeled_call_names,
             source_kinds_by_call=merge_maps(left.source_kinds_by_call, right.source_kinds_by_call),
             sink_kinds_by_call=merge_maps(left.sink_kinds_by_call, right.sink_kinds_by_call),
             sink_positions_by_call=merge_maps(

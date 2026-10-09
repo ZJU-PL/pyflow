@@ -332,7 +332,7 @@ def sqlalchemy_dynamic_table_names(context):
 
     # Check keywords
     for kw in node.keywords:
-        if kw.arg and "table" in kw.arg.lower() or "column" in kw.arg.lower():
+        if kw.arg and ("table" in kw.arg.lower() or "column" in kw.arg.lower()):
             if isinstance(kw.value, ast.JoinedStr):
                 return issue.Issue(
                     severity="MEDIUM",

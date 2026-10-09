@@ -74,6 +74,15 @@ def _is_variable(node):
     return isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Store)
 
 
+def _url_argument(node, func_name):
+    """Inspect the URL port, excluding method, payload, and header arguments."""
+    for keyword in node.keywords:
+        if keyword.arg == "url":
+            return keyword.value
+    position = 1 if func_name == "requests.request" else 0
+    return node.args[position] if len(node.args) > position else None
+
+
 @test.checks("Call")
 @test.with_id("B701")
 def requests_user_url(context):
@@ -104,35 +113,21 @@ def requests_user_url(context):
         return None
 
     # Check if this is a requests call
-    is_requests = any(func_name.startswith(f) for f in REQUESTS_FUNCTIONS)
+    is_requests = func_name in REQUESTS_FUNCTIONS
 
     if not is_requests:
         return None
 
-    # Check URL argument (first positional or 'url' keyword)
-    for i, arg in enumerate(node.args):
-        if _is_variable(arg):
-            return issue.Issue(
-                severity="MEDIUM",
-                confidence="MEDIUM",
-                cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
-                text="requests function with variable URL parameter. "
-                "This can lead to Server-Side Request Forgery (SSRF). "
-                "Validate the URL against an allowlist of permitted hosts "
-                "and reject private IP addresses.",
-            )
-
-    # Check 'url' keyword argument
-    for kw in node.keywords:
-        if kw.arg == "url":
-            if _is_variable(kw.value):
-                return issue.Issue(
-                    severity="MEDIUM",
-                    confidence="MEDIUM",
-                    cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
-                    text="requests function with variable 'url' keyword argument. "
-                    "This can lead to Server-Side Request Forgery (SSRF).",
-                )
+    if _is_variable(_url_argument(node, func_name)):
+        return issue.Issue(
+            severity="MEDIUM",
+            confidence="LOW",
+            cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
+            text="Review requests call with a variable URL for possible SSRF. "
+            "Pattern matching does not establish that the URL is user-controlled; "
+            "use a dataflow engine to check its source. Allowlist destinations "
+            "when URLs come from untrusted input.",
+        )
 
     return None
 
@@ -159,21 +154,21 @@ def urllib_user_url(context):
         return None
 
     # Check if this is a urllib call
-    is_urllib = any(func_name.startswith(f) for f in URLLIB_FUNCTIONS)
+    is_urllib = func_name in URLLIB_FUNCTIONS
 
     if not is_urllib:
         return None
 
     # Check first argument
-    if len(node.args) > 0:
-        first_arg = node.args[0]
+    if (first_arg := _url_argument(node, func_name)) is not None:
         if _is_variable(first_arg):
             return issue.Issue(
                 severity="MEDIUM",
-                confidence="MEDIUM",
+                confidence="LOW",
                 cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
-                text="urllib function with variable URL parameter. "
-                "This can lead to Server-Side Request Forgery (SSRF).",
+                text="Review urllib call with a variable URL for possible SSRF. "
+                "Pattern matching does not establish that the URL is user-controlled; "
+                "use a dataflow engine to check its source.",
             )
 
     return None
@@ -209,15 +204,14 @@ def internal_metadata_access(context):
         return None
 
     # Check if this is a requests or urllib call
-    is_requests = any(func_name.startswith(f) for f in REQUESTS_FUNCTIONS)
-    is_urllib = any(func_name.startswith(f) for f in URLLIB_FUNCTIONS)
+    is_requests = func_name in REQUESTS_FUNCTIONS
+    is_urllib = func_name in URLLIB_FUNCTIONS
 
     if not (is_requests or is_urllib):
         return None
 
     # Check first argument for internal metadata URLs
-    if len(node.args) > 0:
-        first_arg = node.args[0]
+    if (first_arg := _url_argument(node, func_name)) is not None:
         if isinstance(first_arg, ast.Constant):
             if isinstance(first_arg.value, str):
                 url_lower = first_arg.value.lower()
@@ -318,8 +312,8 @@ def no_url_validation(context):
         return None
 
     # Check if this is a requests or urllib call
-    is_requests = any(func_name.startswith(f) for f in REQUESTS_FUNCTIONS)
-    is_urllib = any(func_name.startswith(f) for f in URLLIB_FUNCTIONS)
+    is_requests = func_name in REQUESTS_FUNCTIONS
+    is_urllib = func_name in URLLIB_FUNCTIONS
 
     if not (is_requests or is_urllib):
         return None
@@ -342,8 +336,7 @@ def no_url_validation(context):
 
     # If function name doesn't suggest validation, flag it
     if not any(kw in parent_name for kw in validation_keywords):
-        if len(node.args) > 0:
-            first_arg = node.args[0]
+        if (first_arg := _url_argument(node, func_name)) is not None:
             if _is_variable(first_arg):
                 return issue.Issue(
                     severity="LOW",
@@ -384,8 +377,8 @@ def dangerous_url_scheme(context):
         return None
 
     # Check if this is a requests or urllib call
-    is_requests = any(func_name.startswith(f) for f in REQUESTS_FUNCTIONS)
-    is_urllib = any(func_name.startswith(f) for f in URLLIB_FUNCTIONS)
+    is_requests = func_name in REQUESTS_FUNCTIONS
+    is_urllib = func_name in URLLIB_FUNCTIONS
 
     if not (is_requests or is_urllib):
         return None
@@ -399,8 +392,7 @@ def dangerous_url_scheme(context):
         "smb://",
     ]
 
-    if len(node.args) > 0:
-        first_arg = node.args[0]
+    if (first_arg := _url_argument(node, func_name)) is not None:
         if isinstance(first_arg, ast.Constant):
             if isinstance(first_arg.value, str):
                 url_lower = first_arg.value.lower()

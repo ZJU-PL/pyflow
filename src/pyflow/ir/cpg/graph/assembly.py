@@ -6,6 +6,7 @@ from time import monotonic
 from typing import Any, Dict, Iterator, List, Optional, Set
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed
+from pyflow.ir.core.source import syntax_source_span
 from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
 from pyflow.language.python import ast as py_ast
 from .model import (
@@ -31,11 +32,10 @@ class _GraphAssemblyMixin:
             else:
                 typed_name = node.label or node.kind
             meta.setdefault("node_type", typed_name)
-            meta.setdefault("lineno", getattr(ast_node, "lineno", 0) or 0)
-            meta.setdefault(
-                "col",
-                getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
-            )
+            span = syntax_source_span(ast_node)
+            meta.setdefault("lineno", span.start_line if span else 0)
+            meta.setdefault("col", span.start_column if span else 0)
+            meta.setdefault("filename", span.path if span else "")
             meta.setdefault("value", self._ast_value(ast_node) or node.label or node.kind)
             meta.setdefault("func_name", fname)
             meta.setdefault("kind", node.kind)
@@ -73,11 +73,10 @@ class _GraphAssemblyMixin:
 
             meta = self._meta_for(node)
             meta.setdefault("node_type", _safe_type_name(ast_node))
-            meta.setdefault("lineno", getattr(ast_node, "lineno", 0) or 0)
-            meta.setdefault(
-                "col",
-                getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
-            )
+            span = syntax_source_span(ast_node)
+            meta.setdefault("lineno", span.start_line if span else 0)
+            meta.setdefault("col", span.start_column if span else 0)
+            meta.setdefault("filename", span.path if span else "")
             meta.setdefault("value", label)
             meta.setdefault("func_name", fname)
             meta.setdefault("kind", node.kind)
@@ -415,6 +414,16 @@ class _GraphAssemblyMixin:
                         candidates = [raw_name]
                     else:
                         candidates = by_short.get(raw_name.rsplit(".", 1)[-1], [])
+                    if len(candidates) > 1:
+                        filename = self._meta_for(call_site).get("filename")
+                        local = [
+                            name
+                            for name in candidates
+                            if (span := syntax_source_span(self._pdgs[name].cfg.code)) is not None
+                            and span.path == filename
+                        ]
+                        if local:
+                            candidates = local
                     if len(candidates) != 1:
                         continue
                     callee_name = candidates[0]

@@ -113,14 +113,17 @@ class Module:
     filename: str
     package: str
     imports: dict[int, tuple[str, ...]] = dataclass_field(default_factory=dict)
+    opaque: bool = False
 
 
 class PythonToMIR:
     """Compile a statically discovered local module graph without importing it."""
 
-    def __init__(self, modules, entry):
+    def __init__(self, modules, entry, *, inspection_only=False, diagnostics=None):
         self.modules = modules
         self.entry_module = entry
+        self.inspection_only = inspection_only
+        self.diagnostics = diagnostics if diagnostics is not None else []
         self.program = Program({}, "$entry")
         self.runtime = Runtime(self.program)
         self.b = None
@@ -165,7 +168,7 @@ class PythonToMIR:
 
     def compile_module(self, module):
         self.module = module
-        self.b = Builder(self.program, module.name, module.filename)
+        self.b = Builder(self.program, module.name, module.filename, synthetic=module.opaque)
         self.scope = Scope(module.name, "module", module.name, _Bindings(module.tree.body))
         self.exception_target = self.b.cfg.exit
         self.loop_targets, self.finalizers, self.active_exception = [], [], None
@@ -290,12 +293,46 @@ class PythonToMIR:
         return result
 
     def expression(self, node):
+        try:
+            return self._expression(node)
+        except LoweringError as error:
+            if not self.inspection_only:
+                raise
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-expression",
+                    "filename": error.filename,
+                    "line": error.lineno,
+                    "message": str(error),
+                    "affects_completeness": True,
+                }
+            )
+            value = self.runtime.obj(self.b, "object")
+            self.b.assign(
+                field(value, "$opaque_expression"), self.runtime.raw(self.b, ast.unparse(node))
+            )
+            return value
+
+    def _expression(self, node):
         b, rt = self.b, self.runtime
         b.lineno = getattr(node, "lineno", b.lineno)
         if isinstance(node, ast.Constant):
             if node.value is None:
                 return rt.none
             if type(node.value) not in (bool, int, str):
+                if self.inspection_only:
+                    self.diagnostics.append(
+                        {
+                            "code": "mir-opaque-literal",
+                            "filename": self.module.filename,
+                            "line": node.lineno,
+                            "message": f"Literal {node.value!r} is retained as an opaque inspection value",
+                            "affects_completeness": True,
+                        }
+                    )
+                    opaque = rt.obj(b, "object")
+                    b.assign(field(opaque, "$opaque_literal"), rt.raw(b, repr(node.value)))
+                    return opaque
                 self.fail(
                     node,
                     f"literal {type(node.value).__name__} is not in MIR's "
@@ -1371,7 +1408,9 @@ def _default_root(path):
     return root
 
 
-def _discover(source, name, filename, root):
+def _discover(
+    source, name, filename, root, *, import_policy="strict", diagnostics=None, follow_imports=True
+):
     """Read only local .py modules; never use importlib or execute import hooks."""
     modules = {}
 
@@ -1402,10 +1441,33 @@ def _discover(source, name, filename, root):
         def ensure(target, node, optional=False):
             if target in {"builtins", "__future__"} or target in modules:
                 return True
-            path = locate(target)
+            path = locate(target) if follow_imports else None
             if path is None:
                 if optional:
                     return False
+                if import_policy == "opaque":
+                    for index in range(1, len(target.split(".")) + 1):
+                        prefix = ".".join(target.split(".")[:index])
+                        if prefix not in modules:
+                            modules[prefix] = Module(
+                                prefix,
+                                ast.Module(body=[], type_ignores=[]),
+                                "",
+                                prefix.rpartition(".")[0],
+                                opaque=True,
+                            )
+                    if diagnostics is not None:
+                        diagnostics.append(
+                            {
+                                "code": "mir-opaque-import",
+                                "module": target,
+                                "filename": file,
+                                "line": node.lineno,
+                                "message": f"Import {target!r} has no MIR model; retained as an opaque inspection boundary",
+                                "affects_completeness": True,
+                            }
+                        )
+                    return True
                 raise LoweringError(
                     f"import {target!r} has no local source or MIR runtime model", file, node.lineno
                 )
@@ -1452,19 +1514,44 @@ def lower_source(
     filename: str = "<string>",
     *,
     project_root: str | None = None,
+    import_policy: str = "strict",
+    diagnostics: list | None = None,
+    follow_imports: bool = True,
 ) -> Program:
     """Lower authoritative source text; filename supplies import context only.
 
     Local imports are discovered when a real filename/project root is supplied.
     The file named by ``filename`` is never substituted for ``source``.
+    ``import_policy='opaque'`` enables partial source inspection: unmodeled
+    imports, literals, and expressions are recorded in ``diagnostics``. These
+    programs must not be used for execution or sound semantic analysis.
     """
     path = Path(filename).resolve() if filename != "<string>" else None
     root = Path(project_root).resolve() if project_root else _default_root(path) if path else None
-    modules = _discover(source, module_name, filename, root)
-    return PythonToMIR(modules, module_name).compile()
+    if import_policy not in {"strict", "opaque"}:
+        raise ValueError(f"Unknown MIR import policy: {import_policy}")
+    modules = _discover(
+        source,
+        module_name,
+        filename,
+        root,
+        import_policy=import_policy,
+        diagnostics=diagnostics,
+        follow_imports=follow_imports,
+    )
+    return PythonToMIR(
+        modules, module_name, inspection_only=import_policy == "opaque", diagnostics=diagnostics
+    ).compile()
 
 
-def lower_file(path: str | Path, project_root: str | Path | None = None) -> Program:
+def lower_file(
+    path: str | Path,
+    project_root: str | Path | None = None,
+    *,
+    import_policy: str = "strict",
+    diagnostics: list | None = None,
+    follow_imports: bool = True,
+) -> Program:
     """Lower an entry file and its statically discoverable local imports."""
     entry = Path(path).resolve()
     if not entry.is_file():
@@ -1473,7 +1560,15 @@ def lower_file(path: str | Path, project_root: str | Path | None = None) -> Prog
     if not entry.is_relative_to(root):
         raise LoweringError("entry file is outside project_root", str(entry))
     name = _module_name(entry, root)
-    return lower_source(_source(entry), name, str(entry), project_root=str(root))
+    return lower_source(
+        _source(entry),
+        name,
+        str(entry),
+        project_root=str(root),
+        import_policy=import_policy,
+        diagnostics=diagnostics,
+        follow_imports=follow_imports,
+    )
 
 
 __all__ = ["LoweringError", "PythonToMIR", "lower_source", "lower_file"]

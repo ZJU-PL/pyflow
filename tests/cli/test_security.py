@@ -22,6 +22,7 @@ from pyflow.checker.formatters.security import (
     ast_dataflow_report,
     security_json,
     security_sarif,
+    security_text,
 )
 from pyflow.cli.security.command import _security_exit_code
 
@@ -98,8 +99,11 @@ def test_json_formatter_reports_partial_when_files_are_skipped():
 
 def test_security_cli_threads_pattern_excludes_into_discover_files(
     monkeypatch,
+    tmp_path,
 ):
     captured = {}
+    sample = tmp_path / "sample.py"
+    sample.write_text("pass\n")
 
     class FakePatternManager:
         def __init__(self, *args, **kwargs):
@@ -158,13 +162,13 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         micro_bench=None,
         format="text",
         output=None,
-        targets=["sample.py"],
+        targets=[str(sample)],
     )
 
     exit_code = security_cli.run_security(args)
 
     assert exit_code == 0
-    assert captured["targets"] == ["sample.py"]
+    assert captured["targets"] == [str(sample)]
     assert captured["recursive"] is True
     assert captured["excluded_paths"] == "foo.py,bar.py"
     assert captured["run_tests"] is True
@@ -236,7 +240,8 @@ def test_security_cli_threads_ast_dataflow_excludes_into_config(monkeypatch):
 
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]
-    assert captured["exclude"] == ("foo.py", "bar.py")
+    assert captured["exclude"][:2] == ("foo.py", "bar.py")
+    assert {"tests", ".*"} <= set(captured["exclude"])
     assert captured["sources"] == ("input",)
     assert captured["sinks"] == ("eval",)
 
@@ -274,7 +279,7 @@ def eval_from_input():
     exit_code = security_cli.run_security(args)
 
     out = capsys.readouterr().out
-    assert exit_code == 1
+    assert exit_code == 0
     assert "os.system" in out
     assert "eval" in out
     assert "Traceback" not in out
@@ -445,7 +450,72 @@ def test_security_report_exit_policy_separates_process_and_analysis_status():
     args = SimpleNamespace(exit_code_policy="report")
 
     assert _security_exit_code(args, status="partial", has_findings=True) == 0
-    assert _security_exit_code(args, status="failed", has_findings=False) == 0
+    assert _security_exit_code(args, status="failed", has_findings=False) == 4
+    assert _security_exit_code(args, status="invalid", has_findings=False) == 2
+
+
+@pytest.mark.parametrize("policy,expected", [("report", 0), ("findings", 1)])
+def test_security_exit_policy_for_findings(policy, expected):
+    assert (
+        _security_exit_code(
+            SimpleNamespace(exit_code_policy=policy), status="complete", has_findings=True
+        )
+        == expected
+    )
+
+
+def test_security_parser_defaults_to_reporting():
+    import argparse
+    from pyflow.cli.security.parser import add_security_parser
+
+    parser = argparse.ArgumentParser()
+    add_security_parser(parser.add_subparsers())
+    assert parser.parse_args(["security", "sample.py"]).exit_code_policy == "report"
+
+
+def test_security_missing_target_still_fails_in_report_mode(tmp_path, capsys):
+    import argparse
+    from pyflow.cli.security.parser import add_security_parser
+
+    parser = argparse.ArgumentParser()
+    add_security_parser(parser.add_subparsers())
+    args = parser.parse_args(["security", str(tmp_path / "missing.py"), "--format", "json"])
+    assert security_cli.run_security(args) == 2
+    assert json.loads(capsys.readouterr().out)["errors"]
+
+
+@pytest.mark.parametrize("kind", ["taint", "nullness", "lock_leak"])
+def test_ifds_text_renders_normalized_finding_metadata(kind):
+    report = {
+        "status": "complete",
+        "findings": [
+            {
+                "kind": kind,
+                "rule_id": "TEST-RULE",
+                "severity": "high",
+                "message": "Review this flow",
+                "procedure": "app.run",
+                "primary_location": {"uri": "app.py", "start_line": 17},
+            }
+        ],
+    }
+    text = security_text("ifds", report)
+    assert "[TEST-RULE]" in text
+    assert "Severity: high" in text
+    assert "Location: app.py:17" in text
+    assert "Review this flow" in text
+    assert "?" not in text
+
+
+def test_ifds_text_explicitly_reports_unavailable_source():
+    text = security_text("ifds", {"findings": [{"rule_id": "TEST", "primary_location": None}]})
+    assert "<source location unavailable>" in text
+
+
+def test_cpg_text_does_not_display_unknown_locations_as_line_zero():
+    text = security_text("cpg", {"findings": [{"source_line": 0, "sink_line": 0}]})
+    assert text.count("<source location unavailable>") == 2
+    assert "line 0" not in text
 
 
 def test_session_diagnostics_preserve_serialized_fields_and_partial_status():

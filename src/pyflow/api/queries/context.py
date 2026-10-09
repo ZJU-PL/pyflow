@@ -2,6 +2,7 @@
 Shared context for PyFlow query engines.
 """
 
+from difflib import get_close_matches
 from typing import List, Optional, Union
 
 
@@ -22,7 +23,12 @@ class QueryContext:
         if isinstance(function, str):
             code = self._find_function_by_name(function)
             if code is None:
-                raise ValueError(f"Function '{function}' not found in live code.")
+                names = sorted(
+                    {alias for code in self.function_codes() for alias in self.code_aliases(code)}
+                )
+                candidates = get_close_matches(function, names, n=5, cutoff=0.3) or names[:5]
+                hint = f" Available candidates: {', '.join(candidates)}" if candidates else ""
+                raise ValueError(f"Function '{function}' not found in live code.{hint}")
             return code
         if hasattr(function, "codeName"):
             return function
@@ -58,7 +64,27 @@ class QueryContext:
         identifier = self.code_identifier(code)
         if identifier and identifier not in aliases:
             aliases.append(identifier)
+        catalog = getattr(self.program, "ir", None)
+        if catalog is not None and catalog.has_procedure(code):
+            identity = catalog.procedure(code).code_id
+            qualified = identity.qualname
+            if identity.module and not qualified.startswith(f"{identity.module}."):
+                qualified = f"{identity.module}.{qualified}"
+            for name in (identity.qualname, qualified):
+                if name and name not in aliases:
+                    aliases.append(name)
         return aliases
+
+    def function_codes(self):
+        """Iterate the same declarations used by listing and resolution."""
+        seen = set()
+        interface = getattr(self.program, "interface", None)
+        codes = list(getattr(self.program, "liveCode", ()))
+        codes.extend(getattr(ep, "code", None) for ep in getattr(interface, "entryPoint", ()))
+        for code in codes:
+            if code is not None and self._dedupe_key(code) not in seen:
+                seen.add(self._dedupe_key(code))
+                yield code
 
     def context_name(self, context) -> Optional[str]:
         """Get the name of the code associated with an IPA context."""
@@ -77,32 +103,21 @@ class QueryContext:
 
     def _find_function_by_name(self, function_name: str):
         """Find a function code object by name in the program."""
-        matches = []
-        seen = set()
-
-        def maybe_add(code):
-            if code is None:
-                return
-            key = self._dedupe_key(code)
-            if key in seen:
-                return
+        exact, suffix = [], []
+        for code in self.function_codes():
             aliases = self.code_aliases(code)
             if function_name in aliases:
-                seen.add(key)
-                matches.append(code)
-
-        for code in getattr(self.program, "liveCode", []):
-            maybe_add(code)
-
-        interface = getattr(self.program, "interface", None)
-        if interface and hasattr(interface, "entryPoint"):
-            for ep in interface.entryPoint:
-                maybe_add(getattr(ep, "code", None))
+                exact.append(code)
+            elif any(alias.endswith(f".{function_name}") for alias in aliases):
+                suffix.append(code)
+        matches = exact or suffix
 
         if not matches:
             return None
         if len(matches) > 1:
-            choices = ", ".join(self.code_identifier(code) or "<unknown>" for code in matches[:5])
+            choices = ", ".join(
+                self.code_identifier(code) or self.code_name(code) for code in matches[:5]
+            )
             if len(matches) > 5:
                 choices += ", ..."
             raise ValueError(f"Function name '{function_name}' is ambiguous. Use one of: {choices}")

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from contextlib import redirect_stdout
 from copy import copy
 from pathlib import Path
 from time import monotonic
@@ -26,6 +27,8 @@ from pyflow.checker.common import constants as b_constants
 from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
 from pyflow.frontend.entry_discovery import discover_entry_files, resolve_entry_file
 from .reporting import _output_results
+from .filters import filter_report, load_baseline, has_failing_findings, rule_ids
+from pyflow.frontend.file_selection import SECURITY_DEFAULT_EXCLUDES, exclusion_patterns
 from pyflow.checker.common.reporting import result_status, statistics_to_dict
 from pyflow.checker.common.diagnostics import diagnostics_to_dicts, affects_completeness
 from pyflow.checker.ifds.reporting import (
@@ -223,11 +226,16 @@ def _run_ast_scanner(
 ) -> SecurityManager:
     """Run the fast AST pattern-matching scanner (was 'pattern')."""
     config = SecurityConfig()
+    config.set_option(
+        "exclude_dirs",
+        () if getattr(args, "no_default_excludes", False) else SECURITY_DEFAULT_EXCLUDES,
+    )
     manager = SecurityManager(
         config=config,
         debug=getattr(args, "debug", False),
         verbose=getattr(args, "verbose", False),
         quiet=False,
+        profile={"exclude": rule_ids(getattr(args, "skip_rule", ()))},
     )
     manager.discover_files(
         targets,
@@ -247,9 +255,12 @@ def _run_ast_dataflow(
 ) -> ASTDataflowManager:
     """Run the AST-based interprocedural taint detector."""
     config = BugFinderConfig(
+        unknown_call_policy=getattr(args, "ast_unknown_call_policy", "preserve"),
+        entry_parameter_kinds=getattr(args, "ast_entry_source_kind", None) or ("user_input",),
         verbose=getattr(args, "verbose", False),
         recursive=recursive,
-        exclude=_parse_exclude_tuple(exclude),
+        exclude=_parse_exclude_tuple(exclude)
+        + (() if getattr(args, "no_default_excludes", False) else SECURITY_DEFAULT_EXCLUDES),
         sources=tuple(getattr(args, "sources", ()) or ()),
         sinks=tuple(getattr(args, "sinks", ()) or ()),
         sanitizers=tuple(getattr(args, "sanitizers", ()) or ()),
@@ -270,6 +281,15 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     """Analyze each discovered entry independently, preserving single-entry reports."""
     try:
         entries = _resolve_ifds_entry_files(targets, getattr(args, "entry", None))
+        from pyflow.frontend.file_selection import path_is_excluded
+
+        root = Path(targets[0]) if Path(targets[0]).is_dir() else Path(targets[0]).parent
+        excluded = _parse_exclude_tuple(getattr(args, "exclude", ()))
+        if not getattr(args, "no_default_excludes", False) and not getattr(args, "entry", None):
+            excluded += SECURITY_DEFAULT_EXCLUDES
+        entries = tuple(entry for entry in entries if not path_is_excluded(entry, excluded, root))
+        if not entries:
+            raise ValueError("No IFDS entry files remain after exclusions")
     except ValueError as error:
         print(f"Error: {error}", file=sys.stderr)
         return {
@@ -344,6 +364,15 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
     solver_options = _ifds_solver_options(args)
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
+    from pyflow.frontend.file_selection import path_is_excluded
+
+    excluded = _parse_exclude_tuple(getattr(args, "exclude", ())) + (
+        () if getattr(args, "no_default_excludes", False) else SECURITY_DEFAULT_EXCLUDES
+    )
+    roots = [Path(target) if Path(target).is_dir() else Path(target).parent for target in targets]
+    files = [
+        file for file in files if not any(path_is_excluded(file, excluded, root) for root in roots)
+    ]
     try:
         entry_file = _resolve_ifds_entry_file(targets, getattr(args, "entry", None))
     except ValueError as error:
@@ -595,7 +624,13 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
             cpg = build_cpg_from_directory(
                 str(target),
                 recursive=getattr(args, "recursive", False),
-                exclude_dirs=SECURITY_CPG_EXCLUDE_DIRS,
+                exclude_dirs=(
+                    () if getattr(args, "no_default_excludes", False) else SECURITY_CPG_EXCLUDE_DIRS
+                ),
+                exclude_paths=_parse_exclude_tuple(getattr(args, "exclude", ()))
+                + (
+                    () if getattr(args, "no_default_excludes", False) else SECURITY_DEFAULT_EXCLUDES
+                ),
                 deadline=construction_deadline,
             )
         else:
@@ -721,10 +756,12 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
 # ── Shared helpers ────────────────────────────────────────────────────────
 
 
-def _parse_exclude_tuple(exclude: str) -> tuple:
-    if not exclude:
-        return ()
-    return tuple(p.strip() for p in exclude.split(",") if p.strip())
+def _parse_exclude_tuple(exclude) -> tuple:
+    if isinstance(exclude, str):
+        return exclusion_patterns(exclude)
+    return exclusion_patterns(
+        item for group in exclude or () for item in (group if isinstance(group, list) else [group])
+    )
 
 
 def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path]:
@@ -878,44 +915,51 @@ def run_security(args) -> int:
     recursive = getattr(args, "recursive", False)
     exclude = getattr(args, "exclude", "") or ""
 
-    if engine == "ast-scanner":
-        result = _run_ast_scanner(targets, args, exclude=exclude, recursive=recursive)
+    try:
+        baseline = load_baseline(getattr(args, "baseline", None))
+        with redirect_stdout(sys.stderr):
+            if engine == "ast-scanner":
+                result = _run_ast_scanner(targets, args, exclude=exclude, recursive=recursive)
+                errors = (
+                    result.get_errors() if hasattr(result, "get_errors") else result.get_skipped()
+                )
+                status = "partial" if errors else "complete"
+                if any(target != "-" and not Path(target).exists() for target in targets):
+                    status = "invalid"
+            elif engine == "ast-dataflow":
+                result = _run_ast_dataflow(targets, args, exclude=exclude, recursive=recursive)
+                status = getattr(getattr(result, "analysis_result", None), "status", "complete")
+            elif engine == "ifds":
+                result = _run_ifds(targets, args)
+                status = result.get("status", "complete")
+            elif engine == "cpg":
+                result = _run_cpg(targets, args)
+                status = result.get("status", "complete")
+            else:
+                print(f"Unknown engine: {engine}", file=sys.stderr)
+                return 2
+        result = filter_report(engine, result, args, baseline)
         _output_results(engine, result, args)
-        issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        return _security_exit_code(args, status="complete", has_findings=bool(issues))
-
-    elif engine == "ast-dataflow":
-        result = _run_ast_dataflow(targets, args, exclude=exclude, recursive=recursive)
-        _output_results(engine, result, args)
-        issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        status = getattr(getattr(result, "analysis_result", None), "status", "complete")
-        return _security_exit_code(args, status=status, has_findings=bool(issues))
-
-    elif engine == "ifds":
-        result = _run_ifds(targets, args)
-        _output_results(engine, result, args)
-        status = result.get("status", "complete")
-        return _security_exit_code(args, status=status, has_findings=bool(result.get("findings")))
-
-    elif engine == "cpg":
-        result = _run_cpg(targets, args)
-        _output_results(engine, result, args)
-        status = result.get("status", "complete")
-        return _security_exit_code(args, status=status, has_findings=bool(result.get("findings")))
-
-    else:
-        print(f"Unknown engine: {engine}", file=sys.stderr)
-        return 1
+        return _security_exit_code(
+            args, status=status, has_findings=has_failing_findings(engine, result, args)
+        )
+    except BrokenPipeError:
+        raise
+    except (OSError, ValueError) as exc:
+        print(f"Security command failed: {exc}", file=sys.stderr)
+        return 2
 
 
 def _security_exit_code(args, *, status: str, has_findings: bool) -> int:
     """Keep process health separate from analysis contents when requested."""
-    if getattr(args, "exit_code_policy", "findings") == "report":
-        return 0
     if status == "invalid":
         return 2
-    if status in {"partial", "cancelled"}:
-        return 3
     if status == "failed":
         return 4
+    if getattr(args, "fail_on", None) is not None and has_findings:
+        return 1
+    if getattr(args, "exit_code_policy", "report") == "report":
+        return 0
+    if status in {"partial", "cancelled"}:
+        return 3
     return 1 if has_findings else 0

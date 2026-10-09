@@ -144,6 +144,26 @@ def source_filename(origin: object | None) -> str:
     return ""
 
 
+def syntax_source_span(node: object | None) -> SourceSpan | None:
+    """Read a syntax node's retained origin, including lowered Python IR."""
+    origin = getattr(getattr(node, "annotation", None), "origin", ())
+    origins = origin if isinstance(origin, (list, tuple)) else (origin,)
+    for candidate in origins:
+        normalized = normalize_origin(candidate)
+        if isinstance(normalized, SourceOrigin) and normalized.span.start_line > 0:
+            return normalized.span
+    line = getattr(node, "lineno", 0) or 0
+    if line > 0:
+        return SourceSpan(
+            getattr(node, "filename", "") or "",
+            line,
+            getattr(node, "col_offset", 0) or 0,
+            getattr(node, "end_lineno", None),
+            getattr(node, "end_col_offset", None),
+        )
+    return None
+
+
 def format_source(origin: object | None) -> str:
     normalized = normalize_origin(origin)
     if normalized is None:
@@ -165,4 +185,5 @@ __all__ = [
     "format_source",
     "normalize_origin",
     "source_filename",
+    "syntax_source_span",
 ]

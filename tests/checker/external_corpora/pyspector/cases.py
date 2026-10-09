@@ -419,7 +419,8 @@ PATTERN_CASES = (
             "def webhook(request):\n"
             "    return None\n"
         ),
-        required_ids=frozenset({"A105"}),
+        required_ids=frozenset({"D111"}),
+        forbidden_ids=frozenset({"A105"}),
         filename="views.py",
     ),
     PatternCase(

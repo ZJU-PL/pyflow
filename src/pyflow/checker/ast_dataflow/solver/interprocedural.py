@@ -57,6 +57,7 @@ class ASTInterproceduralAnalyzer:
         refinement: RefinementProvider | None = None,
         solver_options: SolverOptions | None = None,
         max_rounds: int = 100,
+        unknown_call_policy: str = "havoc",
     ) -> None:
         self.policy = policy
         self.contracts = contracts or SanitizerContractRegistry()
@@ -64,6 +65,7 @@ class ASTInterproceduralAnalyzer:
         self.refinement = refinement
         self.solver_options = solver_options
         self.max_rounds = max_rounds
+        self.unknown_call_policy = unknown_call_policy
 
     def analyze(
         self,
@@ -134,6 +136,7 @@ class ASTInterproceduralAnalyzer:
                     solver_options=self.solver_options,
                     known_functions=functions,
                     import_aliases=import_aliases.get(name, {}),
+                    unknown_call_policy=self.unknown_call_policy,
                 )
                 next_analyses[name] = analysis
                 diagnostics.update(analysis.diagnostics)

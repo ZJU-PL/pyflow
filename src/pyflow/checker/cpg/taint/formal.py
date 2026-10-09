@@ -791,6 +791,9 @@ class FormalCPGTaintAnalysis:
         return TaintLocation((self.cpg.node_func_name(node), "<expression>", id(expression)))
 
     def _filename(self, node: PDGNode) -> str | None:
+        filename = self.cpg.node_meta(node).get("filename")
+        if filename:
+            return filename
         code = getattr(
             getattr(self.cpg._pdgs.get(self.cpg.node_func_name(node)), "cfg", None),
             "code",

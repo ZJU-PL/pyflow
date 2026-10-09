@@ -430,7 +430,7 @@ main()
         verbose=False,
     )
 
-    assert run_security(args) == 1
+    assert run_security(args) == 0
     payload = json.loads(capsys.readouterr().out)
     result = payload["runs"][0]["results"][0]
     region = result["locations"][0]["physicalLocation"]["region"]
@@ -516,6 +516,6 @@ main()
         "framework": None,
         "ifds_max_path_edges": 1,
     }
-    assert run_security(SimpleNamespace(**limited)) == 3
+    assert run_security(SimpleNamespace(**limited, exit_code_policy="findings")) == 3
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "partial"

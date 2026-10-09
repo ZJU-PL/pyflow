@@ -116,7 +116,7 @@ def main():
     exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert calls == [True]
     if output_format == "json":
         payload = json.loads(out)
@@ -166,7 +166,7 @@ def main():
     exit_code = security_cli.run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert payload["diagnostics"] == []
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]
 
@@ -310,7 +310,7 @@ def test_security_cli_forwards_typestate_protocol_options(monkeypatch, tmp_path,
     exit_code = security_cli.run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert payload["analysis"] == "typestate"
     assert payload["findings"][0]["protocol"] == "lock"
     assert captured["enabled_protocols"] == ["python-builtins", "lock"]
@@ -345,7 +345,7 @@ def test_security_cli_emits_session_diagnostics(monkeypatch, tmp_path, capsys, o
     exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
-    assert exit_code == 1
+    assert exit_code == 0
     if output_format == "json":
         payload = json.loads(out)
         assert payload["diagnostics"] == ["IFDS session fell back to best-effort mode"]

@@ -265,14 +265,36 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     issues = sorted(issues, key=issue_sort_key)
 
     rules, artifacts = _collect_unique_rules_and_artifacts(issues)
+    from pyflow import __version__
+
+    errors = (
+        list(manager.get_errors())
+        if hasattr(manager, "get_errors")
+        else [
+            {"filename": filename, "reason": reason}
+            for filename, reason in getattr(manager, "get_skipped", lambda: ())()
+        ]
+    )
     sarif_output = sarif_document(
         "PyFlow",
         [_create_sarif_result(issue) for issue in issues],
         rules=rules.values(),
         artifacts=artifacts.values(),
-        driver_properties={"version": "0.1.0", "informationUri": "https://pyflow.readthedocs.io/"},
+        driver_properties={
+            "version": __version__,
+            "informationUri": "https://pyflow.readthedocs.io/",
+        },
+        invocations=[
+            {
+                "executionSuccessful": not errors,
+                "properties": {"analysisStatus": "partial" if errors else "complete"},
+                "toolExecutionNotifications": [
+                    {"level": "error", "message": {"text": item["reason"]}} for item in errors
+                ],
+            }
+        ],
         schema="https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
-        omit_empty_run=True,
+        omit_empty_run=not errors,
     )
 
     # Write SARIF output

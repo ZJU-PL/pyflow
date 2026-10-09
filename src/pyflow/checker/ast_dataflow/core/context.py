@@ -89,21 +89,20 @@ class AnalysisSession:
         exclude: Tuple[str, ...],
     ) -> List[Path]:
         from fnmatch import fnmatch
+        from pyflow.frontend.file_selection import discover_python_files, path_is_excluded
 
         def matches(name: str) -> bool:
-            if any(fnmatch(name, pat) for pat in exclude):
-                return False
             return any(fnmatch(name, pat) for pat in include)
 
         files: List[Path] = []
         for raw in paths:
             path = Path(raw)
             if path.is_file():
-                if matches(path.name):
+                if matches(path.name) and not path_is_excluded(path, exclude, path.parent):
                     files.append(path)
                 continue
             if path.is_dir():
-                iterator = path.rglob("*.py") if recursive else path.glob("*.py")
+                iterator = discover_python_files(path, recursive=recursive, exclude=exclude)
                 for candidate in iterator:
                     if matches(candidate.name):
                         files.append(candidate)

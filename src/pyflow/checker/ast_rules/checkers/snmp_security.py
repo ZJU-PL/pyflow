@@ -7,6 +7,8 @@ device configuration to unauthorized access.
 
 from ...common import issue
 from ..core import test_properties as test
+from ..core.utils import get_call_name
+import ast
 
 DEFAULT_COMMUNITY_STRINGS = {
     "public",
@@ -23,6 +25,25 @@ DEFAULT_COMMUNITY_STRINGS = {
 def snmp_weak_community(context):
     s = context.string
     if not isinstance(s, str):
+        return None
+    parent = getattr(context.node, "_bandit_parent", None)
+    if isinstance(parent, ast.keyword):
+        parent = getattr(parent, "_bandit_parent", None)
+    if not isinstance(parent, ast.Call):
+        return None
+    call_name = get_call_name(parent, context.import_aliases or {})
+    if call_name not in {
+        "pysnmp.hlapi.CommunityData",
+        "pysnmp.hlapi.v1arch.CommunityData",
+        "pysnmp.hlapi.v3arch.CommunityData",
+    }:
+        return None
+    # CommunityData(communityName), or CommunityData(index, communityName).
+    community = parent.args[1] if len(parent.args) > 1 else parent.args[0] if parent.args else None
+    for keyword in parent.keywords:
+        if keyword.arg == "communityName":
+            community = keyword.value
+    if community is not context.node:
         return None
     if s.lower() in DEFAULT_COMMUNITY_STRINGS:
         return issue.Issue(

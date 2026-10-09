@@ -7,6 +7,28 @@ from types import SimpleNamespace
 from pyflow.cli.supply_chain import run_supply_chain
 
 
+def test_sbom_incomplete_inventory_explains_exit_code_without_corrupting_json(tmp_path, capsys):
+    manifest = tmp_path / "requirements.txt"
+    manifest.write_text("demo>=1\n")
+    args = SimpleNamespace(
+        supply_chain_command="sbom",
+        targets=[str(manifest)],
+        recursive=False,
+        exclude="",
+        output=None,
+        format="cyclonedx-json",
+        allow_incomplete=False,
+    )
+    assert run_supply_chain(args) == 2
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["bomFormat"] == "CycloneDX"
+    assert "--allow-incomplete" in captured.err
+    assert "exit code 2" in captured.err
+    args.allow_incomplete = True
+    assert run_supply_chain(args) == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_supply_chain_sbom_outputs_cyclonedx(tmp_path, capsys):
     dist_info = tmp_path / "demo-1.0.0.dist-info"
     dist_info.mkdir()

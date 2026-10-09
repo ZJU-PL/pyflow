@@ -35,6 +35,7 @@ Key options:
 - `--list-opt-passes`
 - `--no-opt-passes`
 - `--output`, `-o`
+- `--emit-optimized PATH`: Write optimized Python copies; without output flags the command prints an analysis summary and suggested output commands
 - `--verbose`, `-v`
 
 Available optimization passes:
@@ -51,6 +52,8 @@ pyflow ir [OPTIONS] INPUT_PATH
 
 Key options:
 - `--dump-mir [SCOPE]`: Dump the seven-instruction MIR program, optionally selecting a scope
+- `--mir-view {source,full}`: Text/DOT default to compact source inspection; JSON defaults to a complete export
+- `--mir-import-policy {strict,opaque}`: Source inspection defaults to opaque boundaries; complete exports require modeled imports and syntax
 - `--dump-ast FUNCTION`
 - `--dump-cfg FUNCTION`
 - `--dump-ssa FUNCTION`
@@ -66,8 +69,12 @@ Key options:
 - `--verbose`, `-v`
 
 MIR dumps lower source directly without executing target modules. Omitting
-`SCOPE` dumps the entire lowered program, including compiler-generated protocol
-functions. A scope can be a qualified name or an unambiguous function name.
+`SCOPE` dumps source CFGs for text/DOT, or the full program for JSON. Use
+`--mir-view full` to inspect runtime CFGs. Source views lower only the selected
+input files, retaining imports and unsupported expressions as explicit opaque
+boundaries; diagnostics mark these views partial. They are inspection artifacts,
+not executable or semantically complete programs. Full exports remain strict.
+A scope can be a qualified name or an unambiguous function name.
 MIR supports `text`, `json`, and `dot` output. For recursive directory input,
 output paths preserve the source directory structure.
 
@@ -99,7 +106,9 @@ pyflow callgraph input.py --algorithm pycg-mir
 Key options:
 - `--entry`: Entry point file relative to project root (directory input only)
 - `--dry-run`: Print detected entry point without running analysis
-- `--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir` (default: `simple`)
+- `--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir` (default: `constraint`)
+- `--recursive`, `-r`: Analyze every project source file with constraint analysis; works for libraries without a unique entry
+- `--include-external`: Include third-party dependency source (default: project sources only)
 - `--output`, `-o`
 - `--verbose`, `-v`
 - `--skip-stdlib`: Skip standard library modules in constraint analysis (default: on)
@@ -289,7 +298,7 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   and interprocedural function summaries. It preserves source kinds, applies
   kind-scoped sanitizers, and reports typed findings with completion diagnostics.
 - ``--engine ifds`` — IFDS solver over CFG supergraphs.  Interprocedural,
-  flow-sensitive.  **Requires ``--function``.**
+  flow-sensitive. Files are entries; directory entries are discovered automatically. Use repeatable ``--entry PATH`` to select them.
 - ``--engine cpg`` — CPG-based context-sensitive taint analysis with heap-aware
   alias tracking.
 
@@ -298,18 +307,29 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 - ``--sources NAME [NAME ...]`` — taint source function names
 - ``--sinks NAME [NAME ...]`` — taint sink function names
 - ``--sanitizers NAME [NAME ...]`` — taint sanitizer function names
-- ``--format``: ``text``, ``json``, or ``sarif``
+- ``--format``: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml`` (IFDS/CPG support text, JSON, and SARIF)
+- ``--json-schema {legacy,unified}``: Keep existing engine-specific JSON by default, or use a common versioned envelope with ``findings``, lowercase severity/confidence, location, errors, diagnostics, and statistics
 - ``--output``, ``-o FILE``
 - ``--recursive``, ``-r``
-- ``--exclude PATH1,PATH2,...``
+- ``--exclude PATH1,PATH2,...``: Repeatable, supports multiple paths and globs; ``tests``, ``./tests``, ``tests/``, and absolute paths work
+- ``--no-default-excludes``: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
+- ``--severity {low,medium,high,critical}``: Minimum severity to report
+- ``--confidence {low,medium,high}``: Minimum confidence to report
+- ``--skip-rule RULE [RULE ...]`` / ``--skip``: Disable rule IDs or scanner rule names; repeated flags and commas work
+- ``--baseline REPORT.json``: Suppress previous findings by rule, source file, and line
+- ``--fail-on {none,low,medium,high,critical}`` / ``--fail-on-severity``: Return 1 for reported findings at this threshold
+- ``--exit-code-policy {report,findings}``: Report normally by default, or enable scanner-style findings/completeness gating
 - ``--verbose``, ``-v``
 - ``--debug``, ``-d``
 
 ### Engine-specific options
 
-- ``--analysis`` (IFDS only): ``taint`` (default) or ``typestate`` — selects the
+- ``--analysis`` (IFDS only): ``taint`` (default), ``nullness``, ``typestate``, or ``class-pollution`` — selects the
   IFDS analysis to run
-- ``--function FUNCTION`` — entry function (required for ``--engine ifds``)
+- ``--entry PATH`` — IFDS entry file relative to the project root (repeatable)
+- ``--config PATH`` — IFDS JSON configuration; defaults to ``pyflow.json`` in the target project/file directory
+- ``--ast-unknown-call-policy {preserve,havoc}``: AST-dataflow defaults to preserving real input kinds across unknown calls and reports those assumptions as partial; ``havoc`` introduces all possible source kinds conservatively
+- ``--ast-entry-source-kind KIND``: AST-dataflow entry parameter kind (repeatable; default: ``user_input``)
 - ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for taint
   sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds``
   engines).
@@ -329,5 +349,34 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   an explicit budget and return ``partial`` status rather than silent truncation
 - ``--cpg-context-depth N`` — CPG call-string depth (default: 3)
 
-The ``security`` command exits with ``1`` when findings are reported and ``0``
-otherwise.
+The default ``report`` policy returns 0 for complete/partial reports. Invalid
+input returns 2, failed analysis returns 4. ``findings`` returns 1 for findings
+and 3 for partial/cancelled coverage. ``--fail-on`` applies to findings after
+severity/confidence, rule, and baseline filtering. A report marked ``partial``
+must not be treated as a complete clean scan. Rule failures include rule IDs,
+filenames, and lines in JSON ``errors`` and SARIF invocation notifications.
+Progress and diagnostics use stderr, so JSON stdout can be piped directly.
+
+Example project configuration (CLI arguments override configured values):
+
+```json
+{
+  "analysis": "taint",
+  "entry": ["app.py"],
+  "frameworks": ["stdlib", "flask"],
+  "unknown_call_policy": "preserve",
+  "solver_options": {"max_seconds": 30, "max_path_edges": 100000}
+}
+```
+
+```bash
+pyflow security project/ -r --severity medium --skip-rule A105 --fail-on high
+pyflow security project/ -r --format json --json-schema unified > report.json
+pyflow security project/ -r --baseline report.json --format json --json-schema unified
+pyflow callgraph library/ -r
+pyflow capabilities library/ -r --import-depth 0 --format json
+```
+
+``capabilities -r`` analyzes all discovered project source files; without it,
+``--entry`` selects one root. Explicit file targets are analyzed even when
+they live in directories normally excluded from discovery.

@@ -69,6 +69,8 @@ def get_metrics(manager):
                     manager.metrics.data["_totals"][f"{criteria}.{rank}"],
                 )
             )
+        if criteria == "SEVERITY" and "SEVERITY.CRITICAL" in manager.metrics.data["_totals"]:
+            bits.append(f"\t\tCritical: {manager.metrics.data['_totals']['SEVERITY.CRITICAL']}")
     return "\n".join([bit for bit in bits])
 
 
@@ -78,7 +80,7 @@ def _output_issue_str(issue, indent, show_lineno=True, show_code=True, lines=-1)
         f"{indent}>> Issue: [{issue.test_id}:{issue.test}] {issue.text}",
         f"{indent}   Severity: {issue.severity.capitalize()}   Confidence: {issue.confidence.capitalize()}",
         f"{indent}   CWE: {str(issue.cwe)}",
-        f"{indent}   More Info: https://pyflow.readthedocs.io/",  # TODO: Update with actual docs URL
+        f"{indent}   More Info: {issue.cwe.link() if issue.cwe.id else 'https://pyflow.readthedocs.io/en/latest/how-to/security-analysis.html'}",
         f"{indent}   Location: {issue.fname}:{issue.lineno if show_lineno else ''}:{issue.col_offset if show_lineno else ''}",
     ]
 
@@ -151,6 +153,13 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     skipped = sorted(manager.get_skipped(), key=lambda s: (s[0], s[1]))
     bits.extend([get_metrics(manager), f"Files skipped ({len(skipped)}):"])
     bits.extend(f"\t{skip[0]} ({skip[1]})" for skip in skipped)
+    errors = getattr(manager, "errors", ())
+    if errors:
+        bits.append(f"Checker failures ({len(errors)}); analysis is partial:")
+        bits.extend(
+            f"\t{item.get('filename', '')}:{item.get('line', '')}: {item['reason']}"
+            for item in errors
+        )
 
     writer = wrap_file_object(fileobj)
     writer.write("\n".join(bits) + "\n")

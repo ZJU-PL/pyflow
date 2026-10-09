@@ -14,6 +14,7 @@ Test IDs:
 - D108: QuerySet.extra() with user input
 - D109: @login_required missing on sensitive views
 - D110: Password stored without hashing
+- D111: CSRF protection explicitly disabled on a view
 """
 
 import ast
@@ -269,4 +270,26 @@ def password_not_hashed(context):
             confidence="MEDIUM",
             cwe=issue.Cwe.WEAK_CREDENTIALS,
         )
+    return None
+
+
+@test.checks("FunctionDef", "AsyncFunctionDef")
+@test.with_id("D111")
+def csrf_exempt_view(context):
+    """Report the explicit Django CSRF opt-out as a reviewable configuration."""
+    from ..core.utils import get_call_name
+
+    for decorator in context.node.decorator_list:
+        expression = decorator.func if isinstance(decorator, ast.Call) else decorator
+        name = get_call_name(
+            ast.Call(func=expression, args=[], keywords=[]), context.import_aliases or {}
+        )
+        if name == "django.views.decorators.csrf.csrf_exempt":
+            return _django_issue(
+                "CSRF protection is disabled for this view. Review authentication "
+                "and request validation for state-changing operations.",
+                severity="MEDIUM",
+                confidence="HIGH",
+                cwe=352,
+            )
     return None

@@ -53,6 +53,7 @@ def security_text(engine: str, result) -> str:
         report = result
         lines = [
             f"Entry: {report.get('entry', '<unknown>')}",
+            f"Status: {report.get('status', 'complete')}",
             f"Findings: {len(report.get('findings', []))}",
         ]
         stats = report.get("statistics", {})
@@ -66,21 +67,27 @@ def security_text(engine: str, result) -> str:
             for diagnostic in diags:
                 lines.append(f"  {diagnostic}")
         for finding in report.get("findings", []):
-            if "kind" in finding:
-                lines.append(
-                    f"  typestate={finding.get('kind', '?')} "
-                    f"protocol={finding.get('protocol', '?')} "
-                    f"state={finding.get('state', '?')} "
-                    f"resource={finding.get('resource_label', '?')} "
-                    f"operation={finding.get('operation_name', '?')}"
-                )
-                continue
-            args_str = ", ".join(finding.get("tainted_arguments", [])) or "<none>"
-            lines.append(
-                f"  sink={finding.get('sink_name', '?')} "
-                f"procedure={finding.get('procedure', '?')} "
-                f"args=[{args_str}]"
+            location = finding.get("primary_location") or {}
+            position = (
+                f"{location['uri']}:{location['start_line']}"
+                if location.get("uri") and location.get("start_line")
+                else "<source location unavailable>"
             )
+            lines.append(
+                f"  [{finding.get('rule_id') or 'PYFLOW-IFDS'}] "
+                f"Severity: {finding.get('severity') or 'unspecified'}  "
+                f"Location: {position}"
+            )
+            lines.append(
+                f"       {finding.get('message') or finding.get('sink_name') or finding.get('kind', 'IFDS finding')}"
+            )
+            lines.append(f"       Procedure: {finding.get('procedure') or '<unknown>'}")
+            details = finding.get("properties") or finding
+            if details.get("sink_name"):
+                args_str = ", ".join(details.get("tainted_arguments", ())) or "<none>"
+                lines.append(
+                    f"       sink={details['sink_name']} procedure={finding.get('procedure', '<unknown>')} args=[{args_str}]"
+                )
         return "\n".join(lines)
 
     if engine == "cpg":
@@ -97,12 +104,18 @@ def security_text(engine: str, result) -> str:
                 f"  [{i}] {f.get('cwe', '?')} [{f.get('severity', '?')}] "
                 f"confidence={conf:.0%} [{bar}]"
             )
-            lines.append(
-                f"      source: {f.get('source_label', '?')} " f"(line {f.get('source_line', 0)})"
+            source_position = (
+                f"{f.get('source_filename') or '<unknown source>'}:{f['source_line']}"
+                if f.get("source_line")
+                else "<source location unavailable>"
             )
-            lines.append(
-                f"      sink:   {f.get('sink_label', '?')} " f"(line {f.get('sink_line', 0)})"
+            sink_position = (
+                f"{f.get('sink_filename') or '<unknown source>'}:{f['sink_line']}"
+                if f.get("sink_line")
+                else "<source location unavailable>"
             )
+            lines.append(f"      source: {f.get('source_label', '?')} ({source_position})")
+            lines.append(f"      sink:   {f.get('sink_label', '?')} ({sink_position})")
             lines.append("")
         diagnostics = result.get("diagnostics", [])
         if diagnostics:
@@ -402,7 +415,7 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                 "locations": [
                     {
                         "physicalLocation": {
-                            "artifactLocation": {"uri": artifact_uri},
+                            "artifactLocation": {"uri": f.get("sink_filename") or artifact_uri},
                             "region": {"startLine": sink_line},
                         }
                     }
@@ -423,7 +436,7 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                     {
                         "location": {
                             "physicalLocation": {
-                                "artifactLocation": {"uri": artifact_uri},
+                                "artifactLocation": {"uri": step.get("filename") or artifact_uri},
                                 "region": {"startLine": line},
                             },
                             "message": {"text": step.get("label") or step.get("kind", "flow")},

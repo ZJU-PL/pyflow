@@ -306,12 +306,25 @@ def run_analysis(input_path, args):
             dump_results(compiler, program, input_path, args.output)
 
         print("Analysis complete!")
+        if not (
+            args.dump
+            or args.dump_ipa
+            or args.dump_shape
+            or emit_path
+            or getattr(args, "suggest_only", False)
+        ):
+            print(
+                f"Analyzed {len(python_files)} file(s). To inspect results use --dump; to write optimized sources use --emit-optimized PATH."
+            )
 
+    except BrokenPipeError:
+        raise
     except Exception as e:
         print(f"Error during analysis: {e}", file=sys.stderr)
         import traceback
 
-        traceback.print_exc()
+        if args.verbose:
+            traceback.print_exc()
         sys.exit(1)
 
 

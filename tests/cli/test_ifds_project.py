@@ -139,7 +139,7 @@ def test_real_project_report(tmp_path, capsys, output_format):
         )
     )
     args = parse(tmp_path, "--engine", "ifds", "--format", output_format)
-    assert command.run_security(args) == 1
+    assert command.run_security(args) == 0
     report = json.loads(capsys.readouterr().out)
     if output_format == "json":
         assert report["entries"] == ["main.py", "app.py"]

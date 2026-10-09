@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import pytest
 
 from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
 from pyflow.checker.ast_dataflow.core.context import AnalysisSession
@@ -12,6 +13,41 @@ from pyflow.application.program import Program
 class _DummyQueries:
     def get_ipa_function_summaries(self):
         raise RuntimeError("IPA unavailable in unit test")
+
+
+def test_qualified_version_parser_does_not_borrow_xml_sink_model():
+    session = _make_session(
+        {"handler": "def handler(value):\n    return packaging.version.version.parse(value)\n"}
+    )
+    assert ASTDataflowTaintDetector().analyze(session).findings == ()
+
+
+@pytest.mark.parametrize("copy_name", ["copy.copy", "copy.deepcopy"])
+def test_memory_copy_is_not_a_file_sink(copy_name):
+    session = _make_session(
+        {"handler": f"def handler(field_info):\n    return {copy_name}(field_info)\n"}
+    )
+    assert ASTDataflowTaintDetector().analyze(session).findings == ()
+
+
+@pytest.mark.parametrize("value,expected", [("'1 + 1'", 0), ("input()", 1)])
+def test_memory_copy_preserves_taint_without_introducing_input(value, expected):
+    session = _make_session(
+        {"handler": f"def handler():\n    cloned = copy.copy({value})\n    eval(cloned)\n"}
+    )
+    findings = ASTDataflowTaintDetector().analyze(session).findings
+    assert len(findings) == expected
+    assert all(finding.sink_name == "eval" for finding in findings)
+
+
+def test_shutil_copy_remains_a_file_sink():
+    session = _make_session(
+        {"handler": "def handler():\n    path = input()\n    shutil.copy(path, 'target')\n"}
+    )
+    findings = ASTDataflowTaintDetector().analyze(session).findings
+    assert any(
+        finding.sink_name == "shutil.copy" and finding.cwe == "CWE-22" for finding in findings
+    )
 
 
 def _make_session(sources_by_name, func_to_file=None):

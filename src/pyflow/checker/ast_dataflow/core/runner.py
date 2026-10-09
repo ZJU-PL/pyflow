@@ -22,6 +22,8 @@ class BugFinderConfig:
     sanitizers: Iterable[str] = field(default_factory=tuple)
     frameworks: Optional[Iterable[str]] = None
     registry_paths: Iterable[str | Path] = field(default_factory=tuple)
+    unknown_call_policy: str = "preserve"
+    entry_parameter_kinds: Iterable[str] = ("user_input",)
 
 
 class StaticBugFinder:
@@ -45,6 +47,8 @@ class StaticBugFinder:
                     None if self.config.frameworks is None else tuple(self.config.frameworks)
                 ),
                 registry_paths=tuple(self.config.registry_paths),
+                unknown_call_policy=self.config.unknown_call_policy,
+                entry_parameter_kinds=self.config.entry_parameter_kinds,
             )
         ]
 

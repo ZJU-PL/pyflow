@@ -9,6 +9,8 @@ import re
 import sys
 import tokenize
 import traceback
+from pathlib import Path
+from pyflow.frontend.file_selection import exclusion_patterns, path_is_excluded
 
 from ...common import constants as b_constants
 from ...common import issue
@@ -46,6 +48,7 @@ class SecurityManager:
         self.baseline = []
         self.metrics = metrics.Metrics()
         self.b_ts = b_test_set.SecurityTestSet(config, profile or {})
+        self.errors = list(self.b_ts.load_errors)
         self.scores = []
 
     def get_skipped(self):
@@ -54,6 +57,12 @@ class SecurityManager:
             (skip[0].decode("utf-8"), skip[1]) if isinstance(skip[0], bytes) else skip
             for skip in self.skipped
         ]
+
+    def get_errors(self):
+        """Include rule failures without treating the whole file as skipped."""
+        return [
+            {"filename": filename, "reason": reason} for filename, reason in self.get_skipped()
+        ] + self.errors
 
     def get_issue_list(self, sev_level=b_constants.LOW, conf_level=b_constants.LOW):
         """Get filtered list of issues"""
@@ -86,15 +95,12 @@ class SecurityManager:
         files_list = set()
         excluded_files = set()
 
-        excluded_path_globs = self.b_conf.get_option("exclude_dirs") or []
+        excluded_path_globs = list(self.b_conf.get_option("exclude_dirs") or [])
         included_globs = self.b_conf.get_option("include") or ["*.py"]
 
         # Add command line provided exclusions
         if excluded_paths:
-            for path in excluded_paths.split(","):
-                if os.path.isdir(path):
-                    path = os.path.join(path, "*")
-                excluded_path_globs.append(path)
+            excluded_path_globs.extend(exclusion_patterns(excluded_paths))
 
         # Build list of files to analyze
         for fname in targets:
@@ -109,7 +115,11 @@ class SecurityManager:
                     LOG.warning("Skipping directory (%s), use -r flag to scan contents", fname)
             else:
                 if _is_file_included(
-                    fname, included_globs, excluded_path_globs, enforce_glob=False
+                    fname,
+                    included_globs,
+                    excluded_path_globs,
+                    enforce_glob=False,
+                    root=Path(fname).parent,
                 ):
                     files_list.add(os.path.join(".", fname) if fname != "-" else fname)
                 else:
@@ -158,9 +168,10 @@ class SecurityManager:
                 except tokenize.TokenError:
                     pass
 
+            first_result = len(self.results)
             score = self._execute_ast_visitor(fname, fdata, data, nosec_lines)
             self.scores.append(score)
-            self.metrics.count_issues([score])
+            self.metrics.count_findings(self.results[first_result:])
         except KeyboardInterrupt:
             sys.exit(2)
         except SyntaxError:
@@ -182,6 +193,7 @@ class SecurityManager:
         )
         score = res.process(data)
         self.results.extend(res.tester.results)
+        self.errors.extend(res.tester.errors)
         return score
 
 
@@ -193,10 +205,15 @@ def _get_files_from_dir(files_dir, included_globs=None, excluded_path_strings=No
     files_list = set()
     excluded_files = set()
 
-    for root, _, files in os.walk(files_dir):
+    for root, directories, files in os.walk(files_dir):
+        directories[:] = [
+            name
+            for name in directories
+            if not path_is_excluded(Path(root, name), excluded_path_strings, files_dir)
+        ]
         for filename in files:
             path = os.path.join(root, filename)
-            if _is_file_included(path, included_globs, excluded_path_strings):
+            if _is_file_included(path, included_globs, excluded_path_strings, root=files_dir):
                 files_list.add(path)
             else:
                 excluded_files.add(path)
@@ -204,14 +221,11 @@ def _get_files_from_dir(files_dir, included_globs=None, excluded_path_strings=No
     return files_list, excluded_files
 
 
-def _is_file_included(path, included_globs, excluded_path_strings, enforce_glob=True):
+def _is_file_included(path, included_globs, excluded_path_strings, enforce_glob=True, root="."):
     """Determine if a file should be included based on filename"""
     if not (_matches_glob_list(path, included_globs) or not enforce_glob):
         return False
-    return not (
-        _matches_glob_list(path, excluded_path_strings)
-        or any(x in path for x in excluded_path_strings)
-    )
+    return not path_is_excluded(path, excluded_path_strings, root)
 
 
 def _matches_glob_list(filename, glob_list):

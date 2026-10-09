@@ -4,12 +4,14 @@ CLI functionality for call graph analysis.
 
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from pyflow.analysis.callgraph.ast_based import analyze_file as analyze_file_ast
 from pyflow.analysis.callgraph.constraint_based import (
     analyze_file_constraint,
     extract_value_flow_graph_constraint,
+    extract_call_graph_constraint,
 )
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
 from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
@@ -75,6 +77,8 @@ def _analyze_file(
             skip_stdlib_modules=args.skip_stdlib,
             analyze_reachable_only=analyze_reachable_only,
             seed_entry_file_scopes=analyze_reachable_only,
+            skip_external_modules=not getattr(args, "include_external", False),
+            canonical_entry_names=True,
         )
     elif args.algorithm == "pycg":
         try:
@@ -94,6 +98,9 @@ def _analyze_file(
     else:
         print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
         return 1
+    if output.startswith("Error analyzing "):
+        print(output, file=sys.stderr)
+        return 2
 
     if args.as_graph_output:
         if args.algorithm != "constraint":
@@ -197,6 +204,8 @@ def run_callgraph(input_path, args):
             print(f"Error: Path '{input_path}' not found", file=sys.stderr)
             return 1
 
+        if input_path.is_dir() and getattr(args, "recursive", False):
+            return _analyze_project_sources(input_path, args)
         if input_path.is_dir():
             return _run_callgraph_on_dir(input_path, args)
 
@@ -212,6 +221,8 @@ def run_callgraph(input_path, args):
 
         return _analyze_file(input_path, args)
 
+    except BrokenPipeError:
+        raise
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         if args.verbose:
@@ -250,9 +261,9 @@ def add_callgraph_parser(subparsers):
         "--algorithm",
         "-a",
         choices=["simple", "constraint", "pycg", "pycg-mir"],
-        default="simple",
+        default="constraint",
         help=(
-            "Call graph algorithm (default: simple; pycg-mir uses native MIR "
+            "Call graph algorithm (default: constraint; pycg-mir uses native MIR "
             "analysis without the optional pycg package)"
         ),
     )
@@ -260,6 +271,17 @@ def add_callgraph_parser(subparsers):
     parser.add_argument("--output", "-o", type=Path, help="Output file (default: stdout)")
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        help="Analyze all project source files (constraint algorithm), including libraries without an entry point",
+    )
+    parser.add_argument(
+        "--include-external",
+        action="store_true",
+        help="Load third-party dependency source in constraint analysis (default: project sources only)",
+    )
 
     parser.add_argument(
         "--context-sensitive",
@@ -317,3 +339,47 @@ def add_callgraph_parser(subparsers):
     )
 
     parser.set_defaults(func=run_callgraph)
+
+
+def _analyze_project_sources(root, args):
+    from pyflow.frontend.file_selection import discover_python_files, SECURITY_DEFAULT_EXCLUDES
+    from pyflow.analysis.callgraph.formats import generate_text_output
+
+    if args.algorithm != "constraint":
+        print("Error: recursive project scans require --algorithm constraint", file=sys.stderr)
+        return 2
+    files = discover_python_files(root, recursive=True, exclude=SECURITY_DEFAULT_EXCLUDES)
+    if not files:
+        print("Error: no project Python files found", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print("\n".join(str(path.relative_to(root)) for path in files))
+        return 0
+    if args.as_graph_output:
+        print(
+            "Error: --as-graph-output requires a single entry scan; omit --recursive",
+            file=sys.stderr,
+        )
+        return 2
+    entry = resolve_entry_file(root, args.entry) if args.entry else files[0]
+    sources = {str(path.resolve()): path.read_text(encoding="utf-8-sig") for path in files}
+    with redirect_stdout(sys.stderr):
+        graph = extract_call_graph_constraint(
+            sources[str(entry.resolve())],
+            source_path=str(entry),
+            additional_sources=sources,
+            skip_stdlib_modules=args.skip_stdlib,
+            skip_external_modules=not args.include_external,
+            canonical_entry_names=True,
+            context_sensitive=args.context_sensitive,
+            context_depth=args.context_depth,
+            fixpoint_max_iterations=args.fixpoint_max_iterations,
+            warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
+            allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
+        )
+    output = generate_text_output(graph, args)
+    if args.output:
+        args.output.write_text(output + "\n", encoding="utf-8")
+    else:
+        print(output)
+    return 0

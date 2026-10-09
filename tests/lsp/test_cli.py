@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import json
 
 from pyflow.cli.lsp import (
     add_lsp_parser,
@@ -57,6 +58,23 @@ def query_parser():
 
 def _parse(parser, argv):
     return parser.parse_args(argv)
+
+
+def test_listed_method_names_and_unique_suffixes_work_for_cfg(query_parser, tmp_path, capsys):
+    source = tmp_path / "app.py"
+    source.write_text("class Flask:\n    def dispatch_request(self):\n        return 1\n")
+    run_query(query_parser.parse_args(["query", str(source), "--list-functions"]))
+    names = json.loads(capsys.readouterr().out)
+    listed_name = next(name for name in names if name.endswith("Flask.dispatch_request"))
+    for name in (listed_name, "Flask.dispatch_request", "dispatch_request"):
+        run_query(
+            query_parser.parse_args(["query", str(source), "--mode", "basic", "--get-cfg", name])
+        )
+        output = capsys.readouterr()
+        graph = json.loads(output.out)
+        assert graph["name"].endswith("Flask.dispatch_request")
+        assert graph["blocks"]
+        assert "Traceback" not in output.err
 
 
 # ---------------------------------------------------------------------------

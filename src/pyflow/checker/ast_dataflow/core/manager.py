@@ -14,6 +14,7 @@ from ...common import constants as b_constants
 from ...common.metrics import Metrics
 from .runner import StaticBugFinder, BugFinderConfig
 from ...common.issue import Issue
+from .context import AnalysisSession
 
 
 class ASTDataflowManager:
@@ -78,26 +79,17 @@ class ASTDataflowManager:
         self.results = self.finder.analyze(paths)
         self.analysis_result = self.finder.last_result
 
-        # Count lines of code from analyzed files
-        for path in paths:
-            path_obj = Path(path) if isinstance(path, str) else path
-            if path_obj.is_file():
-                try:
-                    with open(path_obj, "r", encoding="utf-8") as f:
-                        lines = f.readlines()
-                    self.metrics.begin(str(path_obj))
-                    self.metrics.count_locs(lines)
-                except (IOError, OSError):
-                    pass
-            elif path_obj.is_dir():
-                for py_file in path_obj.rglob("*.py"):
-                    try:
-                        with open(py_file, "r", encoding="utf-8") as f:
-                            lines = f.readlines()
-                        self.metrics.begin(str(py_file))
-                        self.metrics.count_locs(lines)
-                    except (IOError, OSError):
-                        pass
+        config = self.finder.config
+        for path_obj in AnalysisSession._collect_files(
+            paths, config.recursive, tuple(config.include), tuple(config.exclude)
+        ):
+            try:
+                with open(path_obj, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                self.metrics.begin(str(path_obj))
+                self.metrics.count_locs(lines)
+            except (IOError, OSError):
+                pass
 
         self.metrics.data["_totals"]["files"] = self.metrics.files
         self.metrics.count_findings(self.results)

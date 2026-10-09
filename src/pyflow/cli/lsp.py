@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 import logging
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from pyflow.lsp import (
@@ -212,7 +213,7 @@ def add_query_parser(subparsers):
         "--get-cfg",
         type=str,
         metavar="FUNCTION",
-        help="Get CFG structure for a function",
+        help="Get CFG for a qualified function or an unambiguous short name (e.g. Class.method)",
     )
     p.add_argument(
         "--get-aliases",
@@ -294,21 +295,23 @@ def run_query(args):
     required_passes = _compute_required_passes(args)
     run_pipeline = bool(required_passes)
 
-    if input_path.is_dir():
-        server.load(
-            str(input_path),
-            run_pipeline=run_pipeline,
-            passes=required_passes,
-        )
-    elif input_path.is_file():
-        server.load_files(
-            [input_path],
-            run_pipeline=run_pipeline,
-            passes=required_passes,
-        )
-    else:
-        print(f"Error: '{input_path}' not found", file=sys.stderr)
-        sys.exit(1)
+    # Keep progress from the extraction pipeline out of the JSON result stream.
+    with redirect_stdout(sys.stderr):
+        if input_path.is_dir():
+            server.load(
+                str(input_path),
+                run_pipeline=run_pipeline,
+                passes=required_passes,
+            )
+        elif input_path.is_file():
+            server.load_files(
+                [input_path],
+                run_pipeline=run_pipeline,
+                passes=required_passes,
+            )
+        else:
+            print(f"Error: '{input_path}' not found", file=sys.stderr)
+            sys.exit(1)
 
     result = _dispatch_query(server, args)
 
@@ -349,12 +352,14 @@ def _dispatch_query(server: AnalysisManager, args) -> object:
             "is_escaped": info.is_escaped,
         }
     if args.list_functions:
+        from pyflow.api.queries.context import QueryContext
+
         return sorted(
             (
                 getattr(code, "codeName", lambda: "?")()
                 if hasattr(code, "codeName") and callable(getattr(code, "codeName", None))
                 else str(getattr(code, "name", "?"))
             )
-            for code in getattr(server.program, "liveCode", [])
+            for code in QueryContext(None, server.program).function_codes()
         )
     return snapshot.features.__dict__

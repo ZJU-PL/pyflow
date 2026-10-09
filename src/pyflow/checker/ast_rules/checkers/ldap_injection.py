@@ -126,6 +126,22 @@ def _is_initialize_call(node):
     return func_name == "ldap.initialize" or func_name.endswith(".initialize")
 
 
+def _has_ldap_receiver(context):
+    """Require LDAP evidence for generic methods such as add/search/modify."""
+    node = context.node
+    if not isinstance(node.func, ast.Attribute):
+        return False
+    if _is_initialize_call(node.func.value):
+        return True
+    qualname = context.call_function_name_qual or ""
+    if qualname.startswith(("ldap.", "ldap3.")):
+        return True
+    if not (context.is_module_imported_like("ldap") or context.is_module_imported_like("ldap3")):
+        return False
+    receiver = _name_from_node(node.func.value).lower()
+    return "ldap" in receiver or receiver in {"conn", "connection", "l", "server"}
+
+
 @test.checks("Call")
 @test.with_id("B601")
 def ldap_simple_bind_user_input(context):
@@ -175,7 +191,7 @@ def ldap_initialize_and_bind_chain(context):
 def ldap_search_unsanitized_filter(context):
     """Detect ldap.search*() with user-controlled DN/filter without escaping."""
     func_name = context.call_function_name_qual or ""
-    if not func_name.endswith(LDAP_SEARCH_SUFFIXES):
+    if not func_name.endswith(LDAP_SEARCH_SUFFIXES) or not _has_ldap_receiver(context):
         return None
 
     node = context.node
@@ -203,7 +219,7 @@ def ldap_search_unsanitized_filter(context):
 def ldap_add_user_controlled_dn(context):
     """Detect ldap.add*() with a user-controlled DN."""
     func_name = context.call_function_name_qual or ""
-    if not func_name.endswith(LDAP_ADD_SUFFIXES):
+    if not func_name.endswith(LDAP_ADD_SUFFIXES) or not _has_ldap_receiver(context):
         return None
 
     node = context.node
@@ -222,7 +238,7 @@ def ldap_add_user_controlled_dn(context):
 def ldap_modify_user_controlled_dn(context):
     """Detect ldap.modify*() with a user-controlled DN."""
     func_name = context.call_function_name_qual or ""
-    if not func_name.endswith(LDAP_MODIFY_SUFFIXES):
+    if not func_name.endswith(LDAP_MODIFY_SUFFIXES) or not _has_ldap_receiver(context):
         return None
 
     node = context.node

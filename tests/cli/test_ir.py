@@ -173,5 +173,44 @@ def test_dump_mir_recursive_directories_preserve_source_paths(tmp_path):
     ]
 
 
+def test_ir_function_resolution_matches_query_suffixes_and_rejects_ambiguity(capsys):
+    left = type("Code", (), {"codeName": lambda self: "app.Left.run"})()
+    right = type("Code", (), {"codeName": lambda self: "app.Right.run"})()
+    assert ir_cli.find_function_in_live_code([left], "run") is left
+    assert ir_cli.find_function_in_live_code([left, right], "run") is None
+    error = capsys.readouterr().err
+    assert "ambiguous" in error
+    assert "app.Left.run" in error and "app.Right.run" in error
+
+
+def test_trivial_mir_dump_stays_small(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\n    return a + b\n")
+    output = tmp_path / "out"
+    args = parse_mir_args(source, "add", "--dump-output", output)
+    ir_cli.run_ir_dump(source, args)
+    content = next(output.glob("*_mir.text")).read_text()
+    assert "sample.add" in content
+    assert len(content.splitlines()) < 100
+
+
+def test_unscoped_mir_text_hides_runtime_and_full_view_is_available(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\n    return a + b\n")
+    output = tmp_path / "out"
+    args = parse_mir_args(source, "--dump-output", output)
+    ir_cli.run_ir_dump(source, args)
+    path = output / "sample_mir.text"
+    compact = path.read_text()
+    assert "MIR source view" in compact
+    assert "cfg builtins." not in compact
+    assert len(compact.splitlines()) < 1000
+    args.mir_view = "full"
+    ir_cli.run_ir_dump(source, args)
+    full = path.read_text()
+    assert "cfg builtins." in full
+    assert len(full.splitlines()) > 10 * len(compact.splitlines())
+
+
 if __name__ == "__main__":
     unittest.main()

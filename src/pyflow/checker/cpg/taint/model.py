@@ -6,6 +6,7 @@ from pyflow.checker.common.diagnostics import CheckerDiagnostic
 from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, List, Tuple
 from pyflow.ir.pdg.graph import PDGNode
+from pyflow.ir.core.source import syntax_source_span
 from pyflow.util.cwe import cwe_ancestors, cwe_identifiers
 
 
@@ -348,13 +349,20 @@ class TaintFinding:
     def source_line(self) -> int:
         if self.source_node is None:
             return 0
-        return getattr(self.source_node.ast_node, "lineno", 0) or 0
+        span = syntax_source_span(self.source_node.ast_node)
+        return span.start_line if span else 0
 
     @property
     def sink_line(self) -> int:
         if self.sink_node is None:
             return 0
-        return getattr(self.sink_node.ast_node, "lineno", 0) or 0
+        span = syntax_source_span(self.sink_node.ast_node)
+        return span.start_line if span else 0
+
+    @staticmethod
+    def _filename(node) -> str:
+        span = syntax_source_span(getattr(node, "ast_node", None))
+        return span.path if span else ""
 
     @property
     def path_length(self) -> int:
@@ -383,8 +391,10 @@ class TaintFinding:
         return (
             self.effective_rule_id,
             self.source_label,
+            self._filename(self.source_node),
             self.source_line,
             self.sink_label,
+            self._filename(self.sink_node),
             self.sink_line,
             tuple(sorted(self.tags)),
         )
@@ -419,6 +429,8 @@ class TaintFinding:
             "sink_label": self.sink_label,
             "source_line": self.source_line,
             "sink_line": self.sink_line,
+            "source_filename": self._filename(self.source_node),
+            "sink_filename": self._filename(self.sink_node),
             "path_length": self.path_length,
             "confidence": round(self.confidence, 2),
             "confidence_level": self.confidence_level,
@@ -429,7 +441,8 @@ class TaintFinding:
             "path_preview": [
                 {
                     "kind": n.kind,
-                    "line": getattr(n.ast_node, "lineno", 0) or 0,
+                    "line": span.start_line if (span := syntax_source_span(n.ast_node)) else 0,
+                    "filename": self._filename(n),
                     "label": (n.label or "")[:80],
                 }
                 for n in self.path_nodes[:10]
@@ -450,7 +463,7 @@ class TaintFinding:
             path=[
                 (
                     getattr(n, "node_id", -1),
-                    getattr(getattr(n, "ast_node", None), "lineno", 0) or 0,
+                    span.start_line if (span := syntax_source_span(n.ast_node)) else 0,
                     (getattr(n, "label", "") or "")[:120],
                 )
                 for n in self.path_nodes

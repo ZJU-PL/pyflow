@@ -41,6 +41,9 @@ def extract_call_graph_constraint(
     skip_stdlib_modules: bool = True,
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
+    skip_external_modules: bool = False,
+    canonical_entry_names: bool = False,
+    additional_sources: Optional[Mapping[str, str]] = None,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -81,6 +84,7 @@ def extract_call_graph_constraint(
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
         skip_stdlib_modules=skip_stdlib_modules,
+        skip_external_modules=skip_external_modules,
         analyze_reachable_only=analyze_reachable_only,
         seed_entry_file_scopes=seed_entry_file_scopes,
     )
@@ -89,8 +93,22 @@ def extract_call_graph_constraint(
         entry_path=entry_path,
         verbose=verbose,
         options=options,
+        additional_sources=additional_sources,
     )
-    return builder.build()
+    graph = builder.build()
+    if canonical_entry_names and builder.entry_path:
+        prefix = builder.entry_module_import_name
+
+        def canonical(name):
+            return prefix + name[4:] if name == "main" or name.startswith("main.") else name
+
+        renamed = CallGraph()
+        for name, callees in graph.get().items():
+            renamed.add_node(canonical(name), canonical(graph.get_modules().get(name, "")))
+            for callee in callees:
+                renamed.add_edge(canonical(name), canonical(callee))
+        return renamed
+    return graph
 
 
 def analyze_file_constraint(
@@ -112,6 +130,8 @@ def analyze_file_constraint(
     skip_stdlib_modules: bool = True,
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
+    skip_external_modules: bool = False,
+    canonical_entry_names: bool = False,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
@@ -137,6 +157,8 @@ def analyze_file_constraint(
             skip_stdlib_modules=skip_stdlib_modules,
             analyze_reachable_only=analyze_reachable_only,
             seed_entry_file_scopes=seed_entry_file_scopes,
+            skip_external_modules=skip_external_modules,
+            canonical_entry_names=canonical_entry_names,
         )
         return generate_text_output(graph, None)
     except Exception as exc:

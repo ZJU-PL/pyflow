@@ -30,6 +30,47 @@ def _engine(source: str, **kwargs) -> CPGTaintEngine:
     return engine
 
 
+def test_cpg_finding_reads_retained_source_origins():
+    source = "def main():\n    value = input()\n    eval(value)\n"
+    cpg = build_cpg(source, filename="app.py")
+    engine = CPGTaintEngine(cpg)
+    engine.add_source("input")
+    engine.add_sink("eval", cwe="CWE-95")
+    finding = engine.analyze().findings[0]
+    assert finding.source_line == 2
+    assert finding.sink_line == 3
+    assert cpg.node_lineno(finding.sink_node) == 3
+    document = finding.to_dict()
+    assert document["source_filename"] == "app.py"
+    assert document["sink_filename"] == "app.py"
+    assert [step["line"] for step in document["path_preview"]] == [2, 3]
+    assert all(step["filename"] == "app.py" for step in document["path_preview"])
+    assert finding.to_taint_path().sink_lineno == 3
+
+
+def test_cpg_sarif_uses_finding_file_instead_of_project_directory():
+    from pyflow.checker.formatters.security import security_sarif
+
+    result = {
+        "status": "complete",
+        "findings": [
+            {
+                "rule_id": "TEST",
+                "sink_filename": "package/sink.py",
+                "sink_line": 8,
+                "path_preview": [{"filename": "package/source.py", "line": 3, "label": "input"}],
+            }
+        ],
+    }
+    sarif = security_sarif("cpg", result, artifact_uri="project/")
+    finding = sarif["runs"][0]["results"][0]
+    assert (
+        finding["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "package/sink.py"
+    )
+    step = finding["codeFlows"][0]["threadFlows"][0]["locations"][0]
+    assert step["location"]["physicalLocation"]["artifactLocation"]["uri"] == "package/source.py"
+
+
 def test_cpg_uses_shared_entrypoint_selection_modes() -> None:
     engine = CPGTaintEngine(
         build_cpg(

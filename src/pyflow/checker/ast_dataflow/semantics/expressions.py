@@ -26,6 +26,8 @@ _SHELL_OPTION_SUBPROCESS_CALLS = frozenset({"call", "check_call", "check_output"
 _SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
 _TAINT_PRESERVING_PURE_CALLS = frozenset(
     {
+        "copy.copy",
+        "copy.deepcopy",
         "os.path.abspath",
         "os.path.basename",
         "os.path.commonpath",
@@ -76,6 +78,7 @@ class ExpressionContext:
     shape_contracts: CallShapeContractRegistry
     known_functions: frozenset[str] = frozenset()
     import_aliases: Mapping[str, str] = field(default_factory=dict)
+    unknown_call_policy: str = "havoc"
 
 
 class PythonExpressionSemantics:
@@ -515,17 +518,30 @@ class PythonExpressionSemantics:
                     for result in (*positional, *keywords)
                     if result.location is not None
                 )
-                current = current.havoc(
-                    locations,
-                    havoc_kinds,
-                    TaintOrigin(
-                        "unknown",
-                        self.context.filename,
-                        getattr(call, "lineno", None),
-                        symbol=name or "<dynamic>",
-                    ),
-                    uncertainty,
-                )
+                if self.context.unknown_call_policy == "preserve":
+                    current = current.with_uncertainty(
+                        AnalysisUncertainty(
+                            code="unknown-call-effect",
+                            message=f"Unknown call {name or '<dynamic>'} preserves argument taint; other effects are unmodeled",
+                            level=PrecisionLevel.ASSUMED,
+                            function=self.context.procedure,
+                            filename=self.context.filename,
+                            line=getattr(call, "lineno", None),
+                            operation=name or "<dynamic>",
+                        )
+                    )
+                else:
+                    current = current.havoc(
+                        locations,
+                        havoc_kinds,
+                        TaintOrigin(
+                            "unknown",
+                            self.context.filename,
+                            getattr(call, "lineno", None),
+                            symbol=name or "<dynamic>",
+                        ),
+                        uncertainty,
+                    )
                 if ambiguous_summary:
                     current = current.with_uncertainty(
                         AnalysisUncertainty(

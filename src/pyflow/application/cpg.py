@@ -82,6 +82,7 @@ def build_cpg_from_directory(
     recursive: bool = True,
     resolve_imports: bool = True,
     exclude_dirs: Sequence[str] = DEFAULT_CPG_EXCLUDE_DIRS,
+    exclude_paths: Sequence[str] = (),
     deadline: float | None = None,
     **kwargs,
 ) -> CodePropertyGraph:
@@ -117,6 +118,10 @@ def build_cpg_from_directory(
         excluded=excluded,
         deadline=deadline,
     )
+    if exclude_paths:
+        from pyflow.frontend.file_selection import path_is_excluded
+
+        files = [path for path in files if not path_is_excluded(path, exclude_paths, root)]
     if not files:
         return CodePropertyGraph()
 
@@ -133,7 +138,7 @@ def build_cpg_from_directory(
 
     compiler = context.CompilerContext(None)
     try:
-        compiler.extractor = Extractor(compiler, verbose=False)
+        compiler.extractor = Extractor(compiler, verbose=False, analysis_root=str(root))
         program = compiler.extractor.extract_from_multiple_files(sources, deadline=deadline)
     except Exception as error:
         cpg = CodePropertyGraph()
@@ -165,6 +170,10 @@ def _build_cpg_from_program(
     """Lower one already-extracted program into function PDGs."""
 
     cpg = CodePropertyGraph()
+    from collections import Counter
+    from pyflow.ir.core.source import syntax_source_span
+
+    names = Counter(code.codeName() for code in prog.liveCode)
 
     for code_obj in sorted(
         prog.liveCode,
@@ -180,6 +189,11 @@ def _build_cpg_from_program(
             )
             break
         func_name = getattr(code_obj, "codeName", lambda: "<unknown>")() or "<unknown>"
+        if names[func_name] > 1:
+            span = syntax_source_span(code_obj)
+            if span and span.path:
+                module = compiler.extractor._get_module_name(span.path)
+                func_name = f"{module}.{func_name}"
         try:
             # CPG construction consumes the simplified CFG directly and does
             # not use transformation remaps.  Skipping revision bookkeeping

@@ -559,3 +559,35 @@ def test_query_cfg_cache_tracks_ir_revisions(monkeypatch):
     assert queries.control_flow.get_cfg("f") is first
     program.ir.commit_revision()
     assert queries.control_flow.get_cfg("f") is not first
+
+
+def test_function_resolution_accepts_unique_method_suffixes_and_module_names():
+    code = DummyCode("Flask.dispatch_request", "/tmp/app.py", 10)
+    catalog = IRCatalog()
+    procedure = catalog.register_code(
+        code,
+        module="app",
+        qualname="Flask.dispatch_request",
+        anchor=SourceAnchor("/tmp/app.py", 10, 0),
+    )
+    context = QueryContext(None, SimpleNamespace(liveCode=[code], ir=catalog))
+    for name in (
+        "dispatch_request",
+        "Flask.dispatch_request",
+        "app.Flask.dispatch_request",
+        str(procedure.code_id),
+    ):
+        assert context.resolve_function(name) is code
+
+
+def test_function_resolution_reports_ambiguity_and_missing_candidates():
+    import pytest
+
+    left = DummyCode("app.Left.run", "/tmp/app.py", 1)
+    right = DummyCode("app.Right.run", "/tmp/app.py", 5)
+    context = QueryContext(None, SimpleNamespace(liveCode=[left, right, left]))
+    with pytest.raises(ValueError, match="ambiguous.*app.Left.run.*app.Right.run"):
+        context.resolve_function("run")
+    with pytest.raises(ValueError, match="Available candidates:.*app.Left.run"):
+        context.resolve_function("Left.rnu")
+    assert context.resolve_function("Left.run") is left

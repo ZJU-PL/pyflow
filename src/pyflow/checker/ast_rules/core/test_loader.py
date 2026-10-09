@@ -27,9 +27,25 @@ class TestLoader:
                     module = importlib.import_module(modname)
                     self._extract_tests_from_module(module, test_set)
                 except Exception as e:
+                    test_set.load_errors.append(
+                        {
+                            "filename": "",
+                            "reason": f"Could not load checker module {modname}: {e}",
+                            "code": "checker-load-error",
+                            "affects_completeness": True,
+                        }
+                    )
                     LOG.warning("Failed to load checker module %s: %s", modname, e)
 
         except Exception as e:
+            test_set.load_errors.append(
+                {
+                    "filename": "",
+                    "reason": f"Could not load checker package: {e}",
+                    "code": "checker-load-error",
+                    "affects_completeness": True,
+                }
+            )
             LOG.warning("Failed to load checker package: %s", e)
 
     def _extract_tests_from_module(self, module, test_set):

@@ -158,7 +158,7 @@ def add_security_parser(subparsers):
         help=(
             "Semantics for unresolved calls: drop taint, preserve argument "
             "taint into the return value, or conservatively havoc arguments "
-            "(default: drop)."
+            "(default: preserve)."
         ),
     )
     p.add_argument(
@@ -197,7 +197,65 @@ def add_security_parser(subparsers):
     )
     p.add_argument(
         "--exclude",
-        help="Comma-separated paths to exclude",
+        action="append",
+        nargs="+",
+        default=[],
+        help="Paths/globs to exclude (repeatable; accepts comma-separated values)",
+    )
+    p.add_argument(
+        "--no-default-excludes",
+        action="store_true",
+        help="Include tests, hidden directories, build outputs, and virtual environments",
+    )
+    p.add_argument(
+        "--severity",
+        type=str.lower,
+        choices=("low", "medium", "high", "critical"),
+        default="low",
+        help="Minimum severity to report",
+    )
+    p.add_argument(
+        "--confidence",
+        type=str.lower,
+        choices=("low", "medium", "high"),
+        default="low",
+        help="Minimum confidence to report",
+    )
+    p.add_argument(
+        "--skip-rule",
+        "--skip",
+        action="append",
+        nargs="+",
+        default=[],
+        metavar="RULE",
+        help="Disable rule IDs or scanner rule names (repeatable; accepts commas)",
+    )
+    p.add_argument(
+        "--fail-on",
+        "--fail-on-severity",
+        type=str.lower,
+        choices=("none", "low", "medium", "high", "critical"),
+        help="Return 1 when a reported finding reaches this severity; tool errors remain nonzero",
+    )
+    p.add_argument(
+        "--baseline", type=Path, help="Suppress findings present in a previous JSON report"
+    )
+    p.add_argument(
+        "--ast-unknown-call-policy",
+        choices=("preserve", "havoc"),
+        default="preserve",
+        help="AST-dataflow unresolved calls: preserve argument taint (default; disclosed as partial), or conservatively introduce all source kinds",
+    )
+    p.add_argument(
+        "--ast-entry-source-kind",
+        action="append",
+        help="Source kinds for AST-dataflow entry parameters (repeatable; default: user_input)",
+    )
+    p.add_argument(
+        "--json-schema",
+        choices=("legacy", "unified"),
+        default="legacy",
+        help="JSON report schema (default: legacy for compatibility; unified has common finding fields)",
     )
     p.add_argument(
         "--format",
@@ -224,12 +282,12 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--exit-code-policy",
         choices=["findings", "report"],
-        default="findings",
+        default="report",
         help=(
             "Exit-code contract: 'findings' preserves scanner-style nonzero "
-            "codes for findings/partial analyses; 'report' returns zero after "
-            "successfully writing a machine-readable analysis report and "
-            "leaves findings/completeness in the report payload"
+            "codes for findings/partial analyses; 'report' (default) returns zero "
+            "for complete/partial reports, while invalid/failed analyses remain "
+            "nonzero. Findings and completeness are recorded in the report"
         ),
     )
     p.add_argument(

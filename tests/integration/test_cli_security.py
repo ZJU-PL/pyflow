@@ -30,6 +30,7 @@ def _security_args(
     args.debug = False
     args.exclude = None
     args.engine = "ast-scanner"
+    args.exit_code_policy = "findings"
     args.micro_bench = None
     args.format = "text"
     args.output = output

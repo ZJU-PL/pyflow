@@ -76,14 +76,27 @@ def add_ir_parser(subparsers):
         ),
     )
     parser.add_argument(
+        "--mir-view",
+        choices=("source", "full"),
+        help=(
+            "MIR view: source hides runtime CFGs; full includes them. "
+            "Default: source for text/dot, full for JSON compatibility"
+        ),
+    )
+    parser.add_argument(
         "--dump-ast",
         metavar="FUNCTION",
         help="Dump AST for the specified function name",
     )
     parser.add_argument(
+        "--mir-import-policy",
+        choices=("strict", "opaque"),
+        help="Reject unmodeled imports, or retain opaque boundaries for inspection (source views default to opaque; full views remain strict)",
+    )
+    parser.add_argument(
         "--dump-cfg",
         metavar="FUNCTION",
-        help="Dump CFG for the specified function name",
+        help="Dump CFG for a qualified function or an unambiguous short name (e.g. Class.method)",
     )
     parser.add_argument(
         "--dump-ssa",
@@ -117,18 +130,20 @@ def add_ir_parser(subparsers):
 
 
 def find_function_in_live_code(liveCode, function_name: str, program=None):
-    """Find a function by name in live code."""
-    for code in liveCode:
-        if hasattr(code, "codeName") and code.codeName() == function_name:
-            return code
+    """Use the public query resolver for all function IR views."""
+    from types import SimpleNamespace
+    from pyflow.api.queries.context import QueryContext
 
-    # Check entry points if not found in live code
-    if program and hasattr(program, "interface") and hasattr(program.interface, "entryPoint"):
-        for ep in program.interface.entryPoint:
-            if hasattr(ep.code, "codeName") and ep.code.codeName() == function_name:
-                return ep.code
-
-    return None
+    view = SimpleNamespace(
+        liveCode=liveCode,
+        interface=getattr(program, "interface", None),
+        ir=getattr(program, "ir", None),
+    )
+    try:
+        return QueryContext(None, view).resolve_function(function_name)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return None
 
 
 def write_ir_file(output_file: str, function_name: str, ir_type: str, content: str):
@@ -162,7 +177,6 @@ def dump_ir(
     """Generic IR dumping function for AST, CFG, and SSA."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
-        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
 
     def _dump_impl():
@@ -207,6 +221,8 @@ def _dump_with_error_handling(func_name: str, dump_func, *args, **kwargs):
     """Helper to handle common error patterns in dump functions."""
     try:
         return dump_func(*args, **kwargs)
+    except BrokenPipeError:
+        raise
     except Exception as e:
         print(f"Error dumping {func_name}: {e}", file=sys.stderr)
         return False
@@ -259,10 +275,6 @@ def dump_gir(
     """Dump the Lian-compatible GIR for a specific function."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
-        print(
-            f"Error: Function '{function_name}' not found in live code",
-            file=sys.stderr,
-        )
         return False
 
     def _dump_impl():
@@ -297,7 +309,6 @@ def _dump_graph_ir(
     """Generic function to dump graph-based IRs (CDG, DDG)."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
-        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
 
     try:
@@ -317,6 +328,8 @@ def _dump_graph_ir(
         print(f"{ir_name} dumped to: {output_file}")
         return True
 
+    except BrokenPipeError:
+        raise
     except Exception as e:
         print(f"Error dumping {ir_name}: {e}", file=sys.stderr)
         import traceback
@@ -398,7 +411,7 @@ def _select_mir_programs(compiled, scope):
     """Resolve scopes across files, deduplicating shared imported definitions."""
     if scope in (None, "*"):
         return [(source, program, None) for source, program in compiled]
-    exact, suffix = {}, {}
+    exact, suffix, source_suffix = {}, {}, {}
     for source, program in compiled:
         for name, cfg in program.cfgs.items():
             identity = (name, cfg.filename or str(source.resolve()))
@@ -406,27 +419,90 @@ def _select_mir_programs(compiled, scope):
                 exact.setdefault(identity, (source, program, name))
             elif name.endswith(f".{scope}"):
                 suffix.setdefault(identity, (source, program, name))
-    matches = exact or suffix
+                if cfg.filename and not cfg.is_synthetic:
+                    source_suffix.setdefault(identity, (source, program, name))
+    matches = exact or source_suffix or suffix
     if len(matches) == 1:
         return list(matches.values())
     if not matches:
-        raise ValueError(f"MIR scope '{scope}' was not found")
+        candidates = sorted(
+            {
+                name
+                for _, program in compiled
+                for name, cfg in program.cfgs.items()
+                if cfg.filename and not cfg.is_synthetic
+            }
+        )
+        hint = f" Available candidates: {', '.join(candidates[:5])}" if candidates else ""
+        raise ValueError(f"MIR scope '{scope}' was not found.{hint}")
     choices = ", ".join(f"{name} ({filename})" for name, filename in sorted(matches))
     raise ValueError(f"MIR scope '{scope}' is ambiguous; choose one of: {choices}")
 
 
+def _format_mir_view(program, args, scope, diagnostics=()):
+    """Keep human inspection compact while preserving default JSON exports."""
+    from dataclasses import replace
+    from pyflow.ir.mir import format_program
+
+    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
+    if scope is not None or view == "full":
+        content = format_program(program, format=args.dump_format, scope=scope)
+        if diagnostics and args.dump_format == "json":
+            data = json.loads(content)
+            data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
+            return json.dumps(data, indent=2) + "\n"
+        if diagnostics and args.dump_format == "text":
+            return "MIR partial inspection (opaque imports/literals; see diagnostics)\n" + content
+        return content
+    cfgs = {
+        name: cfg for name, cfg in program.cfgs.items() if cfg.filename and not cfg.is_synthetic
+    }
+    source_program = replace(program, cfgs=cfgs)
+    if args.dump_format == "json":
+        # Explicit source views are inspection artifacts; only the full JSON
+        # export is a standalone, executable MIR program.
+        data = source_program.to_dict()
+        data.update(view="source", omitted_runtime_cfgs=len(program.cfgs) - len(cfgs))
+        if diagnostics:
+            data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
+        return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    content = format_program(source_program, format=args.dump_format)
+    if args.dump_format == "text":
+        return "MIR source view (runtime CFGs omitted; use --mir-view full)\n" + content
+    return content
+
+
 def _dump_mir_files(python_files, input_path: Path, args):
     """Lower source directly, so MIR inspection never imports target modules."""
-    from pyflow.ir.mir import format_program, lower_file
+    from pyflow.ir.mir import lower_file
 
     output_dir = Path(args.dump_output or ".")
     project_root = str(input_path.resolve()) if input_path.is_dir() else None
-    compiled = [
-        (source, lower_file(str(source), project_root=project_root)) for source in python_files
-    ]
+    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
+    import_policy = getattr(args, "mir_import_policy", None) or (
+        "opaque" if view == "source" else "strict"
+    )
+    compiled, diagnostics_by_source = [], {}
+    for source in python_files:
+        diagnostics = []
+        program = lower_file(
+            str(source),
+            project_root=project_root,
+            import_policy=import_policy,
+            diagnostics=diagnostics,
+            follow_imports=view == "full" or import_policy == "strict",
+        )
+        compiled.append((source, program))
+        diagnostics_by_source[source] = diagnostics
+        if diagnostics:
+            modules = sorted({item["module"] for item in diagnostics if "module" in item})
+            print(
+                f"MIR inspection is partial: {len(diagnostics)} unmodeled semantic site(s). Opaque imports: {', '.join(modules) or '<none>'}. Use --mir-import-policy strict to require complete semantics.",
+                file=sys.stderr,
+            )
     prepared = []
     for source_path, program, scope in _select_mir_programs(compiled, args.dump_mir):
-        content = format_program(program, format=args.dump_format, scope=scope)
+        content = _format_mir_view(program, args, scope, diagnostics_by_source[source_path])
         if input_path.is_dir():
             relative = source_path.relative_to(input_path).with_suffix("")
             relative_dir = relative.parent
@@ -533,9 +609,12 @@ def run_ir_dump(input_path: Path, args):
             print("IR dumping completed with errors")
             sys.exit(1)
 
+    except BrokenPipeError:
+        raise
     except Exception as e:
         print(f"Error during IR dumping: {e}", file=sys.stderr)
         import traceback
 
-        traceback.print_exc()
+        if args.verbose:
+            traceback.print_exc()
         sys.exit(1)

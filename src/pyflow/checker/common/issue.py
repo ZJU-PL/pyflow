@@ -251,7 +251,8 @@ class Issue:
         """
         from .constants import RANKING
 
-        return RANKING.index(self.severity) >= RANKING.index(severity) and RANKING.index(
+        severities = (*RANKING, "CRITICAL")
+        return severities.index(self.severity) >= severities.index(severity) and RANKING.index(
             self.confidence
         ) >= RANKING.index(confidence)
 
