@@ -45,13 +45,13 @@ def complex_nested_control(x, y, z):
                 result = -x - y + z
             else:
                 result = -x - y - z
-    
+
     # Additional control flow after the nested structure
     if result > 100:
         result = 100
     elif result < -100:
         result = -100
-    
+
     return result
 
 
@@ -59,13 +59,13 @@ def early_returns(x):
     """Function with multiple early returns."""
     if x < 0:
         return "negative"
-    
+
     if x == 0:
         return "zero"
-    
+
     if x > 100:
         return "large"
-    
+
     if x % 2 == 0:
         return "even"
     else:

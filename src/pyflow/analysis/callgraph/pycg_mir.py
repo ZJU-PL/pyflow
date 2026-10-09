@@ -793,8 +793,9 @@ def analyze_file_pycg_mir(
     verbose: bool = False,
     *,
     project_root: str | None = None,
+    format: str = "text",
 ) -> str:
-    """Analyze a file and its supported local imports, returning text output.
+    """Analyze a file and supported local imports, rendering text or JSON adjacency.
 
     Lowering, validation and I/O failures propagate to the caller.  They are
     never converted to an empty graph or a successful-looking result.
@@ -809,6 +810,10 @@ def analyze_file_pycg_mir(
         print(f"MIR PyCG: {result.iterations} iterations, converged={result.converged}")
         for diagnostic in result.diagnostics:
             print(diagnostic)
+    if format == "json":
+        from .formats import generate_adjacency_json
+
+        return generate_adjacency_json(result.call_graph)
     return generate_text_output(result.call_graph, None)
 
 

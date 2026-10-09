@@ -212,6 +212,9 @@ def _create_sarif_result(issue) -> Dict[str, Any]:
     }
 
     # Add CWE information if available
+    if getattr(issue, "related_rules", None):
+        result["properties"]["relatedRules"] = issue.related_rules
+        result["properties"]["vulnerabilityFamily"] = issue.vulnerability_family
     if issue.cwe and issue.cwe.id != 0:
         result["properties"]["cwe"] = {"id": issue.cwe.id, "url": issue.cwe.link()}
 

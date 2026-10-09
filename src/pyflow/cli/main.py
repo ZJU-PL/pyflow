@@ -37,6 +37,32 @@ from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_
 
 
 def main():
+    """Run the CLI safely, including callers using legacy console scripts."""
+    try:
+        try:
+            exit_code = _main()
+        finally:
+            # Also flush argparse's help/version output before SystemExit.
+            sys.stdout.flush()
+        return exit_code
+    except BrokenPipeError:
+        try:
+            stdout_fd = sys.stdout.fileno()
+        except (AttributeError, OSError, ValueError):
+            # Embedded callers may provide a stream without a file descriptor.
+            import io
+
+            sys.stdout = io.StringIO()
+            return 0
+        descriptor = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(descriptor, stdout_fd)
+        finally:
+            os.close(descriptor)
+        return 0
+
+
+def _main():
     """Main entry point for the PyFlow CLI.
 
     Parses command-line arguments and dispatches to appropriate sub-commands.
@@ -169,18 +195,7 @@ def entrypoint():
     :func:`main`.
     """
 
-    try:
-        exit_code = main()
-        # Detect buffered writes before the interpreter's shutdown flush.
-        sys.stdout.flush()
-    except BrokenPipeError:
-        # Keep shutdown from flushing the closed pipe a second time.
-        descriptor = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(descriptor, sys.stdout.fileno())
-        finally:
-            os.close(descriptor)
-        exit_code = 0
+    exit_code = main()
     gc.freeze()
     return exit_code
 

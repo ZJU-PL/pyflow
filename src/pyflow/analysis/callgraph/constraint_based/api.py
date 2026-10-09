@@ -132,8 +132,9 @@ def analyze_file_constraint(
     seed_entry_file_scopes: bool = False,
     skip_external_modules: bool = False,
     canonical_entry_names: bool = False,
+    format: str = "text",
 ) -> str:
-    """Analyze a Python file and return a text rendering of the call graph."""
+    """Analyze a Python file and render text or a JSON adjacency map."""
     try:
         with open(filepath, "r", encoding="utf-8", errors="replace") as handle:
             source = handle.read()
@@ -160,6 +161,10 @@ def analyze_file_constraint(
             skip_external_modules=skip_external_modules,
             canonical_entry_names=canonical_entry_names,
         )
+        if format == "json":
+            from ..formats import generate_adjacency_json
+
+            return generate_adjacency_json(graph)
         return generate_text_output(graph, None)
     except Exception as exc:
         return f"Error analyzing {filepath}: {exc}"

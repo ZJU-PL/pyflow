@@ -193,7 +193,7 @@ def add_security_parser(subparsers):
         "--recursive",
         "-r",
         action="store_true",
-        help="Scan directories recursively",
+        help="Scan directories recursively (automatic for directory targets)",
     )
     p.add_argument(
         "--exclude",
@@ -206,6 +206,11 @@ def add_security_parser(subparsers):
         "--no-default-excludes",
         action="store_true",
         help="Include tests, hidden directories, build outputs, and virtual environments",
+    )
+    p.add_argument(
+        "--no-deduplicate",
+        action="store_true",
+        help="Report every overlapping AST rule separately instead of folding known vulnerability families",
     )
     p.add_argument(
         "--severity",

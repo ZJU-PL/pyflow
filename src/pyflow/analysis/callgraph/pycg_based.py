@@ -243,8 +243,8 @@ def extract_call_graph_pycg(
     return graph
 
 
-def analyze_file_pycg(filepath: str, verbose: bool = False) -> str:
-    """Analyze a Python file using PyCG and return call graph as text."""
+def analyze_file_pycg(filepath: str, verbose: bool = False, *, format: str = "text") -> str:
+    """Analyze a Python file using PyCG and render text or JSON adjacency."""
     try:
         with open(filepath, "r") as f:
             source = f.read()
@@ -254,8 +254,10 @@ def analyze_file_pycg(filepath: str, verbose: bool = False) -> str:
             source_path=filepath,
             use_fixture_fallback=False,
         )
-        from .formats import generate_text_output
+        from .formats import generate_text_output, generate_adjacency_json
 
+        if format == "json":
+            return generate_adjacency_json(graph)
         return generate_text_output(graph, None)
     except Exception as e:
         return f"Error analyzing {filepath}: {e}"

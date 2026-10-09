@@ -19,10 +19,12 @@ import random
 from typing import List, Optional, Tuple, Union
 
 
-def complex_algorithm(data: List[int], threshold: int = 10, max_iterations: int = 100) -> Optional[dict]:
+def complex_algorithm(
+    data: List[int], threshold: int = 10, max_iterations: int = 100
+) -> Optional[dict]:
     """
     A complex algorithm with multiple control flow patterns.
-    
+
     This function demonstrates:
     - Early returns
     - Nested conditionals
@@ -32,106 +34,106 @@ def complex_algorithm(data: List[int], threshold: int = 10, max_iterations: int 
     """
     if not data or len(data) == 0:
         return None
-    
+
     if threshold <= 0:
         raise ValueError("Threshold must be positive")
-    
+
     result = {
-        'processed': 0,
-        'skipped': 0,
-        'errors': 0,
-        'max_value': None,
-        'min_value': None,
-        'average': 0.0
+        "processed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "max_value": None,
+        "min_value": None,
+        "average": 0.0,
     }
-    
+
     total = 0
     iteration_count = 0
-    
+
     # Outer while loop with complex condition
-    while iteration_count < max_iterations and result['processed'] < len(data):
+    while iteration_count < max_iterations and result["processed"] < len(data):
         try:
             # Inner for loop with conditional processing
             for i, value in enumerate(data):
                 if value is None:
-                    result['skipped'] += 1
+                    result["skipped"] += 1
                     continue
-                
+
                 # Nested if-elif-else with multiple conditions
                 if value > threshold:
                     if value > 1000:
                         # Complex nested condition
                         if value % 2 == 0 and value > 2000:
-                            result['processed'] += 1
+                            result["processed"] += 1
                             total += value
                         elif value % 3 == 0:
-                            result['processed'] += 1
+                            result["processed"] += 1
                             total += value * 0.5
                         else:
-                            result['skipped'] += 1
+                            result["skipped"] += 1
                     else:
-                        result['processed'] += 1
+                        result["processed"] += 1
                         total += value
-                        
+
                         # Update min/max within nested conditionals
-                        if result['max_value'] is None or value > result['max_value']:
-                            result['max_value'] = value
-                        if result['min_value'] is None or value < result['min_value']:
-                            result['min_value'] = value
-                            
+                        if result["max_value"] is None or value > result["max_value"]:
+                            result["max_value"] = value
+                        if result["min_value"] is None or value < result["min_value"]:
+                            result["min_value"] = value
+
                 elif value < -threshold:
                     # Handle negative values with complex logic
                     if abs(value) > threshold * 2:
-                        result['errors'] += 1
-                        if result['errors'] > 5:
+                        result["errors"] += 1
+                        if result["errors"] > 5:
                             # Early return on too many errors
-                            return {'error': 'Too many negative values'}
+                            return {"error": "Too many negative values"}
                     else:
-                        result['processed'] += 1
+                        result["processed"] += 1
                         total += abs(value)
-                        
+
                 else:
                     # Values within threshold range
-                    result['processed'] += 1
+                    result["processed"] += 1
                     total += value
-                
+
                 # Break out of inner loop under certain conditions
-                if result['processed'] > 50 and iteration_count > 10:
+                if result["processed"] > 50 and iteration_count > 10:
                     break
-                    
+
         except (TypeError, ValueError) as e:
-            result['errors'] += 1
-            if result['errors'] > 3:
+            result["errors"] += 1
+            if result["errors"] > 3:
                 # Early return on too many exceptions
-                return {'error': f'Too many exceptions: {str(e)}'}
+                return {"error": f"Too many exceptions: {str(e)}"}
             continue
         except Exception as e:
             # Catch-all exception handler
-            result['errors'] += 1
-            return {'error': f'Unexpected error: {str(e)}'}
+            result["errors"] += 1
+            return {"error": f"Unexpected error: {str(e)}"}
         finally:
             iteration_count += 1
-    
+
     # Calculate final statistics with multiple conditions
-    if result['processed'] > 0:
-        result['average'] = total / result['processed']
-        
+    if result["processed"] > 0:
+        result["average"] = total / result["processed"]
+
         # Final validation and adjustment
-        if result['average'] > threshold * 10:
-            result['average'] = threshold * 10
-        elif result['average'] < -threshold * 10:
-            result['average'] = -threshold * 10
-            
+        if result["average"] > threshold * 10:
+            result["average"] = threshold * 10
+        elif result["average"] < -threshold * 10:
+            result["average"] = -threshold * 10
+
         # Additional processing based on results
-        if result['max_value'] and result['min_value']:
-            range_value = result['max_value'] - result['min_value']
+        if result["max_value"] and result["min_value"]:
+            range_value = result["max_value"] - result["min_value"]
             if range_value > threshold * 100:
-                result['range_category'] = 'large'
+                result["range_category"] = "large"
             elif range_value > threshold * 10:
-                result['range_category'] = 'medium'
+                result["range_category"] = "medium"
             else:
-                result['range_category'] = 'small'
-    
+                result["range_category"] = "small"
+
     return result
 
 
@@ -179,30 +181,30 @@ def loop_with_exceptions(items: List[Union[int, str, None]]) -> dict:
     """
     Function with loops and exception handling.
     """
-    result = {'numbers': [], 'strings': [], 'errors': []}
-    
+    result = {"numbers": [], "strings": [], "errors": []}
+
     for item in items:
         try:
             if isinstance(item, int):
                 if item > 0:
-                    result['numbers'].append(item)
+                    result["numbers"].append(item)
                 else:
-                    result['numbers'].append(abs(item))
+                    result["numbers"].append(abs(item))
             elif isinstance(item, str):
                 if len(item) > 0:
-                    result['strings'].append(item.upper())
+                    result["strings"].append(item.upper())
                 else:
-                    result['strings'].append("EMPTY")
+                    result["strings"].append("EMPTY")
             elif item is None:
                 continue
             else:
                 raise TypeError(f"Unexpected type: {type(item)}")
-                
+
         except TypeError as e:
-            result['errors'].append(str(e))
+            result["errors"].append(str(e))
         except Exception as e:
-            result['errors'].append(f"General error: {str(e)}")
-    
+            result["errors"].append(f"General error: {str(e)}")
+
     return result
 
 
@@ -236,29 +238,29 @@ def multiple_returns_with_loops(data: List[int]) -> Tuple[int, str]:
     """
     if not data:
         return 0, "empty"
-    
+
     total = 0
     count = 0
-    
+
     for i, value in enumerate(data):
         if value is None:
             continue
-            
+
         if value < 0:
             return total, "negative_found"
-        
+
         if value > 1000:
             return total, "too_large"
-        
+
         total += value
         count += 1
-        
+
         if count > 50:
             return total, "too_many_items"
-    
+
     if count == 0:
         return 0, "no_valid_items"
-    
+
     average = total / count
     if average > 500:
         return total, "high_average"
@@ -271,24 +273,24 @@ def multiple_returns_with_loops(data: List[int]) -> Tuple[int, str]:
 if __name__ == "__main__":
     # Test the complex algorithm
     test_data = [1, 5, -3, 100, 2000, None, 50, -10, 1500, 75]
-    
+
     try:
         result = complex_algorithm(test_data, threshold=20, max_iterations=50)
         print(f"Complex algorithm result: {result}")
     except Exception as e:
         print(f"Error in complex algorithm: {e}")
-    
+
     # Test nested conditionals
     print(f"Nested conditionals: {nested_conditionals(10, 20, 30)}")
-    
+
     # Test loop with exceptions
     mixed_data = [1, "hello", None, 42, "world", -5, "test"]
     loop_result = loop_with_exceptions(mixed_data)
     print(f"Loop with exceptions: {loop_result}")
-    
+
     # Test complex boolean logic
     print(f"Boolean logic: {complex_boolean_logic(True, False, True, False)}")
-    
+
     # Test multiple returns
     test_numbers = list(range(1, 21)) + [None, 2000, -5]
     total, status = multiple_returns_with_loops(test_numbers)

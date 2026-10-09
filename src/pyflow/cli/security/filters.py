@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import deepcopy
+from functools import cached_property
 import json
 
 from pyflow.checker.common import constants
 from pyflow.checker.formatters.security import security_json
 from pyflow.checker.formatters.utils import issue_report
 from pyflow.util.cwe import normalize_cwe
+from pyflow.checker.common.overlaps import fold_overlapping_issues
 
 SEVERITY_RANK = {
     "undefined": 0,
@@ -97,7 +100,14 @@ def load_baseline(path):
     findings = data.get("findings", data.get("results"))
     if not isinstance(findings, list) or not all(isinstance(item, dict) for item in findings):
         raise ValueError("baseline must contain a findings or results array")
-    return frozenset(_identity(item) for item in findings)
+    identities = {_identity(item) for item in findings}
+    for item in findings:
+        rule, filename, line = _identity(item)
+        properties = item.get("properties") or item
+        identities.update(
+            (related["rule_id"], filename, line) for related in properties.get("related_rules", ())
+        )
+    return frozenset(identities)
 
 
 def _accept(finding, args, baseline):
@@ -125,7 +135,7 @@ class FilteredScannerResult:
     def __getattr__(self, name):
         return getattr(self.manager, name)
 
-    def get_issue_list(self, sev_level=constants.LOW, conf_level=constants.LOW):
+    def _filtered_raw(self, sev_level=constants.LOW, conf_level=constants.LOW):
         return [
             issue
             for issue in self.manager.get_issue_list(sev_level, conf_level)
@@ -142,6 +152,49 @@ class FilteredScannerResult:
                 self.baseline,
             )
         ]
+
+    def get_issue_list(self, sev_level=constants.LOW, conf_level=constants.LOW):
+        issues = self._filtered_raw(sev_level, conf_level)
+        return (
+            issues
+            if getattr(self.args, "no_deduplicate", False)
+            else fold_overlapping_issues(issues)
+        )
+
+    @cached_property
+    def metrics(self):
+        metrics = deepcopy(self.manager.metrics)
+        totals = metrics.data["_totals"]
+        for key in totals:
+            if key.startswith(("SEVERITY.", "CONFIDENCE.")):
+                totals[key] = 0
+        reported = self.get_issue_list()
+        for issue in reported:
+            for criterion, level in (
+                ("SEVERITY", issue.severity),
+                ("CONFIDENCE", issue.confidence),
+            ):
+                key = f"{criterion}.{level}"
+                totals[key] = totals.get(key, 0) + 1
+        totals["raw_findings"] = len(self.manager.get_issue_list())
+        totals["folded_findings"] = len(self._filtered_raw()) - len(reported)
+        if hasattr(metrics, "issues"):
+            metrics.issues = len(reported)
+        for attribute, criterion in (
+            ("issues_by_severity", "SEVERITY"),
+            ("issues_by_confidence", "CONFIDENCE"),
+        ):
+            if hasattr(metrics, attribute):
+                setattr(
+                    metrics,
+                    attribute,
+                    {
+                        key.split(".", 1)[1]: value
+                        for key, value in totals.items()
+                        if key.startswith(criterion + ".")
+                    },
+                )
+        return metrics
 
     def results_count(self, *args, **kwargs):
         return len(self.get_issue_list(*args, **kwargs))

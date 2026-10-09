@@ -83,6 +83,10 @@ def _output_issue_str(issue, indent, show_lineno=True, show_code=True, lines=-1)
         f"{indent}   More Info: {issue.cwe.link() if issue.cwe.id else 'https://pyflow.readthedocs.io/en/latest/how-to/security-analysis.html'}",
         f"{indent}   Location: {issue.fname}:{issue.lineno if show_lineno else ''}:{issue.col_offset if show_lineno else ''}",
     ]
+    related = getattr(issue, "related_rules", ())
+    if related:
+        secondary = sorted({item["rule_id"] for item in related} - {issue.test_id})
+        bits.append(f"{indent}   Related rules: {', '.join(secondary)}")
 
     if show_code and getattr(issue, "lineno", None) is not None:
         try:

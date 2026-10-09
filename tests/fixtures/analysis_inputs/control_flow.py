@@ -10,12 +10,14 @@ Usage:
     pyflow callgraph tests/fixtures/analysis_inputs/control_flow.py
 """
 
+
 def is_even(number):
     """Check if a number is even."""
     if number % 2 == 0:
         return True
     else:
         return False
+
 
 def count_to_limit(limit):
     """Count from 1 to limit using a while loop."""
@@ -25,10 +27,11 @@ def count_to_limit(limit):
         count += 1
     return count - 1
 
+
 def process_numbers(numbers):
     """Process a list of numbers with different operations."""
     results = []
-    
+
     for num in numbers:
         if num < 0:
             # Skip negative numbers
@@ -42,20 +45,22 @@ def process_numbers(numbers):
         else:
             # Odd numbers: double them
             results.append(num * 2)
-    
+
     return results
+
 
 def find_maximum(numbers):
     """Find the maximum value in a list."""
     if not numbers:
         return None
-    
+
     max_val = numbers[0]
     for i in range(1, len(numbers)):
         if numbers[i] > max_val:
             max_val = numbers[i]
-    
+
     return max_val
+
 
 def classify_temperature(temp):
     """Classify temperature into categories."""
@@ -69,6 +74,7 @@ def classify_temperature(temp):
         return "warm"
     else:
         return "hot"
+
 
 def main():
     """Main entry point that calls all functions to make them reachable for IPA analysis."""
@@ -92,6 +98,7 @@ def main():
     print(f"Max of [10, 5, 8]: {find_maximum([10, 5, 8])}")
     print(f"Temperature -5°C is: {classify_temperature(-5)}")
     print(f"Temperature 15°C is: {classify_temperature(15)}")
+
 
 if __name__ == "__main__":
     main()

@@ -97,3 +97,10 @@ def generate_json_output(call_graph, args) -> str:
         data["invocations"][caller_name] = list(callees)
 
     return json.dumps(data, indent=2)
+
+
+def generate_adjacency_json(call_graph) -> str:
+    """Serialize the public CLI adjacency map deterministically."""
+    return json.dumps(
+        {name: sorted(callees) for name, callees in sorted(call_graph.get().items())}, indent=2
+    )

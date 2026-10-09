@@ -163,14 +163,16 @@ def _analyze_assignment_and_call(assign_node, caller_name, function_names, graph
                 )
 
 
-def analyze_file(filepath: str) -> str:
-    """Analyze a Python file and return call graph as text."""
+def analyze_file(filepath: str, *, format: str = "text") -> str:
+    """Analyze a Python file and render text or a JSON adjacency map."""
     try:
         with open(filepath, "r") as f:
             source = f.read()
         graph = extract_call_graph(source)
-        from .formats import generate_text_output
+        from .formats import generate_text_output, generate_adjacency_json
 
+        if format == "json":
+            return generate_adjacency_json(graph)
         return generate_text_output(graph, None)
     except Exception as e:
         return f"Error analyzing {filepath}: {e}"

@@ -52,6 +52,12 @@ def _validate_algorithm_options(args) -> bool:
     return True
 
 
+def _run_analyzer(analyzer, *args, **kwargs):
+    """Reserve stdout for the requested graph, including verbose JSON runs."""
+    with redirect_stdout(sys.stderr):
+        return analyzer(*args, **kwargs)
+
+
 def _analyze_file(
     file_path: Path, args, *, project_entry: bool = False, project_root: Path | None = None
 ) -> int:
@@ -61,12 +67,14 @@ def _analyze_file(
 
     if not _validate_algorithm_options(args):
         return 1
+    format_kwargs = {"format": "json"} if getattr(args, "format", "text") == "json" else {}
 
     if args.algorithm == "simple":
-        output = analyze_file_ast(str(file_path))
+        output = _run_analyzer(analyze_file_ast, str(file_path), **format_kwargs)
     elif args.algorithm == "constraint":
         analyze_reachable_only = project_entry and not getattr(args, "all_scopes", False)
-        output = analyze_file_constraint(
+        output = _run_analyzer(
+            analyze_file_constraint,
             str(file_path),
             verbose=args.verbose,
             context_sensitive=args.context_sensitive,
@@ -79,10 +87,11 @@ def _analyze_file(
             seed_entry_file_scopes=analyze_reachable_only,
             skip_external_modules=not getattr(args, "include_external", False),
             canonical_entry_names=True,
+            **format_kwargs,
         )
     elif args.algorithm == "pycg":
         try:
-            output = analyze_file_pycg(str(file_path), args.verbose)
+            output = _run_analyzer(analyze_file_pycg, str(file_path), args.verbose, **format_kwargs)
         except ImportError:
             print(
                 "Error: PyCG algorithm not available. Install pycg package.",
@@ -90,10 +99,12 @@ def _analyze_file(
             )
             return 1
     elif args.algorithm == "pycg-mir":
-        output = analyze_file_pycg_mir(
+        output = _run_analyzer(
+            analyze_file_pycg_mir,
             str(file_path),
             verbose=args.verbose,
             project_root=str(project_root) if project_root is not None else None,
+            **format_kwargs,
         )
     else:
         print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
@@ -112,7 +123,8 @@ def _analyze_file(
             return 1
         with open(file_path, "r", encoding="utf-8") as handle:
             source = handle.read()
-        as_graph = extract_value_flow_graph_constraint(
+        as_graph = _run_analyzer(
+            extract_value_flow_graph_constraint,
             source_code=source,
             source_path=str(file_path),
             verbose=args.verbose,
@@ -128,13 +140,13 @@ def _analyze_file(
         with open(args.as_graph_output, "w", encoding="utf-8") as handle:
             json.dump(as_graph, handle, indent=2, sort_keys=True)
         if args.verbose:
-            print(f"Value-flow graph written to {args.as_graph_output}")
+            print(f"Value-flow graph written to {args.as_graph_output}", file=sys.stderr)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(output)
         if args.verbose:
-            print(f"Call graph written to {args.output}")
+            print(f"Call graph written to {args.output}", file=sys.stderr)
     else:
         print(output)
 
@@ -179,8 +191,8 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         source_desc = "auto-detected"
 
     if args.verbose:
-        print(f"Repository: {repo_path}")
-        print(f"Entry point: {entry_rel} ({source_desc})")
+        print(f"Repository: {repo_path}", file=sys.stderr)
+        print(f"Entry point: {entry_rel} ({source_desc})", file=sys.stderr)
 
     if getattr(args, "dry_run", False):
         print(entry_rel)
@@ -269,6 +281,12 @@ def add_callgraph_parser(subparsers):
     )
 
     parser.add_argument("--output", "-o", type=Path, help="Output file (default: stdout)")
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format; JSON maps caller names to sorted callee lists",
+    )
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument(
@@ -343,7 +361,7 @@ def add_callgraph_parser(subparsers):
 
 def _analyze_project_sources(root, args):
     from pyflow.frontend.file_selection import discover_python_files, SECURITY_DEFAULT_EXCLUDES
-    from pyflow.analysis.callgraph.formats import generate_text_output
+    from pyflow.analysis.callgraph.formats import generate_text_output, generate_adjacency_json
 
     if args.algorithm != "constraint":
         print("Error: recursive project scans require --algorithm constraint", file=sys.stderr)
@@ -377,7 +395,11 @@ def _analyze_project_sources(root, args):
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
             allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
         )
-    output = generate_text_output(graph, args)
+    output = (
+        generate_adjacency_json(graph)
+        if getattr(args, "format", "text") == "json"
+        else generate_text_output(graph, args)
+    )
     if args.output:
         args.output.write_text(output + "\n", encoding="utf-8")
     else:

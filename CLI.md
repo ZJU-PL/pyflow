@@ -101,6 +101,7 @@ pyflow callgraph /path/to/project/
 pyflow callgraph /path/to/project/ --entry src/main.py
 pyflow callgraph /path/to/project/ --dry-run
 pyflow callgraph input.py --algorithm pycg-mir
+pyflow callgraph input.py --format json
 ```
 
 Key options:
@@ -109,6 +110,7 @@ Key options:
 - `--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir` (default: `constraint`)
 - `--recursive`, `-r`: Analyze every project source file with constraint analysis; works for libraries without a unique entry
 - `--include-external`: Include third-party dependency source (default: project sources only)
+- `--format {text,json}`: Text is the default; JSON is a deterministic `{caller: [callees]}` map, including empty callee lists for leaf nodes
 - `--output`, `-o`
 - `--verbose`, `-v`
 - `--skip-stdlib`: Skip standard library modules in constraint analysis (default: on)
@@ -310,12 +312,13 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 - ``--format``: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml`` (IFDS/CPG support text, JSON, and SARIF)
 - ``--json-schema {legacy,unified}``: Keep existing engine-specific JSON by default, or use a common versioned envelope with ``findings``, lowercase severity/confidence, location, errors, diagnostics, and statistics
 - ``--output``, ``-o FILE``
-- ``--recursive``, ``-r``
+- ``--recursive``, ``-r``: Directory targets are scanned recursively automatically by every scanning engine; IFDS continues to discover/select entry files
 - ``--exclude PATH1,PATH2,...``: Repeatable, supports multiple paths and globs; ``tests``, ``./tests``, ``tests/``, and absolute paths work
 - ``--no-default-excludes``: Include tests, hidden directories, virtual environments, and build outputs during directory discovery
 - ``--severity {low,medium,high,critical}``: Minimum severity to report
 - ``--confidence {low,medium,high}``: Minimum confidence to report
 - ``--skip-rule RULE [RULE ...]`` / ``--skip``: Disable rule IDs or scanner rule names; repeated flags and commas work
+- ``--no-deduplicate``: Report overlapping AST rules individually instead of folding known equivalent vulnerability families at the same AST location
 - ``--baseline REPORT.json``: Suppress previous findings by rule, source file, and line
 - ``--fail-on {none,low,medium,high,critical}`` / ``--fail-on-severity``: Return 1 for reported findings at this threshold
 - ``--exit-code-policy {report,findings}``: Report normally by default, or enable scanner-style findings/completeness gating
@@ -356,6 +359,17 @@ severity/confidence, rule, and baseline filtering. A report marked ``partial``
 must not be treated as a complete clean scan. Rule failures include rule IDs,
 filenames, and lines in JSON ``errors`` and SARIF invocation notifications.
 Progress and diagnostics use stderr, so JSON stdout can be piped directly.
+This includes callers using older console scripts that invoke ``main()`` and
+module execution via ``python -m pyflow.cli.main``; broken pipes are handled
+before interpreter shutdown.
+
+Known AST overlaps such as Flask debug mode (B202/F101/F109) produce one finding
+at an exact source span, retaining the strongest severity/confidence and all
+rule evidence in ``related_rules`` (SARIF: ``properties.relatedRules``). Text
+reports list the related IDs. Different calls on the same line and unrelated
+vulnerability families remain separate. Severity/confidence filters, rule
+suppression, and baselines still apply. Report metrics count displayed findings;
+``raw_findings`` and ``folded_findings`` disclose the underlying rule counts.
 
 Example project configuration (CLI arguments override configured values):
 

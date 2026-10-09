@@ -912,7 +912,12 @@ def run_security(args) -> int:
 
     engine = args.engine
     targets = args.targets or ["."]
-    recursive = getattr(args, "recursive", False)
+    recursive = getattr(args, "recursive", False) or any(
+        Path(target).is_dir() for target in targets
+    )
+    if recursive:
+        args = copy(args)
+        args.recursive = True
     exclude = getattr(args, "exclude", "") or ""
 
     try:

@@ -325,4 +325,7 @@ class Issue:
         }
         if with_code:
             out["code"] = self.get_code(max_lines=max_lines)
+        if getattr(self, "related_rules", None):
+            out["related_rules"] = self.related_rules
+            out["vulnerability_family"] = self.vulnerability_family
         return out
