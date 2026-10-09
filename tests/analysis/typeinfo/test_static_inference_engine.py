@@ -50,6 +50,30 @@ def test_builtin_tuple_type_reference_and_guard_use_tuple_types():
     assert _raw_types(result.type_of("is_tuple")) == {bool}
 
 
+def test_tuple_subclass_does_not_register_tuple_as_nominal_class() -> None:
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "class CodecInfo(tuple):\n    pass\n",
+    )
+
+    assert result.converged
+    assert isinstance(result.type_of("CodecInfo"), Instance)
+
+
+def test_infer_module_respects_source_encoding_cookie() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "latin_module.py"
+        path.write_bytes(
+            "# coding: latin-1\nvalue = 'caf\N{LATIN SMALL LETTER E WITH ACUTE}'\n".encode(
+                "latin-1"
+            )
+        )
+
+        result = StaticTypeInferenceEngine().infer_module("latin_module", path=str(path))
+
+    assert _raw_types(result.type_of("value")) == {str}
+
+
 def test_lambdas_discovered_inside_uncalled_functions_participate_in_fixed_point():
     result = StaticTypeInferenceEngine().infer_source(
         "sample",
@@ -503,6 +527,24 @@ else:
     assert value is not None
     assert value.public_type() is ANY
     assert value.unknown is True
+
+
+def test_nested_tuple_widening_bounds_type_structure_depth() -> None:
+    engine = StaticTypeInferenceEngine(options=InferenceOptions(max_type_depth=4))
+    nested = Instance(TypeSystem().to_class_descriptor(int))
+    for _ in range(20):
+        nested = TupleType((nested,))
+
+    bounded = engine._bound_type_depth(AbstractTypeValue.from_type(nested)).public_type()
+    assert isinstance(bounded, TupleType)
+
+    def depth(typ) -> int:
+        if isinstance(typ, TupleType):
+            return 1 + max((depth(arg) for arg in typ.args), default=0)
+        return 0
+
+    assert depth(bounded) <= 5
+    assert str(bounded)
 
 
 def test_generator_summary_keeps_yield_type_separate() -> None:

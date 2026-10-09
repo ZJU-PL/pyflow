@@ -8,6 +8,8 @@ preserving raw annotation text for diagnostics and display.
 from __future__ import annotations
 
 import ast
+import sysconfig
+import tokenize
 from pathlib import Path
 from typing import Iterable, Iterator, cast
 
@@ -224,12 +226,42 @@ class TypeInfoService:
                 path = resolution.path
         if path is None:
             return None, None
+        # A stub, when available, is the authoritative and much cheaper input
+        # for external modules.  In particular, avoid parsing a full stdlib
+        # implementation merely to recover its public signatures.
+        stub_path = self.stub_resolver.resolve_path(module_name, script_path=path)
+        if stub_path is not None:
+            try:
+                if stub_path in self.project_context.source_files:
+                    return self.project_context.source_files[stub_path], stub_path
+                with tokenize.open(stub_path) as stub_file:
+                    return stub_file.read(), stub_path
+            except OSError:
+                pass
+
+        # The interpreter's stdlib implementation is not a typing source.
+        # If no typeshed/project stub is available, leave it unresolved instead
+        # of recursively interpreting large implementation modules.
+        if self._is_stdlib_source(path):
+            return None, path
         if path in self.project_context.source_files:
             return self.project_context.source_files[path], path
         try:
-            return Path(path).read_text(encoding="utf-8"), path
+            with tokenize.open(path) as source_file:
+                return source_file.read(), path
         except OSError:
             return None, path
+
+    @staticmethod
+    def _is_stdlib_source(path: str) -> bool:
+        """Whether ``path`` points into the active interpreter's stdlib."""
+        try:
+            source_path = Path(path).resolve()
+            stdlib_root = Path(sysconfig.get_paths()["stdlib"]).resolve()
+            relative = source_path.relative_to(stdlib_root)
+        except (KeyError, OSError, ValueError):
+            return False
+        return not any(part in {"site-packages", "dist-packages"} for part in relative.parts)
 
     def _collect_source_module(
         self,

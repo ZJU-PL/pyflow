@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -374,6 +375,33 @@ def test_service_stub_overrides_source_signature() -> None:
         assert signature.raw_params == {"name": "str", "retries": "int"}
         assert signature.raw_returns == "Client"
         assert service.members_of("lib.Client")["ping"].source == "stub"
+
+
+def test_service_skips_stdlib_implementation_without_stub() -> None:
+    path = Path(sysconfig.get_paths()["stdlib"]) / "argparse.py"
+    if not path.is_file():
+        return
+
+    service = TypeInfoService(ProjectContext(None))
+    source, loaded_path = service._load_module_source("argparse", str(path))
+
+    assert source is None
+    assert loaded_path == str(path)
+
+
+def test_service_reads_python_source_encoding_cookie() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "latin_module.py"
+        path.write_bytes(
+            "# coding: latin-1\nvalue = 'caf\N{LATIN SMALL LETTER E WITH ACUTE}'\n".encode(
+                "latin-1"
+            )
+        )
+        service = TypeInfoService(ProjectContext(tmp))
+
+        service.collect_module("latin_module", path=str(path))
+
+        assert _builtin_instance(service.type_of("latin_module", "value"), str)
 
 
 def test_service_collects_typeshed_root_stub() -> None:

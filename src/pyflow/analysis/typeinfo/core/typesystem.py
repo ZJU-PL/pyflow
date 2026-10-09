@@ -127,7 +127,15 @@ class ProperType(ABC):
         """
 
     def __str__(self) -> str:
-        return self.accept(TypeStringVisitor())
+        # ProperType instances are immutable, and unions are sorted repeatedly
+        # while inference reaches a fixed point.  Cache each rendered node so
+        # comparing two large nested types does not walk the same tree over
+        # and over again.
+        cached = getattr(self, "_string_cache", None)
+        if cached is None:
+            cached = self.accept(TypeStringVisitor())
+            self._string_cache = cached
+        return cached
 
     def __repr__(self) -> str:
         return self.accept(TypeReprVisitor())
@@ -2056,7 +2064,15 @@ class TypeSystem:  # noqa: PLR0904
         Returns:
             True, if there is a subclassing path from left to right.
         """
-        return nx.has_path(self._graph, right, left)
+        if left in self._graph and right in self._graph:
+            if nx.has_path(self._graph, right, left):
+                return True
+        # Descriptors can be created lazily for external and built-in classes
+        # without their hierarchy having been registered in this graph.
+        try:
+            return issubclass(left.raw_type, right.raw_type)
+        except TypeError:
+            return False
 
     @functools.lru_cache(maxsize=16384)
     def is_subtype(self, left: ProperType, right: ProperType) -> bool:
@@ -2191,9 +2207,23 @@ class TypeSystem:  # noqa: PLR0904
         Returns:
             The shortest path length between the two types or None if no path exists.
         """
+        if start in self._graph and end in self._graph:
+            try:
+                length = int(nx.shortest_path_length(self._graph, start, end))
+                if length >= 0:
+                    return length
+            except nx.NetworkXNoPath:
+                pass
+
+        # Fall back to the runtime MRO for descriptors absent from the
+        # registered graph.  This covers exception classes and dynamically
+        # synthesized project classes while retaining None for unrelated or
+        # non-class objects.
         try:
-            return int(nx.shortest_path_length(self._graph, start, end))
-        except nx.NetworkXNoPath:
+            if not issubclass(end.raw_type, start.raw_type):
+                return None
+            return end.raw_type.__mro__.index(start.raw_type)
+        except (AttributeError, TypeError, ValueError):
             return None
 
     def push_attributes_down(self) -> None:

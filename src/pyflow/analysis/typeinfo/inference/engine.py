@@ -17,8 +17,8 @@ import ast
 import builtins
 import collections.abc as cabc
 import operator
+import tokenize
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable, Iterable, cast
 
 from pyflow.analysis.typeinfo.core.typesystem import (
@@ -33,6 +33,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TypeType,
     TypeSystem,
     TypeVarType,
+    UnionType,
     Variance,
 )
 from pyflow.analysis.typeinfo.inference.domain import (
@@ -74,6 +75,7 @@ class InferenceOptions:
     max_union_size: int = 16
     strict_annotations: bool = False
     max_specializations_per_function: int = 32
+    max_type_depth: int = 12
 
 
 @dataclass(frozen=True)
@@ -247,7 +249,8 @@ class StaticTypeInferenceEngine:
         source = self.project_context.source_files.get(path)
         if source is None:
             try:
-                source = Path(path).read_text(encoding="utf-8")
+                with tokenize.open(path) as source_file:
+                    source = source_file.read()
             except OSError as exc:
                 return ModuleInferenceResult(
                     module_name=module_name,
@@ -2796,21 +2799,71 @@ class StaticTypeInferenceEngine:
         )
 
     def _join(self, left: AbstractTypeValue, right: AbstractTypeValue) -> AbstractTypeValue:
-        return left.join(
+        joined = left.join(
             right,
             self.type_system,
             max_union_size=self.options.max_union_size,
+        )
+        return self._bound_type_depth(joined)
+
+    def _bound_type_depth(self, value: AbstractTypeValue) -> AbstractTypeValue:
+        """Widen recursively nested type structures beyond the configured limit.
+
+        A bounded number of union alternatives does not bound structures such
+        as ``tuple[tuple[...]]`` produced by loop-carried assignments.  Keep
+        the outer tuple shape and known alternatives, but replace only the
+        overly deep suffix with an unknown-size tuple containing Any.
+        """
+        limit = max(1, self.options.max_type_depth)
+
+        def bound(typ: ProperType, depth: int) -> ProperType:
+            if depth >= limit:
+                if isinstance(typ, TupleType):
+                    return TupleType((ANY,), unknown_size=True)
+                return ANY
+            if isinstance(typ, TupleType):
+                return TupleType(
+                    tuple(bound(item, depth + 1) for item in typ.args),
+                    unknown_size=typ.unknown_size,
+                )
+            if isinstance(typ, Instance) and typ.args:
+                return Instance(
+                    typ.type,
+                    tuple(bound(item, depth + 1) for item in typ.args),
+                )
+            if isinstance(typ, UnionType):
+                return UnionType(tuple(bound(item, depth + 1) for item in typ.items))
+            if isinstance(typ, CallableType):
+                args = (
+                    None
+                    if typ.arg_types is None
+                    else tuple(bound(item, depth + 1) for item in typ.arg_types)
+                )
+                return CallableType(args, bound(typ.return_type, depth + 1))
+            if isinstance(typ, TypeType):
+                return TypeType(bound(typ.item, depth + 1))
+            return typ
+
+        bounded = frozenset(bound(typ, 0) for typ in value.types)
+        if bounded == value.types:
+            return value
+        return AbstractTypeValue(
+            bounded,
+            unknown=value.unknown,
+            callable_targets=value.callable_targets,
+            class_targets=value.class_targets,
         )
 
     def _join_normal_results(self, values: Iterable[AbstractTypeValue]) -> AbstractTypeValue:
         """Join values from branches that can complete normally."""
         candidates = list(values)
         normal = [value for value in candidates if not self._is_never_value(value)]
-        return join_all(
+        result = join_all(
             normal or candidates,
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
+        return self._bound_type_depth(result)
 
     def _join_environments(
         self,
@@ -2840,12 +2893,17 @@ class StaticTypeInferenceEngine:
         return AbstractTypeValue.from_type(self._proper_instance(raw_type, *args))
 
     def _proper_instance(self, raw_type: type, *args: ProperType) -> Instance | TupleType:
-        self._register_type_hierarchy(raw_type)
         if raw_type is tuple:
             return TupleType(tuple(args) or (ANY,), unknown_size=not args)
+        self._register_type_hierarchy(raw_type)
         return Instance(self.type_system.to_class_descriptor(raw_type), tuple(args))
 
     def _register_type_hierarchy(self, raw_type: type) -> None:
+        # tuple has a dedicated structural representation and must never be
+        # inserted into the nominal class graph.  Tuple subclasses still get
+        # registered, but their builtin tuple base is intentionally skipped.
+        if raw_type is tuple:
+            return
         if raw_type in self._registered_hierarchy:
             return
         self._registered_hierarchy.add(raw_type)

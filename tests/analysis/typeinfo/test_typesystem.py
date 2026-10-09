@@ -440,6 +440,27 @@ def test_is_subclass(subtyping_cluster, subclass, superclass, result):
     )
 
 
+def test_subtyping_falls_back_to_runtime_hierarchy_for_unregistered_class():
+    class LocalError(Exception):
+        pass
+
+    type_system = TypeSystem()
+    error = ClassDescriptor(LocalError)
+    base = ClassDescriptor(Exception)
+
+    assert type_system.is_subclass(error, base)
+    assert type_system.get_shortest_path_length(base, error) == 1
+
+
+def test_subtyping_handles_builtin_classes_missing_from_graph():
+    type_system = TypeSystem()
+    value_error = ClassDescriptor(ValueError)
+    exception = ClassDescriptor(Exception)
+
+    assert type_system.is_subclass(value_error, exception)
+    assert type_system.get_shortest_path_length(exception, value_error) == 1
+
+
 @pytest.mark.parametrize(
     "kind,type_,result",
     [
