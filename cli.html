@@ -568,6 +568,10 @@ code, and unclassified events are ignored.</p>
 <span class="n">pyflow</span> <span class="n">query</span> <span class="o">.</span> <span class="o">--</span><span class="n">mode</span> <span class="n">advanced</span> <span class="o">--</span><span class="n">get</span><span class="o">-</span><span class="n">aliases</span> <span class="n">variable_name</span>
 </pre></div>
 </div>
+<p>Names returned by <code class="docutils literal notranslate"><span class="pre">--list-functions</span></code> work for CFG and call queries,
+including file-qualified module functions such as <code class="docutils literal notranslate"><span class="pre">color.blend_rgb</span></code>.
+Compiler scope markers are kept in internal identifiers and omitted from
+public aliases; ambiguous short or nested names still require qualification.</p>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--list-functions</span></code>: List functions in source index</p></li>
@@ -576,15 +580,19 @@ code, and unclassified events are ignored.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-callers</span> <span class="pre">SYMBOL</span></code>: Find callers of a function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-callees</span> <span class="pre">SYMBOL</span></code>: Find callees of a function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-type</span> <span class="pre">MODULE</span> <span class="pre">LINE</span> <span class="pre">COL</span></code>: Query inferred type at source location</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--include-diagnostics</span></code>: With <code class="docutils literal notranslate"><span class="pre">--get-type</span></code>, return an object containing
+<code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code> (<code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">partial</span></code>, or <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>), and
+structured <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>. Without this option, the existing type/null JSON
+shape is preserved and partial type analysis is reported on stderr</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--get-aliases</span> <span class="pre">SYMBOL</span></code>: Query aliases and points-to information</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{basic,full,advanced}</span></code>: Analysis mode (default: <code class="docutils literal notranslate"><span class="pre">full</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--pretty</span></code>: Pretty-print JSON output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p></li>
 </ul>
 <p>CLI output supports pipelines such as <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">alias</span> <span class="pre">app.py</span> <span class="pre">--json</span> <span class="pre">|</span> <span class="pre">head</span></code>.
 Closing the consumer ends output without a <code class="docutils literal notranslate"><span class="pre">BrokenPipeError</span></code> traceback.
 The guard lives in <code class="docutils literal notranslate"><span class="pre">main()</span></code> and also covers legacy console scripts and
-module execution, including output buffered until shutdown.
-- <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write query result to file</p>
+module execution, including output buffered until shutdown.</p>
 </section>
 </section>
 </section>

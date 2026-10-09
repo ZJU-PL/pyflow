@@ -193,6 +193,28 @@ separate core representation of a runtime Python class.</p>
 <h3>Static Type Inference Engine<a class="headerlink" href="#static-type-inference-engine" title="Link to this heading"></a></h3>
 <p>PyFlow includes a standalone static type inference engine (<code class="docutils literal notranslate"><span class="pre">StaticTypeInferenceEngine</span></code>)
 and project-level orchestrator (<code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code>):</p>
+<p>Builtin <code class="docutils literal notranslate"><span class="pre">tuple</span></code> references, including <code class="docutils literal notranslate"><span class="pre">isinstance(value,</span> <span class="pre">tuple)</span></code>, use
+<code class="docutils literal notranslate"><span class="pre">TupleType</span></code> rather than nominal <code class="docutils literal notranslate"><span class="pre">Instance</span></code>. Function-local classes are
+registered before resolving declarations, and lambdas discovered while
+analyzing function bodies participate in the next fixed-point iteration.</p>
+<p>Bindings in <code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">...</span> <span class="pre">as</span> <span class="pre">value</span></code> use the return type of <code class="docutils literal notranslate"><span class="pre">__enter__</span></code>;
+<code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code> uses the awaited <code class="docutils literal notranslate"><span class="pre">__aenter__</span></code> result. Local and inherited
+methods are supported. An unresolved entry protocol leaves the binding
+unknown and marks the result <code class="docutils literal notranslate"><span class="pre">partial</span></code>. Exit-method effects and exception
+suppression are not fully modeled.</p>
+<p>Sphinx and Epydoc parameter/return type hints are connected to both the engine
+and <code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code>. Numpydoc hints use the optional <code class="docutils literal notranslate"><span class="pre">numpydoc</span></code> package;
+without it, those sections provide no hints. Python annotations take priority,
+and observed calls/body results take priority over documentation fallbacks.
+Unresolved documented alternatives are not reduced to a definite partial union.</p>
+<p><code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> isolates source and stub collection failures, preserves
+facts already collected, and exposes errors through <code class="docutils literal notranslate"><span class="pre">diagnostics()</span></code> and
+<code class="docutils literal notranslate"><span class="pre">inference_result(module).status</span></code>. A failed imported symbol without usable
+facts falls back to <code class="docutils literal notranslate"><span class="pre">Any</span></code> and marks dependent analysis partial. Unavailable
+expression facts remain unknown. This service boundary catches ordinary
+exceptions, including internal assertions; cancellation and process-exit
+exceptions still propagate. Direct standalone engine callers retain their
+exception behavior.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">StaticTypeInferenceEngine</span>
 
 <span class="n">engine</span> <span class="o">=</span> <span class="n">StaticTypeInferenceEngine</span><span class="p">()</span>

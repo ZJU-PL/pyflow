@@ -55,6 +55,32 @@ Static Type Inference Engine
 PyFlow includes a standalone static type inference engine (``StaticTypeInferenceEngine``)
 and project-level orchestrator (``ProjectTypeInferenceEngine``):
 
+Builtin ``tuple`` references, including ``isinstance(value, tuple)``, use
+``TupleType`` rather than nominal ``Instance``. Function-local classes are
+registered before resolving declarations, and lambdas discovered while
+analyzing function bodies participate in the next fixed-point iteration.
+
+Bindings in ``with ... as value`` use the return type of ``__enter__``;
+``async with`` uses the awaited ``__aenter__`` result. Local and inherited
+methods are supported. An unresolved entry protocol leaves the binding
+unknown and marks the result ``partial``. Exit-method effects and exception
+suppression are not fully modeled.
+
+Sphinx and Epydoc parameter/return type hints are connected to both the engine
+and ``TypeInfoService``. Numpydoc hints use the optional ``numpydoc`` package;
+without it, those sections provide no hints. Python annotations take priority,
+and observed calls/body results take priority over documentation fallbacks.
+Unresolved documented alternatives are not reduced to a definite partial union.
+
+``TypeInfoService`` isolates source and stub collection failures, preserves
+facts already collected, and exposes errors through ``diagnostics()`` and
+``inference_result(module).status``. A failed imported symbol without usable
+facts falls back to ``Any`` and marks dependent analysis partial. Unavailable
+expression facts remain unknown. This service boundary catches ordinary
+exceptions, including internal assertions; cancellation and process-exit
+exceptions still propagate. Direct standalone engine callers retain their
+exception behavior.
+
 .. code-block:: python
 
    from pyflow.analysis.typeinfo import StaticTypeInferenceEngine
