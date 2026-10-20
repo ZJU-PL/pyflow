@@ -159,7 +159,7 @@ adapter retain their APIs and defaults. The command-line default is still
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>
 </pre></div>
 </div>
-<p>The IR command writes <code class="docutils literal notranslate"><span class="pre">out/example_mir.text</span></code> or
+<p>With <code class="docutils literal notranslate"><span class="pre">--dump-output</span> <span class="pre">out/</span></code>, the IR command writes <code class="docutils literal notranslate"><span class="pre">out/example_mir.text</span></code> or
 <code class="docutils literal notranslate"><span class="pre">out/example_mir.json</span></code>. A qualified scope can be selected with
 <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">example.worker</span></code>. An unqualified name is accepted when it resolves
 to exactly one scope; an ambiguous name produces an error listing the matches.

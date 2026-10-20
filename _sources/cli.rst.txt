@@ -35,6 +35,14 @@ unambiguous; otherwise the candidates are reported and can be resolved with
   pyflow callgraph /path/to/project/ --dry-run                  # print entry only
 
 Options:
+Entry discovery includes root/nested ``__main__.py``, conventional names
+under ``src``/``lib``, and unique scripts with a main guard at an import root.
+Nested guarded scripts are candidates requiring explicit selection. Metadata remains
+the strongest evidence, and ambiguous roots require selection.
+Main guards take priority over legacy filename conventions. Names such as
+``train.py`` or ``server.py`` alone do not establish an executable entry;
+metadata, a main guard, or an explicit ``--entry`` can select these files.
+
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
 - ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``constraint``)
@@ -83,7 +91,9 @@ Options:
 - ``--dump-ddg FUNCTION``: Dump Data Dependence Graph for a named function
 - ``--dump-gir FUNCTION``: Dump Graph IR (GIR) for a named function
 - ``--dump-format``: Output format (text, dot, json)
-- ``--dump-output``: Directory for emitted artifacts
+- ``--dump-output``: Persist artifacts in this directory. When omitted,
+  artifacts go to stdout and temporary files are cleaned up; multiple JSON
+  artifacts form a single filename-to-document map. Progress goes to stderr
 - ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
@@ -194,7 +204,9 @@ Options:
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
 - ``--ifds-unknown-call-policy``: Handle unresolved calls with ``drop``, ``preserve`` (the CLI default), or ``havoc`` semantics
-- ``--cpg-max-seconds`` / ``--cpg-max-states``: CPG time and state budgets; exhaustion is reported as ``partial``
+- ``--cpg-max-seconds`` / ``--cpg-max-states``: CPG time and state budgets
+  (defaults: 30 seconds per target, 50000 states); construction uses the same
+  time budget and exhaustion is reported as ``partial``
 - ``--cpg-context-depth``: Maximum CPG call-string depth (default: 3)
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
@@ -297,9 +309,12 @@ Subcommands:
   Generate CycloneDX 1.7, SPDX 2.3, or requirements output. ``--deterministic``
   derives document IDs from content and uses ``SOURCE_DATE_EPOCH``.
   ``--schema`` validates JSON output against a pinned local official schema.
-  An incomplete inventory or high-severity dependency finding returns 2 after
-  emitting the SBOM, with an explanation on stderr. Use ``--allow-incomplete``
-  to accept that inventory and return 0. Diagnostics never enter JSON stdout.
+  Generated inventories return 0 by default, including incomplete inventories
+  and unpinned dependencies. Completeness stays visible in document metadata
+  and stderr. ``--exit-code-policy strict`` / ``--require-complete`` return 2
+  for incomplete inventories; ``--allow-incomplete`` overrides that gate.
+  Missing/unreadable input and schema-validation errors still return 2.
+  Diagnostics never enter JSON stdout.
 
 ``audit``
   Report structural anomalies, unsafe dependency sources, license-policy
@@ -359,6 +374,8 @@ Options:
 
 - ``--engine {flow-sensitive,kcfa}``: Analysis engine (default: flow-sensitive)
 - ``--k N``: k-CFA context sensitivity depth (kcfa engine only, default: 1)
+- ``--max-seconds N``: Time budget across all files (default: 30); exhaustion
+  reports partial coverage and retains completed files
 - ``--recursive, -r``: Recursively analyze Python files in a directory
 - ``--json``: Output machine-readable JSON instead of human-friendly text
 - ``--verbose, -v``: Include per-entry details
@@ -384,6 +401,8 @@ Options:
 
 - ``--entry``: Entry file relative to project root
 - ``--recursive, -r``: Analyze all project Python files instead of selecting one entry
+- ``--max-iterations N``: Pointer work-item budget per entry (default: 20000)
+- ``--max-seconds N``: Time budget across all entries (default: 30)
 - ``--context-depth {0,1,2,3}``: Context sensitivity depth (default: 1)
 - ``--context-policy POLICY``: Specific context policy (e.g. ``1-cfa``, ``2-cfa``, ``1c1o``, ``1-param``)
 - ``--capability-model PATH``: Custom capability model JSON file (repeatable)
@@ -395,6 +414,11 @@ Options:
 Capability reports return 0 by default, including reports with findings or
 partial coverage. Use ``--exit-code-policy findings`` to return 1 in those
 cases. Invalid input and failed analysis return 2 with either policy.
+
+Alias/capability wall-clock interruption covers synchronous Unix CLI work.
+On other platforms or embedded threads, cooperative engine limits and an
+elapsed-time check remain available. Budget diagnostics must not be interpreted
+as proof that a project is free of sensitive capabilities.
 
 **pyflow capability-run**
 ~~~~~~~~~~~~~~~~~~~~~~~~~
