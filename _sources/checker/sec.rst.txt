@@ -376,3 +376,88 @@ Checker Reference
 
    class-pollution
    capability
+
+
+Stable rule identities and precision
+-----------------------------------
+
+Security rules now have unique fixed IDs, including separation from the dynamic
+blacklist ID ranges. Registry collisions are rejected and reported as incomplete
+checker loading. Extension checks with conflicting IDs moved into the B9000
+range. Update baselines, ``nosec`` annotations, and CI policies by rule name:
+old ambiguous IDs cannot safely remain aliases for every previous meaning.
+
+.. csv-table:: Rule ID migration
+   :header: "Old ID", "New ID", "Module", "Rule"
+   :widths: 10, 10, 25, 55
+
+   B102,B9001,bad_file_permissions,set_world_writable
+   B701,B9048,command_injection,subprocess_run_shell_true_user_input
+   B702,B9050,command_injection,subprocess_call_shell_true_user_input
+   B703,B9053,command_injection,subprocess_popen_shell_true_user_input
+   B704,B9055,command_injection,os_system_user_input
+   B705,B9057,command_injection,os_popen_user_input
+   B706,B9059,command_injection,popen2_shell_true
+   B401,B9021,deserialization,pickle_with_user_input
+   B402,B9022,deserialization,yaml_load_with_unsafe_loader
+   B403,B9023,deserialization,marshal_deserialization
+   B404,B9024,deserialization,jsonpickle_deserialization
+   B405,B9025,deserialization,shelve_open_with_user_input
+   B108,B9004,exception_handling,try_except_pass
+   B113,B9007,exception_handling,try_except_generic
+   B501,B9026,hardcoded_secrets,hardcoded_aws_access_key
+   B502,B9027,hardcoded_secrets,hardcoded_github_token
+   B503,B9028,hardcoded_secrets,hardcoded_google_api_key
+   B505,B9029,hardcoded_secrets,hardcoded_private_key
+   B507,B9030,hardcoded_secrets,hardcoded_generic_password_assignment
+   B508,B9031,hardcoded_secrets,hardcoded_api_token_in_call
+   B509,B9032,hardcoded_secrets,hardcoded_jwt_secret
+   B612,B9043,huggingface_download,huggingface_unsafe_load
+   B105,B9002,injection_wildcard,wildcard_injection
+   B602,B9035,ldap_injection,ldap_initialize_and_bind_chain
+   B603,B9036,ldap_injection,ldap_search_unsanitized_filter
+   B604,B9037,ldap_injection,ldap_add_user_controlled_dn
+   B605,B9038,ldap_injection,ldap_modify_user_controlled_dn
+   B606,B9039,ldap_injection,dangerous_ldap_connection_string
+   B107,B9003,logging_insecure,logging_insecure_listen
+   B108,B9005,logging_insecure,logging_no_encryption
+   B612,B9044,logging_insecure,logging_config_listen
+   B509,B9033,paramiko_injection,paramiko_missing_host_key
+   B201,B9008,path_traversal,open_file_with_user_input
+   B202,B9009,path_traversal,pathlib_path_with_user_input
+   B611,B9042,pytorch_load,pytorch_load_unsafe
+   B510,B9034,snmp_security,snmp_weak_community
+   B609,B9040,sql_injection,sql_injection_concatenation
+   B610,B9041,sql_injection_enhanced,django_orm_extra_injection
+   B701,B9049,ssrf,requests_user_url
+   B702,B9051,ssrf,urllib_user_url
+   B703,B9054,ssrf,internal_metadata_access
+   B704,B9056,ssrf,socket_internal_connection
+   B705,B9058,ssrf,no_url_validation
+   B706,B9060,ssrf,dangerous_url_scheme
+   B112,B9006,tarfile_unsafe,tarfile_unsafe_extraction
+   B613,B9045,template_security,jinja2_autoescape_off
+   B614,B9046,template_security,jinja2_mark_safe
+   B615,B9047,template_security,jinja2_template_injection
+   B702,B9052,template_security,use_of_mako_templates
+   B303,B9012,weak_crypto,weak_cryptographic_key
+   B304,B9014,weak_crypto,weak_hash_functions
+   B301,B9010,xxe_vulnerabilities,lxml_parser_dtd_enabled
+   B302,B9011,xxe_vulnerabilities,lxml_html_parser_entity_sub
+   B303,B9013,xxe_vulnerabilities,lxml_fromstring_with_dangerous_parser
+   B304,B9015,xxe_vulnerabilities,xml_dom_minidom_parse
+   B305,B9016,xxe_vulnerabilities,xml_sax_parse_string
+   B306,B9017,xxe_vulnerabilities,expat_parser_create
+   B307,B9018,xxe_vulnerabilities,defusedxml_lxml_safe
+   B308,B9019,xxe_vulnerabilities,lxml_xmlschema_validation
+   B310,B9020,xxe_vulnerabilities,sax_parser_create
+
+SQLAlchemy, Flask CSRF, and FastAPI URL checks require relevant API/framework
+and route evidence. A computed filesystem path alone is not proof of user
+control. Default JSON parsing models propagate input taint without treating the
+parser itself as an execution sink; downstream dangerous uses remain checked.
+
+Supply-chain audits recognize uv sdist and wheel hashes and retain every valid
+artifact digest. Requirement and lock entries lacking license fields are not
+reported as unlicensed distributions. Actual package metadata and root projects
+remain subject to license checks, and root SPDX declarations survive lock merges.

@@ -103,6 +103,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#ide-integration">IDE Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#user-trial-fixes">User trial fixes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#additional-inspection-and-query-fixes">Additional inspection and query fixes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#real-project-robustness">Real-project robustness</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="lsp.html">Editor and Agent Integration</a></li>
@@ -713,6 +714,29 @@ merely because its method shares a leaf name. Imported aliases and explicitly
 configured sink names remain supported. Printing user input is not a dangerous
 sink in the default policy. A110 requires FastAPI imports and inspects the actual
 database calls, excluding calls inside nested definitions.</p>
+</section>
+<section id="real-project-robustness">
+<h2>Real-project robustness<a class="headerlink" href="#real-project-robustness" title="Link to this heading"></a></h2>
+<p>Concolic CLI runs default to a 30-second total budget, a 5-second execution
+budget, and a 2-second solver-query budget. Explicit flags override these
+values. Initial inputs use supported parameter annotations, including strings,
+when <code class="docutils literal notranslate"><span class="pre">--inputs</span></code> is omitted.</p>
+<p>CPG security scans use a hard CLI timer as well as cooperative engine deadlines,
+including preparation and graph construction. Interrupted runs report partial
+coverage and retain findings accumulated before interruption.</p>
+<p>Capability text reports summarize unresolved-operation diagnostics. Use
+<code class="docutils literal notranslate"><span class="pre">--verbose</span></code> to expand them or JSON/SARIF to retain structured details. Alias
+text output hides generated interpreter helper entries unless verbose mode is
+requested. Optimization dump commands refresh invalidated analysis facts before
+rendering all function and heap reports.</p>
+<p>MIR lowering avoids allocating unused docstring characters and shares repeated
+character materialization within string literals. <code class="docutils literal notranslate"><span class="pre">callgraph</span> <span class="pre">--engine</span></code> is an
+alias for <code class="docutils literal notranslate"><span class="pre">--algorithm</span></code>. Strict MIR imports reject missing source/models with
+an actionable error; opaque imports report partial coverage while retaining
+available local-module call edges.</p>
+<p>Native MIR callgraph scans default to a 30-second analysis budget; adjust it
+with <code class="docutils literal notranslate"><span class="pre">--mir-max-seconds</span></code>. Exhaustion returns the discovered graph with an
+explicit incomplete-analysis diagnostic instead of reporting convergence.</p>
 </section>
 </section>
 

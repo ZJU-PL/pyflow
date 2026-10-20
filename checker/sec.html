@@ -112,6 +112,7 @@
 <li class="toctree-l1"><a class="reference internal" href="#checker-reference">Checker Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="class-pollution.html">Class Pollution Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stable-rule-identities-and-precision">Stable rule identities and precision</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a></li>
@@ -501,6 +502,340 @@ claims until the exact attestation has passed Sigstore identity verification.</p
 </li>
 </ul>
 </div>
+<section id="stable-rule-identities-and-precision">
+<h2>Stable rule identities and precision<a class="headerlink" href="#stable-rule-identities-and-precision" title="Link to this heading"></a></h2>
+<p>Security rules now have unique fixed IDs, including separation from the dynamic
+blacklist ID ranges. Registry collisions are rejected and reported as incomplete
+checker loading. Extension checks with conflicting IDs moved into the B9000
+range. Update baselines, <code class="docutils literal notranslate"><span class="pre">nosec</span></code> annotations, and CI policies by rule name:
+old ambiguous IDs cannot safely remain aliases for every previous meaning.</p>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">Rule ID migration</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 10.0%" />
+<col style="width: 25.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Old ID</p></th>
+<th class="head"><p>New ID</p></th>
+<th class="head"><p>Module</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>B102</p></td>
+<td><p>B9001</p></td>
+<td><p>bad_file_permissions</p></td>
+<td><p>set_world_writable</p></td>
+</tr>
+<tr class="row-odd"><td><p>B701</p></td>
+<td><p>B9048</p></td>
+<td><p>command_injection</p></td>
+<td><p>subprocess_run_shell_true_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B702</p></td>
+<td><p>B9050</p></td>
+<td><p>command_injection</p></td>
+<td><p>subprocess_call_shell_true_user_input</p></td>
+</tr>
+<tr class="row-odd"><td><p>B703</p></td>
+<td><p>B9053</p></td>
+<td><p>command_injection</p></td>
+<td><p>subprocess_popen_shell_true_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B704</p></td>
+<td><p>B9055</p></td>
+<td><p>command_injection</p></td>
+<td><p>os_system_user_input</p></td>
+</tr>
+<tr class="row-odd"><td><p>B705</p></td>
+<td><p>B9057</p></td>
+<td><p>command_injection</p></td>
+<td><p>os_popen_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B706</p></td>
+<td><p>B9059</p></td>
+<td><p>command_injection</p></td>
+<td><p>popen2_shell_true</p></td>
+</tr>
+<tr class="row-odd"><td><p>B401</p></td>
+<td><p>B9021</p></td>
+<td><p>deserialization</p></td>
+<td><p>pickle_with_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B402</p></td>
+<td><p>B9022</p></td>
+<td><p>deserialization</p></td>
+<td><p>yaml_load_with_unsafe_loader</p></td>
+</tr>
+<tr class="row-odd"><td><p>B403</p></td>
+<td><p>B9023</p></td>
+<td><p>deserialization</p></td>
+<td><p>marshal_deserialization</p></td>
+</tr>
+<tr class="row-even"><td><p>B404</p></td>
+<td><p>B9024</p></td>
+<td><p>deserialization</p></td>
+<td><p>jsonpickle_deserialization</p></td>
+</tr>
+<tr class="row-odd"><td><p>B405</p></td>
+<td><p>B9025</p></td>
+<td><p>deserialization</p></td>
+<td><p>shelve_open_with_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B108</p></td>
+<td><p>B9004</p></td>
+<td><p>exception_handling</p></td>
+<td><p>try_except_pass</p></td>
+</tr>
+<tr class="row-odd"><td><p>B113</p></td>
+<td><p>B9007</p></td>
+<td><p>exception_handling</p></td>
+<td><p>try_except_generic</p></td>
+</tr>
+<tr class="row-even"><td><p>B501</p></td>
+<td><p>B9026</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_aws_access_key</p></td>
+</tr>
+<tr class="row-odd"><td><p>B502</p></td>
+<td><p>B9027</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_github_token</p></td>
+</tr>
+<tr class="row-even"><td><p>B503</p></td>
+<td><p>B9028</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_google_api_key</p></td>
+</tr>
+<tr class="row-odd"><td><p>B505</p></td>
+<td><p>B9029</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_private_key</p></td>
+</tr>
+<tr class="row-even"><td><p>B507</p></td>
+<td><p>B9030</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_generic_password_assignment</p></td>
+</tr>
+<tr class="row-odd"><td><p>B508</p></td>
+<td><p>B9031</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_api_token_in_call</p></td>
+</tr>
+<tr class="row-even"><td><p>B509</p></td>
+<td><p>B9032</p></td>
+<td><p>hardcoded_secrets</p></td>
+<td><p>hardcoded_jwt_secret</p></td>
+</tr>
+<tr class="row-odd"><td><p>B612</p></td>
+<td><p>B9043</p></td>
+<td><p>huggingface_download</p></td>
+<td><p>huggingface_unsafe_load</p></td>
+</tr>
+<tr class="row-even"><td><p>B105</p></td>
+<td><p>B9002</p></td>
+<td><p>injection_wildcard</p></td>
+<td><p>wildcard_injection</p></td>
+</tr>
+<tr class="row-odd"><td><p>B602</p></td>
+<td><p>B9035</p></td>
+<td><p>ldap_injection</p></td>
+<td><p>ldap_initialize_and_bind_chain</p></td>
+</tr>
+<tr class="row-even"><td><p>B603</p></td>
+<td><p>B9036</p></td>
+<td><p>ldap_injection</p></td>
+<td><p>ldap_search_unsanitized_filter</p></td>
+</tr>
+<tr class="row-odd"><td><p>B604</p></td>
+<td><p>B9037</p></td>
+<td><p>ldap_injection</p></td>
+<td><p>ldap_add_user_controlled_dn</p></td>
+</tr>
+<tr class="row-even"><td><p>B605</p></td>
+<td><p>B9038</p></td>
+<td><p>ldap_injection</p></td>
+<td><p>ldap_modify_user_controlled_dn</p></td>
+</tr>
+<tr class="row-odd"><td><p>B606</p></td>
+<td><p>B9039</p></td>
+<td><p>ldap_injection</p></td>
+<td><p>dangerous_ldap_connection_string</p></td>
+</tr>
+<tr class="row-even"><td><p>B107</p></td>
+<td><p>B9003</p></td>
+<td><p>logging_insecure</p></td>
+<td><p>logging_insecure_listen</p></td>
+</tr>
+<tr class="row-odd"><td><p>B108</p></td>
+<td><p>B9005</p></td>
+<td><p>logging_insecure</p></td>
+<td><p>logging_no_encryption</p></td>
+</tr>
+<tr class="row-even"><td><p>B612</p></td>
+<td><p>B9044</p></td>
+<td><p>logging_insecure</p></td>
+<td><p>logging_config_listen</p></td>
+</tr>
+<tr class="row-odd"><td><p>B509</p></td>
+<td><p>B9033</p></td>
+<td><p>paramiko_injection</p></td>
+<td><p>paramiko_missing_host_key</p></td>
+</tr>
+<tr class="row-even"><td><p>B201</p></td>
+<td><p>B9008</p></td>
+<td><p>path_traversal</p></td>
+<td><p>open_file_with_user_input</p></td>
+</tr>
+<tr class="row-odd"><td><p>B202</p></td>
+<td><p>B9009</p></td>
+<td><p>path_traversal</p></td>
+<td><p>pathlib_path_with_user_input</p></td>
+</tr>
+<tr class="row-even"><td><p>B611</p></td>
+<td><p>B9042</p></td>
+<td><p>pytorch_load</p></td>
+<td><p>pytorch_load_unsafe</p></td>
+</tr>
+<tr class="row-odd"><td><p>B510</p></td>
+<td><p>B9034</p></td>
+<td><p>snmp_security</p></td>
+<td><p>snmp_weak_community</p></td>
+</tr>
+<tr class="row-even"><td><p>B609</p></td>
+<td><p>B9040</p></td>
+<td><p>sql_injection</p></td>
+<td><p>sql_injection_concatenation</p></td>
+</tr>
+<tr class="row-odd"><td><p>B610</p></td>
+<td><p>B9041</p></td>
+<td><p>sql_injection_enhanced</p></td>
+<td><p>django_orm_extra_injection</p></td>
+</tr>
+<tr class="row-even"><td><p>B701</p></td>
+<td><p>B9049</p></td>
+<td><p>ssrf</p></td>
+<td><p>requests_user_url</p></td>
+</tr>
+<tr class="row-odd"><td><p>B702</p></td>
+<td><p>B9051</p></td>
+<td><p>ssrf</p></td>
+<td><p>urllib_user_url</p></td>
+</tr>
+<tr class="row-even"><td><p>B703</p></td>
+<td><p>B9054</p></td>
+<td><p>ssrf</p></td>
+<td><p>internal_metadata_access</p></td>
+</tr>
+<tr class="row-odd"><td><p>B704</p></td>
+<td><p>B9056</p></td>
+<td><p>ssrf</p></td>
+<td><p>socket_internal_connection</p></td>
+</tr>
+<tr class="row-even"><td><p>B705</p></td>
+<td><p>B9058</p></td>
+<td><p>ssrf</p></td>
+<td><p>no_url_validation</p></td>
+</tr>
+<tr class="row-odd"><td><p>B706</p></td>
+<td><p>B9060</p></td>
+<td><p>ssrf</p></td>
+<td><p>dangerous_url_scheme</p></td>
+</tr>
+<tr class="row-even"><td><p>B112</p></td>
+<td><p>B9006</p></td>
+<td><p>tarfile_unsafe</p></td>
+<td><p>tarfile_unsafe_extraction</p></td>
+</tr>
+<tr class="row-odd"><td><p>B613</p></td>
+<td><p>B9045</p></td>
+<td><p>template_security</p></td>
+<td><p>jinja2_autoescape_off</p></td>
+</tr>
+<tr class="row-even"><td><p>B614</p></td>
+<td><p>B9046</p></td>
+<td><p>template_security</p></td>
+<td><p>jinja2_mark_safe</p></td>
+</tr>
+<tr class="row-odd"><td><p>B615</p></td>
+<td><p>B9047</p></td>
+<td><p>template_security</p></td>
+<td><p>jinja2_template_injection</p></td>
+</tr>
+<tr class="row-even"><td><p>B702</p></td>
+<td><p>B9052</p></td>
+<td><p>template_security</p></td>
+<td><p>use_of_mako_templates</p></td>
+</tr>
+<tr class="row-odd"><td><p>B303</p></td>
+<td><p>B9012</p></td>
+<td><p>weak_crypto</p></td>
+<td><p>weak_cryptographic_key</p></td>
+</tr>
+<tr class="row-even"><td><p>B304</p></td>
+<td><p>B9014</p></td>
+<td><p>weak_crypto</p></td>
+<td><p>weak_hash_functions</p></td>
+</tr>
+<tr class="row-odd"><td><p>B301</p></td>
+<td><p>B9010</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>lxml_parser_dtd_enabled</p></td>
+</tr>
+<tr class="row-even"><td><p>B302</p></td>
+<td><p>B9011</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>lxml_html_parser_entity_sub</p></td>
+</tr>
+<tr class="row-odd"><td><p>B303</p></td>
+<td><p>B9013</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>lxml_fromstring_with_dangerous_parser</p></td>
+</tr>
+<tr class="row-even"><td><p>B304</p></td>
+<td><p>B9015</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>xml_dom_minidom_parse</p></td>
+</tr>
+<tr class="row-odd"><td><p>B305</p></td>
+<td><p>B9016</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>xml_sax_parse_string</p></td>
+</tr>
+<tr class="row-even"><td><p>B306</p></td>
+<td><p>B9017</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>expat_parser_create</p></td>
+</tr>
+<tr class="row-odd"><td><p>B307</p></td>
+<td><p>B9018</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>defusedxml_lxml_safe</p></td>
+</tr>
+<tr class="row-even"><td><p>B308</p></td>
+<td><p>B9019</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>lxml_xmlschema_validation</p></td>
+</tr>
+<tr class="row-odd"><td><p>B310</p></td>
+<td><p>B9020</p></td>
+<td><p>xxe_vulnerabilities</p></td>
+<td><p>sax_parser_create</p></td>
+</tr>
+</tbody>
+</table>
+<p>SQLAlchemy, Flask CSRF, and FastAPI URL checks require relevant API/framework
+and route evidence. A computed filesystem path alone is not proof of user
+control. Default JSON parsing models propagate input taint without treating the
+parser itself as an execution sink; downstream dangerous uses remain checked.</p>
+<p>Supply-chain audits recognize uv sdist and wheel hashes and retain every valid
+artifact digest. Requirement and lock entries lacking license fields are not
+reported as unlicensed distributions. Actual package metadata and root projects
+remain subject to license checks, and root SPDX declarations survive lock merges.</p>
+</section>
 </section>
 
 
