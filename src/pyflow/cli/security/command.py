@@ -794,9 +794,13 @@ def _resolve_ifds_entry_file(targets: Sequence[str | Path], entry: str | Path | 
 
     resolved = resolve_entry_file(target, entry)
     if resolved is None:
+        from pyflow.frontend.entry_discovery import discover_entry_files
+
+        candidates = discover_entry_files(target)
+        choices = "".join(f"\n  {item.path} [{item.source}]" for item in candidates)
         raise ValueError(
             f"No entry point detected in '{target}'. Use --entry to specify one "
-            "relative to the project root."
+            f"relative to the project root.{choices}"
         )
     return resolved
 

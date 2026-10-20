@@ -18,6 +18,7 @@ def test_sbom_incomplete_inventory_explains_exit_code_without_corrupting_json(tm
         output=None,
         format="cyclonedx-json",
         allow_incomplete=False,
+        exit_code_policy="strict",
     )
     assert run_supply_chain(args) == 2
     captured = capsys.readouterr()
@@ -50,6 +51,29 @@ def test_supply_chain_sbom_outputs_cyclonedx(tmp_path, capsys):
     assert exit_code == 0
     assert out["bomFormat"] == "CycloneDX"
     assert out["components"][0]["purl"] == "pkg:pypi/demo@1.0.0"
+
+
+def test_unpinned_sbom_is_successful_report_with_completeness_disclosed(tmp_path, capsys):
+    from argparse import ArgumentParser
+    from pyflow.cli.supply_chain import add_supply_chain_parser
+
+    manifest = tmp_path / "requirements.txt"
+    manifest.write_text("demo>=1\n")
+    parser = ArgumentParser()
+    add_supply_chain_parser(parser.add_subparsers())
+    args = parser.parse_args(["supply-chain", "sbom", str(manifest)])
+    assert args.exit_code_policy == "report"
+    assert run_supply_chain(args) == 0
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert {"name": "pyflow:inventory-complete", "value": "false"} in document["metadata"][
+        "properties"
+    ]
+    assert "--require-complete" in captured.err
+    for option in (["--require-complete"], ["--exit-code-policy", "strict"]):
+        args = parser.parse_args(["supply-chain", "sbom", str(manifest), *option])
+        assert run_supply_chain(args) == 2
+        json.loads(capsys.readouterr().out)
 
 
 def test_supply_chain_can_require_external_schema_validation(tmp_path, capsys):

@@ -21,12 +21,53 @@ import re
 
 from ...common import issue
 from ..core import test_properties as test
+from ..core import utils
 
 AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 AWS_SECRET_KEY_RE = re.compile(
     r"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*['\"][A-Za-z0-9/+=]{40}['\"]"
 )
 PUBLIC_ACL_RE = re.compile(r"(?i)public[_-]?(read|write|full)")
+SECRET_NAME_RE = re.compile(r"password|passwd|secret|api[_-]?key|credential", re.IGNORECASE)
+
+
+def _secret_values(target, value):
+    """Require a secret-bearing binding and an actual string value."""
+    if isinstance(value, ast.Dict):
+        for key, item in zip(value.keys, value.values):
+            name = _get_string_value(key)
+            if name and SECRET_NAME_RE.search(name):
+                literal = _get_string_value(item)
+                if literal and literal.strip():
+                    yield literal
+    name = (
+        target.id
+        if isinstance(target, ast.Name)
+        else target.attr if isinstance(target, ast.Attribute) else None
+    )
+    if isinstance(target, ast.Subscript):
+        name = _get_string_value(target.slice)
+    if name and SECRET_NAME_RE.search(name):
+        literal = _get_string_value(value)
+        if literal and literal.strip():
+            yield literal
+
+
+def _aws_factory(context):
+    """Recognize boto3 factories, including aliases and direct Session calls."""
+    aliases = context._context.get("import_aliases", {})
+    qual = context.call_function_name_qual or ""
+    if qual in {"boto3.client", "boto3.resource"}:
+        return True
+    function = context.node.func
+    if isinstance(function, ast.Attribute) and function.attr in {"client", "resource"}:
+        receiver = function.value
+        if isinstance(receiver, ast.Call):
+            return utils.get_call_name(receiver, aliases) in {
+                "boto3.Session",
+                "boto3.session.Session",
+            }
+    return False
 
 
 def _aws_issue(text, severity="HIGH", confidence="MEDIUM", cwe=None):
@@ -45,6 +86,10 @@ def _get_string_value(node):
         return node.s
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _get_string_value(node.left), _get_string_value(node.right)
+        if left is not None and right is not None:
+            return left + right
     return None
 
 
@@ -125,22 +170,23 @@ def rds_publicly_accessible(context):
     return None
 
 
-@test.checks("Assign")
+@test.checks("Assign", "AnnAssign")
 @test.with_id("W107")
 def secrets_not_in_secrets_manager(context):
     """Detect secrets hardcoded instead of using AWS Secrets Manager."""
-    if not hasattr(context.node, "value"):
+    imports = context._context.get("imports", ())
+    if not any(name.split(".")[0] in {"boto3", "botocore"} for name in imports):
         return None
-    strings = _collect_strings(context.node.value)
-    for s in strings:
-        if any(secret in s.lower() for secret in ("password", "secret", "api_key", "credential")):
-            if not ("secretsmanager" in s.lower() or "secretmanager" in s.lower()):
-                return _aws_issue(
-                    "Possible hardcoded secret detected - use AWS Secrets Manager for sensitive values.",
-                    severity="MEDIUM",
-                    confidence="MEDIUM",
-                    cwe=issue.Cwe.HARDCODED_SECRET,
-                )
+    targets = (
+        context.node.targets if isinstance(context.node, ast.Assign) else [context.node.target]
+    )
+    if any(value for target in targets for value in _secret_values(target, context.node.value)):
+        return _aws_issue(
+            "Hardcoded secret in AWS-using code - use a configured secret provider for sensitive values.",
+            severity="MEDIUM",
+            confidence="MEDIUM",
+            cwe=issue.Cwe.HARDCODED_SECRET,
+        )
     return None
 
 
@@ -170,19 +216,18 @@ def missing_encryption_at_rest(context):
 @test.with_id("W108")
 def default_or_bad_region(context):
     """Detect usage of default or potentially incorrect AWS region."""
-    qual = context.call_function_name_qual or ""
-    if "client" in qual.lower() or "resource" in qual.lower():
+    if _aws_factory(context):
         has_region = False
         for kw in context.node.keywords:
             if kw.arg == "region_name":
                 has_region = True
-                region = _get_string_value(kw.value)
-                if region in ("us-east-1", None):
+                if isinstance(kw.value, ast.Constant) and kw.value.value in (None, ""):
                     return _aws_issue(
                         "Consider specifying an explicit AWS region for resource creation.",
                         severity="LOW",
                         confidence="LOW",
                     )
+                return None
         if not has_region:
             return _aws_issue(
                 "No AWS region specified - may use default region unexpectedly.",

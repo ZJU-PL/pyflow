@@ -164,7 +164,11 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
             candidates = discover_entry_files(repo_path)
             if candidates:
                 print(
-                    f"Error: Multiple entry points detected in '{repo_path}':",
+                    (
+                        f"Error: Multiple entry points detected in '{repo_path}':"
+                        if len({candidate.path for candidate in candidates}) > 1
+                        else f"Error: Entry candidate in '{repo_path}' requires explicit selection:"
+                    ),
                     file=sys.stderr,
                 )
                 for candidate in candidates:

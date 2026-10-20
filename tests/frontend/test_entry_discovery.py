@@ -12,6 +12,74 @@ from pyflow.frontend.entry_discovery import (
 )
 
 
+@pytest.mark.parametrize(
+    "relative", ["__main__.py", "src/app.py", "src/demo/subpackage/__main__.py"]
+)
+def test_standard_and_nested_entries_are_discovered(relative, tmp_path):
+    entry = tmp_path / relative
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text("print('entry')\n")
+    assert detect_entry_file(tmp_path) == Path(relative)
+
+
+@pytest.mark.parametrize("name", ["train.py", "evaluate.py", "server.py", "experiment.py"])
+def test_application_specific_names_do_not_imply_an_entry(name, tmp_path):
+    path = tmp_path / name
+    path.write_text("def worker():\n    pass\n")
+    assert discover_entry_files(tmp_path) == []
+    assert detect_entry_file(tmp_path) is None
+    assert resolve_entry_file(tmp_path, name) == path.resolve()
+    path.write_text("if __name__ == '__main__':\n    pass\n")
+    assert detect_entry_file(tmp_path) == Path(name)
+
+
+def test_main_guards_have_priority_over_filename_guesses_and_preserve_ambiguity(tmp_path):
+    (tmp_path / "app.py").write_text("def helper():\n    pass\n")
+    (tmp_path / "experiment.py").write_text("if __name__ == '__main__':\n    pass\n")
+    assert detect_entry_file(tmp_path) == Path("experiment.py")
+    (tmp_path / "evaluate.py").write_text("if __name__ == '__main__':\n    pass\n")
+    assert detect_entry_file(tmp_path) is None
+    assert {item.path for item in discover_entry_files(tmp_path)} == {
+        Path("experiment.py"),
+        Path("evaluate.py"),
+    }
+
+
+def test_application_specific_filename_is_valid_when_declared_in_metadata(tmp_path):
+    (tmp_path / "train.py").write_text("def start():\n    pass\n")
+    (tmp_path / "pyproject.toml").write_text('[project.scripts]\ntrainer = "train:start"\n')
+    assert detect_entry_file(tmp_path) == Path("train.py")
+
+
+def test_unique_script_guard_is_discovered_and_hidden_test_scripts_are_ignored(tmp_path):
+    entry = tmp_path / "scripts" / "serve_demo.py"
+    entry.parent.mkdir()
+    entry.write_text("if __name__ == '__main__':\n    print('run')\n")
+    for directory in ("tests", ".venv"):
+        ignored = tmp_path / directory
+        ignored.mkdir()
+        (ignored / "__main__.py").write_text("pass\n")
+    assert detect_entry_file(tmp_path) is None
+    candidates = discover_entry_files(tmp_path)
+    assert [candidate.path for candidate in candidates] == [entry.relative_to(tmp_path)]
+    assert not candidates[0].auto_select
+    assert resolve_entry_file(tmp_path, entry.relative_to(tmp_path)) == entry.resolve()
+    (entry.parent / "other.py").write_text("if '__main__' == __name__:\n    pass\n")
+    assert detect_entry_file(tmp_path) is None
+
+
+def test_auxiliary_preparation_script_is_not_selected_as_project_entry(tmp_path):
+    (tmp_path / "train.py").write_text("def train():\n    pass\n")
+    preparation = tmp_path / "data" / "dataset" / "prepare.py"
+    preparation.parent.mkdir(parents=True)
+    preparation.write_text("if __name__ == '__main__':\n    pass\n")
+    assert detect_entry_file(tmp_path) is None
+    assert [item.path for item in discover_entry_files(tmp_path)] == [
+        preparation.relative_to(tmp_path)
+    ]
+    assert resolve_entry_file(tmp_path, "train.py") == (tmp_path / "train.py").resolve()
+
+
 def test_detect_entry_file_prefers_project_script_metadata(tmp_path):
     package = tmp_path / "src" / "demo"
     package.mkdir(parents=True)

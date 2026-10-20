@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Iterable
 
 from pyflow.analysis.alias.kcfa import PointerAnalysis, PointerAnalysisResult
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import (
+    DEFAULT_MAX_ITERATIONS,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import (
     CallConstraint,
     CopyConstraint,
@@ -57,12 +60,14 @@ class DefensiveCapabilityAnalysis:
         context_policy: str | None = None,
         report_public_exports: bool = True,
         report_callable_boundaries: bool = False,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
     ) -> None:
         self.registry = registry or default_capability_registry()
         self.k = k
         self.context_policy = context_policy
         self.report_public_exports = report_public_exports
         self.report_callable_boundaries = report_callable_boundaries
+        self.max_iterations = max_iterations
 
     def analyze_source(self, source: str) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis(
@@ -70,6 +75,7 @@ class DefensiveCapabilityAnalysis:
             k=self.k,
             context_policy=self.context_policy,
             native_effects=self._pointer_effects(),
+            max_iterations=self.max_iterations,
         ).run()
         return self.analyze_pointer_result(pointer_result)
 
@@ -89,6 +95,7 @@ class DefensiveCapabilityAnalysis:
             context_policy=self.context_policy,
             native_effects=self._pointer_effects(),
             import_level=import_level,
+            max_iterations=self.max_iterations,
         ).run()
         return self.analyze_pointer_result(pointer_result)
 

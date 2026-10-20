@@ -67,7 +67,7 @@ Key options:
 - `--dump-ddg FUNCTION`
 - `--dump-gir FUNCTION`
 - `--dump-format`, choices: `text`, `dot`, `json`
-- `--dump-output DIRECTORY`
+- `--dump-output DIRECTORY`: Persist artifacts here; omitted dumps go to stdout and leave the working directory untouched
 - `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
 - `--recursive`, `-r`
 - `--include PATTERN [PATTERN ...]`
@@ -100,6 +100,15 @@ pyflow callgraph [OPTIONS] INPUT
 the entry point is auto-detected from ``pyproject.toml``, ``setup.py``,
 ``__main__.py``, or well-known filenames (``main.py``, ``app.py``, etc.).
 Use ``--entry`` to override auto-detection.
+
+Discovery also recognizes root/nested ``__main__.py``, conventional files
+under ``src``/``lib``, and a unique script with an ``if __name__ == '__main__'``
+guard at the project/import root. Nested guarded scripts are listed as candidates
+and require explicit selection. Hidden environments and tests are excluded. Multiple candidates still
+require selection; library projects can use ``callgraph -r`` or ``capabilities -r``.
+Selection prefers metadata, then ``__main__.py``, then main guards; legacy
+filename conventions are a final fallback. Application-specific names such as
+``train.py`` and ``server.py`` do not establish an entry without other evidence.
 
 ```bash
 pyflow callgraph input.py
@@ -167,6 +176,7 @@ Key options:
 - `--engine {flow-sensitive,kcfa}`: Analysis engine (default: flow-sensitive).
   `flow-sensitive` runs heap alias/escape analysis; `kcfa` runs k-CFA pointer analysis.
 - `--k N`: k-CFA context sensitivity depth (kcfa engine only, default: 1)
+- `--max-seconds N`: Time budget across all input files (default: 30). Exhaustion reports partial analysis and preserves completed files
 - `--recursive`, `-r`: Recursively analyze Python files in a directory
 - `--json`: Output machine-readable JSON instead of human-friendly text
 - `--verbose`, `-v`: Include per-entry details
@@ -271,11 +281,16 @@ or directory snapshots.
 
 ### SBOM-specific options
 
+SBOM generation defaults to reporting success even for unpinned or incomplete
+inventories. Completeness remains visible in document metadata and stderr.
+`--exit-code-policy strict` / `--require-complete` enforce completeness with
+exit code 2; missing or unreadable input remains an error under either policy.
+
 - \`--format\`: `cyclonedx-json`, `spdx-json`, or `requirements`
 - \`--deterministic\`: Derive IDs from content and use `SOURCE_DATE_EPOCH`
 - \`--schema FILE\`: Validate JSON against a pinned local official schema
-- \`--allow-incomplete\`: Do not return exit code 2 for high-severity scan
-  errors that may make the inventory incomplete
+- \`--allow-incomplete\`: Compatibility override for strict completeness gating of high-severity scan
+  findings that may make the inventory incomplete
 
 ### Audit-specific options
 
@@ -370,7 +385,7 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   ``--analysis typestate``. May be repeated; supports ``resource``,
   ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``
 - ``--cpg-max-states N`` / ``--cpg-max-seconds N`` — stop CPG propagation at
-  an explicit budget and return ``partial`` status rather than silent truncation
+  a budget and return ``partial`` status (defaults: 50000 states, 30 seconds per target including construction)
 - ``--cpg-context-depth N`` — CPG call-string depth (default: 3)
 
 The default ``report`` policy returns 0 for complete/partial reports. Invalid
@@ -415,3 +430,16 @@ pyflow capabilities library/ -r --import-depth 0 --format json
 ``capabilities -r`` analyzes all discovered project source files; without it,
 ``--entry`` selects one root. Explicit file targets are analyzed even when
 they live in directories normally excluded from discovery.
+
+Capabilities use `--max-iterations` (default: 20000 per entry) and
+`--max-seconds` (default: 30 across all entries). Budget exhaustion preserves
+completed reports and adds partial diagnostics. Alias and capabilities time
+budgets interrupt synchronous Unix CLI work, including frontend work; other
+platforms/embedded threads rely on cooperative engine limits and an elapsed
+time check. JSON progress is sent to stderr.
+
+AWS secret/region checks require SDK and binding evidence; non-secret strings,
+`None` defaults, and unrelated resource methods are not AWS findings. Explicit
+valid regions, including `us-east-1`, are accepted. Django authentication hints
+require request/response evidence and are low-confidence review suggestions;
+URL or middleware access controls can still provide authentication.

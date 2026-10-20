@@ -164,12 +164,14 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--cpg-max-states",
         type=_positive_int,
-        help="Stop CPG propagation after this many abstract states (reports partial)",
+        default=50000,
+        help="Stop CPG propagation after this many abstract states (default: 50000; reports partial)",
     )
     p.add_argument(
         "--cpg-max-seconds",
         type=_positive_float,
-        help="Stop CPG propagation after this many seconds (reports partial)",
+        default=30.0,
+        help="Stop CPG construction/propagation after this many seconds per target (default: 30; reports partial)",
     )
     p.add_argument(
         "--cpg-context-depth",

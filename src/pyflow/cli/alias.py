@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import ast
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
 from pyflow.analysis.alias.kcfa import PointerAnalysis
+from pyflow.cli.analysis_budget import (
+    AnalysisBudgetExceeded,
+    analysis_time_budget,
+    positive_seconds,
+)
 
 
 def add_alias_parser(subparsers):
@@ -36,6 +43,12 @@ def add_alias_parser(subparsers):
         type=int,
         default=1,
         help="k-CFA context sensitivity depth (kcfa engine only, default: 1)",
+    )
+    parser.add_argument(
+        "--max-seconds",
+        type=positive_seconds,
+        default=30.0,
+        help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
     )
     parser.add_argument(
         "--recursive",
@@ -371,27 +384,45 @@ def run_alias_analysis(input_path: str, args) -> int:
     verbose = getattr(args, "verbose", False)
     json_mode = getattr(args, "json", False)
 
-    if engine == "kcfa":
-        if json_mode:
-            import json
+    all_results = []
+    text_results = []
+    filepath = files[0]
+    try:
+        with analysis_time_budget(getattr(args, "max_seconds", 30.0)):
+            for filepath in files:
+                if json_mode:
+                    with redirect_stdout(sys.stderr):
+                        result = (
+                            _analyze_file_kcfa_json(filepath, k)
+                            if engine == "kcfa"
+                            else _analyze_file_flow_sensitive_json(filepath)
+                        )
+                    all_results.append(result)
+                else:
+                    buffer = StringIO()
+                    with redirect_stdout(buffer):
+                        if engine == "kcfa":
+                            _analyze_file_kcfa(filepath, k, verbose)
+                        else:
+                            _analyze_file_flow_sensitive(filepath, verbose)
+                    text_results.append(buffer.getvalue())
+    except AnalysisBudgetExceeded as exc:
+        all_results.append(
+            {
+                "file": str(filepath),
+                "engine": engine,
+                "status": "partial",
+                "diagnostics": [{"code": "analysis-time-budget", "message": str(exc)}],
+            }
+        )
+        print(
+            f"Alias analysis is partial: {exc}; remaining files were not analyzed", file=sys.stderr
+        )
+        text_results.append(f"Alias analysis: partial ({exc})\n")
+    if json_mode:
+        import json
 
-            all_results: list[dict] = []
-            for filepath in files:
-                all_results.append(_analyze_file_kcfa_json(filepath, k))
-            print(json.dumps(all_results, indent=2))
-        else:
-            for filepath in files:
-                _analyze_file_kcfa(filepath, k, verbose)
+        print(json.dumps(all_results, indent=2))
     else:
-        if json_mode:
-            import json
-
-            all_results: list[dict] = []
-            for filepath in files:
-                all_results.append(_analyze_file_flow_sensitive_json(filepath))
-            print(json.dumps(all_results, indent=2))
-        else:
-            for filepath in files:
-                _analyze_file_flow_sensitive(filepath, verbose)
-
+        print("".join(text_results), end="")
     return 0

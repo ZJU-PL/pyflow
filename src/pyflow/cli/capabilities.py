@@ -14,6 +14,12 @@ from pyflow.checker.capability import (
 )
 from pyflow.frontend.entry_discovery import resolve_entry_file
 from pyflow.checker.formatters.capability import capability_sarif
+from pyflow.cli.analysis_budget import (
+    AnalysisBudgetExceeded,
+    analysis_time_budget,
+    positive_seconds,
+    positive_iterations,
+)
 
 
 def add_capabilities_parser(subparsers) -> None:
@@ -56,6 +62,18 @@ def add_capabilities_parser(subparsers) -> None:
         help="Context sensitivity policy (overrides --context-depth)",
     )
     parser.add_argument("--import-depth", type=int, default=-1)
+    parser.add_argument(
+        "--max-iterations",
+        type=positive_iterations,
+        default=20000,
+        help="Pointer work-item budget per entry (default: 20000; reports partial)",
+    )
+    parser.add_argument(
+        "--max-seconds",
+        type=positive_seconds,
+        default=30.0,
+        help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
+    )
     parser.add_argument("--format", choices=("text", "json", "sarif"), default="text")
     parser.add_argument("--output", "-o", type=Path)
     parser.add_argument(
@@ -100,10 +118,15 @@ def run_capabilities(args) -> int:
             entry = resolve_entry_file(target, args.entry)
             entries = [entry] if entry is not None else []
         if entry is None:
+            from pyflow.frontend.entry_discovery import discover_entry_files
+
+            candidates = discover_entry_files(target)
             print(
-                "Error: could not determine a unique project entry file; use --entry",
+                "Error: could not determine a unique project entry file; use --entry or -r",
                 file=sys.stderr,
             )
+            for candidate in candidates:
+                print(f"  {candidate.path} [{candidate.source}]", file=sys.stderr)
             return 2
         project_root = target
     elif target.is_file() and target.suffix == ".py":
@@ -127,19 +150,26 @@ def run_capabilities(args) -> int:
         context_policy=getattr(args, "context_policy", None),
         report_public_exports=not getattr(args, "no_public_exports", False),
         report_callable_boundaries=getattr(args, "report_callable_boundaries", False),
+        max_iterations=getattr(args, "max_iterations", 20000),
     )
     from pyflow.checker.capability.model import CapabilityAnalysisResult
 
     result = CapabilityAnalysisResult()
-    with redirect_stdout(sys.stderr):
-        for entry in entries:
-            analyzed = analysis.analyze_project(
-                entry, project_path=project_root, import_level=args.import_depth
-            )
-            result.findings.extend(analyzed.findings)
-            result.diagnostics.extend(analyzed.diagnostics)
-            if analyzed.status != "complete":
-                result.status = analyzed.status
+    try:
+        with analysis_time_budget(getattr(args, "max_seconds", 30.0)), redirect_stdout(sys.stderr):
+            for entry in entries:
+                analyzed = analysis.analyze_project(
+                    entry, project_path=project_root, import_level=args.import_depth
+                )
+                result.findings.extend(analyzed.findings)
+                result.diagnostics.extend(analyzed.diagnostics)
+                if analyzed.status != "complete":
+                    result.status = analyzed.status
+    except AnalysisBudgetExceeded as exc:
+        from pyflow.checker.capability.model import CapabilityDiagnostic
+
+        result.diagnostics.append(CapabilityDiagnostic(kind="budget", message=str(exc)))
+        result.status = "partial"
     result.finalize()
     if args.format == "json":
         rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True)

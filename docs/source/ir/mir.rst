@@ -23,7 +23,7 @@ Install the regular PyFlow package; no optional ``pycg`` dependency is needed::
     pyflow callgraph example.py --algorithm pycg-mir
     pyflow callgraph project/ --entry src/app.py --algorithm pycg-mir
 
-The IR command writes ``out/example_mir.text`` or
+With ``--dump-output out/``, the IR command writes ``out/example_mir.text`` or
 ``out/example_mir.json``. A qualified scope can be selected with
 ``--dump-mir example.worker``. An unqualified name is accepted when it resolves
 to exactly one scope; an ambiguous name produces an error listing the matches.

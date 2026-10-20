@@ -73,6 +73,19 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         help="Return success even when high-severity scan errors make the SBOM incomplete",
     )
     sbom.add_argument(
+        "--exit-code-policy",
+        choices=("report", "strict"),
+        default="report",
+        help="Return zero for generated inventories (default: report); strict returns 2 for incomplete inventories",
+    )
+    sbom.add_argument(
+        "--require-complete",
+        action="store_const",
+        const="strict",
+        dest="exit_code_policy",
+        help="Require a complete inventory (same as --exit-code-policy strict)",
+    )
+    sbom.add_argument(
         "--schema",
         type=Path,
         help="Validate JSON output against a pinned local CycloneDX or SPDX schema",
@@ -294,11 +307,23 @@ def run_supply_chain(args: Any) -> int:
                 for finding in scan.findings
             )
             commit_output = True
-            if incomplete and not getattr(args, "allow_incomplete", False):
+            input_error = any(
+                finding.kind in {"missing-target", "file-read-error"} for finding in scan.findings
+            )
+            if incomplete and (input_error or not getattr(args, "allow_incomplete", False)):
+                strict = input_error or getattr(args, "exit_code_policy", "report") == "strict"
                 print(
                     "SBOM generated, but the inventory is incomplete or has high-severity "
                     "dependency findings. Review the document's metadata/findings; "
-                    "use --allow-incomplete to accept this inventory (exit code 2).",
+                    + (
+                        "The requested input could not be read (exit code 2)."
+                        if input_error
+                        else (
+                            "use --allow-incomplete to accept this inventory (exit code 2)."
+                            if strict
+                            else "use --require-complete to enforce completeness (report exit code 0)."
+                        )
+                    ),
                     file=sys.stderr,
                 )
                 reasons = sorted(
@@ -311,7 +336,7 @@ def run_supply_chain(args: Any) -> int:
                 )
                 if reasons:
                     print(f"Reasons: {', '.join(reasons)}", file=sys.stderr)
-                return 2
+                return 2 if strict else 0
             return 0
 
         if args.supply_chain_command == "audit":

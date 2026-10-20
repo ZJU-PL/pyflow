@@ -21,6 +21,7 @@ import ast
 
 from ...common import issue
 from ..core import test_properties as test
+from ..core import utils
 
 DANGEROUS_SESSION_ENGINES = {
     "django.contrib.sessions.backends.cached_db",
@@ -238,9 +239,32 @@ def queryset_extra_user_input(context):
 def login_required_missing(context):
     """Detect views handling sensitive data without @login_required."""
     func_name = context.node.name.lower()
+    imports = context._context.get("imports", ())
+    if not any(name.split(".")[0] == "django" for name in imports):
+        return None
+    # A request parameter and a Django response are evidence of a view;
+    # ordinary helper methods with sensitive names are not HTTP endpoints.
+    args = [*context.node.args.posonlyargs, *context.node.args.args]
+    if not args or args[0].arg != "request":
+        return None
+    aliases = context._context.get("import_aliases", {})
+    response_calls = {
+        "django.shortcuts.render",
+        "django.shortcuts.redirect",
+        "django.http.HttpResponse",
+        "django.http.JsonResponse",
+        "django.http.HttpResponseRedirect",
+    }
+    if not any(
+        isinstance(node, ast.Call) and utils.get_call_name(node, aliases) in response_calls
+        for node in ast.walk(context.node)
+    ):
+        return None
     if any(sensitive in func_name for sensitive in SENSITIVE_VIEWS):
         has_login_required = False
         for decorator in context.node.decorator_list:
+            if isinstance(decorator, ast.Call):
+                decorator = decorator.func
             dec_name = ""
             if isinstance(decorator, ast.Name):
                 dec_name = decorator.id
@@ -251,9 +275,9 @@ def login_required_missing(context):
                 break
         if not has_login_required:
             return _django_issue(
-                f"View '{context.node.name}' handles sensitive data but lacks @login_required decorator.",
-                severity="MEDIUM",
-                confidence="MEDIUM",
+                f"Django request handler '{context.node.name}' has no visible @login_required decorator; review URL and middleware access control.",
+                severity="LOW",
+                confidence="LOW",
                 cwe=issue.Cwe.IMPROPER_ACCESS_CONTROL,
             )
     return None

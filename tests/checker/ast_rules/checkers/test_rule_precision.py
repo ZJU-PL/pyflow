@@ -61,3 +61,39 @@ def test_django_csrf_opt_out_uses_a_django_rule_instead_of_generic_rate_limit_hi
     )
     assert "D111" in rules
     assert "A105" not in rules
+
+
+def test_secret_keys_with_no_values_and_password_messages_are_not_secrets(tmp_path):
+    rules = _rules(
+        tmp_path,
+        'import boto3\nconfig = {"SECRET_KEY": None, "password": ""}\nerror = "Password is required."\n',
+    )
+    assert not ({"W107", "B105", "B507"} & rules)
+    assert "W107" in _rules(tmp_path, 'import boto3\nconfig = {"SECRET_KEY": "long-real-secret"}\n')
+    assert "W107" in _rules(tmp_path, 'import boto3\nsecret_key: str = "long-real-secret"\n')
+    assert "W107" not in _rules(tmp_path, 'password = "long-real-secret"\n')
+
+
+def test_aws_region_rule_requires_sdk_factory_and_accepts_configured_regions(tmp_path):
+    assert "W108" not in _rules(
+        tmp_path, 'import boto3\napp.open_resource("schema.sql")\nclient_factory()\n'
+    )
+    assert "W108" in _rules(tmp_path, 'import boto3 as aws\naws.client("s3")\n')
+    assert "W108" in _rules(tmp_path, 'from boto3 import Session\nSession().resource("s3")\n')
+    assert "W108" not in _rules(
+        tmp_path, 'import boto3\nboto3.client("s3", region_name="us-east-1")\n'
+    )
+    assert "W108" not in _rules(tmp_path, 'import boto3\nboto3.client("s3", region_name=region)\n')
+
+
+def test_login_rule_requires_django_request_handler_evidence(tmp_path):
+    assert "D109" not in _rules(
+        tmp_path,
+        "import django\nclass Model:\n def generate(self, max_new_tokens=1): pass\n def print_user_agent(self): pass\ndef user_account(): return None\n",
+    )
+    source = "from django.http import JsonResponse as Response\ndef user_account(request):\n return Response({})\n"
+    assert "D109" in _rules(tmp_path, source)
+    protected = "from django.contrib.auth.decorators import login_required\n" + source.replace(
+        "def user_account", '@login_required(login_url="/login")\ndef user_account'
+    )
+    assert "D109" not in _rules(tmp_path, protected)

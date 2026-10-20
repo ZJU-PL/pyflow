@@ -99,6 +99,44 @@ def parse_mir_args(path, *arguments):
     return parser.parse_args(["ir", str(path), "--dump-mir", *map(str, arguments)])
 
 
+def test_mir_default_output_is_json_stdout_without_working_directory_artifacts(
+    tmp_path, monkeypatch, capsys
+):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\n    return a + b\n")
+    monkeypatch.chdir(tmp_path)
+    ir_cli.run_ir_dump(source, parse_mir_args(source, "--dump-format", "json"))
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["entry"] in data["cfgs"]
+    assert list(tmp_path.iterdir()) == [source]
+    assert "IR dumping complete!" in captured.err
+
+
+def test_multiple_mir_artifacts_form_one_json_document_on_stdout(tmp_path, monkeypatch, capsys):
+    for name in ("one.py", "two.py"):
+        (tmp_path / name).write_text("def f():\n    return 1\n")
+    monkeypatch.chdir(tmp_path)
+    ir_cli.run_ir_dump(tmp_path, parse_mir_args(tmp_path, "--dump-format", "json"))
+    document = json.loads(capsys.readouterr().out)
+    assert set(document) == {"one_mir.json", "two_mir.json"}
+    assert len(list(tmp_path.iterdir())) == 2
+
+
+def test_cfg_default_output_does_not_write_into_working_directory(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\n    return a + b\n")
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    args = parser.parse_args(["ir", str(source), "--dump-cfg", "add"])
+    monkeypatch.chdir(tmp_path)
+    ir_cli.run_ir_dump(source, args)
+    captured = capsys.readouterr()
+    assert "CFG for function" in captured.out
+    assert "begin [ extraction ]" not in captured.out
+    assert list(tmp_path.iterdir()) == [source]
+
+
 def test_dump_mir_json_does_not_execute_source_or_legacy_frontend(tmp_path, monkeypatch, capsys):
     source = tmp_path / "sample.py"
     marker = tmp_path / "executed.txt"

@@ -9,6 +9,9 @@ import sys
 import os
 import fnmatch
 import json
+from contextlib import redirect_stdout
+from copy import copy
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from pyflow.application.context import CompilerContext
@@ -124,7 +127,7 @@ def add_ir_parser(subparsers):
         default="text",
         help="Format for IR dumps",
     )
-    parser.add_argument("--dump-output", help="Output directory for IR dumps")
+    parser.add_argument("--dump-output", help="Write IR dumps to this directory (default: stdout)")
 
     return parser
 
@@ -207,7 +210,10 @@ def dump_ir(
             cfg = transform.evaluate(compiler, func)
             ssa.evaluate(compiler, cfg)
             if format == "dot":
-                cfg_dump.evaluate(compiler, cfg)
+                graph = pydot.Dot(graph_type="digraph")
+                cfg_dump.CFGToDot(graph).process(cfg)
+                with open(output_file, "w", encoding="utf-8") as output:
+                    output.write(graph.to_string())
                 print(f"SSA form dumped to: {output_file}")
             else:
                 content = generate_clang_style_cfg(cfg)
@@ -523,6 +529,31 @@ def _dump_mir_files(python_files, input_path: Path, args):
 
 
 def run_ir_dump(input_path: Path, args):
+    """Print inspection artifacts by default; persist only to an explicit path."""
+    if getattr(args, "dump_output", None):
+        return _run_ir_dump(input_path, args)
+    with TemporaryDirectory(prefix="pyflow-ir-") as directory:
+        effective_args = copy(args)
+        effective_args.dump_output = directory
+        with redirect_stdout(sys.stderr):
+            _run_ir_dump(input_path, effective_args)
+        artifacts = sorted(path for path in Path(directory).rglob("*") if path.is_file())
+        if args.dump_format == "json" and len(artifacts) > 1:
+            contents = {}
+            for path in artifacts:
+                content = path.read_text(encoding="utf-8")
+                try:
+                    content = json.loads(content)
+                except ValueError:
+                    pass
+                contents[str(path.relative_to(directory))] = content
+            print(json.dumps(contents, indent=2))
+        else:
+            for path in artifacts:
+                print(path.read_text(encoding="utf-8"), end="")
+
+
+def _run_ir_dump(input_path: Path, args):
     """Run IR dumping for the specified function."""
     try:
         if input_path.is_file():

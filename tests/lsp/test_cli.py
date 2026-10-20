@@ -60,6 +60,15 @@ def _parse(parser, argv):
     return parser.parse_args(argv)
 
 
+def test_pretty_query_default_report_is_parseable_json(query_parser, tmp_path, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def f(value):\n    return value + 1\n")
+    run_query(query_parser.parse_args(["query", str(source), "--pretty"]))
+    captured = capsys.readouterr()
+    assert isinstance(json.loads(captured.out), dict)
+    assert "begin [ extraction ]" not in captured.out
+
+
 def test_listed_method_names_and_unique_suffixes_work_for_cfg(query_parser, tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("class Flask:\n    def dispatch_request(self):\n        return 1\n")

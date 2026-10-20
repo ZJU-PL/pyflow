@@ -13,7 +13,14 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 
-KNOWN_ENTRY_NAMES = ("main.py", "app.py", "manage.py", "cli.py", "run.py", "launch.py")
+KNOWN_ENTRY_NAMES = (
+    "main.py",
+    "app.py",
+    "manage.py",
+    "cli.py",
+    "run.py",
+    "launch.py",
+)
 IGNORED_PACKAGE_ROOTS = {
     "test",
     "tests",
@@ -31,6 +38,7 @@ class EntryCandidate:
     path: Path
     source: str
     command: str | None = None
+    auto_select: bool = True
 
 
 def _as_table(value: Any) -> dict[str, Any]:
@@ -260,29 +268,71 @@ def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
     if metadata:
         return metadata
 
-    package_mains: list[EntryCandidate] = []
-    for base in bases:
-        for child in sorted(base.iterdir()):
-            if (
-                child.is_dir()
-                and not child.name.startswith(".")
-                and child.name.lower() not in IGNORED_PACKAGE_ROOTS
-            ):
-                main_py = child / "__main__.py"
-                if main_py.is_file():
-                    package_mains.append(
-                        EntryCandidate(main_py.relative_to(root), "package __main__.py")
-                    )
+    from pyflow.frontend.file_selection import discover_python_files, SECURITY_DEFAULT_EXCLUDES
 
+    sources = discover_python_files(root, recursive=True, exclude=SECURITY_DEFAULT_EXCLUDES)
+    package_mains = [
+        EntryCandidate(path.relative_to(root), "module __main__.py")
+        for path in sources
+        if path.name == "__main__.py" and _is_application_package_root(path.relative_to(root))
+    ]
     package_mains = _deduplicate(package_mains)
     if package_mains:
         return package_mains
 
-    return [
-        EntryCandidate(Path(name), "root filename convention")
-        for name in KNOWN_ENTRY_NAMES
-        if (root / name).is_file()
-    ]
+    guarded = []
+    nested_scripts = []
+    for path in sources:
+        if not _is_application_package_root(path.relative_to(root)):
+            continue
+        try:
+            source = path.read_text(encoding="utf-8", errors="replace")
+            if "__main__" not in source:
+                continue
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+                continue
+            condition = node.test
+            if len(condition.ops) != 1 or not isinstance(condition.ops[0], ast.Eq):
+                continue
+            left, right = condition.left, condition.comparators[0]
+            if (
+                isinstance(left, ast.Name)
+                and left.id == "__name__"
+                and isinstance(right, ast.Constant)
+                and right.value == "__main__"
+            ) or (
+                isinstance(right, ast.Name)
+                and right.id == "__name__"
+                and isinstance(left, ast.Constant)
+                and left.value == "__main__"
+            ):
+                if path.parent in bases:
+                    guarded.append(EntryCandidate(path.relative_to(root), "__name__ guard"))
+                else:
+                    nested_scripts.append(
+                        EntryCandidate(
+                            path.relative_to(root),
+                            "nested script __name__ guard",
+                            auto_select=False,
+                        )
+                    )
+                break
+    if guarded:
+        return guarded
+    # Retain legacy filename conventions only as weak fallback evidence.
+    conventions = _deduplicate(
+        [
+            EntryCandidate((base / name).relative_to(root), "filename convention")
+            for base in bases
+            for name in KNOWN_ENTRY_NAMES
+            if (base / name).is_file()
+        ]
+    )
+    return conventions or nested_scripts
 
 
 def _unique_path(candidates: list[EntryCandidate]) -> Path | None:
@@ -292,7 +342,10 @@ def _unique_path(candidates: list[EntryCandidate]) -> Path | None:
 
 def detect_entry_file(project_root: str | Path) -> Path | None:
     """Select an entry only when the strongest candidate tier is unambiguous."""
-    return _unique_path(discover_entry_files(project_root))
+    candidates = discover_entry_files(project_root)
+    if any(not candidate.auto_select for candidate in candidates):
+        return None
+    return _unique_path(candidates)
 
 
 def resolve_entry_file(
