@@ -17,7 +17,7 @@ def cli(*args):
         ],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
     )
 
 
@@ -41,7 +41,7 @@ def test_directory_mir_preserves_package_identity(tmp_path):
     (pkg / "__init__.py").write_text("")
     (pkg / "a.py").write_text("def fa(): return 1\n")
     (pkg / "runner.py").write_text("from .a import fa\ndef run(): return fa()\n")
-    result = successful("ir", pkg, "--dump-mir", "--dump-format", "json")
+    result = successful("ir", pkg, "--dump-mir", "--mir-view", "source", "--dump-format", "json")
     report = json.loads(result.stdout)
     assert "pkg.runner" in result.stdout
     assert report

@@ -72,6 +72,9 @@ def test_callgraph_json_supports_project_and_recursive_outputs(tmp_path, capsys)
 
 
 def test_pycg_json_uses_public_graph_renderer(monkeypatch, tmp_path, capsys):
+    import sys
+    from contextlib import redirect_stdout
+
     from pyflow.analysis.callgraph.callgraph import CallGraph
     from pyflow.analysis.callgraph import pycg_based
 
@@ -84,7 +87,20 @@ def test_pycg_json_uses_public_graph_renderer(monkeypatch, tmp_path, capsys):
         graph.add_edge("app.run", "app.helper")
         return graph
 
-    monkeypatch.setattr(pycg_based, "extract_call_graph_pycg", extract)
+    def in_process_worker(request, *, timeout):
+        # Mirror the isolated worker: graph rendering and third-party progress
+        # output stay off stdout so the CLI emits one clean JSON document.
+        monkeypatch.setattr(pycg_based, "extract_call_graph_pycg", extract)
+        with redirect_stdout(sys.stderr):
+            return pycg_based.analyze_file_pycg(
+                request["filepath"],
+                verbose=request["verbose"],
+                format=request["format"],
+                project_root=request["project_root"],
+                max_import_depth=request["max_import_depth"],
+            )
+
+    monkeypatch.setattr(callgraph, "run_isolated_callgraph", in_process_worker)
     assert (
         callgraph.run_callgraph(
             source, _graph(source, "-a", "pycg", "--format", "json", "--verbose")
