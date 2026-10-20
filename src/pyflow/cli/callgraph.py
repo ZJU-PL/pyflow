@@ -13,8 +13,7 @@ from pyflow.analysis.callgraph.constraint_based import (
     extract_value_flow_graph_constraint,
     extract_call_graph_constraint,
 )
-from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
-from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
+from .callgraph_worker import run_isolated_callgraph
 from pyflow.frontend.entry_discovery import (
     detect_entry_file,
     discover_entry_files,
@@ -23,6 +22,12 @@ from pyflow.frontend.entry_discovery import (
 
 
 def _validate_algorithm_options(args) -> bool:
+    if args.algorithm not in {"pycg", "pycg-mir"} and (
+        getattr(args, "max_seconds", None) is not None
+        or getattr(args, "max_import_depth", None) is not None
+    ):
+        print("Error: --max-seconds and --max-import-depth require --algorithm pycg or pycg-mir", file=sys.stderr)
+        return False
     if getattr(args, "mir_max_seconds", None) is not None and args.algorithm != "pycg-mir":
         print("Error: --mir-max-seconds requires --algorithm pycg-mir", file=sys.stderr)
         return False
@@ -48,6 +53,8 @@ def _validate_algorithm_options(args) -> bool:
         incompatible_flags.append("--allocation-site-sensitive-instances")
     if getattr(args, "all_scopes", False):
         incompatible_flags.append("--all-scopes")
+    if getattr(args, "include_external", False):
+        incompatible_flags.append("--include-external")
     if getattr(args, "as_graph_output", None):
         incompatible_flags.append("--as-graph-output")
 
@@ -98,27 +105,20 @@ def _analyze_file(
             canonical_entry_names=True,
             **format_kwargs,
         )
-    elif args.algorithm == "pycg":
-        try:
-            output = _run_analyzer(analyze_file_pycg, str(file_path), args.verbose, **format_kwargs)
-        except ImportError:
-            print(
-                "Error: PyCG algorithm not available. Install pycg package.",
-                file=sys.stderr,
-            )
-            return 1
-    elif args.algorithm == "pycg-mir":
-        if getattr(args, "mir_max_seconds", None) is not None:
-            format_kwargs["max_seconds"] = args.mir_max_seconds
-        if getattr(args, "mir_import_policy", None):
-            format_kwargs["import_policy"] = args.mir_import_policy
-        output = _run_analyzer(
-            analyze_file_pycg_mir,
-            str(file_path),
-            verbose=args.verbose,
-            project_root=str(project_root) if project_root is not None else None,
-            **format_kwargs,
-        )
+    elif args.algorithm in {"pycg", "pycg-mir"}:
+        timeout = getattr(args, "max_seconds", None) or 30.0
+        # Leave time for worker startup and serializing an explicitly partial
+        # native result before the parent's unconditional deadline.
+        analysis_seconds = min(getattr(args, "mir_max_seconds", None) or timeout, timeout * 0.8)
+        request = {
+            "algorithm": args.algorithm, "filepath": str(file_path.resolve()),
+            "verbose": args.verbose, "format": getattr(args, "format", "text"),
+            "project_root": str(project_root.resolve()) if project_root is not None else None,
+            "max_import_depth": getattr(args, "max_import_depth", None) if getattr(args, "max_import_depth", None) is not None else 3,
+            "import_policy": getattr(args, "mir_import_policy", None),
+            "analysis_seconds": analysis_seconds,
+        }
+        output = run_isolated_callgraph(request, timeout=timeout)
     else:
         print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
         return 1
@@ -314,6 +314,18 @@ def add_callgraph_parser(subparsers):
         help="Import policy for pycg-mir (default: opaque, with partial-analysis diagnostics)",
     )
     from pyflow.cli.analysis_budget import positive_seconds
+
+    def import_depth(value):
+        import argparse
+        depth = int(value)
+        if depth < 0:
+            raise argparse.ArgumentTypeError("import depth must be non-negative")
+        return depth
+
+    parser.add_argument("--max-seconds", type=positive_seconds,
+                        help="Hard process deadline for pycg/pycg-mir, including imports (default: 30)")
+    parser.add_argument("--max-import-depth", type=import_depth,
+                        help="Maximum local import hops for pycg/pycg-mir (default: 3; 0 inspects only the entry)")
 
     parser.add_argument(
         "--mir-max-seconds",

@@ -1432,7 +1432,8 @@ def _default_root(path):
 
 
 def _discover(
-    source, name, filename, root, *, import_policy="strict", diagnostics=None, follow_imports=True
+    source, name, filename, root, *, import_policy="strict", diagnostics=None, follow_imports=True,
+    max_import_depth=None,
 ):
     """Read only local .py modules; never use importlib or execute import hooks."""
     modules = {}
@@ -1448,8 +1449,8 @@ def _discover(
             return path / "__init__.py"  # empty namespace package
         return None
 
-    def load(text, module_name, file):
-        if module_name in modules:
+    def load(text, module_name, file, depth=0):
+        if module_name in modules and not modules[module_name].opaque:
             return
         try:
             tree = ast.parse(text, filename=file)
@@ -1462,11 +1463,14 @@ def _discover(
         modules[module_name] = module
 
         def ensure(target, node, optional=False):
-            if target in {"builtins", "__future__"} or target in modules:
+            if target in {"builtins", "__future__"}:
+                return True
+            limited = max_import_depth is not None and depth >= max_import_depth
+            if target in modules and (not modules[target].opaque or limited or not follow_imports):
                 return True
             path = locate(target) if follow_imports else None
-            if path is None:
-                if optional:
+            if path is None or limited:
+                if optional and path is None:
                     return False
                 if import_policy == "opaque":
                     for index in range(1, len(target.split(".")) + 1):
@@ -1482,23 +1486,29 @@ def _discover(
                     if diagnostics is not None:
                         diagnostics.append(
                             {
-                                "code": "mir-opaque-import",
+                                "code": "mir-import-depth" if limited and path is not None else "mir-opaque-import",
                                 "module": target,
                                 "filename": file,
                                 "line": node.lineno,
-                                "message": f"Import {target!r} has no MIR model; retained as an opaque inspection boundary",
+                                "message": (
+                                    f"Import {target!r} exceeds max_import_depth={max_import_depth}; retained as an opaque boundary"
+                                    if limited and path is not None else
+                                    f"Import {target!r} has no MIR model; retained as an opaque inspection boundary"
+                                ),
                                 "affects_completeness": True,
                             }
                         )
                     return True
                 raise LoweringError(
+                    f"import {target!r} exceeds max_import_depth={max_import_depth}"
+                    if limited and path is not None else
                     f"import {target!r} has no local source or MIR runtime model", file, node.lineno
                 )
             # Package initializers execute before imported children.
             components = target.split(".")
             for index in range(1, len(components)):
                 ensure(".".join(components[:index]), node)
-            load(_source(path) if path.is_file() else "", target, str(path))
+            load(_source(path) if path.is_file() else "", target, str(path), depth + 1)
             return True
 
         for node in ast.walk(tree):
@@ -1540,6 +1550,7 @@ def lower_source(
     import_policy: str = "strict",
     diagnostics: list | None = None,
     follow_imports: bool = True,
+    max_import_depth: int | None = None,
 ) -> Program:
     """Lower authoritative source text; filename supplies import context only.
 
@@ -1553,6 +1564,8 @@ def lower_source(
     root = Path(project_root).resolve() if project_root else _default_root(path) if path else None
     if import_policy not in {"strict", "opaque"}:
         raise ValueError(f"Unknown MIR import policy: {import_policy}")
+    if max_import_depth is not None and (type(max_import_depth) is not int or max_import_depth < 0):
+        raise ValueError("max_import_depth must be a non-negative integer or None")
     modules = _discover(
         source,
         module_name,
@@ -1561,6 +1574,7 @@ def lower_source(
         import_policy=import_policy,
         diagnostics=diagnostics,
         follow_imports=follow_imports,
+        max_import_depth=max_import_depth,
     )
     return PythonToMIR(
         modules, module_name, inspection_only=import_policy == "opaque", diagnostics=diagnostics
@@ -1574,6 +1588,7 @@ def lower_file(
     import_policy: str = "strict",
     diagnostics: list | None = None,
     follow_imports: bool = True,
+    max_import_depth: int | None = None,
 ) -> Program:
     """Lower an entry file and its statically discoverable local imports."""
     entry = Path(path).resolve()
@@ -1591,6 +1606,7 @@ def lower_file(
         import_policy=import_policy,
         diagnostics=diagnostics,
         follow_imports=follow_imports,
+        max_import_depth=max_import_depth,
     )
 
 

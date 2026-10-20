@@ -74,7 +74,7 @@ def test_object_type_and_receiver_contexts_truncate(object_factory):
 
 
 def test_object_context_rejects_context_objects(simple_context):
-    with pytest.raises(TypeError, match="CallSite or AbstractObject"):
+    with pytest.raises(TypeError, match="CallSite, AbstractObject or AllocSite"):
         ObjectContext((), 1).append(simple_context)
 
 
@@ -108,3 +108,14 @@ def test_scope_is_ir_bound(module_scope, module_ir, simple_context):
     assert module_scope.name == "test_module"
     assert module_scope.kind == "module"
     assert module_scope.parent is module_scope
+
+
+@pytest.mark.parametrize("depth", [0, 1, 2, 3])
+def test_object_context_accepts_allocation_sites_and_respects_depth(object_factory, depth):
+    sites = tuple(object_factory().alloc_site for _ in range(4))
+    context = ObjectContext((), depth)
+    for site in sites:
+        context = context.append(site)
+    assert context.alloc_sites == (sites[-depth:] if depth else ())
+    assert context == ObjectContext(context.alloc_sites, depth)
+    assert hash(context) == hash(ObjectContext(context.alloc_sites, depth))

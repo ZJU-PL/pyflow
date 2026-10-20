@@ -9,6 +9,7 @@ import inspect
 import os
 import sys
 import types
+from pathlib import Path
 from typing import List, Optional
 from .callgraph import CallGraph
 
@@ -49,6 +50,9 @@ def extract_call_graph_pycg(
     verbose: bool = False,
     source_path: Optional[str] = None,
     use_fixture_fallback: bool = True,
+    *,
+    project_root: Optional[str] = None,
+    max_import_depth: Optional[int] = 3,
 ) -> CallGraph:
     """
     Extract call graph from Python source code using PyCG.
@@ -57,6 +61,8 @@ def extract_call_graph_pycg(
     """
     if not PYCG_AVAILABLE:
         raise ImportError("PyCG library is not available. Install it with: pip install pycg")
+    if max_import_depth is not None and (type(max_import_depth) is not int or max_import_depth < 0):
+        raise ValueError("max_import_depth must be a non-negative integer or None")
 
     graph = CallGraph()
 
@@ -77,17 +83,14 @@ def extract_call_graph_pycg(
         cleanup_files: List[str] = []
 
         if snippet_main_path:
-            package_dir = os.path.dirname(snippet_main_path)
-            entry_points: List[str] = []
-            for root, _, files in os.walk(package_dir):
-                for fname in files:
-                    if fname.endswith(".py"):
-                        entry_points.append(os.path.join(root, fname))
-            # Ensure deterministic ordering and put the main file first.
-            entry_points = sorted(entry_points)
-            if snippet_main_path in entry_points:
-                entry_points.remove(snippet_main_path)
-            entry_points.insert(0, snippet_main_path)
+            package_root = Path(project_root).resolve() if project_root else Path(snippet_main_path).parent
+            if project_root is None:
+                while (package_root / "__init__.py").is_file():
+                    package_root = package_root.parent
+            package_dir = str(package_root)
+            # Imported modules are discovered from this entry. Seeding every
+            # file eagerly turns a single-file request into a repository scan.
+            entry_points = [snippet_main_path]
         else:
             # PyCG works with files, so we need to create a temporary file
             with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
@@ -103,7 +106,7 @@ def extract_call_graph_pycg(
             cg = CallGraphGeneratorPyCG(
                 entry_points,
                 package_dir,
-                max_iter=-1,
+                max_iter=256,
                 operation=pycg_constants.CALL_GRAPH_OP,
             )
 
@@ -122,39 +125,48 @@ def extract_call_graph_pycg(
                 except Exception:
                     pass
 
-            # Install scoped import hooks so PyCG can inspect modules within the
-            # snippet directory without interfering with standard library
-            # loading (which changed substantially in Python 3.13).
+            # Resolve local source directly instead of installing global import
+            # hooks or executing package initializers through find_spec.
             package_dir_abs = os.path.abspath(package_dir)
 
-            def _install_hooks_scoped():
-                import copy
-                import importlib.machinery
+            local_loader = pycg_imports.get_custom_loader(cg.import_manager)
+            depths = {entry_module: 0}
+            skipped = set()
 
-                loader = pycg_imports.get_custom_loader(cg.import_manager)
-                cg.import_manager.old_path_hooks = copy.deepcopy(sys.path_hooks)
-                cg.import_manager.old_path = copy.deepcopy(sys.path)
-                cg.import_manager.old_importer_cache = dict(sys.path_importer_cache)
+            def bounded_import(mod_name, package):
+                import importlib.util
 
-                finder = importlib.machinery.FileFinder(
-                    package_dir_abs,
-                    (loader, importlib.machinery.SOURCE_SUFFIXES),
-                )
+                full_name = importlib.util.resolve_name(mod_name, package) if mod_name.startswith(".") else mod_name
+                if not full_name:
+                    raise ImportError("Empty import name")
+                depth = depths.get(cg.import_manager.current_module, 0) + 1
+                depth = min(depth, depths.get(full_name, depth))
+                if max_import_depth is not None and depth > max_import_depth:
+                    skipped.add(full_name)
+                    raise ImportError(f"Import depth exceeded for {full_name}")
+                root = Path(package_dir_abs)
+                stem = root.joinpath(*full_name.split("."))
+                path = next((candidate for candidate in (stem.with_suffix(".py"), stem / "__init__.py")
+                             if candidate.is_file() and candidate.resolve().is_relative_to(root)), None)
+                if path is None:
+                    skipped.add(full_name)
+                    raise ImportError(f"External import excluded: {full_name}")
+                depths[full_name] = depth
+                loader = local_loader(full_name, str(path))
+                cg.import_manager.set_filepath(full_name, str(path))
+                spec = importlib.util.spec_from_file_location(full_name, str(path), loader=loader)
+                return importlib.util.module_from_spec(spec)
 
-                sys.path.insert(0, package_dir_abs)
-                sys.path_importer_cache[package_dir_abs] = finder
-                cg.import_manager._clear_caches()
-
-            def _remove_hooks_scoped():
-                sys.path_hooks = cg.import_manager.old_path_hooks
-                sys.path = cg.import_manager.old_path
-                sys.path_importer_cache.clear()
-                sys.path_importer_cache.update(getattr(cg.import_manager, "old_importer_cache", {}))
-
-            cg.import_manager.install_hooks = _install_hooks_scoped  # type: ignore
-            cg.import_manager.remove_hooks = _remove_hooks_scoped  # type: ignore
-
+            cg.import_manager._do_import = bounded_import
+            # Local-only resolution never installs process-global path hooks
+            # or asks importlib to scan the user's installed environments.
+            cg.import_manager.install_hooks = lambda: None
+            cg.import_manager.remove_hooks = lambda: None
             cg.analyze()
+            if skipped:
+                print(f"PyCG call graph is partial: {len(skipped)} import target(s) excluded by local/depth limits.", file=sys.stderr)
+            if not cg.has_converged():
+                print("PyCG call graph is partial: iteration limit reached.", file=sys.stderr)
             pycg_calls = cg.output()
             if verbose:
                 print("PyCG raw calls:", pycg_calls)
@@ -237,13 +249,17 @@ def extract_call_graph_pycg(
                     pass
 
     except Exception as e:
+        if not use_fixture_fallback:
+            raise
         if verbose:
             print(f"Error in PyCG analysis: {e}")
 
     return graph
 
 
-def analyze_file_pycg(filepath: str, verbose: bool = False, *, format: str = "text") -> str:
+def analyze_file_pycg(filepath: str, verbose: bool = False, *, format: str = "text",
+                      project_root: Optional[str] = None, max_import_depth: Optional[int] = 3,
+                      ) -> str:
     """Analyze a Python file using PyCG and render text or JSON adjacency."""
     try:
         with open(filepath, "r") as f:
@@ -253,6 +269,8 @@ def analyze_file_pycg(filepath: str, verbose: bool = False, *, format: str = "te
             verbose=verbose,
             source_path=filepath,
             use_fixture_fallback=False,
+            project_root=project_root,
+            max_import_depth=max_import_depth,
         )
         from .formats import generate_text_output, generate_adjacency_json
 

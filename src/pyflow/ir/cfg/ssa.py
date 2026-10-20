@@ -6,7 +6,7 @@ including phi function insertion and variable renaming.
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.ir.core import ensure_code_indexed
+from pyflow.ir.core import ensure_code_indexed, index_cfg
 
 from . import graph as cfg
 from .dfs import CFGDFS
@@ -85,7 +85,7 @@ class CollectModifies(TypeDispatcher):
         if body is not None:
             self._modified(node.index, body)
 
-    @dispatch(ast.Discard, ast.Return, ast.SetAttr, ast.Store, ast.OutputBlock)
+    @dispatch(ast.Discard, ast.Return, ast.SetAttr, ast.Store, ast.OutputBlock, ast.SetCellDeref)
     def visitDiscard(self, node):
         pass
 
@@ -528,6 +528,11 @@ class SSARename(TypeDispatcher):
         ast.ConvertToBool,
         ast.UnaryPrefixOp,
         ast.BuildTuple,
+        ast.BuildList,
+        ast.BuildMap,
+        ast.BuildSlice,
+        ast.MakeFunction,
+        ast.SetCellDeref,
         ast.Return,
         ast.DirectCall,
         ast.Is,
@@ -563,7 +568,7 @@ class SSARename(TypeDispatcher):
             return None
         return result
 
-    @dispatch(ast.leafTypes, ast.Existing, ast.GetCellDeref, ast.Code, ast.DoNotCare)
+    @dispatch(ast.leafTypes, ast.Existing, ast.GetCellDeref, ast.Code, ast.DoNotCare, ast.Cell)
     def visitASTLeaf(self, node):
         return node
 
@@ -656,6 +661,58 @@ class SSARename(TypeDispatcher):
             merges = defer
 
 
+def _lower_function_definitions(g, catalog):
+    """Expose definition-time evaluation and name binding to CFG-local SSA.
+
+    Nested bodies retain their own parameters/locals and closure cells. Only
+    defaults, decorators, annotations and the enclosing binding belong here.
+    """
+    from pyflow.language.python.ir_metadata import code_closure_cells, code_definition_annotations
+    from pyflow.ir.core.symbols import SymbolKind
+
+    scope = catalog.procedure(g.code).root_scope
+
+    def lower(node):
+        if not isinstance(node, ast.FunctionDef):
+            return [node]
+        operations = []
+
+        def capture(expression):
+            target = ast.Local(None)
+            operations.append(ast.Assign(expression, [target]))
+            return target
+
+        decorators = [capture(value) for value in node.decorators]
+        defaults = [capture(value) for value in node.code.codeparameters.defaults]
+        operations.extend(ast.Discard(value) for value in code_definition_annotations(node.code))
+        cells = list(code_closure_cells(node.code))
+        value = ast.MakeFunction(defaults, cells, node.code)
+        for decorator in reversed(decorators):
+            value = ast.Call(decorator, [capture(value)], [], None, None)
+        symbol = catalog.symbols.find(scope, node.name, (SymbolKind.CELL, SymbolKind.LOCAL, SymbolKind.PARAMETER))
+        cell = next((cell for cell in cells if cell.name == node.name), None)
+        if cell is None and symbol is not None and symbol.kind is SymbolKind.CELL:
+            cell = ast.Cell(node.name)
+        if cell is not None:
+            operations.append(ast.SetCellDeref(capture(value), cell))
+        else:
+            operations.append(ast.Assign(value, [ast.Local(node.name)]))
+        for operation in operations:
+            operation.annotation = node.annotation
+        return operations
+
+    pending, seen = [g.entryTerminal], set()
+    while pending:
+        block = pending.pop()
+        if block in seen:
+            continue
+        seen.add(block)
+        if isinstance(block, cfg.Suite):
+            block.ops = [operation for node in block.ops for operation in lower(node)]
+        pending.extend(block.forward())
+    index_cfg(catalog, g)
+
+
 def evaluate(compiler, g):
     """Convert a CFG to SSA form.
 
@@ -686,6 +743,7 @@ def evaluate(compiler, g):
             "a non-SSA graph cannot be exported as SSA."
         )
     transaction = CFGTransformTransaction(g, "ssa")
+    _lower_function_definitions(g, transaction.catalog)
 
     # Analysis: Compute dominance information
     def forward(node):
@@ -768,7 +826,7 @@ def _contains_try_except_finally(entry):
 
 
 def _ast_contains_try_except_finally(node, seen):
-    if node is None:
+    if node is None or isinstance(node, ast.Code):
         return False
 
     if isinstance(node, ast.TryExceptFinally):

@@ -153,15 +153,15 @@ class CallStringContext(AbstractContext["CallSite"]):
 
 
 @dataclass(frozen=True)
-class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject"]]):
+class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject", "AllocSite"]]):
     """Object sensitivity: allocation site chain.
 
     Attributes:
-        alloc_sites: Objects and call sites
+        alloc_sites: Objects, allocation sites, and call sites
         depth: Maximum depth for object context
     """
 
-    alloc_sites: Tuple[Union["CallSite", "AbstractObject"], ...] = ()
+    alloc_sites: Tuple[Union["CallSite", "AbstractObject", "AllocSite"], ...] = ()
     depth: int = 2
 
     def to_string(self) -> str:
@@ -173,13 +173,13 @@ class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject"]]):
     def is_empty(self) -> bool:
         return len(self.alloc_sites) == 0
 
-    def append(self, item: Union["CallSite", "AbstractObject"]) -> "ObjectContext":
+    def append(self, item: Union["CallSite", "AbstractObject", "AllocSite"]) -> "ObjectContext":
         """Create new context by appending allocation site."""
-        from .object import AbstractObject
+        from .object import AbstractObject, AllocSite
 
-        if not isinstance(item, (CallSite, AbstractObject)):
+        if not isinstance(item, (CallSite, AbstractObject, AllocSite)):
             raise TypeError(
-                "ObjectContext accepts only CallSite or AbstractObject, " f"got {type(item)}"
+                "ObjectContext accepts only CallSite, AbstractObject or AllocSite, " f"got {type(item)}"
             )
         if self.depth == 0:
             return self

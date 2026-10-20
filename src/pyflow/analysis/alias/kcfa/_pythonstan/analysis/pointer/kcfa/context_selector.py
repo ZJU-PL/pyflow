@@ -17,7 +17,7 @@ from .context import (
     ParamContext,
     CallSite,
 )
-from .object import AbstractObject, InstanceObject
+from .object import AbstractObject, InstanceObject, AllocSite
 
 __all__ = ["ContextPolicy", "CallStringPolicy", "ContextSelector", "parse_policy"]
 
@@ -207,7 +207,7 @@ class ContextSelector:
     def select_alloc_context(
         self,
         current_ctx: AbstractContext,
-        alloc_site: "AbstractObject",
+        alloc_site: "AbstractObject | AllocSite",
         alloc_type: Optional["AbstractObject"] = None,
     ) -> AbstractContext:
         """Select context for object allocation.

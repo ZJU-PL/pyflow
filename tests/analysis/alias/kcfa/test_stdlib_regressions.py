@@ -54,3 +54,13 @@ def test_dotted_import_binds_parent_and_reuses_module_identity(tmp_path):
     assert result.points_to("result")
     assert result.points_to("other")
     assert not any("empty points-to set" in item["message"] for item in result.unknown_details())
+
+
+def test_object_sensitive_policies_analyze_allocations_and_method_calls():
+    source = "class Box:\n    def value(self): return self\na=Box()\nb=a.value()\n"
+    for depth in (1, 2, 3):
+        result = PointerAnalysis(source, context_policy=f"{depth}-obj").run()
+        assert result.points_to("a")
+        assert result.points_to("b")
+        assert result.points_to("a") == result.points_to("b")
+        assert any("fn value(" in callee for _, callee in result.call_edges())

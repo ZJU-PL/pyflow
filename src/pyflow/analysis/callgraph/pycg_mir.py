@@ -872,6 +872,7 @@ def analyze_file_pycg_mir(
     format: str = "text",
     import_policy: str = "opaque",
     max_seconds: float | None = 30.0,
+    max_import_depth: int | None = None,
 ) -> str:
     """Analyze a file and supported local imports, rendering text or JSON adjacency.
 
@@ -887,7 +888,8 @@ def analyze_file_pycg_mir(
         raise ValueError("max_seconds must be finite and positive")
     diagnostics = []
     started = monotonic()
-    program = lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics, **kwargs)
+    program = lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics,
+                         max_import_depth=max_import_depth, **kwargs)
     remaining = (
         max(1e-6, max_seconds - (monotonic() - started)) if max_seconds is not None else None
     )

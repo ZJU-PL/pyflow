@@ -32,7 +32,6 @@ except ModuleNotFoundError:
     except (ModuleNotFoundError, ImportError):
         from .ast_based import extract_call_graph, analyze_file
 
-from .pycg_based import extract_call_graph_pycg, analyze_file_pycg
 from .constraint_based import (
     extract_call_graph_constraint,
     extract_call_site_edge_index_constraint,
@@ -50,6 +49,12 @@ def __getattr__(name):
         from . import pycg_mir
 
         value = getattr(pycg_mir, name)
+        globals()[name] = value
+        return value
+    if name in {"extract_call_graph_pycg", "analyze_file_pycg"}:
+        from . import pycg_based
+
+        value = getattr(pycg_based, name)
         globals()[name] = value
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

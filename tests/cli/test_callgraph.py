@@ -114,10 +114,12 @@ def test_native_pycg_mir_cli_resolves_callback_without_external_pycg(tmp_path, m
         encoding="utf-8",
     )
 
-    def external_pycg_must_not_run(*_args, **_kwargs):
-        raise AssertionError("native MIR analysis must not invoke external PyCG")
+    original = callgraph_cli.run_isolated_callgraph
+    def native_worker(request, **kwargs):
+        assert request["algorithm"] == "pycg-mir"
+        return original(request, **kwargs)
 
-    monkeypatch.setattr(callgraph_cli, "analyze_file_pycg", external_pycg_must_not_run)
+    monkeypatch.setattr(callgraph_cli, "run_isolated_callgraph", native_worker)
     args = parse_callgraph_args(sample, "--algorithm", "pycg-mir")
 
     assert callgraph_cli.run_callgraph(sample, args) == 0
@@ -131,11 +133,12 @@ def test_native_pycg_mir_cli_passes_project_root(tmp_path, monkeypatch, capsys):
     entry.write_text("def run(): pass\nrun()\n", encoding="utf-8")
     captured = {}
 
-    def analyze(filepath, *, verbose=False, project_root=None):
-        captured.update(filepath=filepath, verbose=verbose, project_root=project_root)
+    def analyze(request, *, timeout):
+        captured.update(filepath=request["filepath"], verbose=request["verbose"], project_root=request["project_root"])
+        assert timeout == 30
         return "native graph"
 
-    monkeypatch.setattr(callgraph_cli, "analyze_file_pycg_mir", analyze)
+    monkeypatch.setattr(callgraph_cli, "run_isolated_callgraph", analyze)
     args = parse_callgraph_args(tmp_path, "--entry", "src/app.py", "--algorithm", "pycg-mir")
     assert callgraph_cli.run_callgraph(tmp_path, args) == 0
     assert captured == {
