@@ -83,7 +83,7 @@ Visualize intermediate representations and analysis results.
 Options:
 - ``--dump-mir [SCOPE]``: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
 - ``--mir-view {source,full}``: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to ``source``; JSON defaults to ``full`` for compatibility. Explicit ``source`` JSON is an inspection view with ``view`` and ``omitted_runtime_cfgs`` metadata, not a standalone executable MIR program
-- ``--mir-import-policy {strict,opaque}``: Source views lower input files only and retain imports/unmodeled expressions as opaque boundaries, with partial-coverage diagnostics. Full views remain strict and follow local imports
+- ``--mir-import-policy {strict,opaque}``: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit ``--mir-view full`` follows local imports, and ``strict`` follows imports while rejecting unmodeled semantics
 - ``--dump-ast FUNCTION``: Dump AST for a named function
 - ``--dump-cfg FUNCTION``: Dump CFG using a qualified name or a unique short name (for example ``Class.method``). Ambiguous or missing names report candidates
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
@@ -197,7 +197,7 @@ Options:
 - ``--registry-path``: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
 - ``--typestate-protocol``: Typestate protocols for ``--analysis typestate`` (repeatable; supports ``resource``, ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``)
 - ``--ifds-mode``: ``strict`` preparation or diagnostic ``best-effort`` mode
-- ``--ifds-max-seconds`` / ``--ifds-max-memory-bytes``: Wall-clock and memory budgets
+- ``--ifds-max-seconds`` / ``--ifds-max-memory-bytes``: Solver wall-clock and memory budgets (default: 30 seconds per entry; memory is unbounded). Explicit CLI values override project configuration; exhaustion returns partial results
 - ``--ifds-max-path-edges`` / ``--ifds-max-queue-size``: Solver work budgets
 - ``--ifds-max-incoming-records`` / ``--ifds-max-summary-entries``: Interprocedural table budgets
 - ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
@@ -208,6 +208,9 @@ Options:
   (defaults: 30 seconds per target, 50000 states); construction uses the same
   time budget and exhaustion is reported as ``partial``
 - ``--cpg-context-depth``: Maximum CPG call-string depth (default: 3)
+- ``--cpg-total-max-seconds``: Total budget across CPG targets, including construction (default: 60 seconds); remaining targets are skipped with a partial-analysis diagnostic when exhausted
+- ``--ast-max-seconds``: Total AST-dataflow budget including source preparation (default: 30 seconds)
+- ``--ifds-total-max-seconds``: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
@@ -361,6 +364,10 @@ Alias Command
 
 Run alias analysis on Python code. Supports two engines:
 ``flow-sensitive`` (heap alias/escape) and ``kcfa`` (k-CFA pointer).
+
+The flow-sensitive engine treats parameters as potentially aliased unless
+runtime value information separates them. Python type annotations such as
+``x: int`` are not runtime guarantees and do not exclude may-alias pairs.
 
 ::
 
@@ -544,3 +551,55 @@ PyFlow results can be integrated with IDEs through:
 - JSON output for custom integrations
 - GraphViz DOT files for visualization
 - Standard error formats for editor integration
+
+User trial fixes
+----------------
+
+The ``simple`` callgraph algorithm uses the input filename as its module name,
+keeps function and class scopes distinct, and includes all same-named local
+methods for attribute calls. It does not resolve callbacks or imported functions;
+use ``constraint`` for those cases. ``pycg-mir`` now defaults to opaque import
+boundaries and emits partial-analysis diagnostics on stderr while preserving
+JSON adjacency output. Pass ``--mir-import-policy strict`` to reject unmodeled
+imports.
+
+Security findings and traces from AST dataflow retain original file line numbers,
+including nested methods and multiline expressions. Repeated diagnostic messages
+are grouped in text output; JSON and SARIF retain individual source locations.
+IFDS canonicalizes input paths to avoid loading relative and absolute names for
+the same file twice. Nested functions are available to IR and query commands by
+unambiguous short name or lexical qualification, for example ``deco.wrapper``.
+
+Optimization accepts closure reads, global declarations without interpreter
+stubs, and calls with 30 or more arguments. Ignored return values use internal
+summary slots without emitting a wiring warning; missing formal-parameter
+bindings still warn.
+
+After changing versions in an editable checkout, reinstall with
+``python -m pip install -e '.[dev]'`` to refresh installed package metadata.
+
+Additional inspection and query fixes
+-------------------------------------
+
+DDG exports accept docstrings, constant statements, and constant-valued branch
+merges. SSA inspection uses freshly extracted source symbols; exception-aware
+SSA for ``try/except/finally`` is still unsupported and reports an actionable
+error. Use CFG or MIR inspection for those functions.
+
+Directory MIR inspection preserves package prefixes for relative imports.
+Opaque mode retains unsupported statements, including async definitions,
+``match``, type aliases, and slice assignments, with partial-analysis diagnostics.
+Strict mode continues to reject unsupported semantics.
+
+``query --get-aliases`` runs the heap pass in every mode and resolves source
+variables through published symbol facts. Query function lists and call graphs
+use canonical module-qualified names, accepted by CFG and call queries. Unknown
+or ambiguous call-query names produce an error instead of an empty edge list.
+For directory callgraphs, ``--all-scopes`` loads unimported project modules;
+automatic entry scans print their narrower scope on stderr.
+
+AST-dataflow no longer assigns library sink semantics to an unknown receiver
+merely because its method shares a leaf name. Imported aliases and explicitly
+configured sink names remain supported. Printing user input is not a dangerous
+sink in the default policy. A110 requires FastAPI imports and inspects the actual
+database calls, excluding calls inside nested definitions.

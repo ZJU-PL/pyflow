@@ -101,6 +101,8 @@
 <li class="toctree-l1"><a class="reference internal" href="#integration">Integration</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#ci-cd-integration">CI/CD Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#ide-integration">IDE Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#user-trial-fixes">User trial fixes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#additional-inspection-and-query-fixes">Additional inspection and query fixes</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="lsp.html">Editor and Agent Integration</a></li>
@@ -226,7 +228,7 @@ See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal I
 <p>Options:
 - <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
 - <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">{source,full}</span></code>: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to <code class="docutils literal notranslate"><span class="pre">source</span></code>; JSON defaults to <code class="docutils literal notranslate"><span class="pre">full</span></code> for compatibility. Explicit <code class="docutils literal notranslate"><span class="pre">source</span></code> JSON is an inspection view with <code class="docutils literal notranslate"><span class="pre">view</span></code> and <code class="docutils literal notranslate"><span class="pre">omitted_runtime_cfgs</span></code> metadata, not a standalone executable MIR program
-- <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: Source views lower input files only and retain imports/unmodeled expressions as opaque boundaries, with partial-coverage diagnostics. Full views remain strict and follow local imports
+- <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">full</span></code> follows local imports, and <code class="docutils literal notranslate"><span class="pre">strict</span></code> follows imports while rejecting unmodeled semantics
 - <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
@@ -333,7 +335,7 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 - <code class="docutils literal notranslate"><span class="pre">--registry-path</span></code>: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
 - <code class="docutils literal notranslate"><span class="pre">--typestate-protocol</span></code>: Typestate protocols for <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">typestate</span></code> (repeatable; supports <code class="docutils literal notranslate"><span class="pre">resource</span></code>, <code class="docutils literal notranslate"><span class="pre">python-builtins</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>, <code class="docutils literal notranslate"><span class="pre">socket</span></code>, <code class="docutils literal notranslate"><span class="pre">lock</span></code>, <code class="docutils literal notranslate"><span class="pre">transaction</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--ifds-mode</span></code>: <code class="docutils literal notranslate"><span class="pre">strict</span></code> preparation or diagnostic <code class="docutils literal notranslate"><span class="pre">best-effort</span></code> mode
-- <code class="docutils literal notranslate"><span class="pre">--ifds-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-memory-bytes</span></code>: Wall-clock and memory budgets
+- <code class="docutils literal notranslate"><span class="pre">--ifds-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-memory-bytes</span></code>: Solver wall-clock and memory budgets (default: 30 seconds per entry; memory is unbounded). Explicit CLI values override project configuration; exhaustion returns partial results
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-path-edges</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-queue-size</span></code>: Solver work budgets
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-incoming-records</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-summary-entries</span></code>: Interprocedural table budgets
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets
@@ -347,6 +349,9 @@ time budget and exhaustion is reported as <code class="docutils literal notransl
 </div></blockquote>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-total-max-seconds</span></code>: Total budget across CPG targets, including construction (default: 60 seconds); remaining targets are skipped with a partial-analysis diagnostic when exhausted</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ast-max-seconds</span></code>: Total AST-dataflow budget including source preparation (default: 30 seconds)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-total-max-seconds</span></code>: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path</p></li>
@@ -494,6 +499,9 @@ evidence; absence of an import is explicitly not treated as proof of safety</p><
 <h3><strong>pyflow alias</strong><a class="headerlink" href="#pyflow-alias" title="Link to this heading"></a></h3>
 <p>Run alias analysis on Python code. Supports two engines:
 <code class="docutils literal notranslate"><span class="pre">flow-sensitive</span></code> (heap alias/escape) and <code class="docutils literal notranslate"><span class="pre">kcfa</span></code> (k-CFA pointer).</p>
+<p>The flow-sensitive engine treats parameters as potentially aliased unless
+runtime value information separates them. Python type annotations such as
+<code class="docutils literal notranslate"><span class="pre">x:</span> <span class="pre">int</span></code> are not runtime guarantees and do not exclude may-alias pairs.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
 <span class="n">pyflow</span> <span class="n">alias</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
 <span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">kcfa</span>
@@ -661,6 +669,50 @@ module execution, including output buffered until shutdown.</p>
 <li><p>GraphViz DOT files for visualization</p></li>
 <li><p>Standard error formats for editor integration</p></li>
 </ul>
+</section>
+<section id="user-trial-fixes">
+<h2>User trial fixes<a class="headerlink" href="#user-trial-fixes" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">simple</span></code> callgraph algorithm uses the input filename as its module name,
+keeps function and class scopes distinct, and includes all same-named local
+methods for attribute calls. It does not resolve callbacks or imported functions;
+use <code class="docutils literal notranslate"><span class="pre">constraint</span></code> for those cases. <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> now defaults to opaque import
+boundaries and emits partial-analysis diagnostics on stderr while preserving
+JSON adjacency output. Pass <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">strict</span></code> to reject unmodeled
+imports.</p>
+<p>Security findings and traces from AST dataflow retain original file line numbers,
+including nested methods and multiline expressions. Repeated diagnostic messages
+are grouped in text output; JSON and SARIF retain individual source locations.
+IFDS canonicalizes input paths to avoid loading relative and absolute names for
+the same file twice. Nested functions are available to IR and query commands by
+unambiguous short name or lexical qualification, for example <code class="docutils literal notranslate"><span class="pre">deco.wrapper</span></code>.</p>
+<p>Optimization accepts closure reads, global declarations without interpreter
+stubs, and calls with 30 or more arguments. Ignored return values use internal
+summary slots without emitting a wiring warning; missing formal-parameter
+bindings still warn.</p>
+<p>After changing versions in an editable checkout, reinstall with
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">'.[dev]'</span></code> to refresh installed package metadata.</p>
+</section>
+<section id="additional-inspection-and-query-fixes">
+<h2>Additional inspection and query fixes<a class="headerlink" href="#additional-inspection-and-query-fixes" title="Link to this heading"></a></h2>
+<p>DDG exports accept docstrings, constant statements, and constant-valued branch
+merges. SSA inspection uses freshly extracted source symbols; exception-aware
+SSA for <code class="docutils literal notranslate"><span class="pre">try/except/finally</span></code> is still unsupported and reports an actionable
+error. Use CFG or MIR inspection for those functions.</p>
+<p>Directory MIR inspection preserves package prefixes for relative imports.
+Opaque mode retains unsupported statements, including async definitions,
+<code class="docutils literal notranslate"><span class="pre">match</span></code>, type aliases, and slice assignments, with partial-analysis diagnostics.
+Strict mode continues to reject unsupported semantics.</p>
+<p><code class="docutils literal notranslate"><span class="pre">query</span> <span class="pre">--get-aliases</span></code> runs the heap pass in every mode and resolves source
+variables through published symbol facts. Query function lists and call graphs
+use canonical module-qualified names, accepted by CFG and call queries. Unknown
+or ambiguous call-query names produce an error instead of an empty edge list.
+For directory callgraphs, <code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code> loads unimported project modules;
+automatic entry scans print their narrower scope on stderr.</p>
+<p>AST-dataflow no longer assigns library sink semantics to an unknown receiver
+merely because its method shares a leaf name. Imported aliases and explicitly
+configured sink names remain supported. Printing user input is not a dangerous
+sink in the default policy. A110 requires FastAPI imports and inspects the actual
+database calls, excluding calls inside nested definitions.</p>
 </section>
 </section>
 
