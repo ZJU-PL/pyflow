@@ -365,6 +365,14 @@ class FoldRewrite(TypeDispatcher):
             return self(result)
         return node
 
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        # A walrus can occur inside another expression, where the outer
+        # forward traversal does not separately analyze its binding.
+        if hasattr(self, "flow"):
+            self.flow.define(node.target, top)
+        return node
+
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         if isinstance(node.expr, ast.MethodCall):
@@ -561,6 +569,11 @@ class FoldAnalysis(TypeDispatcher):
             self.visitAssign(ast.Assign(node.value, [node.target]))
         return node
 
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        self.visitAssign(ast.Assign(node.value, [node.target]))
+        return node
+
 
 # Restricted traversal, so not all locals are rewritten.
 class FoldTraverse(TypeDispatcher):
@@ -702,6 +715,13 @@ class FoldTraverse(TypeDispatcher):
         # Avoids folding delete targets
         node = self.strategy(node)
         return node
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        rewritten = ast.NamedExpr(node.target, self(node.value))
+        rewritten.annotation = node.annotation
+        self.recordFactSource(node, rewritten)
+        return self.strategy(rewritten)
 
     @dispatch(ast.AnnAssign)
     def visitAnnAssign(self, node):

@@ -400,3 +400,14 @@ def test_return_receiver_effect_preserves_fluent_authority() -> None:
         and finding.access_path == "vendor.builder.execute"
         for finding in result.findings
     )
+
+
+def test_unknown_diagnostic_uses_source_filename_instead_of_entry_scope(tmp_path):
+    path = tmp_path / "app.py"
+    path.write_text("value = 1\nvalue()\n")
+    result = DefensiveCapabilityAnalysis().analyze_project(path)
+    diagnostic = next(item for item in result.diagnostics if "callee_empty:" in item.message)
+    assert f"{path.resolve()}:2:0" in diagnostic.message
+    assert "__main__:" not in diagnostic.message
+    assert diagnostic.location.filename == str(path.resolve())
+    assert diagnostic.location.line == 2

@@ -300,7 +300,7 @@ def test_identical_qualified_sink_models_match_unqualified_import_alias():
     assert _sink_events(result)[0].sink_name == "send_file"
 
 
-def test_ambiguous_receiver_type_conservatively_unions_sink_models():
+def test_unknown_receiver_does_not_inherit_unrelated_sink_models():
     policy = TaintPolicy(
         source_kinds_by_call={"source": frozenset({"user_input"})},
         sink_kinds_by_call={
@@ -333,9 +333,8 @@ def test_ambiguous_receiver_type_conservatively_unions_sink_models():
         policy=policy,
     )
 
-    assert len(_sink_events(result)) == 1
-    assert "sql" in _sink_events(result)[0].sink_kinds
-    assert policy.sink_cwe_for("cursor.execute") == "CWE-89"
+    assert _sink_events(result) == []
+    assert policy.sink_cwe_for("cursor.execute") is None
 
 
 def test_leaf_fallback_does_not_borrow_cwe_metadata_from_another_api():
@@ -347,7 +346,7 @@ def test_leaf_fallback_does_not_borrow_cwe_metadata_from_another_api():
         sink_cwe_by_call={"pickle.loads": "CWE-502"},
     )
 
-    assert policy.sink_kinds_for("decoder.loads") == frozenset({"dangerous", "deserialization"})
+    assert policy.sink_kinds_for("decoder.loads") == frozenset()
     assert policy.sink_cwe_for("json.loads") is None
 
 

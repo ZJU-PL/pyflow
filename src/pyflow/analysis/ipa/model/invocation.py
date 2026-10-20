@@ -106,14 +106,14 @@ class Invocation(object):
 
     def upwardSlots(self, slot):
         if slot not in self.slotReverse:
-            # Bug E fix: silently creating an anonymous summaryTemp for an
-            # unregistered slot hides bugs where summary application references
-            # a slot that was never wired via down() or up().  Log a warning so
-            # the problem is visible, then fall back to a temp so the analysis
-            # can continue rather than crashing.
+            # Internal summary slots and ignored return values have no caller
+            # binding. Give them invocation-local storage. An unwired formal
+            # parameter, however, can indicate a missing argument transfer.
             import logging
 
-            logging.getLogger(__name__).warning(
+            logger = logging.getLogger(__name__)
+            log = logger.warning if slot in self.dst.params else logger.debug
+            log(
                 "upwardSlots: slot %r not in slotReverse for invocation %r -> %r; "
                 "creating anonymous summaryTemp (possible summary wiring bug)",
                 slot,

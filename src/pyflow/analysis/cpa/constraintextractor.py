@@ -385,7 +385,7 @@ class ExtractDataflow(TypeDispatcher):
     # Sentinel key used for the summary (smashed) element slot.
     _LIST_SUMMARY_KEY = "*"
 
-    @dispatch(ast.BuildList)
+    @dispatch(ast.BuildList, ast.BuildSet)
     def visitBuildList(self, node, targets=None):
         """Model a list literal using a summary Array slot.
 
@@ -400,8 +400,9 @@ class ExtractDataflow(TypeDispatcher):
 
         assert len(targets) == 1
 
-        op = self._allocateContainer(node, list, targets)
-        self._storeContainerLength(op, targets[0], len(node.args))
+        op = self._allocateContainer(node, set if isinstance(node, ast.BuildSet) else list, targets)
+        if isinstance(node, ast.BuildList):
+            self._storeContainerLength(op, targets[0], len(node.args))
 
         summary_key_slot = self._existingKeySlot(self._LIST_SUMMARY_KEY)
         for arg_slot in arg_slots:
@@ -676,11 +677,23 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
-        self(node.expr, self(node.lcls))
+        targets = self(node.lcls)
+        if len(targets) > 1:
+            value = self._freshLocalSlot("assignment")
+            self(node.expr, [value])
+            for target in targets:
+                self.assign(value, target)
+        else:
+            self(node.expr, targets)
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):
         self(node.expr, None)
+
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        # Flow-insensitive CPA retains values from paths before deletion.
+        self(node.lcl)
 
     @dispatch(ast.Return)
     def visitReturn(self, node):

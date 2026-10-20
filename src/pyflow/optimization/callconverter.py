@@ -142,6 +142,8 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.GetGlobal)
     def visitGetGlobal(self, node):
+        if "interpreterLoadGlobal" not in self.exports:
+            return node.rewriteChildren(self)
         p = self.code.codeparameters
         return self.directCall(
             node,
@@ -152,6 +154,8 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.SetGlobal)
     def visitSetGlobal(self, node):
+        if "interpreterStoreGlobal" not in self.exports:
+            return node.rewriteChildren(self)
         p = self.code.codeparameters
         call = self.directCall(
             node,

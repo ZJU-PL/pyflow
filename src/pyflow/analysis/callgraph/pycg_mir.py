@@ -20,9 +20,10 @@ Primitive arithmetic is widened to a finite domain consisting of literals and
 statically present list indices, with a bounded set of alternatives at computed
 allocation sites.  Primitive top values subsume their concrete alternatives;
 unknown container keys use typed summary fields.  Abstract facts grow
-monotonically under this subsumption order, including recursive call edges.  Assume
-does not prune paths; deletion retains old bindings and conservatively models
-the index shifts caused by deleting list elements.
+monotonically under this subsumption order, including recursive call edges.
+Definitely false assumptions prune paths, including impossible protocol branches
+identified by immutable runtime callable tags. Unknown guards retain both paths.
+Deletion retains old bindings and conservatively models list index shifts.
 """
 
 from __future__ import annotations
@@ -411,7 +412,13 @@ class _Analysis:
             return _Value(atoms={_Primitive(kind, expr.value)})
         if isinstance(expr, Lambda):
             closure = _Closure(expr, self.environments[scope])
-            if self.analyze_all_functions and not self.program.cfgs[expr.body].is_synthetic:
+            if (
+                self.analyze_all_functions
+                and not self.program.cfgs[expr.body].is_synthetic
+                and not (
+                    expr.body.startswith("builtins.") and not self.program.cfgs[expr.body].filename
+                )
+            ):
                 self._activate(expr.body)
                 self._write_field(
                     self.environments[expr.body], expr.parent_param, (closure.parent,)
@@ -448,6 +455,19 @@ class _Analysis:
                 result.atoms.add(_UNKNOWN_INT)
             return result
         if isinstance(expr, Binary):
+            # Runtime callable tags are immutable construction markers. When
+            # every receiver has the tag, the alternative protocol branch is
+            # impossible; taking it would inject a spurious receiver argument.
+            if (
+                self.program.cfgs[scope].is_synthetic
+                and expr.op == "in"
+                and isinstance(expr.left, Literal)
+                and expr.left.value in {"$function", "$bound", "$class"}
+                and isinstance(expr.right, LValue)
+            ):
+                refs = self._resolve(expr.right, scope)
+                if refs and all(expr.left.value in self.heap[ref].fields for ref in refs):
+                    return _Value(atoms={_TRUE})
             return self._binary(
                 expr.op, self._eval(expr.left, scope), self._eval(expr.right, scope)
             )
@@ -605,13 +625,29 @@ class _Analysis:
                 scope,
             )
 
+    def _feasible_nodes(self, scope):
+        cfg = self.program.cfgs[scope]
+        pending, seen = [cfg.entry], set()
+        while pending:
+            node_id = pending.pop()
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node = cfg.nodes[node_id]
+            if isinstance(node.instruction, Assume):
+                value = self._eval(node.instruction.condition, scope)
+                if value.atoms == {_FALSE}:
+                    continue
+            yield node_id
+            pending.extend(reversed(node.successors))
+
     def step(self) -> None:
         self.changed = False
         # Newly discovered callees are processed on the next fixed-point pass.
         for scope in sorted(self.active):
             cfg = self.program.cfgs[scope]
             environment = self.environments[scope]
-            for node_id in self.nodes[scope]:
+            for node_id in self._feasible_nodes(scope):
                 command = cfg.nodes[node_id].instruction
                 if isinstance(command, (Skip, Assume)):
                     continue
@@ -661,6 +697,8 @@ class _Analysis:
     def result(self, converged: bool, iterations: int, include_synthetic: bool) -> PyCGMIRResult:
         graph = MIRCallGraph()
         for name, cfg in self.program.cfgs.items():
+            if name.startswith("builtins.") and not cfg.filename and name not in self.active:
+                continue
             if include_synthetic or not cfg.is_synthetic:
                 graph.add_node(name, cfg.filename or None)
                 for target in self._project(self.raw_calls.get(name, ()), include_synthetic):
@@ -794,6 +832,7 @@ def analyze_file_pycg_mir(
     *,
     project_root: str | None = None,
     format: str = "text",
+    import_policy: str = "opaque",
 ) -> str:
     """Analyze a file and supported local imports, rendering text or JSON adjacency.
 
@@ -805,7 +844,18 @@ def analyze_file_pycg_mir(
     from .formats import generate_text_output
 
     kwargs = {} if project_root is None else {"project_root": project_root}
-    result = analyze_program(lower_file(filepath, **kwargs))
+    diagnostics = []
+    result = analyze_program(
+        lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics, **kwargs)
+    )
+    if diagnostics:
+        import sys
+
+        print(
+            f"MIR call graph is partial: {len(diagnostics)} unmodeled semantic site(s). "
+            "Use --mir-import-policy strict to require complete lowering.",
+            file=sys.stderr,
+        )
     if verbose:
         print(f"MIR PyCG: {result.iterations} iterations, converged={result.converged}")
         for diagnostic in result.diagnostics:

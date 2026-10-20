@@ -845,6 +845,26 @@ class PythonToMIR:
         self.finalizers = saved
 
     def statement(self, node):
+        try:
+            return self._statement(node)
+        except LoweringError as error:
+            if not self.inspection_only:
+                raise
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-statement",
+                    "filename": error.filename,
+                    "line": error.lineno,
+                    "message": str(error),
+                    "affects_completeness": True,
+                }
+            )
+            value = self.runtime.obj(self.b, "object")
+            self.b.assign(
+                field(value, "$opaque_statement"), self.runtime.raw(self.b, ast.unparse(node))
+            )
+
+    def _statement(self, node):
         b, rt = self.b, self.runtime
         b.lineno = getattr(node, "lineno", b.lineno)
         if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal)):

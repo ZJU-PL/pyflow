@@ -89,6 +89,20 @@ class QueryContext:
                 for name in (public_name, public_qualified):
                     if name not in aliases:
                         aliases.append(name)
+                # Source indexes and call graphs retain package prefixes,
+                # including package.__main__. The extracted code may still
+                # carry the legacy filename-only module label.
+                from pathlib import Path
+                from pyflow.ir.mir.lowering import _default_root, _module_name
+
+                path = Path(identity.anchor.filename) if identity.anchor.filename else None
+                if path is not None and path.is_file():
+                    path = path.resolve()
+                    module = _module_name(path, _default_root(path))
+                    lexical = public_name.removeprefix(f"{identity.module}.")
+                    canonical = f"{module}.{lexical}"
+                    if canonical not in aliases:
+                        aliases.append(canonical)
         return aliases
 
     def function_codes(self):
@@ -97,6 +111,9 @@ class QueryContext:
         interface = getattr(self.program, "interface", None)
         codes = list(getattr(self.program, "liveCode", ()))
         codes.extend(getattr(ep, "code", None) for ep in getattr(interface, "entryPoint", ()))
+        catalog = getattr(self.program, "ir", None)
+        if catalog is not None:
+            codes.extend(catalog.code(proc.code_id) for proc in catalog.procedures())
         for code in codes:
             if code is not None and self._dedupe_key(code) not in seen:
                 seen.add(self._dedupe_key(code))

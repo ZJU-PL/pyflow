@@ -130,6 +130,24 @@ class DataFlowQueries:
         info = AliasInfo(variable=variable)
         for location in locations:
             info.aliases.update(self._location_label(alias) for alias in facts.points_to(location))
+        from pyflow.ir.core import Capabilities
+        from pyflow.ir.core.symbols import SymbolKind
+
+        symbols = tuple(
+            symbol
+            for symbol in facts.catalog.symbols
+            if symbol.kind not in {SymbolKind.RETURN, SymbolKind.TEMPORARY}
+        )
+        selected = [symbol for symbol in symbols if symbol.display_name == variable]
+        if selected:
+            info.aliases = set()
+            for source in selected:
+                refs = facts.catalog.facts.query(Capabilities.ALIAS_REFERENCES, source.id).values
+                for other in symbols:
+                    if other.id.scope == source.id.scope and refs.intersection(
+                        facts.catalog.facts.query(Capabilities.ALIAS_REFERENCES, other.id).values
+                    ):
+                        info.aliases.add(other.display_name)
         info.is_aliased = len(info.aliases) > 1
         info.ref_count = max((facts.reference_count(location) for location in locations), default=0)
         info.is_escaped = any(facts.is_escaped(location) for location in locations)
@@ -225,4 +243,12 @@ class DataFlowQueries:
 
     @staticmethod
     def _matching_locations(facts, variable: str) -> tuple[object, ...]:
-        return tuple(facts.locations_by_label().get(variable, ()))
+        from pyflow.ir.core import Capabilities
+
+        locations = set(facts.locations_by_label().get(variable, ()))
+        for symbol in facts.catalog.symbols:
+            if symbol.display_name == variable:
+                locations.update(
+                    facts.catalog.facts.query(Capabilities.ALIAS_REFERENCES, symbol.id).values
+                )
+        return tuple(locations)

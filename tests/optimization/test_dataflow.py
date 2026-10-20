@@ -159,3 +159,15 @@ class TestReverseDataflow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_forward_traversal_accepts_closure_reads_and_scope_declarations():
+    analyze = RecordingAnalyze()
+    traverse = forward.ForwardFlowTraverse(union_meet, analyze, IdentityRewrite())
+    for node in (
+        ast.GetCellDeref(ast.Cell("captured")),
+        ast.GlobalDecl(ast.Local("counter")),
+        ast.NonlocalDecl(ast.Local("captured")),
+    ):
+        assert type(traverse(node)) is type(node)
+    assert "GetCellDeref" in analyze.seen

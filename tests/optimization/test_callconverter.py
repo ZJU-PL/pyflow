@@ -26,3 +26,15 @@ class TestConvertCalls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_globals_remain_explicit_without_interpreter_exports():
+    converter = ConvertCalls(MockExtractor(), None)
+    from pyflow.language.python import program
+
+    name = ast.Existing(program.Object("counter"))
+    read = converter(ast.GetGlobal(name))
+    write = converter(ast.SetGlobal(name, ast.Local("value")))
+    assert isinstance(read, ast.GetGlobal)
+    assert isinstance(write, ast.SetGlobal)
+    assert write.value.name == "value"

@@ -275,7 +275,7 @@ class TestQueryRouting:
             ({"get_callers": "foo"}, []),
             ({"get_callees": "foo"}, []),
             ({"get_callgraph": True}, []),
-            ({"get_aliases": "x"}, []),
+            ({"get_aliases": "x"}, ["heap"]),
         ],
     )
     def test_compute_required_passes(self, query_args, expected_passes):
@@ -285,7 +285,7 @@ class TestQueryRouting:
         ("query_args", "expected_run_pipeline", "expected_passes"),
         [
             ({"get_cfg": "foo"}, False, []),
-            ({"get_aliases": "x"}, False, []),
+            ({"get_aliases": "x"}, True, ["heap"]),
         ],
     )
     def test_run_query_routes_file_to_minimal_analysis(
@@ -371,5 +371,5 @@ class TestQueryRouting:
         callers = dict(defaults, get_callers="callee")
         callees = dict(defaults, get_callees="caller")
 
-        assert _dispatch_callgraph_query(graph, Namespace(**callers)) == ["main.caller"]
-        assert _dispatch_callgraph_query(graph, Namespace(**callees)) == ["main.callee"]
+        assert _dispatch_callgraph_query(graph, Namespace(**callers)) == ["sample.caller"]
+        assert _dispatch_callgraph_query(graph, Namespace(**callees)) == ["sample.callee"]

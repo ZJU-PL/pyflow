@@ -252,3 +252,25 @@ def test_unscoped_mir_text_hides_runtime_and_full_view_is_available(tmp_path):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_mir_json_defaults_to_partial_for_unmodeled_imports(tmp_path, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("import math\ndef f(): return math.sqrt(4)\n")
+    ir_cli.run_ir_dump(source, parse_mir_args(source, "--dump-format", "json"))
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["status"] == "partial"
+    assert report["diagnostics"]
+    assert "MIR inspection is partial" in captured.err
+
+
+def test_default_mir_json_does_not_expand_local_dependency_tree(tmp_path, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("import dependency\ndef worker(): return dependency.run()\n")
+    (tmp_path / "dependency.py").write_text("async def run(): pass\n")
+    ir_cli.run_ir_dump(source, parse_mir_args(source, "--dump-format", "json"))
+    report = json.loads(capsys.readouterr().out)
+    assert "sample.worker" in report["cfgs"]
+    assert "dependency.run" not in report["cfgs"]
+    assert report["status"] == "partial"

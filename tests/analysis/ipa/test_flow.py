@@ -336,3 +336,62 @@ class TestDownwardFieldTransfer(TestIPABase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSummarySlotBindings(TestIPABase):
+    def test_ignored_return_uses_stable_summary_temp_without_warning(self):
+        import logging
+        from pyflow.analysis.ipa.model.invocation import Invocation
+        from pyflow.language.python import ast
+
+        caller, callee = self.makeContext(), self.makeContext()
+        slot = callee.local(ast.Local("return_value"))
+        callee.returns.append(slot)
+        invocation = Invocation(caller, object(), callee)
+        with self.assertNoLogs("pyflow.analysis.ipa.model.invocation", level=logging.WARNING):
+            first = invocation.upwardSlots(slot)
+            assert invocation.upwardSlots(slot) is first
+        value = self.const(42)
+        invocation.applyObjs(slot, frozenset([value]))
+        assert value in first[0].values
+
+    def test_unwired_parameter_still_warns(self):
+        from pyflow.analysis.ipa.model.invocation import Invocation
+        from pyflow.language.python import ast
+
+        caller, callee = self.makeContext(), self.makeContext()
+        slot = callee.local(ast.Local("parameter"))
+        callee.params.append(slot)
+        invocation = Invocation(caller, object(), callee)
+        with self.assertLogs("pyflow.analysis.ipa.model.invocation", level="WARNING"):
+            invocation.upwardSlots(slot)
+
+
+class TestAssignmentExtraction(TestIPABase):
+    def test_chained_assignment_evaluates_rhs_once_and_reaches_every_target(self):
+        from pyflow.analysis.ipa.constraintextractor import ConstraintExtractor
+        from pyflow.language.python import ast
+
+        context = self.makeContext()
+        extractor = ConstraintExtractor(self.analysis, context, None)
+        source = ast.Local("source")
+        left, right = ast.Local("left"), ast.Local("right")
+        value = self.const(42)
+        context.local(source).updateSingleValue(value)
+        extractor(ast.Assign(source, [left, right]))
+        self.analysis.topDown()
+        assert value in context.local(left).values
+        assert value in context.local(right).values
+
+    def test_delete_marks_local_nullable_without_removing_other_path_values(self):
+        from pyflow.analysis.ipa.constraintextractor import ConstraintExtractor
+        from pyflow.language.python import ast
+
+        context = self.makeContext()
+        extractor = ConstraintExtractor(self.analysis, context, None)
+        local = ast.Local("value")
+        value = self.const(42)
+        context.local(local).updateSingleValue(value)
+        extractor(ast.Delete(local))
+        assert context.local(local).null
+        assert value in context.local(local).values

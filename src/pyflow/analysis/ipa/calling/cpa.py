@@ -48,7 +48,7 @@ class CPAContextSignature(canonical.CanonicalObject):
             vparams: List of variable parameter types
 
         Raises:
-            AssertionError: If invalid argument types or too many vparams
+            AssertionError: If argument types are invalid
         """
         assert cpaArgOK(selfparam), selfparam
         for param in params:
@@ -60,9 +60,6 @@ class CPAContextSignature(canonical.CanonicalObject):
         self.selfparam = selfparam
         self.params = params
         self.vparams = vparams
-
-        # Sanity check, probably a runaway loop in the analysis logic.
-        assert len(vparams) < 30, code
 
         self.setCanonical(code, selfparam, params, vparams)
 

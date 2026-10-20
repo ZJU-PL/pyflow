@@ -30,11 +30,20 @@ def test_source_mir_handles_common_imports_with_explicit_partial_semantics(tmp_p
     assert "Traceback" not in error
 
 
-def test_full_mir_export_still_rejects_unmodeled_imports(tmp_path, capsys):
+def test_explicit_strict_mir_export_rejects_unmodeled_imports(tmp_path, capsys):
     source = tmp_path / "sample.py"
     source.write_text("from collections.abc import Mapping\ndef worker(data):\n    return data\n")
     args = _parse(
-        ir, "ir", source, "--dump-mir", "--dump-format", "json", "--dump-output", tmp_path / "out"
+        ir,
+        "ir",
+        source,
+        "--dump-mir",
+        "--dump-format",
+        "json",
+        "--mir-import-policy",
+        "strict",
+        "--dump-output",
+        tmp_path / "out",
     )
     with pytest.raises(SystemExit) as error:
         ir.run_ir_dump(source, args)

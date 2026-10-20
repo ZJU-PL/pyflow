@@ -49,7 +49,7 @@ def _ifds_solver_options(args):
 
     return SolverOptions(
         max_propagated_path_edges=getattr(args, "ifds_max_path_edges", None),
-        max_seconds=getattr(args, "ifds_max_seconds", None),
+        max_seconds=getattr(args, "ifds_max_seconds", 30.0),
         max_queue_size=getattr(args, "ifds_max_queue_size", None),
         max_incoming_records=getattr(args, "ifds_max_incoming_records", None),
         max_summary_entries=getattr(args, "ifds_max_summary_entries", None),
@@ -273,11 +273,47 @@ def _run_ast_dataflow(
         verbose=getattr(args, "verbose", False),
         quiet=False,
     )
-    manager.analyze(targets)
+    from pyflow.cli.analysis_budget import analysis_time_budget, AnalysisBudgetExceeded
+    from pyflow.checker.ast_dataflow.detectors._taint_models import ASTDataflowTaintResult
+    from pyflow.checker.common.diagnostics import CheckerDiagnostic
+
+    try:
+        with analysis_time_budget(getattr(args, "ast_max_seconds", 30.0)):
+            manager.analyze(targets)
+    except AnalysisBudgetExceeded as error:
+        manager.analysis_result = ASTDataflowTaintResult(
+            findings=(),
+            status="partial",
+            diagnostics=(CheckerDiagnostic(str(error), "ast-time-budget", True),),
+        )
     return manager
 
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
+    from pyflow.cli.analysis_budget import analysis_time_budget, AnalysisBudgetExceeded
+
+    reports = []
+    try:
+        with analysis_time_budget(getattr(args, "ifds_total_max_seconds", 60.0)):
+            return _run_ifds_entries(targets, args, reports)
+    except AnalysisBudgetExceeded as error:
+        return {
+            "entry": str(targets[0]),
+            "findings": [finding for report in reports for finding in report.get("findings", ())],
+            "entry_results": reports,
+            "status": "partial",
+            "diagnostics": [
+                {
+                    "code": "ifds-total-time-budget",
+                    "message": str(error),
+                    "affects_completeness": True,
+                }
+            ],
+            "termination_reason": str(error),
+        }
+
+
+def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
     """Analyze each discovered entry independently, preserving single-entry reports."""
     try:
         entries = _resolve_ifds_entry_files(targets, getattr(args, "entry", None))
@@ -299,7 +335,6 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "status": "invalid",
             "termination_reason": str(error),
         }
-    reports = []
     for entry in entries:
         entry_args = copy(args)
         entry_args.entry = entry if Path(targets[0]).is_dir() else None
@@ -385,6 +420,8 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
             "termination_reason": str(error),
         }
 
+    files = list(dict.fromkeys(file.resolve() for file in files))
+    entry_file = entry_file.resolve()
     if entry_file not in files:
         files.append(entry_file)
     entry_label = _entry_label(entry_file, targets)
@@ -599,13 +636,27 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     statistics: Dict[str, int] = {}
     status = "complete"
     analyzed_targets = 0
+    total_budget = getattr(args, "cpg_total_max_seconds", 60.0)
+    total_deadline = monotonic() + total_budget if total_budget is not None else None
 
     for target in targets:
         target_started = monotonic()
+        if total_deadline is not None and target_started >= total_deadline:
+            diagnostics.append(
+                {
+                    "code": "cpg-total-time-budget",
+                    "message": "CPG total time budget exhausted; remaining targets were not analyzed",
+                    "affects_completeness": True,
+                }
+            )
+            status = "partial"
+            break
         target_budget = getattr(args, "cpg_max_seconds", None)
         construction_deadline = (
             target_started + target_budget if target_budget is not None else None
         )
+        if total_deadline is not None:
+            construction_deadline = min(construction_deadline or total_deadline, total_deadline)
         path = Path(target)
         if not path.exists():
             print(f"Error: '{target}' not found", file=sys.stderr)
@@ -741,7 +792,9 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
         if result.status != "complete" and status == "complete":
             status = result.status
 
-    if analyzed_targets == 0:
+    if analyzed_targets == 0 and not any(
+        item["code"] == "cpg-total-time-budget" for item in diagnostics
+    ):
         status = "failed"
 
     return {

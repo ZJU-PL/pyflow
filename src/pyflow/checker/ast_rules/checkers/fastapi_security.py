@@ -273,20 +273,31 @@ def password_not_hashed(context):
 @test.with_id("A110")
 def transaction_safety_in_depends(context):
     """Detect database operations in Depends without transaction safety."""
-    func_name = context.node.name.lower()
+    imports = context._context.get("imports") or ()
+    if not any(name == "fastapi" or name.startswith("fastapi.") for name in imports):
+        return None
     has_db_operation = False
     has_commit = False
     has_rollback = False
 
-    for node in ast.walk(context.node):
+    pending = list(context.node.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        pending.extend(ast.iter_child_nodes(node))
         if isinstance(node, ast.Call):
-            qual = context.call_function_name_qual or ""
-            if any(db in qual.lower() for db in ("session", "query", "commit", "rollback")):
+            qual = ast.unparse(node.func).lower()
+            parts = qual.split(".")
+            method = parts[-1]
+            if (
+                len(parts) > 1
+                and any(part in {"db", "session", "query"} for part in parts[:-1])
+                and method in {"add", "delete", "execute", "query", "flush", "commit", "rollback"}
+            ):
                 has_db_operation = True
-            if "commit" in qual.lower():
-                has_commit = True
-            if "rollback" in qual.lower():
-                has_rollback = True
+                has_commit |= method == "commit"
+                has_rollback |= method == "rollback"
 
     if has_db_operation and not (has_commit or has_rollback):
         return _fastapi_issue(

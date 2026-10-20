@@ -126,7 +126,24 @@ def add_security_parser(subparsers):
             "as the bundled rule-packs under pyflow/config/."
         ),
     )
-    p.add_argument("--ifds-max-seconds", type=_positive_float, default=argparse.SUPPRESS)
+    p.add_argument(
+        "--ast-max-seconds",
+        type=_positive_float,
+        default=30.0,
+        help="Total AST-dataflow time budget including preparation (default: 30; reports partial)",
+    )
+    p.add_argument(
+        "--ifds-total-max-seconds",
+        type=_positive_float,
+        default=60.0,
+        help="Total IFDS time budget across entries and preparation (default: 60; reports partial)",
+    )
+    p.add_argument(
+        "--ifds-max-seconds",
+        type=_positive_float,
+        default=argparse.SUPPRESS,
+        help="IFDS solver time budget in seconds per entry (default: 30; reports partial)",
+    )
     p.add_argument("--ifds-max-path-edges", type=_positive_int, default=argparse.SUPPRESS)
     p.add_argument("--ifds-max-queue-size", type=_positive_int, default=argparse.SUPPRESS)
     p.add_argument("--ifds-max-incoming-records", type=_positive_int, default=argparse.SUPPRESS)
@@ -172,6 +189,12 @@ def add_security_parser(subparsers):
         type=_positive_float,
         default=30.0,
         help="Stop CPG construction/propagation after this many seconds per target (default: 30; reports partial)",
+    )
+    p.add_argument(
+        "--cpg-total-max-seconds",
+        type=_positive_float,
+        default=60.0,
+        help="Time budget across all CPG targets (default: 60; reports partial)",
     )
     p.add_argument(
         "--cpg-context-depth",

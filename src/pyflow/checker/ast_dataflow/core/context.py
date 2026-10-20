@@ -232,10 +232,14 @@ class AnalysisSession:
             if qualified_functions:
                 for qualified_name, node in qualified_functions:
                     if getattr(node, "lineno", None) and getattr(node, "end_lineno", None):
-                        # Re-render the parsed node. Plain dedenting is not
-                        # safe for methods whose multiline strings contain
-                        # legitimate column-zero content.
-                        func_src = ast.unparse(node)
+                        # Keep file coordinates and multiline string contents.
+                        # A synthetic suite accommodates indented definitions
+                        # without dedenting or re-rendering their source.
+                        lines = src.splitlines(keepends=True)
+                        prefix = "\n" * (node.lineno - 1)
+                        if node.col_offset:
+                            prefix = "\n" * (node.lineno - 2) + "if True:\n"
+                        func_src = prefix + "".join(lines[node.lineno - 1 : node.end_lineno])
                     else:
                         func_src = ast.get_source_segment(src, node) or src
                     name_to_source[qualified_name] = func_src

@@ -681,7 +681,9 @@ def evaluate(compiler, g):
     """
     if _contains_try_except_finally(g.entryTerminal):
         raise UnsupportedSSAError(
-            "CFG SSA does not support TryExceptFinally; refusing to return " "a non-SSA graph."
+            f"SSA for '{g.code.codeName()}' does not yet support try/except/finally. "
+            "Use --dump-cfg or --dump-mir to inspect this function; "
+            "a non-SSA graph cannot be exported as SSA."
         )
     transaction = CFGTransformTransaction(g, "ssa")
 

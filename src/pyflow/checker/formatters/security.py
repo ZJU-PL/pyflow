@@ -25,7 +25,7 @@ def security_text(engine: str, result) -> str:
 
     if engine == "ast-dataflow":
         report = ast_dataflow_report(result)
-        if not report["findings"]:
+        if not report["findings"] and not report["diagnostics"]:
             return "No issues found."
         lines = [
             f"Status: {report['status']}",
@@ -45,8 +45,13 @@ def security_text(engine: str, result) -> str:
             lines.append("")
         if report["diagnostics"]:
             lines.append("Diagnostics:")
+            counts = {}
             for diagnostic in report["diagnostics"]:
-                lines.append(f"  [{diagnostic['code']}] {diagnostic['message']}")
+                key = diagnostic["code"], diagnostic["message"]
+                counts[key] = counts.get(key, 0) + 1
+            for (code, message), count in counts.items():
+                suffix = f" ({count} occurrences)" if count > 1 else ""
+                lines.append(f"  [{code}] {message}{suffix}")
         return "\n".join(lines)
 
     if engine == "ifds":

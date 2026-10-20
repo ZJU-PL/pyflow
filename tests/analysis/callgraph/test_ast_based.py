@@ -181,3 +181,34 @@ class TestAnalyzeCallNode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_simple_graph_separates_scopes_and_includes_virtual_method_calls():
+    source = """
+class Base:
+    def handle(self): return self.process()
+    def process(self): pass
+class Child(Base):
+    def process(self): pass
+def helper(): pass
+def main():
+    obj = Child()
+    obj.handle()
+    helper()
+    def nested():
+        helper()
+if __name__ == '__main__':
+    main()
+"""
+    graph = extract_call_graph(source, module_name="sample").get()
+    assert graph["sample"] == {"sample.main"}
+    assert graph["sample.main"] == {"sample.Base.handle", "sample.helper"}
+    assert graph["sample.Base.handle"] == {"sample.Base.process", "sample.Child.process"}
+    assert graph["sample.main.nested"] == {"sample.helper"}
+
+
+def test_function_assignment_is_only_an_edge_when_called():
+    graph = extract_call_graph("def f(): pass\nalias = f\n").get()
+    assert not graph["main"]
+    graph = extract_call_graph("def f(): pass\nalias = f\nalias()\n").get()
+    assert graph["main"] == {"main.f"}

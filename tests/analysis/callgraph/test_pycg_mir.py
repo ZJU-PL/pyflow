@@ -397,7 +397,7 @@ def test_deletion_widens_shifted_indices_outside_the_static_integer_domain():
     assert result.call_graph.get()["main"] == {"main.f"}
 
 
-def test_assume_does_not_prune_but_structurally_unreachable_nodes_are_ignored():
+def test_false_assume_prunes_infeasible_call_paths():
     main = cfg(
         "main",
         Alloc("f", function("main.f")),
@@ -409,7 +409,7 @@ def test_assume_does_not_prune_but_structurally_unreachable_nodes_are_ignored():
     )
     main.nodes[5].successors = (7,)
     result = analyze_program(program(main, leaf("main.f"), leaf("main.g")))
-    assert result.call_graph.get()["main"] == {"main.f"}
+    assert result.call_graph.get()["main"] == set()
     assert ("main", 6) not in result.call_sites
 
 

@@ -312,3 +312,21 @@ def test_formal_detector_merges_manual_models_with_explicit_policy():
 
     assert len(result.findings) == 1
     assert result.findings[0].rule_id == "PYFLOW-SEMANTIC-MANUAL"
+
+
+@pytest.mark.parametrize("indent", [False, True])
+def test_source_collection_keeps_file_lines_in_findings_and_traces(indent):
+    source = "\n" * 10 + "def handler():\n    data = input()\n\n    eval(\n        data\n    )\n"
+    if indent:
+        source = "class App:\n" + "\n".join(
+            "    " + line if line else "" for line in source.split("\n")
+        )
+    sources, filenames, _ = AnalysisSession._collect_sources_and_imports(
+        Program(), {"sample.py": source}
+    )
+    result = ASTDataflowTaintDetector().analyze(_make_session(sources, filenames))
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert finding.sink_line == 14 + indent
+    source_step = next(step for step in finding.trace if step.operation == "source")
+    assert source_step.line == 12 + indent

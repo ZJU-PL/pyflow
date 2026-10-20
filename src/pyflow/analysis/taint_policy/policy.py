@@ -165,13 +165,7 @@ class TaintPolicy:
         )
         if matches:
             return matches
-        modeled_roots = {
-            candidate.split(".", 1)[0] for candidate in self.modeled_call_names if "." in candidate
-        }
-        if name.count(".") >= 2 or ("." in name and name.split(".", 1)[0] in modeled_roots):
-            return ()
-        leaf = name.rsplit(".", 1)[-1]
-        return tuple(candidate for candidate in mapping if candidate.rsplit(".", 1)[-1] == leaf)
+        return ()
 
     def source_kinds_for(self, name: str | None) -> FrozenSet[str]:
         keys = self._matching_names(self.source_kinds_by_call, name)
@@ -189,8 +183,7 @@ class TaintPolicy:
         # An exact sink model without CWE metadata intentionally leaves the
         # classification unspecified (for example ``json.loads``). Do not
         # borrow metadata from an unrelated API that merely shares its leaf
-        # name. For an unresolved receiver such as ``c.execute``, however,
-        # consistent metadata across all leaf candidates is conservative.
+        # name. Unresolved receivers do not establish a library identity.
         if (
             name in self.modeled_call_names or name in self.sink_kinds_by_call
         ) and name not in self.sink_cwe_by_call:
@@ -198,15 +191,7 @@ class TaintPolicy:
         key = self._resolve_name(self.sink_cwe_by_call, name)
         if key:
             return self.sink_cwe_by_call[key]
-        if not name:
-            return None
-        leaf = name.rsplit(".", 1)[-1]
-        values = {
-            value
-            for candidate, value in self.sink_cwe_by_call.items()
-            if candidate.rsplit(".", 1)[-1] == leaf
-        }
-        return next(iter(values)) if len(values) == 1 else None
+        return None
 
     def sink_severity_for(self, name: str | None) -> str | None:
         key = self._resolve_name(self.sink_severity_by_call, name)

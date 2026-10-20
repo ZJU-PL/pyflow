@@ -13,54 +13,119 @@ from collections import defaultdict
 from .callgraph import CallGraph
 
 
-def extract_call_graph(source_code: str) -> CallGraph:
-    """
-    Extract call graph from Python source code.
+def extract_call_graph(source_code: str, module_name: str = "main") -> CallGraph:
+    """Extract a lexical call graph with conservative local method dispatch.
 
-    This is an AST-based approach that finds function definitions
-    and function calls, including module-level calls and assigned calls.
+    Attribute calls include all same-named local methods because this lightweight
+    algorithm does not infer receiver types. Use the constraint engine for
+    interprocedural value flow and external module resolution.
     """
     graph = CallGraph()
-    function_names = set()
-
-    # Add implicit 'main' function for module-level code
-    main_function = "main"
-    graph.add_node(main_function)
-    function_names.add(main_function)
-
+    graph.add_node(module_name)
     try:
         tree = ast.parse(source_code)
-
-        # First pass: collect all function definitions and add them to graph
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                # Use qualified names like 'main.func'
-                qualified_name = f"{main_function}.{node.name}"
-                function_names.add(node.name)
-                function_names.add(qualified_name)
-                # Add the function to the graph
-                graph.add_node(qualified_name)
-
-        # Second pass: find calls within functions and module-level code
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                caller_name = node.name
-                _analyze_function_calls(node, caller_name, function_names, graph)
-            elif isinstance(node, ast.Module):
-                # Handle module-level calls (treat as 'main' function)
-                _analyze_module_calls(node, main_function, function_names, graph)
-
     except SyntaxError:
-        # If parsing fails, return empty graph
-        pass
+        return graph
 
+    definitions = {}
+    methods = defaultdict(set)
+    classes = set()
+
+    class Collector(ast.NodeVisitor):
+        scope = module_name
+        in_class = False
+
+        def visit_ClassDef(self, node):
+            previous, was_class = self.scope, self.in_class
+            self.scope = f"{previous}.{node.name}"
+            classes.add(self.scope)
+            definitions[node] = self.scope
+            self.in_class = True
+            self.generic_visit(node)
+            self.scope, self.in_class = previous, was_class
+
+        def visit_FunctionDef(self, node):
+            previous, was_class = self.scope, self.in_class
+            name = f"{previous}.{node.name}"
+            definitions[node] = name
+            graph.add_node(name)
+            if was_class:
+                methods[node.name].add(name)
+            self.scope, self.in_class = name, False
+            self.generic_visit(node)
+            self.scope, self.in_class = previous, was_class
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+    Collector().visit(tree)
+    functions = set(definitions.values()) - classes
+    aliases = defaultdict(set)
+
+    class Calls(ast.NodeVisitor):
+        scope = module_name
+
+        def resolve(self, name):
+            scope = self.scope
+            while scope:
+                qualified = f"{scope}.{name}"
+                if qualified in functions or qualified in classes:
+                    return {qualified}
+                if qualified in aliases:
+                    return aliases[qualified]
+                scope = scope.rpartition(".")[0]
+            return set()
+
+        def visit_FunctionDef(self, node):
+            # Decorators and defaults execute in the enclosing scope.
+            for value in (*node.decorator_list, *node.args.defaults, *node.args.kw_defaults):
+                if value is not None:
+                    self.visit(value)
+            previous = self.scope
+            self.scope = definitions[node]
+            for statement in node.body:
+                self.visit(statement)
+            self.scope = previous
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node):
+            for value in (*node.decorator_list, *node.bases):
+                self.visit(value)
+            previous = self.scope
+            self.scope = definitions[node]
+            for statement in node.body:
+                self.visit(statement)
+            self.scope = previous
+
+        def visit_Assign(self, node):
+            if isinstance(node.value, ast.Name):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        aliases[f"{self.scope}.{target.id}"].update(self.resolve(node.value.id))
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            targets = set()
+            if isinstance(node.func, ast.Name):
+                targets = self.resolve(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                targets = methods[node.func.attr]
+            for target in targets:
+                if target in classes:
+                    target = f"{target}.__init__"
+                    if target not in functions:
+                        continue
+                graph.add_edge(self.scope, target)
+            self.generic_visit(node)
+
+    Calls().visit(tree)
     return graph
 
 
 def _analyze_function_calls(func_node, caller_name, function_names, graph):
     """Analyze function calls within a function definition."""
     # Use qualified name for the caller
-    qualified_caller = f"main.{func_node.name}" if func_node.name != "main" else "main"
+    qualified_caller = f"main.{func_node.name}"
 
     for child in ast.walk(func_node):
         if isinstance(child, ast.Call):
@@ -168,7 +233,9 @@ def analyze_file(filepath: str, *, format: str = "text") -> str:
     try:
         with open(filepath, "r") as f:
             source = f.read()
-        graph = extract_call_graph(source)
+        from pathlib import Path
+
+        graph = extract_call_graph(source, module_name=Path(filepath).stem)
         from .formats import generate_text_output, generate_adjacency_json
 
         if format == "json":

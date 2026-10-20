@@ -643,3 +643,15 @@ def test_synthetic_module_alias_does_not_shadow_a_function_named_main():
     assert context.resolve_function("main") is function
     assert context.resolve_function("main.main") is function
     assert context.resolve_function("main.<module>") is module
+
+
+def test_query_resolves_catalog_nested_functions_outside_live_code():
+    outer, inner = DummyCode("deco"), DummyCode("wrapper")
+    catalog = IRCatalog()
+    catalog.register_code(outer, module="sample", qualname="deco")
+    catalog.register_code(
+        inner, module="sample", qualname="sample.<module>.<locals>.deco.<locals>.wrapper"
+    )
+    context = QueryContext(None, SimpleNamespace(liveCode=[outer], ir=catalog))
+    for name in ("wrapper", "deco.wrapper", "sample.deco.wrapper"):
+        assert context.resolve_function(name) is inner

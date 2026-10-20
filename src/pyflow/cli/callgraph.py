@@ -23,6 +23,12 @@ from pyflow.frontend.entry_discovery import (
 
 
 def _validate_algorithm_options(args) -> bool:
+    if getattr(args, "mir_import_policy", None) and args.algorithm != "pycg-mir":
+        print(
+            "Error: --mir-import-policy is only supported with --algorithm pycg-mir",
+            file=sys.stderr,
+        )
+        return False
     if args.algorithm == "constraint":
         return True
 
@@ -99,6 +105,8 @@ def _analyze_file(
             )
             return 1
     elif args.algorithm == "pycg-mir":
+        if getattr(args, "mir_import_policy", None):
+            format_kwargs["import_policy"] = args.mir_import_policy
         output = _run_analyzer(
             analyze_file_pycg_mir,
             str(file_path),
@@ -211,6 +219,12 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         )
         return 1
     assert full_path is not None
+    if not entry:
+        print(
+            f"Analyzing auto-detected entry {entry_rel} and its imports. "
+            "Use --all-scopes or --recursive to include every project module.",
+            file=sys.stderr,
+        )
     return _analyze_file(full_path, args, project_entry=True, project_root=repo_path)
 
 
@@ -220,7 +234,9 @@ def run_callgraph(input_path, args):
             print(f"Error: Path '{input_path}' not found", file=sys.stderr)
             return 1
 
-        if input_path.is_dir() and getattr(args, "recursive", False):
+        if input_path.is_dir() and (
+            getattr(args, "recursive", False) or getattr(args, "all_scopes", False)
+        ):
             return _analyze_project_sources(input_path, args)
         if input_path.is_dir():
             return _run_callgraph_on_dir(input_path, args)
@@ -280,10 +296,17 @@ def add_callgraph_parser(subparsers):
         default="constraint",
         help=(
             "Call graph algorithm (default: constraint; pycg-mir uses native MIR "
-            "analysis without the optional pycg package)"
+            "flow-insensitive analysis without the optional pycg package and may "
+            "overapproximate dynamic calls; simple uses lexical calls "
+            "and conservative local method matching, without callback or import resolution)"
         ),
     )
 
+    parser.add_argument(
+        "--mir-import-policy",
+        choices=("strict", "opaque"),
+        help="Import policy for pycg-mir (default: opaque, with partial-analysis diagnostics)",
+    )
     parser.add_argument("--output", "-o", type=Path, help="Output file (default: stdout)")
     parser.add_argument(
         "--format",
@@ -336,8 +359,8 @@ def add_callgraph_parser(subparsers):
         "--all-scopes",
         action="store_true",
         help=(
-            "Analyze every loaded top-level scope instead of entry-reachable "
-            "scopes when the input is a project directory"
+            "Load and analyze every project module, including unimported modules, "
+            "when the input is a directory (constraint only)"
         ),
     )
     parser.add_argument(

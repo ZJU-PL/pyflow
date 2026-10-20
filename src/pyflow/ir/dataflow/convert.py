@@ -222,7 +222,7 @@ def gate(pred, value):
     gate.setPredicate(pred)
     gate.addRead(value)
 
-    if isinstance(value, graph.ExistingNode):
+    if isinstance(value, (graph.ExistingNode, graph.NullNode)):
         result = graph.LocalNode(pred.hyperblock)
     else:
         result = value.duplicate()
@@ -259,7 +259,12 @@ def gatedMerge(hyperblock, pairs):
     else:
         m = graph.Merge(hyperblock)
 
-        result = pairs[0][1].duplicate()
+        first_value = pairs[0][1]
+        result = (
+            graph.LocalNode(hyperblock, ())
+            if isinstance(first_value, (graph.ExistingNode, graph.NullNode))
+            else first_value.duplicate()
+        )
         result.hyperblock = hyperblock
         m.modify = result.addDefn(m)
 
@@ -440,6 +445,10 @@ class CodeToDataflow(TypeDispatcher):
 
     def handleOp(self, node, targets):
         g = self(node)
+        if isinstance(node, (ast.Local, ast.Existing)):
+            for target in targets:
+                self.set(target, g)
+            return
         assert isinstance(g, graph.GenericOp), (node, g)
         for lcl in targets:
             target = self.localTarget(lcl)

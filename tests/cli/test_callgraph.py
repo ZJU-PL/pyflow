@@ -164,3 +164,27 @@ def test_native_pycg_mir_cli_rejects_context_sensitive_flag(tmp_path, capsys):
 
     assert callgraph_cli.run_callgraph(sample, args) == 1
     assert "--context-sensitive" in capsys.readouterr().err
+
+
+def test_native_pycg_mir_handles_unmodeled_stdlib_with_partial_diagnostic(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text("import math\ndef f(): return math.sqrt(4)\nf()\n")
+    args = parse_callgraph_args(sample, "--algorithm", "pycg-mir", "--format", "json")
+    assert callgraph_cli.run_callgraph(sample, args) == 0
+    captured = capsys.readouterr()
+    import json
+
+    assert "sample.f" in json.loads(captured.out)["sample"]
+    assert "MIR call graph is partial" in captured.err
+    args = parse_callgraph_args(sample, "--algorithm", "pycg-mir", "--mir-import-policy", "strict")
+    assert callgraph_cli.run_callgraph(sample, args) == 1
+
+
+def test_mir_import_policy_rejects_other_algorithms(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text("pass\n")
+    args = parse_callgraph_args(
+        sample, "--algorithm", "constraint", "--mir-import-policy", "strict"
+    )
+    assert callgraph_cli.run_callgraph(sample, args) == 1
+    assert "only supported with --algorithm pycg-mir" in capsys.readouterr().err

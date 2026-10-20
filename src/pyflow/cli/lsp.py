@@ -35,7 +35,7 @@ _QUERY_REQUIRED_PASSES: dict[str, tuple[str, ...]] = {
     "get_callgraph": (),
     "get_callers": (),
     "get_callees": (),
-    "get_aliases": (),
+    "get_aliases": ("heap",),
 }
 
 _SOURCE_QUERY_FLAGS = {
@@ -82,6 +82,9 @@ def _source_query_index(input_path: Path) -> SourceIndex:
             if not any(part.startswith(".") for part in path.relative_to(root).parts)
             and not set(path.parts).intersection(_IGNORED_DIRECTORY_NAMES)
         )
+    from pyflow.ir.mir.lowering import _default_root
+
+    root = _default_root(root / "__init__.py")
     source_files = {str(path.absolute()): path.read_text(encoding="utf-8") for path in python_files}
     return SourceIndex(source_files, (root.absolute(),))
 
@@ -120,26 +123,28 @@ def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
         source_path=str(entry),
         allocation_site_sensitive_instances=False,
         skip_stdlib_modules=True,
+        canonical_entry_names=True,
+        additional_sources=_source_query_index(input_path).source_files,
     )
     return {caller: sorted(callees) for caller, callees in sorted(callgraph.get().items())}
 
 
 def _resolve_callgraph_node(
     graph: dict[str, list[str]], name: str, entry_module: str | None = None
-) -> str | None:
+) -> str:
     if name in graph:
         return name
-    # The graph's legacy entry namespace is "main", while the source index
-    # lists the entry file's module stem. Accept that alias without changing
-    # graph node IDs consumed by existing clients.
-    if entry_module and name.startswith(f"{entry_module}."):
-        entry_name = "main" + name[len(entry_module) :]
+    # Accept the old entry namespace as an alias for canonical module names.
+    if entry_module and name.startswith("main."):
+        entry_name = entry_module + name[4:]
         if entry_name in graph:
             return entry_name
     matches = sorted(node for node in graph if node == name or node.endswith(f".{name}"))
     if len(matches) == 1:
         return matches[0]
-    return None
+    if len(matches) > 1:
+        raise ValueError(f"Function name '{name}' is ambiguous: {', '.join(matches[:5])}")
+    raise ValueError(f"Function '{name}' not found in the call graph")
 
 
 def _dispatch_callgraph_query(
@@ -147,12 +152,10 @@ def _dispatch_callgraph_query(
 ) -> object:
     if args.get_callers:
         target = _resolve_callgraph_node(graph, args.get_callers, entry_module)
-        if target is None:
-            return []
         return sorted(caller for caller, callees in graph.items() if target in callees)
     if args.get_callees:
         source = _resolve_callgraph_node(graph, args.get_callees, entry_module)
-        return [] if source is None else graph.get(source, [])
+        return graph[source]
     return graph
 
 
@@ -284,6 +287,16 @@ def run_mcp(args):
 
 
 def run_query(args):
+    from pyflow.model.errors import TemporaryLimitation
+
+    try:
+        return _run_query(args)
+    except (TemporaryLimitation, ValueError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def _run_query(args):
     """Run a one-shot analysis query."""
     input_path = args.input_path
 

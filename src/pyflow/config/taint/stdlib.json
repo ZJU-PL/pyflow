@@ -293,17 +293,6 @@
       ]
     },
     {
-      "call": "print",
-      "sinks": [
-        {
-          "kind": "dangerous",
-          "port": {
-            "parameter": 0
-          }
-        }
-      ]
-    },
-    {
       "call": "sys.stdout.write",
       "sinks": [
         {

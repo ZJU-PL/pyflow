@@ -188,3 +188,95 @@ def test_critical_custom_taint_rule_survives_filtering_and_gates_successful_scan
     findings = json.loads(capsys.readouterr().out)["findings"]
     assert [item["rule_id"] for item in findings] == ["CUSTOM-CRITICAL"]
     assert findings[0]["severity"] == "critical"
+
+
+@pytest.mark.parametrize("directory", [False, True])
+def test_ifds_loads_relative_entry_once(tmp_path, monkeypatch, capsys, directory):
+    (tmp_path / "app.py").write_text("def run():\n    eval(input())\nrun()\n")
+    monkeypatch.chdir(tmp_path)
+    target = "." if directory else "app.py"
+    extra = ["--entry", "app.py"] if directory else []
+    assert run_security(_args(target, "--engine", "ifds", "--format", "json", *extra)) == 0
+    report = json.loads(capsys.readouterr().out)
+    findings = report["findings"]
+    assert len(findings) == 1
+    assert findings[0]["primary_location"]["start_line"] == 2
+
+
+def test_ifds_default_time_budget_and_config_override(tmp_path):
+    from pyflow.cli.security.command import _apply_ifds_config, _ifds_solver_options
+
+    args = _args(tmp_path, "--engine", "ifds")
+    assert _ifds_solver_options(args).max_seconds == 30.0
+    (tmp_path / "pyflow.json").write_text('{"solver_options": {"max_seconds": 12}}')
+    _apply_ifds_config(args)
+    assert _ifds_solver_options(args).max_seconds == 12
+    args = _args(tmp_path, "--engine", "ifds", "--ifds-max-seconds", "7")
+    _apply_ifds_config(args)
+    assert _ifds_solver_options(args).max_seconds == 7
+
+
+def test_cpg_total_budget_stops_before_remaining_targets(tmp_path, monkeypatch):
+    from pyflow.cli.security import command
+
+    ticks = iter([0.0, 2.0])
+    monkeypatch.setattr(command, "monotonic", lambda: next(ticks))
+    args = _args(tmp_path, "--engine", "cpg", "--cpg-total-max-seconds", "1")
+    report = command._run_cpg([str(tmp_path)], args)
+    assert report["status"] == "partial"
+    assert report["diagnostics"][0]["code"] == "cpg-total-time-budget"
+
+
+def test_ast_dataflow_text_groups_repeated_unknown_call_diagnostics(tmp_path, capsys):
+    sample = tmp_path / "app.py"
+    sample.write_text("def f():\n    unknown()\n    unknown()\n")
+    assert run_security(_args(sample, "--engine", "ast-dataflow")) == 0
+    output = capsys.readouterr().out
+    assert output.count("[unknown-call-effect]") == 1
+    assert "(2 occurrences)" in output
+
+
+def test_ast_time_budget_reports_partial_in_json(tmp_path, monkeypatch, capsys):
+    from pyflow.cli.security import command
+    from pyflow.cli.analysis_budget import AnalysisBudgetExceeded
+
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f(): pass\n")
+
+    def expire(self, paths):
+        raise AnalysisBudgetExceeded("Analysis exceeded 30 seconds")
+
+    monkeypatch.setattr(command.ASTDataflowManager, "analyze", expire)
+    args = _args(
+        sample, "--engine", "ast-dataflow", "--format", "json", "--exit-code-policy", "findings"
+    )
+    assert command.run_security(args) == 3
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "partial"
+    assert report["diagnostics"][0]["code"] == "ast-time-budget"
+
+
+def test_ifds_total_budget_retains_completed_entry_findings(tmp_path, monkeypatch):
+    from pyflow.cli.security import command
+    from pyflow.cli.analysis_budget import AnalysisBudgetExceeded
+
+    first, second = tmp_path / "first.py", tmp_path / "second.py"
+    monkeypatch.setattr(command, "_resolve_ifds_entry_files", lambda *_: (first, second))
+
+    def run_entry(targets, args):
+        if args.entry == second:
+            raise AnalysisBudgetExceeded("Analysis exceeded 60 seconds")
+        return {"entry": "first.py", "findings": [{"rule_id": "TEST"}], "status": "complete"}
+
+    monkeypatch.setattr(command, "_run_ifds_entry", run_entry)
+    report = command._run_ifds([str(tmp_path)], _args(tmp_path, "--engine", "ifds"))
+    assert report["status"] == "partial"
+    assert report["findings"] == [{"rule_id": "TEST"}]
+    assert report["diagnostics"][0]["code"] == "ifds-total-time-budget"
+
+
+def test_security_total_budgets_have_finite_defaults():
+    args = _args()
+    assert args.ast_max_seconds == 30
+    assert args.ifds_total_max_seconds == 60
+    assert args.cpg_total_max_seconds == 60

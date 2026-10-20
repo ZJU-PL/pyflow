@@ -194,3 +194,25 @@ class TestFoldTraverse(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_walrus_target_is_not_replaced_by_its_previous_constant():
+    target = ast.Local("value")
+    old = ast.Existing(program.Object(1))
+    value = ast.Existing(program.Object(2))
+    traverse = FoldTraverse(lambda node: old if node is target else node, MockCode())
+    result = traverse(ast.NamedExpr(target, value))
+    assert result.target is target
+    assert result.value.object is value.object
+
+
+def test_nested_walrus_invalidates_previous_constant_during_rewrite():
+    from pyflow.optimization.dataflow.base import FlowDict, top
+
+    target = ast.Local("value")
+    rewrite = FoldRewrite(MockExtractor(), None, MockCode())
+    rewrite.flow = FlowDict()
+    rewrite.flow.define(target, program.Object(1))
+    traverse = FoldTraverse(rewrite, MockCode())
+    traverse(ast.BuildTuple([ast.NamedExpr(target, ast.Existing(program.Object(2)))]))
+    assert rewrite.flow.lookup(target) is top

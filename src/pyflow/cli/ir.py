@@ -94,7 +94,7 @@ def add_ir_parser(subparsers):
     parser.add_argument(
         "--mir-import-policy",
         choices=("strict", "opaque"),
-        help="Reject unmodeled imports, or retain opaque boundaries for inspection (source views default to opaque; full views remain strict)",
+        help="Reject unmodeled imports, or retain opaque boundaries for inspection (default: opaque)",
     )
     parser.add_argument(
         "--dump-cfg",
@@ -481,13 +481,14 @@ def _format_mir_view(program, args, scope, diagnostics=()):
 def _dump_mir_files(python_files, input_path: Path, args):
     """Lower source directly, so MIR inspection never imports target modules."""
     from pyflow.ir.mir import lower_file
+    from pyflow.ir.mir.lowering import _default_root
 
     output_dir = Path(args.dump_output or ".")
-    project_root = str(input_path.resolve()) if input_path.is_dir() else None
-    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
-    import_policy = getattr(args, "mir_import_policy", None) or (
-        "opaque" if view == "source" else "strict"
+    project_root = (
+        str(_default_root(input_path.resolve() / "__init__.py")) if input_path.is_dir() else None
     )
+    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
+    import_policy = getattr(args, "mir_import_policy", None) or "opaque"
     compiled, diagnostics_by_source = [], {}
     for source in python_files:
         diagnostics = []
@@ -496,7 +497,9 @@ def _dump_mir_files(python_files, input_path: Path, args):
             project_root=project_root,
             import_policy=import_policy,
             diagnostics=diagnostics,
-            follow_imports=view == "full" or import_policy == "strict",
+            # Default dumps inspect the requested files. Following a project's
+            # entire dependency graph is an explicit full-view/strict request.
+            follow_imports=getattr(args, "mir_view", None) == "full" or import_policy == "strict",
         )
         compiled.append((source, program))
         diagnostics_by_source[source] = diagnostics
@@ -605,7 +608,14 @@ def _run_ir_dump(input_path: Path, args):
             )
 
         # Skip analysis pipeline for AST/CFG/CDG/DDG dumping since it clears AST blocks
-        if not (args.dump_ast or args.dump_cfg or args.dump_cdg or args.dump_ddg or args.dump_gir):
+        if not (
+            args.dump_ast
+            or args.dump_cfg
+            or args.dump_ssa
+            or args.dump_cdg
+            or args.dump_ddg
+            or args.dump_gir
+        ):
             with console.scope("analysis"):
                 Pipeline().run(program, compiler=compiler, name=str(input_path))
 

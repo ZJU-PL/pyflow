@@ -493,12 +493,24 @@ class DefensiveCapabilityAnalysis:
         pointer_result: PointerAnalysisResult,
     ) -> list[CapabilityDiagnostic]:
         diagnostics = []
+        locations = {}
+        for scope, constraint in pointer_result.state.constraints.all():
+            site = getattr(constraint, "call_site", None)
+            if site is not None:
+                locations[str(site)] = self._location(scope, site.statement)
         for detail in pointer_result.unknown_details():
             kind = "budget" if detail["kind"] == "solver_budget" else "unknown"
+            location = locations.get(detail["location"])
+            label = (
+                f"{location.filename}:{location.line}:{location.column}"
+                if location is not None
+                else detail["location"]
+            )
             diagnostics.append(
                 CapabilityDiagnostic(
                     kind=kind,
-                    message=f"{detail['kind']}: {detail['message']} ({detail['location']})",
+                    message=f"{detail['kind']}: {detail['message']} ({label})",
+                    location=location,
                 )
             )
         return diagnostics

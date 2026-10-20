@@ -300,11 +300,23 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
-        self(node.expr, self(node.lcls))
+        targets = self(node.lcls)
+        if len(targets) > 1:
+            value = self._freshLocal("assignment")
+            self(node.expr, [value])
+            for target in targets:
+                self.context.assign(value, target)
+        else:
+            self(node.expr, targets)
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):
         self(node.expr, None)
+
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        # IPA joins control-flow paths; keep prior values and include unbound.
+        self(node.lcl).markNull()
 
     @dispatch(ast.Return)
     def visitReturn(self, node):
@@ -421,7 +433,7 @@ class ConstraintExtractor(TypeDispatcher):
     # BuildList  –  summary Array slot (array smashing)
     # ------------------------------------------------------------------
 
-    @dispatch(ast.BuildList)
+    @dispatch(ast.BuildList, ast.BuildSet)
     def visitBuildList(self, node, targets=None):
         """Model a list literal using a summary Array/"*" slot."""
         arg_nodes = [self(arg) for arg in node.args]
@@ -432,8 +444,9 @@ class ConstraintExtractor(TypeDispatcher):
         assert len(targets) == 1
         target = targets[0]
 
-        self._allocateContainer(node, list, target)
-        self._storeContainerLength(node, target, len(node.args))
+        self._allocateContainer(node, set if isinstance(node, ast.BuildSet) else list, target)
+        if isinstance(node, ast.BuildList):
+            self._storeContainerLength(node, target, len(node.args))
 
         summary_key = self._existingTemp(self._LIST_SUMMARY_KEY)
         for arg_node in arg_nodes:
@@ -699,9 +712,11 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.SetAttr)
     def visitSetAttr(self, node):
-        obj = self(node.expr)
+        obj = self._freshLocal("attribute_object")
+        self(node.expr, [obj])
         name = self(node.name)
-        value = self(node.value)
+        value = self._freshLocal("attribute_value")
+        self(node.value, [value])
         self.context.store(value, obj, "Attribute", name)
 
     @dispatch(ast.DeleteAttr)
