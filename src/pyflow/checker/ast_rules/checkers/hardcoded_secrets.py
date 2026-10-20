@@ -4,15 +4,15 @@ Hardcoded Secret Detection.
 Detects common hardcoded secret patterns in assignments and function calls.
 
 Test IDs:
-- B501: AWS Access Key
-- B502: GitHub Token
-- B503: Google API Key
+- B9026: AWS Access Key
+- B9027: GitHub Token
+- B9028: Google API Key
 - B504: Slack Token
-- B505: Private Key
+- B9029: Private Key
 - B506: Database password in string
-- B507: Generic password assignment
-- B508: API token detection
-- B509: JWT secret
+- B9030: Generic password assignment
+- B9031: API token detection
+- B9032: JWT secret
 - B510: Encryption key
 """
 
@@ -136,7 +136,7 @@ def _find_match(pattern, values):
 
 
 @test.checks("Assign")
-@test.with_id("B501")
+@test.with_id("B9026")
 def hardcoded_aws_access_key(context):
     """Detect hardcoded AWS access keys (AKIA..., ASIA...)."""
     match = _find_match(AWS_ACCESS_KEY_RE, _collect_strings(context.node.value))
@@ -145,7 +145,7 @@ def hardcoded_aws_access_key(context):
 
 
 @test.checks("Assign")
-@test.with_id("B502")
+@test.with_id("B9027")
 def hardcoded_github_token(context):
     """Detect hardcoded GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)."""
     match = _find_match(GITHUB_TOKEN_RE, _collect_strings(context.node.value))
@@ -154,7 +154,7 @@ def hardcoded_github_token(context):
 
 
 @test.checks("Assign")
-@test.with_id("B503")
+@test.with_id("B9028")
 def hardcoded_google_api_key(context):
     """Detect hardcoded Google API keys (AIza...)."""
     match = _find_match(GOOGLE_API_KEY_RE, _collect_strings(context.node.value))
@@ -172,7 +172,7 @@ def hardcoded_slack_token(context):
 
 
 @test.checks("Assign")
-@test.with_id("B505")
+@test.with_id("B9029")
 def hardcoded_private_key(context):
     """Detect embedded private key blocks."""
     match = _find_match(PRIVATE_KEY_RE, _collect_strings(context.node.value))
@@ -190,7 +190,7 @@ def hardcoded_database_password(context):
 
 
 @test.checks("Assign")
-@test.with_id("B507")
+@test.with_id("B9030")
 def hardcoded_generic_password_assignment(context):
     """Detect generic password-like variable assignments to string literals."""
     target_names = []
@@ -206,7 +206,7 @@ def hardcoded_generic_password_assignment(context):
 
 
 @test.checks("Call")
-@test.with_id("B508")
+@test.with_id("B9031")
 def hardcoded_api_token_in_call(context):
     """Detect API token-like secrets in function call arguments."""
     for kw in context.node.keywords:
@@ -233,7 +233,7 @@ def hardcoded_api_token_in_call(context):
 
 
 @test.checks("Assign")
-@test.with_id("B509")
+@test.with_id("B9032")
 def hardcoded_jwt_secret(context):
     """Detect hardcoded JWT secrets."""
     target_names = []

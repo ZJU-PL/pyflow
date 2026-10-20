@@ -1,5 +1,5 @@
 """
-B102/B103: Test for bad file permissions.
+B9001/B103: Test for bad file permissions.
 
 Setting world-writable or overly permissive file permissions can
 expose sensitive data or allow unauthorized modification.
@@ -13,7 +13,7 @@ from ..core import test_properties as test
 
 
 @test.checks("Call")
-@test.with_id("B102")
+@test.with_id("B9001")
 def set_world_writable(context):
     qualname = context.call_function_name_qual
     if qualname not in {"os.chmod", "os.chown"}:

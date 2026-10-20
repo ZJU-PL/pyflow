@@ -870,7 +870,10 @@ class PythonToMIR:
         if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal)):
             return
         if isinstance(node, ast.Expr):
-            self.expression(node.value)
+            # Literal expression statements (including docstrings) have no
+            # runtime effect; avoid materializing thousands of unused chars.
+            if not isinstance(node.value, ast.Constant):
+                self.expression(node.value)
         elif isinstance(node, ast.Assign):
             value = self.expression(node.value)
             for target in node.targets:

@@ -226,7 +226,23 @@ def explore_file(
     implicit_parameter_count = 1 if entry_kind in {"method", "classmethod"} else 0
     parameters = all_parameters[implicit_parameter_count:]
     required_input_count = max(0, _required_positional_count(function) - implicit_parameter_count)
-    initial = tuple(initial_inputs) if initial_inputs is not None else (0,) * required_input_count
+    if initial_inputs is not None:
+        initial = tuple(initial_inputs)
+    else:
+        from ..project.catalog import ParameterTarget
+        from ..project.inputgen import _annotation_value
+
+        values = []
+        for position, parameter in enumerate(parameters[:required_input_count]):
+            annotation = ast.unparse(parameter.annotation) if parameter.annotation else None
+            try:
+                value = _annotation_value(
+                    ParameterTarget(parameter.arg, annotation, True, position), 0
+                )
+            except ValueError:
+                value = 0
+            values.append(value)
+        initial = tuple(values)
     if not all(_valid_input(value) for value in initial):
         raise ValueError("initial_inputs contain unsupported values")
     if len(initial) > len(parameters):

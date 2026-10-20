@@ -147,8 +147,39 @@ def get_current_user_validation(context):
 @test.with_id("A104")
 def sensitive_data_in_url(context):
     """Detect sensitive data being passed in URL parameters."""
+    if not context.is_module_imported_like("fastapi"):
+        return None
+    routes = [
+        decorator
+        for decorator in context.node.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr
+        in {"get", "post", "put", "patch", "delete", "api_route", "websocket"}
+    ]
+    if not routes:
+        return None
+    defaults = (
+        dict(
+            zip(
+                [arg.arg for arg in context.node.args.args[-len(context.node.args.defaults) :]],
+                context.node.args.defaults,
+            )
+        )
+        if context.node.args.defaults
+        else {}
+    )
     for param in context.node.args.args:
         param_name = param.arg.lower()
+        default = defaults.get(param.arg)
+        if isinstance(default, ast.Call) and _get_func_name(default.func) in {
+            "Header",
+            "Body",
+            "Cookie",
+            "Depends",
+            "Security",
+        }:
+            continue
         if any(sensitive in param_name for sensitive in SENSITIVE_PATH_PARAMS):
             return _fastapi_issue(
                 f"Path parameter '{param.arg}' may contain sensitive data - consider using headers or body.",

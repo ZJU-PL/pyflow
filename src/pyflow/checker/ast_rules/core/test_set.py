@@ -14,6 +14,7 @@ class SecurityTestSet:
         self.tests = {}
         self.test_configs = {}
         self.load_errors = []
+        self._rules_by_id = {}
         self._load_tests()
 
     def _load_tests(self):
@@ -29,6 +30,16 @@ class SecurityTestSet:
         """Add a test function to the test set"""
         if not hasattr(test_func, "_checks"):
             return
+        rule_id = getattr(test_func, "_test_id", "")
+        existing = self._rules_by_id.get(rule_id)
+        if existing is not None:
+            if existing is test_func:
+                return
+            raise ValueError(
+                f"Duplicate rule ID {rule_id}: {existing.__module__}.{existing.__name__} "
+                f"and {test_func.__module__}.{test_func.__name__}"
+            )
+        self._rules_by_id[rule_id] = test_func
         identifiers = {test_func.__name__, getattr(test_func, "_test_id", "")}
         if identifiers.intersection(self.profile.get("exclude", ())):
             return

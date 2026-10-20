@@ -193,3 +193,12 @@ def test_concolic_cli_scans_project_and_writes_json(tmp_path, capsys):
         json.loads(report.read_text(encoding="utf-8"))["functions"][0]["target"]["qualname"]
         == "classify"
     )
+
+
+def test_concolic_has_finite_default_budgets():
+    parser = argparse.ArgumentParser()
+    concolic.add_concolic_parser(parser.add_subparsers())
+    args = parser.parse_args(["concolic", "sample.py"])
+    assert args.total_timeout == 30
+    assert args.per_run_timeout == 5
+    assert args.solver_timeout == 2

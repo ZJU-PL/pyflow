@@ -8,8 +8,8 @@ including:
 - Insecure cryptographic primitives
 
 **Test IDs:**
-- B303: Weak cryptographic key sizes
-- B304: Weak hash functions (MD5, SHA1)
+- B9012: Weak cryptographic key sizes
+- B9014: Weak hash functions (MD5, SHA1)
 
 **Note:** Many weak crypto checks are also handled by the blacklist system
 (e.g., MD5, SHA1, weak ciphers). These tests provide additional checks for
@@ -39,7 +39,7 @@ def weak_crypto_issue():
 
 
 @test.checks("Call")
-@test.with_id("B303")
+@test.with_id("B9012")
 def weak_cryptographic_key(context):
     """
     Check for weak cryptographic key sizes.
@@ -61,7 +61,7 @@ def weak_cryptographic_key(context):
 
 
 @test.checks("Call")
-@test.with_id("B304")
+@test.with_id("B9014")
 def weak_hash_functions(context):
     """
     Check for weak hash functions.
@@ -78,7 +78,7 @@ def weak_hash_functions(context):
 
     Note:
         This is a fallback check. Most weak hash functions are also
-        caught by the blacklist system (B303).
+        caught by the blacklist system (B9012).
     """
     if context.call_function_name_qual in ["hashlib.md5", "hashlib.sha1"]:
         return issue.Issue(

@@ -2,11 +2,11 @@
 Deserialization Security Checks.
 
 Detects unsafe deserialization patterns (CWE-502):
-- B401: ``pickle.load`` / ``pickle.loads`` with user-controlled data
-- B402: ``yaml.load`` with unsafe or missing Loader
-- B403: ``marshal.load`` / ``marshal.loads``
-- B404: ``jsonpickle`` deserialization APIs
-- B405: ``shelve.open`` with user-controlled path
+- B9021: ``pickle.load`` / ``pickle.loads`` with user-controlled data
+- B9022: ``yaml.load`` with unsafe or missing Loader
+- B9023: ``marshal.load`` / ``marshal.loads``
+- B9024: ``jsonpickle`` deserialization APIs
+- B9025: ``shelve.open`` with user-controlled path
 
 Safe alternatives:
 - Prefer ``json.loads`` for untrusted data formats.
@@ -277,7 +277,7 @@ def _is_safe_yaml_loader(loader_node):
 
 
 @test.checks("Call")
-@test.with_id("B401")
+@test.with_id("B9021")
 def pickle_with_user_input(context):
     """Detect pickle.load(s) with potentially user-controlled input."""
     if not _matches_function(context, PICKLE_FUNCS):
@@ -294,7 +294,7 @@ def pickle_with_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B402")
+@test.with_id("B9022")
 def yaml_load_with_unsafe_loader(context):
     """Detect yaml.load() when Loader is unsafe or omitted."""
     if not _matches_function(context, {YAML_LOAD_FUNC}):
@@ -322,7 +322,7 @@ def yaml_load_with_unsafe_loader(context):
 
 
 @test.checks("Call")
-@test.with_id("B403")
+@test.with_id("B9023")
 def marshal_deserialization(context):
     """Detect marshal.load(s), which is unsafe for untrusted input."""
     if _matches_function(context, MARSHAL_FUNCS):
@@ -337,7 +337,7 @@ def marshal_deserialization(context):
 
 
 @test.checks("Call")
-@test.with_id("B404")
+@test.with_id("B9024")
 def jsonpickle_deserialization(context):
     """Detect jsonpickle deserialization APIs."""
     if _matches_jsonpickle_deserializer(context):
@@ -352,7 +352,7 @@ def jsonpickle_deserialization(context):
 
 
 @test.checks("Call")
-@test.with_id("B405")
+@test.with_id("B9025")
 def shelve_open_with_user_input(context):
     """Detect shelve.open() with user-controlled storage path."""
     if not _matches_function(context, {SHELVE_OPEN_FUNC}):

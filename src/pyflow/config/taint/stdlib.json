@@ -468,25 +468,11 @@
     },
     {
       "call": "json.loads",
-      "sinks": [
-        {
-          "kind": "dangerous",
-          "port": {
-            "parameter": 0
-          }
-        }
-      ]
+      "propagations": [{"from": "all", "to": "return"}]
     },
     {
       "call": "json.load",
-      "sinks": [
-        {
-          "kind": "dangerous",
-          "port": {
-            "parameter": 0
-          }
-        }
-      ]
+      "propagations": [{"from": "all", "to": "return"}]
     },
     {
       "call": "marshal.loads",

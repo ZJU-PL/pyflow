@@ -5,10 +5,10 @@ This module provides security tests for template rendering vulnerabilities,
 particularly Jinja2, Mako, and other template engines.
 
 **Test IDs:**
-- B613: Jinja2 autoescape off
-- B614: Jinja2 with mark_safe
-- B615: Jinja2 template injection (SSTI)
-- B702: Mako template usage (XSS risk)
+- B9045: Jinja2 autoescape off
+- B9046: Jinja2 with mark_safe
+- B9047: Jinja2 template injection (SSTI)
+- B9052: Mako template usage (XSS risk)
 """
 
 import ast
@@ -44,7 +44,7 @@ def _is_jinja2_import(node):
 
 
 @test.checks("Call")
-@test.with_id("B613")
+@test.with_id("B9045")
 def jinja2_autoescape_off(context):
     """
     Check for Jinja2 Environment with autoescape disabled.
@@ -95,7 +95,7 @@ def jinja2_autoescape_off(context):
 
 
 @test.checks("Call")
-@test.with_id("B614")
+@test.with_id("B9046")
 def jinja2_mark_safe(context):
     """
     Check for Jinja2 mark_safe usage.
@@ -152,7 +152,7 @@ def jinja2_mark_safe(context):
 
 
 @test.checks("Call")
-@test.with_id("B615")
+@test.with_id("B9047")
 def jinja2_template_injection(context):
     """
     Check for Jinja2 template injection (SSTI).
@@ -275,7 +275,7 @@ def jinja2_unsafe_loader(context):
 
 
 @test.checks("Call")
-@test.with_id("B702")
+@test.with_id("B9052")
 def use_of_mako_templates(context):
     qualname = context.call_function_name_qual
     if qualname == "mako.template.Template" or qualname == "mako.Template":

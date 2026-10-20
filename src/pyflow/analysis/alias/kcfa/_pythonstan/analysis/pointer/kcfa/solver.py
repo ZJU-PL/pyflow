@@ -182,6 +182,7 @@ class PointerSolver:
         self._analyzed_functions = set()
         self._stats: Dict[str, int] = {"iterations": 0, "constraints_applied": 0}
         self._modules = set()
+        self._module_objects = {}
         self._dispatched_class_factories = set()
         self._class_original_bases = {}
         self._class_namespaces = {}
@@ -1625,8 +1626,11 @@ class PointerSolver:
             unknown_obj = AbstractObject(c.alloc_site, scope.context)
             return unknown_obj
 
+        if module_ir in self._module_objects:
+            return self._module_objects[module_ir]
         self._modules.add(module_ir)
         module_obj = ModuleObject(context, c.alloc_site, module_ir)
+        self._module_objects[module_ir] = module_obj
 
         # resolve the content of module
         module_ctx = context
@@ -1780,6 +1784,20 @@ class PointerSolver:
             self.state.record_semantic_event(
                 PointerEvent(PointerEventKind.STORE, scope, context, c, base_obj)
             )
+            if (
+                isinstance(base_obj, ModuleObject)
+                and c.field
+                and c.field.kind == FieldKind.ATTRIBUTE
+            ):
+                module_scope = self.state.get_internal_scope(base_obj)
+                if module_scope is not None:
+                    module_var = self.state.get_variable(
+                        module_scope,
+                        module_scope.context,
+                        Variable(name=c.field.name, kind=VariableKind.GLOBAL),
+                    )
+                    self.state._add_var_points_flow(source_var, module_var)
+                    continue
             field_access = self.state.raw_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(source_var, field_access)
 

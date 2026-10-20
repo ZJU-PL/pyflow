@@ -880,6 +880,14 @@ class IRTranslator:
         if hasattr(stmt, "decorator_list") and stmt.decorator_list:
             current_var = func_var
             for idx, decorator_expr in enumerate(reversed(stmt.decorator_list)):
+                if isinstance(decorator_expr, ast.Name) and decorator_expr.id in {
+                    "staticmethod",
+                    "classmethod",
+                    "property",
+                }:
+                    # IRFunc records these descriptor semantics explicitly.
+                    # Reapplying them as unresolved global calls loses the method.
+                    continue
                 try:
                     # Extract decorator variable/name
                     if isinstance(decorator_expr, ast.Name):

@@ -1121,6 +1121,33 @@ class ThreeAddressTransformer(NodeTransformer):
     def visit_Import(self, node):
         blk = []
         for alias in node.names:
+            if alias.asname is None and "." in alias.name:
+                parts = alias.name.split(".")
+                root_import = ast.copy_location(ast.Import(names=[ast.alias(name=parts[0])]), node)
+                blk.append(root_import)
+                self.import_stmts.add(root_import)
+                parent = ast.Name(id=parts[0], ctx=ast.Load())
+                for index, part in enumerate(parts[1:], 1):
+                    loaded, stored = self.tmp_gen()
+                    imported = ast.copy_location(
+                        ast.Import(
+                            names=[ast.alias(name=".".join(parts[: index + 1]), asname=stored.id)]
+                        ),
+                        node,
+                    )
+                    blk.append(imported)
+                    self.import_stmts.add(imported)
+                    blk.append(
+                        ast.copy_location(
+                            ast.Assign(
+                                targets=[ast.Attribute(value=parent, attr=part, ctx=ast.Store())],
+                                value=loaded,
+                            ),
+                            node,
+                        )
+                    )
+                    parent = loaded
+                continue
             ins = ast.Import(names=[alias])
             ast.copy_location(ins, alias)
             blk.append(ins)

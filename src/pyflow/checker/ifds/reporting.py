@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+import json
 from pyflow.checker.common.reporting import code_name, result_status, statistics_to_dict
 
 from pyflow.analysis.ifds.reporting import (
@@ -55,6 +56,29 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
     return tuple(sorted(findings, key=_finding_key))
 
 
+def taint_finding_key(finding):
+    """Identify a reported flow independently of analysis context/node numbering."""
+    location = finding.get("primary_location")
+    if not location:
+        return json.dumps(finding, sort_keys=True)
+    flow = finding.get("code_flow", ())
+    sources = [step.get("location") for step in flow if step.get("kind") in {"source", "seed"}]
+    if not sources and flow:
+        sources = [flow[0].get("location")]
+    properties = finding.get("properties", {})
+    return json.dumps(
+        [
+            finding.get("rule_id"),
+            location,
+            finding.get("sink_name"),
+            properties.get("source_kind"),
+            properties.get("sink_kind"),
+            sources,
+        ],
+        sort_keys=True,
+    )
+
+
 def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
     """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
     from collections import defaultdict, deque
@@ -72,6 +96,7 @@ def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
                 )
             ].append(finding)
     findings = []
+    seen = set()
     for finding in taint_result.findings:
         tainted_arguments = [local.name or "<local>" for local in finding.tainted_arguments]
         if not tainted_arguments:
@@ -91,7 +116,26 @@ def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
                 "explanations": normalized_finding.get("code_flow", []),
             }
         )
-        findings.append(normalized_finding)
+        location = normalized_finding.get("primary_location")
+        flow = normalized_finding.get("code_flow", ())
+        sources = [step.get("location") for step in flow if step.get("kind") in {"source", "seed"}]
+        if not sources and flow:
+            sources = [flow[0].get("location")]
+        identity = json.dumps(
+            [
+                normalized_finding.get("rule_id")
+                or getattr(getattr(finding, "rule", None), "rule_id", None),
+                location or id(finding.sink),
+                finding.sink_name,
+                getattr(finding, "source_kind", None),
+                getattr(finding, "sink_kind", None),
+                sources,
+            ],
+            sort_keys=True,
+        )
+        if identity not in seen:
+            seen.add(identity)
+            findings.append(normalized_finding)
 
     statistics = statistics_to_dict(taint_result.statistics)
 

@@ -795,7 +795,11 @@ def _components_from_toml_lock(
         component = _component(name, version=version)
         if package.get("license"):
             component["licenses"] = [_license_entry(str(package["license"]))]
-        hashes = _hashes_from_lock_files(package.get("files", ()) or (), path, findings)
+        artifacts = list(package.get("files", ()) or ())
+        if isinstance(package.get("sdist"), dict):
+            artifacts.append(package["sdist"])
+        artifacts.extend(package.get("wheels", ()) or ())
+        hashes = _hashes_from_lock_files(artifacts, path, findings)
         if hashes:
             component["hashes"] = hashes
         elif _is_registry_lock_source(source):
@@ -1269,7 +1273,7 @@ def _hashes_from_strings(
     path: Path,
     findings: list[SupplyChainFinding],
 ) -> list[dict[str, str]]:
-    pairs: dict[str, str] = {}
+    hashes = []
     for value in values:
         raw = str(value)
         if ":" in raw:
@@ -1287,8 +1291,8 @@ def _hashes_from_strings(
                 )
             )
             continue
-        pairs[algorithm] = digest
-    return _hashes_from_mapping(pairs, path, findings)
+        hashes.extend(_hashes_from_mapping({algorithm: digest}, path, findings))
+    return _dedupe_hashes(hashes)
 
 
 def _hashes_from_mapping(

@@ -1,5 +1,5 @@
 """
-B112: Test for unsafe tarfile extraction.
+B9006: Test for unsafe tarfile extraction.
 
 Extracting tar archives without validating member paths can lead to
 path traversal attacks (zip/tar slip). Always use the 'data' filter
@@ -11,7 +11,7 @@ from ..core import test_properties as test
 
 
 @test.checks("Call")
-@test.with_id("B112")
+@test.with_id("B9006")
 def tarfile_unsafe_extraction(context):
     qualname = context.call_function_name_qual
     if qualname not in {

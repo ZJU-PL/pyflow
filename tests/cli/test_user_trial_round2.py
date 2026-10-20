@@ -12,7 +12,7 @@ def cli(*args):
         [
             sys.executable,
             "-c",
-            "from pyflow.cli.main import entrypoint; entrypoint()",
+            "from pyflow.cli.main import entrypoint; raise SystemExit(entrypoint())",
             *map(str, args),
         ],
         capture_output=True,

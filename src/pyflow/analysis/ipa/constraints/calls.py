@@ -57,7 +57,7 @@ class UserCallConstraint(AbstractCall):
 
         self._unresolved_callee = self.selfarg is None and self.varg is None
         if self._unresolved_callee:
-            LOG.warning(
+            LOG.debug(
                 "creating call constraint with unresolved callee at %r; "
                 "call will be skipped until callee information is available",
                 op,
@@ -190,7 +190,7 @@ class UserCallConstraint(AbstractCall):
                 self.cache[key] = None
 
                 if selfobj is None:
-                    LOG.warning(
+                    LOG.debug(
                         "skipping unresolved indirect call at %r (callee object is None)",
                         self.op,
                     )

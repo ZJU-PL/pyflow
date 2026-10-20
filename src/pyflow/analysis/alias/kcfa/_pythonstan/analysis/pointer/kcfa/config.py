@@ -44,7 +44,7 @@ class Config:
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_points_to_size: Optional[int] = None
     verbose: bool = False
-    log_level: str = "INFO"
+    log_level: str = "WARNING"
     enable_instrumentation: bool = False
     entry_points: Optional[List[str]] = None
     build_class_hierarchy: bool = True

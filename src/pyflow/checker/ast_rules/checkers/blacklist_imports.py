@@ -24,7 +24,7 @@ from ..core import blacklist
 from ..core import test_properties as test
 
 
-@test.checks("Import")
+@test.checks("Import", "ImportFrom")
 @test.with_id("B401-B415")
 def check_blacklisted_imports(context):
     """
@@ -39,6 +39,8 @@ def check_blacklisted_imports(context):
     Returns:
         List of Issue objects if blacklisted imports found, None otherwise
     """
+    if isinstance(getattr(context, "node", None), ast.ImportFrom):
+        return check_blacklisted_import_from(context)
     if not isinstance(getattr(context, "node", None), ast.Import):
         return None
 
@@ -49,8 +51,6 @@ def check_blacklisted_imports(context):
     return [issue for issue in issues if issue] or None
 
 
-@test.checks("ImportFrom")
-@test.with_id("B401-B415")
 def check_blacklisted_import_from(context):
     """
     Check for blacklisted from imports.

@@ -75,6 +75,9 @@ def add_capabilities_parser(subparsers) -> None:
         help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
     )
     parser.add_argument("--format", choices=("text", "json", "sarif"), default="text")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show individual resolver diagnostics"
+    )
     parser.add_argument("--output", "-o", type=Path)
     parser.add_argument(
         "--exit-code-policy",
@@ -176,7 +179,7 @@ def run_capabilities(args) -> int:
     elif args.format == "sarif":
         rendered = json.dumps(capability_sarif(result), indent=2, sort_keys=True)
     else:
-        rendered = _to_text(result)
+        rendered = _to_text(result, verbose=getattr(args, "verbose", False))
 
     if args.output:
         args.output.write_text(rendered + "\n", encoding="utf-8")
@@ -189,7 +192,7 @@ def run_capabilities(args) -> int:
     return 0
 
 
-def _to_text(result) -> str:
+def _to_text(result, *, verbose=False) -> str:
     lines = [f"Capability analysis: {result.status}"]
     for finding in result.findings:
         loc = finding.location
@@ -198,8 +201,16 @@ def _to_text(result) -> str:
             f"{finding.report_kind.value} {finding.capability} "
             f"({finding.access_path})"
         )
+    hidden = 0
     for diagnostic in result.diagnostics:
-        lines.append(f"diagnostic[{diagnostic.kind}]: {diagnostic.message}")
+        if diagnostic.kind == "unknown" and not verbose:
+            hidden += 1
+        else:
+            lines.append(f"diagnostic[{diagnostic.kind}]: {diagnostic.message}")
+    if hidden:
+        lines.append(
+            f"{hidden} unresolved-operation diagnostics; use --verbose or --format json for details"
+        )
     lines.append(
         f"{result.statistics.get('findings', 0)} finding(s), "
         f"{result.statistics.get('diagnostics', 0)} diagnostic(s)"

@@ -1,5 +1,5 @@
 """
-B510: Test for insecure SNMP configuration.
+B9034: Test for insecure SNMP configuration.
 
 Using default or weak SNMP community strings exposes
 device configuration to unauthorized access.
@@ -21,7 +21,7 @@ DEFAULT_COMMUNITY_STRINGS = {
 
 
 @test.checks("Str")
-@test.with_id("B510")
+@test.with_id("B9034")
 def snmp_weak_community(context):
     s = context.string
     if not isinstance(s, str):

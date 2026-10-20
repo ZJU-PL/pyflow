@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from pyflow.concolic import ConcolicError, explore_file, generate_pytest, scan_project
+from pyflow.cli.analysis_budget import positive_seconds
 
 
 def add_concolic_parser(subparsers):
@@ -58,7 +59,7 @@ def add_concolic_parser(subparsers):
         "--inputs",
         help=(
             "Initial scalar/list/dictionary arguments as a JSON array "
-            "(default: zero for each parameter)"
+            "(default: infer simple annotated types; zero for unannotated parameters)"
         ),
     )
     parser.add_argument(
@@ -110,18 +111,21 @@ def add_concolic_parser(subparsers):
     )
     parser.add_argument(
         "--total-timeout",
-        type=float,
-        help="Maximum wall-clock seconds for the complete exploration",
+        type=positive_seconds,
+        default=30.0,
+        help="Maximum wall-clock seconds for the complete exploration (default: 30)",
     )
     parser.add_argument(
         "--per-run-timeout",
-        type=float,
-        help="Maximum wall-clock seconds for one concrete execution",
+        type=positive_seconds,
+        default=5.0,
+        help="Maximum wall-clock seconds for one concrete execution (default: 5)",
     )
     parser.add_argument(
         "--solver-timeout",
-        type=float,
-        help="Maximum wall-clock seconds for one solver query",
+        type=positive_seconds,
+        default=2.0,
+        help="Maximum wall-clock seconds for one solver query (default: 2)",
     )
     parser.add_argument(
         "--solver-rlimit",
@@ -202,9 +206,9 @@ def run_concolic(args) -> int:
             max_schedule_states=getattr(args, "max_schedule_states", 1000),
             search_strategy=getattr(args, "search_strategy", "coverage"),
             max_uninteresting_iterations=getattr(args, "max_uninteresting_iterations", None),
-            total_timeout=getattr(args, "total_timeout", None),
-            per_run_timeout=getattr(args, "per_run_timeout", None),
-            solver_timeout=getattr(args, "solver_timeout", None),
+            total_timeout=getattr(args, "total_timeout", 30.0),
+            per_run_timeout=getattr(args, "per_run_timeout", 5.0),
+            solver_timeout=getattr(args, "solver_timeout", 2.0),
             solver_rlimit=getattr(args, "solver_rlimit", None),
             max_solver_calls=getattr(args, "max_solver_calls", None),
             max_pending_states=getattr(args, "max_pending_states", 10000),

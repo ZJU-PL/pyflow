@@ -33,6 +33,7 @@ from pyflow.checker.common.reporting import result_status, statistics_to_dict
 from pyflow.checker.common.diagnostics import diagnostics_to_dicts, affects_completeness
 from pyflow.checker.ifds.reporting import (
     taint_result_to_dict,
+    taint_finding_key,
     nullness_result_to_dict,
     typestate_result_to_dict,
 )
@@ -351,7 +352,11 @@ def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
     seen = set()
     for report in reports:
         for finding in report.get("findings", ()):
-            key = json.dumps(finding, sort_keys=True)
+            key = (
+                taint_finding_key(finding)
+                if finding.get("sink_name")
+                else json.dumps(finding, sort_keys=True)
+            )
             if key not in seen:
                 seen.add(key)
                 findings.append(finding)
@@ -622,6 +627,32 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
 
 
 def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
+    from pyflow.cli.analysis_budget import analysis_time_budget, AnalysisBudgetExceeded
+
+    report = {"engine": "cpg", "findings": [], "diagnostics": [], "statistics": {}}
+    total = getattr(args, "cpg_total_max_seconds", 60.0)
+    per_target = getattr(args, "cpg_max_seconds", 30.0)
+    budgets = [
+        value
+        for value in (total, per_target * len(targets) if per_target else None)
+        if value is not None
+    ]
+    try:
+        with analysis_time_budget(min(budgets) if budgets else 60.0):
+            return _run_cpg_targets(targets, args, report)
+    except AnalysisBudgetExceeded as error:
+        report["status"] = "partial"
+        report["diagnostics"].append(
+            {
+                "code": "cpg-time-budget",
+                "message": str(error),
+                "affects_completeness": True,
+            }
+        )
+        return report
+
+
+def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
     """Run the CPG-based context-sensitive security analysis."""
     from pyflow.application.cpg import (
         SECURITY_CPG_EXCLUDE_DIRS,
@@ -631,9 +662,9 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     from pyflow.checker.cpg.taint import CPGTaintEngine
     from pyflow.checker.cpg.rules import load_rules, detect_frameworks
 
-    findings: List[Dict[str, Any]] = []
-    diagnostics: List[Dict[str, Any]] = []
-    statistics: Dict[str, int] = {}
+    findings = report["findings"]
+    diagnostics = report["diagnostics"]
+    statistics = report["statistics"]
     status = "complete"
     analyzed_targets = 0
     total_budget = getattr(args, "cpg_total_max_seconds", 60.0)

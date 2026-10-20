@@ -103,10 +103,14 @@ class Runtime:
         b.assign(field(result, "$value"), raw)
         if cls == "str" and isinstance(value, str):
             chars = []
+            characters = {}
             for character in value:
-                char = self.obj(b, "str")
-                b.assign(field(char, "$value"), self.raw(b, character))
-                b.assign(field(char, "$chars"), b.alloc(ListExpr((char,)), "char"))
+                char = characters.get(character)
+                if char is None:
+                    char = self.obj(b, "str")
+                    b.assign(field(char, "$value"), self.raw(b, character))
+                    b.assign(field(char, "$chars"), b.alloc(ListExpr((char,)), "char"))
+                    characters[character] = char
                 chars.append(char)
             b.assign(field(result, "$chars"), b.alloc(ListExpr(tuple(chars)), "chars"))
         return result

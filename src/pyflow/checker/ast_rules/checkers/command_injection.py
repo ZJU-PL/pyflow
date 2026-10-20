@@ -2,12 +2,12 @@
 Enhanced command injection pattern checks.
 
 Test IDs:
-- B701: subprocess.run with shell=True and user input
-- B702: subprocess.call with shell=True and user input
-- B703: subprocess.Popen with shell=True and user input
-- B704: os.system with user input
-- B705: os.popen with user input
-- B706: popen2.Popen with shell=True
+- B9048: subprocess.run with shell=True and user input
+- B9050: subprocess.call with shell=True and user input
+- B9053: subprocess.Popen with shell=True and user input
+- B9055: os.system with user input
+- B9057: os.popen with user input
+- B9059: popen2.Popen with shell=True
 - B707: commands.getoutput/getstatusoutput usage
 - B708: command string formatting/shlex.join with user input
 - B605: start_process_with_a_shell
@@ -262,7 +262,7 @@ def _is_dangerous_command_expr(node):
 
 
 @test.checks("Call")
-@test.with_id("B701")
+@test.with_id("B9048")
 def subprocess_run_shell_true_user_input(context):
     if context.call_function_name_qual != "subprocess.run":
         return None
@@ -276,7 +276,7 @@ def subprocess_run_shell_true_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B702")
+@test.with_id("B9050")
 def subprocess_call_shell_true_user_input(context):
     if context.call_function_name_qual != "subprocess.call":
         return None
@@ -290,7 +290,7 @@ def subprocess_call_shell_true_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B703")
+@test.with_id("B9053")
 def subprocess_popen_shell_true_user_input(context):
     if context.call_function_name_qual != "subprocess.Popen":
         return None
@@ -304,7 +304,7 @@ def subprocess_popen_shell_true_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B704")
+@test.with_id("B9055")
 def os_system_user_input(context):
     if context.call_function_name_qual != "os.system":
         return None
@@ -316,7 +316,7 @@ def os_system_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B705")
+@test.with_id("B9057")
 def os_popen_user_input(context):
     if context.call_function_name_qual != "os.popen":
         return None
@@ -328,7 +328,7 @@ def os_popen_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B706")
+@test.with_id("B9059")
 def popen2_shell_true(context):
     if context.call_function_name_qual != "popen2.Popen":
         return None
@@ -424,7 +424,7 @@ def start_process_with_no_shell(context):
 def start_process_with_partial_path(context):
     qualname = context.call_function_name_qual
     # Only check functions without dedicated path-safety checks
-    # (B701-B708, B604 already cover COMMAND_SINKS and most COMMAND_SINKS_SHELL)
+    # (B9048-B708, B604 already cover COMMAND_SINKS and most COMMAND_SINKS_SHELL)
     if qualname not in COMMAND_SINKS_NO_SHELL:
         return None
     if context.call_args_count < 1:

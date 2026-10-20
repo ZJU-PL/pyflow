@@ -19,7 +19,7 @@ def test_generic_functions_and_collection_operations_are_not_framework_vulnerabi
         tmp_path,
         "def helper():\n    kwargs.setdefault('default', value)\n    result.add(template)\n    mapping.add(rule)\n    cursor.execute(**options)\n",
     )
-    assert not ({"A105", "B510", "B604"} & rules)
+    assert not ({"A105", "B9034", "B9037"} & rules)
 
 
 def test_fastapi_rate_limit_hint_requires_endpoint_and_honors_decorators(tmp_path):
@@ -36,18 +36,18 @@ def test_fastapi_rate_limit_hint_requires_endpoint_and_honors_decorators(tmp_pat
 
 
 def test_snmp_checks_only_community_name_parameter(tmp_path):
-    assert "B510" in _rules(
+    assert "B9034" in _rules(
         tmp_path, "from pysnmp.hlapi import CommunityData\nCommunityData('public')\n"
     )
-    assert "B510" not in _rules(
+    assert "B9034" not in _rules(
         tmp_path,
         "from pysnmp.hlapi import CommunityData\nCommunityData('public', 'strong-custom-value')\n",
     )
 
 
 def test_ldap_requires_receiver_evidence(tmp_path):
-    assert "B604" in _rules(tmp_path, "import ldap\nconnection.add(user_dn, values)\n")
-    assert "B604" not in _rules(tmp_path, "import ldap\nresult.add(item)\n")
+    assert "B9037" in _rules(tmp_path, "import ldap\nconnection.add(user_dn, values)\n")
+    assert "B9037" not in _rules(tmp_path, "import ldap\nresult.add(item)\n")
 
 
 def test_dynamic_callee_does_not_crash_user_validation_rule(tmp_path):

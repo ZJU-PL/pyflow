@@ -33,7 +33,7 @@ def paramiko_command_injection(context):
 
 
 @test.checks("Call")
-@test.with_id("B509")
+@test.with_id("B9033")
 def paramiko_missing_host_key(context):
     qualname = context.call_function_name_qual
     if qualname not in {

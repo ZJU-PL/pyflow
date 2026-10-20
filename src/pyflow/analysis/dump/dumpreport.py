@@ -176,7 +176,10 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
     # Psedo-python output
     if func is not None and func.isStandardCode():
         out.begin("pre")
-        scg.process(func)
+        if func.codeName().endswith("<module>"):
+            scg.process(func.ast)
+        else:
+            scg.process(func)
         out.end("pre")
 
     # Pretty printer for debugging
@@ -568,14 +571,14 @@ def dumpReport(name, compiler, prgm, derived, liveInvocations, liveHeap, heapCon
     # Generate basic function and heap reports without complex analysis
     try:
         with compiler.console.scope("function reports"):
-            for func in prgm.liveCode[:1]:  # Limit to first function to avoid timeout
+            for func in sorted(prgm.liveCode, key=lambda code: code.codeName()):
                 try:
                     dumpFunctionInfo(func, compiler, derived, links, reportDir)
                 except Exception as e:
                     print(f"Warning: Could not dump function {func.codeName()}: {e}")
 
         with compiler.console.scope("heap reports"):
-            heap_list = list(liveHeap)[:1]  # Limit to first heap to avoid timeout
+            heap_list = sorted(liveHeap, key=repr)
             for heap in heap_list:
                 try:
                     dumpHeapInfo(heap, compiler, heapContexts, links, reportDir)

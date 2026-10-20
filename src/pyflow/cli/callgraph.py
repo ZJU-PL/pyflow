@@ -23,6 +23,9 @@ from pyflow.frontend.entry_discovery import (
 
 
 def _validate_algorithm_options(args) -> bool:
+    if getattr(args, "mir_max_seconds", None) is not None and args.algorithm != "pycg-mir":
+        print("Error: --mir-max-seconds requires --algorithm pycg-mir", file=sys.stderr)
+        return False
     if getattr(args, "mir_import_policy", None) and args.algorithm != "pycg-mir":
         print(
             "Error: --mir-import-policy is only supported with --algorithm pycg-mir",
@@ -105,6 +108,8 @@ def _analyze_file(
             )
             return 1
     elif args.algorithm == "pycg-mir":
+        if getattr(args, "mir_max_seconds", None) is not None:
+            format_kwargs["max_seconds"] = args.mir_max_seconds
         if getattr(args, "mir_import_policy", None):
             format_kwargs["import_policy"] = args.mir_import_policy
         output = _run_analyzer(
@@ -292,6 +297,7 @@ def add_callgraph_parser(subparsers):
     parser.add_argument(
         "--algorithm",
         "-a",
+        "--engine",
         choices=["simple", "constraint", "pycg", "pycg-mir"],
         default="constraint",
         help=(
@@ -306,6 +312,13 @@ def add_callgraph_parser(subparsers):
         "--mir-import-policy",
         choices=("strict", "opaque"),
         help="Import policy for pycg-mir (default: opaque, with partial-analysis diagnostics)",
+    )
+    from pyflow.cli.analysis_budget import positive_seconds
+
+    parser.add_argument(
+        "--mir-max-seconds",
+        type=positive_seconds,
+        help="Native MIR callgraph time budget (default: 30; returns partial graph)",
     )
     parser.add_argument("--output", "-o", type=Path, help="Output file (default: stdout)")
     parser.add_argument(

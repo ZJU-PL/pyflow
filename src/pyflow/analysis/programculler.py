@@ -188,6 +188,11 @@ class LiveHeapFinder(TypeDispatcher):
     def visitLeaf(self, node):
         pass
 
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
+        for child in node:
+            self(child)
+
     @dispatch(ast.Existing)
     def visitExisting(self, node):
         self.addReferences(self.facts.merged_references(self.code, node))

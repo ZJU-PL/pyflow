@@ -1,10 +1,10 @@
 """
-B107: Test for insecure logging configuration.
+B9003: Test for insecure logging configuration.
 
 Logging to network sockets or configuring log servers on
 insecure interfaces may leak sensitive information.
 
-B612: Test for insecure use of logging.config.listen.
+B9044: Test for insecure use of logging.config.listen.
 The logging.config.listen function opens a socket server that
 passes received config through eval(). Use with a 'verify'
 argument to authenticate the source.
@@ -15,7 +15,7 @@ from ..core import test_properties as test
 
 
 @test.checks("Call")
-@test.with_id("B107")
+@test.with_id("B9003")
 def logging_insecure_listen(context):
     qualname = context.call_function_name_qual
     if qualname not in {
@@ -40,7 +40,7 @@ def logging_insecure_listen(context):
 
 
 @test.checks("Call")
-@test.with_id("B108")
+@test.with_id("B9005")
 def logging_no_encryption(context):
     qualname = context.call_function_name_qual
     if qualname not in {
@@ -60,7 +60,7 @@ def logging_no_encryption(context):
 
 
 @test.checks("Call")
-@test.with_id("B612")
+@test.with_id("B9044")
 def logging_config_listen(context):
     qualname = context.call_function_name_qual
     if qualname != "logging.config.listen":

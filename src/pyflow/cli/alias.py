@@ -189,6 +189,7 @@ def _collect_param_names(code) -> list[str]:
 def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
     source = filepath.read_text()
     codes = _convert_functions(source, str(filepath))
+    source_names = {node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)}
 
     if not codes:
         print(f"  (no functions found to analyze)")
@@ -207,6 +208,16 @@ def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
 
         param_names = _collect_param_names(code)
         all_entries = list(graph.iter_entries())
+        if not verbose:
+            all_entries = [
+                entry
+                for entry in all_entries
+                if entry.label in source_names
+                or not (
+                    entry.label.startswith(("interpreter_", "__pyflow_"))
+                    or entry.label in {"UnboundLocalError", "NameError"}
+                )
+            ]
         singleton_count = sum(1 for e in all_entries if e.is_singleton)
         escaped_count = sum(1 for e in all_entries if e.is_escaped)
 

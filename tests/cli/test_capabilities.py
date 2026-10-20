@@ -190,3 +190,20 @@ def test_capabilities_findings_exit_policy_is_opt_in(tmp_path, capsys):
     )
     assert run_capabilities(args) == 1
     assert json.loads(capsys.readouterr().out)["findings"]
+
+
+def test_default_text_summarizes_internal_diagnostics_but_verbose_expands():
+    from types import SimpleNamespace
+    from pyflow.cli.capabilities import _to_text
+    from pyflow.checker.capability.model import CapabilityDiagnostic
+
+    result = SimpleNamespace(
+        status="partial",
+        findings=[],
+        statistics={"findings": 0, "diagnostics": 20},
+        diagnostics=[CapabilityDiagnostic("unknown", "unresolved call target") for _ in range(20)],
+    )
+    compact = _to_text(result)
+    assert "20 unresolved-operation diagnostics" in compact
+    assert "diagnostic[unknown]" not in compact
+    assert _to_text(result, verbose=True).count("diagnostic[unknown]") == 20

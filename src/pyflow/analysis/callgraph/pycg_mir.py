@@ -32,7 +32,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
+from time import monotonic
 import warnings
+import math
+import sys
 
 from pyflow.ir.mir.model import (
     Alloc,
@@ -239,6 +242,8 @@ class _Analysis:
         self.raw_sites: dict[tuple[str, int], set[str]] = defaultdict(set)
         self.assignments: dict[str, set[str]] = defaultdict(set)
         self.changed = False
+        self.deadline = None
+        self.budget_exhausted = False
         self.integers: set[int] = {-1, 0, 1}
         self.strings: set[str] = set()
 
@@ -645,9 +650,19 @@ class _Analysis:
         self.changed = False
         # Newly discovered callees are processed on the next fixed-point pass.
         for scope in sorted(self.active):
+            if self.deadline is not None and monotonic() >= self.deadline:
+                self.budget_exhausted = True
+                return
             cfg = self.program.cfgs[scope]
             environment = self.environments[scope]
             for node_id in self._feasible_nodes(scope):
+                if (
+                    node_id % 128 == 0
+                    and self.deadline is not None
+                    and monotonic() >= self.deadline
+                ):
+                    self.budget_exhausted = True
+                    return
                 command = cfg.nodes[node_id].instruction
                 if isinstance(command, (Skip, Assume)):
                     continue
@@ -752,6 +767,7 @@ def analyze_program(
     program: Program,
     *,
     max_iterations: int | None = 256,
+    max_seconds: float | None = None,
     raise_on_truncation: bool = False,
     include_synthetic: bool = False,
     analyze_all_functions: bool = True,
@@ -771,23 +787,45 @@ def analyze_program(
         raise ValueError("max_iterations must be a positive integer or None")
     if program.entry not in program.cfgs:
         raise ValueError(f"MIR program entry {program.entry!r} is not a CFG")
+    started = monotonic()
+    if max_seconds is not None:
+        if not math.isfinite(max_seconds) or max_seconds <= 0:
+            raise ValueError("max_seconds must be finite and positive")
     program.validate()
     analysis = _Analysis(program, analyze_all_functions)
+    analysis.deadline = started + max_seconds if max_seconds is not None else None
     iterations = 0
     converged = False
     while max_iterations is None or iterations < max_iterations:
         analysis.step()
         iterations += 1
+        if analysis.budget_exhausted:
+            break
         if not analysis.changed:
             converged = True
             break
     result = analysis.result(converged, iterations, include_synthetic)
+    if analysis.budget_exhausted:
+        from dataclasses import replace
+
+        result = replace(
+            result,
+            diagnostics=(
+                f"Time budget reached after {max_seconds:g} seconds; graph is incomplete",
+                *result.diagnostics[1:],
+            ),
+        )
+        result.call_graph.analysis_result = result
     if not converged:
         if raise_on_truncation:
             raise PyCGMIRConvergenceError(result)
         warnings.warn(
-            f"MIR PyCG did not converge after {iterations} iterations; "
-            "the call graph is incomplete",
+            (
+                f"MIR PyCG reached its {max_seconds:g}-second time budget; "
+                if analysis.budget_exhausted
+                else f"MIR PyCG did not converge after {iterations} iterations; "
+            )
+            + "the call graph is incomplete",
             PyCGMIRConvergenceWarning,
             stacklevel=2,
         )
@@ -833,6 +871,7 @@ def analyze_file_pycg_mir(
     project_root: str | None = None,
     format: str = "text",
     import_policy: str = "opaque",
+    max_seconds: float | None = 30.0,
 ) -> str:
     """Analyze a file and supported local imports, rendering text or JSON adjacency.
 
@@ -844,13 +883,20 @@ def analyze_file_pycg_mir(
     from .formats import generate_text_output
 
     kwargs = {} if project_root is None else {"project_root": project_root}
+    if max_seconds is not None and (not math.isfinite(max_seconds) or max_seconds <= 0):
+        raise ValueError("max_seconds must be finite and positive")
     diagnostics = []
-    result = analyze_program(
-        lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics, **kwargs)
+    started = monotonic()
+    program = lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics, **kwargs)
+    remaining = (
+        max(1e-6, max_seconds - (monotonic() - started)) if max_seconds is not None else None
     )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PyCGMIRConvergenceWarning)
+        result = analyze_program(program, max_seconds=remaining)
+    if not result.converged:
+        print(f"MIR call graph is partial: {result.diagnostics[0]}", file=sys.stderr)
     if diagnostics:
-        import sys
-
         print(
             f"MIR call graph is partial: {len(diagnostics)} unmodeled semantic site(s). "
             "Use --mir-import-policy strict to require complete lowering.",

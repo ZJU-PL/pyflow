@@ -5,7 +5,7 @@ This module provides security tests that detect dangerous exception handling
 patterns that may hide errors or security issues.
 
 **Test IDs:**
-- B108: try_except_pass - Exception swallowing with pass
+- B9004: try_except_pass - Exception swallowing with pass
 - B110: try_except_raise - Re-raising caught exceptions improperly
 - B112: try_except_continue - Continuing after exception in loop
 """
@@ -79,7 +79,7 @@ def _contains_dangerous_exceptions(handlers):
 
 
 @test.checks("Try")
-@test.with_id("B108")
+@test.with_id("B9004")
 def try_except_pass(context):
     """
     Check for try-except blocks that silently swallow exceptions with pass.
@@ -281,7 +281,7 @@ def try_except_continue(context):
 
 
 @test.checks("Try")
-@test.with_id("B113")
+@test.with_id("B9007")
 def try_except_generic(context):
     """
     Check for catching overly broad exceptions.

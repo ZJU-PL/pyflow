@@ -3,11 +3,11 @@ LDAP injection detection checks.
 
 Test IDs:
 - B601: ldap.simple_bind with user input
-- B602: ldap.initialize + simple_bind chain with user input
-- B603: ldap.search with unsanitized DN/filter
-- B604: ldap.add with user-controlled DN
-- B605: ldap.modify with user-controlled DN
-- B606: Dangerous LDAP connection string construction
+- B9035: ldap.initialize + simple_bind chain with user input
+- B9036: ldap.search with unsanitized DN/filter
+- B9037: ldap.add with user-controlled DN
+- B9038: ldap.modify with user-controlled DN
+- B9039: Dangerous LDAP connection string construction
 """
 
 import ast
@@ -163,7 +163,7 @@ def ldap_simple_bind_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B602")
+@test.with_id("B9035")
 def ldap_initialize_and_bind_chain(context):
     """Detect ldap.initialize(...).simple_bind(...user_input...) pattern."""
     func_name = context.call_function_name_qual
@@ -187,7 +187,7 @@ def ldap_initialize_and_bind_chain(context):
 
 
 @test.checks("Call")
-@test.with_id("B603")
+@test.with_id("B9036")
 def ldap_search_unsanitized_filter(context):
     """Detect ldap.search*() with user-controlled DN/filter without escaping."""
     func_name = context.call_function_name_qual or ""
@@ -215,7 +215,7 @@ def ldap_search_unsanitized_filter(context):
 
 
 @test.checks("Call")
-@test.with_id("B604")
+@test.with_id("B9037")
 def ldap_add_user_controlled_dn(context):
     """Detect ldap.add*() with a user-controlled DN."""
     func_name = context.call_function_name_qual or ""
@@ -234,7 +234,7 @@ def ldap_add_user_controlled_dn(context):
 
 
 @test.checks("Call")
-@test.with_id("B605")
+@test.with_id("B9038")
 def ldap_modify_user_controlled_dn(context):
     """Detect ldap.modify*() with a user-controlled DN."""
     func_name = context.call_function_name_qual or ""
@@ -253,7 +253,7 @@ def ldap_modify_user_controlled_dn(context):
 
 
 @test.checks("Call")
-@test.with_id("B606")
+@test.with_id("B9039")
 def dangerous_ldap_connection_string(context):
     """Detect dynamic LDAP/LDAPS connection strings built from user input."""
     node = context.node

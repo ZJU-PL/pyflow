@@ -135,7 +135,7 @@ def sql_injection_string_formatting(context):
 
 
 @test.checks("Call")
-@test.with_id("B609")
+@test.with_id("B9040")
 def sql_injection_concatenation(context):
     """Check for SQL injection via string concatenation"""
     # Only check calls that look like SQL execution

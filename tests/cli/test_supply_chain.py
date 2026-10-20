@@ -185,7 +185,7 @@ def test_sbom_format_spdx_json_outputs_valid(tmp_path, capsys):
     assert out["packages"][0]["name"] == "requests"
 
 
-def test_audit_with_license_policy_adds_findings(tmp_path, capsys):
+def test_audit_does_not_infer_missing_licenses_from_requirements(tmp_path, capsys):
     req = tmp_path / "requirements.txt"
     req.write_text("requests==2.31.0\n", encoding="utf-8")
 
@@ -203,9 +203,10 @@ def test_audit_with_license_policy_adds_findings(tmp_path, capsys):
     )
 
     out = json.loads(capsys.readouterr().out)
-    assert exit_code == 1
+    assert exit_code == 1  # The independently valid missing-artifact-hash warning remains.
     kinds = {r["kind"] for r in out["results"]}
-    assert "license-not-declared" in kinds
+    assert "license-not-declared" not in kinds
+    assert "requirement-missing-hash" in kinds
 
 
 def test_audit_with_custom_license_policy_file(tmp_path, capsys):

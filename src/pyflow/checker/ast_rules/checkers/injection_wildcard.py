@@ -1,5 +1,5 @@
 """
-B105: Test for shell wildcard injection.
+B9002: Test for shell wildcard injection.
 
 Using user input in shell wildcard operations can lead to
 argument injection or unexpected file matching.
@@ -10,7 +10,7 @@ from ..core import test_properties as test
 
 
 @test.checks("Call")
-@test.with_id("B105")
+@test.with_id("B9002")
 def wildcard_injection(context):
     qualname = context.call_function_name_qual
     if qualname not in {

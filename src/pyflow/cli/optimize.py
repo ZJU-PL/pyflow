@@ -183,6 +183,10 @@ def _normalize_opt_pass_name(pass_name):
 
 def run_analysis(input_path, args):
     """Run PyFlow analysis on the input path (file or directory)."""
+    if getattr(args, "verbose", False):
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG)
     try:
         # Get Python files to analyze
         if not input_path.exists():
@@ -534,6 +538,12 @@ def dump_results(compiler, program, input_path, output_file):
     """Dump analysis results to files."""
     try:
         from pyflow.analysis.dump import dumpreport
+        from pyflow.ir.core import Capabilities
+
+        if not program.ir.facts.has(Capabilities.CONTEXTS):
+            Pipeline().run_custom_pipeline(
+                compiler, program, ["ipa_refresh", "cpa_path_sensitive", "lifetime_refresh"]
+            )
 
         output_path = (
             Path(output_file)

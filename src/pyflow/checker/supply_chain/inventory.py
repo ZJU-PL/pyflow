@@ -102,6 +102,24 @@ def _purl_version_matches(reference: str, specifier: SpecifierSet) -> bool:
 def dedupe_components(
     components: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    components = list(components)
+    applications = {item["name"]: item for item in components if item.get("type") == "application"}
+    # A lockfile can supply a dynamic root version absent from pyproject.toml.
+    # Carry the root's license/type into that local project entry before merge.
+    for item in components:
+        root = applications.get(item.get("name"))
+        same_version = False
+        if root is not None:
+            try:
+                same_version = Version(str(root.get("version"))) == Version(
+                    str(item.get("version"))
+                )
+            except InvalidVersion:
+                same_version = root.get("version") == item.get("version")
+        if root is not None and root is not item and (not root.get("version") or same_version):
+            item["type"] = "application"
+            if root.get("licenses") and not item.get("licenses"):
+                item["licenses"] = list(root["licenses"])
     deduped: dict[tuple[str, str | None], dict[str, Any]] = {}
     for component_data in components:
         key = (
@@ -127,6 +145,8 @@ def dedupe_components(
 
 
 def _merge_component(target: dict[str, Any], source: dict[str, Any]) -> None:
+    if source.get("type") == "application":
+        target["type"] = "application"
     for key, value in source.items():
         if key not in target or not target[key]:
             target[key] = value

@@ -210,6 +210,8 @@ class NamespaceManager:
             return None
         if not self.mock_root.exists():
             return None
+        if ns.to_str() == "os.path":
+            return str(self.mock_root / "posixpath.py")
         file_path = ns.to_filepath(rootpath=str(self.mock_root))
         if os.path.isfile(file_path):
             return file_path

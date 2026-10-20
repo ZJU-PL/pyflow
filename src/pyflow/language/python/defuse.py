@@ -57,6 +57,10 @@ class DFS(object):
         # Don't recurse on leaf nodes
         if isinstance(node, ast.leafTypes):
             return
+        if isinstance(node, (list, tuple)):
+            for child in node:
+                self.visit(child)
+            return
 
         # Recurse
 
@@ -234,10 +238,18 @@ class DefUseVisitor(TypeDispatcher):
         self.use(node, node.name)
         self.handleArgs(node)
 
-    @dispatch(ast.BuildTuple, ast.BuildList)
+    @dispatch(ast.BuildTuple, ast.BuildList, ast.BuildSet)
     def visitBuildContainer(self, node):
         for arg in node.args:
             self.use(node, arg)
+
+    @dispatch(ast.TypeParams)
+    def visitStructural(self, node):
+        pass
+
+    @dispatch(ast.TypeParam)
+    def visitTypeParam(self, node):
+        self.use(node, node.bound)
 
     @dispatch(ast.GetCell)
     def visitGetCell(self, node):

@@ -515,3 +515,16 @@ def test_malformed_mir_is_rejected_before_analysis():
     main = cfg("main", Alloc("missing", function("missing")))
     with pytest.raises(MIRValidationError, match="Unknown lambda body"):
         analyze_program(program(main))
+
+
+def test_wall_clock_budget_returns_explicit_partial_result(monkeypatch):
+    from pyflow.analysis.callgraph import pycg_mir
+
+    clock = iter([0.0, 1.0])
+    monkeypatch.setattr(pycg_mir, "monotonic", lambda: next(clock))
+    main = cfg("main", *empty_arguments())
+    with pytest.warns(pycg_mir.PyCGMIRConvergenceWarning, match="time budget"):
+        result = analyze_program(program(main), max_iterations=None, max_seconds=0.5)
+    assert not result.converged
+    assert "Time budget" in result.diagnostics[0]
+    assert result.call_graph.analysis_result is result

@@ -342,12 +342,12 @@ PATTERN_CASES = (
     PatternCase(
         "yaml_safe_loader",
         "import yaml\ndata = yaml.load(stream, Loader=yaml.SafeLoader)\n",
-        forbidden_ids=frozenset({"B402"}),
+        forbidden_ids=frozenset({"B9022"}),
     ),
     PatternCase(
         "yaml_without_loader",
         "import yaml\ndata = yaml.load(stream)\n",
-        required_ids=frozenset({"B402"}),
+        required_ids=frozenset({"B9022"}),
     ),
     PatternCase(
         "regex_compile_is_not_code_execution",
@@ -362,7 +362,7 @@ PATTERN_CASES = (
     PatternCase(
         "jsonpickle_decode_remains_reported",
         "import jsonpickle\nvalue = jsonpickle.decode(data)\n",
-        required_ids=frozenset({"B404"}),
+        required_ids=frozenset({"B9024"}),
     ),
     PatternCase(
         "dill_loads_remains_reported",
@@ -382,12 +382,12 @@ PATTERN_CASES = (
     PatternCase(
         "torch_load_without_weights_only",
         "import torch\nmodel = torch.load(path)\n",
-        required_ids=frozenset({"B611"}),
+        required_ids=frozenset({"B9042"}),
     ),
     PatternCase(
         "torch_load_with_weights_only",
         "import torch\nmodel = torch.load(path, weights_only=True)\n",
-        forbidden_ids=frozenset({"B611"}),
+        forbidden_ids=frozenset({"B9042"}),
     ),
     PatternCase(
         "flask_debug_enabled",
@@ -435,6 +435,6 @@ PATTERN_CASES = (
             "    name, trust_remote_code=True\n"
             ")\n"
         ),
-        required_ids=frozenset({"B612"}),
+        required_ids=frozenset({"B9043"}),
     ),
 )

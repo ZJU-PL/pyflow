@@ -9,7 +9,7 @@ def test_hashlib_md5_is_flagged(scan):
 
     test_ids = [i.test_id for i in issues]
     assert "B324" in test_ids
-    assert "B304" in test_ids
+    assert "B9014" in test_ids
     issue = issues[0]
     assert issue.cwe.id == Cwe.BROKEN_CRYPTO
     assert issue.severity == "MEDIUM"
@@ -22,7 +22,7 @@ def test_aes_new_weak_key_size_is_flagged(scan):
     res = scan("AES.new(key_size=64)\n")
     issues = res.issues
 
-    assert [i.test_id for i in issues] == ["B303"]
+    assert [i.test_id for i in issues] == ["B9012"]
     issue = issues[0]
     assert issue.cwe.id == Cwe.BROKEN_CRYPTO
     assert issue.severity == "MEDIUM"

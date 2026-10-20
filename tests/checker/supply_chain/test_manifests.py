@@ -268,3 +268,55 @@ def test_setup_script_follows_reachable_local_function(tmp_path):
     scan = scan_targets([setup])
 
     assert any(finding.kind == "install-script-dangerous-behavior" for finding in scan.findings)
+
+
+def test_uv_sdist_and_wheel_hashes_are_all_retained(tmp_path):
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        """version = 1
+[[package]]
+name = "demo"
+version = "1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://example.org/demo.tar.gz", hash = "sha256:"""
+        + "a" * 64
+        + """" }
+wheels = [{ url = "https://example.org/demo.whl", hash = "sha256:"""
+        + "b" * 64
+        + """" }]
+"""
+    )
+    scan = scan_targets([lock])
+    assert scan.components[0]["hashes"] == [
+        {"alg": "SHA-256", "content": "a" * 64},
+        {"alg": "SHA-256", "content": "b" * 64},
+    ]
+    assert not any(f.kind == "lock-artifact-missing-hash" for f in scan.findings)
+
+
+def test_dynamic_project_license_survives_locked_root_version(tmp_path):
+    from pyflow.checker.supply_chain import audit_license_policy
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\ndynamic=["version"]\nlicense="BSD-3-Clause"\ndependencies=["click>=8"]\n'
+    )
+    (tmp_path / "uv.lock").write_text(
+        'version=1\n[[package]]\nname="demo"\nversion="1.0"\nsource={editable="."}\n'
+    )
+    scan = scan_targets([tmp_path])
+    roots = [c for c in scan.components if c["name"] == "demo"]
+    assert roots and all(c.get("licenses") for c in roots)
+    assert all(c["type"] == "application" for c in roots)
+    assert not any(f.kind == "license-not-declared" for f in audit_license_policy(scan))
+
+
+def test_equivalent_pep440_root_versions_preserve_project_license(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="3.2.0.dev"\nlicense="BSD-3-Clause"\n'
+    )
+    (tmp_path / "uv.lock").write_text(
+        'version=1\n[[package]]\nname="demo"\nversion="3.2.0.dev0"\nsource={editable="."}\n'
+    )
+    scan = scan_targets([tmp_path])
+    assert all(component.get("licenses") for component in scan.components)
+    assert all(component["type"] == "application" for component in scan.components)

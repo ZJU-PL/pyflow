@@ -5,11 +5,11 @@ This module provides security tests for SSRF vulnerabilities where
 attacker can make the server make requests to arbitrary locations.
 
 **Test IDs:**
-- B701: requests.get with user URL
-- B702: urllib.request with user URL
-- B703: HTTP request to internal metadata
-- B704: Socket connections to internal services
-- B705: DNS rebinding possible
+- B9049: requests.get with user URL
+- B9051: urllib.request with user URL
+- B9054: HTTP request to internal metadata
+- B9056: Socket connections to internal services
+- B9058: DNS rebinding possible
 """
 
 import ast
@@ -84,7 +84,7 @@ def _url_argument(node, func_name):
 
 
 @test.checks("Call")
-@test.with_id("B701")
+@test.with_id("B9049")
 def requests_user_url(context):
     """
     Check for requests library with user-controlled URL.
@@ -133,7 +133,7 @@ def requests_user_url(context):
 
 
 @test.checks("Call")
-@test.with_id("B702")
+@test.with_id("B9051")
 def urllib_user_url(context):
     """
     Check for urllib with user-controlled URL.
@@ -175,7 +175,7 @@ def urllib_user_url(context):
 
 
 @test.checks("Call")
-@test.with_id("B703")
+@test.with_id("B9054")
 def internal_metadata_access(context):
     """
     Check for requests to cloud internal metadata endpoints.
@@ -238,7 +238,7 @@ def internal_metadata_access(context):
 
 
 @test.checks("Call")
-@test.with_id("B704")
+@test.with_id("B9056")
 def socket_internal_connection(context):
     """
     Check for socket connections to internal services.
@@ -287,7 +287,7 @@ def socket_internal_connection(context):
 
 
 @test.checks("Call")
-@test.with_id("B705")
+@test.with_id("B9058")
 def no_url_validation(context):
     """
     Check for HTTP requests without URL validation.
@@ -352,7 +352,7 @@ def no_url_validation(context):
 
 
 @test.checks("Call")
-@test.with_id("B706")
+@test.with_id("B9060")
 def dangerous_url_scheme(context):
     """
     Check for dangerous URL schemes in requests.

@@ -146,6 +146,22 @@ def audit_license_policy(
         purl = component.get("purl", name)
         licenses = component.get("licenses", [])
         if not licenses:
+            sources = [
+                str(prop.get("value", ""))
+                for prop in component.get("properties", ())
+                if isinstance(prop, dict) and prop.get("name") == "pyflow:source-file"
+            ]
+            # Requirement/lock entries describe dependency selection, not
+            # distribution license metadata. Absence there is not a defect.
+            if (
+                component.get("type") != "application"
+                and sources
+                and all(
+                    source.endswith((".lock", ".toml", ".txt", ".in", "setup.cfg", "setup.py"))
+                    for source in sources
+                )
+            ):
+                continue
             findings.append(
                 SupplyChainFinding(
                     kind="license-not-declared",

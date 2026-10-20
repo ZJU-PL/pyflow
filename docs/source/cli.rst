@@ -603,3 +603,31 @@ merely because its method shares a leaf name. Imported aliases and explicitly
 configured sink names remain supported. Printing user input is not a dangerous
 sink in the default policy. A110 requires FastAPI imports and inspects the actual
 database calls, excluding calls inside nested definitions.
+
+Real-project robustness
+-----------------------
+
+Concolic CLI runs default to a 30-second total budget, a 5-second execution
+budget, and a 2-second solver-query budget. Explicit flags override these
+values. Initial inputs use supported parameter annotations, including strings,
+when ``--inputs`` is omitted.
+
+CPG security scans use a hard CLI timer as well as cooperative engine deadlines,
+including preparation and graph construction. Interrupted runs report partial
+coverage and retain findings accumulated before interruption.
+
+Capability text reports summarize unresolved-operation diagnostics. Use
+``--verbose`` to expand them or JSON/SARIF to retain structured details. Alias
+text output hides generated interpreter helper entries unless verbose mode is
+requested. Optimization dump commands refresh invalidated analysis facts before
+rendering all function and heap reports.
+
+MIR lowering avoids allocating unused docstring characters and shares repeated
+character materialization within string literals. ``callgraph --engine`` is an
+alias for ``--algorithm``. Strict MIR imports reject missing source/models with
+an actionable error; opaque imports report partial coverage while retaining
+available local-module call edges.
+
+Native MIR callgraph scans default to a 30-second analysis budget; adjust it
+with ``--mir-max-seconds``. Exhaustion returns the discovered graph with an
+explicit incomplete-analysis diagnostic instead of reporting convergence.

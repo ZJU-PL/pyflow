@@ -4,7 +4,7 @@ SQL Injection Pattern Checks.
 This module provides enhanced SQL injection detection including ORM patterns.
 
 **Test IDs:**
-- B610: Django ORM extra() with user input
+- B9041: Django ORM extra() with user input
 - B611: SQLAlchemy raw SQL with string formatting
 - B612: SQLAlchemy text() with string formatting
 - B613: Dynamic table/column names
@@ -99,7 +99,7 @@ def _contains_sql_keyword(text):
 
 
 @test.checks("Call")
-@test.with_id("B610")
+@test.with_id("B9041")
 def django_orm_extra_injection(context):
     """
     Check for Django ORM extra() with user input.
@@ -215,7 +215,14 @@ def sqlalchemy_raw_sql_injection(context):
         return None
 
     # Check if this is a SQLAlchemy execute() or text() call
-    is_sqlalchemy = any(sa in func_name for sa in SQLALCHEMY_FUNCTIONS)
+    is_sqlalchemy = func_name in {
+        "sqlalchemy.text",
+        "sqlalchemy.sql.text",
+        "sqlalchemy.sql.expression.text",
+    } or (
+        context.is_module_imported_like("sqlalchemy")
+        and func_name.rsplit(".", 1)[-1] in {"text", "execute"}
+    )
 
     if not is_sqlalchemy:
         return None

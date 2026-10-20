@@ -292,3 +292,25 @@ def test_source_locations_and_core_instruction_grammar():
     } <= allowed
     assert program.cfgs["__main__.f"].filename == "example.py"
     assert any(node.lineno == 2 for node in program.cfgs["__main__"].nodes.values())
+
+
+def test_string_literals_share_character_materialization_and_preserve_indexing():
+    text = "ab" * 1000
+    result, program, _ = run_source(f"value={text!r}\nresult=(len(value), value[1], value[-1])\n")
+    assert result == (2000, "b", "b")
+    source_cfgs = [
+        cfg for cfg in program.cfgs.values() if cfg.filename == "<string>" and not cfg.is_synthetic
+    ]
+    assert sum(len(cfg.nodes) for cfg in source_cfgs) < 250
+
+
+def test_discarded_docstrings_do_not_materialize_unused_characters():
+    plain = lower_source("def f(): return 1\n")
+    documented = lower_source(f"def f():\n    {'documentation ' * 2000!r}\n    return 1\n")
+
+    def source_nodes(program):
+        return sum(
+            len(cfg.nodes) for cfg in program.cfgs.values() if cfg.filename and not cfg.is_synthetic
+        )
+
+    assert source_nodes(documented) == source_nodes(plain)

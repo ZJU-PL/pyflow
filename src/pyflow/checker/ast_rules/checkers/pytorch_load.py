@@ -1,5 +1,5 @@
 """
-B611: Test for unsafe PyTorch model loading.
+B9042: Test for unsafe PyTorch model loading.
 
 PyTorch model loading with pickle can execute arbitrary code
 during deserialization. Use weights_only=True when available.
@@ -10,7 +10,7 @@ from ..core import test_properties as test
 
 
 @test.checks("Call")
-@test.with_id("B611")
+@test.with_id("B9042")
 def pytorch_load_unsafe(context):
     qualname = context.call_function_name_qual
     if qualname not in {

@@ -280,3 +280,45 @@ def test_security_total_budgets_have_finite_defaults():
     assert args.ast_max_seconds == 30
     assert args.ifds_total_max_seconds == 60
     assert args.cpg_total_max_seconds == 60
+
+
+def test_cpg_hard_budget_reports_partial_if_builder_does_not_cooperate(tmp_path, monkeypatch):
+    from pyflow.cli.security import command
+    from pyflow.cli.analysis_budget import AnalysisBudgetExceeded
+
+    def interrupted(targets, args, report):
+        report["findings"].append({"rule_id": "already-found"})
+        raise AnalysisBudgetExceeded("Analysis exceeded 30 seconds")
+
+    monkeypatch.setattr(command, "_run_cpg_targets", interrupted)
+    report = command._run_cpg([str(tmp_path)], _args(tmp_path, "--engine", "cpg"))
+    assert report["status"] == "partial"
+    assert report["findings"] == [{"rule_id": "already-found"}]
+    assert report["diagnostics"][0]["code"] == "cpg-time-budget"
+
+
+def test_ifds_entries_deduplicate_same_source_sink_across_context_ids(tmp_path, monkeypatch):
+    from pyflow.cli.security import command
+
+    entries = (tmp_path / "one.py", tmp_path / "two.py")
+    monkeypatch.setattr(command, "_resolve_ifds_entry_files", lambda *_: entries)
+
+    def analyze(targets, args):
+        return {
+            "entry": str(args.entry),
+            "status": "complete",
+            "findings": [
+                {
+                    "rule_id": "TEST",
+                    "sink_name": "eval",
+                    "node_id": entries.index(args.entry),
+                    "primary_location": {"uri": "shared.py", "start_line": 3, "start_column": 0},
+                    "properties": {"source_kind": "user_input", "sink_kind": "rce"},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(command, "_run_ifds_entry", analyze)
+    report = command._run_ifds([str(tmp_path)], _args(tmp_path, "--engine", "ifds"))
+    assert len(report["findings"]) == 1
+    assert len(report["entry_results"]) == 2

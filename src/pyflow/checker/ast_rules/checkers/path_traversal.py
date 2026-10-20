@@ -29,13 +29,19 @@ def _is_dynamic_path(node):
         # % formatting
         return True
     if isinstance(node, ast.Call):
-        # Function call returning path (e.g., from user input)
-        return True
+        name = ast.unparse(node.func)
+        if name in {"input", "builtins.input"} or name.startswith(
+            ("request.args.", "request.form.", "request.GET.", "request.POST.")
+        ):
+            return True
+        # A computed path is not evidence of untrusted input. Preserve
+        # evidence nested in construction calls without guessing their returns.
+        return any(_is_dynamic_path(arg) for arg in node.args)
     return False
 
 
 @test.checks("Call")
-@test.with_id("B201")
+@test.with_id("B9008")
 def open_file_with_user_input(context):
     """Check for open() with user-controlled path"""
     if context.call_function_name in ["open", "io.open"]:
@@ -48,7 +54,7 @@ def open_file_with_user_input(context):
 
 
 @test.checks("Call")
-@test.with_id("B202")
+@test.with_id("B9009")
 def pathlib_path_with_user_input(context):
     """Check for pathlib.Path operations with user-controlled path"""
     if context.call_function_name_qual:

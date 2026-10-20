@@ -1,5 +1,5 @@
 """
-B612: Test for unsafe HuggingFace model/download usage.
+B9043: Test for unsafe HuggingFace model/download usage.
 
 HuggingFace model loading and dataset operations can execute
 arbitrary code from untrusted sources.
@@ -20,7 +20,7 @@ HF_UNTRUSTED_FUNCTIONS = {
 
 
 @test.checks("Call")
-@test.with_id("B612")
+@test.with_id("B9043")
 def huggingface_unsafe_load(context):
     qualname = context.call_function_name_qual
     if qualname not in HF_UNTRUSTED_FUNCTIONS:

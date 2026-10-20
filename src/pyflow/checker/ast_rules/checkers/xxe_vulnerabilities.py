@@ -38,7 +38,7 @@ def _check_parser_has_dtd_or_entity_resolution(call_node):
 
 
 @test.checks("Call")
-@test.with_id("B301")
+@test.with_id("B9010")
 def lxml_parser_dtd_enabled(context):
     """Check for lxml XMLParser with DTD loading enabled"""
     if context.call_function_name_qual in ["lxml.etree.XMLParser", "etree.XMLParser"]:
@@ -48,7 +48,7 @@ def lxml_parser_dtd_enabled(context):
 
 
 @test.checks("Call")
-@test.with_id("B302")
+@test.with_id("B9011")
 def lxml_html_parser_entity_sub(context):
     """Check for lxml HTMLParser with entity substitution"""
     if context.call_function_name_qual in ["lxml.etree.HTMLParser", "etree.HTMLParser"]:
@@ -61,7 +61,7 @@ def lxml_html_parser_entity_sub(context):
 
 
 @test.checks("Call")
-@test.with_id("B303")
+@test.with_id("B9013")
 def lxml_fromstring_with_dangerous_parser(context):
     """Check for lxml fromstring with dangerous parser configuration"""
     if context.call_function_name_qual in ["lxml.etree.fromstring", "etree.fromstring"]:
@@ -76,7 +76,7 @@ def lxml_fromstring_with_dangerous_parser(context):
 
 
 @test.checks("Call")
-@test.with_id("B304")
+@test.with_id("B9015")
 def xml_dom_minidom_parse(context):
     """Check for xml.dom.minidom parsing (can expand entities)"""
     if context.call_function_name_qual in [
@@ -88,7 +88,7 @@ def xml_dom_minidom_parse(context):
 
 
 @test.checks("Call")
-@test.with_id("B305")
+@test.with_id("B9016")
 def xml_sax_parse_string(context):
     """Check for xml.sax.parseString (can enable entity resolution)"""
     if context.call_function_name_qual == "xml.sax.parseString":
@@ -98,7 +98,7 @@ def xml_sax_parse_string(context):
 
 
 @test.checks("Call")
-@test.with_id("B306")
+@test.with_id("B9017")
 def expat_parser_create(context):
     """Check for xml.parsers.expat.ParserCreate without safety measures"""
     if context.call_function_name_qual == "xml.parsers.expat.ParserCreate":
@@ -111,7 +111,7 @@ def expat_parser_create(context):
 
 
 @test.checks("Call")
-@test.with_id("B307")
+@test.with_id("B9018")
 def defusedxml_lxml_safe(context):
     """Check for safe defusedxml lxml usage (should NOT flag)"""
     if context.call_function_name_qual and context.call_function_name_qual.startswith(
@@ -122,7 +122,7 @@ def defusedxml_lxml_safe(context):
 
 
 @test.checks("Call")
-@test.with_id("B308")
+@test.with_id("B9019")
 def lxml_xmlschema_validation(context):
     """Check for lxml XMLSchema validation that loads external resources"""
     if context.call_function_name_qual in ["lxml.etree.XMLSchema", "etree.XMLSchema"]:
@@ -145,7 +145,7 @@ def lxml_xslt_transformation(context):
 
 
 @test.checks("Call")
-@test.with_id("B310")
+@test.with_id("B9020")
 def sax_parser_create(context):
     """Check for xml.sax.saxparser creating parser without safety"""
     if context.call_function_name_qual == "xml.sax.saxparser":

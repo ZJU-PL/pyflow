@@ -193,8 +193,27 @@ def render_template_string_ssti(context):
 @test.with_id("F108")
 def csrf_protection_missing(context):
     """Detect forms without CSRF protection."""
-    func_name = context.node.name.lower()
-    if "form" in func_name or "submit" in func_name:
+    if not context.is_module_imported_like("flask"):
+        return None
+    routes = [
+        decorator
+        for decorator in context.node.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr in {"route", "post", "put", "patch", "delete"}
+    ]
+    if not routes:
+        return None
+    writes = any(route.func.attr in {"post", "put", "patch", "delete"} for route in routes)
+    for route in routes:
+        for keyword in route.keywords:
+            if keyword.arg == "methods" and isinstance(keyword.value, (ast.List, ast.Tuple)):
+                writes |= any(
+                    isinstance(item, ast.Constant)
+                    and str(item.value).upper() in {"POST", "PUT", "PATCH", "DELETE"}
+                    for item in keyword.value.elts
+                )
+    if writes:
         has_csrf = False
         for decorator in context.node.decorator_list:
             dec_name = ""

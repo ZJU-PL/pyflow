@@ -5,13 +5,13 @@ from pyflow.checker.supply_chain import audit_license_policy, scan_targets
 from ._helpers import write_record as _write_record
 
 
-def test_audit_license_policy_reports_unlicensed_and_disallowed(tmp_path):
+def test_audit_license_policy_does_not_treat_requirements_as_license_metadata(tmp_path):
     (tmp_path / "requirements.txt").write_text("requests==2.31.0\nflask>=3\n", encoding="utf-8")
     scan = scan_targets([tmp_path], recursive=True)
     findings = audit_license_policy(scan)
 
     kinds = {f.kind for f in findings}
-    assert "license-not-declared" in kinds
+    assert "license-not-declared" not in kinds
     assert all(f.location.startswith("pkg:pypi/") for f in findings)
 
 
@@ -86,3 +86,12 @@ def test_license_policy_reports_invalid_spdx_expression():
     findings = audit_license_policy(scan, allowed_licenses=["MIT"])
 
     assert findings[0].kind == "invalid-license-expression"
+
+
+def test_missing_license_is_still_reported_for_distribution_metadata(tmp_path):
+    dist = tmp_path / "demo-1.dist-info"
+    dist.mkdir()
+    (dist / "METADATA").write_text("Name: demo\nVersion: 1\n")
+    _write_record(dist, [dist / "METADATA"])
+    findings = audit_license_policy(scan_targets([tmp_path], recursive=True))
+    assert any(f.kind == "license-not-declared" for f in findings)

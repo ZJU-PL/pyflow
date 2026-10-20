@@ -224,7 +224,7 @@ class ConstraintExtractor(TypeDispatcher):
         # are no positional args, because in that degenerate case there is
         # truly nothing to dispatch on.
         if expr is None and vargs is None and not args:
-            LOG.warning(
+            LOG.debug(
                 "call: skipping unresolvable call at %r (expr=None, vargs=None, args=[])",
                 node,
             )

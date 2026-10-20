@@ -18,13 +18,14 @@ from ..constraints import (
     CallConstraint,
     AllocConstraint,
 )
-from ..context import Ctx
+from ..context import Ctx, CallSite
 from ..heap_model import Field, FieldKind, attr, unknown
 from ..object import (
     AllocKind,
     AllocSite,
     ClassObject,
     InstanceObject,
+    MethodObject,
     SlotDescriptorObject,
     SuperObject,
 )
@@ -151,6 +152,55 @@ class AttributeResolver(Processor):
                 )
             )
             source_node = instance_binding
+            getter_var = Variable(f"$property@{stable_token(lookup_key)}", VariableKind.TEMPORARY)
+            getter_ctx = state.get_variable(scope, target_ctx.context, getter_var)
+            state._add_points_flow_edge(
+                PointerFlowEdge(source_node, NormalNode(getter_ctx), PointerFlowKind.NORMAL)
+            )
+
+            applied = set()
+
+            def apply_getters():
+                for method in state.get_points_to(getter_ctx):
+                    if not isinstance(method, MethodObject) or not method.ir.is_getter:
+                        continue
+                    if method in applied:
+                        continue
+                    applied.add(method)
+                    callee = Variable(
+                        f"$getter@{stable_token(lookup_key, method)}", VariableKind.TEMPORARY
+                    )
+                    callee_ctx = state.get_variable(scope, target_ctx.context, callee)
+                    solver.handle_new_points_to(callee_ctx, scope, PointsToSet.singleton(method))
+                    solver.add_constraint(
+                        scope,
+                        target_ctx.context,
+                        CallConstraint(
+                            callee=callee,
+                            args=(),
+                            kwargs=(),
+                            target=target_ctx.content,
+                            call_site=CallSite(method.ir, scope_name=scope.stmt.get_qualname()),
+                        ),
+                    )
+
+            state.dependencies.subscribe(
+                ("property-getters", lookup_key), (getter_ctx,), apply_getters
+            )
+            ordinary = GuardNode(
+                lambda _edge, pts: PointsToSet.from_objects(
+                    (
+                        obj
+                        for obj in pts
+                        if not (isinstance(obj, MethodObject) and obj.ir.is_getter)
+                    ),
+                    arena=state.arena,
+                )
+            )
+            state._add_points_flow_edge(
+                PointerFlowEdge(source_node, ordinary, PointerFlowKind.NORMAL)
+            )
+            source_node = ordinary
         state._add_points_flow_edge(
             PointerFlowEdge(
                 source_node,
