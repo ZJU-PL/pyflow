@@ -78,6 +78,7 @@
 <li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#machine-readable-reports">Machine-readable reports</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#analysis-approaches">Analysis Approaches</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#applications">Applications</a></li>
@@ -153,6 +154,38 @@ checking (in order):</p>
 <li><p>Well-known filenames: <code class="docutils literal notranslate"><span class="pre">main.py</span></code>, <code class="docutils literal notranslate"><span class="pre">app.py</span></code>, <code class="docutils literal notranslate"><span class="pre">cli.py</span></code>, <code class="docutils literal notranslate"><span class="pre">run.py</span></code>, <code class="docutils literal notranslate"><span class="pre">launch.py</span></code></p></li>
 </ol>
 <p>A manual entry point can be specified with <code class="docutils literal notranslate"><span class="pre">--entry</span></code>.</p>
+<p>For a library or full repository, use <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">callgraph</span> <span class="pre">.</span> <span class="pre">-r</span> <span class="pre">-a</span> <span class="pre">constraint</span></code>.
+Recursive scans use the requested directory as the project root and recognize
+its <code class="docutils literal notranslate"><span class="pre">src/</span></code> import root, so scanning a src-layout repository from its root
+preserves package names. Constraint analysis seeds instance and class receivers
+for library methods even when no caller instantiates the class. Static methods
+do not receive an implicit receiver. Reachable-only API analysis retains its
+entry-rooted behavior.</p>
+<section id="machine-readable-reports">
+<h2>Machine-readable reports<a class="headerlink" href="#machine-readable-reports" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span></code> preserves the legacy adjacency map. Use
+<code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span> <span class="pre">--json-schema</span> <span class="pre">unified</span></code> for graph processing: its <code class="docutils literal notranslate"><span class="pre">graph</span></code>
+contains callable relationships, while <code class="docutils literal notranslate"><span class="pre">unresolved_calls</span></code> and
+<code class="docutils literal notranslate"><span class="pre">external_calls</span></code> contain dynamic call sites and builtin/stdlib references.
+The envelope includes <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">converged</span></code> (where available), and diagnostics.
+An unresolved call is not a function node in this schema. Simple and constraint
+file scans use the same package-qualified entry names; native MIR lambda names
+use per-scope numbering.</p>
+<p>Algorithms have different precision and supported semantics; equal names do
+not imply equal recall. <code class="docutils literal notranslate"><span class="pre">complete</span></code> describes the reported analysis boundary,
+not proof that Python’s dynamic behavior has been resolved. The simple algorithm
+is a syntactic approximation. Library coverage requires recursive scans or
+<code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code> when selecting a project entry.</p>
+<p>Native MIR reports return exit code 3 when partial, including legacy adjacency
+output. Unified reports from the other algorithms also return 3 for unresolved
+call sites. Invalid input or a hard worker failure remains nonzero and does not
+overwrite an existing output file.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--mir-max-seconds</span></code> controls the native lowering/analysis budget and is never
+silently capped. Without <code class="docutils literal notranslate"><span class="pre">--max-seconds</span></code>, the worker deadline is five seconds
+longer than that budget (30 + 5 seconds by default). An explicit hard deadline
+must exceed an explicit MIR budget; conflicting settings are rejected. When only
+the hard deadline is supplied, five seconds are reserved for startup/reporting.</p>
+</section>
 <section id="cli-usage">
 <h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Single file</span>

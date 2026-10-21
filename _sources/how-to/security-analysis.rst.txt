@@ -50,6 +50,52 @@ Run with a specific analysis engine:
 AST dataflow completion status
 ------------------------------
 
+Library function parameters are not automatically treated as untrusted inputs
+by the ``ast-dataflow`` CLI. To analyze an externally exposed API whose parameters
+are untrusted, explicitly pass ``--ast-entry-source-kind user_input`` (repeat the
+option for additional kinds). Modeled sources such as ``input()`` and framework
+request APIs continue to introduce taint independently. Use ``--framework`` with
+no names to detect rule packs from imports, including the SQL pack for SQLite.
+
+Parameters of recognized Flask, Quart, and FastAPI route handlers remain
+``user_input`` sources: the decorator must refer to an application/router created
+through a known imported framework constructor. Ordinary undecorated helpers
+are not inferred to be HTTP entry points.
+
+AST-dataflow and CPG resolve SQLite connection and cursor methods through known
+factory returns, including ``sqlite3.connect(...).cursor().execute(query)``.
+Unqualified method names such as ``__init__`` and ``items`` do not establish a
+library identity; import aliases and qualified receiver names are required.
+
+By default, reports fold equivalent findings from different rule packs at the
+same file, line, sink, and CWE. The highest severity is retained and JSON includes
+``related_rules`` with the contributing rule identities. Different CWEs remain
+separate. ``--no-deduplicate`` disables this folding for all security engines.
+Rule exclusions, baseline suppression, and severity filters apply before folding.
+
+``--sources``, ``--sinks``, and ``--sanitizers`` extend bundled models. Specifying
+only sinks retains default sources. Framework packs are detected from imports
+by default; explicit ``--framework NAME`` selects additional named packs.
+Known import aliases retain their library identity. An untyped receiver is not
+enough to match a qualified source model just because its method name agrees.
+
+``security DIRECTORY -r --engine ifds`` treats discovered Python files as
+analysis roots, so a library does not need a ``main.py`` or console entry.
+Without ``-r``, normal application-entry discovery still applies.
+
+CPG marks unmodeled external call effects as ``partial``. Text output displays
+completion status even when AST-dataflow finds no issues. For CI, use
+``--require-complete`` to return exit code 3 on partial/cancelled reports;
+``--exit-code-policy report`` otherwise retains its existing zero-exit behavior.
+An empty finding list with ``status: partial`` is not a clean result.
+
+The scanner reports constant shell commands under B605 at low severity;
+B604 requires an explicit ``shell=True`` wrapper. SQL f-strings are covered by
+B608. Unsafe YAML loading is medium severity and weak security hashes are high
+severity; ``usedforsecurity=False`` is respected by the hashlib checks. These
+align the specific rules with Bandit's published contracts, while PyFlow's full
+rule set is not a drop-in Bandit compatibility layer.
+
 JSON and SARIF output from ``ast-dataflow`` includes ``status``, diagnostics,
 precision reasons, and a bounded source-to-sink ``trace`` for each finding.
 ``complete`` means the fixed points converged without assumed or unsupported

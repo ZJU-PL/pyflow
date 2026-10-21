@@ -214,6 +214,44 @@ pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span clas
 </section>
 <section id="ast-dataflow-completion-status">
 <h3>AST dataflow completion status<a class="headerlink" href="#ast-dataflow-completion-status" title="Link to this heading"></a></h3>
+<p>Library function parameters are not automatically treated as untrusted inputs
+by the <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code> CLI. To analyze an externally exposed API whose parameters
+are untrusted, explicitly pass <code class="docutils literal notranslate"><span class="pre">--ast-entry-source-kind</span> <span class="pre">user_input</span></code> (repeat the
+option for additional kinds). Modeled sources such as <code class="docutils literal notranslate"><span class="pre">input()</span></code> and framework
+request APIs continue to introduce taint independently. Use <code class="docutils literal notranslate"><span class="pre">--framework</span></code> with
+no names to detect rule packs from imports, including the SQL pack for SQLite.</p>
+<p>Parameters of recognized Flask, Quart, and FastAPI route handlers remain
+<code class="docutils literal notranslate"><span class="pre">user_input</span></code> sources: the decorator must refer to an application/router created
+through a known imported framework constructor. Ordinary undecorated helpers
+are not inferred to be HTTP entry points.</p>
+<p>AST-dataflow and CPG resolve SQLite connection and cursor methods through known
+factory returns, including <code class="docutils literal notranslate"><span class="pre">sqlite3.connect(...).cursor().execute(query)</span></code>.
+Unqualified method names such as <code class="docutils literal notranslate"><span class="pre">__init__</span></code> and <code class="docutils literal notranslate"><span class="pre">items</span></code> do not establish a
+library identity; import aliases and qualified receiver names are required.</p>
+<p>By default, reports fold equivalent findings from different rule packs at the
+same file, line, sink, and CWE. The highest severity is retained and JSON includes
+<code class="docutils literal notranslate"><span class="pre">related_rules</span></code> with the contributing rule identities. Different CWEs remain
+separate. <code class="docutils literal notranslate"><span class="pre">--no-deduplicate</span></code> disables this folding for all security engines.
+Rule exclusions, baseline suppression, and severity filters apply before folding.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--sources</span></code>, <code class="docutils literal notranslate"><span class="pre">--sinks</span></code>, and <code class="docutils literal notranslate"><span class="pre">--sanitizers</span></code> extend bundled models. Specifying
+only sinks retains default sources. Framework packs are detected from imports
+by default; explicit <code class="docutils literal notranslate"><span class="pre">--framework</span> <span class="pre">NAME</span></code> selects additional named packs.
+Known import aliases retain their library identity. An untyped receiver is not
+enough to match a qualified source model just because its method name agrees.</p>
+<p><code class="docutils literal notranslate"><span class="pre">security</span> <span class="pre">DIRECTORY</span> <span class="pre">-r</span> <span class="pre">--engine</span> <span class="pre">ifds</span></code> treats discovered Python files as
+analysis roots, so a library does not need a <code class="docutils literal notranslate"><span class="pre">main.py</span></code> or console entry.
+Without <code class="docutils literal notranslate"><span class="pre">-r</span></code>, normal application-entry discovery still applies.</p>
+<p>CPG marks unmodeled external call effects as <code class="docutils literal notranslate"><span class="pre">partial</span></code>. Text output displays
+completion status even when AST-dataflow finds no issues. For CI, use
+<code class="docutils literal notranslate"><span class="pre">--require-complete</span></code> to return exit code 3 on partial/cancelled reports;
+<code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">report</span></code> otherwise retains its existing zero-exit behavior.
+An empty finding list with <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">partial</span></code> is not a clean result.</p>
+<p>The scanner reports constant shell commands under B605 at low severity;
+B604 requires an explicit <code class="docutils literal notranslate"><span class="pre">shell=True</span></code> wrapper. SQL f-strings are covered by
+B608. Unsafe YAML loading is medium severity and weak security hashes are high
+severity; <code class="docutils literal notranslate"><span class="pre">usedforsecurity=False</span></code> is respected by the hashlib checks. These
+align the specific rules with Bandit’s published contracts, while PyFlow’s full
+rule set is not a drop-in Bandit compatibility layer.</p>
 <p>JSON and SARIF output from <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code> includes <code class="docutils literal notranslate"><span class="pre">status</span></code>, diagnostics,
 precision reasons, and a bounded source-to-sink <code class="docutils literal notranslate"><span class="pre">trace</span></code> for each finding.
 <code class="docutils literal notranslate"><span class="pre">complete</span></code> means the fixed points converged without assumed or unsupported
