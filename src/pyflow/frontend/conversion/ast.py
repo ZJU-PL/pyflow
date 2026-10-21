@@ -101,11 +101,7 @@ class ASTConverter:
             converted._origin_tag = converted._origin_tag or (
                 f"SourceSyntax:{type(source).__name__}"
             )
-        if not hasattr(converted, "rewriteAnnotation"):
-            return converted
         annotation = getattr(converted, "annotation", None)
-        if annotation is None or not hasattr(annotation, "origin"):
-            return converted
         filename = self.current_filename or getattr(source, "filename", None)
         origin = SourceOrigin(
             None,
@@ -115,7 +111,31 @@ class ASTConverter:
             getattr(source, "end_lineno", None),
             getattr(source, "end_col_offset", None),
         )
-        converted.rewriteAnnotation(origin=(origin,))
+        if hasattr(converted, "rewriteAnnotation") and hasattr(annotation, "origin"):
+            converted.rewriteAnnotation(origin=(origin,))
+        # Lowered suites (with/import/try scaffolding) contain generated
+        # statements that may become independent CFG nodes. Preserve the
+        # nearest source span on those nodes as well as on their wrapper.
+        if getattr(source, "lineno", None):
+            from pyflow.ir.core.source import syntax_source_span
+
+            pending = list(converted.children()) if hasattr(converted, "children") else []
+            while pending:
+                child = pending.pop()
+                if isinstance(child, (list, tuple)):
+                    pending.extend(child)
+                    continue
+                annotation = getattr(child, "annotation", None)
+                if syntax_source_span(child) is not None:
+                    continue
+                if hasattr(child, "rewriteAnnotation") and hasattr(annotation, "origin"):
+                    existing = annotation.origin or ()
+                    existing = (
+                        tuple(existing) if isinstance(existing, (tuple, list)) else (existing,)
+                    )
+                    child.rewriteAnnotation(origin=(*existing, origin))
+                if hasattr(child, "children"):
+                    pending.extend(child.children())
         return converted
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:

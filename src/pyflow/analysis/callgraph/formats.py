@@ -9,6 +9,15 @@ import json
 from typing import Any
 
 
+class CallGraphOutput(str):
+    """Rendered output carrying completion across the CLI worker boundary."""
+
+    def __new__(cls, value, status="complete"):
+        result = super().__new__(cls, value)
+        result.status = status
+        return result
+
+
 def generate_text_output(call_graph, args) -> str:
     """Generate text output for the call graph."""
     output = []
@@ -104,3 +113,43 @@ def generate_adjacency_json(call_graph) -> str:
     return json.dumps(
         {name: sorted(callees) for name, callees in sorted(call_graph.get().items())}, indent=2
     )
+
+
+def structured_callgraph(graph, *, algorithm, status="complete", diagnostics=(), converged=None):
+    """Separate callable edges, external targets, and unresolved call sites."""
+    import sys
+
+    def external(name):
+        return (
+            name.startswith(("<builtin>", "<**", "builtins."))
+            or name.split(".", 1)[0] in sys.stdlib_module_names
+        )
+
+    def dynamic(name):
+        return name.startswith("<dynamic>.")
+
+    functions = {name for name in graph if not dynamic(name) and not external(name)}
+    unresolved = [
+        {"caller": caller, "site": callee}
+        for caller in sorted(functions)
+        for callee in sorted(graph[caller])
+        if dynamic(callee)
+    ]
+    return {
+        "schema_version": 1,
+        "algorithm": algorithm,
+        "status": "partial" if unresolved and status == "complete" else status,
+        "converged": converged,
+        "graph": {
+            name: sorted(callee for callee in graph[name] if callee in functions)
+            for name in sorted(functions)
+        },
+        "unresolved_calls": unresolved,
+        "external_calls": [
+            {"caller": name, "callee": callee}
+            for name in sorted(functions)
+            for callee in sorted(graph[name])
+            if external(callee)
+        ],
+        "diagnostics": list(diagnostics),
+    }

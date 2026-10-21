@@ -55,9 +55,11 @@ COMMAND_SINKS = {
 }
 
 # Functions that start a process via a shell (vulnerable to injection).
-# Excludes os.system, os.popen, commands.getstatusoutput — already
-# covered by B604 in shell_injection.py.
+# B604 handles explicit shell=True wrappers; these APIs always use a shell.
 COMMAND_SINKS_SHELL = {
+    "os.system",
+    "os.popen",
+    "commands.getstatusoutput",
     "os.popen2",
     "os.popen3",
     "os.popen4",

@@ -14,6 +14,43 @@ checking (in order):
 
 A manual entry point can be specified with ``--entry``.
 
+For a library or full repository, use ``pyflow callgraph . -r -a constraint``.
+Recursive scans use the requested directory as the project root and recognize
+its ``src/`` import root, so scanning a src-layout repository from its root
+preserves package names. Constraint analysis seeds instance and class receivers
+for library methods even when no caller instantiates the class. Static methods
+do not receive an implicit receiver. Reachable-only API analysis retains its
+entry-rooted behavior.
+
+Machine-readable reports
+------------------------
+
+``--format json`` preserves the legacy adjacency map. Use
+``--format json --json-schema unified`` for graph processing: its ``graph``
+contains callable relationships, while ``unresolved_calls`` and
+``external_calls`` contain dynamic call sites and builtin/stdlib references.
+The envelope includes ``status``, ``converged`` (where available), and diagnostics.
+An unresolved call is not a function node in this schema. Simple and constraint
+file scans use the same package-qualified entry names; native MIR lambda names
+use per-scope numbering.
+
+Algorithms have different precision and supported semantics; equal names do
+not imply equal recall. ``complete`` describes the reported analysis boundary,
+not proof that Python's dynamic behavior has been resolved. The simple algorithm
+is a syntactic approximation. Library coverage requires recursive scans or
+``--all-scopes`` when selecting a project entry.
+
+Native MIR reports return exit code 3 when partial, including legacy adjacency
+output. Unified reports from the other algorithms also return 3 for unresolved
+call sites. Invalid input or a hard worker failure remains nonzero and does not
+overwrite an existing output file.
+
+``--mir-max-seconds`` controls the native lowering/analysis budget and is never
+silently capped. Without ``--max-seconds``, the worker deadline is five seconds
+longer than that budget (30 + 5 seconds by default). An explicit hard deadline
+must exceed an explicit MIR budget; conflicting settings are rejected. When only
+the hard deadline is supplied, five seconds are reserved for startup/reporting.
+
 CLI Usage
 ---------
 

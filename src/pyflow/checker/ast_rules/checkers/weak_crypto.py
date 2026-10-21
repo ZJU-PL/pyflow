@@ -81,8 +81,10 @@ def weak_hash_functions(context):
         caught by the blacklist system (B9012).
     """
     if context.call_function_name_qual in ["hashlib.md5", "hashlib.sha1"]:
+        if context.get_call_arg_value("usedforsecurity") is False:
+            return None
         return issue.Issue(
-            severity="MEDIUM",
+            severity="HIGH",
             confidence="HIGH",
             cwe=issue.Cwe.BROKEN_CRYPTO,
             text="Use of insecure MD4, MD5, or SHA1 hash function.",

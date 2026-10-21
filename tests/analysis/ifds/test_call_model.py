@@ -219,7 +219,7 @@ def test_registry_does_not_reinterpret_known_namespace_attribute_by_leaf():
     assert registry.model_for_name("os.path") is None
 
 
-def test_registry_keeps_leaf_fallback_for_instance_receivers():
+def test_registry_requires_receiver_identity_for_qualified_sources():
     registry = CallModelRegistry(
         [
             CallModel(name="self.write", sink_kinds=frozenset({"xss"})),
@@ -230,7 +230,8 @@ def test_registry_keeps_leaf_fallback_for_instance_receivers():
         ]
     )
 
-    model = registry.model_for_name("self.get_argument")
+    assert registry.model_for_name("self.get_argument") is None
+    model = registry.model_for_name("Request.get_argument")
 
     assert model is not None
     assert model.source_kinds == frozenset({"user_input"})

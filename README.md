@@ -47,19 +47,28 @@ If you use pyflow in your research or work, please cite the following:
 
 ## Evaluation results
 
-Security analysis engines evaluated on the PySASTBench microbenchmark
-(ICSE 26):
+Security engines evaluated on the 240-file PySASTBench microbenchmark (960 runs):
 
 ```bash
-python3 evaluation/pysastbench/bench_micro.py --timeout 45 --workers 16
+.venv/bin/python evaluation/pysastbench/bench_micro.py --timeout 45 --workers 8
 ```
 
-| Engine       | Precision | Recall | F1    | Accuracy |
-|--------------|-----------|--------|-------|----------|
-| ast-scanner  | 0.623     | 0.400  | 0.487 | 0.579    |
-| ast-dataflow | 0.849     | 0.842  | 0.845 | 0.846    |
-| cpg          | 0.792     | 0.792  | 0.792 | 0.792    |
-| ifds         | 0.852     | 0.767  | 0.807 | 0.817    |
+| Engine | Precision | Recall | F1 | Accuracy | Partial / 240 |
+|---|---:|---:|---:|---:|---:|
+| ast-scanner | 0.636 | 0.350 | 0.452 | 0.575 | 0 |
+| ast-dataflow | 0.857 | 0.450 | 0.590 | 0.688 | 238 |
+| cpg | 0.828 | 0.683 | 0.749 | 0.771 | 240 |
+| ifds | 0.837 | 0.858 | 0.848 | 0.846 | 0 |
+
+This snapshot used Python 3.13.7 and had no timeouts or parse failures. Exact
+source, dataset, and harness hashes plus per-CWE counts are in the
+[measurement snapshot](evaluation/pysastbench/results/user-evaluation-summary.json).
+Defaults now distinguish recognized HTTP handlers from arbitrary library entry
+parameters; these measurements are not directly comparable to the old table.
+Partial reports contribute detections but do not establish that negative files
+are safe. Recall remains limited, particularly for some AST dataflow categories.
+See the [evaluation guide](evaluation/pysastbench/README.md) and
+[user evaluation follow-up](docs/user-evaluation-followup.md).
 
 ## Installation and Usage
 

@@ -310,6 +310,9 @@ def sqlalchemy_dynamic_table_names(context):
     node = context.node
     func_name = context.call_function_name_qual
 
+    if not context.is_module_imported_like("sqlalchemy"):
+        return None
+
     if not func_name:
         return None
 

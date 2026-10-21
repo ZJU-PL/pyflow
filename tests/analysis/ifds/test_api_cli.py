@@ -205,7 +205,7 @@ def test_run_taint_analysis_uses_archive_member_models(tmp_path):
     target.write_text(
         "import tarfile\n"
         "def main(archive):\n"
-        "    names = archive.getnames()\n"
+        "    names = tarfile.TarFile.getnames(archive)\n"
         "    archive.extract(names[0], '/tmp/output')\n",
         encoding="utf-8",
     )
@@ -229,9 +229,10 @@ def test_run_taint_analysis_propagates_modeled_source_into_nested_for(tmp_path):
     target = tmp_path / "archive_nested_loop.py"
     target.write_text(
         "import os\n"
+        "import tarfile\n"
         "def main(archive):\n"
         "    try:\n"
-        "        for member in archive.getnames():\n"
+        "        for member in tarfile.TarFile.getnames(archive):\n"
         "            try:\n"
         "                os.remove(member)\n"
         "            except OSError:\n"

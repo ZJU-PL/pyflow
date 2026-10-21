@@ -24,7 +24,11 @@ def run_isolated_callgraph(request: dict, *, timeout: float) -> str:
     """
     payload = json.dumps(request)
     process = subprocess.Popen(
-        [sys.executable, "-c", "from pyflow.cli.callgraph_worker import main; raise SystemExit(main())"],
+        [
+            sys.executable,
+            "-c",
+            "from pyflow.cli.callgraph_worker import main; raise SystemExit(main())",
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -49,10 +53,15 @@ def run_isolated_callgraph(request: dict, *, timeout: float) -> str:
             "the worker was terminated. Increase --max-seconds or narrow the input/import depth."
         ) from None
     if process.returncode:
-        raise CallgraphWorkerError(stderr.strip() or f"Call graph worker exited with code {process.returncode}")
+        raise CallgraphWorkerError(
+            stderr.strip() or f"Call graph worker exited with code {process.returncode}"
+        )
     if stderr:
         sys.stderr.write(stderr)
-    return stdout[:-1] if stdout.endswith("\n") else stdout
+    from pyflow.analysis.callgraph.formats import CallGraphOutput
+
+    document = json.loads(stdout)
+    return CallGraphOutput(document["output"], document["status"])
 
 
 def main() -> int:
@@ -76,15 +85,21 @@ def main() -> int:
                 from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
 
                 output = analyze_file_pycg_mir(
-                    request["filepath"], import_policy=request.get("import_policy") or "opaque",
-                    max_seconds=request["analysis_seconds"], **kwargs,
+                    request["filepath"],
+                    import_policy=request.get("import_policy") or "opaque",
+                    max_seconds=request["analysis_seconds"],
+                    json_schema=request.get("json_schema", "legacy"),
+                    **kwargs,
                 )
             else:
                 raise ValueError("Unsupported isolated callgraph backend")
         if output.startswith("Error analyzing "):
             print(output, file=sys.stderr)
             return 1
-        sys.stdout.write(output + "\n")
+        json.dump(
+            {"output": str(output), "status": getattr(output, "status", "complete")}, sys.stdout
+        )
+        sys.stdout.write("\n")
         return 0
     except Exception as error:
         print(str(error), file=sys.stderr)

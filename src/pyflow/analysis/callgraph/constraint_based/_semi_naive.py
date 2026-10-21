@@ -293,8 +293,9 @@ class SemiNaiveConstraintSolver:
 
         for scope_name, scope in self.builder.scopes.items():
             if self.builder.options.analyze_reachable_only:
-                seed = scope_name == "main" or (
-                    self.builder.options.seed_entry_file_scopes and scope.module == "main"
+                seed = scope_name == self.builder.entry_module_name or (
+                    self.builder.options.seed_entry_file_scopes
+                    and scope.module == self.builder.entry_module_name
                 )
             else:
                 function = self.builder.functions.get(scope_name)

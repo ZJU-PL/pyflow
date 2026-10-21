@@ -48,6 +48,14 @@ The harness uses subprocess isolation and a per-file timeout because an
 analysis failure or timeout should be recorded as an evaluation result rather
 than aborting the remaining engines.
 
+`summary.json` records the exact command, Python/platform, worker count, timeout,
+and SHA-256 hashes of the source/configuration, dataset/metadata, and harness.
+Keep this provenance with published numbers: defaults, model changes, and
+incomplete analyses can materially change precision and recall. Status counts
+are reported separately; a partial result is not evidence that a fixed file
+was proven safe. The README comparison is a dated measurement, not a guarantee
+of current or production accuracy.
+
 ## Running the real-world projects
 
 RealworldDataset is distributed as project archives. Extract it once before

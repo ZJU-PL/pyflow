@@ -26,7 +26,7 @@ def security_text(engine: str, result) -> str:
     if engine == "ast-dataflow":
         report = ast_dataflow_report(result)
         if not report["findings"] and not report["diagnostics"]:
-            return "No issues found."
+            return f"Status: {report['status']}\nNo issues found."
         lines = [
             f"Status: {report['status']}",
             f"Found {len(report['findings'])} issue(s):\n",
@@ -208,6 +208,10 @@ def ast_dataflow_report(manager) -> Dict[str, Any]:
                 "suggestion": finding.suggestion,
                 "confidence": finding.confidence,
                 "precision_reasons": list(finding.precision_reasons),
+                "related_rules": [
+                    {"rule_id": rule_id, "rule_title": title, "severity": severity}
+                    for rule_id, title, severity in finding.related_rules
+                ],
                 "trace": [
                     {
                         "operation": step.operation,

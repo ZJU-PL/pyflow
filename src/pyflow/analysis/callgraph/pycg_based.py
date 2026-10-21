@@ -83,7 +83,9 @@ def extract_call_graph_pycg(
         cleanup_files: List[str] = []
 
         if snippet_main_path:
-            package_root = Path(project_root).resolve() if project_root else Path(snippet_main_path).parent
+            package_root = (
+                Path(project_root).resolve() if project_root else Path(snippet_main_path).parent
+            )
             if project_root is None:
                 while (package_root / "__init__.py").is_file():
                     package_root = package_root.parent
@@ -136,7 +138,11 @@ def extract_call_graph_pycg(
             def bounded_import(mod_name, package):
                 import importlib.util
 
-                full_name = importlib.util.resolve_name(mod_name, package) if mod_name.startswith(".") else mod_name
+                full_name = (
+                    importlib.util.resolve_name(mod_name, package)
+                    if mod_name.startswith(".")
+                    else mod_name
+                )
                 if not full_name:
                     raise ImportError("Empty import name")
                 depth = depths.get(cg.import_manager.current_module, 0) + 1
@@ -146,8 +152,14 @@ def extract_call_graph_pycg(
                     raise ImportError(f"Import depth exceeded for {full_name}")
                 root = Path(package_dir_abs)
                 stem = root.joinpath(*full_name.split("."))
-                path = next((candidate for candidate in (stem.with_suffix(".py"), stem / "__init__.py")
-                             if candidate.is_file() and candidate.resolve().is_relative_to(root)), None)
+                path = next(
+                    (
+                        candidate
+                        for candidate in (stem.with_suffix(".py"), stem / "__init__.py")
+                        if candidate.is_file() and candidate.resolve().is_relative_to(root)
+                    ),
+                    None,
+                )
                 if path is None:
                     skipped.add(full_name)
                     raise ImportError(f"External import excluded: {full_name}")
@@ -164,7 +176,10 @@ def extract_call_graph_pycg(
             cg.import_manager.remove_hooks = lambda: None
             cg.analyze()
             if skipped:
-                print(f"PyCG call graph is partial: {len(skipped)} import target(s) excluded by local/depth limits.", file=sys.stderr)
+                print(
+                    f"PyCG call graph is partial: {len(skipped)} import target(s) excluded by local/depth limits.",
+                    file=sys.stderr,
+                )
             if not cg.has_converged():
                 print("PyCG call graph is partial: iteration limit reached.", file=sys.stderr)
             pycg_calls = cg.output()
@@ -257,9 +272,14 @@ def extract_call_graph_pycg(
     return graph
 
 
-def analyze_file_pycg(filepath: str, verbose: bool = False, *, format: str = "text",
-                      project_root: Optional[str] = None, max_import_depth: Optional[int] = 3,
-                      ) -> str:
+def analyze_file_pycg(
+    filepath: str,
+    verbose: bool = False,
+    *,
+    format: str = "text",
+    project_root: Optional[str] = None,
+    max_import_depth: Optional[int] = 3,
+) -> str:
     """Analyze a Python file using PyCG and render text or JSON adjacency."""
     try:
         with open(filepath, "r") as f:

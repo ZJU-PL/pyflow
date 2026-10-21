@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import json
+import ast
+from functools import lru_cache
+from pathlib import Path
 from pyflow.checker.common.reporting import code_name, result_status, statistics_to_dict
 
 from pyflow.analysis.ifds.reporting import (
@@ -41,7 +44,7 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                     f"{', '.join(labels) or '<expression>'}"
                 ),
                 primary_location=source_span_for_node(adapter, finding.sink),
-                procedure=_procedure_name(finding.sink),
+                procedure=_source_procedure(adapter, finding.sink),
                 node_id=adapter.supergraph.node_id(finding.sink),
                 code_flow=flow_steps_for_traces(adapter, traces),
                 cwe=finding.cwe,
@@ -54,6 +57,40 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
             )
         )
     return tuple(sorted(findings, key=_finding_key))
+
+
+@lru_cache(maxsize=256)
+def _source_scopes(path: str, modified: int):
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    scopes = []
+
+    def visit(node, parents=()):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            parents = (*parents, node.name)
+            if not isinstance(node, ast.ClassDef):
+                scopes.append((node.lineno, node.end_lineno, ".".join(parents)))
+        for child in ast.iter_child_nodes(node):
+            visit(child, parents)
+
+    visit(tree)
+    return scopes
+
+
+def _source_procedure(adapter, node):
+    """Use the source owner after helper bodies have been inlined into a module."""
+    name = _procedure_name(node)
+    span = source_span_for_node(adapter, node)
+    if span is None:
+        return name
+    try:
+        candidates = [
+            (end - start, qualified)
+            for start, end, qualified in _source_scopes(span.uri, Path(span.uri).stat().st_mtime_ns)
+            if start <= span.start_line <= end
+        ]
+    except (OSError, ValueError, SyntaxError):
+        return name
+    return min(candidates)[1] if candidates else name
 
 
 def taint_finding_key(finding):
@@ -110,7 +147,8 @@ def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
         normalized_finding.update(
             {
                 "sink_name": finding.sink_name,
-                "procedure": code_name(finding.sink.procedure.code),
+                "procedure": normalized_finding.get("procedure")
+                or code_name(finding.sink.procedure.code),
                 "block_kind": finding.sink.kind,
                 "tainted_arguments": tainted_arguments,
                 "explanations": normalized_finding.get("code_flow", []),

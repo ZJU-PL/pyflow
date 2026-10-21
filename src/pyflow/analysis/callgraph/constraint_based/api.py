@@ -44,6 +44,7 @@ def extract_call_graph_constraint(
     skip_external_modules: bool = False,
     canonical_entry_names: bool = False,
     additional_sources: Optional[Mapping[str, str]] = None,
+    project_root: Optional[str] = None,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -94,20 +95,10 @@ def extract_call_graph_constraint(
         verbose=verbose,
         options=options,
         additional_sources=additional_sources,
+        project_root=project_root,
+        canonical_entry_names=canonical_entry_names,
     )
     graph = builder.build()
-    if canonical_entry_names and builder.entry_path:
-        prefix = builder.entry_module_import_name
-
-        def canonical(name):
-            return prefix + name[4:] if name == "main" or name.startswith("main.") else name
-
-        renamed = CallGraph()
-        for name, callees in graph.get().items():
-            renamed.add_node(canonical(name), canonical(graph.get_modules().get(name, "")))
-            for callee in callees:
-                renamed.add_edge(canonical(name), canonical(callee))
-        return renamed
     return graph
 
 

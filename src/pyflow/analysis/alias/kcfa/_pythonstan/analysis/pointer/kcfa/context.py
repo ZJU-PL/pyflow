@@ -179,7 +179,8 @@ class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject", "AllocSi
 
         if not isinstance(item, (CallSite, AbstractObject, AllocSite)):
             raise TypeError(
-                "ObjectContext accepts only CallSite, AbstractObject or AllocSite, " f"got {type(item)}"
+                "ObjectContext accepts only CallSite, AbstractObject or AllocSite, "
+                f"got {type(item)}"
             )
         if self.depth == 0:
             return self

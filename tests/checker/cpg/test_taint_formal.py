@@ -500,10 +500,10 @@ def test_unknown_call_does_not_invent_taint_on_clean_arguments() -> None:
     ).analyze()
 
     assert result.findings == ()
-    assert result.status == "complete"
+    assert result.status == "partial"
     diagnostic = next(item for item in result.diagnostics if item.code == "cpg-unknown-call-effect")
-    assert diagnostic.affects_completeness is False
-    assert diagnostic.level == "conservative"
+    assert diagnostic.affects_completeness is True
+    assert diagnostic.level == "assumed"
 
 
 def test_unknown_call_still_taints_its_return_conservatively() -> None:

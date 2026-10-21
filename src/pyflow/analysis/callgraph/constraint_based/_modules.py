@@ -51,7 +51,8 @@ class _ModuleAnalysisMixin:
         (analysis continues with whatever symbols were available).
         """
         main_tree = ast.parse(normalize_legacy_python_syntax(self.source_code))
-        self.modules["main"] = ModuleInfo("main", main_tree, self.entry_path)
+        entry_name = self.entry_module_name
+        self.modules[entry_name] = ModuleInfo(entry_name, main_tree, self.entry_path)
 
         if not self.entry_path:
             return

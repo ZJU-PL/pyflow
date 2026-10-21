@@ -517,6 +517,8 @@ def analyze_ast_function(
     import_aliases: Mapping[str, str] | None = None,
     unknown_call_policy: str = "havoc",
 ) -> ASTFunctionAnalysisResult:
+    from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
+
     context = ExpressionContext(
         procedure=procedure,
         filename=filename,
@@ -525,7 +527,7 @@ def analyze_ast_function(
         contracts=contracts or SanitizerContractRegistry(),
         shape_contracts=shape_contracts or CallShapeContractRegistry(),
         known_functions=frozenset(known_functions),
-        import_aliases=import_aliases or {},
+        import_aliases=ast_receiver_bindings(function, import_aliases or {}),
         unknown_call_policy=unknown_call_policy,
     )
     expressions = PythonExpressionSemantics(context)

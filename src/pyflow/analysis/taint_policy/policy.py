@@ -13,7 +13,14 @@ _SEVERITIES = {"info", "low", "medium", "high", "critical"}
 
 def call_name_suffix_matches(qualified: str, alias: str) -> bool:
     """Match an ordinary shortened spelling against a qualified call name."""
-    return qualified == alias or qualified.endswith(f".{alias}")
+    # A leaf such as ``items`` or ``__init__`` provides no evidence about
+    # the receiver's library. Imported aliases are resolved by the frontend;
+    # shortened qualified spellings still retain their receiver component.
+    return (
+        qualified == alias
+        or ("." in alias and qualified.endswith(f".{alias}"))
+        or ("." in qualified and alias.endswith(f".{qualified}"))
+    )
 
 
 @dataclass(frozen=True)

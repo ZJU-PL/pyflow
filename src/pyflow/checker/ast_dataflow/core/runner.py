@@ -23,7 +23,7 @@ class BugFinderConfig:
     frameworks: Optional[Iterable[str]] = None
     registry_paths: Iterable[str | Path] = field(default_factory=tuple)
     unknown_call_policy: str = "preserve"
-    entry_parameter_kinds: Iterable[str] = ("user_input",)
+    entry_parameter_kinds: Iterable[str] = ()
 
 
 class StaticBugFinder:

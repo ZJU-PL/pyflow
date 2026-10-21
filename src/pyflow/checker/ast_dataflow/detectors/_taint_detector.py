@@ -245,6 +245,7 @@ class ASTDataflowTaintDetector(Detector):
             ),
         )
         findings: dict[tuple, ASTDataflowTaintFinding] = {}
+        framework_entries = self._framework_entry_functions(session)
         for name, analysis in interprocedural.analyses.items():
             if name not in interprocedural.reachable:
                 continue
@@ -267,6 +268,11 @@ class ASTDataflowTaintDetector(Detector):
                         and (
                             self.entry_parameter_kinds is None
                             or fact.kind in self.entry_parameter_kinds
+                            or (
+                                fact.kind == "user_input"
+                                and (getattr(session, "func_to_file", {}).get(name), name)
+                                in framework_entries
+                            )
                         )
                     )
                     or not (fact.origin.symbol or "").startswith("parameter:")
@@ -351,6 +357,59 @@ class ASTDataflowTaintDetector(Detector):
                 "findings": len(findings),
             },
         )
+
+    @staticmethod
+    def _framework_entry_functions(session):
+        """Recognize HTTP handlers without treating arbitrary library APIs as inputs."""
+        factories = {
+            "flask.Flask",
+            "flask.Blueprint",
+            "quart.Quart",
+            "quart.Blueprint",
+            "fastapi.FastAPI",
+            "fastapi.APIRouter",
+        }
+        routes = {"route", "get", "post", "put", "delete", "patch", "options", "head", "websocket"}
+        entries = set()
+        for filename, source in getattr(session, "all_source_code", {}).items():
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            aliases = ASTInterproceduralAnalyzer._import_aliases(tree)
+            applications = set()
+            for statement in tree.body:
+                if not isinstance(statement, ast.Assign):
+                    continue
+                targets = {
+                    target.id for target in statement.targets if isinstance(target, ast.Name)
+                }
+                applications.difference_update(targets)
+                if not isinstance(statement.value, ast.Call):
+                    continue
+                spelling = ast.unparse(statement.value.func)
+                head, sep, tail = spelling.partition(".")
+                qualified = aliases.get(head, head) + (sep + tail if sep else "")
+                if qualified in factories:
+                    applications.update(targets)
+
+            def visit(node, parents=()):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    parents = (*parents, node.name)
+                    for decorator in getattr(node, "decorator_list", ()):
+                        call = decorator.func if isinstance(decorator, ast.Call) else decorator
+                        if (
+                            isinstance(call, ast.Attribute)
+                            and call.attr in routes
+                            and isinstance(call.value, ast.Name)
+                            and call.value.id in applications
+                        ):
+                            entries.add((filename, ".".join(parents)))
+                for child in ast.iter_child_nodes(node):
+                    visit(child, parents)
+
+            visit(tree)
+        return entries
 
     @staticmethod
     def _entry_functions(session: AnalysisSession) -> tuple[str, ...]:
@@ -440,6 +499,8 @@ class ASTDataflowTaintDetector(Detector):
         registry = load_registry()
         if self.frameworks is None:
             registry.activate("stdlib", type="taint")
+            for source in getattr(session, "all_source_code", {}).values():
+                registry.detect(source.splitlines(), type="taint")
         elif self.frameworks:
             registry.activate("stdlib", *self.frameworks, type="taint")
         else:

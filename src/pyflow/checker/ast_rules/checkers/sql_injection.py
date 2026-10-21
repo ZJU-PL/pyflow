@@ -109,6 +109,16 @@ def sql_injection_string_formatting(context):
 
     # Check string arguments for formatting patterns
     for arg in context.node.args:
+        if isinstance(arg, ast.JoinedStr):
+            literal = "".join(
+                value.value
+                for value in arg.values
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+            )
+            if _check_string_for_sql(literal) and any(
+                isinstance(value, ast.FormattedValue) for value in arg.values
+            ):
+                return sql_injection_issue()
         arg_str = _get_string(arg)
         if arg_str and _check_string_for_sql(arg_str):
             if _check_for_string_formatting(context.node):

@@ -235,7 +235,15 @@ def analyze_file(filepath: str, *, format: str = "text") -> str:
             source = f.read()
         from pathlib import Path
 
-        graph = extract_call_graph(source, module_name=Path(filepath).stem)
+        from pyflow.language.modules.project_resolution import ProjectContext
+
+        path = Path(filepath).resolve()
+        root = path.parent
+        while (root / "__init__.py").is_file():
+            root = root.parent
+        graph = extract_call_graph(
+            source, module_name=ProjectContext(root).module_name_from_path(path)
+        )
         from .formats import generate_text_output, generate_adjacency_json
 
         if format == "json":

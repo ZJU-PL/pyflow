@@ -294,10 +294,11 @@ def test_identical_qualified_sink_models_match_unqualified_import_alias():
         filename="sample.py",
         policy=policy,
         entry_taint={"path": {"user_input"}},
+        import_aliases={"send_file": "framework.send_file"},
     )
 
     assert len(_sink_events(result)) == 1
-    assert _sink_events(result)[0].sink_name == "send_file"
+    assert _sink_events(result)[0].sink_name == "framework.send_file"
 
 
 def test_unknown_receiver_does_not_inherit_unrelated_sink_models():
@@ -370,7 +371,13 @@ def get(request):
     return HttpResponse(f"<p>{query}</p>")
 """).body[0]
 
-    result = analyze_ast_function(function, procedure="get", filename="sample.py", policy=policy)
+    result = analyze_ast_function(
+        function,
+        procedure="get",
+        filename="sample.py",
+        policy=policy,
+        import_aliases={"HttpResponse": "django.http.HttpResponse"},
+    )
 
     assert len(_sink_events(result)) == 1
 

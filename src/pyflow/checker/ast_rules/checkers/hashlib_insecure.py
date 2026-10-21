@@ -28,10 +28,12 @@ def hashlib_insecure_functions(context):
     qualname = context.call_function_name_qual
     if not qualname.startswith("hashlib."):
         return None
+    if context.get_call_arg_value("usedforsecurity") is False:
+        return None
     name = qualname.split(".")[-1]
     if name.lower() in {w.lower() for w in WEAK_HASHES}:
         return issue.Issue(
-            severity="MEDIUM",
+            severity="HIGH",
             confidence="HIGH",
             cwe=issue.Cwe.BROKEN_CRYPTO,
             text=f"Use of insecure hash function {name}. "
@@ -43,7 +45,7 @@ def hashlib_insecure_functions(context):
             if hasattr(arg, "value") and isinstance(arg.value, str):
                 if arg.value.lower() in {w.lower() for w in WEAK_HASHES}:
                     return issue.Issue(
-                        severity="MEDIUM",
+                        severity="HIGH",
                         confidence="HIGH",
                         cwe=issue.Cwe.BROKEN_CRYPTO,
                         text=f"Use of insecure hash function {arg.value} "

@@ -202,8 +202,9 @@ def test_taint_engines_apply_registry_archive_member_source_to_loop_target(tmp_p
     policy = registry.as_taint_policy()
     source = (
         "import os\n"
+        "import tarfile\n"
         "def main(archive):\n"
-        "    for member in archive.getnames():\n"
+        "    for member in tarfile.TarFile.getnames(archive):\n"
         "        os.remove(member)\n"
     )
     target = tmp_path / "archive_loop.py"

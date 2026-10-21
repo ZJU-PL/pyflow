@@ -703,6 +703,25 @@ class PythonExpressionSemantics:
         if receiver is None:
             return state, frozenset(), False
         method = call.func.attr
+        if method in {
+            "encode",
+            "decode",
+            "format",
+            "format_map",
+            "replace",
+            "join",
+            "lower",
+            "upper",
+            "strip",
+            "lstrip",
+            "rstrip",
+            "split",
+            "splitlines",
+        }:
+            facts = state.facts_at(receiver) | frozenset(
+                fact for value in (*positional, *keywords) for fact in value.facts
+            )
+            return state, facts, True
         if method in {"get", "pop"}:
             key = self._literal_selector(call.args[0]) if call.args else None
             target = (
@@ -935,20 +954,13 @@ class PythonExpressionSemantics:
         return None
 
     def _call_name(self, function: ast.AST) -> str:
+        from pyflow.analysis.taint_policy.call_types import CALL_RETURN_TYPES
+
         if isinstance(function, ast.Name):
             return self.context.import_aliases.get(function.id, function.id)
+        if isinstance(function, ast.Call):
+            return CALL_RETURN_TYPES.get(self._call_name(function.func), "")
         if isinstance(function, ast.Attribute):
-            parts = [function.attr]
-            current = function.value
-            while isinstance(current, ast.Attribute):
-                parts.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name):
-                parts.append(current.id)
-            name = ".".join(reversed(parts))
-            head, separator, tail = name.partition(".")
-            qualified = self.context.import_aliases.get(head)
-            if qualified:
-                return f"{qualified}.{tail}" if separator else qualified
-            return name
+            base = self._call_name(function.value)
+            return f"{base}.{function.attr}" if base else ""
         return ""

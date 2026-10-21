@@ -22,6 +22,8 @@ import os
 import subprocess
 import sys
 import time
+import hashlib
+import platform
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -49,8 +51,12 @@ def _parse_args() -> argparse.Namespace:
         default=",".join(ENGINES),
         help="Comma-separated engines to run.",
     )
-    parser.add_argument("--workers", type=int, default=int(os.environ.get("PYFLOW_EVAL_WORKERS", "8")))
-    parser.add_argument("--timeout", type=float, default=float(os.environ.get("PYFLOW_EVAL_TIMEOUT", "45")))
+    parser.add_argument(
+        "--workers", type=int, default=int(os.environ.get("PYFLOW_EVAL_WORKERS", "8"))
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=float(os.environ.get("PYFLOW_EVAL_TIMEOUT", "45"))
+    )
     parser.add_argument(
         "--pyflow",
         type=Path,
@@ -93,9 +99,7 @@ def _function_scopes(path: Path) -> list[tuple[int, int, str]]:
 
 def _enclosing_function(path: Path, line: int) -> str | None:
     matches = [
-        (end - start, name)
-        for start, end, name in _function_scopes(path)
-        if start <= line <= end
+        (end - start, name) for start, end, name in _function_scopes(path) if start <= line <= end
     ]
     return min(matches)[1] if matches else None
 
@@ -120,7 +124,9 @@ def _parse_json(stdout: str) -> tuple[Any, str | None]:
         return None, f"{type(original).__name__}: {original}"
 
 
-def _run_one(engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: float) -> dict[str, Any]:
+def _run_one(
+    engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: float
+) -> dict[str, Any]:
     started = time.perf_counter()
     command = [str(pyflow), "security", str(path), "--engine", engine]
     if engine != "ast-scanner":
@@ -201,7 +207,9 @@ def _accepted_cwes(expected: str, strict: bool) -> frozenset[str]:
     return CWE_ALIASES.get(expected, frozenset({expected}))
 
 
-def _is_relevant(engine: str, path: Path, row: dict[str, str], payload: Any, strict: bool) -> tuple[bool, list[dict[str, Any]]]:
+def _is_relevant(
+    engine: str, path: Path, row: dict[str, str], payload: Any, strict: bool
+) -> tuple[bool, list[dict[str, Any]]]:
     accepted = _accepted_cwes(str(row["CWE Type"]), strict)
     target = row["Vul Position"]
     matches: list[dict[str, Any]] = []
@@ -226,7 +234,9 @@ def _is_relevant(engine: str, path: Path, row: dict[str, str], payload: Any, str
     return bool(matches), matches
 
 
-def _record(engine: str, path: Path, row: dict[str, str], result: dict[str, Any], strict: bool) -> dict[str, Any]:
+def _record(
+    engine: str, path: Path, row: dict[str, str], result: dict[str, Any], strict: bool
+) -> dict[str, Any]:
     case = path.stem.rsplit("_", 1)[0]
     is_vulnerable = path.stem.endswith("_vul")
     detected, matched = _is_relevant(engine, path, row, result["payload"], strict)
@@ -272,8 +282,10 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
         by_cwe: dict[str, dict[str, int]] = {}
         for record in subset:
             stats = by_cwe.setdefault(record["cwe"], {"tp": 0, "fp": 0, "fn": 0, "tn": 0})
-            key = "tp" if record["is_vul"] and record["detected"] else (
-                "fn" if record["is_vul"] else ("fp" if record["detected"] else "tn")
+            key = (
+                "tp"
+                if record["is_vul"] and record["detected"]
+                else ("fn" if record["is_vul"] else ("fp" if record["detected"] else "tn"))
             )
             stats[key] += 1
         output[engine] = {
@@ -437,6 +449,32 @@ def main() -> int:
     if not files:
         raise SystemExit(f"No benchmark files found below {dataset}")
     jobs = [(engine, path) for engine in engines for path in files]
+
+    def digest(paths):
+        checksum = hashlib.sha256()
+        for path in sorted(paths):
+            checksum.update(
+                str(
+                    path.relative_to(repo_root) if path.is_relative_to(repo_root) else path.name
+                ).encode()
+            )
+            checksum.update(path.read_bytes())
+        return checksum.hexdigest()
+
+    provenance = {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "command": sys.argv,
+        "workers": args.workers,
+        "timeout": args.timeout,
+        "strict_cwe": args.strict_cwe,
+        "source_sha256": digest(
+            list((repo_root / "src" / "pyflow").rglob("*.py"))
+            + list((repo_root / "src" / "pyflow" / "config").rglob("*.json"))
+        ),
+        "dataset_sha256": digest([*files, metadata]),
+        "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
     args.output.expanduser().mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     raw_path = args.output / "raw_results.jsonl"
@@ -467,7 +505,10 @@ def main() -> int:
                     raise SystemExit(f"Missing metadata row for {case}")
                 record = _record(engine, path, rows[case], result, args.strict_cwe)
                 records.append(record)
-                raw.write(json.dumps({"record": record, "payload": result["payload"]}, ensure_ascii=False) + "\n")
+                raw.write(
+                    json.dumps({"record": record, "payload": result["payload"]}, ensure_ascii=False)
+                    + "\n"
+                )
                 raw.flush()
                 if index % 40 == 0 or index == len(jobs):
                     print(f"completed={index}/{len(jobs)}", flush=True)
@@ -476,9 +517,14 @@ def main() -> int:
     summary["interrupted"] = False
     summary["attempted_jobs"] = len(jobs)
     summary["completed_jobs"] = len(records)
+    summary["provenance"] = provenance
 
-    (args.output / "records.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-    (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    (args.output / "records.json").write_text(
+        json.dumps(records, indent=2) + "\n", encoding="utf-8"
+    )
+    (args.output / "summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
     _print_summary(summary, engines)
     return 0
 

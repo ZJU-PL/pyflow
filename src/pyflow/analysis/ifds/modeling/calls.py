@@ -295,6 +295,12 @@ class CallModelRegistry:
             model
             for model_name, model in self._models.items()
             if call_name_suffix_matches(model_name, name)
+            or (
+                "." not in name
+                and not name.startswith("__")
+                and not model.source_kinds
+                and model_name.endswith(f".{name}")
+            )
         ]
         modeled_roots = {
             model_name.split(".", 1)[0]
@@ -308,6 +314,8 @@ class CallModelRegistry:
                 model
                 for model_name, model in self._models.items()
                 if model_name.rsplit(".", 1)[-1] == leaf
+                and (not model.source_kinds or "." not in model_name)
+                and not leaf.startswith("__")
             ]
         if len(candidates) == 1:
             return candidates[0]

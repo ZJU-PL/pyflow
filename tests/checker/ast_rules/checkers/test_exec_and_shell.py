@@ -32,9 +32,9 @@ def test_os_system_is_flagged(scan):
     res = scan("import os\nos.system('ls')\n")
     issues = res.issues
 
-    assert [i.test_id for i in issues] == ["B604"]
+    assert [i.test_id for i in issues] == ["B605"]
     issue = issues[0]
-    assert issue.severity == "HIGH"
+    assert issue.severity == "LOW"
     assert issue.confidence == "HIGH"
     assert issue.cwe.id == Cwe.OS_COMMAND_INJECTION
     assert issue.lineno == 2

@@ -55,9 +55,12 @@ def subprocess_without_shell_equals_true(context):
 @test.with_id("B604")
 def any_other_function_with_shell_equals_true(context):
     """Check for other functions with shell=True"""
-    if context.call_function_name_qual in [
-        "os.system",
-        "os.popen",
-        "commands.getstatusoutput",
-    ]:
-        return shell_injection_issue()
+    if context.call_function_name_qual.startswith("subprocess."):
+        return None
+    if context.get_call_arg_value("shell") is True:
+        return issue.Issue(
+            severity="MEDIUM",
+            confidence="HIGH",
+            cwe=issue.Cwe.OS_COMMAND_INJECTION,
+            text="Function call with shell=True may execute untrusted commands.",
+        )

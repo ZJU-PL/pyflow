@@ -155,6 +155,11 @@ class CFG:
     exit: int
     is_synthetic: bool = False
     filename: str = ""
+    # Source metadata used to seed library entry receivers in static analysis.
+    # It does not alter MIR execution semantics.
+    analysis_parameters: tuple[str, ...] = ()
+    analysis_receiver_class: str | None = None
+    analysis_receiver_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -692,8 +692,9 @@ class _FixpointSolverMixin:
                 # are available for import/call resolution, but seeding every
                 # one as an independent root defeats entry-rooted analysis and
                 # makes large repositories converge over unrelated code.
-                return scope_name == "main" or (
-                    self.options.seed_entry_file_scopes and self.scopes[scope_name].module == "main"
+                return scope_name == self.entry_module_name or (
+                    self.options.seed_entry_file_scopes
+                    and self.scopes[scope_name].module == self.entry_module_name
                 )
             if scope_name in self.modules:
                 return True
@@ -752,10 +753,12 @@ class _FixpointSolverMixin:
             if _is_seed_scope(scope_name):
                 scope = self.scopes[scope_name]
                 if (
-                    self.options.seed_entry_file_scopes
-                    and scope.module == "main"
-                    and (scope.method_self_param or scope.method_cls_param)
-                ):
+                    not self.options.analyze_reachable_only
+                    or (
+                        self.options.seed_entry_file_scopes
+                        and scope.module == self.entry_module_name
+                    )
+                ) and (scope.method_self_param or scope.method_cls_param):
                     owner_class = self._owner_class_for_scope(scope_name)
                     if owner_class is not None:
                         normalized = self._normalize_context_for_scope(scope_name, root_context)

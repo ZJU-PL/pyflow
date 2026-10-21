@@ -83,7 +83,7 @@ def test_opaque_mir_keeps_local_import_edges_and_strict_failure_is_friendly(tmp_
         "import unavailable_third_party\nfrom helper import helper\ndef run(): return helper()\nrun()\n"
     )
     result = cli("callgraph", path, "--engine", "pycg-mir", "--format", "json")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 3, result.stderr
     assert "helper.helper" in json.loads(result.stdout)["entry.run"]
     strict = cli("callgraph", path, "--engine", "pycg-mir", "--mir-import-policy", "strict")
     assert strict.returncode == 1
@@ -136,7 +136,7 @@ def test_native_mir_budget_is_reported_without_internal_warning_stack(tmp_path):
         "--format",
         "json",
     )
-    assert result.returncode == 0
+    assert result.returncode == 3
     assert json.loads(result.stdout)
     assert "MIR call graph is partial" in result.stderr
     assert "Time budget" in result.stderr

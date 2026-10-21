@@ -689,7 +689,9 @@ def _lower_function_definitions(g, catalog):
         value = ast.MakeFunction(defaults, cells, node.code)
         for decorator in reversed(decorators):
             value = ast.Call(decorator, [capture(value)], [], None, None)
-        symbol = catalog.symbols.find(scope, node.name, (SymbolKind.CELL, SymbolKind.LOCAL, SymbolKind.PARAMETER))
+        symbol = catalog.symbols.find(
+            scope, node.name, (SymbolKind.CELL, SymbolKind.LOCAL, SymbolKind.PARAMETER)
+        )
         cell = next((cell for cell in cells if cell.name == node.name), None)
         if cell is None and symbol is not None and symbol.kind is SymbolKind.CELL:
             cell = ast.Cell(node.name)

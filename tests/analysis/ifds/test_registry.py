@@ -166,7 +166,8 @@ class TestRegistryLoading:
         models = registry.active_models(type="taint")
 
         assert "twisted" in detected
-        assert models.model_for_name("request.getHeader").source_kinds == frozenset({"user_input"})
+        assert models.model_for_name("request.getHeader") is None
+        assert models.model_for_name("Request.getHeader").source_kinds == frozenset({"user_input"})
         no_resource = models.model_for_name("resource.NoResource")
         assert no_resource is not None
         assert no_resource.cwe == "CWE-79"

@@ -307,7 +307,7 @@ def yaml_load_with_unsafe_loader(context):
             "yaml.load called without SafeLoader; use yaml.safe_load or "
             "Loader=yaml.SafeLoader for untrusted input.",
             confidence="HIGH",
-            severity="HIGH",
+            severity="MEDIUM",
         )
 
     if not _is_safe_yaml_loader(loader_arg):
@@ -316,7 +316,7 @@ def yaml_load_with_unsafe_loader(context):
             "yaml.load uses a non-safe Loader, which can deserialize arbitrary "
             "Python objects from untrusted data.",
             confidence="HIGH",
-            severity="HIGH",
+            severity="MEDIUM",
         )
     return None
 

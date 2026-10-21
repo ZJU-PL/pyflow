@@ -46,7 +46,7 @@ def add_security_parser(subparsers):
         nargs="+",
         default=argparse.SUPPRESS,
         help=(
-            "Source function names for taint-style checks "
+            "Additional source function names (extend bundled and detected rules) "
             "(repeatable, e.g. 'request.args' 'input')"
         ),
     )
@@ -55,7 +55,7 @@ def add_security_parser(subparsers):
         nargs="+",
         default=argparse.SUPPRESS,
         help=(
-            "Sink function names for taint-style checks "
+            "Additional sink function names (extend bundled and detected rules) "
             "(repeatable, e.g. 'eval' 'subprocess.run')"
         ),
     )
@@ -235,7 +235,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--no-deduplicate",
         action="store_true",
-        help="Report every overlapping AST rule separately instead of folding known vulnerability families",
+        help="Report overlapping rules separately; disables folding across rule packs for all engines",
     )
     p.add_argument(
         "--severity",
@@ -279,7 +279,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--ast-entry-source-kind",
         action="append",
-        help="Source kinds for AST-dataflow entry parameters (repeatable; default: user_input)",
+        help="Treat AST-dataflow entry parameters as these source kinds (repeatable; disabled by default)",
     )
     p.add_argument(
         "--json-schema",
@@ -319,6 +319,11 @@ def add_security_parser(subparsers):
             "for complete/partial reports, while invalid/failed analyses remain "
             "nonzero. Findings and completeness are recorded in the report"
         ),
+    )
+    p.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="Return exit code 3 for partial/cancelled analysis, even with --exit-code-policy report",
     )
     p.add_argument(
         "--custom-template",

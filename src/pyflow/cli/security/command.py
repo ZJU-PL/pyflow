@@ -257,7 +257,7 @@ def _run_ast_dataflow(
     """Run the AST-based interprocedural taint detector."""
     config = BugFinderConfig(
         unknown_call_policy=getattr(args, "ast_unknown_call_policy", "preserve"),
-        entry_parameter_kinds=getattr(args, "ast_entry_source_kind", None) or ("user_input",),
+        entry_parameter_kinds=getattr(args, "ast_entry_source_kind", None) or (),
         verbose=getattr(args, "verbose", False),
         recursive=recursive,
         exclude=_parse_exclude_tuple(exclude)
@@ -317,7 +317,11 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
 def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
     """Analyze each discovered entry independently, preserving single-entry reports."""
     try:
-        entries = _resolve_ifds_entry_files(targets, getattr(args, "entry", None))
+        entries = _resolve_ifds_entry_files(
+            targets,
+            getattr(args, "entry", None),
+            **({"recursive": True} if getattr(args, "recursive", False) else {}),
+        )
         from pyflow.frontend.file_selection import path_is_excluded
 
         root = Path(targets[0]) if Path(targets[0]).is_dir() else Path(targets[0]).parent
@@ -377,7 +381,7 @@ def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
     }
 
 
-def _resolve_ifds_entry_files(targets, entry) -> tuple[Path, ...]:
+def _resolve_ifds_entry_files(targets, entry, *, recursive=False) -> tuple[Path, ...]:
     if len(targets) != 1:
         raise ValueError("IFDS analysis requires exactly one file or project directory.")
     target = Path(targets[0])
@@ -386,6 +390,19 @@ def _resolve_ifds_entry_files(targets, entry) -> tuple[Path, ...]:
     if entry:
         return tuple(dict.fromkeys(_resolve_ifds_entry_file(targets, item) for item in entry))
     if target.is_dir():
+        if recursive:
+            from pyflow.frontend.file_selection import discover_python_files
+
+            preferred = [
+                _resolve_ifds_entry_file(targets, candidate.path)
+                for candidate in discover_entry_files(target)
+            ]
+            return tuple(
+                dict.fromkeys(
+                    Path(path).resolve()
+                    for path in [*preferred, *discover_python_files(target, recursive=True)]
+                )
+            )
         candidates = discover_entry_files(target)
         if candidates:
             return tuple(
@@ -811,6 +828,23 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
                 frameworks = detect_frameworks(source)
             except OSError:
                 pass
+        elif frameworks is None and path.is_dir():
+            from pyflow.frontend.file_selection import discover_python_files
+
+            detected = set()
+            excluded = _parse_exclude_tuple(getattr(args, "exclude", ()))
+            if not getattr(args, "no_default_excludes", False):
+                excluded += SECURITY_DEFAULT_EXCLUDES
+            for source_path in discover_python_files(
+                path, recursive=getattr(args, "recursive", False), exclude=excluded
+            ):
+                try:
+                    detected.update(
+                        detect_frameworks(source_path.read_text(encoding="utf-8", errors="replace"))
+                    )
+                except OSError:
+                    continue
+            frameworks = sorted(detected) or None
         registry_paths = getattr(args, "registry_path", []) or []
         load_rules(engine, frameworks=frameworks, custom_paths=registry_paths)
 
@@ -919,7 +953,7 @@ def _build_taint_configuration(
         *(CallModel(name=name, sanitizer_kinds=frozenset({"*"})) for name in sanitizers),
     ]
     rules: list[TaintRule] = []
-    if sources and sinks:
+    if sinks:
         rules.append(
             TaintRule(
                 rule_id="PYFLOW-CLI-DANGEROUS",
@@ -932,12 +966,8 @@ def _build_taint_configuration(
 
     custom_paths = getattr(args, "registry_path", []) or []
     raw_frameworks = getattr(args, "framework", None)
-    auto_detect = raw_frameworks == []
+    auto_detect = not raw_frameworks
     given_frameworks = tuple(raw_frameworks) if raw_frameworks else None
-
-    # No framework or custom paths → user handles models manually.
-    if given_frameworks is None and not auto_detect and not custom_paths and models:
-        return CallModelRegistry(models), tuple(rules), EntryPointDefaults()
 
     try:
         from pyflow.analysis.ifds.modeling.registry import load_registry
@@ -964,6 +994,15 @@ def _build_taint_configuration(
         entry_point_defaults = registry.as_taint_policy().entry_point_defaults
         models.extend(config.call_models.as_mapping().values())
         rules.extend(config.rules)
+        if sinks:
+            from dataclasses import replace
+
+            rules[0] = replace(
+                rules[0],
+                source_kinds=frozenset(
+                    {"untrusted", *(kind for model in models for kind in model.source_kinds)}
+                ),
+            )
     except ImportError:
         entry_point_defaults = EntryPointDefaults()
 
@@ -1049,6 +1088,8 @@ def _security_exit_code(args, *, status: str, has_findings: bool) -> int:
         return 2
     if status == "failed":
         return 4
+    if getattr(args, "require_complete", False) and status in {"partial", "cancelled"}:
+        return 3
     if getattr(args, "fail_on", None) is not None and has_findings:
         return 1
     if getattr(args, "exit_code_policy", "report") == "report":

@@ -1,6 +1,8 @@
 """PyCG's assignment-graph fixed point over the seven-instruction MIR.
 
-The analysis is context insensitive, flow insensitive and field sensitive.  It
+Source procedures are context insensitive, flow insensitive and field sensitive.
+Builtin runtime procedures retain the originating call context to keep distinct
+descriptor objects separate. The analysis
 only understands MIR: Python name lookup, argument binding, descriptors and
 operator dispatch must already have been lowered to ordinary MIR instructions.
 No input module is imported or executed, and no upstream PyCG installation or
@@ -27,6 +29,7 @@ Deletion retains old bindings and conservatively models list index shifts.
 """
 
 from __future__ import annotations
+import json
 
 from collections import defaultdict
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -232,11 +235,17 @@ def _walk_expressions(value: object) -> Iterable[Expr]:
 class _Analysis:
     def __init__(self, program: Program, analyze_all_functions: bool) -> None:
         self.program = program
+        self.scope_cfgs = dict(program.cfgs)
+        self.scope_original = {name: name for name in program.cfgs}
+        self.scope_context = {}
         self.analyze_all_functions = analyze_all_functions
         self.heap: dict[str, _Value] = {}
         self.environments = {name: f"@env:{name}" for name in program.cfgs}
         self.environment_owners = {address: name for name, address in self.environments.items()}
         self.active: set[str] = set()
+        self.pending: set[str] = set()
+        self.readers: dict[str, set[str]] = defaultdict(set)
+        self.current_scope: str | None = None
         self.nodes: dict[str, tuple[int, ...]] = {}
         self.raw_calls: dict[str, set[str]] = defaultdict(set)
         self.raw_sites: dict[tuple[str, int], set[str]] = defaultdict(set)
@@ -266,13 +275,14 @@ class _Analysis:
     def _activate(self, name: str) -> None:
         if name in self.active:
             return
-        if name not in self.program.cfgs:
+        if name not in self.scope_cfgs:
             raise ValueError(f"MIR closure references missing CFG {name!r}")
         self.active.add(name)
+        self.pending.add(name)
         self.changed = True
         address = self.environments[name]
         self.heap[address] = _Value(kinds={"env"})
-        cfg = self.program.cfgs[name]
+        cfg = self.scope_cfgs[name]
         reachable: set[int] = set()
         pending = [cfg.entry]
         while pending:
@@ -296,17 +306,27 @@ class _Analysis:
         self.changed |= len(current) != before
 
     def _update_value(self, address: str, value: _Value, *, computed: bool = False) -> None:
-        self.changed |= self.heap.setdefault(address, _Value()).join(
+        changed = self.heap.setdefault(address, _Value()).join(
             value, _MAX_COMPUTED_PRIMITIVES if computed else None
         )
+        if changed:
+            self.changed = True
+            self.pending.update(self.readers[address])
+
+    def _read_dependency(self, address: str) -> None:
+        if self.current_scope is not None:
+            self.readers[address].add(self.current_scope)
 
     def _write_field(self, address: str, key: _Key, refs: Iterable[str]) -> None:
         value = self.heap.setdefault(address, _Value())
-        self.changed |= key not in value.fields
+        changed = key not in value.fields
         field_refs = value.fields.setdefault(key, set())
         before = len(field_refs)
         field_refs.update(refs)
-        self.changed |= len(field_refs) != before
+        changed |= len(field_refs) != before
+        if changed:
+            self.changed = True
+            self.pending.update(self.readers[address])
 
     @staticmethod
     def _key_matches(query: _Key, stored: _Key) -> bool:
@@ -336,6 +356,7 @@ class _Analysis:
     def _read_slots(self, lvalue: LValue, scope: str) -> set[tuple[str, _Key]]:
         if isinstance(lvalue, Var):
             address = self.environments[scope]
+            self._read_dependency(address)
             # An environment can be written through an unknown string key,
             # because Env exposes the very same object to ordinary Attr/Bind.
             value = self.heap.get(address, _Value())
@@ -347,6 +368,7 @@ class _Analysis:
         queries = self._keys(self._eval(lvalue.key, scope))
         result: set[tuple[str, _Key]] = set()
         for address in self._resolve(lvalue.base, scope):
+            self._read_dependency(address)
             value = self.heap.get(address)
             if value is None:
                 continue
@@ -397,10 +419,39 @@ class _Analysis:
             return _UNKNOWN_STR
         return _Primitive(kind, value)
 
+    def _seed_library_arguments(self, function: Lambda, definition_scope: str) -> None:
+        cfg = self.program.cfgs[function.body]
+        fields = {}
+        for index, parameter in enumerate(cfg.analysis_parameters, 1):
+            address = f"@parameter:{function.body}:{parameter}"
+            refs = {address}
+            self._update_value(address, _Value(kinds={"object"}))
+            if index == 1 and cfg.analysis_receiver_class:
+                classes = self._resolve(Var(cfg.analysis_receiver_class), definition_scope)
+                if cfg.analysis_receiver_kind == "class":
+                    refs = classes
+                else:
+                    self._write_field(address, "__class__", classes)
+            fields[index] = refs
+        arguments = f"@entry-args:{function.body}"
+        keywords = f"@entry-kwargs:{function.body}"
+        self._update_value(
+            arguments,
+            _Value(
+                kinds={"list"},
+                fields=fields,
+                lengths={_Primitive("int", len(cfg.analysis_parameters))},
+            ),
+        )
+        self._update_value(keywords, _Value(kinds={"dict"}))
+        self._write_field(self.environments[function.body], function.args_param, {arguments})
+        self._write_field(self.environments[function.body], function.kwargs_param, {keywords})
+
     def _eval(self, expr: Expr, scope: str) -> _Value:
         if isinstance(expr, LValue):
             result = _Value()
             for address in self._resolve(expr, scope):
+                self._read_dependency(address)
                 result.join(self.heap.get(address, _Value()))
             return result
         if isinstance(expr, NewObject):
@@ -428,6 +479,7 @@ class _Analysis:
                 self._write_field(
                     self.environments[expr.body], expr.parent_param, (closure.parent,)
                 )
+                self._seed_library_arguments(expr, scope)
             return _Value(atoms={closure})
         if isinstance(expr, ListExpr):
             return _Value(
@@ -464,13 +516,15 @@ class _Analysis:
             # every receiver has the tag, the alternative protocol branch is
             # impossible; taking it would inject a spurious receiver argument.
             if (
-                self.program.cfgs[scope].is_synthetic
+                self.scope_cfgs[scope].is_synthetic
                 and expr.op == "in"
                 and isinstance(expr.left, Literal)
                 and expr.left.value in {"$function", "$bound", "$class"}
                 and isinstance(expr.right, LValue)
             ):
                 refs = self._resolve(expr.right, scope)
+                for ref in refs:
+                    self._read_dependency(ref)
                 if refs and all(expr.left.value in self.heap[ref].fields for ref in refs):
                     return _Value(atoms={_TRUE})
             return self._binary(
@@ -572,6 +626,7 @@ class _Analysis:
             return
         indices = self._keys(self._eval(target.key, scope))
         for address in self._resolve(target.base, scope):
+            self._read_dependency(address)
             value = self.heap.get(address)
             if value is None or "list" not in value.kinds:
                 continue
@@ -609,12 +664,13 @@ class _Analysis:
             if not isinstance(closure, _Closure):
                 continue
             function = closure.function
-            self._activate(function.body)
-            if function.body not in site:
-                site.add(function.body)
-                self.raw_calls[scope].add(function.body)
+            target = self._call_scope(function.body, scope, node_id)
+            self._activate(target)
+            if target not in site:
+                site.add(target)
+                self.raw_calls[scope].add(target)
                 self.changed = True
-            environment = self.environments[function.body]
+            environment = self.environments[target]
             for parameter, refs, sources in (
                 (function.args_param, arguments, self._source_labels(command.args, scope)),
                 (function.kwargs_param, keywords, self._source_labels(command.kwargs, scope)),
@@ -622,7 +678,7 @@ class _Analysis:
             ):
                 self._write_field(environment, parameter, refs)
                 self._edge(self._field_label(environment, parameter), sources)
-            returns = self._resolve(Var(function.return_var), function.body)
+            returns = self._resolve(Var(function.return_var), target)
             self._bind(
                 Var(command.target),
                 tuple(returns),
@@ -630,8 +686,25 @@ class _Analysis:
                 scope,
             )
 
+    def _call_scope(self, target: str, caller: str, node_id: int) -> str:
+        cfg = self.program.cfgs[target]
+        if cfg.filename or not (target.startswith("builtins.") or caller in self.scope_context):
+            return target
+        # Builtin descriptor bodies must not merge every user's method object
+        # into one allocation. Keep their runtime state per originating site;
+        # nested builtin calls reuse that context to bound recursive protocols.
+        context = self.scope_context.get(caller, f"{caller}:{node_id}")
+        name = f"{target}#context:{context}"
+        if name not in self.scope_cfgs:
+            self.scope_cfgs[name] = cfg
+            self.scope_original[name] = target
+            self.scope_context[name] = context
+            self.environments[name] = f"@env:{name}"
+            self.environment_owners[self.environments[name]] = name
+        return name
+
     def _feasible_nodes(self, scope):
-        cfg = self.program.cfgs[scope]
+        cfg = self.scope_cfgs[scope]
         pending, seen = [cfg.entry], set()
         while pending:
             node_id = pending.pop()
@@ -641,7 +714,9 @@ class _Analysis:
             node = cfg.nodes[node_id]
             if isinstance(node.instruction, Assume):
                 value = self._eval(node.instruction.condition, scope)
-                if value.atoms == {_FALSE}:
+                # Bottom is not an unknown boolean: its inputs have not arrived
+                # yet. Dependencies requeue this scope when they do.
+                if not value.atoms or value.atoms == {_FALSE}:
                     continue
             yield node_id
             pending.extend(reversed(node.successors))
@@ -649,11 +724,14 @@ class _Analysis:
     def step(self) -> None:
         self.changed = False
         # Newly discovered callees are processed on the next fixed-point pass.
-        for scope in sorted(self.active):
+        scheduled = sorted(self.pending)
+        self.pending.clear()
+        for scope in scheduled:
+            self.current_scope = scope
             if self.deadline is not None and monotonic() >= self.deadline:
                 self.budget_exhausted = True
                 return
-            cfg = self.program.cfgs[scope]
+            cfg = self.scope_cfgs[scope]
             environment = self.environments[scope]
             for node_id in self._feasible_nodes(scope):
                 if (
@@ -693,6 +771,8 @@ class _Analysis:
                     self._call(command, scope, node_id)
                 else:
                     raise TypeError(f"Unsupported MIR instruction: {type(command).__name__}")
+        self.current_scope = None
+        self.changed = bool(self.pending)
 
     def _project(self, targets: Iterable[str], include_synthetic: bool) -> frozenset[str]:
         result: set[str] = set()
@@ -703,21 +783,21 @@ class _Analysis:
             if target in seen:
                 continue
             seen.add(target)
-            if include_synthetic or not self.program.cfgs[target].is_synthetic:
-                result.add(target)
+            if include_synthetic or not self.scope_cfgs[target].is_synthetic:
+                result.add(self.scope_original[target])
             else:
                 pending.extend(self.raw_calls.get(target, ()))
         return frozenset(result)
 
     def result(self, converged: bool, iterations: int, include_synthetic: bool) -> PyCGMIRResult:
         graph = MIRCallGraph()
-        for name, cfg in self.program.cfgs.items():
+        for name, cfg in self.scope_cfgs.items():
             if name.startswith("builtins.") and not cfg.filename and name not in self.active:
                 continue
             if include_synthetic or not cfg.is_synthetic:
-                graph.add_node(name, cfg.filename or None)
+                graph.add_node(self.scope_original[name], cfg.filename or None)
                 for target in self._project(self.raw_calls.get(name, ()), include_synthetic):
-                    graph.add_edge(name, target)
+                    graph.add_edge(self.scope_original[name], target)
 
         assignments = {name: set(targets) for name, targets in self.assignments.items()}
         for address, value in self.heap.items():
@@ -736,7 +816,7 @@ class _Analysis:
         sites = {
             site: self._project(targets, include_synthetic)
             for site, targets in self.raw_sites.items()
-            if include_synthetic or not self.program.cfgs[site[0]].is_synthetic
+            if include_synthetic or not self.scope_cfgs[site[0]].is_synthetic
         }
         unresolved = tuple(sorted(site for site, targets in self.raw_sites.items() if not targets))
         diagnostics = [
@@ -873,6 +953,7 @@ def analyze_file_pycg_mir(
     import_policy: str = "opaque",
     max_seconds: float | None = 30.0,
     max_import_depth: int | None = None,
+    json_schema: str = "legacy",
 ) -> str:
     """Analyze a file and supported local imports, rendering text or JSON adjacency.
 
@@ -881,15 +962,20 @@ def analyze_file_pycg_mir(
     """
     from pyflow.ir.mir.lowering import lower_file
 
-    from .formats import generate_text_output
+    from .formats import generate_text_output, CallGraphOutput
 
     kwargs = {} if project_root is None else {"project_root": project_root}
     if max_seconds is not None and (not math.isfinite(max_seconds) or max_seconds <= 0):
         raise ValueError("max_seconds must be finite and positive")
     diagnostics = []
     started = monotonic()
-    program = lower_file(filepath, import_policy=import_policy, diagnostics=diagnostics,
-                         max_import_depth=max_import_depth, **kwargs)
+    program = lower_file(
+        filepath,
+        import_policy=import_policy,
+        diagnostics=diagnostics,
+        max_import_depth=max_import_depth,
+        **kwargs,
+    )
     remaining = (
         max(1e-6, max_seconds - (monotonic() - started)) if max_seconds is not None else None
     )
@@ -908,11 +994,36 @@ def analyze_file_pycg_mir(
         print(f"MIR PyCG: {result.iterations} iterations, converged={result.converged}")
         for diagnostic in result.diagnostics:
             print(diagnostic)
+    status = (
+        "partial" if not result.converged or diagnostics or result.unresolved_calls else "complete"
+    )
     if format == "json":
+        if json_schema == "unified":
+            from .formats import structured_callgraph
+
+            return CallGraphOutput(
+                json.dumps(
+                    structured_callgraph(
+                        result.call_graph.get(),
+                        algorithm="pycg-mir",
+                        status=(
+                            "partial"
+                            if not result.converged or diagnostics or result.unresolved_calls
+                            else "complete"
+                        ),
+                        converged=result.converged,
+                        diagnostics=[*diagnostics, *result.diagnostics],
+                    ),
+                    indent=2,
+                ),
+                status,
+            )
         from .formats import generate_adjacency_json
 
-        return generate_adjacency_json(result.call_graph)
-    return generate_text_output(result.call_graph, None)
+        return CallGraphOutput(generate_adjacency_json(result.call_graph), status)
+    return CallGraphOutput(
+        f"Status: {status}\n" + generate_text_output(result.call_graph, None), status
+    )
 
 
 __all__ = [

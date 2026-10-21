@@ -90,22 +90,37 @@ class ConstraintCallGraphBuilder(
         verbose: bool = False,
         options: Optional[AnalysisOptions] = None,
         additional_sources: Optional[Mapping[str, str]] = None,
+        project_root: Optional[str] = None,
+        canonical_entry_names: bool = False,
     ) -> None:
         self.source_code = source_code
         self.entry_path = os.path.abspath(entry_path) if entry_path else None
         self.verbose = verbose
         self.options = options or AnalysisOptions()
         self.additional_sources = dict(additional_sources or {})
-        self.project_root = (
+        self.project_root = project_root or (
             self._infer_project_root(self.entry_path) if self.entry_path else os.getcwd()
         )
+        import_root = self.project_root
+        while os.path.isfile(os.path.join(import_root, "__init__.py")):
+            parent = os.path.dirname(import_root)
+            if parent == import_root:
+                break
+            import_root = parent
         self.project_context = ProjectContext(
-            self.project_root, source_files=self.additional_sources
+            import_root,
+            source_files=self.additional_sources,
+            added_sys_path=(
+                (os.path.join(self.project_root, "src"),)
+                if os.path.isdir(os.path.join(self.project_root, "src"))
+                else ()
+            ),
         )
         self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
             self._infer_entry_module_import_name(self.entry_path) if self.entry_path else "main"
         )
+        self.entry_module_name = self.entry_module_import_name if canonical_entry_names else "main"
 
         self.modules: Dict[str, ModuleInfo] = {}
         self._module_source_paths: Dict[str, Optional[str]] = {}

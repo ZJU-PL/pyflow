@@ -34,6 +34,7 @@ class ASTDataflowTaintFinding:
     confidence: str = "HIGH"
     precision_reasons: Tuple[str, ...] = ()
     trace: Tuple[ASTDataflowTraceStep, ...] = ()
+    related_rules: Tuple[Tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)

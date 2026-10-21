@@ -3684,6 +3684,7 @@
     },
     {
       "id": "PYFLOW-STDLIB-REFLECTION",
+      "cwe": "CWE-470",
       "title": "Untrusted data reaches reflection sink",
       "sources": [
         "user_input",

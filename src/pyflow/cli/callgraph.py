@@ -26,7 +26,10 @@ def _validate_algorithm_options(args) -> bool:
         getattr(args, "max_seconds", None) is not None
         or getattr(args, "max_import_depth", None) is not None
     ):
-        print("Error: --max-seconds and --max-import-depth require --algorithm pycg or pycg-mir", file=sys.stderr)
+        print(
+            "Error: --max-seconds and --max-import-depth require --algorithm pycg or pycg-mir",
+            file=sys.stderr,
+        )
         return False
     if getattr(args, "mir_max_seconds", None) is not None and args.algorithm != "pycg-mir":
         print("Error: --mir-max-seconds requires --algorithm pycg-mir", file=sys.stderr)
@@ -106,17 +109,30 @@ def _analyze_file(
             **format_kwargs,
         )
     elif args.algorithm in {"pycg", "pycg-mir"}:
-        timeout = getattr(args, "max_seconds", None) or 30.0
-        # Leave time for worker startup and serializing an explicitly partial
-        # native result before the parent's unconditional deadline.
-        analysis_seconds = min(getattr(args, "mir_max_seconds", None) or timeout, timeout * 0.8)
+        analysis_seconds = getattr(args, "mir_max_seconds", None) or (
+            max(0.001, args.max_seconds - 5.0) if getattr(args, "max_seconds", None) else 30.0
+        )
+        timeout = getattr(args, "max_seconds", None) or analysis_seconds + 5.0
+        if getattr(args, "mir_max_seconds", None) is not None and timeout <= analysis_seconds:
+            print(
+                "Error: --max-seconds must exceed --mir-max-seconds to allow worker startup and report serialization",
+                file=sys.stderr,
+            )
+            return 2
         request = {
-            "algorithm": args.algorithm, "filepath": str(file_path.resolve()),
-            "verbose": args.verbose, "format": getattr(args, "format", "text"),
+            "algorithm": args.algorithm,
+            "filepath": str(file_path.resolve()),
+            "verbose": args.verbose,
+            "format": getattr(args, "format", "text"),
             "project_root": str(project_root.resolve()) if project_root is not None else None,
-            "max_import_depth": getattr(args, "max_import_depth", None) if getattr(args, "max_import_depth", None) is not None else 3,
+            "max_import_depth": (
+                getattr(args, "max_import_depth", None)
+                if getattr(args, "max_import_depth", None) is not None
+                else 3
+            ),
             "import_policy": getattr(args, "mir_import_policy", None),
             "analysis_seconds": analysis_seconds,
+            "json_schema": getattr(args, "json_schema", "legacy"),
         }
         output = run_isolated_callgraph(request, timeout=timeout)
     else:
@@ -125,6 +141,16 @@ def _analyze_file(
     if output.startswith("Error analyzing "):
         print(output, file=sys.stderr)
         return 2
+    if (
+        getattr(args, "format", "text") == "json"
+        and getattr(args, "json_schema", "legacy") == "unified"
+        and args.algorithm != "pycg-mir"
+    ):
+        from pyflow.analysis.callgraph.formats import structured_callgraph
+
+        output = json.dumps(
+            structured_callgraph(json.loads(output), algorithm=args.algorithm), indent=2
+        )
 
     if args.as_graph_output:
         if args.algorithm != "constraint":
@@ -163,7 +189,12 @@ def _analyze_file(
     else:
         print(output)
 
-    return 0
+    if (
+        getattr(args, "format", "text") == "json"
+        and getattr(args, "json_schema", "legacy") == "unified"
+    ):
+        return 3 if json.loads(output)["status"] == "partial" else 0
+    return 3 if getattr(output, "status", "complete") == "partial" else 0
 
 
 def _run_callgraph_on_dir(repo_path: Path, args) -> int:
@@ -271,6 +302,12 @@ def run_callgraph(input_path, args):
 
 def add_callgraph_parser(subparsers):
     parser = subparsers.add_parser("callgraph", help="Extract call graphs from Python code")
+    parser.add_argument(
+        "--json-schema",
+        choices=("legacy", "unified"),
+        default="legacy",
+        help="Unified JSON separates unresolved/external calls and includes completion status; legacy preserves adjacency output",
+    )
 
     parser.add_argument(
         "input",
@@ -317,15 +354,22 @@ def add_callgraph_parser(subparsers):
 
     def import_depth(value):
         import argparse
+
         depth = int(value)
         if depth < 0:
             raise argparse.ArgumentTypeError("import depth must be non-negative")
         return depth
 
-    parser.add_argument("--max-seconds", type=positive_seconds,
-                        help="Hard process deadline for pycg/pycg-mir, including imports (default: 30)")
-    parser.add_argument("--max-import-depth", type=import_depth,
-                        help="Maximum local import hops for pycg/pycg-mir (default: 3; 0 inspects only the entry)")
+    parser.add_argument(
+        "--max-seconds",
+        type=positive_seconds,
+        help="Hard process deadline including imports (default: MIR budget plus 5 seconds; 35 seconds normally)",
+    )
+    parser.add_argument(
+        "--max-import-depth",
+        type=import_depth,
+        help="Maximum local import hops for pycg/pycg-mir (default: 3; 0 inspects only the entry)",
+    )
 
     parser.add_argument(
         "--mir-max-seconds",
@@ -438,6 +482,7 @@ def _analyze_project_sources(root, args):
             sources[str(entry.resolve())],
             source_path=str(entry),
             additional_sources=sources,
+            project_root=str(root.resolve()),
             skip_stdlib_modules=args.skip_stdlib,
             skip_external_modules=not args.include_external,
             canonical_entry_names=True,
@@ -452,8 +497,14 @@ def _analyze_project_sources(root, args):
         if getattr(args, "format", "text") == "json"
         else generate_text_output(graph, args)
     )
+    if args.format == "json" and getattr(args, "json_schema", "legacy") == "unified":
+        from pyflow.analysis.callgraph.formats import structured_callgraph
+
+        output = json.dumps(structured_callgraph(graph.get(), algorithm="constraint"), indent=2)
     if args.output:
         args.output.write_text(output + "\n", encoding="utf-8")
     else:
         print(output)
+    if args.format == "json" and getattr(args, "json_schema", "legacy") == "unified":
+        return 3 if json.loads(output)["status"] == "partial" else 0
     return 0

@@ -12,7 +12,7 @@ def test_hashlib_md5_is_flagged(scan):
     assert "B9014" in test_ids
     issue = issues[0]
     assert issue.cwe.id == Cwe.BROKEN_CRYPTO
-    assert issue.severity == "MEDIUM"
+    assert issue.severity == "HIGH"
     assert issue.confidence == "HIGH"
     assert issue.lineno == 2
 

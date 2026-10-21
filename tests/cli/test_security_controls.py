@@ -123,7 +123,15 @@ def test_ast_entry_parameters_keep_user_input_kind_without_fabricating_file_or_e
 ):
     path = tmp_path / "app.py"
     path.write_text("def handler(value):\n    eval(value)\n")
-    args = _args(path, "--engine", "ast-dataflow", "--format", "json")
+    args = _args(
+        path,
+        "--engine",
+        "ast-dataflow",
+        "--format",
+        "json",
+        "--ast-entry-source-kind",
+        "user_input",
+    )
     assert run_security(args) == 0
     findings = json.loads(capsys.readouterr().out)["findings"]
     assert findings

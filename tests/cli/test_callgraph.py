@@ -115,6 +115,7 @@ def test_native_pycg_mir_cli_resolves_callback_without_external_pycg(tmp_path, m
     )
 
     original = callgraph_cli.run_isolated_callgraph
+
     def native_worker(request, **kwargs):
         assert request["algorithm"] == "pycg-mir"
         return original(request, **kwargs)
@@ -134,8 +135,12 @@ def test_native_pycg_mir_cli_passes_project_root(tmp_path, monkeypatch, capsys):
     captured = {}
 
     def analyze(request, *, timeout):
-        captured.update(filepath=request["filepath"], verbose=request["verbose"], project_root=request["project_root"])
-        assert timeout == 30
+        captured.update(
+            filepath=request["filepath"],
+            verbose=request["verbose"],
+            project_root=request["project_root"],
+        )
+        assert timeout == 35
         return "native graph"
 
     monkeypatch.setattr(callgraph_cli, "run_isolated_callgraph", analyze)
@@ -173,7 +178,7 @@ def test_native_pycg_mir_handles_unmodeled_stdlib_with_partial_diagnostic(tmp_pa
     sample = tmp_path / "sample.py"
     sample.write_text("import math\ndef f(): return math.sqrt(4)\nf()\n")
     args = parse_callgraph_args(sample, "--algorithm", "pycg-mir", "--format", "json")
-    assert callgraph_cli.run_callgraph(sample, args) == 0
+    assert callgraph_cli.run_callgraph(sample, args) == 3
     captured = capsys.readouterr()
     import json
 

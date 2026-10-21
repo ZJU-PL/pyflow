@@ -135,6 +135,7 @@ class PythonToMIR:
         self.active_exception = None
         self.generator_state = None
         self.serial = 0
+        self.lambda_counters = {}
 
     def fail(self, node, message):
         raise LoweringError(message, self.module.filename, getattr(node, "lineno", None))
@@ -670,6 +671,9 @@ class PythonToMIR:
         outer, parent = self.b, self.scope
         self.serial += 1
         short_name = getattr(node, "name", f"<lambda{self.serial}>")
+        if isinstance(node, ast.Lambda):
+            self.lambda_counters[parent.name] = self.lambda_counters.get(parent.name, 0) + 1
+            short_name = f"<lambda{self.lambda_counters[parent.name]}>"
         name = f"{parent.name}.{short_name}"
         if name in self.program.cfgs:
             name += f"@{getattr(node, 'lineno', self.serial)}:{self.serial}"
@@ -702,6 +706,16 @@ class PythonToMIR:
             first_parameter=args[0].arg if args else None,
         )
         self.b = Builder(self.program, name, self.module.filename)
+        self.b.cfg.analysis_parameters = tuple(arg.arg for arg in args)
+        if method_class and args:
+            decorator_names = {
+                d.id for d in getattr(node, "decorator_list", ()) if isinstance(d, ast.Name)
+            }
+            if "staticmethod" not in decorator_names:
+                self.b.cfg.analysis_receiver_class = method_class
+                self.b.cfg.analysis_receiver_kind = (
+                    "class" if "classmethod" in decorator_names else "instance"
+                )
         self.scope, self.exception_target = scope, self.b.cfg.exit
         self.loop_targets, self.finalizers, self.active_exception = [], [], None
         self.generator_state = None
@@ -1432,7 +1446,14 @@ def _default_root(path):
 
 
 def _discover(
-    source, name, filename, root, *, import_policy="strict", diagnostics=None, follow_imports=True,
+    source,
+    name,
+    filename,
+    root,
+    *,
+    import_policy="strict",
+    diagnostics=None,
+    follow_imports=True,
     max_import_depth=None,
 ):
     """Read only local .py modules; never use importlib or execute import hooks."""
@@ -1486,23 +1507,31 @@ def _discover(
                     if diagnostics is not None:
                         diagnostics.append(
                             {
-                                "code": "mir-import-depth" if limited and path is not None else "mir-opaque-import",
+                                "code": (
+                                    "mir-import-depth"
+                                    if limited and path is not None
+                                    else "mir-opaque-import"
+                                ),
                                 "module": target,
                                 "filename": file,
                                 "line": node.lineno,
                                 "message": (
                                     f"Import {target!r} exceeds max_import_depth={max_import_depth}; retained as an opaque boundary"
-                                    if limited and path is not None else
-                                    f"Import {target!r} has no MIR model; retained as an opaque inspection boundary"
+                                    if limited and path is not None
+                                    else f"Import {target!r} has no MIR model; retained as an opaque inspection boundary"
                                 ),
                                 "affects_completeness": True,
                             }
                         )
                     return True
                 raise LoweringError(
-                    f"import {target!r} exceeds max_import_depth={max_import_depth}"
-                    if limited and path is not None else
-                    f"import {target!r} has no local source or MIR runtime model", file, node.lineno
+                    (
+                        f"import {target!r} exceeds max_import_depth={max_import_depth}"
+                        if limited and path is not None
+                        else f"import {target!r} has no local source or MIR runtime model"
+                    ),
+                    file,
+                    node.lineno,
                 )
             # Package initializers execute before imported children.
             components = target.split(".")
@@ -1597,6 +1626,9 @@ def lower_file(
     root = Path(project_root).resolve() if project_root else _default_root(entry)
     if not entry.is_relative_to(root):
         raise LoweringError("entry file is outside project_root", str(entry))
+    source_root = root / "src"
+    if entry.is_relative_to(source_root) and not (source_root / "__init__.py").is_file():
+        root = source_root
     name = _module_name(entry, root)
     return lower_source(
         _source(entry),

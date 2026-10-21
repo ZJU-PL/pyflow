@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from copy import deepcopy
+from copy import copy, deepcopy
 from functools import cached_property
 import json
 
@@ -200,27 +200,103 @@ class FilteredScannerResult:
         return len(self.get_issue_list(*args, **kwargs))
 
 
+def _fold_taint_findings(findings):
+    """Fold equivalent sink reports across packs, retaining rule provenance."""
+    grouped = {}
+    for finding in sorted(
+        findings,
+        key=lambda item: (
+            -SEVERITY_RANK.get(normalize_finding(item)["severity"], 0),
+            normalize_finding(item)["rule_id"],
+        ),
+    ):
+        normalized = normalize_finding(finding)
+        location = normalized["location"]
+        sink = finding.get("sink_name") or finding.get("sink_label")
+        if not sink:
+            sink = (finding.get("properties") or {}).get("sink_name")
+        key = (
+            location["filename"],
+            location["line"],
+            sink,
+            normalized["cwe"],
+        )
+        # Missing identities must not collapse unrelated findings.
+        if not all((location["filename"], location["line"], sink)):
+            key += (id(finding),)
+        representative = grouped.setdefault(key, {**finding, "related_rules": []})
+        related = {
+            "rule_id": normalized["rule_id"],
+            "rule_title": normalized["rule_title"],
+            "severity": normalized["severity"],
+        }
+        if related not in representative["related_rules"]:
+            representative["related_rules"].append(related)
+    return list(grouped.values())
+
+
 def filter_report(engine, result, args, baseline):
     if engine == "ast-scanner":
         return FilteredScannerResult(result, args, baseline)
     if engine == "ast-dataflow":
-        result = FilteredScannerResult(result, args, baseline)
         report = security_json(engine, result)
-        accepted = {_identity(item) for item in report["findings"] if _accept(item, args, baseline)}
+        accepted = [item for item in report["findings"] if _accept(item, args, baseline)]
+        if not getattr(args, "no_deduplicate", False):
+            accepted = _fold_taint_findings(accepted)
+        result = copy(result)
         if getattr(result, "analysis_result", None) is not None:
+            originals = {
+                (
+                    item.rule_id,
+                    item.filename,
+                    item.sink_line,
+                    item.sink_name,
+                    item.cwe,
+                    tuple(sorted(item.source_kinds)),
+                ): item
+                for item in result.analysis_result.findings
+            }
             result.analysis_result = replace(
                 result.analysis_result,
                 findings=tuple(
-                    item
-                    for item in result.analysis_result.findings
-                    if (item.rule_id, item.filename, item.sink_line) in accepted
+                    replace(
+                        originals[
+                            (
+                                item["rule_id"],
+                                item["filename"],
+                                item["sink_line"],
+                                item["sink_name"],
+                                item["cwe"],
+                                tuple(sorted(item["source_kinds"])),
+                            )
+                        ],
+                        related_rules=tuple(
+                            (rule["rule_id"], rule["rule_title"], rule["severity"])
+                            for rule in item.get("related_rules", ())
+                        ),
+                    )
+                    for item in accepted
                 ),
+                statistics={
+                    **result.analysis_result.statistics,
+                    "raw_findings": len(report["findings"]),
+                    "reported_findings": len(accepted),
+                },
             )
-        return result
+            from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
+
+            result.results = ASTDataflowTaintDetector().issues_from_result(result.analysis_result)
+        return FilteredScannerResult(result, args, baseline)
     result = dict(result)
     result["findings"] = [
         item for item in result.get("findings", ()) if _accept(item, args, baseline)
     ]
+    if not getattr(args, "no_deduplicate", False):
+        result["findings"] = _fold_taint_findings(result["findings"])
+    result["statistics"] = {
+        **result.get("statistics", {}),
+        "reported_findings": len(result["findings"]),
+    }
     if "entry_results" in result:
         result["entry_results"] = [
             filter_report(engine, item, args, baseline) for item in result["entry_results"]
