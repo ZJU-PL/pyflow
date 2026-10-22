@@ -221,7 +221,8 @@ the hard deadline is supplied, five seconds are reserved for startup/reporting.<
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256, maximum 50,000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-seconds</span></code>: Constraint solver time budget (default: 60 seconds; 0 disables)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p></li>
@@ -239,21 +240,45 @@ the hard deadline is supplied, five seconds are reserved for startup/reporting.<
 <li><p><strong>Dynamic Summaries</strong>: Generates explicit summary nodes for unresolved call targets</p></li>
 <li><p><strong>Stdlib Filtering</strong>: Standard library modules can be skipped to reduce noise (<code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>)</p></li>
 </ul>
-<p>Whole-project scans (<code class="docutils literal notranslate"><span class="pre">--recursive</span></code> or <code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>) skip files with syntax
-errors and analyze the remaining files. An explicitly selected invalid entry,
-or a project with no parseable files, still fails. Files reached through multiple
-import names share one analysis identity; monorepo containers such as
-<code class="docutils literal notranslate"><span class="pre">pkg-core/</span></code> are treated as import roots. Decorator invocations and their returned
+<p>Whole-project scans (<code class="docutils literal notranslate"><span class="pre">--recursive</span></code> or <code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>) honor source encoding
+declarations (PEP 263). They skip files with decoding, reading, or syntax errors
+and report diagnostics while analyzing the remaining files. A project with no
+readable, parseable Python sources returns exit code 2 and an empty JSON graph;
+unified JSON includes the failure reason and diagnostics. An explicitly selected
+invalid entry still fails. Files reached through multiple
+import names share one analysis identity. In whole-project scans, absolute
+imports are matched against project source paths to infer shared naming and
+search roots, including <code class="docutils literal notranslate"><span class="pre">lib/</span></code>, <code class="docutils literal notranslate"><span class="pre">libs/core/</span></code>, and <code class="docutils literal notranslate"><span class="pre">packages/core/</span></code> without
+requiring those directory names. For example, <code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">mypkg.mod</span> <span class="pre">import</span> <span class="pre">run</span></code>
+and <code class="docutils literal notranslate"><span class="pre">libs/core/mypkg/mod.py</span></code> establish <code class="docutils literal notranslate"><span class="pre">libs/core</span></code> as an import root, so both
+the call target and function body use <code class="docutils literal notranslate"><span class="pre">mypkg.mod.run</span></code>. Regular and namespace
+package prefixes referenced by imports are preserved. Companion namespaces
+that collide across components (such as <code class="docutils literal notranslate"><span class="pre">scripts/check_imports.py</span></code>) keep
+project-qualified identities instead of losing a file to name deduplication.
+Decorator invocations and their returned
 closures retain separate contexts even without <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>.</p>
-<p>The default constraint worklist budget scales with the number of scopes; it is
-no longer capped at 10,000 steps. Large projects may therefore take longer.
-Use <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code> to impose an explicit budget. The returned
-graph exposes <code class="docutils literal notranslate"><span class="pre">converged</span></code> and <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>. Unified JSON
-(<code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span> <span class="pre">--json-schema</span> <span class="pre">unified</span></code>) includes these fields and reports
-<code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">partial</span></code> when the budget is exhausted or source files were skipped.
-Both legacy and unified CLI output return exit code 3 for these incomplete
-analyses, including with <code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>. Legacy JSON retains its
-adjacency-map format; use unified JSON for structured diagnostics.</p>
+<p>The default constraint worklist budget is 256 steps per scope, with a minimum
+of 256 and an absolute ceiling of 50,000. <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code> overrides
+this ceiling. A separate 60-second solver budget includes presolve and is checked
+between worklist steps. <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-seconds</span> <span class="pre">0</span></code> disables it (Python API:
+<code class="docutils literal notranslate"><span class="pre">fixpoint_max_seconds=None</span></code>). This is a cooperative solver deadline; loading,
+symbol collection, serialization, and a currently executing step can add time.
+Reaching either budget returns the accumulated graph rather than discarding it.</p>
+<p>The graph exposes <code class="docutils literal notranslate"><span class="pre">converged</span></code>, <code class="docutils literal notranslate"><span class="pre">termination_reason</span></code>, and <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>.
+Unified JSON (<code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span> <span class="pre">--json-schema</span> <span class="pre">unified</span></code>) also reports
+<code class="docutils literal notranslate"><span class="pre">analysis_complete</span></code> independently of the existing <code class="docutils literal notranslate"><span class="pre">status</span></code> field.
+<code class="docutils literal notranslate"><span class="pre">termination_reason</span></code> distinguishes <code class="docutils literal notranslate"><span class="pre">converged</span></code>, <code class="docutils literal notranslate"><span class="pre">iteration_limit</span></code>,
+<code class="docutils literal notranslate"><span class="pre">time_limit</span></code>, <code class="docutils literal notranslate"><span class="pre">no_sources</span></code>, <code class="docutils literal notranslate"><span class="pre">no_parseable_sources</span></code>, and <code class="docutils literal notranslate"><span class="pre">invalid_entry</span></code>.
+For the constraint engine, both JSON schemas return exit code 3 when analysis
+was truncated or sources were skipped, including with <code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>.
+A converged scan with no skipped sources returns 0 even if dynamic calls keep
+<code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">partial</span></code>; in that case <code class="docutils literal notranslate"><span class="pre">analysis_complete</span></code> is true. Legacy JSON
+retains its adjacency-map format; use unified JSON for structured diagnostics.</p>
+<p>Package re-exports propagate independently of module loading order. Nested
+class bases use bindings available before the class is defined. Multiple
+abstract candidates for a base expression use conservative method dispatch
+without claiming a definite C3 inconsistency; concrete inconsistent hierarchies
+still produce MRO warnings.</p>
 <p>Unresolved call summaries reflect the latest evaluation of each scope/context.
 A provisional missing-target marker disappears when propagation resolves the
 call. A site with both a concrete target and a genuinely unknown alternative

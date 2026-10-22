@@ -88,7 +88,8 @@ Options:
 - ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
-- ``--fixpoint-max-iterations``: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)
+- ``--fixpoint-max-iterations``: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256, maximum 50,000)
+- ``--fixpoint-max-seconds``: Constraint solver time budget (default: 60 seconds; 0 disables)
 - ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
 - ``--as-graph-output``: Write constraint value-flow assignment graph JSON (constraint algorithm only)
@@ -106,22 +107,48 @@ Constraint-Based Analysis (Public API Default)
 - **Dynamic Summaries**: Generates explicit summary nodes for unresolved call targets
 - **Stdlib Filtering**: Standard library modules can be skipped to reduce noise (``--skip-stdlib``)
 
-Whole-project scans (``--recursive`` or ``--all-scopes``) skip files with syntax
-errors and analyze the remaining files. An explicitly selected invalid entry,
-or a project with no parseable files, still fails. Files reached through multiple
-import names share one analysis identity; monorepo containers such as
-``pkg-core/`` are treated as import roots. Decorator invocations and their returned
+Whole-project scans (``--recursive`` or ``--all-scopes``) honor source encoding
+declarations (PEP 263). They skip files with decoding, reading, or syntax errors
+and report diagnostics while analyzing the remaining files. A project with no
+readable, parseable Python sources returns exit code 2 and an empty JSON graph;
+unified JSON includes the failure reason and diagnostics. An explicitly selected
+invalid entry still fails. Files reached through multiple
+import names share one analysis identity. In whole-project scans, absolute
+imports are matched against project source paths to infer shared naming and
+search roots, including ``lib/``, ``libs/core/``, and ``packages/core/`` without
+requiring those directory names. For example, ``from mypkg.mod import run``
+and ``libs/core/mypkg/mod.py`` establish ``libs/core`` as an import root, so both
+the call target and function body use ``mypkg.mod.run``. Regular and namespace
+package prefixes referenced by imports are preserved. Companion namespaces
+that collide across components (such as ``scripts/check_imports.py``) keep
+project-qualified identities instead of losing a file to name deduplication.
+Decorator invocations and their returned
 closures retain separate contexts even without ``--context-sensitive``.
 
-The default constraint worklist budget scales with the number of scopes; it is
-no longer capped at 10,000 steps. Large projects may therefore take longer.
-Use ``--fixpoint-max-iterations`` to impose an explicit budget. The returned
-graph exposes ``converged`` and ``diagnostics``. Unified JSON
-(``--format json --json-schema unified``) includes these fields and reports
-``status: partial`` when the budget is exhausted or source files were skipped.
-Both legacy and unified CLI output return exit code 3 for these incomplete
-analyses, including with ``--no-fixpoint-warning``. Legacy JSON retains its
-adjacency-map format; use unified JSON for structured diagnostics.
+The default constraint worklist budget is 256 steps per scope, with a minimum
+of 256 and an absolute ceiling of 50,000. ``--fixpoint-max-iterations`` overrides
+this ceiling. A separate 60-second solver budget includes presolve and is checked
+between worklist steps. ``--fixpoint-max-seconds 0`` disables it (Python API:
+``fixpoint_max_seconds=None``). This is a cooperative solver deadline; loading,
+symbol collection, serialization, and a currently executing step can add time.
+Reaching either budget returns the accumulated graph rather than discarding it.
+
+The graph exposes ``converged``, ``termination_reason``, and ``diagnostics``.
+Unified JSON (``--format json --json-schema unified``) also reports
+``analysis_complete`` independently of the existing ``status`` field.
+``termination_reason`` distinguishes ``converged``, ``iteration_limit``,
+``time_limit``, ``no_sources``, ``no_parseable_sources``, and ``invalid_entry``.
+For the constraint engine, both JSON schemas return exit code 3 when analysis
+was truncated or sources were skipped, including with ``--no-fixpoint-warning``.
+A converged scan with no skipped sources returns 0 even if dynamic calls keep
+``status: partial``; in that case ``analysis_complete`` is true. Legacy JSON
+retains its adjacency-map format; use unified JSON for structured diagnostics.
+
+Package re-exports propagate independently of module loading order. Nested
+class bases use bindings available before the class is defined. Multiple
+abstract candidates for a base expression use conservative method dispatch
+without claiming a definite C3 inconsistency; concrete inconsistent hierarchies
+still produce MRO warnings.
 
 Unresolved call summaries reflect the latest evaluation of each scope/context.
 A provisional missing-target marker disappears when propagation resolves the
