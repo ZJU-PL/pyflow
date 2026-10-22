@@ -221,7 +221,7 @@ the hard deadline is supplied, five seconds are reserved for startup/reporting.<
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p></li>
@@ -239,6 +239,25 @@ the hard deadline is supplied, five seconds are reserved for startup/reporting.<
 <li><p><strong>Dynamic Summaries</strong>: Generates explicit summary nodes for unresolved call targets</p></li>
 <li><p><strong>Stdlib Filtering</strong>: Standard library modules can be skipped to reduce noise (<code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>)</p></li>
 </ul>
+<p>Whole-project scans (<code class="docutils literal notranslate"><span class="pre">--recursive</span></code> or <code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>) skip files with syntax
+errors and analyze the remaining files. An explicitly selected invalid entry,
+or a project with no parseable files, still fails. Files reached through multiple
+import names share one analysis identity; monorepo containers such as
+<code class="docutils literal notranslate"><span class="pre">pkg-core/</span></code> are treated as import roots. Decorator invocations and their returned
+closures retain separate contexts even without <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>.</p>
+<p>The default constraint worklist budget scales with the number of scopes; it is
+no longer capped at 10,000 steps. Large projects may therefore take longer.
+Use <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code> to impose an explicit budget. The returned
+graph exposes <code class="docutils literal notranslate"><span class="pre">converged</span></code> and <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>. Unified JSON
+(<code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span> <span class="pre">--json-schema</span> <span class="pre">unified</span></code>) includes these fields and reports
+<code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">partial</span></code> when the budget is exhausted or source files were skipped.
+Both legacy and unified CLI output return exit code 3 for these incomplete
+analyses, including with <code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>. Legacy JSON retains its
+adjacency-map format; use unified JSON for structured diagnostics.</p>
+<p>Unresolved call summaries reflect the latest evaluation of each scope/context.
+A provisional missing-target marker disappears when propagation resolves the
+call. A site with both a concrete target and a genuinely unknown alternative
+remains unresolved.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 
 <span class="c1"># Context-insensitive (default)</span>
