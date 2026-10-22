@@ -58,18 +58,21 @@ class _ModuleAnalysisMixin:
             return
 
         entry_path = os.path.realpath(self.entry_path)
+        modules_by_path = {entry_path: entry_name}
         for source_path, source in sorted(self.additional_sources.items()):
             normalized_path = os.path.realpath(source_path)
-            if normalized_path == entry_path:
+            if normalized_path in modules_by_path:
                 continue
             module_name = self.project_context.module_name_from_path(normalized_path)
             if module_name in self.modules:
                 continue
             try:
                 tree = ast.parse(normalize_legacy_python_syntax(source))
-            except SyntaxError:
+            except SyntaxError as exc:
+                self.diagnostics.append(f"Skipped {normalized_path}: {exc}")
                 continue
             self.modules[module_name] = ModuleInfo(module_name, tree, normalized_path)
+            modules_by_path[normalized_path] = module_name
 
         queue: deque[str] = deque(self.modules)
         visited: Set[str] = set()
@@ -85,7 +88,7 @@ class _ModuleAnalysisMixin:
                 continue
 
             for imported in self._iter_imported_modules(module_info):
-                if imported in self.modules:
+                if imported in self.modules or imported in self.module_aliases:
                     continue
                 resolution = self.project_context.find_module(
                     imported,
@@ -113,6 +116,10 @@ class _ModuleAnalysisMixin:
                     str(imported_path), self.project_root
                 ):
                     continue
+                normalized_path = os.path.realpath(imported_path)
+                if normalized_path in modules_by_path:
+                    self.module_aliases[imported] = modules_by_path[normalized_path]
+                    continue
                 try:
                     with open(
                         imported_path,
@@ -125,10 +132,12 @@ class _ModuleAnalysisMixin:
                     continue
                 try:
                     tree = ast.parse(normalize_legacy_python_syntax(src))
-                except SyntaxError:
+                except SyntaxError as exc:
+                    self.diagnostics.append(f"Skipped {normalized_path}: {exc}")
                     continue
 
                 self.modules[imported] = ModuleInfo(imported, tree, imported_path)
+                modules_by_path[normalized_path] = imported
                 queue.append(imported)
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
@@ -150,12 +159,13 @@ class _ModuleAnalysisMixin:
         """
         module_info = self.modules.get(current_module)
         current_path = module_info.path if module_info else None
-        return self.project_context.resolve_import_name(
+        resolved = self.project_context.resolve_import_name(
             current_module,
             imported_module,
             level,
             current_path=current_path,
         )
+        return self.module_aliases.get(resolved, resolved)
 
     def _resolve_module_file(self, module_name: str) -> Optional[str]:
         """Map module name to a `.py` or package `__init__.py` under project root."""
@@ -201,12 +211,13 @@ class _ModuleAnalysisMixin:
         parts = module_name.split(".")
         for idx in range(1, len(parts)):
             parent = ".".join(parts[:idx])
+            parent = self.module_aliases.get(parent, parent)
             child = ".".join(parts[: idx + 1])
             attr = parts[idx]
             parent_bindings = self.module_bindings.setdefault(parent, {})
             self._merge_value_set(
                 parent_bindings.setdefault(attr, set()),
-                {make_module(child)},
+                {make_module(self.module_aliases.get(child, child))},
             )
 
     def _bind_import_alias(
@@ -220,9 +231,9 @@ class _ModuleAnalysisMixin:
             return
         root_name = imported_name.split(".")[0]
         if not explicit_alias and "." in imported_name and local_name == root_name:
-            imported_value = make_module(root_name)
+            imported_value = make_module(self.module_aliases.get(root_name, root_name))
         else:
-            imported_value = make_module(imported_name)
+            imported_value = make_module(self.module_aliases.get(imported_name, imported_name))
         self._merge_value_set(
             env.setdefault(local_name, set()),
             {imported_value},
@@ -270,6 +281,7 @@ class _ModuleAnalysisMixin:
                 )
             else:
                 candidate_module = f"{source_module}.{alias.name}"
+                candidate_module = self.module_aliases.get(candidate_module, candidate_module)
                 if candidate_module in self.modules or self._resolve_module_file(candidate_module):
                     self._merge_value_set(
                         env.setdefault(local_name, set()),

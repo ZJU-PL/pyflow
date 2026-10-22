@@ -679,6 +679,9 @@ class _ExpressionAnalysisMixin:
             else:
                 callee_context = GLOBAL_CONTEXT
 
+            closure_context = scope_context if scope_context[0] == "<decorator>" else None
+            if closure_context is not None:
+                callee_context = closure_context
             function_info = self.functions.get(lambda_qualname)
             if function_info:
                 captured = {name: set(env.get(name, set())) for name in function_info.closure_vars}
@@ -690,7 +693,7 @@ class _ExpressionAnalysisMixin:
                 ):
                     input_changed_scope_contexts.add((lambda_qualname, callee_context))
 
-            return {make_func(lambda_qualname)}
+            return {make_func(lambda_qualname, closure_context)}
 
         if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
             out: Set[AbstractValue] = set()

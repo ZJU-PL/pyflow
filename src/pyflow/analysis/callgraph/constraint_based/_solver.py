@@ -589,6 +589,10 @@ class _FixpointSolverMixin:
             return set(initial_values)
 
         env[name] = set(initial_values)
+        for decorator in decorators:
+            for node in ast.walk(decorator):
+                if isinstance(node, ast.Call):
+                    node._decorator_call = True
         evaluated = [
             self._eval_expr(
                 scope,
@@ -657,6 +661,12 @@ class _FixpointSolverMixin:
                 ),
                 decorator,
             )
+            synthetic_call._decorator_call = True
+            if not targets:
+                # A local factory's return has not reached this site yet.
+                # Bottom must not become a permanent unknown class binding.
+                env[name] = set()
+                continue
             decorated_values = self._invoke_targets(
                 caller_scope=scope,
                 caller_context=scope_context,
@@ -673,7 +683,7 @@ class _FixpointSolverMixin:
                 if not env[name]:
                     env[name] = {UNKNOWN_VALUE}
             else:
-                env[name] = set(decorated_values or {UNKNOWN_VALUE})
+                env[name] = set(decorated_values)
         return set(env.get(name, initial_values))
 
     def _run_fixpoint(self) -> None:
@@ -715,9 +725,10 @@ class _FixpointSolverMixin:
         max_iterations = (
             max(1, int(configured_max))
             if configured_max is not None
-            else min(
-                max(256, len(self.scopes) * 256),
-                max(256, int(self.options.default_fixpoint_iteration_budget)),
+            else (
+                max(1, self.options.default_fixpoint_iteration_budget)
+                if self.options.default_fixpoint_iteration_budget is not None
+                else max(256, len(self.scopes) * 256)
             )
         )
         self.solver_stats = type(self.solver_stats)()
@@ -820,7 +831,11 @@ class _FixpointSolverMixin:
                 preserve_callables=True,
             )
             returns_changed = previous_returns != capped_returns
-            merged_callees = set(previous_callees)
+            # Dynamic summaries describe the latest evaluation, not historical
+            # lack of information while the worklist was still propagating.
+            merged_callees = {
+                callee for callee in previous_callees if not callee.startswith("<dynamic>.")
+            }
             merged_callees.update(result.callees)
             callees_changed = previous_callees != merged_callees
             if returns_changed:
@@ -926,6 +941,16 @@ class _FixpointSolverMixin:
         which other scope-context states must be revisited.
         """
         scope_ctx_key = (scope.name, scope_context)
+        for site in self._dynamic_calls_by_scope.pop(scope_ctx_key, ()):
+            self.callsite_callees[site].difference_update(
+                {
+                    callee
+                    for callee in self.callsite_callees[site]
+                    if callee.startswith("<dynamic>.")
+                }
+            )
+            if not self.callsite_callees[site]:
+                del self.callsite_callees[site]
         env = copy_env(self.module_bindings.get(scope.module, {}))
         self._merge_bindings(
             env,

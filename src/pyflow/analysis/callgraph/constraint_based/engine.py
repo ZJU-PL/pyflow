@@ -50,7 +50,7 @@ from .model import (
 from ._call_binding import _CallBindingMixin
 from ._call_targets import _CallTargetMixin
 from ._expressions import _ExpressionAnalysisMixin
-from ._modules import _ModuleAnalysisMixin
+from ._modules import _ModuleAnalysisMixin, _is_within_path
 from ._solver import _FixpointSolverMixin
 from ._state import _StateAnalysisMixin
 from ._statements import _StatementAnalysisMixin
@@ -107,10 +107,24 @@ class ConstraintCallGraphBuilder(
             if parent == import_root:
                 break
             import_root = parent
+        # Monorepo containers (e.g. pkg-core/) and src layouts are import
+        # roots, not components of an import-qualified module name.
+        source_roots = set()
+        visited_directories = {os.path.realpath(import_root)}
+        for filename in [*self.additional_sources, *([self.entry_path] if self.entry_path else [])]:
+            parent = os.path.dirname(os.path.realpath(filename))
+            while parent not in visited_directories and _is_within_path(parent, import_root):
+                visited_directories.add(parent)
+                component = os.path.basename(parent)
+                if not component.isidentifier() or component == "src":
+                    source_roots.add(parent)
+                    break
+                parent = os.path.dirname(parent)
         self.project_context = ProjectContext(
             import_root,
             source_files=self.additional_sources,
-            added_sys_path=(
+            added_sys_path=tuple(sorted(source_roots))
+            + (
                 (os.path.join(self.project_root, "src"),)
                 if os.path.isdir(os.path.join(self.project_root, "src"))
                 else ()
@@ -123,6 +137,8 @@ class ConstraintCallGraphBuilder(
         self.entry_module_name = self.entry_module_import_name if canonical_entry_names else "main"
 
         self.modules: Dict[str, ModuleInfo] = {}
+        self.module_aliases: Dict[str, str] = {}
+        self.diagnostics: List[str] = []
         self._module_source_paths: Dict[str, Optional[str]] = {}
         self.scopes: Dict[str, ScopeInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
@@ -153,6 +169,9 @@ class ConstraintCallGraphBuilder(
         self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = defaultdict(set)
         self.scope_callees: Dict[Tuple[str, ContextKey], Set[str]] = defaultdict(set)
         self.callsite_callees: DefaultDict[ConstraintCallSite, Set[str]] = defaultdict(set)
+        self._dynamic_calls_by_scope: DefaultDict[
+            Tuple[str, ContextKey], Set[ConstraintCallSite]
+        ] = defaultdict(set)
         self._callsite_ordinals: Dict[int, int] = {}
         self.scope_global_writes: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = (
             defaultdict(dict)
@@ -303,6 +322,8 @@ class ConstraintCallGraphBuilder(
             is_module_scope=caller_scope.name in self.modules,
         )
         self.callsite_callees[site].add(callee_name)
+        if callee_name.startswith("<dynamic>."):
+            self._dynamic_calls_by_scope[(caller_scope.name, normalized_context)].add(site)
 
     def _discard_callsite_callee(
         self,
@@ -347,6 +368,8 @@ class ConstraintCallGraphBuilder(
     def _normalize_context_for_scope(self, scope_name: str, context: ContextKey) -> ContextKey:
         if scope_name in self.modules:
             return GLOBAL_CONTEXT
+        if context and context[0] == "<decorator>":
+            return context
         if not self.options.context_sensitive:
             return GLOBAL_CONTEXT
         if self.options.strict_precision_mode:
@@ -364,6 +387,10 @@ class ConstraintCallGraphBuilder(
     def _derive_callee_context(
         self, caller_scope: str, caller_context: ContextKey, call_node: ast.Call
     ) -> ContextKey:
+        if getattr(call_node, "_decorator_call", False) or caller_context[0] == "<decorator>":
+            token = f"{caller_scope}@{getattr(call_node, 'lineno', -1)}:{getattr(call_node, 'col_offset', -1)}"
+            depth = max(2, self.options.context_depth)
+            return ("<decorator>", *(*caller_context[1:], token)[-depth:])
         if not self.options.context_sensitive:
             return GLOBAL_CONTEXT
         if self.options.context_depth <= 0:
@@ -674,6 +701,13 @@ class ConstraintCallGraphBuilder(
         all callee edges observed across contexts for each scope.
         """
         graph = CallGraph()
+        graph.converged = not self.fixpoint_truncated
+        graph.diagnostics = list(self.diagnostics)
+        if self.fixpoint_truncated:
+            graph.diagnostics.append(
+                f"Constraint fixpoint iteration budget exhausted after {self.fixpoint_iterations} "
+                "worklist steps; graph is incomplete."
+            )
         for module_name in self.modules:
             graph.add_node(module_name, module_name)
         for class_name, class_info in self.classes.items():

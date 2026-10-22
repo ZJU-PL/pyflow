@@ -691,6 +691,7 @@ class _CallTargetMixin:
                             kwarg_values,
                             star_arg_values=star_arg_values,
                             dynamic_kwarg_values=dynamic_kwarg_values,
+                            closure_context=target.closure_context,
                         )
                     )
                 elif callee_name in {

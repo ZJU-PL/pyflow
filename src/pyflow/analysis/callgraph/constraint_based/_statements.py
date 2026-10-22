@@ -1297,6 +1297,10 @@ class _StatementAnalysisMixin:
                     name: set(capture_env.get(name, set()))
                     for name in self.functions[qualname].closure_vars
                 }
+                if scope_context[0] == "<decorator>":
+                    callee_context = scope_context
+                    base_values = {make_func(qualname, callee_context)}
+                    env[stmt.name] = set(base_values)
                 if self.functions[qualname].closure_vars and self._bind_closure_values(
                     qualname,
                     callee_context,

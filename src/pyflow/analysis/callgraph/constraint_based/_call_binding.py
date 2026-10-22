@@ -219,6 +219,7 @@ class _CallBindingMixin:
         kwarg_values: Mapping[str, Set[AbstractValue]],
         star_arg_values: Optional[List[Set[AbstractValue]]] = None,
         dynamic_kwarg_values: Optional[Set[AbstractValue]] = None,
+        closure_context: Optional[ContextKey] = None,
     ) -> Set[AbstractValue]:
         out: Set[AbstractValue] = set()
         caller_scope_key = (
@@ -233,9 +234,11 @@ class _CallBindingMixin:
             callee_name,
         )
         raw_context = self._derive_callee_context(caller_scope.name, caller_context, call_node)
-        callee_context = self._normalize_context_for_scope(callee_name, raw_context)
+        callee_context = self._normalize_context_for_scope(
+            callee_name, closure_context or raw_context
+        )
         callee_function_info = self.functions.get(callee_name)
-        if callee_function_info and callee_function_info.closure_vars:
+        if callee_function_info and callee_function_info.closure_vars and closure_context is None:
             active_inputs = self.scope_inputs.get((callee_name, callee_context), {})
             has_bound_closure = any(
                 active_inputs.get(name) for name in callee_function_info.closure_vars

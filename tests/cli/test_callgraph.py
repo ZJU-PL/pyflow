@@ -196,3 +196,93 @@ def test_mir_import_policy_rejects_other_algorithms(tmp_path, capsys):
     )
     assert callgraph_cli.run_callgraph(sample, args) == 1
     assert "only supported with --algorithm pycg-mir" in capsys.readouterr().err
+
+
+def test_constraint_truncation_metadata_in_file_and_recursive_json(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "main.py"
+    source.write_text("def f(): pass\nf()\n")
+    for recursive in (False, True):
+        for schema in ("legacy", "unified"):
+            input_path = tmp_path if recursive else source
+            flags = ["--recursive"] if recursive else []
+            args = parse_callgraph_args(
+                input_path,
+                *flags,
+                "--format",
+                "json",
+                "--json-schema",
+                schema,
+                "--fixpoint-max-iterations",
+                "1",
+                "--no-fixpoint-warning",
+            )
+            assert callgraph_cli.run_callgraph(input_path, args) == 3
+            output = json.loads(capsys.readouterr().out)
+            if schema == "unified":
+                assert output["status"] == "partial"
+                assert output["converged"] is False
+                assert any("budget exhausted" in item for item in output["diagnostics"])
+            else:
+                assert "main.f" in output
+                assert all(isinstance(callees, list) for callees in output.values())
+
+
+def test_recursive_scan_skips_bad_first_source_and_reports_it(tmp_path, capsys):
+    import json
+
+    (tmp_path / "a_bad.py").write_text('print "hello"\n')
+    (tmp_path / "b_good.py").write_text("def f(): pass\nf()\n")
+    for schema in ("legacy", "unified"):
+        args = parse_callgraph_args(
+            tmp_path,
+            "--recursive",
+            "--format",
+            "json",
+            "--json-schema",
+            schema,
+        )
+        assert callgraph_cli.run_callgraph(tmp_path, args) == 3
+        captured = capsys.readouterr()
+        assert "a_bad.py" in captured.err
+        document = json.loads(captured.out)
+        graph = document["graph"] if schema == "unified" else document
+        assert "b_good.f" in graph["b_good"]
+        if schema == "unified":
+            assert document["status"] == "partial"
+            assert document["converged"] is True
+            assert any("a_bad.py" in item for item in document["diagnostics"])
+
+
+def test_recursive_scan_with_no_parseable_sources_fails_cleanly(tmp_path, capsys):
+    (tmp_path / "bad.py").write_text('print "hello"\n')
+    args = parse_callgraph_args(tmp_path, "--recursive", "--format", "json")
+    assert callgraph_cli.run_callgraph(tmp_path, args) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no parseable" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_recursive_scan_preserves_explicit_invalid_entry_error(tmp_path, capsys):
+    (tmp_path / "bad.py").write_text('print "hello"\n')
+    (tmp_path / "good.py").write_text("def f(): pass\n")
+    args = parse_callgraph_args(tmp_path, "--recursive", "--entry", "bad.py")
+    assert callgraph_cli.run_callgraph(tmp_path, args) == 2
+    captured = capsys.readouterr()
+    assert "explicit entry" in captured.err
+    assert captured.out == ""
+
+
+def test_constraint_complete_json_reports_convergence(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "sample.py"
+    source.write_text("def f(): pass\nf()\n")
+    args = parse_callgraph_args(source, "--format", "json", "--json-schema", "unified")
+    assert callgraph_cli.run_callgraph(source, args) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["status"] == "complete"
+    assert document["converged"] is True
+    assert document["diagnostics"] == []

@@ -12,9 +12,11 @@ from typing import Any
 class CallGraphOutput(str):
     """Rendered output carrying completion across the CLI worker boundary."""
 
-    def __new__(cls, value, status="complete"):
+    def __new__(cls, value, status="complete", *, converged=None, diagnostics=()):
         result = super().__new__(cls, value)
         result.status = status
+        result.converged = converged
+        result.diagnostics = tuple(diagnostics)
         return result
 
 

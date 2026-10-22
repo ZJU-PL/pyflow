@@ -88,7 +88,7 @@ Options:
 - ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
-- ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
+- ``--fixpoint-max-iterations``: Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)
 - ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
 - ``--as-graph-output``: Write constraint value-flow assignment graph JSON (constraint algorithm only)
@@ -105,6 +105,28 @@ Constraint-Based Analysis (Public API Default)
 - **Rich Semantics**: Handles descriptors, closures, comprehensions, and container tracking
 - **Dynamic Summaries**: Generates explicit summary nodes for unresolved call targets
 - **Stdlib Filtering**: Standard library modules can be skipped to reduce noise (``--skip-stdlib``)
+
+Whole-project scans (``--recursive`` or ``--all-scopes``) skip files with syntax
+errors and analyze the remaining files. An explicitly selected invalid entry,
+or a project with no parseable files, still fails. Files reached through multiple
+import names share one analysis identity; monorepo containers such as
+``pkg-core/`` are treated as import roots. Decorator invocations and their returned
+closures retain separate contexts even without ``--context-sensitive``.
+
+The default constraint worklist budget scales with the number of scopes; it is
+no longer capped at 10,000 steps. Large projects may therefore take longer.
+Use ``--fixpoint-max-iterations`` to impose an explicit budget. The returned
+graph exposes ``converged`` and ``diagnostics``. Unified JSON
+(``--format json --json-schema unified``) includes these fields and reports
+``status: partial`` when the budget is exhausted or source files were skipped.
+Both legacy and unified CLI output return exit code 3 for these incomplete
+analyses, including with ``--no-fixpoint-warning``. Legacy JSON retains its
+adjacency-map format; use unified JSON for structured diagnostics.
+
+Unresolved call summaries reflect the latest evaluation of each scope/context.
+A provisional missing-target marker disappears when propagation resolves the
+call. A site with both a concrete target and a genuinely unknown alternative
+remains unresolved.
 
 .. code-block:: python
 

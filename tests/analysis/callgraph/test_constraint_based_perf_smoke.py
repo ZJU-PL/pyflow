@@ -43,12 +43,12 @@ class TestConstraintBasedPerfSmoke(unittest.TestCase):
         self.assertGreater(semi_naive.solver_stats.semi_naive_constraints, 0)
         self.assertGreater(semi_naive.solver_stats.semi_naive_facts, 0)
 
-    def test_default_fixpoint_budget_is_globally_bounded(self):
+    def test_small_default_budget_and_explicit_override(self):
         builder = ConstraintCallGraphBuilder("def run():\n    return 1\n")
 
         builder.build()
 
-        self.assertLessEqual(builder.solver_stats.iteration_budget, 10000)
+        self.assertEqual(builder.solver_stats.iteration_budget, len(builder.scopes) * 256)
 
         explicit = ConstraintCallGraphBuilder(
             "def run():\n    return 1\n",

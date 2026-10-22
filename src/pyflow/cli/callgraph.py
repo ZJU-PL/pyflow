@@ -149,7 +149,14 @@ def _analyze_file(
         from pyflow.analysis.callgraph.formats import structured_callgraph
 
         output = json.dumps(
-            structured_callgraph(json.loads(output), algorithm=args.algorithm), indent=2
+            structured_callgraph(
+                json.loads(output),
+                algorithm=args.algorithm,
+                status=getattr(output, "status", "complete"),
+                converged=getattr(output, "converged", None),
+                diagnostics=getattr(output, "diagnostics", ()),
+            ),
+            indent=2,
         )
 
     if args.as_graph_output:
@@ -412,7 +419,7 @@ def add_callgraph_parser(subparsers):
         "--fixpoint-max-iterations",
         type=int,
         default=None,
-        help="Cap fixpoint iterations (constraint algorithm only)",
+        help="Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)",
     )
     parser.add_argument(
         "--no-fixpoint-warning",
@@ -456,6 +463,8 @@ def add_callgraph_parser(subparsers):
 
 
 def _analyze_project_sources(root, args):
+    import ast
+    from pyflow.language.source_compat import normalize_legacy_python_syntax
     from pyflow.frontend.file_selection import discover_python_files, SECURITY_DEFAULT_EXCLUDES
     from pyflow.analysis.callgraph.formats import generate_text_output, generate_adjacency_json
 
@@ -477,6 +486,27 @@ def _analyze_project_sources(root, args):
         return 2
     entry = resolve_entry_file(root, args.entry) if args.entry else files[0]
     sources = {str(path.resolve()): path.read_text(encoding="utf-8-sig") for path in files}
+    diagnostics = []
+    # Only preflight the entry. The loader parses and diagnoses every other
+    # source, avoiding a second full-project parse on large recursive scans.
+    candidates = [str(entry.resolve())] if args.entry else list(sources)
+    for path in candidates:
+        try:
+            ast.parse(normalize_legacy_python_syntax(sources[path]), filename=path)
+        except SyntaxError as exc:
+            diagnostic = f"Skipped {path}: {exc}"
+            diagnostics.append(diagnostic)
+            print(diagnostic, file=sys.stderr)
+            del sources[path]
+            if args.entry:
+                print("Error: explicit entry could not be parsed", file=sys.stderr)
+                return 2
+        else:
+            entry = Path(path)
+            break
+    if not sources:
+        print("Error: no parseable project Python files found", file=sys.stderr)
+        return 2
     with redirect_stdout(sys.stderr):
         graph = extract_call_graph_constraint(
             sources[str(entry.resolve())],
@@ -492,6 +522,8 @@ def _analyze_project_sources(root, args):
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
             allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
         )
+    for diagnostic in graph.diagnostics:
+        print(diagnostic, file=sys.stderr)
     output = (
         generate_adjacency_json(graph)
         if getattr(args, "format", "text") == "json"
@@ -500,11 +532,24 @@ def _analyze_project_sources(root, args):
     if args.format == "json" and getattr(args, "json_schema", "legacy") == "unified":
         from pyflow.analysis.callgraph.formats import structured_callgraph
 
-        output = json.dumps(structured_callgraph(graph.get(), algorithm="constraint"), indent=2)
+        output = json.dumps(
+            structured_callgraph(
+                graph.get(),
+                algorithm="constraint",
+                status=(
+                    "partial"
+                    if diagnostics or graph.diagnostics or not graph.converged
+                    else "complete"
+                ),
+                converged=graph.converged,
+                diagnostics=[*diagnostics, *graph.diagnostics],
+            ),
+            indent=2,
+        )
     if args.output:
         args.output.write_text(output + "\n", encoding="utf-8")
     else:
         print(output)
     if args.format == "json" and getattr(args, "json_schema", "legacy") == "unified":
         return 3 if json.loads(output)["status"] == "partial" else 0
-    return 0
+    return 3 if diagnostics or graph.diagnostics or not graph.converged else 0

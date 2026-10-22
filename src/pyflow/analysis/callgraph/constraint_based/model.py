@@ -47,6 +47,8 @@ class AbstractValue:
 
     kind: str
     name: str
+    # Definition context for closures allocated while evaluating decorators.
+    closure_context: Optional[ContextKey] = None
 
 
 UNKNOWN_VALUE = AbstractValue(UNKNOWN_KIND, "<unknown>")
@@ -61,7 +63,7 @@ class AnalysisOptions:
     context_sensitive: bool = False
     context_depth: int = 1
     fixpoint_max_iterations: Optional[int] = None
-    default_fixpoint_iteration_budget: int = 10000
+    default_fixpoint_iteration_budget: Optional[int] = None
     warn_on_fixpoint_truncation: bool = True
     allocation_site_sensitive_instances: bool = False
     use_type_hints: bool = True
@@ -215,8 +217,8 @@ def make_value(kind: str, name: str) -> AbstractValue:
     return AbstractValue(kind, name)
 
 
-def make_func(name: str) -> AbstractValue:
-    return make_value(FUNC_KIND, name)
+def make_func(name: str, closure_context: Optional[ContextKey] = None) -> AbstractValue:
+    return AbstractValue(FUNC_KIND, name, closure_context)
 
 
 def make_class(name: str) -> AbstractValue:

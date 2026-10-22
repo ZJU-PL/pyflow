@@ -7,7 +7,7 @@ import os
 from typing import Dict, List, Mapping, Optional
 
 from ..callgraph import CallGraph
-from ..formats import generate_text_output
+from ..formats import CallGraphOutput, generate_text_output
 from .engine import ConstraintCallGraphBuilder
 from .model import AnalysisOptions, CallSiteEdgeIndex
 
@@ -64,7 +64,7 @@ def extract_call_graph_constraint(
         Call-string depth when context sensitivity is enabled.
     fixpoint_max_iterations:
         Optional iteration cap for the solver worklist. When omitted, a
-        heuristic cap is used.
+        scope-scaled cap (256 worklist steps per scope, at least 256) is used.
     warn_on_fixpoint_truncation:
         Emit a runtime warning when the fixpoint iteration cap is reached
         before convergence.
@@ -155,8 +155,17 @@ def analyze_file_constraint(
         if format == "json":
             from ..formats import generate_adjacency_json
 
-            return generate_adjacency_json(graph)
-        return generate_text_output(graph, None)
+            output = generate_adjacency_json(graph)
+        else:
+            output = generate_text_output(graph, None)
+        converged = getattr(graph, "converged", None)
+        diagnostics = getattr(graph, "diagnostics", ())
+        return CallGraphOutput(
+            output,
+            "partial" if converged is False or diagnostics else "complete",
+            converged=converged,
+            diagnostics=diagnostics,
+        )
     except Exception as exc:
         return f"Error analyzing {filepath}: {exc}"
 

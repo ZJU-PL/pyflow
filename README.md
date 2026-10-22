@@ -60,15 +60,6 @@ Security engines evaluated on the 240-file PySASTBench microbenchmark (960 runs)
 | cpg | 0.828 | 0.683 | 0.749 | 0.771 | 240 |
 | ifds | 0.837 | 0.858 | 0.848 | 0.846 | 0 |
 
-This snapshot used Python 3.13.7 and had no timeouts or parse failures. Exact
-source, dataset, and harness hashes plus per-CWE counts are in the
-[measurement snapshot](evaluation/pysastbench/results/user-evaluation-summary.json).
-Defaults now distinguish recognized HTTP handlers from arbitrary library entry
-parameters; these measurements are not directly comparable to the old table.
-Partial reports contribute detections but do not establish that negative files
-are safe. Recall remains limited, particularly for some AST dataflow categories.
-See the [evaluation guide](evaluation/pysastbench/README.md) and
-[user evaluation follow-up](docs/user-evaluation-followup.md).
 
 ## Installation and Usage
 
