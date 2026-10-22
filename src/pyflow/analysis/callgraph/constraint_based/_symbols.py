@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import DefaultDict, Dict, Optional, Sequence, Set, List
 
 from pyflow.language.asttools import contains_yield, extract_decorator_name
@@ -544,18 +544,33 @@ class _SymbolAnalysisMixin:
         )
 
     def _resolve_import_bindings(self) -> None:
-        """Apply import statements to module-level binding maps."""
+        """Propagate re-exports to a fixed point independent of load order."""
+        imports = {}
+        dependents = defaultdict(set)
         for module_name, module_info in self.modules.items():
-            bindings = self.module_bindings[module_name]
-            env = copy_env(bindings)
-
+            self._register_imported_module_chain(module_name)
+            imports[module_name] = []
             for node in module_info.tree.body:
                 if isinstance(node, ast.Import):
-                    self._bind_import(node, module_name, env)
+                    self._bind_import(node, module_name, self.module_bindings[module_name])
                 elif isinstance(node, ast.ImportFrom):
-                    self._bind_import_from(node, module_name, env)
+                    imports[module_name].append(node)
+                    source = self._resolve_import_module_name(module_name, node.module, node.level)
+                    if source in self.modules:
+                        dependents[source].add(module_name)
 
-            self.module_bindings[module_name] = env
+        queue = deque(self.modules)
+        pending = set(queue)
+        while queue:
+            module_name = queue.popleft()
+            pending.remove(module_name)
+            env = copy_env(self.module_bindings[module_name])
+            for node in imports[module_name]:
+                self._bind_import_from(node, module_name, env)
+            if self._merge_bindings(self.module_bindings[module_name], env):
+                for dependent in sorted(dependents[module_name] - pending):
+                    queue.append(dependent)
+                    pending.add(dependent)
 
     def _resolve_class_bases(self) -> None:
         """Resolve class base expressions to qualnames used by MRO lookup."""
@@ -563,15 +578,18 @@ class _SymbolAnalysisMixin:
         for class_info in self.classes.values():
             bindings = self.module_bindings.get(class_info.module, {})
             resolved: list[str] = []
+            candidates = []
             for base_expr in class_info.bases_raw:
                 values = self._eval_expr_static(base_expr, bindings)
+                names = set()
                 for value in values:
-                    if value.kind == CLASS_KIND and value.name in self.classes:
-                        resolved.append(value.name)
-                    elif value.kind == CLASS_KIND:
-                        resolved.append(value.name)
+                    if value.kind == CLASS_KIND:
+                        names.add(value.name)
                     elif value.kind == "func" and "." in value.name:
-                        resolved.append(value.name)
+                        names.add(value.name)
+                candidates.append(names)
+                resolved.extend(sorted(names))
+            self._class_base_candidates[class_info.qualname] = candidates
             class_info.bases = resolved
             metaclass_values = (
                 self._eval_expr_static(class_info.metaclass_raw, bindings)

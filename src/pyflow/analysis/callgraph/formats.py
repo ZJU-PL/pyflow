@@ -12,11 +12,14 @@ from typing import Any
 class CallGraphOutput(str):
     """Rendered output carrying completion across the CLI worker boundary."""
 
-    def __new__(cls, value, status="complete", *, converged=None, diagnostics=()):
+    def __new__(
+        cls, value, status="complete", *, converged=None, diagnostics=(), termination_reason=None
+    ):
         result = super().__new__(cls, value)
         result.status = status
         result.converged = converged
         result.diagnostics = tuple(diagnostics)
+        result.termination_reason = termination_reason
         return result
 
 
@@ -117,7 +120,9 @@ def generate_adjacency_json(call_graph) -> str:
     )
 
 
-def structured_callgraph(graph, *, algorithm, status="complete", diagnostics=(), converged=None):
+def structured_callgraph(
+    graph, *, algorithm, status="complete", diagnostics=(), converged=None, termination_reason=None
+):
     """Separate callable edges, external targets, and unresolved call sites."""
     import sys
 
@@ -142,6 +147,8 @@ def structured_callgraph(graph, *, algorithm, status="complete", diagnostics=(),
         "algorithm": algorithm,
         "status": "partial" if unresolved and status == "complete" else status,
         "converged": converged,
+        "analysis_complete": status == "complete" and converged is not False,
+        "termination_reason": termination_reason,
         "graph": {
             name: sorted(callee for callee in graph[name] if callee in functions)
             for name in sorted(functions)

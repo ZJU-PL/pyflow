@@ -267,6 +267,7 @@ class ProjectContext:
         smart_sys_path: bool = True,
         source_files: Optional[Mapping[str, str]] = None,
         workspace_roots: Sequence[str | os.PathLike[str]] = (),
+        module_name_overrides: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.path = Path(path).absolute() if path is not None else infer_project_path()
         self._sys_path = list(map(str, sys_path)) if sys_path is not None else None
@@ -274,6 +275,10 @@ class ProjectContext:
         self.smart_sys_path = smart_sys_path
         self.source_files: Dict[str, str] = dict(source_files or {})
         self.module_identity = ModuleIdentityResolver(workspace_roots)
+        self.module_name_overrides = {
+            os.path.realpath(filename): name
+            for filename, name in (module_name_overrides or {}).items()
+        }
         self._source_map_cache: Optional[Dict[str, str]] = None
         self._source_map_cache_keys: Optional[frozenset[str]] = None
         self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
@@ -332,6 +337,11 @@ class ProjectContext:
         file_str = str(file_path)
         if file_str == "<string>" or file_str.startswith("<"):
             return "__pyflow_module__"
+
+        if self.module_name_overrides:
+            override = self.module_name_overrides.get(os.path.realpath(file_str))
+            if override is not None:
+                return override
 
         workspace_module = self.module_identity.module_name_from_path(file_str)
         if workspace_module is not None:
@@ -410,6 +420,8 @@ class ProjectContext:
         if self._source_map_cache is not None and self._source_map_cache_keys == current_keys:
             return self._source_map_cache
         mapping: Dict[str, str] = {}
+        aliases: Dict[str, str] = {}
+        ambiguous_aliases: Set[str] = set()
         roots = [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
         for filename in self.source_files:
             name = self.module_name_from_path(filename)
@@ -422,7 +434,13 @@ class ProjectContext:
                     dotted[:-1] if is_package and dotted[-1] == "__init__" else dotted
                 )
                 if candidate:
-                    mapping[candidate] = filename
+                    if candidate in aliases and aliases[candidate] != filename:
+                        ambiguous_aliases.add(candidate)
+                    else:
+                        aliases[candidate] = filename
+        for alias, filename in aliases.items():
+            if alias not in ambiguous_aliases:
+                mapping.setdefault(alias, filename)
         self._source_map_cache = mapping
         self._source_map_cache_keys = current_keys
         return mapping

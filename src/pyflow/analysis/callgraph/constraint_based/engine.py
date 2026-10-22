@@ -13,6 +13,7 @@ import ast
 import builtins
 import json
 import os
+import time
 from collections import defaultdict
 from typing import (
     DefaultDict,
@@ -50,7 +51,7 @@ from .model import (
 from ._call_binding import _CallBindingMixin
 from ._call_targets import _CallTargetMixin
 from ._expressions import _ExpressionAnalysisMixin
-from ._modules import _ModuleAnalysisMixin, _is_within_path
+from ._modules import _ModuleAnalysisMixin
 from ._solver import _FixpointSolverMixin
 from ._state import _StateAnalysisMixin
 from ._statements import _StatementAnalysisMixin
@@ -107,28 +108,22 @@ class ConstraintCallGraphBuilder(
             if parent == import_root:
                 break
             import_root = parent
-        # Monorepo containers (e.g. pkg-core/) and src layouts are import
-        # roots, not components of an import-qualified module name.
-        source_roots = set()
-        visited_directories = {os.path.realpath(import_root)}
-        for filename in [*self.additional_sources, *([self.entry_path] if self.entry_path else [])]:
-            parent = os.path.dirname(os.path.realpath(filename))
-            while parent not in visited_directories and _is_within_path(parent, import_root):
-                visited_directories.add(parent)
-                component = os.path.basename(parent)
-                if not component.isidentifier() or component == "src":
-                    source_roots.add(parent)
-                    break
-                parent = os.path.dirname(parent)
+        self._source_trees: Dict[str, ast.Module | SyntaxError] = {}
+        source_roots = self._discover_source_roots(import_root)
         self.project_context = ProjectContext(
             import_root,
             source_files=self.additional_sources,
-            added_sys_path=tuple(sorted(source_roots))
+            added_sys_path=source_roots
             + (
                 (os.path.join(self.project_root, "src"),)
                 if os.path.isdir(os.path.join(self.project_root, "src"))
+                and not os.path.isfile(os.path.join(self.project_root, "src", "__init__.py"))
                 else ()
             ),
+        )
+        # Configure names before the resolver builds any source lookup caches.
+        self.project_context.module_name_overrides.update(
+            self._distinct_source_module_names(import_root)
         )
         self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
@@ -186,6 +181,8 @@ class ConstraintCallGraphBuilder(
         # Caches/indexes used by resolver and dependency-driven requeueing.
         self._mro_cache: Dict[str, List[str]] = {}
         self._invalid_mro_classes: Set[str] = set()
+        self._class_base_candidates: Dict[str, List[Set[str]]] = {}
+        self._uncertain_mro_classes: Set[str] = set()
         self._container_cache: Dict[Tuple[str, ContextKey, str, int, int], AbstractValue] = {}
         self.lambda_functions: Dict[Tuple[str, int, int], str] = {}
         self.lambda_functions_by_node: Dict[int, str] = {}
@@ -221,6 +218,8 @@ class ConstraintCallGraphBuilder(
         # Solver telemetry for diagnostics and tests.
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
+        self.fixpoint_stop_reason = "converged"
+        self._fixpoint_deadline: Optional[float] = None
         self.solver_stats = SolverStats()
         self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(set)
         self._state_input_fingerprints: Dict[Tuple[str, ContextKey], int] = {}
@@ -261,6 +260,8 @@ class ConstraintCallGraphBuilder(
         self._resolve_class_bases()
         self._initialize_scopes()
         self._index_call_sites()
+        if self.options.fixpoint_max_seconds is not None:
+            self._fixpoint_deadline = time.monotonic() + self.options.fixpoint_max_seconds
         semi_naive_stats = (0, 0, 0)
         if self.options.semi_naive_presolve and not self.options.context_sensitive:
             from ._semi_naive import run_semi_naive_presolve
@@ -278,6 +279,9 @@ class ConstraintCallGraphBuilder(
             self.solver_stats.semi_naive_edges,
         ) = semi_naive_stats
         return self._materialize_graph()
+
+    def _fixpoint_time_exhausted(self) -> bool:
+        return self._fixpoint_deadline is not None and time.monotonic() >= self._fixpoint_deadline
 
     def call_site_edge_index(self) -> CallSiteEdgeIndex:
         """Return contextful direct call-site edges collected during analysis."""
@@ -702,10 +706,12 @@ class ConstraintCallGraphBuilder(
         """
         graph = CallGraph()
         graph.converged = not self.fixpoint_truncated
+        graph.termination_reason = self.fixpoint_stop_reason
         graph.diagnostics = list(self.diagnostics)
         if self.fixpoint_truncated:
             graph.diagnostics.append(
-                f"Constraint fixpoint iteration budget exhausted after {self.fixpoint_iterations} "
+                f"Constraint fixpoint {self.fixpoint_stop_reason.removesuffix('_limit')} "
+                f"budget exhausted after {self.fixpoint_iterations} "
                 "worklist steps; graph is incomplete."
             )
         for module_name in self.modules:

@@ -1338,12 +1338,20 @@ class _StatementAnalysisMixin:
         prefix = scope.name if scope.name not in self.modules else scope.module
         qualname = f"{prefix}.{stmt.name}"
         if qualname in self.classes:
+            # Re-analysis feeds previous class bindings back into this scope.
+            # The class being defined is not bound until its bases are evaluated.
+            base_env = dict(env)
+            previous_values = set(env.get(stmt.name, ())) - {make_class(qualname)}
+            if not previous_values:
+                previous_values = set(self.module_bindings.get(scope.module, {}).get(stmt.name, ()))
+                previous_values.discard(make_class(qualname))
+            base_env[stmt.name] = previous_values
             resolved_bases = [
                 self._eval_expr(
                     scope,
                     scope_context,
                     base_expr,
-                    env,
+                    base_env,
                     callees,
                     input_changed_scope_contexts,
                 )
@@ -1354,7 +1362,7 @@ class _StatementAnalysisMixin:
                     scope,
                     scope_context,
                     keyword.value,
-                    env,
+                    base_env,
                     callees,
                     input_changed_scope_contexts,
                 )

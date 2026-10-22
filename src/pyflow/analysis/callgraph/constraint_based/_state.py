@@ -561,7 +561,7 @@ class _StateAnalysisMixin:
                 module_bindings = self.module_bindings.get(base_value.name)
                 if module_bindings and attr_name in module_bindings:
                     out.update(module_bindings[attr_name])
-                else:
+                elif base_value.name not in self.modules:
                     out.add(make_func(f"{base_value.name}.{attr_name}"))
 
             elif base_value.kind == CLASS_KIND:
@@ -707,6 +707,13 @@ class _StateAnalysisMixin:
             self._mro_cache[class_name] = [class_name]
             return [class_name]
 
+        if any(len(names) > 1 for names in self._class_base_candidates.get(class_name, ())):
+            # Alternatives at one base expression are not simultaneous bases.
+            # Keep conservative dispatch without claiming the program's C3 is invalid.
+            self._uncertain_mro_classes.add(class_name)
+            self._invalid_mro_classes.add(class_name)
+            return self._conservative_mro(class_name)
+
         if active is None:
             active = set()
         if class_name in active:
@@ -729,6 +736,11 @@ class _StateAnalysisMixin:
             base_mros = [self._mro(base, active) for base in class_info.bases]
         finally:
             active.remove(class_name)
+
+        if any(base in self._uncertain_mro_classes for base in class_info.bases):
+            self._uncertain_mro_classes.add(class_name)
+            self._invalid_mro_classes.add(class_name)
+            return self._conservative_mro(class_name)
 
         if class_name in self._invalid_mro_classes:
             return self._conservative_mro(class_name)

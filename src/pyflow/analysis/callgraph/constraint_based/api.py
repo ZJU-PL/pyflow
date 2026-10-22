@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import tokenize
 from typing import Dict, List, Mapping, Optional
 
 from ..callgraph import CallGraph
@@ -45,6 +46,7 @@ def extract_call_graph_constraint(
     canonical_entry_names: bool = False,
     additional_sources: Optional[Mapping[str, str]] = None,
     project_root: Optional[str] = None,
+    fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -64,7 +66,12 @@ def extract_call_graph_constraint(
         Call-string depth when context sensitivity is enabled.
     fixpoint_max_iterations:
         Optional iteration cap for the solver worklist. When omitted, a
-        scope-scaled cap (256 worklist steps per scope, at least 256) is used.
+        scope-scaled cap (256 worklist steps per scope, at least 256 and at
+        most 50,000) is used. An explicit cap overrides the default ceiling.
+    fixpoint_max_seconds:
+        Solver time budget, including presolve, checked between worklist steps
+        (default 60 seconds). None disables the time budget. Module loading,
+        symbol collection, and output serialization are outside this budget.
     warn_on_fixpoint_truncation:
         Emit a runtime warning when the fixpoint iteration cap is reached
         before convergence.
@@ -74,6 +81,7 @@ def extract_call_graph_constraint(
         context_sensitive=context_sensitive,
         context_depth=max(0, int(context_depth)),
         fixpoint_max_iterations=fixpoint_max_iterations,
+        fixpoint_max_seconds=fixpoint_max_seconds,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         allocation_site_sensitive_instances=allocation_site_sensitive_instances,
         use_type_hints=use_type_hints,
@@ -124,10 +132,11 @@ def analyze_file_constraint(
     skip_external_modules: bool = False,
     canonical_entry_names: bool = False,
     format: str = "text",
+    fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> str:
     """Analyze a Python file and render text or a JSON adjacency map."""
     try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as handle:
+        with tokenize.open(filepath) as handle:
             source = handle.read()
         graph = extract_call_graph_constraint(
             source_code=source,
@@ -136,6 +145,7 @@ def analyze_file_constraint(
             context_sensitive=context_sensitive,
             context_depth=context_depth,
             fixpoint_max_iterations=fixpoint_max_iterations,
+            fixpoint_max_seconds=fixpoint_max_seconds,
             warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
             allocation_site_sensitive_instances=allocation_site_sensitive_instances,
             use_type_hints=use_type_hints,
@@ -165,6 +175,7 @@ def analyze_file_constraint(
             "partial" if converged is False or diagnostics else "complete",
             converged=converged,
             diagnostics=diagnostics,
+            termination_reason=getattr(graph, "termination_reason", None),
         )
     except Exception as exc:
         return f"Error analyzing {filepath}: {exc}"
@@ -190,6 +201,7 @@ def extract_value_flow_graph_constraint(
     skip_stdlib_modules: bool = True,
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
+    fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> Dict[str, List[str]]:
     """
     Extract a debug value-flow graph from the constraint analyser.
@@ -202,6 +214,7 @@ def extract_value_flow_graph_constraint(
         context_sensitive=context_sensitive,
         context_depth=max(0, int(context_depth)),
         fixpoint_max_iterations=fixpoint_max_iterations,
+        fixpoint_max_seconds=fixpoint_max_seconds,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         allocation_site_sensitive_instances=allocation_site_sensitive_instances,
         use_type_hints=use_type_hints,
@@ -254,6 +267,7 @@ def extract_call_site_edge_index_constraint(
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
     additional_sources: Optional[Mapping[str, str]] = None,
+    fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> CallSiteEdgeIndex:
     """Extract direct call-site edges from the constraint analyser."""
     entry_path = source_path or _discover_entry_path_from_stack()
@@ -261,6 +275,7 @@ def extract_call_site_edge_index_constraint(
         context_sensitive=context_sensitive,
         context_depth=max(0, int(context_depth)),
         fixpoint_max_iterations=fixpoint_max_iterations,
+        fixpoint_max_seconds=fixpoint_max_seconds,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         allocation_site_sensitive_instances=allocation_site_sensitive_instances,
         use_type_hints=use_type_hints,

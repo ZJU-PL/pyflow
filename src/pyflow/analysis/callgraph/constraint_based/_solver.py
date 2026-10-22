@@ -121,18 +121,23 @@ class _FixpointSolverMixin:
         class_info = self.classes.get(class_name)
         if class_info is None:
             return
-        resolved = list(class_info.bases)
+        candidates = self._class_base_candidates.setdefault(
+            class_name, [set() for _ in base_value_sets]
+        )
         changed = False
-        for values in base_value_sets:
+        for names, values in zip(candidates, base_value_sets):
             for value in values:
-                if value.kind != CLASS_KIND or value.name in resolved:
+                if value.kind != CLASS_KIND or value.name in names:
                     continue
-                resolved.append(value.name)
+                names.add(value.name)
                 changed = True
         if changed:
-            class_info.bases = resolved
+            # Keep source base positions: a late first base must not be
+            # appended after an already-resolved second base.
+            class_info.bases = [name for names in candidates for name in sorted(names)]
             self._mro_cache.clear()
-            self._invalid_mro_classes.discard(class_name)
+            self._invalid_mro_classes.clear()
+            self._uncertain_mro_classes.clear()
             if self._active_changed_class_fields is not None:
                 self._active_changed_class_fields.add((class_name, "*"))
 
@@ -725,10 +730,9 @@ class _FixpointSolverMixin:
         max_iterations = (
             max(1, int(configured_max))
             if configured_max is not None
-            else (
-                max(1, self.options.default_fixpoint_iteration_budget)
-                if self.options.default_fixpoint_iteration_budget is not None
-                else max(256, len(self.scopes) * 256)
+            else min(
+                max(256, len(self.scopes) * 256),
+                max(1, self.options.default_fixpoint_iteration_budget),
             )
         )
         self.solver_stats = type(self.solver_stats)()
@@ -800,6 +804,9 @@ class _FixpointSolverMixin:
             )
 
         while _has_pending() and iterations < max_iterations:
+            if self._fixpoint_time_exhausted():
+                self.fixpoint_stop_reason = "time_limit"
+                break
             iterations += 1
             if self.options.requeue_policy == "fifo":
                 scope_name, scope_context = queue_fifo.popleft()
@@ -918,12 +925,15 @@ class _FixpointSolverMixin:
 
         self.fixpoint_iterations = iterations
         self.fixpoint_truncated = _has_pending()
+        if self.fixpoint_truncated and self.fixpoint_stop_reason != "time_limit":
+            self.fixpoint_stop_reason = "iteration_limit"
         self.solver_stats.iterations = iterations
         if self.fixpoint_truncated and self.options.warn_on_fixpoint_truncation:
             warnings.warn(
                 (
-                    "Constraint call graph fixpoint hit the iteration cap "
-                    f"({max_iterations}) before convergence; results may be incomplete."
+                    "Constraint call graph fixpoint hit the "
+                    f"{self.fixpoint_stop_reason.replace('_limit', ' cap')} before convergence "
+                    f"({iterations} steps); results may be incomplete."
                 ),
                 RuntimeWarning,
                 stacklevel=2,

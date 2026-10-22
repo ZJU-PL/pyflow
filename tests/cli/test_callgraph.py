@@ -223,6 +223,8 @@ def test_constraint_truncation_metadata_in_file_and_recursive_json(tmp_path, cap
             if schema == "unified":
                 assert output["status"] == "partial"
                 assert output["converged"] is False
+                assert output["analysis_complete"] is False
+                assert output["termination_reason"] == "iteration_limit"
                 assert any("budget exhausted" in item for item in output["diagnostics"])
             else:
                 assert "main.f" in output
@@ -260,7 +262,7 @@ def test_recursive_scan_with_no_parseable_sources_fails_cleanly(tmp_path, capsys
     args = parse_callgraph_args(tmp_path, "--recursive", "--format", "json")
     assert callgraph_cli.run_callgraph(tmp_path, args) == 2
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out.strip() == "{}"
     assert "no parseable" in captured.err
     assert "Traceback" not in captured.err
 
@@ -286,3 +288,130 @@ def test_constraint_complete_json_reports_convergence(tmp_path, capsys):
     assert document["status"] == "complete"
     assert document["converged"] is True
     assert document["diagnostics"] == []
+
+
+def test_recursive_encoding_errors_and_declared_latin1(tmp_path, capsys):
+    import json
+
+    (tmp_path / "a_bad.py").write_bytes(b'label = "caf\xe9"\n')
+    (tmp_path / "b_latin.py").write_bytes(
+        b'# coding: latin-1\nlabel = "caf\xe9"\ndef f(): pass\nf()\n'
+    )
+    (tmp_path / "c_good.py").write_text("def g(): pass\ng()\n")
+    args = parse_callgraph_args(
+        tmp_path, "--recursive", "--format", "json", "--json-schema", "unified"
+    )
+    assert callgraph_cli.run_callgraph(tmp_path, args) == 3
+    document = json.loads(capsys.readouterr().out)
+    assert document["converged"] is True
+    assert document["analysis_complete"] is False
+    assert "b_latin.f" in document["graph"]["b_latin"]
+    assert "c_good.g" in document["graph"]["c_good"]
+    assert any("a_bad.py" in item for item in document["diagnostics"])
+
+
+def test_empty_recursive_json_reports_reason_and_writes_output(tmp_path, capsys):
+    import json
+
+    output = tmp_path / "result.json"
+    for empty in (True, False):
+        if not empty:
+            (tmp_path / "bad.py").write_text('print "hello"\n')
+        args = parse_callgraph_args(
+            tmp_path, "--recursive", "--format", "json", "--json-schema", "unified", "-o", output
+        )
+        assert callgraph_cli.run_callgraph(tmp_path, args) == 2
+        assert capsys.readouterr().out == ""
+        document = json.loads(output.read_text())
+        assert document["graph"] == {}
+        assert document["analysis_complete"] is False
+        assert document["converged"] is False
+        assert document["status"] == "partial"
+        assert document["diagnostics"]
+        assert document["termination_reason"] == ("no_sources" if empty else "no_parseable_sources")
+
+
+def test_unresolved_calls_do_not_signal_constraint_truncation(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "sample.py"
+    source.write_text("def run(): input()()\nrun()\n")
+    for recursive in (False, True):
+        target = tmp_path if recursive else source
+        for schema in ("legacy", "unified"):
+            args = parse_callgraph_args(
+                target,
+                *(["--recursive"] if recursive else []),
+                "--format",
+                "json",
+                "--json-schema",
+                schema,
+            )
+            assert callgraph_cli.run_callgraph(target, args) == 0
+            document = json.loads(capsys.readouterr().out)
+            if schema == "unified":
+                assert document["status"] == "partial"
+                assert document["analysis_complete"] is True
+                assert document["termination_reason"] == "converged"
+                assert document["unresolved_calls"]
+
+
+def test_constraint_cli_time_budget_reaches_solver(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "sample.py"
+    source.write_text("def f(): pass\nf()\n")
+    for recursive in (False, True):
+        target = tmp_path if recursive else source
+        args = parse_callgraph_args(
+            target,
+            *(["--recursive"] if recursive else []),
+            "--format",
+            "json",
+            "--json-schema",
+            "unified",
+            "--fixpoint-max-seconds",
+            "0.000000001",
+            "--no-fixpoint-warning",
+        )
+        assert callgraph_cli.run_callgraph(target, args) == 3
+        document = json.loads(capsys.readouterr().out)
+        assert document["analysis_complete"] is False
+        assert document["termination_reason"] == "time_limit"
+
+
+def test_constraint_time_limit_zero_disables_deadline(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "sample.py"
+    source.write_text("def f(): pass\nf()\n")
+    args = parse_callgraph_args(
+        source, "--format", "json", "--json-schema", "unified", "--fixpoint-max-seconds", "0"
+    )
+    assert callgraph_cli.run_callgraph(source, args) == 0
+    assert json.loads(capsys.readouterr().out)["termination_reason"] == "converged"
+
+
+def test_recursive_monorepo_json_connects_calls_to_function_bodies(tmp_path, capsys):
+    import json
+
+    for layout in ("lib", "libs/core", "packages/core"):
+        root = tmp_path / layout.replace("/", "_")
+        package = root / layout / "mypkg"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("")
+        (package / "mod.py").write_text("def f(): pass\ndef run(): f()\n")
+        app = root / "apps" / "app"
+        app.mkdir(parents=True)
+        (app / "main.py").write_text("from mypkg.mod import run\ndef entry(): run()\n")
+        args = parse_callgraph_args(
+            root, "--recursive", "--format", "json", "--json-schema", "unified"
+        )
+        assert callgraph_cli.run_callgraph(root, args) == 0
+        document = json.loads(capsys.readouterr().out)
+        assert document["converged"] is True
+        assert document["analysis_complete"] is True
+        assert document["unresolved_calls"] == []
+        assert document["graph"]["apps.app.main.entry"] == ["mypkg.mod.run"]
+        assert document["graph"]["mypkg.mod.run"] == ["mypkg.mod.f"]
+        assert not any(node.endswith(".mypkg.mod.run") for node in document["graph"])

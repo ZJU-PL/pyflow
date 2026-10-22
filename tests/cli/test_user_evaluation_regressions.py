@@ -297,9 +297,11 @@ def test_callgraph_unified_schema_separates_unresolved_targets(tmp_path, capsys)
     args = parser.parse_args(
         ["callgraph", str(path), "-a", "constraint", "--format", "json", "--json-schema", "unified"]
     )
-    assert run_callgraph(path, args) == 3
+    assert run_callgraph(path, args) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "partial"
+    assert report["analysis_complete"] is True
+    assert report["termination_reason"] == "converged"
     assert report["unresolved_calls"]
     assert report["external_calls"]
     assert all(not name.startswith("<") for name in report["graph"])

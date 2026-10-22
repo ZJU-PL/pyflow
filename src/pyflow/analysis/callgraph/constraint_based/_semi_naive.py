@@ -309,6 +309,8 @@ class SemiNaiveConstraintSolver:
                 self._activate(scope_name)
 
         while self.activation_queue or self.queue:
+            if self.builder._fixpoint_time_exhausted():
+                break
             if self.activation_queue:
                 self._materialize_activation(self.activation_queue.popleft())
                 continue

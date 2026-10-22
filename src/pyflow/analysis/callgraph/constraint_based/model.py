@@ -7,6 +7,7 @@ like maps. The solver computes a fixpoint over these sets.
 from __future__ import annotations
 
 import ast
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import (
@@ -63,7 +64,7 @@ class AnalysisOptions:
     context_sensitive: bool = False
     context_depth: int = 1
     fixpoint_max_iterations: Optional[int] = None
-    default_fixpoint_iteration_budget: Optional[int] = None
+    default_fixpoint_iteration_budget: int = 50000
     warn_on_fixpoint_truncation: bool = True
     allocation_site_sensitive_instances: bool = False
     use_type_hints: bool = True
@@ -80,6 +81,13 @@ class AnalysisOptions:
     skip_external_modules: bool = False
     analyze_reachable_only: bool = False
     seed_entry_file_scopes: bool = False
+    fixpoint_max_seconds: Optional[float] = 60.0
+
+    def __post_init__(self) -> None:
+        if self.fixpoint_max_seconds is not None and (
+            not math.isfinite(self.fixpoint_max_seconds) or self.fixpoint_max_seconds < 0
+        ):
+            raise ValueError("fixpoint_max_seconds must be finite and non-negative, or None")
 
 
 @dataclass

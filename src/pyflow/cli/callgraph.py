@@ -4,6 +4,7 @@ CLI functionality for call graph analysis.
 
 import json
 import sys
+import tokenize
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -50,6 +51,8 @@ def _validate_algorithm_options(args) -> bool:
         incompatible_flags.append("--context-depth")
     if getattr(args, "fixpoint_max_iterations", None) is not None:
         incompatible_flags.append("--fixpoint-max-iterations")
+    if getattr(args, "fixpoint_max_seconds", None) is not None:
+        incompatible_flags.append("--fixpoint-max-seconds")
     if getattr(args, "no_fixpoint_warning", False):
         incompatible_flags.append("--no-fixpoint-warning")
     if getattr(args, "allocation_site_sensitive_instances", False):
@@ -77,6 +80,11 @@ def _run_analyzer(analyzer, *args, **kwargs):
         return analyzer(*args, **kwargs)
 
 
+def _constraint_time_budget(args):
+    seconds = getattr(args, "fixpoint_max_seconds", None)
+    return 60.0 if seconds is None else (seconds or None)
+
+
 def _analyze_file(
     file_path: Path, args, *, project_entry: bool = False, project_root: Path | None = None
 ) -> int:
@@ -99,6 +107,7 @@ def _analyze_file(
             context_sensitive=args.context_sensitive,
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
+            fixpoint_max_seconds=_constraint_time_budget(args),
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
             allocation_site_sensitive_instances=(args.allocation_site_sensitive_instances),
             skip_stdlib_modules=args.skip_stdlib,
@@ -141,6 +150,9 @@ def _analyze_file(
     if output.startswith("Error analyzing "):
         print(output, file=sys.stderr)
         return 2
+    constraint_incomplete = (
+        args.algorithm == "constraint" and getattr(output, "status", "complete") == "partial"
+    )
     if (
         getattr(args, "format", "text") == "json"
         and getattr(args, "json_schema", "legacy") == "unified"
@@ -155,6 +167,7 @@ def _analyze_file(
                 status=getattr(output, "status", "complete"),
                 converged=getattr(output, "converged", None),
                 diagnostics=getattr(output, "diagnostics", ()),
+                termination_reason=getattr(output, "termination_reason", None),
             ),
             indent=2,
         )
@@ -167,7 +180,7 @@ def _analyze_file(
                 file=sys.stderr,
             )
             return 1
-        with open(file_path, "r", encoding="utf-8") as handle:
+        with tokenize.open(file_path) as handle:
             source = handle.read()
         as_graph = _run_analyzer(
             extract_value_flow_graph_constraint,
@@ -177,6 +190,7 @@ def _analyze_file(
             context_sensitive=args.context_sensitive,
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
+            fixpoint_max_seconds=_constraint_time_budget(args),
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
             allocation_site_sensitive_instances=(args.allocation_site_sensitive_instances),
             skip_stdlib_modules=args.skip_stdlib,
@@ -196,6 +210,8 @@ def _analyze_file(
     else:
         print(output)
 
+    if args.algorithm == "constraint":
+        return 3 if constraint_incomplete else 0
     if (
         getattr(args, "format", "text") == "json"
         and getattr(args, "json_schema", "legacy") == "unified"
@@ -419,7 +435,13 @@ def add_callgraph_parser(subparsers):
         "--fixpoint-max-iterations",
         type=int,
         default=None,
-        help="Cap fixpoint worklist steps (constraint only; default: 256 per scope, minimum 256)",
+        help="Cap fixpoint worklist steps (constraint only; default: 256 per scope, capped at 50,000)",
+    )
+    parser.add_argument(
+        "--fixpoint-max-seconds",
+        type=float,
+        default=None,
+        help="Constraint solver time budget in seconds, checked between worklist steps (default: 60; 0 disables)",
     )
     parser.add_argument(
         "--no-fixpoint-warning",
@@ -462,6 +484,30 @@ def add_callgraph_parser(subparsers):
     parser.set_defaults(func=run_callgraph)
 
 
+def _empty_project_result(args, diagnostics, reason):
+    """Keep JSON consumers informed even when no graph can be constructed."""
+    if getattr(args, "format", "text") != "json":
+        return 2
+    from pyflow.analysis.callgraph.formats import structured_callgraph
+
+    document = {}
+    if getattr(args, "json_schema", "legacy") == "unified":
+        document = structured_callgraph(
+            {},
+            algorithm="constraint",
+            status="partial",
+            converged=False,
+            diagnostics=diagnostics,
+            termination_reason=reason,
+        )
+    output = json.dumps(document, indent=2) + "\n"
+    if args.output:
+        args.output.write_text(output, encoding="utf-8")
+    else:
+        print(output, end="")
+    return 2
+
+
 def _analyze_project_sources(root, args):
     import ast
     from pyflow.language.source_compat import normalize_legacy_python_syntax
@@ -474,7 +520,7 @@ def _analyze_project_sources(root, args):
     files = discover_python_files(root, recursive=True, exclude=SECURITY_DEFAULT_EXCLUDES)
     if not files:
         print("Error: no project Python files found", file=sys.stderr)
-        return 2
+        return _empty_project_result(args, ["No project Python files found"], "no_sources")
     if args.dry_run:
         print("\n".join(str(path.relative_to(root)) for path in files))
         return 0
@@ -485,8 +531,18 @@ def _analyze_project_sources(root, args):
         )
         return 2
     entry = resolve_entry_file(root, args.entry) if args.entry else files[0]
-    sources = {str(path.resolve()): path.read_text(encoding="utf-8-sig") for path in files}
+    sources = {}
     diagnostics = []
+    for path in files:
+        try:
+            with tokenize.open(path) as handle:
+                sources[str(path.resolve())] = handle.read()
+        except (OSError, UnicodeError, SyntaxError) as exc:
+            diagnostic = f"Skipped {path}: {exc}"
+            diagnostics.append(diagnostic)
+            print(diagnostic, file=sys.stderr)
+    if args.entry and str(entry.resolve()) not in sources:
+        return _empty_project_result(args, diagnostics, "invalid_entry")
     # Only preflight the entry. The loader parses and diagnoses every other
     # source, avoiding a second full-project parse on large recursive scans.
     candidates = [str(entry.resolve())] if args.entry else list(sources)
@@ -500,13 +556,13 @@ def _analyze_project_sources(root, args):
             del sources[path]
             if args.entry:
                 print("Error: explicit entry could not be parsed", file=sys.stderr)
-                return 2
+                return _empty_project_result(args, diagnostics, "invalid_entry")
         else:
             entry = Path(path)
             break
     if not sources:
         print("Error: no parseable project Python files found", file=sys.stderr)
-        return 2
+        return _empty_project_result(args, diagnostics, "no_parseable_sources")
     with redirect_stdout(sys.stderr):
         graph = extract_call_graph_constraint(
             sources[str(entry.resolve())],
@@ -519,6 +575,7 @@ def _analyze_project_sources(root, args):
             context_sensitive=args.context_sensitive,
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
+            fixpoint_max_seconds=_constraint_time_budget(args),
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
             allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
         )
@@ -543,6 +600,7 @@ def _analyze_project_sources(root, args):
                 ),
                 converged=graph.converged,
                 diagnostics=[*diagnostics, *graph.diagnostics],
+                termination_reason=graph.termination_reason,
             ),
             indent=2,
         )
@@ -550,6 +608,4 @@ def _analyze_project_sources(root, args):
         args.output.write_text(output + "\n", encoding="utf-8")
     else:
         print(output)
-    if args.format == "json" and getattr(args, "json_schema", "legacy") == "unified":
-        return 3 if json.loads(output)["status"] == "partial" else 0
     return 3 if diagnostics or graph.diagnostics or not graph.converged else 0
