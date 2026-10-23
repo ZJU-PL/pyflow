@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from .model import (
     AbstractValue,
     ContextKey,
+    CONTAINER_KIND,
     COROUTINE_KIND,
     GENERATOR_KIND,
     GLOBAL_CONTEXT,
@@ -203,6 +204,10 @@ class _StatementAnalysisMixin:
                 callees,
                 input_changed_scope_contexts,
             )
+            if self.options.use_type_hints:
+                self._seed_container_elements_from_annotation(
+                    scope.module, stmt.annotation, value
+                )
             value = self._filter_values_by_annotation(scope.module, stmt.annotation, value)
             self._assign_target(
                 scope,
@@ -221,6 +226,34 @@ class _StatementAnalysisMixin:
         state.changed_class_fields = changed_class_fields
         state.global_writes = global_writes
         state.nonlocal_writes = nonlocal_writes
+
+    def _seed_container_elements_from_annotation(
+        self,
+        module_name: str,
+        annotation: Optional[ast.AST],
+        values: Set[AbstractValue],
+    ) -> None:
+        """Let a container annotation provide element values of an empty container.
+
+        注解声明了表达式可能具有的类型；当容器字面量还没有任何元素、其元素值集合
+        为空时，注解里的元素类型必须是它的值来源，否则 `x[k].m()` 解析不出元素
+        类型的方法。元素集合非空时注解仍然只做过滤（原有行为）。
+        """
+        if annotation is None:
+            return
+        element_values = self._annotation_element_values(annotation, module_name)
+        if not element_values:
+            return
+        for value in values:
+            if value.kind != CONTAINER_KIND:
+                continue
+            if self.container_elements.get(value.name):
+                continue
+            self._merge_value_set(
+                self.container_elements[value.name],
+                set(element_values),
+                preserve_callables=True,
+            )
 
     def _process_augmented_assign_statement(
         self,
