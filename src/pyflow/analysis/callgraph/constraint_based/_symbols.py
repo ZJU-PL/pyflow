@@ -580,6 +580,10 @@ class _SymbolAnalysisMixin:
             resolved: list[str] = []
             candidates = []
             for base_expr in class_info.bases_raw:
+                if isinstance(base_expr, ast.Subscript):
+                    # `Base[T]` is the base class `Base`; the subscript only supplies
+                    # type arguments, so resolve the subscripted value as the base.
+                    base_expr = base_expr.value
                 values = self._eval_expr_static(base_expr, bindings)
                 names = set()
                 for value in values:
