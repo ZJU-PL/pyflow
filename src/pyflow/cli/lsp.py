@@ -264,16 +264,22 @@ def _run_server(args, handler_cls):
     mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
     server = AnalysisManager(analysis_config=analysis_config_for_mode(mode))
 
-    if hasattr(args, "root") and args.root:
-        try:
-            server.load(str(args.root))
-            LOG.info("Loaded project: %s", args.root)
-        except Exception as exc:
-            LOG.warning("Deferred load failed: %s", exc)
-
-    rpc = JsonLineRpcServer() if handler_cls is McpHandler else JsonRpcServer()
-    handler_cls(server).register_on(rpc)
-    asyncio.run(rpc.run())
+    # Capture the protocol stream before redirecting all incidental prints,
+    # including background compiler output, for the entire server lifetime.
+    rpc_type = JsonLineRpcServer if handler_cls is McpHandler else JsonRpcServer
+    rpc = rpc_type(output_stream=sys.stdout.buffer)
+    with redirect_stdout(sys.stderr):
+        if getattr(args, "root", None):
+            try:
+                if handler_cls is LspHandler:
+                    server.load_source_workspaces([str(args.root)])
+                else:
+                    server.load(str(args.root))
+                LOG.info("Loaded project: %s", args.root)
+            except Exception as exc:
+                LOG.warning("Deferred load failed: %s", exc)
+        handler_cls(server).register_on(rpc)
+        asyncio.run(rpc.run())
 
 
 def run_lsp(args):

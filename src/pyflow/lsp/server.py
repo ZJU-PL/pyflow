@@ -1,6 +1,7 @@
 """Workspace analysis lifecycle and atomic snapshot publication."""
 
 import os
+import sys
 import logging
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ from pyflow.frontend.interface_builder import (
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.util.application.console import Console
+from pyflow.frontend.source import read_python_source
 from .workspace import SourceIndex, WorkspaceDocuments, uri_to_path
 
 LOG = logging.getLogger(__name__)
@@ -25,8 +27,8 @@ LOG = logging.getLogger(__name__)
 
 def _read_source(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
+        return read_python_source(path)
+    except (OSError, UnicodeError, SyntaxError):
         return ""
 
 
@@ -60,10 +62,99 @@ class AnalysisManager:
         self._closed = False
         self._state_lock = threading.RLock()
         self._analysis_lock = threading.Lock()
+        self.analysis_diagnostics: list[dict] = []
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def load_source_workspaces(self, root_paths: list[str]) -> None:
+        """Publish editor services without extracting or analyzing compiler IR."""
+        roots = tuple(os.path.abspath(path) for path in root_paths)
+        if any(not Path(root).is_dir() for root in roots):
+            raise ValueError("Workspace root is not a directory")
+        files = sorted({path for root in roots for path in self._discover_python_files(Path(root))})
+        self.load_source_files(files, workspace_roots=roots)
+
+    def load_source_files(self, files: list[Path], *, workspace_roots=()) -> None:
+        roots = tuple(map(os.path.abspath, workspace_roots))
+        try:
+            root = os.path.commonpath(roots) if roots else None
+        except ValueError:
+            root = roots[0]
+        generation = self._configure_workspace(roots, root)
+        normalized = [Path(path).absolute() for path in files]
+        overrides, source_revision = self._documents.snapshot()
+        sources = self._current_source_files(tuple(normalized), overrides)
+        index = SourceIndex(sources, roots)
+        compiler = CompilerContext(Console(out=sys.stderr, verbose=self._verbose))
+        program = Program()
+        type_info = self._source_type_info(sources, roots, root)
+        with self._state_lock:
+            if self._closed or generation != self._generation:
+                return
+            self._next_revision += 1
+            self._snapshot = AnalysisSnapshot.create(
+                program=program,
+                compiler=compiler,
+                source_index=index,
+                source_files=sources,
+                revision=self._next_revision,
+                source_revision=source_revision,
+                type_info_service=type_info,
+            )
+            self._python_files = normalized
+            self._source_files = dict(sources)
+            self._source_index = index
+            self._loaded = True
+        if self._documents.revision != source_revision:
+            self._publish_syntax_snapshot()
+
+    def _source_type_info(self, sources, roots, root):
+        if not self._analysis_config.type_info:
+            return None
+        return TypeInfoService(ProjectContext(root, source_files=sources, workspace_roots=roots))
+
+    def refresh_sources(self) -> None:
+        """Refresh file discovery without invoking the compiler pipeline."""
+        with self._state_lock:
+            roots, generation = self._workspace_roots, self._generation
+            if self._closed:
+                return
+        files = (
+            sorted({path for root in roots for path in self._discover_python_files(Path(root))})
+            if roots
+            else None
+        )
+        with self._state_lock:
+            if self._closed or generation != self._generation:
+                return
+            if files is not None:
+                self._python_files = files
+        self._publish_syntax_snapshot()
+
+    def analyze_workspace(self) -> None:
+        """Run explicitly requested semantic work; retain source services on failure."""
+        with self._state_lock:
+            files, roots, root, generation = (
+                list(self._python_files),
+                self._workspace_roots,
+                self._root_path,
+                self._generation,
+            )
+        try:
+            self.load_files(files, root_path=root, _generation=generation, _workspace_roots=roots)
+        except Exception as error:
+            LOG.exception("Optional workspace semantic analysis failed")
+            with self._state_lock:
+                if generation == self._generation and not self._closed:
+                    self.analysis_diagnostics = [
+                        {
+                            "source": "pyflow",
+                            "message": str(error),
+                            "code": "semantic-analysis-failed",
+                        }
+                    ]
 
     def load(
         self,
@@ -101,19 +192,21 @@ class AnalysisManager:
     @staticmethod
     def _discover_python_files(root: Path) -> list[Path]:
         """Discover the current workspace file set for every reload."""
+        from pyflow.frontend.file_selection import discover_python_files
+
         return sorted(
-            p
-            for p in root.rglob("*.py")
-            if not any(part.startswith(".") for part in p.relative_to(root).parts)
-            and not set(p.parts).intersection(
-                {
+            discover_python_files(
+                root,
+                recursive=True,
+                exclude=(
+                    ".*",
                     "site-packages",
                     "node_modules",
                     "build",
                     "dist",
                     "__pycache__",
                     "venv",
-                }
+                ),
             )
         )
 
@@ -188,7 +281,7 @@ class AnalysisManager:
             # older snapshot after a newer one.
             source_overrides = self._documents.source_overrides()
             source_revision = self._documents.revision
-            console = Console(verbose=self._verbose)
+            console = Console(out=sys.stderr, verbose=self._verbose)
             compiler = CompilerContext(console)
             program = Program()
 
@@ -292,7 +385,7 @@ class AnalysisManager:
     def open_document(self, uri: str, text: str, version: Optional[int] = None) -> bool:
         changed = self._documents.open(uri_to_path(uri), text, version)
         if changed and self._loaded:
-            self._publish_syntax_snapshot()
+            self._publish_syntax_snapshot(uri_to_path(uri))
         return changed
 
     def change_document(
@@ -303,16 +396,16 @@ class AnalysisManager:
     ) -> bool:
         changed = self._documents.change(uri_to_path(uri), changes, version)
         if changed and self._loaded:
-            self._publish_syntax_snapshot()
+            self._publish_syntax_snapshot(uri_to_path(uri))
         return changed
 
     def close_document(self, uri: str) -> bool:
         changed = self._documents.close(uri_to_path(uri))
         if changed and self._loaded:
-            self._publish_syntax_snapshot()
+            self._publish_syntax_snapshot(uri_to_path(uri))
         return changed
 
-    def _publish_syntax_snapshot(self) -> None:
+    def _publish_syntax_snapshot(self, changed_path: Optional[str] = None) -> None:
         """Immediately publish current syntax while retaining semantic facts.
 
         The inherited query components remain pinned to the last completed
@@ -329,7 +422,16 @@ class AnalysisManager:
             generation = self._generation
             python_files = tuple(self._python_files)
         source_overrides, source_revision = self._documents.snapshot()
-        source_files = self._current_source_files(python_files, source_overrides)
+        if changed_path is None:
+            source_files = self._current_source_files(python_files, source_overrides)
+        else:
+            source_files = dict(current.source_files)
+            if changed_path in source_overrides:
+                source_files[changed_path] = source_overrides[changed_path]
+            elif Path(changed_path).is_file():
+                source_files[changed_path] = _read_source(Path(changed_path))
+            else:
+                source_files.pop(changed_path, None)
         source_index = current.source_index.with_source_files(source_files)
 
         with self._state_lock:
@@ -349,7 +451,9 @@ class AnalysisManager:
                 semantic_revision=current.semantic_revision,
                 source_revision=source_revision,
                 semantic_stale=True,
-                type_info_service=current.type_info_service,
+                type_info_service=self._source_type_info(
+                    source_files, self._workspace_roots, self._root_path
+                ),
             )
             self._source_files = dict(source_files)
             self._source_index = source_index
@@ -359,13 +463,18 @@ class AnalysisManager:
         python_files: tuple[Path, ...] | None = None,
         source_overrides: Optional[dict[str, str]] = None,
     ) -> dict[str, str]:
-        python_files = python_files or tuple(self._python_files)
+        if python_files is None:
+            python_files = tuple(self._python_files)
         if source_overrides is None:
             source_overrides = self._documents.source_overrides()
         source_files: dict[str, str] = {}
         for path in python_files:
             normalized = str(path.absolute())
-            source_files[normalized] = source_overrides.get(normalized, _read_source(path))
+            source_files[normalized] = (
+                source_overrides[normalized]
+                if normalized in source_overrides
+                else _read_source(path)
+            )
         for path, text in source_overrides.items():
             if path.endswith(".py"):
                 source_files[path] = text
@@ -384,11 +493,14 @@ class AnalysisManager:
             self._python_files = []
             self._loaded = False
 
-    def _configure_workspace(self, workspace_roots: tuple[str, ...], root_path: str) -> int:
+    def _configure_workspace(
+        self, workspace_roots: tuple[str, ...], root_path: Optional[str]
+    ) -> int:
         """Invalidate previous analysis work and start a new analysis universe."""
         with self._state_lock:
             self._generation += 1
             self._closed = False
+            self.analysis_diagnostics = []
             self._workspace_roots = workspace_roots
             self._root_path = root_path
             return self._generation

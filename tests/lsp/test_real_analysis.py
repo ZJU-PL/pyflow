@@ -320,7 +320,7 @@ class TestLspHandlerReal:
                 "id": 1,
                 "method": "textDocument/completion",
                 "params": {
-                    "textDocument": {"uri": "file:///any.py"},
+                    "textDocument": {"uri": (tmp_path / "sample.py").as_uri()},
                     "position": {"line": 0, "character": 0},
                 },
             },

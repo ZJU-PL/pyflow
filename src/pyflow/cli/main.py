@@ -68,7 +68,7 @@ def _main():
     Parses command-line arguments and dispatches to appropriate sub-commands.
     """
     parser = argparse.ArgumentParser(
-        description="PyFlow - A static compiler for Python", prog="pyflow"
+        description="PyFlow - A static analysis tool for Python", prog="pyflow"
     )
 
     from pyflow import __version__

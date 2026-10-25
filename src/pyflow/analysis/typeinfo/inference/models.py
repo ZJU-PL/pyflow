@@ -145,7 +145,7 @@ class ModuleInferenceResult:
         lineno: int,
         col_offset: int,
     ) -> ProperType | None:
-        """Return the type of the expression starting at a source position."""
+        """Return the type of the expression covering a source position."""
         value = self.expression_value(lineno, col_offset)
         return None if value is None else value.public_type()
 
@@ -161,7 +161,25 @@ class ModuleInferenceResult:
             if span.lineno == lineno and span.col_offset == col_offset
         ]
         if not matches:
-            return None
+            matches = [
+                (span, value)
+                for span, value in self.expressions.items()
+                if (span.lineno, span.col_offset)
+                <= (lineno, col_offset)
+                < (
+                    span.end_lineno or span.lineno,
+                    span.end_col_offset if span.end_col_offset is not None else span.col_offset + 1,
+                )
+            ]
+            if not matches:
+                return None
+            return min(
+                matches,
+                key=lambda item: (
+                    (item[0].end_lineno or item[0].lineno) - item[0].lineno,
+                    (item[0].end_col_offset or item[0].col_offset) - item[0].col_offset,
+                ),
+            )[1]
         # A call and its callee commonly start at the same position.  Prefer
         # the widest expression, which is the user-visible outer expression.
         _, value = max(

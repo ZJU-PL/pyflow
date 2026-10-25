@@ -81,6 +81,11 @@ class ASTInterproceduralAnalyzer:
         functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
         import_aliases: dict[str, Mapping[str, str]] = {}
         diagnostics: set[AnalysisUncertainty] = set()
+        file_sources = {
+            (filenames or {}).get(name): source
+            for name, source in sources_by_name.items()
+            if name.endswith("::<module>")
+        }
         for name, source in sources_by_name.items():
             try:
                 tree = ast.parse(textwrap.dedent(source))
@@ -116,8 +121,11 @@ class ASTInterproceduralAnalyzer:
                 filename = (filenames or {}).get(name)
                 if filename:
                     try:
-                        with tokenize.open(filename) as stream:
-                            alias_tree = ast.parse(stream.read())
+                        if filename in file_sources:
+                            alias_tree = ast.parse(file_sources[filename])
+                        else:
+                            with tokenize.open(filename) as stream:
+                                alias_tree = ast.parse(stream.read())
                     except (OSError, SyntaxError, UnicodeError):
                         pass
                 import_aliases[name] = self._import_aliases(alias_tree)

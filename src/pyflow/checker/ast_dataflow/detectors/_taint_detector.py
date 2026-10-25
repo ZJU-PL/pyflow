@@ -53,6 +53,8 @@ class ASTDataflowTaintDetector(Detector):
         shape_contracts=None,
         unknown_call_policy: str = "havoc",
         entry_parameter_kinds=None,
+        solver_options=None,
+        max_summary_rounds: int = 100,
     ):
         self._manual_sources = set(sources or ())
         self._manual_sinks = set(sinks or ())
@@ -62,6 +64,8 @@ class ASTDataflowTaintDetector(Detector):
         self.frameworks = None if frameworks is None else tuple(frameworks)
         self.registry_paths = tuple(registry_paths)
         self.formal_semantics = formal_semantics
+        self.solver_options = solver_options
+        self.max_summary_rounds = max_summary_rounds
         self.shape_contracts = shape_contracts
         if unknown_call_policy not in {"preserve", "havoc"}:
             raise ValueError("AST unknown-call policy must be preserve or havoc")
@@ -232,6 +236,8 @@ class ASTDataflowTaintDetector(Detector):
             policy,
             refinement=refinement,
             shape_contracts=self.shape_contracts,
+            solver_options=self.solver_options,
+            max_rounds=self.max_summary_rounds,
             unknown_call_policy=self.unknown_call_policy,
         ).analyze(
             session.sources_by_name,

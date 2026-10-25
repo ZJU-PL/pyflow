@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import keyword
 from pathlib import Path
 from typing import Any, Optional
 
 from .server import AnalysisManager
 from .transport import ErrorCodes, JsonRpcError, JsonRpcServer
-from .workspace import SourceSymbol, SymbolId, uri_to_path
+from .workspace import SourceIndex, SourceSymbol, SymbolId, uri_to_path
 
 LOG = logging.getLogger(__name__)
 
@@ -23,10 +24,16 @@ class LspHandler:
         self._shutdown = False
         self._semantic_task: Optional[asyncio.Task[None]] = None
         self._semantic_dirty = False
+        self._initial_semantics = False
+        self._diagnostic_lock = asyncio.Lock()
+        self._rpc = None
+        self._analysis_task = None
 
     def register_on(self, rpc: JsonRpcServer) -> None:
+        self._rpc = rpc
         rpc.register("initialize", self._handle_initialize)
         rpc.register("shutdown", self._handle_shutdown)
+        rpc.register("workspace/executeCommand", self._handle_execute_command)
         rpc.register_notification("initialized", self._handle_initialized)
         rpc.register_notification("exit", self._handle_exit)
 
@@ -73,6 +80,9 @@ class LspHandler:
         if self._shutdown:
             raise JsonRpcError(ErrorCodes.InvalidRequest, "Server has shut down")
         params = params or {}
+        self._initial_semantics = bool(
+            (params.get("initializationOptions") or {}).get("semanticAnalysis", False)
+        )
         folders = params.get("workspaceFolders") or []
         workspace_paths = [
             uri_to_path(folder["uri"])
@@ -88,7 +98,7 @@ class LspHandler:
                     not self._server.is_loaded
                     or tuple(workspace_paths) != self._server.workspace_roots
                 ):
-                    await asyncio.to_thread(self._server.load_workspaces, workspace_paths)
+                    await asyncio.to_thread(self._server.load_source_workspaces, workspace_paths)
             except Exception as exc:
                 raise JsonRpcError(
                     ErrorCodes.InternalError,
@@ -105,7 +115,8 @@ class LspHandler:
                 "triggerCharacters": ["."],
                 "resolveProvider": False,
             },
-            "hoverProvider": bool(self._server.is_loaded and self._server.supports("type_info")),
+            "hoverProvider": True,
+            "executeCommandProvider": {"commands": ["pyflow.analyzeWorkspace"]},
             "renameProvider": {"prepareProvider": True},
             "diagnosticProvider": {
                 "interFileDependencies": True,
@@ -120,7 +131,22 @@ class LspHandler:
         }
 
     def _handle_initialized(self, params: Any) -> None:
-        return None
+        if self._initial_semantics and self._server.is_loaded:
+            self._start_workspace_analysis()
+
+    async def _handle_execute_command(self, params: Any):
+        if (params or {}).get("command") != "pyflow.analyzeWorkspace":
+            raise JsonRpcError(ErrorCodes.InvalidParams, "Unknown command")
+        self._require_loaded()
+        await asyncio.shield(self._start_workspace_analysis())
+        return {"diagnostics": self._server.analysis_diagnostics}
+
+    def _start_workspace_analysis(self):
+        if self._analysis_task is None or self._analysis_task.done():
+            self._analysis_task = asyncio.create_task(
+                asyncio.to_thread(self._server.analyze_workspace)
+            )
+        return self._analysis_task
 
     def _handle_shutdown(self, params: Any) -> None:
         self._shutdown = True
@@ -131,6 +157,8 @@ class LspHandler:
     def _handle_exit(self, params: Any) -> None:
         self._stop_semantic_refresh()
         self._server.close()
+        if self._rpc is not None:
+            self._rpc.stop()
 
     async def _handle_did_open(self, params: Any) -> None:
         document = (params or {}).get("textDocument", {})
@@ -138,12 +166,9 @@ class LspHandler:
         text = document.get("text")
         if not uri or text is None:
             return
-        changed = self._server.open_document(uri, text, document.get("version"))
-        if self._server.is_loaded:
-            if changed:
-                self._schedule_semantic_reload()
-        else:
-            await asyncio.to_thread(self._server.load, str(Path(uri_to_path(uri)).parent))
+        self._server.open_document(uri, text, document.get("version"))
+        if not self._server.is_loaded:
+            await asyncio.to_thread(self._server.load_source_files, [Path(uri_to_path(uri))])
 
     async def _handle_did_change(self, params: Any) -> None:
         params = params or {}
@@ -152,20 +177,17 @@ class LspHandler:
         if not document.get("uri") or not changes:
             return
         try:
-            changed = self._server.change_document(
-                document["uri"], changes, document.get("version")
-            )
+            self._server.change_document(document["uri"], changes, document.get("version"))
         except ValueError as exc:
             raise JsonRpcError(ErrorCodes.InvalidParams, str(exc)) from exc
-        if self._server.is_loaded and changed:
-            self._schedule_semantic_reload()
+        # Source/type services already use the current overlay. Compiler
+        # analysis is explicit, never a whole-project job per keystroke.
 
     async def _handle_did_close(self, params: Any) -> None:
         uri = ((params or {}).get("textDocument") or {}).get("uri")
         if not uri:
             return
-        if self._server.close_document(uri) and self._server.is_loaded:
-            self._schedule_semantic_reload()
+        self._server.close_document(uri)
 
     async def _handle_watched_files(self, params: Any) -> None:
         if self._server.is_loaded and (params or {}).get("changes"):
@@ -189,12 +211,12 @@ class LspHandler:
             self._server.close()
             return
         try:
-            await asyncio.to_thread(self._server.load_workspaces, roots)
+            await asyncio.to_thread(self._server.load_source_workspaces, roots)
         except Exception:
             LOG.exception("Unable to reload changed workspace folders")
 
     def _schedule_semantic_reload(self) -> None:
-        """Coalesce edits into one semantic worker and at most one rerun."""
+        """Coalesce filesystem notifications into one source-index refresh."""
         self._semantic_dirty = True
         if self._semantic_task is not None and not self._semantic_task.done():
             return
@@ -204,18 +226,19 @@ class LspHandler:
         self._semantic_dirty = False
         if self._semantic_task is not None:
             self._semantic_task.cancel()
+        if self._analysis_task is not None:
+            self._analysis_task.cancel()
 
     async def _run_semantic_refresh(self) -> None:
         try:
             while self._semantic_dirty and self._server.is_loaded:
-                # Let a burst of incremental edits settle before starting the
-                # expensive whole-workspace analysis.
-                await asyncio.sleep(0.1)
+                # Debounce filesystem bursts without running compiler passes.
+                await asyncio.sleep(0.3)
                 self._semantic_dirty = False
                 source_revision = self._server.current_snapshot().source_revision
-                await asyncio.to_thread(self._server.reload)
+                await asyncio.to_thread(self._server.refresh_sources)
                 snapshot = self._server.current_snapshot()
-                if snapshot.source_revision != source_revision or snapshot.semantic_stale:
+                if snapshot.source_revision != source_revision:
                     self._semantic_dirty = True
         except asyncio.CancelledError:
             self._semantic_dirty = False
@@ -224,7 +247,7 @@ class LspHandler:
             self._semantic_dirty = False
             raise
         except Exception:
-            LOG.exception("Background semantic refresh failed")
+            LOG.exception("Background source refresh failed")
         finally:
             self._semantic_task = None
             # An edit can arrive after the loop's final condition but before
@@ -281,25 +304,55 @@ class LspHandler:
         self._require_loaded()
         uri, line, character = self._position(params)
         source_index = self._server.current_snapshot().source_index
-        prefix = source_index.word_at(uri, line, character) or ""
-        symbols = source_index.workspace_symbols(prefix)
-        items = [
-            {
-                "label": symbol.name,
-                "kind": 3 if symbol.kind in {6, 12} else 7,
-                "detail": symbol.qualified_name,
-            }
-            for symbol in symbols[:200]
-        ]
-        return {"isIncomplete": len(symbols) > len(items), "items": items}
+        items = source_index.completion_items(uri, line, character)
+        return {"isIncomplete": len(items) > 200, "items": items[:200]}
 
-    def _handle_hover(self, params: Any) -> Optional[dict[str, Any]]:
+    async def _handle_hover(self, params: Any) -> Optional[dict[str, Any]]:
         self._require_loaded()
-        if not self._server.supports("type_info"):
-            return None
         uri, line, character = self._position(params)
         snapshot = self._server.current_snapshot()
-        if snapshot.semantic_stale:
+        if isinstance(snapshot.source_index, SourceIndex):
+            declaration = snapshot.source_index.hover_at(uri, line, character)
+            if declaration is not None:
+                return declaration
+        if isinstance(snapshot.source_index, SourceIndex):
+            from .document_analysis import infer_document
+
+            text = snapshot.source_index.text_for_uri(uri)
+            module = snapshot.source_index.module_for_uri(uri)
+            if text is not None and module:
+                try:
+                    inferred = await asyncio.to_thread(
+                        infer_document, uri_to_path(uri), module, text
+                    )
+                    result = inferred.expression_type(
+                        line + 1, snapshot.source_index.python_column(uri, line, character)
+                    )
+                    if result is not None:
+                        if not self._document_is_current(snapshot, uri):
+                            raise JsonRpcError(
+                                ErrorCodes.RequestCancelled,
+                                "Document changed during hover inference",
+                            )
+                        return {
+                            "contents": {"kind": "markdown", "value": f"```python\n{result}\n```"}
+                        }
+                except JsonRpcError:
+                    raise
+                except Exception:
+                    LOG.exception("Document hover inference failed")
+            symbol = snapshot.source_index.symbol_at(uri, line, character)
+            return (
+                {
+                    "contents": {
+                        "kind": "markdown",
+                        "value": f"```python\n{symbol.detail or symbol.name}\n```",
+                    }
+                }
+                if symbol
+                else None
+            )
+        if snapshot.semantic_stale or not self._server.supports("type_info"):
             return None
         module = snapshot.source_index.module_for_uri(uri)
         if not module:
@@ -318,18 +371,24 @@ class LspHandler:
     def _handle_prepare_rename(self, params: Any) -> Optional[dict[str, Any]]:
         self._require_loaded()
         uri, line, character = self._position(params)
-        symbol = self._server.current_snapshot().source_index.symbol_at(uri, line, character)
-        return symbol.selection_range.to_lsp() if symbol else None
+        index = self._server.current_snapshot().source_index
+        if not index.rename_ranges_at(uri, line, character):
+            return None
+        token = index.token_range_at(uri, line, character)
+        return token.to_lsp() if token else None
 
     def _handle_rename(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
         new_name = str((params or {}).get("newName", ""))
-        if not new_name.isidentifier():
+        if not new_name.isidentifier() or keyword.iskeyword(new_name):
             raise JsonRpcError(ErrorCodes.InvalidParams, "newName must be a Python identifier")
         uri, line, character = self._position(params)
         ranges = self._server.current_snapshot().source_index.rename_ranges_at(uri, line, character)
         if not ranges:
-            raise JsonRpcError(ErrorCodes.InvalidParams, "No renameable symbol at position")
+            raise JsonRpcError(
+                ErrorCodes.InvalidParams,
+                "Rename is unavailable: the symbol or some member references cannot be resolved safely",
+            )
         changes: dict[str, list[dict[str, Any]]] = {}
         for source_range in ranges:
             changes.setdefault(source_range.uri, []).append(
@@ -337,13 +396,44 @@ class LspHandler:
             )
         return {"changes": changes}
 
-    def _handle_document_diagnostic(self, params: Any) -> dict[str, Any]:
+    def _document_is_current(self, snapshot, uri):
+        try:
+            return self._server.current_snapshot().source_index.text_for_uri(
+                uri
+            ) == snapshot.source_index.text_for_uri(uri)
+        except RuntimeError:
+            return False
+
+    async def _handle_document_diagnostic(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
         uri = ((params or {}).get("textDocument") or {}).get("uri", "")
         snapshot = self._server.current_snapshot()
+        from .document_analysis import document_diagnostics
+
+        await self._diagnostic_lock.acquire()
+        if not self._document_is_current(snapshot, uri):
+            self._diagnostic_lock.release()
+            raise JsonRpcError(
+                ErrorCodes.RequestCancelled, "Document changed before diagnostics started"
+            )
+        worker = asyncio.create_task(
+            asyncio.to_thread(document_diagnostics, snapshot.source_index, uri)
+        )
+
+        def completed(task):
+            self._diagnostic_lock.release()
+            if not task.cancelled():
+                task.exception()
+
+        worker.add_done_callback(completed)
+        items = await asyncio.shield(worker)
+        if not self._document_is_current(snapshot, uri):
+            raise JsonRpcError(
+                ErrorCodes.RequestCancelled, "Document changed while diagnostics were running"
+            )
         return {
             "kind": "full",
-            "items": snapshot.source_index.diagnostics_for_uri(uri),
+            "items": items,
             "resultId": f"{snapshot.revision}:{snapshot.source_revision}",
         }
 
@@ -414,17 +504,17 @@ class LspHandler:
 
     def _handle_pyflow_callers(self, params: Any) -> list[str]:
         self._require_loaded()
-        snapshot = self._fresh_semantic_snapshot()
+        snapshot = self._fresh_semantic_snapshot("call_graph")
         return snapshot.queries.call_graph.get_callers((params or {}).get("function", ""))
 
     def _handle_pyflow_callees(self, params: Any) -> list[str]:
         self._require_loaded()
-        snapshot = self._fresh_semantic_snapshot()
+        snapshot = self._fresh_semantic_snapshot("call_graph")
         return snapshot.queries.call_graph.get_callees((params or {}).get("function", ""))
 
     def _handle_pyflow_callgraph(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
-        return self._fresh_semantic_snapshot().queries.call_graph.get_callgraph_data()
+        return self._fresh_semantic_snapshot("call_graph").queries.call_graph.get_callgraph_data()
 
     def _handle_pyflow_type(self, params: Any) -> Optional[dict[str, Any]]:
         self._require_loaded()
@@ -459,12 +549,17 @@ class LspHandler:
             "is_escaped": info.is_escaped,
         }
 
-    def _fresh_semantic_snapshot(self):
+    def _fresh_semantic_snapshot(self, capability=None):
         snapshot = self._server.current_snapshot()
+        if capability and not self._server.supports(capability):
+            raise JsonRpcError(
+                ErrorCodes.InvalidRequest,
+                "Compiler analysis is unavailable; execute pyflow.analyzeWorkspace first",
+            )
         if snapshot.semantic_stale:
             raise JsonRpcError(
                 ErrorCodes.RequestCancelled,
-                "Semantic analysis is refreshing for the current source revision",
+                "Compiler analysis is stale; execute pyflow.analyzeWorkspace to refresh it",
             )
         try:
             return snapshot.require_fresh_semantics()

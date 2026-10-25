@@ -113,7 +113,7 @@ class TestInitialize:
                 "params": {"rootUri": "file:///tmp/testproj"},
             },
         )
-        mock_server.load_workspaces.assert_called_once_with(["/tmp/testproj"])
+        mock_server.load_source_workspaces.assert_called_once_with(["/tmp/testproj"])
 
     def test_workspace_folder_changes_reload_the_updated_root_set(self, mock_server):
         mock_server.workspace_roots = ("/workspace/first",)
@@ -131,7 +131,7 @@ class TestInitialize:
                 },
             },
         )
-        mock_server.load_workspaces.assert_called_once_with(
+        mock_server.load_source_workspaces.assert_called_once_with(
             ["/workspace/first", "/workspace/second"]
         )
 
@@ -404,8 +404,9 @@ def test_semantic_reload_coalesces_edit_bursts(mock_server):
         handler = LspHandler(mock_server)
         for _ in range(20):
             handler._schedule_semantic_reload()
-        await asyncio.sleep(0.2)
-        assert mock_server.reload.call_count == 1
+        await asyncio.sleep(0.4)
+        assert mock_server.refresh_sources.call_count == 1
+        assert not mock_server.reload.called
         assert handler._semantic_task is None
 
     _run(exercise())
@@ -455,7 +456,7 @@ class TestStandardLspExtensions:
             },
         )
 
-        assert prepare[0]["result"]["start"]["line"] == 0
+        assert prepare[0]["result"]["start"]["line"] == 1
         edits = renamed[0]["result"]["changes"][path.as_uri()]
         assert len(edits) == 2
         assert all(edit["newText"] == "renamed" for edit in edits)

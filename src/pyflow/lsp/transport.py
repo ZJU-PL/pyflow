@@ -99,7 +99,11 @@ class JsonRpcServer:
         *,
         max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
         max_in_flight: int = 64,
+        output_stream=None,
     ) -> None:
+        self._stopped = False
+        self._read_transport = None
+        self._output_stream = output_stream
         self._reader: Optional[asyncio.StreamReader] = None
         self._handlers: dict[str, Callable[..., Any]] = {}
         self._max_message_size = max_message_size
@@ -129,16 +133,24 @@ class JsonRpcServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def stop(self) -> None:
+        """Stop reading after the LSP exit notification, even with stdin open."""
+        self._stopped = True
+        if self._read_transport is not None:
+            self._read_transport.close()
+        elif self._reader is not None:
+            self._reader.feed_eof()
+
     async def run(self) -> None:
         """Run the server loop, reading from stdin until EOF."""
         if self._reader is None:
             self._reader = asyncio.StreamReader()
             protocol = asyncio.StreamReaderProtocol(self._reader)
             loop = asyncio.get_running_loop()
-            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+            self._read_transport, _ = await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
         reader = self._reader
-        while not reader.at_eof():
+        while not self._stopped and not reader.at_eof():
             try:
                 body = await self._read_message(reader)
             except (EOFError, ConnectionResetError, BrokenPipeError):
@@ -313,8 +325,9 @@ class JsonRpcServer:
         if self._send_lock is None:
             self._send_lock = asyncio.Lock()
         async with self._send_lock:
-            sys.stdout.buffer.write(msg)
-            sys.stdout.buffer.flush()
+            stream = self._output_stream or sys.stdout.buffer
+            stream.write(msg)
+            stream.flush()
 
     @staticmethod
     def _result(msg_id: Any, result: Any) -> dict[str, Any]:
@@ -356,5 +369,6 @@ class JsonLineRpcServer(JsonRpcServer):
         if self._send_lock is None:
             self._send_lock = asyncio.Lock()
         async with self._send_lock:
-            sys.stdout.buffer.write(body)
-            sys.stdout.buffer.flush()
+            stream = self._output_stream or sys.stdout.buffer
+            stream.write(body)
+            stream.flush()
