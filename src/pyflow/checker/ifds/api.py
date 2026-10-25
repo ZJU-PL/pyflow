@@ -29,6 +29,7 @@ def run_taint_analysis(
     unknown_call_policy: UnknownCallPolicy = "drop",
     conservative_unresolved_call_side_effects: bool = False,
     entry_point_options: EntryPointOptions | None = None,
+    entry_parameter_kinds: Iterable[str] | None = None,
     entry_point_defaults: EntryPointDefaults | None = None,
     verbose: bool = False,
     dependency_strategy: str = "auto",
@@ -69,11 +70,26 @@ def run_taint_analysis(
             fallback = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
         resolved_entry_options = entry_point_defaults.resolve(fallback)
 
+    from pyflow.frontend.frameworks import http_entry_functions
+    from pyflow.frontend.source import read_python_source
+
+    sources = {}
+    if entry_parameter_kinds is not None:
+        for path in python_files:
+            try:
+                sources[str(Path(path).resolve())] = read_python_source(path)
+            except (OSError, SyntaxError, UnicodeError):
+                continue
+
     result = analyze_taint(
         session.adapter,
         TaintConfiguration(
             call_models=(call_models if call_models is not None else CallModelRegistry()),
             rules=tuple(rules),
+            entry_parameter_kinds=(
+                frozenset(entry_parameter_kinds) if entry_parameter_kinds is not None else None
+            ),
+            framework_entry_functions=frozenset(http_entry_functions(sources)),
             collection_mutator_names=(
                 frozenset(collection_mutator_names)
                 if collection_mutator_names is not None

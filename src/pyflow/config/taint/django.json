@@ -1016,6 +1016,7 @@
     },
     {
       "id": "PYFLOW-DJANGO-REDIRECT",
+      "cwe": "CWE-601",
       "title": "Untrusted data reaches redirect sink",
       "sources": [
         "user_input",
@@ -1036,6 +1037,7 @@
     },
     {
       "id": "PYFLOW-DJANGO-SQL",
+      "cwe": "CWE-89",
       "title": "Untrusted data reaches sql sink",
       "sources": [
         "user_input",
@@ -1056,6 +1058,7 @@
     },
     {
       "id": "PYFLOW-DJANGO-SSRF",
+      "cwe": "CWE-918",
       "title": "Untrusted data reaches ssrf sink",
       "sources": [
         "user_input",
@@ -1096,6 +1099,7 @@
     },
     {
       "id": "PYFLOW-DJANGO-XSS",
+      "cwe": "CWE-79",
       "title": "Untrusted data reaches xss sink",
       "sources": [
         "user_input",

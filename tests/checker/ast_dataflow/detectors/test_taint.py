@@ -90,8 +90,9 @@ class Handler:
         Program(), {"sample.py": source}
     )
 
-    assert set(sources) == {"Handler.post", "Handler.post.execute"}
+    assert set(sources) == {"Handler.post", "Handler.post.execute", "sample.py::<module>"}
     assert filenames == {
+        "sample.py::<module>": "sample.py",
         "Handler.post": "sample.py",
         "Handler.post.execute": "sample.py",
     }

@@ -123,6 +123,16 @@
       ]
     },
     {
+      "call": "flask.request.get_data",
+      "aliases": ["quart.request.get_data"],
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
       "call": "flask.request.get_json",
       "aliases": ["quart.request.get_json"],
       "sources": [
@@ -728,6 +738,7 @@
     },
     {
       "id": "PYFLOW-FLASK-REDIRECT",
+      "cwe": "CWE-601",
       "title": "Untrusted data reaches redirect sink",
       "sources": [
         "user_input",
@@ -748,6 +759,7 @@
     },
     {
       "id": "PYFLOW-FLASK-SSTI",
+      "cwe": "CWE-1336",
       "title": "Untrusted data reaches ssti sink",
       "sources": [
         "user_input",
@@ -768,6 +780,7 @@
     },
     {
       "id": "PYFLOW-FLASK-XSS",
+      "cwe": "CWE-79",
       "title": "Untrusted data reaches xss sink",
       "sources": [
         "user_input",

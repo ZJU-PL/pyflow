@@ -6,6 +6,7 @@ from dataclasses import replace
 from copy import copy, deepcopy
 from functools import cached_property
 import json
+from pathlib import Path
 
 from pyflow.checker.common import constants
 from pyflow.checker.formatters.security import security_json
@@ -337,11 +338,16 @@ def unified_report(engine, result):
             if isinstance(item, dict) and item.get("affects_completeness")
         ]
         statistics = report.get("statistics", {})
+    normalized_findings = [normalize_finding(item) for item in findings]
+    for finding in normalized_findings:
+        filename = finding["location"]["filename"]
+        if filename and not filename.startswith("<") and "://" not in filename:
+            finding["location"]["filename"] = str(Path(filename).resolve())
     return {
         "schema_version": 1,
         "engine": engine,
         "status": status,
-        "findings": [normalize_finding(item) for item in findings],
+        "findings": normalized_findings,
         "errors": errors,
         "diagnostics": diagnostics,
         "statistics": statistics,

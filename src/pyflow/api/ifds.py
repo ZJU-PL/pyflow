@@ -359,6 +359,20 @@ def load_analysis_session(
     target_source: str | None = None
     with stdout:
         program.interface, all_source_code = build_interface_from_paths(files, options)
+        readable_files = [path for path in files if str(path) in all_source_code]
+        for path in files:
+            if str(path) not in all_source_code:
+                callgraph_diagnostics.append(
+                    IFDSDiagnostic(
+                        severity="warning",
+                        phase="frontend",
+                        code="IFDS-SOURCE-READ-ERROR",
+                        message=f"Could not read Python source: {path}",
+                        subject=str(path),
+                        recoverable=True,
+                        affects_completeness=True,
+                    )
+                )
         if entry_file is not None:
             # A file entry seeds its synthetic module body. Function/class
             # declarations inferred by the generic interface builder are
@@ -390,7 +404,7 @@ def load_analysis_session(
             preserved_codes = _restrict_program_entry_points_to_file(program, entry_file)
         callgraph_entry = entry_file or target_source or (files[0] if files else None)
         callgraph_analysis = analyze_constraint_callgraph_edges(
-            files,
+            readable_files,
             entry_path=callgraph_entry,
             analyze_reachable_only=entry_file is not None,
             max_iterations=callgraph_max_iterations,

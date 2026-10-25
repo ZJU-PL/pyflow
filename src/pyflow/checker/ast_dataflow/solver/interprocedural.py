@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import textwrap
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -83,7 +84,7 @@ class ASTInterproceduralAnalyzer:
         for name, source in sources_by_name.items():
             try:
                 tree = ast.parse(textwrap.dedent(source))
-            except SyntaxError as error:
+            except (SyntaxError, RecursionError) as error:
                 diagnostics.add(
                     AnalysisUncertainty(
                         code="ast-dataflow-syntax-error",
@@ -91,22 +92,77 @@ class ASTInterproceduralAnalyzer:
                         level=PrecisionLevel.UNSUPPORTED,
                         function=name,
                         filename=(filenames or {}).get(name),
-                        line=error.lineno,
+                        line=getattr(error, "lineno", None),
                         operation="parse",
                     )
                 )
                 continue
-            function = find_function(tree, name)
+            lexical_name = name.rsplit("::", 1)[-1]
+            if lexical_name == "<module>":
+                function = ast.FunctionDef(
+                    name="<module>",
+                    args=ast.arguments(
+                        posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
+                    ),
+                    body=tree.body,
+                    decorator_list=[],
+                )
+                ast.fix_missing_locations(function)
+            else:
+                function = find_function(tree, lexical_name)
             if function is not None:
                 functions[name] = function
                 alias_tree = tree
                 filename = (filenames or {}).get(name)
                 if filename:
                     try:
-                        alias_tree = ast.parse(Path(filename).read_text(encoding="utf-8"))
+                        with tokenize.open(filename) as stream:
+                            alias_tree = ast.parse(stream.read())
                     except (OSError, SyntaxError, UnicodeError):
                         pass
                 import_aliases[name] = self._import_aliases(alias_tree)
+
+        # Index by file and module suffix once. A per-caller search across
+        # every definition would make collision-safe project scans quadratic.
+        definitions_by_file = {}
+        definitions_by_module = {}
+        for target in functions:
+            filename = (filenames or {}).get(target)
+            lexical = target.rsplit("::", 1)[-1]
+            definitions_by_file.setdefault(filename, {})[lexical] = target
+            if filename:
+                path = Path(filename)
+                module_path = path.parent if path.name == "__init__.py" else path.with_suffix("")
+                parts = module_path.parts
+                for index in range(len(parts)):
+                    module = ".".join(parts[index:])
+                    definitions_by_module.setdefault(module, {}).setdefault(lexical, []).append(
+                        target
+                    )
+
+        resolved_imports = {}
+        for caller in functions:
+            filename = (filenames or {}).get(caller)
+            original = import_aliases[caller]
+            cache_key = (filename, tuple(sorted(original.items())))
+            if cache_key in resolved_imports:
+                import_aliases[caller] = resolved_imports[cache_key]
+                continue
+            aliases = dict(original)
+            for lexical, target in definitions_by_file.get(filename, {}).items():
+                aliases.setdefault(lexical, target)
+            for alias, imported in original.items():
+                for lexical, targets in definitions_by_module.get(imported, {}).items():
+                    if len(targets) == 1:
+                        aliases[f"{imported}.{lexical}"] = targets[0]
+                module, separator, lexical = imported.rpartition(".")
+                targets = (
+                    definitions_by_module.get(module, {}).get(lexical, ()) if separator else ()
+                )
+                if len(targets) == 1:
+                    aliases[alias] = targets[0]
+            import_aliases[caller] = aliases
+            resolved_imports[cache_key] = aliases
 
         summaries = {
             name: ProcedureTaintSummary(name, parameters=self._parameter_names(function))
@@ -164,6 +220,7 @@ class ASTInterproceduralAnalyzer:
             entry_functions,
             filenames=filenames or {},
             entry_point_options=entry_point_options,
+            import_aliases=import_aliases,
         )
         status = (
             "partial"
@@ -188,7 +245,7 @@ class ASTInterproceduralAnalyzer:
             if isinstance(node, ast.Import):
                 for imported in node.names:
                     local = imported.asname or imported.name.split(".", 1)[0]
-                    aliases[local] = imported.name
+                    aliases[local] = imported.name if imported.asname else local
             elif isinstance(node, ast.ImportFrom) and node.module:
                 for imported in node.names:
                     if imported.name == "*":
@@ -373,22 +430,26 @@ class ASTInterproceduralAnalyzer:
         *,
         filenames: Mapping[str, str],
         entry_point_options: EntryPointOptions,
+        import_aliases: Mapping[str, Mapping[str, str]],
     ) -> tuple[frozenset[str], frozenset[str]]:
         by_short: dict[str, list[str]] = {}
         for name in functions:
-            by_short.setdefault(name.rsplit(".", 1)[-1], []).append(name)
+            by_short.setdefault(name.rsplit("::", 1)[-1].rsplit(".", 1)[-1], []).append(name)
         calls: dict[str, set[str]] = {name: set() for name in functions}
         for caller, function in functions.items():
             for node in ast.walk(function):
                 if not isinstance(node, ast.Call):
                     continue
-                if isinstance(node.func, ast.Name):
-                    raw = node.func.id
-                elif isinstance(node.func, ast.Attribute):
-                    raw = node.func.attr
-                else:
+                if not isinstance(node.func, (ast.Name, ast.Attribute)):
                     continue
-                candidates = by_short.get(raw.rsplit(".", 1)[-1], ())
+                raw = ast.unparse(node.func)
+                aliases = import_aliases.get(caller, {})
+                head, separator, tail = raw.partition(".")
+                raw = aliases.get(head, head) + (separator + tail if separator else "")
+                raw = aliases.get(raw, raw)
+                candidates = (
+                    (raw,) if raw in functions else by_short.get(raw.rsplit(".", 1)[-1], ())
+                )
                 if len(candidates) != 1:
                     continue
                 callee = candidates[0]
@@ -398,7 +459,7 @@ class ASTInterproceduralAnalyzer:
             candidate
             for entry in entries
             for candidate in functions
-            if candidate == entry or candidate.rsplit(".", 1)[-1] == entry
+            if candidate == entry or candidate.rsplit("::", 1)[-1].rsplit(".", 1)[-1] == entry
         }
         descriptors = (
             ProcedureDescriptor(

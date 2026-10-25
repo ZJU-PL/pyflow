@@ -123,6 +123,7 @@ class CallModel:
     callee_qualnames: FrozenSet[str] = frozenset()
     module_prefixes: FrozenSet[str] = frozenset()
     return_kind: str | None = None
+    allow_leaf_match: bool = True
 
     def semantic_key(self) -> tuple[object, ...]:
         """Return model semantics independent of its qualified call spelling."""
@@ -150,6 +151,7 @@ class CallModel:
             self.callee_qualnames,
             self.module_prefixes,
             self.return_kind,
+            self.allow_leaf_match,
         )
 
     def alias_compatible_with(self, other: "CallModel") -> bool:
@@ -217,6 +219,7 @@ class CallModel:
             callee_qualnames=self.callee_qualnames | other.callee_qualnames,
             module_prefixes=self.module_prefixes | other.module_prefixes,
             return_kind=self.return_kind or other.return_kind,
+            allow_leaf_match=self.allow_leaf_match or other.allow_leaf_match,
         )
 
 
@@ -295,25 +298,23 @@ class CallModelRegistry:
             model
             for model_name, model in self._models.items()
             if call_name_suffix_matches(model_name, name)
-            or (
-                "." not in name
-                and not name.startswith("__")
-                and not model.source_kinds
-                and model_name.endswith(f".{name}")
-            )
         ]
-        modeled_roots = {
-            model_name.split(".", 1)[0]
-            for model_name in self._models
-            if "." in model_name and model_name.split(".", 1)[0] not in {"self", "cls"}
-        }
-        receiver = name.split(".", 1)[0]
-        if not candidates and "." in name and receiver not in modeled_roots:
+        leaf = name.rsplit(".", 1)[-1]
+        # A model explicitly declared under a bare spelling is a wildcard
+        # contract; qualified library models never acquire that scope.
+        if not candidates and "." in name and not leaf.startswith("__"):
+            wildcard = self._models.get(leaf)
+            if wildcard is not None:
+                candidates = [wildcard]
+        # Programmatic models retain explicit legacy wildcard matching.
+        # Bundled packs require receiver/module evidence, set by the loader.
+        if not candidates:
             leaf = name.rsplit(".", 1)[-1]
             candidates = [
                 model
                 for model_name, model in self._models.items()
-                if model_name.rsplit(".", 1)[-1] == leaf
+                if model.allow_leaf_match
+                and model_name.rsplit(".", 1)[-1] == leaf
                 and (not model.source_kinds or "." not in model_name)
                 and not leaf.startswith("__")
             ]

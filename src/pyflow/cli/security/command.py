@@ -346,12 +346,14 @@ def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
         reports.append(_run_ifds_entry(targets, entry_args))
     if len(reports) == 1:
         return reports[0]
-    # A failed entry must never disappear into a successful project report.
+    # Preserve usable entries and disclose failures as project incompleteness.
     statuses = {report.get("status", "failed") for report in reports}
-    status = next(
-        (value for value in ("failed", "invalid", "partial") if value in statuses),
-        "complete",
-    )
+    if statuses <= {"failed", "invalid"}:
+        status = "failed" if "failed" in statuses else "invalid"
+    elif statuses == {"complete"}:
+        status = "complete"
+    else:
+        status = "partial"
     findings = []
     seen = set()
     for report in reports:
@@ -602,6 +604,7 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
             call_models=call_models,
             rules=taint_rules,
             entry_point_defaults=entry_point_defaults,
+            entry_parameter_kinds=getattr(args, "ast_entry_source_kind", None) or (),
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
             unknown_call_policy=getattr(args, "ifds_unknown_call_policy", "drop"),

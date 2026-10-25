@@ -788,7 +788,7 @@ def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
         "source",
     }
     assert len(result.findings) == 1
-    assert result.findings[0].sink_name == "sink"
+    assert result.findings[0].sink_name == "sinks.sink"
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
 
 

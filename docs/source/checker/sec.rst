@@ -461,3 +461,52 @@ Supply-chain audits recognize uv sdist and wheel hashes and retain every valid
 artifact digest. Requirement and lock entries lacking license fields are not
 reported as unlicensed distributions. Actual package metadata and root projects
 remain subject to license checks, and root SPDX declarations survive lock merges.
+
+Taint engine coverage and input policy
+-------------------------------------
+
+``ast-dataflow`` keeps file identity in summaries when function or class names
+collide, resolves local and imported calls against those definitions, and scans
+executable module statements, including ``__main__`` guards. Receiver-preserving
+string operations retain taint when called directly on a source expression.
+
+The security CLI disables generic library parameter sources for both
+``ast-dataflow`` and ``ifds``. Use repeatable ``--entry-source-kind user_input``
+to enable them; ``--ast-entry-source-kind`` and ``--ifds-entry-source-kind`` are
+aliases. Declared Flask, Quart, and FastAPI route parameters remain request
+boundaries. Explicit calls such as ``input()`` and request accessors remain
+sources independently of this option. The low-level IFDS Python API preserves
+its existing defaults and accepts ``entry_parameter_kinds`` to select the policy.
+
+IFDS distinguishes a constant local binding from taint on a previously referenced
+object. Plain, chained, annotated, and constant augmented overwrites suppress
+stale local taint. Branches retain a constant binding only when every incoming
+path proves it; rebinding one name preserves flows through other aliases.
+Rule-pack lookup requires a qualified library receiver or import, rather than
+guessing from an unrelated method's leaf name. Models explicitly declared under
+a bare name retain their wildcard scope. Programmatic ``CallModel`` instances
+retain legacy leaf matching by default; set ``allow_leaf_match=False`` to require
+qualification for those models too.
+
+Flask and Quart ``request.get_data()`` are request-body sources. Requests and
+HTTPX URL arguments are SSRF sinks, while their responses remain network sources.
+Framework redirect, XSS, and template-injection rules carry CWE metadata.
+``xml.etree.ElementTree.fromstring`` is not added as an XXE sink: Python's
+`XML security documentation <https://docs.python.org/3/library/xml.html#xml-security>`_
+states that Expat does not access files or networks by default. The lxml pack
+retains its separate XML-parser models.
+
+Source readers honor Python encoding declarations and UTF-8 BOMs. AST parse or
+read failures produce structured completeness diagnostics. An IFDS directory
+scan with usable entries and failed entries reports ``partial`` and retains the
+individual entry statuses; a scan whose entries all fail remains ``failed``.
+Unified JSON uses absolute primary filenames consistently across engines; IFDS
+findings also include the rule title and source function. Legacy filename fields
+retain their existing representation.
+
+The engines still have gaps in module-global state, captured closure cells,
+lambdas, properties, and cross-method state flow. Comprehensions, generators,
+and keyword expansion also have engine-specific limits. A finding on an
+uncalled method with generic parameter sources enabled does not establish a
+flow between that method and another method. These patterns require additional
+analysis work and should remain in evaluation matrices.

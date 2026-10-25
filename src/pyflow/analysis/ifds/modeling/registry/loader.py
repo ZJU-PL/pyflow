@@ -438,6 +438,7 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         return None
     return CallModel(
         name=name,
+        allow_leaf_match=False,
         source_kinds=_taint_kinds(entry.get("sources")),
         sink_kinds=_taint_kinds(entry.get("sinks")),
         sanitizer_kinds=_sanitizer_kinds(entry.get("sanitizers")),

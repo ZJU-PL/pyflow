@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pyflow.frontend.source import read_python_source
+
 from collections import defaultdict
 from dataclasses import dataclass
 import os
@@ -103,13 +105,9 @@ def analyze_constraint_callgraph_edges(
         analysis_entry = source_paths[0]
     else:
         analysis_entry = Path(entry_path).resolve()
-    source = normalize_legacy_python_syntax(
-        analysis_entry.read_text(encoding="utf-8", errors="replace")
-    )
+    source = normalize_legacy_python_syntax(read_python_source(analysis_entry))
     additional_sources = {
-        str(path): normalize_legacy_python_syntax(
-            path.read_text(encoding="utf-8", errors="replace")
-        )
+        str(path): normalize_legacy_python_syntax(read_python_source(path))
         for path in source_paths
         if path != analysis_entry
     }

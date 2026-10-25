@@ -7,6 +7,8 @@ interface so it can use the shared formatters (text, JSON, SARIF).
 
 from __future__ import annotations
 
+import tokenize
+
 from typing import List, Optional
 from pathlib import Path
 
@@ -84,11 +86,11 @@ class ASTDataflowManager:
             paths, config.recursive, tuple(config.include), tuple(config.exclude)
         ):
             try:
-                with open(path_obj, "r", encoding="utf-8") as f:
+                with tokenize.open(path_obj) as f:
                     lines = f.readlines()
                 self.metrics.begin(str(path_obj))
                 self.metrics.count_locs(lines)
-            except (IOError, OSError):
+            except (OSError, UnicodeError, SyntaxError):
                 pass
 
         self.metrics.data["_totals"]["files"] = self.metrics.files

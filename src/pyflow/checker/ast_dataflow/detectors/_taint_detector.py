@@ -270,7 +270,10 @@ class ASTDataflowTaintDetector(Detector):
                             or fact.kind in self.entry_parameter_kinds
                             or (
                                 fact.kind == "user_input"
-                                and (getattr(session, "func_to_file", {}).get(name), name)
+                                and (
+                                    getattr(session, "func_to_file", {}).get(name),
+                                    name.rsplit("::", 1)[-1],
+                                )
                                 in framework_entries
                             )
                         )
@@ -290,7 +293,7 @@ class ASTDataflowTaintDetector(Detector):
                     if not matched_source_kinds:
                         continue
                     finding = ASTDataflowTaintFinding(
-                        function=event.procedure or name,
+                        function=(event.procedure or name).rsplit("::", 1)[-1],
                         filename=(
                             event.filename or getattr(session, "func_to_file", {}).get(name, name)
                         ),
@@ -341,10 +344,14 @@ class ASTDataflowTaintDetector(Detector):
                 operation=diagnostic.operation,
             )
             for diagnostic in interprocedural.diagnostics
-        )
+        ) + tuple(getattr(session, "diagnostics", ()))
         return ASTDataflowTaintResult(
             findings=tuple(findings.values()),
-            status=interprocedural.status,
+            status=(
+                "partial"
+                if any(d.affects_completeness for d in diagnostics)
+                else interprocedural.status
+            ),
             diagnostics=diagnostics,
             statistics={
                 "source_kinds": len(
@@ -360,56 +367,9 @@ class ASTDataflowTaintDetector(Detector):
 
     @staticmethod
     def _framework_entry_functions(session):
-        """Recognize HTTP handlers without treating arbitrary library APIs as inputs."""
-        factories = {
-            "flask.Flask",
-            "flask.Blueprint",
-            "quart.Quart",
-            "quart.Blueprint",
-            "fastapi.FastAPI",
-            "fastapi.APIRouter",
-        }
-        routes = {"route", "get", "post", "put", "delete", "patch", "options", "head", "websocket"}
-        entries = set()
-        for filename, source in getattr(session, "all_source_code", {}).items():
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                continue
-            aliases = ASTInterproceduralAnalyzer._import_aliases(tree)
-            applications = set()
-            for statement in tree.body:
-                if not isinstance(statement, ast.Assign):
-                    continue
-                targets = {
-                    target.id for target in statement.targets if isinstance(target, ast.Name)
-                }
-                applications.difference_update(targets)
-                if not isinstance(statement.value, ast.Call):
-                    continue
-                spelling = ast.unparse(statement.value.func)
-                head, sep, tail = spelling.partition(".")
-                qualified = aliases.get(head, head) + (sep + tail if sep else "")
-                if qualified in factories:
-                    applications.update(targets)
+        from pyflow.frontend.frameworks import http_entry_functions
 
-            def visit(node, parents=()):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    parents = (*parents, node.name)
-                    for decorator in getattr(node, "decorator_list", ()):
-                        call = decorator.func if isinstance(decorator, ast.Call) else decorator
-                        if (
-                            isinstance(call, ast.Attribute)
-                            and call.attr in routes
-                            and isinstance(call.value, ast.Name)
-                            and call.value.id in applications
-                        ):
-                            entries.add((filename, ".".join(parents)))
-                for child in ast.iter_child_nodes(node):
-                    visit(child, parents)
-
-            visit(tree)
-        return entries
+        return http_entry_functions(getattr(session, "all_source_code", {}))
 
     @staticmethod
     def _entry_functions(session: AnalysisSession) -> tuple[str, ...]:
