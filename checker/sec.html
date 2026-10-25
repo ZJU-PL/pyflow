@@ -113,6 +113,7 @@
 <li class="toctree-l2"><a class="reference internal" href="class-pollution.html">Class Pollution Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#stable-rule-identities-and-precision">Stable rule identities and precision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#taint-engine-coverage-and-input-policy">Taint engine coverage and input policy</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="capability.html">Defensive Capability Analysis</a></li>
@@ -835,6 +836,49 @@ parser itself as an execution sink; downstream dangerous uses remain checked.</p
 artifact digest. Requirement and lock entries lacking license fields are not
 reported as unlicensed distributions. Actual package metadata and root projects
 remain subject to license checks, and root SPDX declarations survive lock merges.</p>
+</section>
+<section id="taint-engine-coverage-and-input-policy">
+<h2>Taint engine coverage and input policy<a class="headerlink" href="#taint-engine-coverage-and-input-policy" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code> keeps file identity in summaries when function or class names
+collide, resolves local and imported calls against those definitions, and scans
+executable module statements, including <code class="docutils literal notranslate"><span class="pre">__main__</span></code> guards. Receiver-preserving
+string operations retain taint when called directly on a source expression.</p>
+<p>The security CLI disables generic library parameter sources for both
+<code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code> and <code class="docutils literal notranslate"><span class="pre">ifds</span></code>. Use repeatable <code class="docutils literal notranslate"><span class="pre">--entry-source-kind</span> <span class="pre">user_input</span></code>
+to enable them; <code class="docutils literal notranslate"><span class="pre">--ast-entry-source-kind</span></code> and <code class="docutils literal notranslate"><span class="pre">--ifds-entry-source-kind</span></code> are
+aliases. Declared Flask, Quart, and FastAPI route parameters remain request
+boundaries. Explicit calls such as <code class="docutils literal notranslate"><span class="pre">input()</span></code> and request accessors remain
+sources independently of this option. The low-level IFDS Python API preserves
+its existing defaults and accepts <code class="docutils literal notranslate"><span class="pre">entry_parameter_kinds</span></code> to select the policy.</p>
+<p>IFDS distinguishes a constant local binding from taint on a previously referenced
+object. Plain, chained, annotated, and constant augmented overwrites suppress
+stale local taint. Branches retain a constant binding only when every incoming
+path proves it; rebinding one name preserves flows through other aliases.
+Rule-pack lookup requires a qualified library receiver or import, rather than
+guessing from an unrelated method’s leaf name. Models explicitly declared under
+a bare name retain their wildcard scope. Programmatic <code class="docutils literal notranslate"><span class="pre">CallModel</span></code> instances
+retain legacy leaf matching by default; set <code class="docutils literal notranslate"><span class="pre">allow_leaf_match=False</span></code> to require
+qualification for those models too.</p>
+<p>Flask and Quart <code class="docutils literal notranslate"><span class="pre">request.get_data()</span></code> are request-body sources. Requests and
+HTTPX URL arguments are SSRF sinks, while their responses remain network sources.
+Framework redirect, XSS, and template-injection rules carry CWE metadata.
+<code class="docutils literal notranslate"><span class="pre">xml.etree.ElementTree.fromstring</span></code> is not added as an XXE sink: Python’s
+<a class="reference external" href="https://docs.python.org/3/library/xml.html#xml-security">XML security documentation</a>
+states that Expat does not access files or networks by default. The lxml pack
+retains its separate XML-parser models.</p>
+<p>Source readers honor Python encoding declarations and UTF-8 BOMs. AST parse or
+read failures produce structured completeness diagnostics. An IFDS directory
+scan with usable entries and failed entries reports <code class="docutils literal notranslate"><span class="pre">partial</span></code> and retains the
+individual entry statuses; a scan whose entries all fail remains <code class="docutils literal notranslate"><span class="pre">failed</span></code>.
+Unified JSON uses absolute primary filenames consistently across engines; IFDS
+findings also include the rule title and source function. Legacy filename fields
+retain their existing representation.</p>
+<p>The engines still have gaps in module-global state, captured closure cells,
+lambdas, properties, and cross-method state flow. Comprehensions, generators,
+and keyword expansion also have engine-specific limits. A finding on an
+uncalled method with generic parameter sources enabled does not establish a
+flow between that method and another method. These patterns require additional
+analysis work and should remain in evaluation matrices.</p>
 </section>
 </section>
 
