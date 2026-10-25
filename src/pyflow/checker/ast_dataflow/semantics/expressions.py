@@ -308,7 +308,7 @@ class PythonExpressionSemantics:
             )
         )
         method_state, method_facts, modeled_method = self._model_builtin_method(
-            call, current, positional, keywords
+            call, current, positional, keywords, receiver_result
         )
         summary_name, ambiguous_summary = self._resolve_summary_name(name)
 
@@ -696,12 +696,13 @@ class PythonExpressionSemantics:
         state: TaintState,
         positional: list[ExpressionResult],
         keywords: list[ExpressionResult],
+        receiver_result: ExpressionResult | None = None,
     ) -> tuple[TaintState, frozenset[TaintFact], bool]:
         if not isinstance(call.func, ast.Attribute):
             return state, frozenset(), False
-        receiver = self.location_of(call.func.value)
-        if receiver is None:
-            return state, frozenset(), False
+        receiver = (receiver_result.location if receiver_result else None) or self.location_of(
+            call.func.value
+        )
         method = call.func.attr
         if method in {
             "encode",
@@ -718,10 +719,12 @@ class PythonExpressionSemantics:
             "split",
             "splitlines",
         }:
-            facts = state.facts_at(receiver) | frozenset(
+            facts = (receiver_result.facts if receiver_result else frozenset()) | frozenset(
                 fact for value in (*positional, *keywords) for fact in value.facts
             )
             return state, facts, True
+        if receiver is None:
+            return state, frozenset(), False
         if method in {"get", "pop"}:
             key = self._literal_selector(call.args[0]) if call.args else None
             target = (
@@ -902,13 +905,18 @@ class PythonExpressionSemantics:
         return state
 
     def _resolve_summary_name(self, name: str) -> tuple[str | None, bool]:
+        name = self.context.import_aliases.get(name, name)
+        if name.startswith(("self.", "cls.")):
+            scope = self.context.procedure.rsplit("::", 1)[-1].rsplit(".", 1)[0]
+            lexical = scope + "." + name.split(".", 1)[1]
+            name = self.context.import_aliases.get(lexical, name)
         if name in self.context.summaries:
             return name, False
         short = name.rsplit(".", 1)[-1]
         candidates = [
             candidate
             for candidate in self.context.summaries
-            if candidate.rsplit(".", 1)[-1] == short
+            if candidate.rsplit("::", 1)[-1].rsplit(".", 1)[-1] == short
         ]
         if len(candidates) == 1:
             return candidates[0], False

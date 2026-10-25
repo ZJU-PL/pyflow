@@ -27,6 +27,7 @@
   "rules": [
     {
       "id": "PYFLOW-BOTTLE-XSS",
+      "cwe": "CWE-79",
       "title": "Untrusted data reaches a template response",
       "sources": ["user_input", "network", "file", "env", "database", "secrets", "cache", "userdata", "untrusted", "exception"],
       "sinks": ["xss"],

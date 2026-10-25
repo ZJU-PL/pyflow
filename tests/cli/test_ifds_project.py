@@ -57,7 +57,8 @@ def test_project_preserves_incomplete_entries(tmp_path, monkeypatch, status):
 
     monkeypatch.setattr(command, "_run_ifds_entry", run)
     report = command._run_ifds([str(root)], parse(root, "--engine", "ifds"))
-    assert report["status"] == status
+    assert report["status"] == "partial"
+    assert report["entry_results"][1]["status"] == status
     assert report["termination_reason"] == "app.py: limit"
     assert len(report["findings"]) == 1
     assert len(report["entry_results"]) == 2

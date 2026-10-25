@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pyflow.frontend.source import read_python_source
+
 import inspect
 import sys
 from dataclasses import dataclass
@@ -196,7 +198,7 @@ def build_interface_from_paths(
             if source is None:
                 # utf-8-sig strips a leading BOM (plain utf-8 keeps it and
                 # ast.parse then rejects the whole file).
-                source = Path(file_path).read_text(encoding="utf-8-sig", errors="replace")
+                source = read_python_source(file_path)
             source_files[str(file_path)] = source
         except Exception as error:
             print(f"Warning: Could not read {file_path}: {error}")

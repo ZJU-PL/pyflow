@@ -10,6 +10,8 @@ from collections import defaultdict
 from typing import Mapping
 
 CALL_RETURN_TYPES = {
+    "pypika.functions.Cast": "pypika.terms.Term",
+    "tarfile.open": "tarfile.TarFile",
     "sqlite3.connect": "sqlite3.Connection",
     "sqlite3.Connection": "sqlite3.Connection",
     "sqlite3.Connection.cursor": "sqlite3.Cursor",
@@ -71,6 +73,19 @@ def ast_receiver_bindings(function: ast.AST, imports: Mapping[str, str]) -> dict
         if isinstance(expr, ast.Call):
             return CALL_RETURN_TYPES.get(resolve(expr.func, active) or "")
         return None
+
+    # An unbound library method call carries receiver type evidence for its
+    # explicit first argument (e.g. TarFile.getnames(archive)).
+    receiver_methods = {
+        "tarfile.TarFile.getnames": "tarfile.TarFile",
+        "tarfile.TarFile.getmembers": "tarfile.TarFile",
+    }
+    for node in ast.walk(function):
+        if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Name):
+            receiver_type = receiver_methods.get(resolve(node.func, frozenset()) or "")
+            name = node.args[0].id
+            if receiver_type and writes.get(name) == [None]:
+                bindings[name] = receiver_type
 
     for name in writes:
         value = resolve(ast.Name(id=name), frozenset())

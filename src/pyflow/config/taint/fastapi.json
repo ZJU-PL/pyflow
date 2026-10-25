@@ -408,6 +408,7 @@
     },
     {
       "id": "PYFLOW-FASTAPI-SSRF",
+      "cwe": "CWE-918",
       "title": "Untrusted data reaches ssrf sink",
       "sources": [
         "user_input",
@@ -428,6 +429,7 @@
     },
     {
       "id": "PYFLOW-FASTAPI-XSS",
+      "cwe": "CWE-79",
       "title": "Untrusted data reaches xss sink",
       "sources": [
         "user_input",

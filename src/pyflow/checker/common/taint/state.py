@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 from typing import Iterable
 
 from .locations import TaintLocation
@@ -104,13 +105,42 @@ class TaintState:
             max_access_path=path_limit,
         )
 
+    @cached_property
+    def _facts_by_root(self):
+        groups = {}
+        for fact in self.facts:
+            groups.setdefault(fact.location.root, set()).add(fact)
+        return {root: frozenset(facts) for root, facts in groups.items()}
+
+    @cached_property
+    def _guarantees_by_root(self):
+        groups = {}
+        for location, kind in self.guarantees:
+            groups.setdefault(location.root, set()).add((location, kind))
+        return {root: frozenset(values) for root, values in groups.items()}
+
+    def _index_root_update(self, result, root, facts, guarantees):
+        fact_index = dict(self._facts_by_root)
+        guarantee_index = dict(self._guarantees_by_root)
+        if facts:
+            fact_index[root] = frozenset(facts)
+        else:
+            fact_index.pop(root, None)
+        if guarantees:
+            guarantee_index[root] = frozenset(guarantees)
+        else:
+            guarantee_index.pop(root, None)
+        object.__setattr__(result, "_facts_by_root", fact_index)
+        object.__setattr__(result, "_guarantees_by_root", guarantee_index)
+        return result
+
     def facts_at(self, location: TaintLocation) -> frozenset[TaintFact]:
         """Read facts that may contaminate ``location``."""
 
         location = self.abstract_location(location)
         candidates = (
             fact
-            for fact in self.facts
+            for fact in self._facts_by_root.get(location.root, ())
             if fact.location.is_prefix_of(location) or location.is_prefix_of(fact.location)
         )
         return frozenset(
@@ -120,7 +150,9 @@ class TaintState:
                 guarantee_kind == fact.kind
                 and guarantee_location.is_prefix_of(location)
                 and len(guarantee_location.selectors) >= len(fact.location.selectors)
-                for guarantee_location, guarantee_kind in self.guarantees
+                for guarantee_location, guarantee_kind in self._guarantees_by_root.get(
+                    location.root, ()
+                )
             )
         )
 
@@ -138,12 +170,21 @@ class TaintState:
             return self
         location = self.abstract_location(location)
         additions = frozenset(TaintFact(location, kind, origin) for kind in kinds)
-        guarantees = frozenset(
+        previous_guarantees = self._guarantees_by_root.get(location.root, frozenset())
+        written_kinds = {fact.kind for fact in additions}
+        root_guarantees = frozenset(
             guarantee
-            for guarantee in self.guarantees
-            if guarantee[0] != location or guarantee[1] not in {fact.kind for fact in additions}
+            for guarantee in previous_guarantees
+            if guarantee[0] != location or guarantee[1] not in written_kinds
         )
-        return replace(self, facts=self.facts | additions, guarantees=guarantees)
+        guarantees = (self.guarantees - previous_guarantees) | root_guarantees
+        result = replace(self, facts=self.facts | additions, guarantees=guarantees)
+        return self._index_root_update(
+            result,
+            location.root,
+            self._facts_by_root.get(location.root, frozenset()) | additions,
+            root_guarantees,
+        )
 
     def write(
         self,
@@ -183,11 +224,13 @@ class TaintState:
             for fact in source_facts
         )
         relocated = frozenset(target for _source, target in relocations)
-        retained = self.facts
-        if strong:
-            retained = frozenset(
-                fact for fact in retained if not location.is_prefix_of(fact.location)
-            )
+        previous_facts = self._facts_by_root.get(location.root, frozenset())
+        removed = (
+            frozenset(fact for fact in previous_facts if location.is_prefix_of(fact.location))
+            if strong
+            else frozenset()
+        )
+        retained = self.facts - removed
         edges = set(self.provenance)
         for source, target in relocations:
             edges.add(
@@ -201,25 +244,34 @@ class TaintState:
                 )
             )
         written_kinds = {fact.kind for fact in relocated}
-        guarantees = {
+        previous_guarantees = self._guarantees_by_root.get(location.root, frozenset())
+        root_guarantees = {
             guarantee
-            for guarantee in self.guarantees
+            for guarantee in previous_guarantees
             if not location.may_overlap(guarantee[0]) or guarantee[1] not in written_kinds
         }
         if strong:
-            guarantees.update((location, fact.kind) for fact in contaminating)
-            guarantees.difference_update((location, fact.kind) for fact in relocated)
+            root_guarantees.update((location, fact.kind) for fact in contaminating)
+            root_guarantees.difference_update((location, fact.kind) for fact in relocated)
+        guarantees = (self.guarantees - previous_guarantees) | root_guarantees
         provenance, provenance_is_top = self._extend_provenance(edges)
         uncertainties = self.uncertainties
         if provenance_is_top:
             uncertainties = uncertainties | {self._provenance_overflow_uncertainty()}
-        return replace(
+        result = replace(
             self,
             facts=retained | relocated,
             guarantees=frozenset(guarantees),
             provenance=provenance,
             provenance_is_top=provenance_is_top,
             uncertainties=uncertainties,
+        )
+
+        return self._index_root_update(
+            result,
+            location.root,
+            (previous_facts - removed) | relocated,
+            root_guarantees,
         )
 
     def copy(
@@ -256,22 +308,25 @@ class TaintState:
         location = self.abstract_location(location)
         removed_kinds = frozenset(kinds)
         remove_all = "*" in removed_kinds
-        retained = frozenset(
+        previous_facts = self._facts_by_root.get(location.root, frozenset())
+        removed = frozenset(
             fact
-            for fact in self.facts
-            if not (
-                location.is_prefix_of(fact.location) and (remove_all or fact.kind in removed_kinds)
-            )
+            for fact in previous_facts
+            if location.is_prefix_of(fact.location) and (remove_all or fact.kind in removed_kinds)
         )
-        guarantees = set(self.guarantees)
+        previous_guarantees = self._guarantees_by_root.get(location.root, frozenset())
+        root_guarantees = set(previous_guarantees)
         if record_guarantee:
-            concrete_kinds = (
-                {fact.kind for fact in self.facts if location.is_prefix_of(fact.location)}
-                if remove_all
-                else set(removed_kinds)
-            )
-            guarantees.update((location, kind) for kind in concrete_kinds)
-        return replace(self, facts=retained, guarantees=frozenset(guarantees))
+            concrete_kinds = {fact.kind for fact in removed} if remove_all else removed_kinds
+            root_guarantees.update((location, kind) for kind in concrete_kinds)
+        guarantees = (self.guarantees - previous_guarantees) | root_guarantees
+        result = replace(self, facts=self.facts - removed, guarantees=frozenset(guarantees))
+        return self._index_root_update(
+            result,
+            location.root,
+            previous_facts - removed,
+            root_guarantees,
+        )
 
     def sanitize(
         self,

@@ -11,6 +11,7 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
     It is designed to be conservative and side-effect free.
 """
 
+import tokenize
 import ast
 import os
 import re
@@ -221,7 +222,7 @@ class Extractor:
         """
         diagnostic_start = len(self.diagnostics)
         try:
-            with open(filename, "r", encoding="utf-8", errors="replace") as f:
+            with tokenize.open(filename) as f:
                 source = f.read()
         except FileNotFoundError as e:
             if self.verbose:

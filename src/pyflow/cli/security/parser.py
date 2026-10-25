@@ -277,9 +277,12 @@ def add_security_parser(subparsers):
         help="AST-dataflow unresolved calls: preserve argument taint (default; disclosed as partial), or conservatively introduce all source kinds",
     )
     p.add_argument(
+        "--entry-source-kind",
         "--ast-entry-source-kind",
+        "--ifds-entry-source-kind",
+        dest="ast_entry_source_kind",
         action="append",
-        help="Treat AST-dataflow entry parameters as these source kinds (repeatable; disabled by default)",
+        help="Treat AST-dataflow/IFDS library entry parameters as these source kinds (repeatable; disabled by default; declared HTTP handlers remain sources)",
     )
     p.add_argument(
         "--json-schema",

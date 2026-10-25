@@ -148,7 +148,7 @@ class TestRegistryLoading:
         registry.activate("django", type="taint")
         models = registry.active_models(type="taint")
 
-        backend_save = models.model_for_name("self._save")
+        backend_save = models.model_for_name("django.core.files.storage.Storage._save")
         validator = models.model_for_name("validate_file_name")
 
         assert backend_save is not None
@@ -295,8 +295,8 @@ class TestRegistryLoading:
         r.activate("sql")
         models = r.active_models()
 
-        fetchone = models.model_for_name("cursor.fetchone")
-        fetchall = models.model_for_name("c.fetchall")
+        fetchone = models.model_for_name("sqlite3.Cursor.fetchone")
+        fetchall = models.model_for_name("sqlite3.Cursor.fetchall")
 
         assert fetchone is not None
         assert fetchone.source_kinds == frozenset({"database"})
@@ -343,7 +343,7 @@ class TestRegistryLoading:
         injection_registry = Registry()
         injection_registry.activate("injection", type="taint")
         from_string = injection_registry.active_models(type="taint").model_for_name(
-            "jinja2_env.from_string"
+            "jinja2.Environment.from_string"
         )
         assert from_string is not None
         assert from_string.cwe == "CWE-94"
@@ -367,7 +367,7 @@ class TestRegistryLoading:
         registry.activate("stdlib", type="taint")
         models = registry.active_models(type="taint")
 
-        format_model = models.model_for_name("value.format")
+        format_model = models.model_for_name("str.format")
         join_model = models.model_for_name("os.path.join")
 
         assert format_model is not None
@@ -390,8 +390,8 @@ class TestRegistryLoading:
         registry.activate("tortoise", type="taint")
         models = registry.active_models(type="taint")
 
-        method_sink = models.model_for_name("field.like")
-        constructor_sink = models.model_for_name("Like")
+        method_sink = models.model_for_name("pypika.terms.Term.like")
+        constructor_sink = models.model_for_name("tortoise.filters.Like")
         sanitizer = models.model_for_name("escape_like")
 
         assert method_sink is not None
@@ -431,7 +431,7 @@ class TestRegistryLoading:
         registry = Registry()
         registry.activate("flask", type="taint")
 
-        model = registry.active_models(type="taint").model_for_name("Flask")
+        model = registry.active_models(type="taint").model_for_name("flask.Flask")
 
         assert model is not None
         assert model.sanitizer_kinds == frozenset({"*"})

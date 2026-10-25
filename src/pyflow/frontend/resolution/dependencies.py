@@ -29,6 +29,7 @@ This approach follows established patterns in static analysis literature for
 handling the "missing dependencies" problem in a principled manner.
 """
 
+import tokenize
 import ast as python_ast
 import builtins
 import inspect
@@ -1402,7 +1403,7 @@ class DependencyResolver:
     def _load_source(self, file_path: str) -> str:
         if file_path in self.source_files:
             return self.source_files[file_path]
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        with tokenize.open(file_path) as f:
             return f.read()
 
     def get_import_graph(self) -> Dict[str, List[str]]:

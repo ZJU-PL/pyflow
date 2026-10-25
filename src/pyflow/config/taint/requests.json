@@ -21,6 +21,10 @@
   "models": [
     {
       "call": "requests.get",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -30,6 +34,10 @@
     },
     {
       "call": "requests.post",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -39,6 +47,10 @@
     },
     {
       "call": "requests.put",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -48,6 +60,10 @@
     },
     {
       "call": "requests.patch",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -57,6 +73,10 @@
     },
     {
       "call": "requests.delete",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -66,6 +86,10 @@
     },
     {
       "call": "requests.head",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -75,6 +99,10 @@
     },
     {
       "call": "requests.request",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 1}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -136,6 +164,10 @@
     },
     {
       "call": "httpx.get",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -145,6 +177,10 @@
     },
     {
       "call": "httpx.post",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 0}}
+      ],
       "sources": [
         {
           "kind": "network",
@@ -154,6 +190,10 @@
     },
     {
       "call": "httpx.request",
+      "cwe": "CWE-918",
+      "sinks": [
+        {"kind": "ssrf", "port": {"parameter": 1}}
+      ],
       "sources": [
         {
           "kind": "network",

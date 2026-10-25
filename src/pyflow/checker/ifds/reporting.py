@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pyflow.frontend.source import read_python_source
+
 from typing import Any, Dict
 import json
 import ast
@@ -61,7 +63,7 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
 
 @lru_cache(maxsize=256)
 def _source_scopes(path: str, modified: int):
-    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    tree = ast.parse(read_python_source(path))
     scopes = []
 
     def visit(node, parents=()):
@@ -88,7 +90,7 @@ def _source_procedure(adapter, node):
             for start, end, qualified in _source_scopes(span.uri, Path(span.uri).stat().st_mtime_ns)
             if start <= span.start_line <= end
         ]
-    except (OSError, ValueError, SyntaxError):
+    except (OSError, ValueError, SyntaxError, UnicodeError):
         return name
     return min(candidates)[1] if candidates else name
 
@@ -147,6 +149,9 @@ def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
         normalized_finding.update(
             {
                 "sink_name": finding.sink_name,
+                "rule_title": getattr(getattr(finding, "rule", None), "title", ""),
+                "function": normalized_finding.get("procedure")
+                or code_name(finding.sink.procedure.code),
                 "procedure": normalized_finding.get("procedure")
                 or code_name(finding.sink.procedure.code),
                 "block_kind": finding.sink.kind,

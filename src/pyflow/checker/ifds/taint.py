@@ -178,6 +178,8 @@ class TaintConfiguration:
     # Backward-compatible alias.  True upgrades the policy to ``havoc``.
     conservative_unresolved_call_side_effects: bool = False
     entry_point_options: EntryPointOptions = EntryPointOptions()
+    entry_parameter_kinds: FrozenSet[str] | None = None
+    framework_entry_functions: FrozenSet[tuple[str, str]] = frozenset()
 
     @classmethod
     def from_registry(cls, registry) -> TaintConfiguration:
@@ -251,6 +253,8 @@ class TaintAnalysisResult:
         self.diagnostics = tuple(problem.semantic_diagnostics())
 
     def is_tainted(self, node: CFGNode, local: py_ast.Local) -> bool:
+        if self._problem.local_is_constant(node, local):
+            return False
         locations = set(self._problem.local_locations(node.procedure, local))
         return any(
             isinstance(fact, TaintFact) and fact.location in locations
@@ -287,6 +291,8 @@ class TaintAnalysisResult:
         return self._ifds_result.is_complete
 
     def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> TaintFact | None:
+        if self._problem.local_is_constant(node, local):
+            return None
         storage_candidate: TaintFact | None = None
         locations = set(self._problem.local_locations(node.procedure, local))
         for fact in self._ifds_result.facts_at(node):
@@ -328,6 +334,13 @@ class InterproceduralTaintProblem(
                 "use program-backed IFDS APIs to derive roots automatically."
             )
         self.entry_nodes = tuple(entry_nodes)
+        from pyflow.analysis.ifds.frontend.constant_locals import constant_locals_before
+
+        self._constant_locals = constant_locals_before(adapter)
+        self._active_node = None
+
+    def local_is_constant(self, node, local):
+        return local.name in self._constant_locals.get(node, ())
 
     def semantic_diagnostics(self) -> tuple[IFDSDiagnostic, ...]:
         return tuple(
@@ -420,8 +433,23 @@ class InterproceduralTaintProblem(
         if not self.configuration.entry_point_options.taint_parameters:
             return {node: frozenset(facts) for node, facts in seeds.items()}
 
-        source_kinds = _entry_parameter_source_kinds(self.configuration.rules)
+        configured_kinds = self.configuration.entry_parameter_kinds
+        source_kinds = (
+            _entry_parameter_source_kinds(self.configuration.rules)
+            if configured_kinds is None
+            else configured_kinds
+        )
         for node in self.entry_nodes:
+            catalog = self.adapter.catalog_by_procedure[node.procedure]
+            identity = catalog.procedure(node.procedure.code).code_id
+            qualified = identity.qualname.replace(".<locals>.", ".")
+            kinds = source_kinds
+            if any(
+                identity.anchor.filename == filename
+                and (qualified == function or qualified.endswith("." + function))
+                for filename, function in self.configuration.framework_entry_functions
+            ):
+                kinds = kinds | {CATEGORY_USER_INPUT}
             parameters = formal_parameters(node.procedure.code.codeparameters)
             for parameter in parameters:
                 # Public instance methods receive externally initialized object
@@ -431,10 +459,11 @@ class InterproceduralTaintProblem(
                 if parameter.name == "cls":
                     continue
                 for location in self._locations_for_local(node.procedure, parameter):
-                    seeds[node].update(TaintFact(location, kind) for kind in source_kinds)
+                    seeds[node].update(TaintFact(location, kind) for kind in kinds)
         return {node: frozenset(facts) for node, facts in seeds.items()}
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
+        self._active_node = node
         if node.kind == "call" and self.adapter.is_exceptional_successor(node, successor):
             outputs = set(self._identity_outputs(fact, ()))
             if fact != ZERO_TAINT:
@@ -686,6 +715,7 @@ class InterproceduralTaintProblem(
         return self._identity_outputs(fact, killed)
 
     def call_flow(self, call_node: CFGNode, callee: cfg_graph.Code, fact: object):
+        self._active_node = call_node
         outputs = set()
         if fact == ZERO_TAINT:
             outputs.add(ZERO_TAINT)
@@ -723,6 +753,7 @@ class InterproceduralTaintProblem(
         call_fact: object,
         exit_fact: object,
     ):
+        self._active_node = call_node
         del exit_node, return_site
         outputs = set()
         if call_fact == ZERO_TAINT and exit_fact == ZERO_TAINT:
@@ -756,6 +787,7 @@ class InterproceduralTaintProblem(
         return tuple(outputs)
 
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
+        self._active_node = call_node
         del return_site
         call_effect = self._call_effect(call_node)
         call_expression = call_effect.call_expression if call_effect is not None else None
@@ -1280,6 +1312,7 @@ class InterproceduralTaintProblem(
     def findings(self, result) -> tuple[TaintFinding, ...]:
         findings: list[TaintFinding] = []
         for node in self.adapter.supergraph.ordered_nodes():
+            self._active_node = node
             call_effect = self._call_effect(node)
             sink_name: str | None = None
             sink_expressions: tuple[object, ...] = ()
@@ -1563,6 +1596,12 @@ class InterproceduralTaintProblem(
                 return
             if source_kind is not None and self._expr_sanitizes_kind(current, source_kind):
                 return
+            if (
+                isinstance(current, py_ast.Local)
+                and self._active_node is not None
+                and self.local_is_constant(self._active_node, current)
+            ):
+                return
             if not (
                 source_kind is not None
                 and self._expression_has_nested_sanitizer(current, source_kind)
@@ -1627,6 +1666,10 @@ class InterproceduralTaintProblem(
             if source_kind is not None and self._expr_sanitizes_kind(current, source_kind):
                 return
             if isinstance(current, py_ast.Local):
+                if self._active_node is not None and self.local_is_constant(
+                    self._active_node, current
+                ):
+                    return
                 if current.name is not None and any(
                     predicate(location)
                     for location in self._locations_for_local(procedure, current)

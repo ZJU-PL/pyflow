@@ -227,7 +227,7 @@ Options:
 - ``--fail-on`` / ``--fail-on-severity``: Return 1 when a reported finding reaches the selected severity, after report filtering
 - ``--json-schema {legacy,unified}``: Existing JSON formats remain the default. Unified JSON has a common versioned envelope and normalized finding fields for every engine
 - ``--ast-unknown-call-policy {preserve,havoc}``: Preserve real input kinds by default, disclosing unknown effects as partial coverage, or introduce all possible kinds conservatively
-- ``--ast-entry-source-kind``: Source kind for AST entry parameters (repeatable; default: user_input)
+- ``--entry-source-kind`` (aliases ``--ast-entry-source-kind``, ``--ifds-entry-source-kind``): Source kinds for AST-dataflow/IFDS library entry parameters (repeatable; disabled by default). Declared HTTP handlers remain input boundaries. Constant-only callers and unused library helpers are not implicit parameter sources.
 
 IFDS taint rule packs may model library calls that preserve or transform taint
 without declaring them as sources or sinks. Propagation ports support

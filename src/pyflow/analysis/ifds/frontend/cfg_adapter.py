@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ast as source_ast
 import builtins
+from functools import cached_property
+from pyflow.frontend.source import read_python_source
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, Mapping, Sequence
@@ -416,8 +419,114 @@ class CFGSupergraphAdapter:
             return None
         symbolic_name = sites[0].symbolic_name
         if symbolic_name is not None:
-            return symbolic_name
-        return self._syntactic_call_leaf(call_expression)
+            return self._qualify_call_name(owner, symbolic_name)
+        structured = self._structured_call_name(owner, call_expression)
+        return structured or self._qualify_call_name(
+            owner, self._syntactic_call_leaf(call_expression)
+        )
+
+    def _structured_call_name(self, procedure, call):
+        from pyflow.analysis.taint_policy.call_types import CALL_RETURN_TYPES
+
+        def expression_name(expression):
+            if isinstance(expression, py_ast.Local):
+                return self._qualify_call_name(procedure, expression.name)
+            if isinstance(expression, py_ast.GetAttr):
+                base = expression_name(expression.expr)
+                name = getattr(getattr(expression.name, "object", None), "pyobj", None)
+                return f"{base}.{name}" if base and isinstance(name, str) else None
+            if isinstance(expression, py_ast.Call):
+                return CALL_RETURN_TYPES.get(expression_name(expression.expr) or "")
+            return None
+
+        if isinstance(call, py_ast.Call):
+            return expression_name(call.expr)
+        return None
+
+    def _procedure_filename(self, procedure):
+        catalog = self.catalog_by_procedure[procedure]
+        return catalog.procedure(procedure.code).code_id.anchor.filename
+
+    @cached_property
+    def _source_call_bindings(self):
+        from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
+
+        trees = {}
+        bindings = {}
+
+        def imports(scope):
+            result = {}
+
+            def visit(node):
+                if node is not scope and isinstance(
+                    node,
+                    (
+                        source_ast.FunctionDef,
+                        source_ast.AsyncFunctionDef,
+                        source_ast.ClassDef,
+                        source_ast.Lambda,
+                    ),
+                ):
+                    return
+                if isinstance(node, source_ast.Import):
+                    for alias in node.names:
+                        result[alias.asname or alias.name.split(".")[0]] = (
+                            alias.name if alias.asname else alias.name.split(".")[0]
+                        )
+                elif isinstance(node, source_ast.ImportFrom) and node.module:
+                    for alias in node.names:
+                        result[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+                for child in source_ast.iter_child_nodes(node):
+                    visit(child)
+
+            visit(scope)
+            return result
+
+        for procedure in self.cfgs:
+            filename = self._procedure_filename(procedure)
+            if filename not in trees:
+                try:
+                    trees[filename] = (
+                        source_ast.parse(read_python_source(filename)) if filename else None
+                    )
+                except (OSError, UnicodeError, SyntaxError):
+                    trees[filename] = None
+            tree = trees[filename]
+            if tree is None:
+                bindings[procedure] = {}
+                continue
+            catalog = self.catalog_by_procedure[procedure]
+            identity = catalog.procedure(procedure.code).code_id
+            scope = next(
+                (
+                    node
+                    for node in source_ast.walk(tree)
+                    if isinstance(node, (source_ast.FunctionDef, source_ast.AsyncFunctionDef))
+                    and node.lineno == identity.anchor.line
+                ),
+                tree,
+            )
+            aliases = imports(tree)
+            aliases.update(imports(scope))
+            bindings[procedure] = ast_receiver_bindings(scope, aliases)
+        # ImportFrom lowering introduces a temporary module receiver. Its
+        # spelling is an IR implementation detail, never a library identity.
+        temporary_modules = {}
+        for node, operation in self._operation_by_node.items():
+            if isinstance(operation, py_ast.Assign) and isinstance(operation.expr, py_ast.Import):
+                aliases = temporary_modules.setdefault(self._procedure_filename(node.procedure), {})
+                for local in assigned_locals(operation):
+                    aliases[local.name] = operation.expr.name
+        for procedure, aliases in bindings.items():
+            aliases.update(temporary_modules.get(self._procedure_filename(procedure), {}))
+        return bindings
+
+    def _qualify_call_name(self, procedure, name):
+        if not name:
+            return name
+        aliases = self._source_call_bindings.get(procedure, {})
+        head, separator, rest = name.partition(".")
+        return aliases.get(head, head) + (separator + rest if separator else "")
 
     @staticmethod
     def _syntactic_call_leaf(call_expression: object) -> str | None:
