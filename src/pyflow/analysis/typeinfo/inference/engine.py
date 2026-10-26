@@ -176,11 +176,16 @@ class StaticTypeInferenceEngine:
         self._collect_type_variables(self._tree.body)
         self._collect_declarations(self._tree.body, parent=module_name)
 
+        self._persistent_diagnostics = list(self._diagnostics)
+        self._persistent_keys = set(self._diagnostic_keys)
+
         module_environment: dict[str, AbstractTypeValue] = {}
         converged = False
         iterations = 0
         for iterations in range(1, self.options.max_iterations + 1):
             before = self._fingerprint()
+            self._diagnostics = list(self._persistent_diagnostics)
+            self._diagnostic_keys = set(self._persistent_keys)
             self._expressions.clear()
             self._pending_parameter_evidence.clear()
             self._pending_attributes.clear()
@@ -280,6 +285,8 @@ class StaticTypeInferenceEngine:
         self._expressions: dict[SourceSpan, AbstractTypeValue] = {}
         self._diagnostics: list[InferenceDiagnostic] = []
         self._diagnostic_keys: set[tuple[str, str, SourceSpan | None]] = set()
+        self._persistent_diagnostics: list[InferenceDiagnostic] = []
+        self._persistent_keys: set[tuple[str, str, SourceSpan | None]] = set()
         self._pending_parameter_evidence: dict[tuple[str, str], AbstractTypeValue] = {}
         self._pending_attributes: dict[tuple[str, str], AbstractTypeValue] = {}
         self._collect_specializations = True
@@ -2604,6 +2611,34 @@ class StaticTypeInferenceEngine:
                 and expected.args
             ):
                 candidate = Instance(candidate.type, (ANY,) * len(expected.args))
+            if (
+                isinstance(candidate, Instance)
+                and isinstance(expected, Instance)
+                and candidate.type == expected.type
+                and not expected.args
+                and candidate.args
+            ):
+                expected = Instance(expected.type, (ANY,) * len(candidate.args))
+            expected_parts = expected.items if isinstance(expected, UnionType) else (expected,)
+            if (
+                isinstance(candidate, Instance)
+                and not candidate.args
+                and any(
+                    isinstance(part, Instance) and candidate.type == part.type and part.args
+                    for part in expected_parts
+                )
+            ):
+                target_part = next(
+                    part
+                    for part in expected_parts
+                    if isinstance(part, Instance) and candidate.type == part.type and part.args
+                )
+                candidate = Instance(candidate.type, (ANY,) * len(target_part.args))
+            if isinstance(candidate, Instance) and any(
+                isinstance(part, Instance) and candidate.type == part.type and not part.args
+                for part in expected_parts
+            ):
+                continue
             try:
                 compatible = self.type_system.is_subtype(candidate, expected)
                 if not compatible and self._fresh_dictionary_context(node):
@@ -3665,15 +3700,20 @@ class StaticTypeInferenceEngine:
         if key in self._diagnostic_keys:
             return
         self._diagnostic_keys.add(key)
-        self._diagnostics.append(
-            InferenceDiagnostic(
-                code,
-                message,
-                severity=severity,
-                span=span,
-                affects_completeness=affects_completeness,
-            )
+        diagnostic = InferenceDiagnostic(
+            code,
+            message,
+            severity=severity,
+            span=span,
+            affects_completeness=affects_completeness,
         )
+        self._diagnostics.append(diagnostic)
+        if code in {"specialization-budget-exceeded", "unresolved-annotation"} and hasattr(
+            self, "_persistent_diagnostics"
+        ):
+            if key not in self._persistent_keys:
+                self._persistent_keys.add(key)
+                self._persistent_diagnostics.append(diagnostic)
 
 
 def _all_arguments(arguments: ast.arguments) -> list[ast.arg]:

@@ -88,3 +88,65 @@ def test_nested_forward_references_retain_typing_alias_context():
         'list["t.Optional[int]"]', BuiltinTypeLookup(), aliases={"t": "typing"}
     )
     assert isinstance(result, Instance) and isinstance(result.args[0], UnionType)
+
+
+def test_builtin_type_lookup_bare_typing_collections_have_arity_and_tuple_type():
+    lookup = BuiltinTypeLookup()
+    dict_type = lookup("typing.Dict")
+    assert isinstance(dict_type, Instance)
+    assert dict_type.type.raw_type is dict
+    assert len(dict_type.args) == 2
+    assert all(arg == ANY for arg in dict_type.args)
+
+    list_type = lookup("typing.List")
+    assert isinstance(list_type, Instance)
+    assert list_type.type.raw_type is list
+    assert len(list_type.args) == 1
+    assert list_type.args[0] == ANY
+
+    tuple_type = lookup("typing.Tuple")
+    assert isinstance(tuple_type, TupleType)
+    assert tuple_type.unknown_size is True
+
+
+def test_bare_typing_dict_and_optional_dict_return_annotations_accept_specialized_dict():
+    from pyflow.analysis.typeinfo import StaticTypeInferenceEngine
+
+    src = """
+from typing import Dict, Optional
+
+def get_stats() -> Dict:
+    return {"a": 1, "b": 2}
+
+def get_maybe_stats(flag: bool) -> Optional[Dict]:
+    if flag:
+        return {"a": 1}
+    return None
+"""
+    engine = StaticTypeInferenceEngine()
+    result = engine.infer_source("test_bare_dict", src)
+    errors = [d for d in result.diagnostics if d.severity == "error"]
+    assert not errors
+
+
+def test_fixed_point_iteration_clears_intermediate_call_diagnostics():
+    from pyflow.analysis.typeinfo import StaticTypeInferenceEngine
+
+    src = """
+class Config:
+    pass
+
+def serialize(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int)):
+        return obj
+    return {"data": 1}
+
+def test() -> dict:
+    c = Config()
+    return serialize(c)
+"""
+    engine = StaticTypeInferenceEngine()
+    result = engine.infer_source("test_fp", src)
+    assert not result.diagnostics

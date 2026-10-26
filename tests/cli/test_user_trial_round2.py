@@ -79,6 +79,28 @@ def test_alias_query_runs_heap_and_resolves_source_variables(tmp_path, mode):
     assert report["is_aliased"]
 
 
+@pytest.mark.parametrize("invoke", ["", "\nmain()\n"])
+def test_alias_query_resolves_main_body(tmp_path, invoke):
+    """``main`` is not an entry point, so its body is culled before the heap pass."""
+    path = tmp_path / "main_aliases.py"
+    path.write_text(
+        "class Box:\n"
+        "    def __init__(self):\n"
+        "        self.value = []\n"
+        "\n"
+        "def main():\n"
+        "    a = Box()\n"
+        "    b = a\n"
+        "    c = a.value\n"
+        "    d = c\n"
+        "    return d\n" + invoke
+    )
+    a_report = json.loads(successful("query", path, "--get-aliases", "a").stdout)
+    assert {"a", "b"} <= set(a_report["aliases"])
+    c_report = json.loads(successful("query", path, "--get-aliases", "c").stdout)
+    assert {"c", "d"} <= set(c_report["aliases"])
+
+
 @pytest.mark.parametrize(
     "source",
     [

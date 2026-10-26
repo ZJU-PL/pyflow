@@ -137,8 +137,21 @@ class HeapTransferEngine(
 
     def analyze_program(self, program: object) -> None:
         """Analyze every discoverable code object in *program*."""
+        roots = []
         declared_entries = getattr(program, "entryPoints", None)
-        codes = tuple(self.iter_code_objects(declared_entries if declared_entries else program))
+        if declared_entries:
+            roots.append(declared_entries)
+        # Entry points intentionally skip ``main`` and any function that is
+        # never called from an entry, and the CPA pass rebuilds ``liveCode``
+        # from reachable contexts, dropping those bodies.  The IR catalog
+        # still owns them, so analyze its procedures too.
+        live_code = getattr(program, "liveCode", None)
+        if live_code:
+            roots.append(live_code)
+        catalog = getattr(program, "ir", None)
+        if catalog is not None and hasattr(catalog, "procedures"):
+            roots.append([catalog.code(procedure.code_id) for procedure in catalog.procedures()])
+        codes = tuple(self.iter_code_objects(roots if roots else program))
         if len(codes) <= 1:
             for code in codes:
                 self.analyze_code(code)
