@@ -161,7 +161,10 @@ compiler facts stale; another explicit command refreshes them. Edits never
 schedule repeated whole-project compiler runs.</p>
 <p>Both full-document and incremental UTF-16 changes are supported. Navigation,
 completion, hover, rename, and diagnostics use unsaved overlays. Unchanged file
-shards are reused, and temporary syntax errors retain and rebase unchanged
+shards and their resolved references/calls are reused. Edits that change bindings
+invalidate the changed file and its transitive import/reference dependents;
+file-set changes and fixture or framework state schema changes conservatively
+refresh the workspace. Temporary syntax errors retain and rebase unchanged
 symbols from the previous valid index, including blocks whose indentation has
 changed. Once syntax is valid, ranges come from a fresh AST rather than recovery
 coordinates. Rename is unavailable when a file touched
@@ -199,21 +202,36 @@ use the retained index while a dot leaves the edited document temporarily
 unparseable. Trusted builtin and math/os/sys namespaces provide external member
 suggestions without importing project code. Hover shows declaration signatures,
 annotations, docstrings, and local inferred types, including at interior token
-positions. It remains available while compiler results are stale.</p>
+positions. It remains available while compiler results are stale.
+Signature help works inside incomplete calls, with parameter defaults, keyword
+arguments, bound methods, and overload signatures. Overload implementations
+appear in the outline and serve as navigation targets. Document highlights use
+symbol identities to exclude unrelated bindings with the same spelling.</p>
 <p>Clients advertising LSP pull diagnostic support use <code class="docutils literal notranslate"><span class="pre">textDocument/diagnostic</span></code>.
 Other clients receive debounced <code class="docutils literal notranslate"><span class="pre">textDocument/publishDiagnostics</span></code> notifications
 on open, change, and save. Closing a document clears published diagnostics.
 Per-document generations and versions prevent results for superseded or closed
 buffers from being published, including when analysis continues in a worker.</p>
 <p><code class="docutils literal notranslate"><span class="pre">textDocument/diagnostic</span></code> combines syntax diagnostics, unresolved lexical
-names, bounded local type inference, and the AST dataflow security checker.
+names and bounded local type inference. Interprocedural taint analysis does not
+run automatically on open, change, save, or diagnostic pulls. To scan the current
+document explicitly, execute <code class="docutils literal notranslate"><span class="pre">pyflow.scanDocument</span></code> through
+<code class="docutils literal notranslate"><span class="pre">workspace/executeCommand</span></code> with <code class="docutils literal notranslate"><span class="pre">arguments:</span> <span class="pre">[{&quot;uri&quot;:</span> <span class="pre">&quot;file:///...&quot;}]</span></code>. The
+command returns a full diagnostic report including security findings and may
+take substantially longer than interactive diagnostics.
 Analysis runs in a worker, is cached by document contents, and rejects results
-for superseded text. Only one diagnostic worker runs at a time; obsolete queued
-requests do not start additional analysis. These diagnostics are document-scoped:
+for superseded text. Only one interactive diagnostic worker runs at a time; obsolete queued
+requests do not start additional analysis. Both forms are document-scoped:
 they do not establish whole-project taint flow or replace a dedicated project
-security scan. Standard collection annotations use their real abstract base
-classes and element types. Generator annotations check yielded values separately
-from terminal return values, including async generators. Optional values and
+security scan.</p>
+<p>Mutually compatible generic union members retain one representative,
+preferring concrete arguments over <code class="docutils literal notranslate"><span class="pre">Any</span></code>. Empty Protocol, abstract, and
+overload stubs retain their declared return types. Imported <code class="docutils literal notranslate"><span class="pre">sys.exit</span></code>,
+<code class="docutils literal notranslate"><span class="pre">os._exit</span></code>, and pytest termination calls end their control-flow paths. Dynamic
+<code class="docutils literal notranslate"><span class="pre">zip(*iterables)</span></code> results use variadic tuples. Standard collection annotations
+use their real abstract base classes and element types. Generator annotations
+check yielded values separately from terminal return values, including async
+generators. Optional values and
 <code class="docutils literal notranslate"><span class="pre">isinstance</span></code> checks narrow local and attribute types along control-flow paths.
 Imported types without hierarchy evidence remain explicitly uncertain instead of
 being diagnosed as incompatible dummy classes. Unsupported-model and analysis
@@ -223,7 +241,10 @@ and unknown external return types remain resolution limits.</p>
 <p>Class patterns link the class, keyword attributes, and capture variables
 separately. Explicit <code class="docutils literal notranslate"><span class="pre">__match_args__</span></code> strings also participate in member
 references and rename. Optional-import and fallback-import bindings are retained;
-this is not a general proof that every conditional binding is initialized.</p>
+this is not a general proof that every conditional binding is initialized.
+Undefined-name diagnostics respect matching <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">type:</span> <span class="pre">ignore</span></code> and
+<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">noqa:</span> <span class="pre">F821</span></code> directives, and name probes protected by <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">NameError</span></code>. Unrelated
+codes and comment-like text inside string literals do not suppress diagnostics.</p>
 <p>Framework navigation has explicit contracts for Flask <code class="docutils literal notranslate"><span class="pre">current_app</span></code> and
 Starlette/FastAPI connection state. Definitions prefer workspace source, then
 installed package source, then bundled editor stubs. Package files are parsed
