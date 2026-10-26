@@ -150,7 +150,7 @@ Options:
 - ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
-- ``--output, -o``: Output file for dumped results
+- ``--output, -o``: Output path for dumped results (a directory for ``--dump``/``--dump-ipa``; a file for ``--dump-shape``)
 - ``--dump, -d``: Dump analysis results
 - ``--dump-ipa``: Dump IPA analysis results
 - ``--dump-shape``: Dump Shape analysis results
