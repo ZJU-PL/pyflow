@@ -58,11 +58,25 @@ coordinates. Rename is unavailable when a file touched
 by the edit has incomplete syntax, so stale coordinates cannot be applied as edits. An unrelated invalid file does
 not disable refactoring elsewhere.
 
+Retained module scopes cover the whole current buffer. Function and class scopes
+also include appended indented lines and blank lines up to the next dedented
+statement, so new incomplete lines retain receivers, parameters and locals.
+
 Definitions, references, and call hierarchy resolve module imports, constructor
 instances, aliases, annotations, inherited members, fields, and source-visible
-factory returns. Module-level calls also appear in call hierarchy. Dynamic
-wrappers and reassignment may leave a receiver partially known: navigation can
-offer known targets, but rename rejects a partial receiver when its known
+factory returns. Module-level calls also appear in call hierarchy.
+``super()`` and explicit ``super(Class, receiver)`` calls use source-visible base
+declarations for navigation, member completion and bound signature help.
+Ambiguous base members remain unresolved; runtime-dependent method resolution
+orders are not inferred.
+
+Dataclass and NamedTuple constructor keywords link to field declarations,
+including inherited generated fields. Explicit constructors take precedence;
+ClassVar fields and fields excluded from generated initialization are omitted.
+Ordinary annotated classes are not assumed to have generated constructors.
+
+Dynamic wrappers and reassignment may leave a receiver partially known:
+navigation can offer known targets, but rename rejects a partial receiver when its known
 alternatives include the target. Unrelated unresolved uses of a common method
 name do not veto the rename. Only statically linked references are changed;
 runtime-generated accesses remain unresolved. Unknown receivers never fall back
@@ -93,9 +107,13 @@ unparseable. Trusted builtin and math/os/sys namespaces provide external member
 suggestions without importing project code. Hover shows declaration signatures,
 annotations, docstrings, and local inferred types, including at interior token
 positions. It remains available while compiler results are stale.
+Variables holding source-visible functions or methods show callable signatures
+and documentation. Union receivers offer members from their known alternatives;
+an ambiguous member does not acquire an arbitrary navigation or rename target.
 Signature help works inside incomplete calls, with parameter defaults, keyword
-arguments, bound methods, and overload signatures. Overload implementations
-appear in the outline and serve as navigation targets. Document highlights use
+arguments, bound methods, and overload signatures, including across physical line
+breaks in a callee or its argument list. Overload implementations appear in the
+outline and serve as navigation targets. Document highlights use
 symbol identities to exclude unrelated bindings with the same spelling.
 
 Clients advertising LSP pull diagnostic support use ``textDocument/diagnostic``.
@@ -121,7 +139,11 @@ Mutually compatible generic union members retain one representative,
 preferring concrete arguments over ``Any``. Empty Protocol, abstract, and
 overload stubs retain their declared return types. Imported ``sys.exit``,
 ``os._exit``, and pytest termination calls end their control-flow paths. Dynamic
-``zip(*iterables)`` results use variadic tuples. Standard collection annotations
+``zip(*iterables)`` results use variadic tuples. String and bytes ``%`` operations
+retain their format-result types. Dictionary and set ``|`` operations join
+their key/value or element arguments into the
+result container. Unmodeled operands retain uncertainty rather than inheriting
+the type of their formatting arguments. Standard collection annotations
 use their real abstract base classes and element types. Generator annotations
 check yielded values separately from terminal return values, including async
 generators. Optional values and
