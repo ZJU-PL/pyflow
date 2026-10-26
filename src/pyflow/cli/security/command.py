@@ -11,6 +11,7 @@ Dispatches to one of four engine backends:
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import sys
@@ -769,10 +770,22 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
             continue
 
         if len(cpg.functions) == 0:
+            message = f"No analyzable functions found in {target}"
+            if path.is_file():
+                try:
+                    from pyflow.language.source_compat import normalize_legacy_python_syntax
+
+                    source = path.read_text(encoding="utf-8", errors="replace")
+                    ast.parse(
+                        normalize_legacy_python_syntax(source),
+                        filename=str(target),
+                    )
+                except (SyntaxError, ValueError) as error:
+                    message = f"Could not parse {target}: {error}"
             diagnostics.append(
                 {
                     "code": "cpg-no-functions",
-                    "message": f"No analyzable functions found in {target}",
+                    "message": message,
                     "function": None,
                     "affects_completeness": True,
                 }

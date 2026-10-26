@@ -118,6 +118,20 @@ def test_ifds_rejects_formats_it_cannot_render(tmp_path, capsys):
     assert captured.out == ""
 
 
+def test_cpg_reports_syntax_errors_instead_of_no_functions(tmp_path, capsys):
+    sample = tmp_path / "broken.py"
+    sample.write_text("def broken(:\n    pass\n", encoding="utf-8")
+
+    code = run_security(_args(sample, "--engine", "cpg", "--format", "json"))
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 4
+    diagnostic = report["diagnostics"][0]
+    assert diagnostic["code"] == "cpg-no-functions"
+    assert "Could not parse" in diagnostic["message"]
+    assert "invalid syntax" in diagnostic["message"]
+
+
 @pytest.mark.parametrize("engine", ["ast-scanner", "ast-dataflow", "ifds", "cpg"])
 def test_baseline_suppression_precedes_findings_gate(engine, tmp_path, capsys):
     path = tmp_path / "app.py"
