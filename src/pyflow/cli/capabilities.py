@@ -127,6 +127,12 @@ def run_capabilities(args) -> int:
         if entry is None:
             from pyflow.frontend.entry_discovery import discover_entry_files
 
+            if getattr(args, "recursive", False):
+                print(
+                    "Error: no Python source files found in project directory",
+                    file=sys.stderr,
+                )
+                return 2
             candidates = discover_entry_files(target)
             print(
                 "Error: could not determine a unique project entry file; use --entry or -r",

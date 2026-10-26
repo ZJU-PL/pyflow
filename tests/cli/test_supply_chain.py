@@ -431,3 +431,24 @@ def test_directory_audit_requires_provenance_for_discovered_archives(tmp_path, c
 
     assert exit_code == 1
     assert any(item["kind"] == "missing-provenance" for item in result["results"])
+
+
+def test_vex_and_reachability_warn_without_osv_database(tmp_path, capsys):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("demo==1.0\n", encoding="utf-8")
+    common = {
+        "supply_chain_command": "audit",
+        "targets": [str(requirements)],
+        "recursive": False,
+        "exclude": "",
+        "output": None,
+        "format": "json",
+        "license_policy": None,
+        "fail_on": "none",
+    }
+
+    assert run_supply_chain(SimpleNamespace(**common, vex=[tmp_path / "nope.json"])) == 0
+    assert "--vex has no effect without --osv-database" in capsys.readouterr().err
+
+    assert run_supply_chain(SimpleNamespace(**common, reachability=True)) == 0
+    assert "--reachability has no effect without --osv-database" in capsys.readouterr().err

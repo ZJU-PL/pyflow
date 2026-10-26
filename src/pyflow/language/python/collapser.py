@@ -128,7 +128,7 @@ class Collapser(TypeDispatcher):
     def visitConvertToBool(self, node):
         self.handleUnaryExpr(node)
 
-    @dispatch(ast.Yield)
+    @dispatch(ast.Yield, ast.YieldFrom, ast.Await, ast.AsyncYield)
     def visitYield(self, node):
         self.handleUnaryExpr(node)
 
@@ -270,6 +270,13 @@ class Collapser(TypeDispatcher):
             else:
                 self.resetStack()
             self.process(node.expr)
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        # Conservative: a walrus binds its target while also yielding a value,
+        # so do not reorder across it.
+        self.resetStack()
+        self.process(node.value)
 
     @dispatch(ast.Delete)
     def visitDelete(self, node):

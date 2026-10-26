@@ -101,6 +101,16 @@ def test_alias_single_syntax_error_returns_nonzero_with_json(tmp_path, capsys):
     assert captured.err == ""
 
 
+def test_alias_rejects_negative_k():
+    parser = ArgumentParser()
+    alias.add_alias_parser(parser.add_subparsers())
+
+    with pytest.raises(SystemExit) as raised:
+        parser.parse_args(["alias", "sample.py", "--engine", "kcfa", "--k", "-1"])
+
+    assert raised.value.code == 2
+
+
 def test_capabilities_timeout_is_partial_json_report(monkeypatch, tmp_path, capsys):
     source = tmp_path / "main.py"
     source.write_text("print('hello')\n")

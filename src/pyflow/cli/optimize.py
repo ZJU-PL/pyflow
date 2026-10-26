@@ -204,10 +204,10 @@ def run_analysis(input_path, args):
         elif input_path.is_dir():
             python_files = find_python_files(input_path, args)
             if not python_files:
-                print(
-                    "No Python files found to analyze "
-                    "(hint: pass -r/--recursive to search subdirectories)"
-                )
+                message = "No Python files found to analyze"
+                if not getattr(args, "recursive", False):
+                    message += " (hint: pass -r/--recursive to search subdirectories)"
+                print(message)
                 return
         else:
             print(

@@ -304,6 +304,19 @@ def test_capabilities_reports_unwritable_output(tmp_path, capsys):
     assert "Traceback" not in captured.err
 
 
+def test_capabilities_recursive_empty_directory_reports_no_sources(tmp_path, capsys):
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(["capabilities", str(tmp_path), "--recursive", "--format", "json"])
+
+    assert run_capabilities(args) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no Python source files" in captured.err
+    assert "--entry or -r" not in captured.err
+
+
 def test_default_text_summarizes_internal_diagnostics_but_verbose_expands():
     from types import SimpleNamespace
     from pyflow.cli.capabilities import _to_text

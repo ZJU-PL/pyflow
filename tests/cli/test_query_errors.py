@@ -70,3 +70,41 @@ def test_query_list_functions_keeps_good_files_and_warns_about_bad_ones(tmp_path
     assert json.loads(captured.out) == ["good.f"]
     assert "Warning: Could not parse" in captured.err
     assert "bad.py" in captured.err
+
+
+def test_query_get_cfg_error_lists_public_candidates_only(tmp_path, capsys):
+    source = tmp_path / "mod.py"
+    source.write_text(
+        "def greet(name):\n    return name\n\ndef caller():\n    return greet('x')\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        run_query(_args(source, "--get-cfg", "missing"))
+
+    assert raised.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Available candidates" in captured.err
+    assert "greet" in captured.err
+    assert "<module>" not in captured.err
+    assert "<locals>" not in captured.err
+    assert "@" not in captured.err.split("Available candidates:", 1)[1]
+
+
+def test_query_get_cfg_ambiguous_name_uses_public_names(tmp_path, capsys):
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as raised:
+        run_query(_args(tmp_path, "--get-cfg", "f"))
+
+    assert raised.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "ambiguous" in captured.err
+    assert "a.f" in captured.err
+    assert "b.f" in captured.err
+    assert "<module>" not in captured.err
+    assert "<locals>" not in captured.err
+    assert "@" not in captured.err

@@ -398,6 +398,17 @@ def run_supply_chain(args: Any) -> int:
                         trusted_hashes=trusted_osv_hashes,
                     )
                 )
+            else:
+                if getattr(args, "vex", ()):
+                    print(
+                        "Warning: --vex has no effect without --osv-database",
+                        file=sys.stderr,
+                    )
+                if getattr(args, "reachability", False):
+                    print(
+                        "Warning: --reachability has no effect without --osv-database",
+                        file=sys.stderr,
+                    )
             artifacts = [
                 Path(value) for value in scan.metadata.get("artifacts", ()) if Path(value).is_file()
             ]

@@ -145,6 +145,11 @@ class DefUseVisitor(TypeDispatcher):
         assert isinstance(name, str)
         self.globaluse[name].append(location)
 
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        self.use(node, node.value)
+        self.define(node, node.target)
+
     @dispatch(ast.Delete)
     def visitDelete(self, node):
         self.use(node, node.lcl)
@@ -176,7 +181,16 @@ class DefUseVisitor(TypeDispatcher):
         if node.kparam:
             self.define(node, node.kparam)
 
-    @dispatch(ast.UnaryPrefixOp, ast.Not, ast.Yield, ast.GetIter, ast.ConvertToBool)
+    @dispatch(
+        ast.UnaryPrefixOp,
+        ast.Not,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Await,
+        ast.AsyncYield,
+        ast.GetIter,
+        ast.ConvertToBool,
+    )
     def visitUnary(self, node):
         self.use(node, node.expr)
 

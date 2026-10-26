@@ -320,6 +320,23 @@ class SimpleExprGen(TypeDispatcher):
         expr = self.process(node.expr, 24)
         return "yield %s" % expr, 24  # No parenth, so low precedence.	Otherwise, 3?
 
+    def visitYieldFrom(self, node):
+        expr = self.process(node.expr, 24)
+        return "yield from %s" % expr, 24
+
+    def visitAwait(self, node):
+        expr = self.process(node.expr, 24)
+        return "await %s" % expr, 24
+
+    def visitAsyncYield(self, node):
+        expr = self.process(node.expr, 24)
+        return "yield %s" % expr, 24
+
+    def visitNamedExpr(self, node):
+        target = self.process(node.target, 24)
+        value = self.process(node.value, 24)
+        return "(%s := %s)" % (target, value), 2
+
     def visitBuildTuple(self, node):
         args = [self.process(arg, 24) for arg in node.args]
         return ("%s," % ", ".join(args)), 24  # No parenth, so low precedence.	Otherwise, 3?

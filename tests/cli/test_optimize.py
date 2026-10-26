@@ -401,6 +401,16 @@ def test_run_analysis_empty_directory_hints_recursive_flag(tmp_path, capsys):
     assert "-r/--recursive" in output
 
 
+def test_run_analysis_recursive_empty_directory_omits_recursive_hint(tmp_path, capsys):
+    args = SimpleNamespace(recursive=True, include=["*.py"], exclude=[])
+
+    optimize.run_analysis(tmp_path, args)
+
+    output = capsys.readouterr().out
+    assert "No Python files found" in output
+    assert "-r/--recursive" not in output
+
+
 def test_run_analysis_single_syntax_error_exits_nonzero(tmp_path, capsys):
     import pytest
 
@@ -446,6 +456,33 @@ def test_run_analysis_mixed_directory_skips_unparsable_files(tmp_path, capsys):
 def test_dump_ipa_handles_synthetic_module_code_names(tmp_path, capsys):
     sample = tmp_path / "sample.py"
     sample.write_text("def f(x):\n    return x + 1\n", encoding="utf-8")
+    output = tmp_path / "ipa"
+    parser = argparse.ArgumentParser()
+    optimize.add_optimize_parser(parser.add_subparsers())
+    args = parser.parse_args(["optimize", str(sample), "--dump-ipa", "--output", str(output)])
+
+    optimize.run_analysis(sample, args)
+
+    captured = capsys.readouterr()
+    assert "Could not dump IPA results" not in captured.out
+    assert "IPA analysis results dumped to" in captured.out
+    assert (output / "index.html").exists()
+
+
+def test_dump_ipa_handles_async_and_walrus(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        "async def agen():\n"
+        "    async with open('x') as f:\n"
+        "        async for line in f:\n"
+        "            yield line\n"
+        "\n"
+        "def walrus(x):\n"
+        "    if (y := x + 1) > 0:\n"
+        "        return y\n"
+        "    return 0\n",
+        encoding="utf-8",
+    )
     output = tmp_path / "ipa"
     parser = argparse.ArgumentParser()
     optimize.add_optimize_parser(parser.add_subparsers())

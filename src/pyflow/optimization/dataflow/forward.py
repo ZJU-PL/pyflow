@@ -642,6 +642,30 @@ class ForwardFlowTraverse(TypeDispatcher):
         self.flow.save("continue")
         return result
 
+    @dispatch(ast.Await)
+    def visitAwait(self, node):
+        result = ast.Await(self(node.expr))
+        result.annotation = node.annotation
+        return self.processExpr(result, node)
+
+    @dispatch(ast.AsyncYield)
+    def visitAsyncYield(self, node):
+        result = ast.AsyncYield(self(node.expr))
+        result.annotation = node.annotation
+        return self.processExpr(result, node)
+
+    @dispatch(ast.Yield)
+    def visitYield(self, node):
+        result = ast.Yield(self(node.expr))
+        result.annotation = node.annotation
+        return self.processExpr(result, node)
+
+    @dispatch(ast.YieldFrom)
+    def visitYieldFrom(self, node):
+        result = ast.YieldFrom(self(node.expr))
+        result.annotation = node.annotation
+        return self.processExpr(result, node)
+
     @dispatch(ast.Call)
     def visitCall(self, node):
         expr = self(node.expr)

@@ -24,7 +24,12 @@ class QueryContext:
             code = self._find_function_by_name(function)
             if code is None:
                 names = sorted(
-                    {alias for code in self.function_codes() for alias in self.code_aliases(code)}
+                    {
+                        alias
+                        for code in self.function_codes()
+                        for alias in self.code_aliases(code)
+                        if "<module>" not in alias and "<locals>" not in alias and "@" not in alias
+                    }
                 )
                 candidates = get_close_matches(function, names, n=5, cutoff=0.3) or names[:5]
                 hint = f" Available candidates: {', '.join(candidates)}" if candidates else ""
@@ -134,6 +139,19 @@ class QueryContext:
             return str(code.__name__)
         return str(code)
 
+    def public_code_name(self, code) -> str:
+        """Return a user-facing, preferably qualified name for a code object."""
+        aliases = self.code_aliases(code)
+        for alias in aliases:
+            if (
+                "." in alias
+                and "<module>" not in alias
+                and "<locals>" not in alias
+                and "@" not in alias
+            ):
+                return alias
+        return self.code_name(code) or self.code_identifier(code) or "?"
+
     def _find_function_by_name(self, function_name: str):
         """Find a function code object by name in the program."""
         exact, suffix = [], []
@@ -148,9 +166,7 @@ class QueryContext:
         if not matches:
             return None
         if len(matches) > 1:
-            choices = ", ".join(
-                self.code_identifier(code) or self.code_name(code) for code in matches[:5]
-            )
+            choices = ", ".join(self.public_code_name(code) for code in matches[:5])
             if len(matches) > 5:
                 choices += ", ..."
             raise ValueError(f"Function name '{function_name}' is ambiguous. Use one of: {choices}")

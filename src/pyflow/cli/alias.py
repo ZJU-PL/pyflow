@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import sys
 from contextlib import redirect_stdout
@@ -15,6 +16,13 @@ from pyflow.cli.analysis_budget import (
     analysis_time_budget,
     positive_seconds,
 )
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
 
 
 def add_alias_parser(subparsers):
@@ -40,7 +48,7 @@ def add_alias_parser(subparsers):
     )
     parser.add_argument(
         "--k",
-        type=int,
+        type=_non_negative_int,
         default=1,
         help="k-CFA context sensitivity depth (kcfa engine only, default: 1)",
     )
