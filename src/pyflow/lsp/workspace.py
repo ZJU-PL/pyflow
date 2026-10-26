@@ -162,6 +162,7 @@ class SourceSymbol:
     overload: bool = False
     parameters: tuple = ()
     binding: str = ""
+    constructor_fields: Optional[tuple[str, ...]] = None
 
     def document_symbol(self) -> dict:
         result = {
@@ -366,6 +367,45 @@ def _position_to_offset(text: str, line: int, character: int) -> int:
     return sum(len(item) for item in lines[:line]) + lsp_character_to_offset(line_text, character)
 
 
+def _expanded_scope_range(location, kind, lines, *, trailing_newline=False):
+    """Include editable trailing lines until the next dedented statement."""
+    if kind is _ScopeKind.MODULE:
+        return SourceRange(location.uri, 0, 0, len(lines), 0)
+    if not lines:
+        return location
+    header = lines[min(location.start_line, len(lines) - 1)]
+    if kind is _ScopeKind.TYPE_PARAMETERS:
+        if not re.match(r"\s*(?:async\s+def|def|class)\s", header):
+            return location
+    elif kind not in {_ScopeKind.FUNCTION, _ScopeKind.CLASS}:
+        return location
+    indent = len(header[: len(header) - len(header.lstrip(" \t"))].expandtabs(8))
+    end_line, end_character = location.end_line, location.end_character
+    if end_line < len(lines):
+        line = lines[end_line].rstrip("\r\n")
+        content = line.lstrip(" \t")
+        depth = len(line[: len(line) - len(content)].expandtabs(8))
+        if not content or content.startswith("#") or depth > indent:
+            end_character = max(end_character, offset_to_lsp_character(line, len(line)))
+        elif end_character == 0 and end_line > location.start_line:
+            end_line -= 1
+            line = lines[end_line].rstrip("\r\n")
+            end_character = offset_to_lsp_character(line, len(line))
+    for row in range(end_line + 1, len(lines)):
+        line = lines[row].rstrip("\r\n")
+        content = line.lstrip(" \t")
+        if (
+            content
+            and not content.startswith("#")
+            and len(line[: len(line) - len(content)].expandtabs(8)) <= indent
+        ):
+            break
+        end_line, end_character = row, offset_to_lsp_character(line, len(line))
+    if end_line == len(lines) - 1 and (trailing_newline or lines[-1].endswith(("\n", "\r"))):
+        end_line, end_character = len(lines), 0
+    return replace(location, end_line=end_line, end_character=end_character)
+
+
 class SourceIndex:
     """AST-backed index for source-accurate navigation and hierarchy results."""
 
@@ -550,7 +590,7 @@ class SourceIndex:
                 if (location := remap(old_range)) is not None
             ),
             scopes=tuple(
-                (remap(location, full=True), kind, bindings)
+                (_expanded_scope_range(remap(location, full=True), kind, new_lines), kind, bindings)
                 for location, kind, bindings in previous.scopes
             ),
             dynamic_writes=tuple(
@@ -569,7 +609,10 @@ class SourceIndex:
     @staticmethod
     def _resolution_interface(shard):
         return (
-            tuple((symbol.symbol_id, symbol.overload, symbol.accessor) for symbol in shard.symbols),
+            tuple(
+                (symbol.symbol_id, symbol.overload, symbol.accessor, symbol.constructor_fields)
+                for symbol in shard.symbols
+            ),
             shard.import_targets,
             shard.value_targets,
             shard.return_targets,
@@ -658,7 +701,12 @@ class SourceIndex:
             parameters = set()
             for callee in self._resolver.callable_candidates(target):
                 if callee.kind == 5:
-                    callee = self._resolver.member(callee.qualified_name, "__init__")
+                    parameter = self._resolver.constructor_keyword(
+                        callee, name, self._keyword_parameters
+                    )
+                    if parameter is not None:
+                        parameters.add(parameter)
+                    continue
                 if callee:
                     parameter = dict(self._keyword_parameters.get(callee.symbol_id, ())).get(name)
                     if parameter:
@@ -1110,12 +1158,40 @@ class SourceIndex:
         if isinstance(expression, ast.Attribute):
             return ("member", self._position_target(expression.value, bindings), expression.attr)
         if isinstance(expression, ast.Call):
+            if (
+                isinstance(expression.func, ast.Name)
+                and expression.func.id == "super"
+                and "super" not in bindings
+            ):
+                if expression.args:
+                    return ("super", self._position_target(expression.args[0], bindings))
+                candidates = []
+                for identity in bindings.values():
+                    parameter = self._symbols_by_id.get(identity)
+                    method = (
+                        self._resolver.symbols.get(parameter.container_name)
+                        if parameter and parameter.symbol_id.kind is SymbolKind.PARAMETER
+                        else None
+                    )
+                    owner = self._resolver.symbols.get(method.container_name) if method else None
+                    if owner and owner.kind == 5 and method.binding != "static":
+                        candidates.append(
+                            (
+                                method.full_range.end_line - method.full_range.start_line,
+                                -method.full_range.start_line,
+                                owner.symbol_id,
+                            )
+                        )
+                if candidates:
+                    return ("super", ("symbol", min(candidates, key=lambda item: item[:2])[2]))
             return ("instance", self._position_target(expression.func, bindings))
         return ("unknown",)
 
     def completion_items(self, uri, line, character):
         text = self.text_for_uri(uri)
         lines = text.splitlines() if text is not None else []
+        if text is not None and (not text or text.endswith(("\n", "\r"))):
+            lines.append("")
         if line < 0 or line >= len(lines):
             return []
         before = lines[line][: lsp_character_to_offset(lines[line], character)]
@@ -1195,6 +1271,7 @@ class SourceIndex:
         if symbol is None:
             return None
         declaration = symbol.detail or symbol.name
+        documentation = symbol.documentation
         if symbol.symbol_id.kind in {SymbolKind.VARIABLE, SymbolKind.PARAMETER}:
             names = self._resolver.names(("symbol", symbol.symbol_id))
             types = [
@@ -1203,6 +1280,21 @@ class SourceIndex:
                 if name.startswith("builtins.")
                 or (name in self._resolver.symbols and self._resolver.symbols[name].kind == 5)
             ]
+            callables = [
+                self._resolver.symbols[name]
+                for name in sorted(names)
+                if name in self._resolver.symbols and self._resolver.symbols[name].kind in {6, 12}
+            ]
+            for function in callables:
+                for signature in self._resolver.overloads.get(function.qualified_name, ()) or [
+                    function
+                ]:
+                    detail = signature.detail
+                    types.append(
+                        "(" + detail.split("(", 1)[1] if "(" in detail else signature.qualified_name
+                    )
+                if not documentation and function.documentation:
+                    documentation = function.documentation
             if types:
                 declaration = symbol.name + ": " + " | ".join(sorted(types))
             elif declaration == symbol.name:
@@ -1213,8 +1305,8 @@ class SourceIndex:
         overloads = self._resolver.overloads.get(symbol.qualified_name, ())
         if overloads:
             value = "```python\n" + "\n".join(item.detail for item in overloads) + "\n```"
-        if symbol.documentation:
-            value += "\n\n" + symbol.documentation
+        if documentation:
+            value += "\n\n" + documentation
         return {"contents": {"kind": "markdown", "value": value}}
 
     def callable_at(self, uri, line, character):
@@ -1336,7 +1428,7 @@ class SourceIndex:
                 ]
                 if any(candidate and candidate.symbol_id in identities for candidate in candidates):
                     return []
-        if symbol.symbol_id.kind is SymbolKind.PARAMETER and any(
+        if any(
             identities.intersection(self._keyword_candidates.get(location, ()))
             for location in self._uncertain_keyword_ranges
         ):
@@ -1605,7 +1697,18 @@ class _IndexVisitor(ast.NodeVisitor):
             if not isinstance(node, ast.Module)
             else SourceRange(self.uri, 0, 0, len(self.lines), 0)
         )
-        self.index._scopes.append((location, scope.kind, tuple(scope.bindings.items())))
+        self.index._scopes.append(
+            (
+                _expanded_scope_range(
+                    location,
+                    scope.kind,
+                    self.lines,
+                    trailing_newline=self.source.endswith(("\n", "\r")),
+                ),
+                scope.kind,
+                tuple(scope.bindings.items()),
+            )
+        )
 
     def _target(self, node):
         if isinstance(node, ast.Name):
@@ -1646,6 +1749,15 @@ class _IndexVisitor(ast.NodeVisitor):
                     other = ("nonnull", other)
             return ("alternatives", (body, other))
         if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "super"
+                and self._resolve("super") is None
+            ):
+                if node.args:
+                    return ("super", self._target(node.args[0]))
+                if self._current_scope.class_id is not None:
+                    return ("super", ("symbol", self._current_scope.class_id))
             return ("instance", self._target(node.func))
         if isinstance(node, ast.Constant):
             return ("external", "builtins." + type(node.value).__name__)
@@ -2131,6 +2243,55 @@ class _IndexVisitor(ast.NodeVisitor):
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
+        generated = any(
+            self._qualified_expression_name(base)
+            in {"typing.NamedTuple", "typing_extensions.NamedTuple"}
+            for base in node.bases
+        )
+        for decorator in node.decorator_list:
+            head = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if self._qualified_expression_name(head) == "dataclasses.dataclass":
+                options = decorator.keywords if isinstance(decorator, ast.Call) else ()
+                generated = not any(
+                    item.arg == "init"
+                    and not (isinstance(item.value, ast.Constant) and item.value.value is True)
+                    for item in options
+                )
+        fields = []
+        if generated:
+            for item in node.body:
+                if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                    continue
+                annotation = (
+                    item.annotation.value
+                    if isinstance(item.annotation, ast.Subscript)
+                    else item.annotation
+                )
+                if self._qualified_expression_name(annotation) in {
+                    "typing.ClassVar",
+                    "typing_extensions.ClassVar",
+                    "dataclasses.KW_ONLY",
+                }:
+                    continue
+                if (
+                    isinstance(item.value, ast.Call)
+                    and self._qualified_expression_name(item.value.func) == "dataclasses.field"
+                    and any(
+                        kw.arg == "init"
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value is False
+                        for kw in item.value.keywords
+                    )
+                ):
+                    continue
+                fields.append(item.target.id)
+        if generated or symbol.constructor_fields is not None:
+            symbol = replace(symbol, constructor_fields=tuple(fields) if generated else None)
+            self.index._symbols_by_id[symbol.symbol_id] = symbol
+            self.index.symbols = [
+                symbol if item.symbol_id == symbol.symbol_id else item
+                for item in self.index.symbols
+            ]
         scoped = self._push_type_parameters(node, symbol)
         for base in node.bases:
             self.visit(base)
@@ -2146,6 +2307,13 @@ class _IndexVisitor(ast.NodeVisitor):
         self._pop_scope()
         if scoped:
             self._pop_type_parameters(node)
+
+    def _qualified_expression_name(self, node):
+        name = _call_name(node) or ""
+        head, separator, tail = name.partition(".")
+        return self.index._import_targets.get(self._resolve(head), head) + (
+            separator + tail if separator else ""
+        )
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         # Lambda defaults execute outside its anonymous function scope.
@@ -2470,6 +2638,8 @@ class _IndexVisitor(ast.NodeVisitor):
         callee = _call_name(node.func)
         if callee:
             self.index._call_targets[self._range(node.func)] = self._target(node.func)
+            if self._target(node)[0] == "super":
+                self.index._reference_targets[self._range(node.func)] = self._target(node)
             self.index.calls.append(
                 SourceCall(
                     self._current_function(),

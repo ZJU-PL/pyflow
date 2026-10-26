@@ -90,6 +90,11 @@ class WorkspaceResolver:
     def symbol(self, target, seen=frozenset()):
         if not target:
             return None
+        if target[0] == "super":
+            candidates = [
+                self.symbols[name] for name in self.names(target, seen) if name in self.symbols
+            ]
+            return candidates[0] if len(candidates) == 1 else None
         if target[0] == "external":
             return self.modules.get(target[1]) or self.symbols.get(target[1])
         if target[0] == "symbol":
@@ -126,10 +131,39 @@ class WorkspaceResolver:
         candidates = self.callable_candidates(target, seen)
         return candidates[0] if len(candidates) == 1 else None
 
+    def constructor_keyword(self, cls, name, parameters, seen=frozenset()):
+        if cls.qualified_name in seen:
+            return None
+        seen = seen | {cls.qualified_name}
+        explicit = self.symbols.get(cls.qualified_name + ".__init__")
+        if explicit is not None:
+            return dict(parameters.get(explicit.symbol_id, ())).get(name)
+        if cls.constructor_fields is None:
+            inherited = self.member(cls.qualified_name, "__init__")
+            if inherited is not None:
+                return dict(parameters.get(inherited.symbol_id, ())).get(name)
+        if cls.constructor_fields is not None and name in cls.constructor_fields:
+            field = self.member(cls.qualified_name, name)
+            return field.symbol_id if field else None
+        if cls.constructor_fields is not None and cls.qualified_name + "." + name in self.symbols:
+            return None
+        for base in self.bases.get(cls.qualified_name, ()):
+            for owner in self.names(base):
+                parent = self.symbols.get(owner)
+                if parent is not None:
+                    if parent.constructor_fields is None:
+                        continue
+                    parameter = self.constructor_keyword(parent, name, parameters, seen)
+                    if parameter is not None:
+                        return parameter
+        return None
+
     def denotes_instance(self, target, seen=frozenset()):
         if not target or target in seen or len(seen) > 64:
             return False
         seen = seen | {target}
+        if target[0] == "super":
+            return True
         if target[0] == "nonnull":
             return self.denotes_instance(target[1], seen)
         if target[0] == "alternatives":
@@ -175,6 +209,16 @@ class WorkspaceResolver:
             return frozenset()
         seen = seen | {target}
         kind = target[0]
+        if kind == "annotation":
+            return self.names(target[1], seen)
+        if kind == "super":
+            return frozenset().union(
+                *(
+                    self.names(base, seen)
+                    for owner in self.names(target[1], seen)
+                    for base in self.bases.get(owner, ())
+                )
+            )
         if kind == "external":
             return frozenset({target[1]})
         if kind == "match-args":
@@ -284,6 +328,8 @@ class WorkspaceResolver:
         if not target or target in seen or len(seen) > 64 or target[0] == "unknown":
             return False
         seen = seen | {target}
+        if target[0] == "super":
+            return self.is_complete(target[1], seen) and bool(self.names(target, frozenset()))
         if target[0] == "external":
             return True
         if target[0] == "nonnull":

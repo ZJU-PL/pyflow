@@ -2,7 +2,7 @@
 
 import ast
 import io
-import re
+import keyword
 import tokenize
 from .workspace import _position_to_offset, offset_to_lsp_character
 
@@ -30,6 +30,47 @@ def parameters(node):
     if args.kwarg:
         add(args.kwarg, None, "kwarg", "**")
     return tuple(result)
+
+
+def receiver_expression(tokens, end):
+    """Read a primary expression backwards, across physical line breaks."""
+    position = end - 1
+    pairs = {")": "(", "]": "[", "}": "{"}
+    while position >= 0:
+        token = tokens[position]
+        if token.type == tokenize.NAME and not keyword.iskeyword(token.string):
+            position -= 1
+        elif token.string in pairs:
+            closing = [token.string]
+            position -= 1
+            while position >= 0 and closing:
+                value = tokens[position].string
+                if value in pairs:
+                    closing.append(value)
+                elif value == pairs[closing[-1]]:
+                    closing.pop()
+                position -= 1
+            if closing:
+                return None
+            if position >= 0 and (
+                tokens[position].string in pairs
+                or tokens[position].type == tokenize.NAME
+                and not keyword.iskeyword(tokens[position].string)
+            ):
+                continue
+        else:
+            return None
+        if position >= 0 and tokens[position].string == ".":
+            position -= 1
+            continue
+        break
+    source = tokenize.untokenize(
+        [(token.type, token.string) for token in tokens[position + 1 : end]]
+    )
+    try:
+        return ast.parse(source, mode="eval").body
+    except SyntaxError:
+        return None
 
 
 def signature_help(index, uri, line, character):
@@ -74,20 +115,8 @@ def signature_help(index, uri, line, character):
     )
     if frame is None:
         return None
-    opening = tokens[frame[0]]
-    lines = text.splitlines(keepends=True)
-    absolute = sum(map(len, lines[: opening.start[0] - 1])) + opening.start[1]
-    receiver = text[:absolute]
-    # Try identifier-aligned suffixes on the callee's logical line.
-    start = receiver.rfind("\n") + 1
     bindings = index.visible_bindings_at(uri, line, character)
-    expression = None
-    for match in re.finditer(r"[^\W\d]\w*", receiver[start:]):
-        try:
-            expression = ast.parse(receiver[start + match.start() :], mode="eval").body
-        except SyntaxError:
-            continue
-        break
+    expression = receiver_expression(tokens, frame[0])
     if expression is None:
         return None
     target = index._position_target(expression, bindings)

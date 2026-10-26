@@ -2072,6 +2072,65 @@ class StaticTypeInferenceEngine:
         right: AbstractTypeValue,
         operator: ast.operator,
     ) -> AbstractTypeValue:
+        if any(isinstance(part, UnionType) for part in left.types):
+            left = left.join(AbstractTypeValue.bottom(), self.type_system)
+        if any(isinstance(part, UnionType) for part in right.types):
+            right = right.join(AbstractTypeValue.bottom(), self.type_system)
+        if isinstance(operator, ast.Mod):
+            if self._contains_raw(left, str) or self._contains_raw(left, bytes):
+                values = [
+                    (
+                        self._instance(part.type.raw_type)
+                        if isinstance(part, Instance) and part.type.raw_type in {str, bytes}
+                        else self._binary_result(AbstractTypeValue.from_type(part), right, operator)
+                    )
+                    for part in left.types
+                ]
+                if left.unknown:
+                    values.append(AbstractTypeValue.unresolved())
+                return join_all(values, self.type_system)
+            numeric = {bool, int, float, complex}
+            if (
+                left.types
+                and right.types
+                and all(
+                    isinstance(part, Instance) and part.type.raw_type in numeric
+                    for part in (*left.types, *right.types)
+                )
+            ):
+                return self._numeric_join((left, right))
+            # An unresolved format string does not make the formatting
+            # arguments a possible result of the operation.
+            return AbstractTypeValue.unresolved()
+        if isinstance(operator, ast.BitOr):
+            parts = (*left.types, *right.types)
+            for raw, arity in ((dict, 2), (set, 1), (frozenset, 1)):
+                if (
+                    left.types
+                    and right.types
+                    and all(
+                        isinstance(part, Instance) and part.type.raw_type is raw for part in parts
+                    )
+                ):
+                    arguments = [
+                        join_all(
+                            (
+                                AbstractTypeValue.from_type(
+                                    part.args[position] if position < len(part.args) else ANY
+                                )
+                                for part in parts
+                            ),
+                            self.type_system,
+                        ).public_type()
+                        or ANY
+                        for position in range(arity)
+                    ]
+                    value = self._instance(raw, *arguments)
+                    return (
+                        value.join(AbstractTypeValue.unresolved(), self.type_system)
+                        if left.unknown or right.unknown
+                        else value
+                    )
         if isinstance(operator, ast.Div):
             return self._instance(float)
         if isinstance(operator, ast.FloorDiv):
