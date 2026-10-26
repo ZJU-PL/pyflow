@@ -36,6 +36,7 @@ from pyflow.checker.ifds.reporting import (
     taint_finding_key,
     nullness_result_to_dict,
     typestate_result_to_dict,
+    source_span_for_node,
 )
 
 if TYPE_CHECKING:
@@ -481,11 +482,22 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
                 "termination_reason": str(e),
             }
         status, termination_reason = result_status(pollution_result)
-        result = {
-            "entry": entry_label,
-            "analysis": "class-pollution",
-            "findings": [
+        problem = getattr(pollution_result, "_problem", None)
+        adapter = getattr(problem, "adapter", None)
+        findings = []
+        for finding in pollution_result.findings:
+            location = source_span_for_node(adapter, finding.sink) if adapter is not None else None
+            procedure = getattr(getattr(finding.sink.procedure, "code", None), "name", None)
+            findings.append(
                 {
+                    "rule_id": "PYFLOW-CLASS-POLLUTION",
+                    "rule_title": "Dynamic class pollution",
+                    "message": f"{finding.sink_name} mutates a pollutable object",
+                    "primary_location": location.to_dict() if location else None,
+                    "procedure": procedure,
+                    "node_id": (
+                        adapter.supergraph.node_id(finding.sink) if adapter is not None else None
+                    ),
                     "sink_name": finding.sink_name,
                     "mutation_kind": finding.mutation_kind,
                     "proof_level": finding.proof_level,
@@ -506,8 +518,11 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
                     "confidence": finding.confidence,
                     "cwe": finding.cwe,
                 }
-                for finding in pollution_result.findings
-            ],
+            )
+        result = {
+            "entry": entry_label,
+            "analysis": "class-pollution",
+            "findings": findings,
             "diagnostics": list(pollution_result.diagnostics),
             "statistics": statistics_to_dict(pollution_result.statistics),
             "status": status,

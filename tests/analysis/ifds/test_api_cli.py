@@ -8,6 +8,8 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import pyflow.api.ifds as ifds_api
 import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.analysis.callgraph.publication as callgraph_publication
@@ -820,6 +822,14 @@ def test_load_analysis_session_with_entry_file_keeps_only_that_module_root(tmp_p
     session = load_analysis_session([entry, other], entry_file=entry)
 
     assert [ep.code.codeName() for ep in session.program.entryPoints] == ["entry.<module>"]
+
+
+def test_load_analysis_session_reports_entry_file_syntax_errors(tmp_path):
+    entry = tmp_path / "broken.py"
+    entry.write_text("def broken(:\n    pass\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="could not be parsed: SyntaxError: invalid syntax"):
+        load_analysis_session([entry], entry_file=entry)
 
 
 def test_entry_file_ignores_inferred_function_invocation_arguments(tmp_path):

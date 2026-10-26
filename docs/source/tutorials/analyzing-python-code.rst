@@ -284,7 +284,9 @@ Dump intermediate representations:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-ast fibonacci --dump-format json --dump-output ast.json
+   pyflow ir example.py --dump-ast fibonacci --dump-format json --dump-output out
+
+This writes ``out/fibonacci_ast.json``.
 
 Next Steps
 ==========

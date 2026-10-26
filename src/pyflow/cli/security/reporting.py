@@ -1,10 +1,49 @@
 """CLI output stream selection for the shared checker formatters."""
 
 import json
+import os
+import string
 import sys
 
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.formatters.security import security_json, security_sarif, security_text
+
+
+def _custom_report(engine: str, result, args, output) -> None:
+    """Render dict-based engine findings through the user's custom template."""
+    from pyflow.checker.formatters.custom import SafeMapper
+    from .filters import unified_report
+
+    template = getattr(args, "custom_template", None) or (
+        "{abspath}:{line}: {test_id} [{severity}] {msg}"
+    )
+    try:
+        parsed = list(string.Formatter().parse(template))
+        string.Formatter().vformat(template, (), SafeMapper(line=0))
+    except ValueError as error:
+        raise ValueError(f"Template is not in valid format: {error}") from error
+    if not any(field_name is not None for _, field_name, _, _ in parsed):
+        raise ValueError("No tags were found in the template. Are you missing '{}'?")
+
+    document = unified_report(engine, result)
+    for finding in document.get("findings", ()):
+        location = finding.get("location") or {}
+        filename = location.get("filename") or ""
+        line = location.get("line") or 0
+        values = SafeMapper(
+            abspath=os.path.abspath(filename) if filename else "",
+            relpath=os.path.relpath(filename) if filename else "",
+            line=line,
+            col=0,
+            end_col=0,
+            test_id=finding.get("rule_id") or "",
+            severity=finding.get("severity") or "",
+            msg=finding.get("message") or "",
+            confidence=finding.get("confidence") or "",
+            range=line,
+            cwe=finding.get("cwe") or "",
+        )
+        output.write(template.format_map(values) + "\n")
 
 
 def _output_results(engine: str, result, args) -> None:
@@ -62,10 +101,13 @@ def _output_results(engine: str, result, args) -> None:
             )
             json.dump(sarif_doc, output, indent=2)
             output.write("\n")
+        elif fmt == "custom":
+            _custom_report(engine, result, args, output)
         else:
-            # Unsupported format for dict-based engines, fall back to text
-            output.write(security_text(engine, result))
-            output.write("\n")
+            raise ValueError(
+                f"Format '{fmt}' is not supported for the {engine} engine; "
+                "use one of: text, json, sarif, custom"
+            )
     finally:
         if out_file:
             out_file.close()

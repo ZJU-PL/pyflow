@@ -288,6 +288,33 @@ def calculate():
     assert _run(result.source, "calculate")() == 42
 
 
+def test_legacy_fold_candidate_counts_as_a_constant_fold():
+    source = """\
+def calculate():
+    return 6 * 7
+"""
+    expression = ast.parse(source).body[0].body[0].value
+
+    result = optimize_source(source, legacy_candidates=[_candidate("fold", expression)])
+
+    assert result.legacy_candidates_applied == 1
+    assert result.constant_folds == 1
+
+
+def test_repeated_legacy_fold_candidates_at_one_span_count_once():
+    source = """\
+def calculate():
+    return 6 * 7
+"""
+    expression = ast.parse(source).body[0].body[0].value
+    candidate = _candidate("fold", expression)
+
+    result = optimize_source(source, legacy_candidates=[candidate, candidate])
+
+    assert result.legacy_candidates_applied == 2
+    assert result.constant_folds == 1
+
+
 def test_source_emitter_revalidates_and_applies_a_legacy_dce_candidate():
     source = """\
 def calculate():

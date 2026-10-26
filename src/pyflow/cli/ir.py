@@ -24,7 +24,7 @@ from pyflow.frontend.interface_builder import (
 )
 from pyflow.util.application.console import Console
 from pyflow.ir.cfg import transform, dump as cfg_dump, ssa
-from pyflow.ir.cfg.dump import generate_clang_style_cfg
+from pyflow.ir.cfg.dump import generate_clang_style_cfg, generate_json_cfg
 from pyflow.ir.cdg import construct_cdg, dump_cdg
 from pyflow.ir.ddg import construction, dump as ddg_dump
 from pyflow.ir.dataflow import convert
@@ -168,6 +168,50 @@ def _get_ast_content(func, function_name: str):
         raise ValueError(f"No AST available for function '{function_name}'")
 
 
+def _get_ast_node(func):
+    """Return the AST node for *func*, or ``None`` when unavailable."""
+    if hasattr(func, "ast") and func.ast:
+        return func.ast
+    code = getattr(func, "code", None)
+    if code is not None and getattr(code, "ast", None):
+        return code.ast
+    return None
+
+
+def _ast_node_to_json(node, depth: int = 0):
+    """Serialize a Python AST node into JSON-friendly structures."""
+    from pyflow.language.python import ast as py_ast
+
+    if depth > 200:
+        return "<max-depth>"
+    if node is None or isinstance(node, (str, int, float, bool)):
+        return node
+    if isinstance(node, (list, tuple)):
+        return [_ast_node_to_json(item, depth + 1) for item in node]
+    if isinstance(node, py_ast.PythonASTNode):
+        return {
+            "type": type(node).__name__,
+            "fields": {name: _ast_node_to_json(value, depth + 1) for name, value in node.fields()},
+        }
+    missing = object()
+    pyobj = getattr(node, "pyobj", missing)
+    if pyobj is not missing:
+        try:
+            json.dumps(pyobj)
+        except (TypeError, ValueError):
+            return repr(pyobj)
+        return pyobj
+    return repr(node)
+
+
+def _write_json_ir_file(output_file: str, label: str, payload) -> None:
+    """Write a JSON IR artifact without the text header used by text dumps."""
+    with open(output_file, "w", encoding="utf-8") as output:
+        json.dump(payload, output, indent=2)
+        output.write("\n")
+    print(f"{label} dumped to: {output_file}")
+
+
 def dump_ir(
     compiler,
     liveCode,
@@ -187,8 +231,20 @@ def dump_ir(
         output_file = os.path.join(output_dir, f"{function_name}_{ir_type.lower()}.{format}")
 
         if ir_type == "AST":
-            content = _get_ast_content(func, function_name)
-            write_ir_file(output_file, function_name, "AST", content)
+            if format == "json":
+                ast_node = _get_ast_node(func)
+                if ast_node is None:
+                    raise ValueError(f"No AST available for function '{function_name}'")
+                _write_json_ir_file(
+                    output_file,
+                    "AST",
+                    {"function": function_name, "ast": _ast_node_to_json(ast_node)},
+                )
+            elif format == "text":
+                content = _get_ast_content(func, function_name)
+                write_ir_file(output_file, function_name, "AST", content)
+            else:
+                raise ValueError("AST dumps support only text and json formats")
         elif ir_type == "CFG":
             cfg = transform.evaluate(compiler, func)
             if format == "dot":
@@ -203,9 +259,17 @@ def dump_ir(
                 except Exception as e:
                     print(f"Warning: DOT generation failed, falling back to text format: {e}")
                     write_ir_file(output_file, function_name, "CFG", str(cfg))
-            else:
+            elif format == "json":
+                _write_json_ir_file(
+                    output_file,
+                    "CFG",
+                    {"function": function_name, "cfg": generate_json_cfg(cfg)},
+                )
+            elif format == "text":
                 content = generate_clang_style_cfg(cfg)
                 write_ir_file(output_file, function_name, "CFG", content)
+            else:
+                raise ValueError("CFG dumps support only text, dot, and json formats")
         elif ir_type == "SSA":
             cfg = transform.evaluate(compiler, func)
             ssa.evaluate(compiler, cfg)
@@ -215,9 +279,17 @@ def dump_ir(
                 with open(output_file, "w", encoding="utf-8") as output:
                     output.write(graph.to_string())
                 print(f"SSA form dumped to: {output_file}")
-            else:
+            elif format == "json":
+                _write_json_ir_file(
+                    output_file,
+                    "SSA form",
+                    {"function": function_name, "ssa": generate_json_cfg(cfg)},
+                )
+            elif format == "text":
                 content = generate_clang_style_cfg(cfg)
                 write_ir_file(output_file, function_name, "SSA form", content)
+            else:
+                raise ValueError("SSA dumps support only text, dot, and json formats")
         return True
 
     return _dump_with_error_handling(ir_type, _dump_impl)

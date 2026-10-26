@@ -243,6 +243,17 @@ def _restrict_program_entry_points_to_file(
     )
     matching_codes = tuple(code for code in source_codes if _is_synthetic_module_code(code))
     if not matching_codes:
+        parse_errors = [
+            diagnostic
+            for diagnostic in getattr(program, "frontend_diagnostics", ())
+            if getattr(diagnostic, "stage", None) == "parse"
+            and os.path.realpath(str(getattr(diagnostic, "filename", ""))) == target_source
+        ]
+        if parse_errors:
+            details = "; ".join(
+                f"{diagnostic.exception_type}: {diagnostic.message}" for diagnostic in parse_errors
+            )
+            raise ValueError(f"Entry file '{entry_file}' could not be parsed: {details}")
         raise ValueError(f"Entry file '{entry_file}' has no executable module body.")
 
     from pyflow.model.entrypoints import nullWrapper

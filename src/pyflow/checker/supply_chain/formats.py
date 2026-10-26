@@ -181,9 +181,11 @@ def build_sarif_document(scan: SupplyChainScan) -> dict[str, Any]:
             },
         }
         if finding.location:
-            result["locations"] = [
-                {"physicalLocation": {"artifactLocation": {"uri": finding.location}}}
-            ]
+            physical_location: dict[str, Any] = {"artifactLocation": {"uri": finding.location}}
+            line = finding.details.get("line")
+            if isinstance(line, int) and line > 0:
+                physical_location["region"] = {"startLine": line}
+            result["locations"] = [{"physicalLocation": physical_location}]
         results.append(result)
     return sarif_document(
         "pyflow-supply-chain",

@@ -99,6 +99,50 @@ def parse_mir_args(path, *arguments):
     return parser.parse_args(["ir", str(path), "--dump-mir", *map(str, arguments)])
 
 
+def parse_ir_args(path, *arguments):
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    return parser.parse_args(["ir", str(path), *map(str, arguments)])
+
+
+@pytest.mark.parametrize(
+    ("flag", "key"),
+    [("--dump-ast", "ast"), ("--dump-cfg", "cfg"), ("--dump-ssa", "ssa")],
+)
+def test_structured_json_dumps_are_machine_readable(tmp_path, flag, key):
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "def f(n):\n"
+        "    total = 0\n"
+        "    for i in range(n):\n"
+        "        total += i\n"
+        "    return total\n"
+    )
+    destination = tmp_path / "out"
+    args = parse_ir_args(source, flag, "f", "--dump-format", "json", "--dump-output", destination)
+    ir_cli.run_ir_dump(source, args)
+
+    suffix = flag.removeprefix("--dump-")
+    payload = json.loads((destination / f"f_{suffix}.json").read_text(encoding="utf-8"))
+    assert payload["function"] == "f"
+    graph = payload[key]
+    if key == "ast":
+        assert graph["type"] == "Suite"
+    else:
+        assert graph["entry"] == "B0"
+        assert any(block["successors"] for block in graph["blocks"])
+
+
+def test_cfg_json_defaults_to_stdout_without_text_header(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def f(n):\n    return n + 1\n")
+    monkeypatch.chdir(tmp_path)
+    ir_cli.run_ir_dump(source, parse_ir_args(source, "--dump-cfg", "f", "--dump-format", "json"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["function"] == "f"
+    assert payload["cfg"]["entry"] == "B0"
+
+
 def test_mir_default_output_is_json_stdout_without_working_directory_artifacts(
     tmp_path, monkeypatch, capsys
 ):

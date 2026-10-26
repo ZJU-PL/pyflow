@@ -101,6 +101,23 @@ def test_alias_query_resolves_main_body(tmp_path, invoke):
     assert {"c", "d"} <= set(c_report["aliases"])
 
 
+def test_alias_query_ignores_interpreter_helper_parameters(tmp_path):
+    """Lowered ``obj.attr = value`` helpers must not leak ``name``/``value``."""
+    path = tmp_path / "attribute_aliases.py"
+    path.write_text(
+        "class C:\n"
+        "    attr = []\n"
+        "\n"
+        "def f(param):\n"
+        "    obj = C()\n"
+        "    obj.attr = param\n"
+        "    return obj\n"
+    )
+    report = json.loads(successful("query", path, "--get-aliases", "obj").stdout)
+    assert "obj" in report["aliases"]
+    assert not {"name", "value"} & set(report["aliases"])
+
+
 @pytest.mark.parametrize(
     "source",
     [

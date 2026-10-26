@@ -162,8 +162,8 @@ DOT visualization
 
 .. code-block:: bash
 
-   pyflow ir input.py --dump-cfg function_name --dump-format dot --dump-output cfg.dot
-   dot -Tpng cfg.dot -o cfg.png
+   pyflow ir input.py --dump-cfg function_name --dump-format dot --dump-output out
+   dot -Tpng out/function_name_cfg.dot -o cfg.png
 
 Advanced CFG Options
 ====================
@@ -177,7 +177,9 @@ JSON for programmatic access:
 
 .. code-block:: bash
 
-   pyflow ir input.py --dump-cfg function_name --dump-format json --dump-output cfg.json
+   pyflow ir input.py --dump-cfg function_name --dump-format json --dump-output out
+
+This writes ``out/function_name_cfg.json``.
 
 All CFGs for a file
 -------------------

@@ -342,3 +342,56 @@ def generate_clang_style_cfg(cfg):
         return content
     except Exception as e:
         return f"Error generating CFG: {e}"
+
+
+def generate_json_cfg(cfg):
+    """Generate a JSON-serializable CFG representation.
+
+    Mirrors :func:`generate_clang_style_cfg` so text and JSON dumps describe
+    the same blocks, block ids, and edges.
+    """
+    visited, queue, all_nodes = set(), [cfg.entryTerminal], []
+    while queue:
+        node = queue.pop(0)
+        if node in visited:
+            continue
+        visited.add(node)
+        all_nodes.append(node)
+        if hasattr(node, "next"):
+            queue.extend(
+                next_node
+                for next_node in node.next.values()
+                if next_node and next_node not in visited
+            )
+
+    node_to_block = {node: f"B{i}" for i, node in enumerate(all_nodes)}
+    blocks = []
+    for i, node in enumerate(all_nodes):
+        if node == cfg.entryTerminal:
+            kind = "entry"
+        elif node == cfg.normalTerminal:
+            kind = "exit"
+        elif node == cfg.failTerminal:
+            kind = "fail"
+        elif node == cfg.errorTerminal:
+            kind = "error"
+        else:
+            kind = type(node).__name__
+
+        condition = getattr(node, "condition", None)
+        blocks.append(
+            {
+                "id": f"B{i}",
+                "kind": kind,
+                "ops": [str(op) for op in getattr(node, "ops", ()) or ()],
+                "condition": str(condition) if condition else None,
+                "phi": [str(phi) for phi in getattr(node, "phi", ()) or ()],
+                "successors": [
+                    {"exit": name, "target": node_to_block[target]}
+                    for name, target in (getattr(node, "next", {}) or {}).items()
+                    if target is not None and target in node_to_block
+                ],
+            }
+        )
+
+    return {"entry": "B0" if all_nodes else None, "blocks": blocks}

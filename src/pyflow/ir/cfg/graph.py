@@ -897,3 +897,9 @@ class Code(object):
         self.normalTerminal = Exit(None)
         self.failTerminal = Exit(None)
         self.errorTerminal = Exit(None)
+
+    def __repr__(self):
+        """Return a stable representation without object addresses."""
+        code = getattr(self, "code", None)
+        name = getattr(code, "name", None)
+        return f"<Code {name}>" if name else "<Code>"

@@ -4,6 +4,7 @@ import unittest
 
 from pyflow.ir.cfg.graph import (
     CFGBlock,
+    Code,
     NoNormalFlow,
 )
 
@@ -112,6 +113,24 @@ class TestCFGBlock(unittest.TestCase):
         repr_str = repr(block)
         self.assertIn("CFGBlock", repr_str)
         self.assertIn("test", repr_str)
+
+
+class TestCodeRepr(unittest.TestCase):
+    """Test cases for the stable Code representation."""
+
+    def test_repr_without_code_object(self):
+        self.assertEqual(repr(Code()), "<Code>")
+
+    def test_repr_names_the_function_without_addresses(self):
+        code = Code()
+
+        class _AstCode:
+            name = "handler"
+
+        code.code = _AstCode()
+        rendered = repr(code)
+        self.assertEqual(rendered, "<Code handler>")
+        self.assertNotIn("0x", rendered)
 
 
 class TestNoNormalFlow(unittest.TestCase):

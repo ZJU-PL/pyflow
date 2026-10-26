@@ -217,3 +217,18 @@ def test_sarif_contains_stable_fingerprints():
     assert document["version"] == "2.1.0"
     assert result["ruleId"] == "known-vulnerability"
     assert result["partialFingerprints"]["pyflowFindingId"]
+
+
+def test_sarif_reports_source_region_from_finding_details():
+    finding = SupplyChainFinding(
+        kind="unpinned-requirement",
+        message="Dependency is not pinned to one immutable version",
+        location="requirements.txt",
+        severity="MEDIUM",
+        details={"line": 2, "requirement": "flask>=0.12"},
+    )
+    document = build_sarif_document(SupplyChainScan(components=(), findings=(finding,)))
+
+    physical_location = document["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+    assert physical_location["artifactLocation"]["uri"] == "requirements.txt"
+    assert physical_location["region"] == {"startLine": 2}

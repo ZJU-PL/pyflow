@@ -45,6 +45,79 @@ def test_every_engine_has_clean_stdout_and_common_unified_finding_fields(engine,
         assert item["location"]["line"] > 0
 
 
+def test_ifds_class_pollution_findings_have_source_locations(tmp_path, capsys):
+    sample = tmp_path / "pollution.py"
+    sample.write_text(
+        "def main(obj, key, value):\n"
+        "    target = getattr(obj, key)\n"
+        "    setattr(target, key, value)\n",
+        encoding="utf-8",
+    )
+
+    code = run_security(
+        _args(
+            sample,
+            "--engine",
+            "ifds",
+            "--analysis",
+            "class-pollution",
+            "--format",
+            "json",
+            "--json-schema",
+            "unified",
+        )
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["findings"]
+    finding = report["findings"][0]
+    assert finding["rule_id"] == "PYFLOW-CLASS-POLLUTION"
+    assert finding["location"]["filename"].endswith("pollution.py")
+    assert finding["location"]["line"] == 3
+    assert "setattr" in finding["message"]
+
+
+def test_ifds_custom_format_honours_the_template(tmp_path, capsys):
+    sample = tmp_path / "pollution.py"
+    sample.write_text(
+        "def main(obj, key, value):\n"
+        "    target = getattr(obj, key)\n"
+        "    setattr(target, key, value)\n",
+        encoding="utf-8",
+    )
+
+    code = run_security(
+        _args(
+            sample,
+            "--engine",
+            "ifds",
+            "--analysis",
+            "class-pollution",
+            "--format",
+            "custom",
+            "--custom-template",
+            "{test_id}|{severity}|{line}|{msg}",
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "PYFLOW-CLASS-POLLUTION|critical|3|setattr mutates a pollutable object" in output
+
+
+def test_ifds_rejects_formats_it_cannot_render(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f():\n    pass\n", encoding="utf-8")
+
+    code = run_security(_args(sample, "--engine", "ifds", "--format", "csv"))
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "not supported for the ifds engine" in captured.err
+    assert captured.out == ""
+
+
 @pytest.mark.parametrize("engine", ["ast-scanner", "ast-dataflow", "ifds", "cpg"])
 def test_baseline_suppression_precedes_findings_gate(engine, tmp_path, capsys):
     path = tmp_path / "app.py"

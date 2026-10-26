@@ -490,6 +490,22 @@ class _LegacyCandidateRewriter(ast.NodeTransformer):
         return len(self._applied)
 
     @property
+    def applied_folds(self) -> int:
+        """Number of distinct source spans folded by legacy candidates.
+
+        The IR can record the same source expression once per optimization
+        pass, so count spans rather than candidate records.
+        """
+        spans = set()
+        for index in self._applied:
+            candidate = self._candidates[index]
+            if candidate.get("kind") != "fold":
+                continue
+            span = _candidate_span(candidate)
+            spans.add(span if span is not None else ("candidate", index))
+        return len(spans)
+
+    @property
     def rejection_counts(self) -> dict[str, int]:
         for index, candidate in enumerate(self._candidates):
             if index in self._applied or index in self._rejections:
@@ -778,6 +794,9 @@ def optimize_source(
         legacy_candidates_applied = candidate_rewriter.applied
         legacy_candidates_rejected = candidate_rewriter.rejected
         legacy_candidate_rejections = tuple(sorted(candidate_rewriter.rejection_counts.items()))
+        # A legacy ``fold`` candidate is a constant fold even though the source
+        # literal folder no longer sees the original expression.
+        constant_folds += candidate_rewriter.applied_folds
     else:
         legacy_candidates_rejected = len(candidate_list)
         legacy_candidate_rejections = (("optimization_level_disabled", len(candidate_list)),)

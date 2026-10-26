@@ -25,6 +25,19 @@ from .context import QueryContext
 LOG = logging.getLogger(__name__)
 
 
+def _is_interpreter_helper(symbol) -> bool:
+    """Whether *symbol* belongs to a compiler-inserted interpreter helper.
+
+    Lowering turns operations such as ``obj.attr = value`` into calls to
+    ``interpreter_setattr(obj, "attr", value)``.  Those helper parameters share
+    source-level names like ``obj`` and ``value``; including them in a
+    name-based alias join reports helper locals as user aliases.
+    """
+    code = getattr(getattr(symbol.id, "scope", None), "code", None)
+    qualname = getattr(code, "qualname", "")
+    return qualname.rsplit(".", 1)[-1].startswith("interpreter_")
+
+
 class DataFlowQueries:
     """Encapsulates IPA-driven facts in a task-aware facade."""
 
@@ -137,6 +150,7 @@ class DataFlowQueries:
             symbol
             for symbol in facts.catalog.symbols
             if symbol.kind not in {SymbolKind.RETURN, SymbolKind.TEMPORARY}
+            and not _is_interpreter_helper(symbol)
         )
         selected = [symbol for symbol in symbols if symbol.display_name == variable]
         if selected:
