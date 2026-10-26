@@ -177,8 +177,8 @@ analysis results.</p>
 <section id="ir-dumps-with-dot">
 <h3>IR Dumps with DOT<a class="headerlink" href="#ir-dumps-with-dot" title="Link to this heading"></a></h3>
 <p>For professional vector graphics, use the IR dump command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>cfg.dot
-dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>out
+dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
 </pre></div>
 </div>
 </section>
@@ -251,7 +251,8 @@ G.draw<span class="o">(</span><span class="s2">"callgraph.png"</span><span class
 <h2>Visualizing Control Flow Graphs<a class="headerlink" href="#visualizing-control-flow-graphs" title="Link to this heading"></a></h2>
 <section id="basic-cfg-visualization">
 <h3>Basic CFG visualization<a class="headerlink" href="#basic-cfg-visualization" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>cfg.dot
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>out
+dot<span class="w"> </span>-Tpng<span class="w"> </span>out/function_name_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
 </pre></div>
 </div>
 </section>

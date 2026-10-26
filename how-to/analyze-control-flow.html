@@ -297,8 +297,8 @@ Block 2 → Block 3 (loop exit edge)
 </section>
 <section id="dot-visualization">
 <h3>DOT visualization<a class="headerlink" href="#dot-visualization" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>cfg.dot
-dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>out
+dot<span class="w"> </span>-Tpng<span class="w"> </span>out/function_name_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
 </pre></div>
 </div>
 </section>
@@ -309,9 +309,10 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> 
 <h3>Multiple formats<a class="headerlink" href="#multiple-formats" title="Link to this heading"></a></h3>
 <p>Choose the output format that best fits your needs:</p>
 <p>JSON for programmatic access:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--dump-output<span class="w"> </span>cfg.json
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--dump-output<span class="w"> </span>out
 </pre></div>
 </div>
+<p>This writes <code class="docutils literal notranslate"><span class="pre">out/function_name_cfg.json</span></code>.</p>
 </section>
 <section id="all-cfgs-for-a-file">
 <h3>All CFGs for a file<a class="headerlink" href="#all-cfgs-for-a-file" title="Link to this heading"></a></h3>

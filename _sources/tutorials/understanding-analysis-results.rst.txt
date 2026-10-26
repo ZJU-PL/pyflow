@@ -71,13 +71,13 @@ DOT format is available for IR dumps via ``pyflow ir``:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-cfg main --dump-format dot --dump-output cfg.dot
+   pyflow ir example.py --dump-cfg main --dump-format dot --dump-output out
 
 Then render to an image:
 
 .. code-block:: bash
 
-   dot -Tpng cfg.dot -o cfg.png
+   dot -Tpng out/main_cfg.dot -o cfg.png
 
 Interpreting Call Graph Results
 ===============================

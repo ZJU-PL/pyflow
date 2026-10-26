@@ -235,12 +235,15 @@ Inspect intermediate representations:
    pyflow ir input.py \
        --dump-ast function_name \
        --dump-format json \
-       --dump-output ast.json
+       --dump-output out
 
    pyflow ir input.py \
        --dump-cfg function_name \
        --dump-format json \
-       --dump-output cfg.json
+       --dump-output out
+
+``--dump-output`` is a directory: these write ``out/function_name_ast.json``
+and ``out/function_name_cfg.json``.
 
 Debug Mode
 ----------

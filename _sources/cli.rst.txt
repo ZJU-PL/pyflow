@@ -212,7 +212,7 @@ Options:
 - ``--ast-max-seconds``: Total AST-dataflow budget including source preparation (default: 30 seconds)
 - ``--ifds-total-max-seconds``: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted
 - ``--framework``: Framework rule packs for the CPG engine
-- ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
+- ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``. The ``ifds`` and ``cpg`` engines support ``text``, ``json``, ``sarif``, and ``custom``; requesting another format is an error rather than a silent text fallback.
 - ``--output``: Output file path
 - ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
 - ``-r, --recursive``: Directory targets automatically enable recursive scanning; IFDS retains entry discovery/selection

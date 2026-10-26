@@ -371,14 +371,16 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>file2.py
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-ast<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--dump-output<span class="w"> </span>ast.json
+<span class="w">    </span>--dump-output<span class="w"> </span>out
 
 pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--dump-output<span class="w"> </span>cfg.json
+<span class="w">    </span>--dump-output<span class="w"> </span>out
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">--dump-output</span></code> is a directory: these write <code class="docutils literal notranslate"><span class="pre">out/function_name_ast.json</span></code>
+and <code class="docutils literal notranslate"><span class="pre">out/function_name_cfg.json</span></code>.</p>
 </section>
 <section id="debug-mode">
 <h3>Debug Mode<a class="headerlink" href="#debug-mode" title="Link to this heading"></a></h3>

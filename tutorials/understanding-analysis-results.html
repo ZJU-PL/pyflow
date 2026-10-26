@@ -216,11 +216,11 @@ Edges:
 <section id="dot-format">
 <h3>DOT Format<a class="headerlink" href="#dot-format" title="Link to this heading"></a></h3>
 <p>DOT format is available for IR dumps via <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">ir</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>cfg.dot
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>out
 </pre></div>
 </div>
 <p>Then render to an image:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
 </pre></div>
 </div>
 </section>
