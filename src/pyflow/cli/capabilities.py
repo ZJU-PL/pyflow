@@ -158,12 +158,34 @@ def run_capabilities(args) -> int:
     from pyflow.checker.capability.model import CapabilityAnalysisResult
 
     result = CapabilityAnalysisResult()
+    analyzed_entries = 0
+    failed_entries = 0
     try:
         with analysis_time_budget(getattr(args, "max_seconds", 30.0)), redirect_stdout(sys.stderr):
             for entry in entries:
-                analyzed = analysis.analyze_project(
-                    entry, project_path=project_root, import_level=args.import_depth
-                )
+                try:
+                    analyzed = analysis.analyze_project(
+                        entry, project_path=project_root, import_level=args.import_depth
+                    )
+                except (OSError, SyntaxError, UnicodeError) as exc:
+                    from pyflow.checker.capability.model import (
+                        CapabilityDiagnostic,
+                        SourceLocation,
+                    )
+
+                    failed_entries += 1
+                    result.diagnostics.append(
+                        CapabilityDiagnostic(
+                            kind="unsupported",
+                            message=(f"Could not analyze {entry}: " f"{type(exc).__name__}: {exc}"),
+                            location=SourceLocation(
+                                str(entry),
+                                line=getattr(exc, "lineno", 0) or 0,
+                            ),
+                        )
+                    )
+                    continue
+                analyzed_entries += 1
                 result.findings.extend(analyzed.findings)
                 result.diagnostics.extend(analyzed.diagnostics)
                 if analyzed.status != "complete":
@@ -174,6 +196,8 @@ def run_capabilities(args) -> int:
         result.diagnostics.append(CapabilityDiagnostic(kind="budget", message=str(exc)))
         result.status = "partial"
     result.finalize()
+    if failed_entries and not analyzed_entries:
+        result.status = "failed"
     if args.format == "json":
         rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True)
     elif args.format == "sarif":

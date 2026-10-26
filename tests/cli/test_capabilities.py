@@ -233,6 +233,44 @@ def test_capabilities_findings_exit_policy_is_opt_in(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["findings"]
 
 
+def test_capabilities_directory_survives_syntax_errors(tmp_path, capsys):
+    (tmp_path / "good.py").write_text("import subprocess\nsubprocess.run(['id'])\n")
+    (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(["capabilities", str(tmp_path), "--recursive", "--format", "json"])
+
+    assert run_capabilities(args) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "partial"
+    assert any(finding["capability"] == "process.execute" for finding in payload["findings"])
+    bad = next(
+        item for item in payload["diagnostics"] if item["location"]["file"].endswith("bad.py")
+    )
+    assert bad["kind"] == "unsupported"
+    assert "SyntaxError" in bad["message"]
+    assert "Traceback" not in captured.err
+
+
+def test_capabilities_single_syntax_error_returns_clean_json(tmp_path, capsys):
+    bad = tmp_path / "bad.py"
+    bad.write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(["capabilities", str(bad), "--format", "json"])
+
+    assert run_capabilities(args) == 2
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "failed"
+    assert payload["diagnostics"][0]["kind"] == "unsupported"
+    assert "SyntaxError" in payload["diagnostics"][0]["message"]
+    assert "Traceback" not in captured.err
+
+
 def test_default_text_summarizes_internal_diagnostics_but_verbose_expands():
     from types import SimpleNamespace
     from pyflow.cli.capabilities import _to_text

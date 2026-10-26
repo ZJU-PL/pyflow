@@ -91,6 +91,26 @@ def _source_query_index(input_path: Path) -> SourceIndex:
 
 def _dispatch_source_query(index: SourceIndex, args) -> object:
     """Dispatch queries that can be answered directly from Python source."""
+    stale = sorted(
+        path for path, shard in index._file_indices.items() if getattr(shard, "syntax_stale", False)
+    )
+    if stale:
+        import ast
+
+        from pyflow.language.source_compat import normalize_legacy_python_syntax
+
+        single_file = len(index.source_files) == 1
+        for path in stale:
+            try:
+                ast.parse(
+                    normalize_legacy_python_syntax(index.source_files[path]),
+                    filename=path,
+                )
+            except (SyntaxError, ValueError, RecursionError) as exc:
+                label = "Error" if single_file else "Warning"
+                print(f"{label}: Could not parse {path}: {exc}", file=sys.stderr)
+        if single_file:
+            sys.exit(1)
     return sorted(symbol.qualified_name for symbol in index.symbols if symbol.kind in {6, 12})
 
 
@@ -117,15 +137,18 @@ def _callgraph_entry(input_path: Path) -> Path:
 def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
     """Run the dedicated callgraph analysis without IPA or CPA."""
     entry = _callgraph_entry(input_path).resolve()
-    source = entry.read_text(encoding="utf-8")
-    callgraph = extract_call_graph_constraint(
-        source,
-        source_path=str(entry),
-        allocation_site_sensitive_instances=False,
-        skip_stdlib_modules=True,
-        canonical_entry_names=True,
-        additional_sources=_source_query_index(input_path).source_files,
-    )
+    try:
+        source = entry.read_text(encoding="utf-8")
+        callgraph = extract_call_graph_constraint(
+            source,
+            source_path=str(entry),
+            allocation_site_sensitive_instances=False,
+            skip_stdlib_modules=True,
+            canonical_entry_names=True,
+            additional_sources=_source_query_index(input_path).source_files,
+        )
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise ValueError(f"Could not analyze {entry}: {exc}") from exc
     return {caller: sorted(callees) for caller, callees in sorted(callgraph.get().items())}
 
 
@@ -221,7 +244,10 @@ def add_query_parser(subparsers):
         "--get-type",
         nargs=3,
         metavar=("MODULE", "LINE", "COL"),
-        help="Get type at source position",
+        help=(
+            "Get type at source position (MODULE is a module name such as "
+            "'pkg.mod'; LINE is 1-based; COL is a 0-based column)"
+        ),
     )
     p.add_argument(
         "--include-diagnostics",
@@ -350,9 +376,30 @@ def _run_query(args):
             print(f"Error: '{input_path}' not found", file=sys.stderr)
             sys.exit(1)
 
+    _fail_on_unparsed_input(server.program, input_path)
     result = _dispatch_query(server, args)
 
     _write_query_result(result, args)
+
+
+def _fail_on_unparsed_input(program, input_path: Path) -> None:
+    """Report parse failures for a single-file query instead of empty results."""
+    if not input_path.is_file():
+        return
+    failures = [
+        diagnostic
+        for diagnostic in getattr(program, "frontend_diagnostics", ())
+        if getattr(diagnostic, "stage", None) == "parse"
+    ]
+    if not failures:
+        return
+    for diagnostic in failures:
+        print(
+            f"Error: Could not parse {diagnostic.filename}: "
+            f"{diagnostic.exception_type}: {diagnostic.message}",
+            file=sys.stderr,
+        )
+    sys.exit(1)
 
 
 def _write_query_result(result: object, args) -> None:

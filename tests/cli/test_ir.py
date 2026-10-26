@@ -347,3 +347,35 @@ def test_default_mir_json_does_not_expand_local_dependency_tree(tmp_path, capsys
     assert "sample.worker" in report["cfgs"]
     assert "dependency.run" not in report["cfgs"]
     assert report["status"] == "partial"
+
+
+def test_ir_single_syntax_error_reports_parse_failure(tmp_path, capsys):
+    source = tmp_path / "bad.py"
+    source.write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    args = parser.parse_args(["ir", str(source), "--dump-ast", "f"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        ir_cli.run_ir_dump(source, args)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Could not parse" in captured.err
+    assert "invalid syntax" in captured.err
+
+
+def test_ir_mixed_directory_still_dumps_good_files(tmp_path, capsys):
+    (tmp_path / "good.py").write_text("def f(x):\n    return x\n", encoding="utf-8")
+    (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
+    output = tmp_path / "out"
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    args = parser.parse_args(["ir", str(tmp_path), "--dump-ast", "f", "--dump-output", str(output)])
+
+    ir_cli.run_ir_dump(tmp_path, args)
+
+    captured = capsys.readouterr()
+    assert any(output.glob("f_ast.*"))
+    assert "Could not parse" in captured.out + captured.err

@@ -218,6 +218,27 @@ def run_analysis(input_path, args):
         console = compiler.console
         legacy_results = None
 
+        parse_failures = [
+            diagnostic
+            for diagnostic in getattr(program, "frontend_diagnostics", ())
+            if getattr(diagnostic, "stage", None) == "parse"
+        ]
+        if parse_failures:
+            for diagnostic in parse_failures:
+                print(
+                    f"Error: Could not parse {diagnostic.filename}: "
+                    f"{diagnostic.exception_type}: {diagnostic.message}",
+                    file=sys.stderr,
+                )
+            failed_paths = {
+                os.path.realpath(str(diagnostic.filename)) for diagnostic in parse_failures
+            }
+            python_files = [
+                path for path in python_files if os.path.realpath(str(path)) not in failed_paths
+            ]
+            if not python_files:
+                sys.exit(1)
+
         if not program.interface.func and not getattr(program.interface, "cls", ()):
             emit_path = getattr(args, "emit_optimized", None)
             if emit_path:

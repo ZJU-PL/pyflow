@@ -195,6 +195,53 @@ def test_concolic_cli_scans_project_and_writes_json(tmp_path, capsys):
     )
 
 
+def _concolic_args(*argv):
+    parser = argparse.ArgumentParser()
+    concolic.add_concolic_parser(parser.add_subparsers())
+    return parser.parse_args(["concolic", *map(str, argv)])
+
+
+def test_concolic_single_file_writes_json_output(tmp_path, capsys):
+    target = tmp_path / "target.py"
+    target.write_text("def f(x: int) -> int:\n    return x + 1\n", encoding="utf-8")
+    report = tmp_path / "report.json"
+
+    assert (
+        concolic.run_concolic(_concolic_args(target, "--entry", "f", "--json-output", report)) == 0
+    )
+
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["entry"] == "f"
+    assert "JSON report:" in capsys.readouterr().out
+
+
+def test_concolic_single_file_reports_unwritable_json_output(tmp_path, capsys):
+    target = tmp_path / "target.py"
+    target.write_text("def f(x: int) -> int:\n    return x + 1\n", encoding="utf-8")
+    report = tmp_path / "missing" / "report.json"
+
+    assert (
+        concolic.run_concolic(_concolic_args(target, "--entry", "f", "--json-output", report)) == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not write concolic report" in captured.err
+
+
+def test_concolic_json_output_cannot_overwrite_input(tmp_path, capsys):
+    target = tmp_path / "target.py"
+    source = "def f(x: int) -> int:\n    return x + 1\n"
+    target.write_text(source, encoding="utf-8")
+
+    assert (
+        concolic.run_concolic(_concolic_args(target, "--entry", "f", "--json-output", target)) == 2
+    )
+
+    assert target.read_text(encoding="utf-8") == source
+    assert "cannot overwrite" in capsys.readouterr().err
+
+
 def test_concolic_has_finite_default_budgets():
     parser = argparse.ArgumentParser()
     concolic.add_concolic_parser(parser.add_subparsers())

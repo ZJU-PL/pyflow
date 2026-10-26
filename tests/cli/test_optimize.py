@@ -399,3 +399,45 @@ def test_run_analysis_empty_directory_hints_recursive_flag(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "No Python files found" in output
     assert "-r/--recursive" in output
+
+
+def test_run_analysis_single_syntax_error_exits_nonzero(tmp_path, capsys):
+    import pytest
+
+    source = tmp_path / "bad.py"
+    source.write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    optimize.add_optimize_parser(parser.add_subparsers())
+    args = parser.parse_args(["optimize", str(source)])
+
+    with pytest.raises(SystemExit) as excinfo:
+        optimize.run_analysis(source, args)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "Could not parse" in captured.err
+    assert "invalid syntax" in captured.err
+
+
+def test_run_analysis_mixed_directory_skips_unparsable_files(tmp_path, capsys):
+    (tmp_path / "good.py").write_text("x = 1 + 2\n", encoding="utf-8")
+    (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
+    destination = tmp_path.parent / f"{tmp_path.name}-optimized"
+    parser = argparse.ArgumentParser()
+    optimize.add_optimize_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        [
+            "optimize",
+            str(tmp_path),
+            "--recursive",
+            "--emit-optimized",
+            str(destination),
+        ]
+    )
+
+    optimize.run_analysis(tmp_path, args)
+
+    captured = capsys.readouterr()
+    assert (destination / "good.py").read_text(encoding="utf-8") == "x = 3\n"
+    assert not (destination / "bad.py").exists()
+    assert "Could not parse" in captured.err

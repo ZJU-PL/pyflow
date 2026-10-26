@@ -1052,6 +1052,33 @@ class TestCPGConstruction(unittest.TestCase):
 
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_directory_reports_parse_failures_instead_of_silently_skipping(self):
+        import os
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, "good.py"), "w") as f:
+                f.write("def foo(x):\n    return x\n")
+            with open(os.path.join(tmp, "bad.py"), "w") as f:
+                f.write("def broken(:\n    pass\n")
+            cpg = build_cpg_from_directory(tmp)
+            self.assertGreater(len(cpg.functions), 0)
+            parse_errors = [
+                diagnostic
+                for diagnostic in cpg.construction_diagnostics
+                if diagnostic.get("code") == "cpg-source-parse-failed"
+            ]
+            self.assertEqual(len(parse_errors), 1)
+            diagnostic = parse_errors[0]
+            self.assertTrue(diagnostic["message"].startswith("Could not parse "))
+            self.assertEqual(diagnostic["filename"], os.path.realpath(os.path.join(tmp, "bad.py")))
+            self.assertEqual(diagnostic["line"], 1)
+        finally:
+            import shutil
+
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_directory_calls_use_real_sites_not_import_cartesian_product(self):
         import os
         import tempfile

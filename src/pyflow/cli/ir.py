@@ -670,6 +670,23 @@ def _run_ir_dump(input_path: Path, args):
         with console.scope("extraction"):
             extract_program(compiler, program)
 
+        parse_failures = [
+            diagnostic
+            for diagnostic in getattr(program, "frontend_diagnostics", ())
+            if getattr(diagnostic, "stage", None) == "parse"
+        ]
+        failed_paths = {os.path.realpath(str(diagnostic.filename)) for diagnostic in parse_failures}
+        if parse_failures and all(
+            os.path.realpath(str(path)) in failed_paths for path in python_files
+        ):
+            for diagnostic in parse_failures:
+                print(
+                    f"Error: Could not parse {diagnostic.filename}: "
+                    f"{diagnostic.exception_type}: {diagnostic.message}",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
+
         if program.liveCode:
             print(
                 f"Created {len(program.liveCode)} entry points from {len(program.liveCode)} functions"

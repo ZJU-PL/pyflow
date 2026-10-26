@@ -154,7 +154,24 @@ def build_cpg_from_directory(
     # PDGs have been registered.  The former import-level CallGraph connected
     # every function in an importing file to every function in the imported
     # file, creating a quadratic, semantically spurious supergraph.
-    return _build_cpg_from_program(compiler, program, deadline=deadline, **kwargs)
+    cpg = _build_cpg_from_program(compiler, program, deadline=deadline, **kwargs)
+    for diagnostic in getattr(program, "frontend_diagnostics", ()):
+        stage = str(getattr(diagnostic, "stage", "") or "")
+        filename = str(getattr(diagnostic, "filename", "") or "")
+        exception_type = str(getattr(diagnostic, "exception_type", "") or "")
+        message = str(getattr(diagnostic, "message", "") or "")
+        code = "cpg-source-parse-failed" if stage == "parse" else "cpg-source-extraction-failed"
+        action = "parse" if stage == "parse" else "extract"
+        cpg.add_construction_diagnostic(
+            code=code,
+            message=f"Could not {action} {filename}: {exception_type}: {message}".rstrip(": "),
+            function=None,
+            stage=stage or "extractor",
+            filename=filename or None,
+            line=getattr(diagnostic, "line", None),
+            affects_completeness=True,
+        )
+    return cpg
 
 
 def _build_cpg_from_program(

@@ -304,7 +304,10 @@ def add_security_parser(subparsers):
             "yaml",
         ],
         default="text",
-        help="Output format",
+        help=(
+            "Output format (text, json, sarif, and custom work with every engine; "
+            "csv, html, screen, xml, and yaml are AST-engine only)"
+        ),
     )
     p.add_argument(
         "--output",

@@ -235,14 +235,30 @@ def run_concolic(args) -> int:
             print(f"Error: could not emit pytest: {error}", file=sys.stderr)
             return 1
 
+    payload = result.to_dict()
+    if generation is not None:
+        assert pytest_path is not None
+        payload["pytest_generation"] = {
+            "path": str(Path(pytest_path)),
+            **generation.to_dict(),
+        }
+    output_path = getattr(args, "json_output", None)
+    if output_path:
+        report_path = Path(output_path)
+        input_path = Path(args.input_path)
+        if report_path.resolve() == input_path.resolve():
+            print("Error: --json-output cannot overwrite the input file", file=sys.stderr)
+            return 2
+        try:
+            report_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as error:
+            print(f"Error: could not write concolic report: {error}", file=sys.stderr)
+            return 1
+
     if args.json:
-        payload = result.to_dict()
-        if generation is not None:
-            assert pytest_path is not None
-            payload["pytest_generation"] = {
-                "path": str(Path(pytest_path)),
-                **generation.to_dict(),
-            }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         parameters = ", ".join(result.parameter_names)
@@ -278,6 +294,8 @@ def run_concolic(args) -> int:
             print(f"Generated {len(generation.emitted_runs)} pytest test(s) " f"at {pytest_path}")
             for skipped in generation.skipped:
                 print(f"  skipped: {skipped}")
+        if output_path:
+            print(f"JSON report: {output_path}")
     return 0
 
 

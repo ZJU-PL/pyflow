@@ -3001,6 +3001,14 @@ class FormalCPGTaintAnalysis:
                         else None
                     ),
                     PrecisionLevel.UNSUPPORTED.value,
+                    filename=(
+                        str(diagnostic["filename"])
+                        if diagnostic.get("filename") is not None
+                        else None
+                    ),
+                    line=(
+                        int(diagnostic["line"]) if isinstance(diagnostic.get("line"), int) else None
+                    ),
                     operation=(
                         str(diagnostic["stage"]) if diagnostic.get("stage") is not None else None
                     ),
