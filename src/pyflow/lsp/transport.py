@@ -319,6 +319,10 @@ class JsonRpcServer:
 
         return self._result(msg_id, result) if has_id else None
 
+    async def notify(self, method: str, params: Any) -> None:
+        """Send a server notification through the same framed, locked stream."""
+        await self._send({"jsonrpc": "2.0", "method": method, "params": params})
+
     async def _send(self, payload: Any) -> None:
         """Write a framed JSON-RPC message to stdout."""
         msg = _create_message(payload)

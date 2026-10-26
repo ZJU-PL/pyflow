@@ -28,6 +28,11 @@ class LspHandler:
         self._diagnostic_lock = asyncio.Lock()
         self._rpc = None
         self._analysis_task = None
+        self._push_diagnostics = True
+        self._publish_versions = True
+        self._open_documents = {}
+        self._publish_tasks = {}
+        self._publish_epochs = {}
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         self._rpc = rpc
@@ -40,6 +45,7 @@ class LspHandler:
         rpc.register_notification("textDocument/didOpen", self._handle_did_open)
         rpc.register_notification("textDocument/didChange", self._handle_did_change)
         rpc.register_notification("textDocument/didClose", self._handle_did_close)
+        rpc.register_notification("textDocument/didSave", self._handle_did_save)
         rpc.register_notification("workspace/didChangeWatchedFiles", self._handle_watched_files)
         rpc.register_notification(
             "workspace/didChangeWorkspaceFolders",
@@ -83,6 +89,11 @@ class LspHandler:
         self._initial_semantics = bool(
             (params.get("initializationOptions") or {}).get("semanticAnalysis", False)
         )
+        document_caps = (params.get("capabilities") or {}).get("textDocument") or {}
+        self._push_diagnostics = "diagnostic" not in document_caps
+        self._publish_versions = (document_caps.get("publishDiagnostics") or {}).get(
+            "versionSupport", True
+        )
         folders = params.get("workspaceFolders") or []
         workspace_paths = [
             uri_to_path(folder["uri"])
@@ -109,7 +120,7 @@ class LspHandler:
 
         self._capabilities = {
             "positionEncoding": "utf-16",
-            "textDocumentSync": {"openClose": True, "change": 2, "save": False},
+            "textDocumentSync": {"openClose": True, "change": 2, "save": {"includeText": False}},
             "definitionProvider": True,
             "referencesProvider": True,
             "documentSymbolProvider": True,
@@ -168,9 +179,12 @@ class LspHandler:
         text = document.get("text")
         if not uri or text is None:
             return
-        self._server.open_document(uri, text, document.get("version"))
+        changed = self._server.open_document(uri, text, document.get("version"))
         if not self._server.is_loaded:
             await asyncio.to_thread(self._server.load_source_files, [Path(uri_to_path(uri))])
+        if changed:
+            self._open_documents[uri] = document.get("version")
+            self._schedule_publish(uri)
 
     async def _handle_did_change(self, params: Any) -> None:
         params = params or {}
@@ -179,9 +193,14 @@ class LspHandler:
         if not document.get("uri") or not changes:
             return
         try:
-            self._server.change_document(document["uri"], changes, document.get("version"))
+            changed = self._server.change_document(
+                document["uri"], changes, document.get("version")
+            )
         except ValueError as exc:
             raise JsonRpcError(ErrorCodes.InvalidParams, str(exc)) from exc
+        if changed and document["uri"] in self._open_documents:
+            self._open_documents[document["uri"]] = document.get("version")
+            self._schedule_publish(document["uri"])
         # Source/type services already use the current overlay. Compiler
         # analysis is explicit, never a whole-project job per keystroke.
 
@@ -189,7 +208,57 @@ class LspHandler:
         uri = ((params or {}).get("textDocument") or {}).get("uri")
         if not uri:
             return
+        self._open_documents.pop(uri, None)
+        self._publish_epochs[uri] = self._publish_epochs.get(uri, 0) + 1
+        pending = self._publish_tasks.pop(uri, None)
+        if pending is not None:
+            pending.cancel()
         self._server.close_document(uri)
+        if self._push_diagnostics and self._rpc is not None:
+            await self._rpc.notify(
+                "textDocument/publishDiagnostics", {"uri": uri, "diagnostics": []}
+            )
+
+    async def _handle_did_save(self, params):
+        uri = ((params or {}).get("textDocument") or {}).get("uri")
+        if uri in self._open_documents:
+            self._schedule_publish(uri)
+
+    def _schedule_publish(self, uri):
+        if not self._push_diagnostics or self._rpc is None or self._shutdown:
+            return
+        epoch = self._publish_epochs.get(uri, 0) + 1
+        self._publish_epochs[uri] = epoch
+        previous = self._publish_tasks.get(uri)
+        if previous is not None:
+            previous.cancel()
+        self._publish_tasks[uri] = asyncio.create_task(self._publish_document(uri, epoch))
+
+    async def _publish_document(self, uri, epoch):
+        try:
+            await asyncio.sleep(0.15)
+            version = self._open_documents.get(uri)
+            result = await self._handle_document_diagnostic({"textDocument": {"uri": uri}})
+            if (
+                uri not in self._open_documents
+                or self._publish_epochs.get(uri) != epoch
+                or self._shutdown
+            ):
+                return
+            params = {"uri": uri, "diagnostics": result["items"]}
+            if self._publish_versions and isinstance(version, int):
+                params["version"] = version
+            await self._rpc.notify("textDocument/publishDiagnostics", params)
+        except JsonRpcError as error:
+            if error.code != ErrorCodes.RequestCancelled:
+                LOG.warning("Diagnostic push failed: %s", error)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOG.exception("Diagnostic push failed")
+        finally:
+            if self._publish_tasks.get(uri) is asyncio.current_task():
+                self._publish_tasks.pop(uri, None)
 
     async def _handle_watched_files(self, params: Any) -> None:
         if self._server.is_loaded and (params or {}).get("changes"):
@@ -230,6 +299,9 @@ class LspHandler:
             self._semantic_task.cancel()
         if self._analysis_task is not None:
             self._analysis_task.cancel()
+        for task in self._publish_tasks.values():
+            task.cancel()
+        self._publish_tasks.clear()
 
     async def _run_semantic_refresh(self) -> None:
         try:
@@ -239,6 +311,8 @@ class LspHandler:
                 self._semantic_dirty = False
                 source_revision = self._server.current_snapshot().source_revision
                 await asyncio.to_thread(self._server.refresh_sources)
+                for uri in tuple(self._open_documents):
+                    self._schedule_publish(uri)
                 snapshot = self._server.current_snapshot()
                 if snapshot.source_revision != source_revision:
                     self._semantic_dirty = True
@@ -389,6 +463,13 @@ class LspHandler:
                 ErrorCodes.InvalidParams,
                 "Rename is unavailable: the symbol or some member references cannot be resolved safely",
             )
+        from .refactor import validate_rename
+
+        symbol = source_index.symbol_at(uri, line, character)
+        try:
+            validate_rename(source_index, symbol, ranges, new_name)
+        except ValueError as error:
+            raise JsonRpcError(ErrorCodes.InvalidParams, str(error)) from error
         changes: dict[str, list[dict[str, Any]]] = {}
         for source_range in ranges:
             changes.setdefault(source_range.uri, []).append(

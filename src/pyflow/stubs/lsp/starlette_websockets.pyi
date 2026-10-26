@@ -1,0 +1,3 @@
+from starlette.requests import HTTPConnection
+
+class WebSocket(HTTPConnection): ...

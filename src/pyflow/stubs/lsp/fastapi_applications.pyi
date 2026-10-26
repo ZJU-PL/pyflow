@@ -1,0 +1,3 @@
+from starlette.applications import Starlette
+
+class FastAPI(Starlette): ...

@@ -220,6 +220,7 @@ class _FileIndex:
     keyword_targets: tuple = ()
     keyword_parameters: tuple = ()
     fixtures: tuple = ()
+    dynamic_writes: tuple = ()
     syntax_stale: bool = False
 
 
@@ -456,7 +457,29 @@ class SourceIndex:
             if count
         ]
 
+        stripped_old = [line.lstrip(" \t") for line in old_lines]
+        stripped_new = [line.lstrip(" \t") for line in new_lines]
+        indented_rows = {}
+        for old_row, new_row, count in SequenceMatcher(
+            None, stripped_old, stripped_new, autojunk=False
+        ).get_matching_blocks():
+            for step in range(count):
+                before, after = old_row + step, new_row + step
+                old_indent = len(old_lines[before]) - len(stripped_old[before])
+                new_indent = len(new_lines[after]) - len(stripped_new[after])
+                indented_rows[before] = (
+                    old_starts[before] + old_indent,
+                    new_starts[after] + new_indent - old_starts[before] - old_indent,
+                )
+
         def mapped(offset):
+            from bisect import bisect_right
+
+            row = bisect_right(old_starts, offset) - 1
+            if row in indented_rows:
+                content_start, delta = indented_rows[row]
+                if content_start <= offset < old_starts[row + 1]:
+                    return offset + delta
             for start, stop, delta in blocks:
                 if start <= offset <= stop:
                     return offset + delta
@@ -526,6 +549,11 @@ class SourceIndex:
                 (remap(location, full=True), kind, bindings)
                 for location, kind, bindings in previous.scopes
             ),
+            dynamic_writes=tuple(
+                (location, value)
+                for old_range, value in previous.dynamic_writes
+                if (location := remap(old_range)) is not None
+            ),
             keyword_targets=tuple(
                 (location, target)
                 for old_range, target in previous.keyword_targets
@@ -552,6 +580,7 @@ class SourceIndex:
         self._keyword_targets = {}
         self._keyword_parameters = {}
         self._fixtures = {}
+        self._dynamic_writes = {}
         for path in sorted(self._file_indices):
             file_index = self._file_indices[path]
             if file_index.module is not None:
@@ -570,6 +599,7 @@ class SourceIndex:
             self._keyword_targets.update(file_index.keyword_targets)
             self._keyword_parameters.update(file_index.keyword_parameters)
             self._fixtures.update(file_index.fixtures)
+            self._dynamic_writes.update(file_index.dynamic_writes)
         modules = {}
         for path, name in self._modules.items():
             uri = path_to_uri(path)
@@ -630,6 +660,9 @@ class SourceIndex:
                     )
         from .resolution import WorkspaceResolver
 
+        from .framework_models import FrameworkModels
+
+        models = FrameworkModels(self.source_files, self._modules)
         self._resolver = WorkspaceResolver(
             self.symbols,
             self._import_targets,
@@ -637,7 +670,35 @@ class SourceIndex:
             self._return_targets,
             self._class_bases,
             modules=tuple(modules.values()),
+            models=models,
         )
+        # Materialize only writes to explicitly recognized state namespaces.
+        for location, (owner_target, name, values, module) in self._dynamic_writes.items():
+            owners = self._resolver.names(owner_target)
+            if len(owners) != 1:
+                continue
+            owner = next(iter(owners))
+            if not self._resolver.dynamic_namespace(owner):
+                continue
+            qualified = owner + "." + name
+            identity = SymbolId(
+                module,
+                qualified,
+                SymbolKind.VARIABLE,
+                location.uri,
+                location.start_line,
+                location.start_character,
+            )
+            symbol = SourceSymbol(
+                identity, name, qualified, module, 8, location, location, owner, name
+            )
+            group = self._resolver.dynamic_declarations.setdefault(qualified, [])
+            group.append(symbol)
+            self._resolver.symbols[qualified] = group[0]
+            self._resolver.by_id[identity] = symbol
+            self._symbols_by_id[identity] = symbol
+            root = group[0].symbol_id
+            self._resolver.values[root] = tuple(self._resolver.values.get(root, ())) + tuple(values)
         self._resolve_import_aliases()
         self._uncertain_member_ranges = {
             location
@@ -688,6 +749,8 @@ class SourceIndex:
             for call in self.calls
         ]
 
+        self._symbols_by_id.update(self._resolver.by_id)
+
     def _module_name(self, path: str) -> str:
         return self.module_identity.module_name_from_path(path) or Path(path).stem
 
@@ -730,6 +793,7 @@ class SourceIndex:
         scratch._keyword_targets = {}
         scratch._keyword_parameters = {}
         scratch._fixtures = {}
+        scratch._dynamic_writes = {}
         scratch._index_file(path, source)
         return _FileIndex(
             path,
@@ -748,6 +812,7 @@ class SourceIndex:
             tuple(scratch._keyword_targets.items()),
             tuple(scratch._keyword_parameters.items()),
             tuple(scratch._fixtures.items()),
+            tuple(scratch._dynamic_writes.items()),
             syntax_stale=path not in scratch._modules,
         )
 
@@ -1050,11 +1115,19 @@ class SourceIndex:
     def rename_ranges_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         """Return declaration and identity-matched references for LSP rename."""
         symbol = self.symbol_at(uri, line, character)
-        if symbol is None or symbol.symbol_id.kind is SymbolKind.MODULE:
+        if (
+            symbol is None
+            or symbol.symbol_id.kind is SymbolKind.MODULE
+            or uri_to_path(symbol.selection_range.uri) not in self.source_files
+        ):
             return []
         identities = {candidate.symbol_id for candidate in self._resolver.property_group(symbol)}
         owner = self._resolver.symbols.get(symbol.container_name)
-        if symbol.symbol_id.kind is SymbolKind.METHOD or (owner is not None and owner.kind == 5):
+        if (
+            symbol.symbol_id.kind is SymbolKind.METHOD
+            or (owner is not None and owner.kind == 5)
+            or self._resolver.dynamic_namespace(symbol.container_name)
+        ):
             for reference in self.references:
                 target = self._reference_targets.get(reference.location)
                 if (
@@ -1220,7 +1293,12 @@ class _IndexVisitor(ast.NodeVisitor):
         end_text = self.lines[end_line] if end_line < len(self.lines) else ""
         start_char = _byte_col_to_char(start_text, start_raw)
         end_char = _byte_col_to_char(end_text, end_raw)
-        if name:
+        if name and isinstance(node, ast.MatchAs) and node.pattern is not None:
+            found = end_text.rfind(name, 0, end_char)
+            if found >= 0:
+                start_line, start_text, start_char = end_line, end_text, found
+                end_char = found + len(name)
+        elif name:
             found = start_text.find(name, start_char)
             if found >= 0:
                 start_char, end_line, end_char = found, start_line, found + len(name)
@@ -1435,6 +1513,25 @@ class _IndexVisitor(ast.NodeVisitor):
             )
         else:
             symbol_id = None
+            if isinstance(target, ast.Attribute):
+                base = self._range(target)
+                text = self.lines[base.end_line]
+                end = lsp_character_to_offset(text, base.end_character)
+                location = SourceRange(
+                    self.uri,
+                    base.end_line,
+                    offset_to_lsp_character(text, end - len(target.attr)),
+                    base.end_line,
+                    base.end_character,
+                )
+                previous = self.index._dynamic_writes.get(location)
+                values = (*previous[2], value) if previous else (value,)
+                self.index._dynamic_writes[location] = (
+                    self._target(target.value),
+                    target.attr,
+                    values,
+                    self.module,
+                )
         if symbol_id:
             self.index._value_targets.setdefault(symbol_id, []).append(value)
 
@@ -1444,6 +1541,34 @@ class _IndexVisitor(ast.NodeVisitor):
             self._bind_value(target, self._target(node.value))
             if isinstance(target, ast.Name) and target.id == "__all__":
                 self._record_exports(node.value)
+            self._record_match_args(target, node.value)
+
+    def _record_match_args(self, target, value):
+        if (
+            self._current_scope.kind is not _ScopeKind.CLASS
+            or not isinstance(target, ast.Name)
+            or target.id != "__match_args__"
+            or not isinstance(value, (ast.Tuple, ast.List))
+        ):
+            return
+        if not all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str) for item in value.elts
+        ):
+            return
+        identity = self._resolve("__match_args__")
+        self.index._value_targets[identity] = [
+            ("match-args", tuple(item.value for item in value.elts))
+        ]
+        owner = ("symbol", self._current_scope.class_id)
+        for item in value.elts:
+            escaped = item.value not in (ast.get_source_segment(self.source, item) or "")
+            location = self._range(item) if escaped else self._range(item, name=item.value)
+            self.index._reference_targets[location] = ("member", owner, item.value, "read")
+            self.index.references.append(
+                SourceReference(
+                    item.value, location, self._current_function(), string_literal=escaped
+                )
+            )
 
     def _record_exports(self, value):
         if self._current_scope.kind is not _ScopeKind.MODULE:
@@ -1486,6 +1611,7 @@ class _IndexVisitor(ast.NodeVisitor):
             self._bind_value(node.target, self._target(node.value))
             if isinstance(node.target, ast.Name) and node.target.id == "__all__":
                 self._record_exports(node.value)
+            self._record_match_args(node.target, node.value)
 
     def visit_Yield(self, node):
         self.generic_visit(node)
@@ -1991,14 +2117,87 @@ class _IndexVisitor(ast.NodeVisitor):
 
     def visit_Global(self, node: ast.Global) -> None:
         self._current_scope.global_names.update(node.names)
+        for name in node.names:
+            self.index.references.append(
+                SourceReference(
+                    name,
+                    self._range(node, name=name),
+                    self._current_function(),
+                    self._resolve(name),
+                )
+            )
 
     def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
         self._current_scope.nonlocal_names.update(node.names)
+        for name in node.names:
+            self.index.references.append(
+                SourceReference(
+                    name,
+                    self._range(node, name=name),
+                    self._current_function(),
+                    self._resolve(name),
+                )
+            )
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
             self._add_local_definition(node, node.name, SymbolKind.VARIABLE)
         self.generic_visit(node)
+
+    def visit_MatchClass(self, node):
+        import io
+        import tokenize
+
+        self.visit(node.cls)
+        owner = self._target(node.cls)
+        if not hasattr(self, "_pattern_tokens"):
+            self._pattern_tokens = [
+                token
+                for token in tokenize.generate_tokens(io.StringIO(self.source).readline)
+                if token.type
+                not in {
+                    tokenize.NL,
+                    tokenize.NEWLINE,
+                    tokenize.COMMENT,
+                    tokenize.INDENT,
+                    tokenize.DEDENT,
+                }
+            ]
+        start = (node.lineno, _byte_col_to_char(self.lines[node.lineno - 1], node.col_offset))
+        for name, pattern in zip(node.kwd_attrs, node.kwd_patterns):
+            stop = (
+                pattern.lineno,
+                _byte_col_to_char(self.lines[pattern.lineno - 1], pattern.col_offset),
+            )
+            candidates = [
+                token
+                for position, token in enumerate(self._pattern_tokens[:-1])
+                if token.type == tokenize.NAME
+                and token.string == name
+                and start <= token.start < stop
+                and self._pattern_tokens[position + 1].string == "="
+            ]
+            if candidates:
+                token = candidates[-1]
+                text = self.lines[token.start[0] - 1]
+                location = SourceRange(
+                    self.uri,
+                    token.start[0] - 1,
+                    offset_to_lsp_character(text, token.start[1]),
+                    token.end[0] - 1,
+                    offset_to_lsp_character(text, token.end[1]),
+                )
+                self.index._reference_targets[location] = ("member", owner, name, "read")
+                self.index.references.append(
+                    SourceReference(name, location, self._current_function())
+                )
+            self.visit(pattern)
+            if isinstance(pattern, ast.MatchAs) and pattern.name:
+                self._bind_value(ast.Name(id=pattern.name), ("member", owner, name, "read"))
+        for position, pattern in enumerate(node.patterns):
+            self.visit(pattern)
+            if isinstance(pattern, ast.MatchAs) and pattern.name:
+                self._bind_value(ast.Name(id=pattern.name), ("match-position", owner, position))
 
     def visit_MatchAs(self, node: ast.MatchAs) -> None:
         if node.name:

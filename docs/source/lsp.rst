@@ -49,7 +49,9 @@ schedule repeated whole-project compiler runs.
 Both full-document and incremental UTF-16 changes are supported. Navigation,
 completion, hover, rename, and diagnostics use unsaved overlays. Unchanged file
 shards are reused, and temporary syntax errors retain and rebase unchanged
-symbols from the previous valid index. Rename is unavailable when a file touched
+symbols from the previous valid index, including blocks whose indentation has
+changed. Once syntax is valid, ranges come from a fresh AST rather than recovery
+coordinates. Rename is unavailable when a file touched
 by the edit has incomplete syntax, so stale coordinates cannot be applied as edits. An unrelated invalid file does
 not disable refactoring elsewhere.
 
@@ -63,6 +65,11 @@ name do not veto the rename. Only statically linked references are changed;
 runtime-generated accesses remain unresolved. Unknown receivers never fall back
 to an unrelated global namesake. Exported names can be renamed without rewriting
 explicit import aliases, and literal ``__all__`` entries are updated as well.
+Rename validates declaration-scope collisions and checks the proposed source
+against the original reference bindings. It refuses duplicate parameters,
+member collisions, and lexical capture/shadowing instead of returning edits
+which change symbol identity. ``global`` and ``nonlocal`` declarations are
+included in these edits. Runtime-generated bindings remain outside this check.
 Keyword argument labels participate in parameter navigation, references, and
 rename, including imported functions, aliases, bound methods, constructors, and
 callable instances.
@@ -84,6 +91,12 @@ suggestions without importing project code. Hover shows declaration signatures,
 annotations, docstrings, and local inferred types, including at interior token
 positions. It remains available while compiler results are stale.
 
+Clients advertising LSP pull diagnostic support use ``textDocument/diagnostic``.
+Other clients receive debounced ``textDocument/publishDiagnostics`` notifications
+on open, change, and save. Closing a document clears published diagnostics.
+Per-document generations and versions prevent results for superseded or closed
+buffers from being published, including when analysis continues in a worker.
+
 ``textDocument/diagnostic`` combines syntax diagnostics, unresolved lexical
 names, bounded local type inference, and the AST dataflow security checker.
 Analysis runs in a worker, is cached by document contents, and rejects results
@@ -99,6 +112,22 @@ being diagnosed as incompatible dummy classes. Unsupported-model and analysis
 budget notes remain available in type-analysis status/diagnostics APIs but are
 not emitted as editor squiggles. Dynamic imports, runtime-generated attributes,
 and unknown external return types remain resolution limits.
+
+Class patterns link the class, keyword attributes, and capture variables
+separately. Explicit ``__match_args__`` strings also participate in member
+references and rename. Optional-import and fallback-import bindings are retained;
+this is not a general proof that every conditional binding is initialized.
+
+Framework navigation has explicit contracts for Flask ``current_app`` and
+Starlette/FastAPI connection state. Definitions prefer workspace source, then
+installed package source, then bundled editor stubs. Package files are parsed
+without importing user/framework code. Observed assignments to known
+``request.state`` members provide cross-document definitions, references, hover,
+and rename. Request/connection state and application state use separate member
+namespaces. Arbitrary ``__getattr__`` implementations and unrelated similarly
+named classes do not acquire these contracts. No inferred state members are
+created without an observed assignment; namespace schemas are approximate and
+are not an instance-sensitive whole-program analysis.
 
 Model Context Protocol
 ----------------------
