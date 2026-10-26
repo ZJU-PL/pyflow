@@ -122,6 +122,8 @@ def oauth2_password_bearer_weak_secret(context):
 @test.with_id("A103")
 def get_current_user_validation(context):
     """Detect get_current_user without proper token validation."""
+    if not context.is_module_imported_like("fastapi"):
+        return None
     func_name = context.node.name.lower()
     if "current_user" in func_name or "get_user" in func_name:
         has_jwt_verify = False

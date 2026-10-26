@@ -605,6 +605,24 @@ def _dump_mir_files(python_files, input_path: Path, args):
 
 def run_ir_dump(input_path: Path, args):
     """Print inspection artifacts by default; persist only to an explicit path."""
+    if not any(
+        getattr(args, name, None)
+        for name in (
+            "dump_mir",
+            "dump_ast",
+            "dump_cfg",
+            "dump_ssa",
+            "dump_cdg",
+            "dump_ddg",
+            "dump_gir",
+        )
+    ):
+        print(
+            "Error: no IR dump target specified; use --dump-mir, --dump-cfg, or --help",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     if getattr(args, "dump_output", None):
         return _run_ir_dump(input_path, args)
     with TemporaryDirectory(prefix="pyflow-ir-") as directory:

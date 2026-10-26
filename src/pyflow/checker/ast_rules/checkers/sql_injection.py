@@ -66,6 +66,17 @@ def _get_string(node):
     return None
 
 
+def _is_static_string(node):
+    """Check if an AST expression is entirely composed of static string constants."""
+    if isinstance(node, (ast.Str, ast.Constant)) and isinstance(
+        getattr(node, "value", getattr(node, "s", None)), str
+    ):
+        return True
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _is_static_string(node.left) and _is_static_string(node.right)
+    return False
+
+
 def _is_sql_related_call(context):
     """Check if the call is related to SQL execution"""
     func_name = context.call_function_name_qual or ""
@@ -155,6 +166,8 @@ def sql_injection_concatenation(context):
     # Check for string concatenation in arguments
     for arg in context.node.args:
         if isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Add):
+            if _is_static_string(arg):
+                continue
             # String concatenation found
             left_str = _get_string(arg.left)
             right_str = _get_string(arg.right)
@@ -172,6 +185,8 @@ def sql_injection_concatenation(context):
     for kw in context.node.keywords:
         if kw.arg and ("sql" in kw.arg.lower() or "query" in kw.arg.lower()):
             if isinstance(kw.value, ast.BinOp) and isinstance(kw.value.op, ast.Add):
+                if _is_static_string(kw.value):
+                    continue
                 return sql_injection_issue(
                     "Possible SQL injection via string concatenation in keyword argument. "
                     "Use parameterized queries instead."

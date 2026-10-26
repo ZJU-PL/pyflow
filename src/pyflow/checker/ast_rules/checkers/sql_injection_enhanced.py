@@ -382,6 +382,9 @@ def django_cursor_raw_sql(context):
         return None
 
     # Check if this is a Django cursor execute() call
+    if not context.is_module_imported_like("django"):
+        return None
+
     is_cursor = any(dc in func_name for dc in DJANGO_CURSOR_FUNCTIONS)
 
     if not is_cursor:
@@ -482,6 +485,9 @@ def sqlalchemy_in_operator_injection(context):
     if not func_name:
         return None
 
+    if not context.is_module_imported_like("sqlalchemy"):
+        return None
+
     is_sqlalchemy = any(sa in func_name for sa in SQLALCHEMY_FUNCTIONS)
 
     if not is_sqlalchemy:
@@ -539,34 +545,70 @@ def nosql_injection(context):
         return None
 
     # Check for MongoDB $where operator
-    if "find" in func_name.lower() or "$where" in str(func_name):
+    if (
+        "$where" in str(func_name)
+        or "find" in str(func_name).lower()
+        or context.is_module_imported_like("pymongo")
+        or context.is_module_imported_like("motor")
+    ):
         if len(node.args) > 0:
             first_arg = node.args[0]
+            raw_text = ast.unparse(first_arg) if hasattr(ast, "unparse") else ""
 
-            # Check for f-string in $where
-            if isinstance(first_arg, ast.JoinedStr):
-                for elt in first_arg.values:
-                    if isinstance(elt, ast.FormattedValue):
-                        if _is_user_input(elt.value):
-                            return issue.Issue(
-                                severity="HIGH",
-                                confidence="HIGH",
-                                cwe=issue.Cwe.SQL_INJECTION,
-                                text="MongoDB $where with user input. "
-                                "$where executes JavaScript and is vulnerable to injection. "
-                                "Use query operators like $eq instead.",
-                            )
+            # Check if this expression actually targets $where
+            if "$where" in raw_text or "$where" in str(func_name):
+                # Check for f-string in $where
+                if isinstance(first_arg, ast.JoinedStr):
+                    for elt in first_arg.values:
+                        if isinstance(elt, ast.FormattedValue):
+                            if _is_user_input(elt.value):
+                                return issue.Issue(
+                                    severity="HIGH",
+                                    confidence="HIGH",
+                                    cwe=issue.Cwe.SQL_INJECTION,
+                                    text="MongoDB $where with user input. "
+                                    "$where executes JavaScript and is vulnerable to injection. "
+                                    "Use query operators like $eq instead.",
+                                )
 
-            # Check for string formatting
-            if isinstance(first_arg, ast.BinOp) and isinstance(first_arg.op, ast.Mod):
-                left_str = _get_string(first_arg.left)
-                if left_str and "$where" in left_str:
-                    return issue.Issue(
-                        severity="HIGH",
-                        confidence="HIGH",
-                        cwe=issue.Cwe.SQL_INJECTION,
-                        text="MongoDB $where with string formatting. "
-                        "This is a NoSQL injection vulnerability.",
-                    )
+                # Check for dict containing $where with f-string or formatting
+                for subnode in ast.walk(first_arg):
+                    if isinstance(subnode, ast.Dict):
+                        for k, v in zip(subnode.keys, subnode.values):
+                            k_str = _get_string(k)
+                            if k_str == "$where":
+                                if isinstance(v, ast.JoinedStr):
+                                    for elt in v.values:
+                                        if isinstance(elt, ast.FormattedValue) and _is_user_input(
+                                            elt.value
+                                        ):
+                                            return issue.Issue(
+                                                severity="HIGH",
+                                                confidence="HIGH",
+                                                cwe=issue.Cwe.SQL_INJECTION,
+                                                text="MongoDB $where with user input. "
+                                                "$where executes JavaScript and is vulnerable to injection. "
+                                                "Use query operators like $eq instead.",
+                                            )
+                                elif isinstance(v, ast.BinOp) and isinstance(v.op, ast.Mod):
+                                    return issue.Issue(
+                                        severity="HIGH",
+                                        confidence="HIGH",
+                                        cwe=issue.Cwe.SQL_INJECTION,
+                                        text="MongoDB $where with string formatting. "
+                                        "This is a NoSQL injection vulnerability.",
+                                    )
+
+                # Check for string formatting
+                if isinstance(first_arg, ast.BinOp) and isinstance(first_arg.op, ast.Mod):
+                    left_str = _get_string(first_arg.left)
+                    if left_str and "$where" in left_str:
+                        return issue.Issue(
+                            severity="HIGH",
+                            confidence="HIGH",
+                            cwe=issue.Cwe.SQL_INJECTION,
+                            text="MongoDB $where with string formatting. "
+                            "This is a NoSQL injection vulnerability.",
+                        )
 
     return None

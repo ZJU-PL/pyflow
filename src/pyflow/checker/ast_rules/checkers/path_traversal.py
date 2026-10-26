@@ -17,17 +17,14 @@ def path_traversal_issue():
 
 def _is_dynamic_path(node):
     """Check if a node represents a dynamic path (contains variables)"""
-    if node is None:
+    if node is None or isinstance(node, (ast.Constant, ast.Str)):
         return False
     if isinstance(node, ast.JoinedStr):
-        # f-string with potential path construction
-        return True
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        # String concatenation
-        return True
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
-        # % formatting
-        return True
+        # f-string with potential path construction: only dynamic if it contains expressions
+        return any(isinstance(v, ast.FormattedValue) for v in node.values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        # String concatenation or % formatting: only dynamic if at least one side is dynamic
+        return _is_dynamic_path(node.left) or _is_dynamic_path(node.right)
     if isinstance(node, ast.Call):
         name = ast.unparse(node.func)
         if name in {"input", "builtins.input"} or name.startswith(

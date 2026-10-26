@@ -204,6 +204,8 @@ def mark_safe_without_escape(context):
 @test.with_id("D107")
 def queryset_raw_user_input(context):
     """Detect QuerySet.raw() with user input."""
+    if not context.is_module_imported_like("django"):
+        return None
     qual = context.call_function_name_qual or ""
     if ".raw" in qual:
         if context.node.args and _is_user_input(context.node.args[0]):
@@ -220,6 +222,8 @@ def queryset_raw_user_input(context):
 @test.with_id("D108")
 def queryset_extra_user_input(context):
     """Detect QuerySet.extra() with user input."""
+    if not context.is_module_imported_like("django"):
+        return None
     qual = context.call_function_name_qual or ""
     if qual.endswith(".extra"):
         if context.node.args or context.node.keywords:

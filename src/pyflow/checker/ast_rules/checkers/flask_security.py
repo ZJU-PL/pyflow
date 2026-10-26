@@ -80,6 +80,12 @@ def _get_string_value(node):
 @test.with_id("F101")
 def flask_debug_in_production(context):
     """Detect Flask app with debug=True in production."""
+    qual = context.call_function_name_qual or ""
+    if not (
+        context.is_module_imported_like("flask")
+        or qual in {"app.run", "application.run", "flask.Flask.run"}
+    ):
+        return None
     if context.call_function_name in ("run", "debug"):
         for kw in context.node.keywords:
             if kw.arg == "debug" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
@@ -238,6 +244,12 @@ def csrf_protection_missing(context):
 @test.with_id("F109")
 def flask_debug_mode_traceback(context):
     """Detect Flask debug mode that exposes tracebacks."""
+    qual = context.call_function_name_qual or ""
+    if not (
+        context.is_module_imported_like("flask")
+        or qual in {"app.run", "application.run", "flask.Flask.run"}
+    ):
+        return None
     if context.call_function_name == "run":
         debug_enabled = False
         for kw in context.node.keywords:

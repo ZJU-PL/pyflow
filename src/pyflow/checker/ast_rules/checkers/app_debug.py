@@ -5,6 +5,8 @@ Running applications in debug mode may expose sensitive
 information through detailed error messages and stack traces.
 """
 
+import ast
+
 from ...common import issue
 from ..core import test_properties as test
 
@@ -24,6 +26,11 @@ def flask_debug_true(context):
         return None
     if node.targets[0].id not in {"DEBUG", "debug"}:
         return None
+    parent = getattr(node, "_bandit_parent", None)
+    while parent:
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return None
+        parent = getattr(parent, "_bandit_parent", None)
     if hasattr(node.value, "value"):
         val = str(node.value.value)
         if val in DEBUG_FLAGS:

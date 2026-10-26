@@ -53,6 +53,14 @@ def test_scanner_does_not_infer_unrelated_security_roles(tmp_path, source, rule)
             'from fastapi import FastAPI\napp=FastAPI()\n@app.get("/account")\ndef account(token): return token\n',
             "A104",
         ),
+        (
+            'from jinja2 import Environment\nEnvironment().from_string(f"Hello {name}")\n',
+            "B9047",
+        ),
+        (
+            'def q(cursor, user_id):\n    cursor.execute("SELECT * FROM u WHERE id=" + user_id)\n',
+            "B9040",
+        ),
     ],
 )
 def test_scanner_keeps_supported_positive_matches(tmp_path, source, rule):
@@ -141,3 +149,44 @@ def test_native_mir_budget_is_reported_without_internal_warning_stack(tmp_path):
     assert "MIR call graph is partial" in result.stderr
     assert "Time budget" in result.stderr
     assert "PyCGMIRConvergenceWarning" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "source,rule",
+    [
+        ('def find_user(text, user): return text.find(f"user: {user}")\n', "B615"),
+        ('def get_user(user_id): return {"id": user_id}\n', "A103"),
+        ("def get_bytes(stream, data): return stream.raw(data)\n", "D107"),
+        ("def start(runner): runner.run(debug=True)\n", "F101"),
+        (
+            'import sqlite3\ndef get_users(cursor, user_ids):\n    cursor.execute(f"SELECT * FROM users WHERE id IN ({user_ids})")\n',
+            "B613",
+        ),
+        (
+            'import sqlite3\ndef get_users(cursor, user_ids):\n    cursor.execute(f"SELECT * FROM users WHERE id IN ({user_ids})")\n',
+            "B614",
+        ),
+        ("def compute():\n    debug = True\n    return debug\n", "B201"),
+        ('def from_string(s):\n    return s\nfrom_string(f"item: {1}")\n', "B9047"),
+        ('import os\nos.path.exists("a" + "b")\n', "B205"),
+        (
+            'import sqlite3\ndef get_active(cursor):\n    cursor.execute("SELECT * FROM users " + "WHERE active = 1")\n',
+            "B9040",
+        ),
+    ],
+)
+def test_unimported_framework_rules_do_not_produce_false_positives(tmp_path, source, rule):
+    path = tmp_path / "sample.py"
+    path.write_text(source)
+    result = cli("security", path, "--format", "json")
+    assert result.returncode == 0, result.stderr
+    findings = json.loads(result.stdout)["results"]
+    assert all(finding["test_id"] != rule for finding in findings)
+
+
+def test_ir_cli_without_dump_target_exits_with_error(tmp_path):
+    path = tmp_path / "sample.py"
+    path.write_text("def f(): pass\n")
+    result = cli("ir", path)
+    assert result.returncode == 2
+    assert "no IR dump target specified" in result.stderr

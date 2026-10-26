@@ -178,7 +178,14 @@ def jinja2_template_injection(context):
     func_name = context.call_function_name_qual
 
     # Check for render_template_string with f-string or format
-    if func_name in JINJA2_DANGEROUS_METHODS:
+    is_dangerous_method = func_name in JINJA2_DANGEROUS_METHODS or any(
+        func_name.endswith("." + m) for m in JINJA2_DANGEROUS_METHODS
+    )
+    if is_dangerous_method:
+        if not (
+            context.is_module_imported_like("jinja2") or context.is_module_imported_like("flask")
+        ):
+            return None
         # Check first argument for dangerous patterns
         if len(node.args) > 0:
             first_arg = node.args[0]
