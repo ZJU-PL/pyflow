@@ -201,47 +201,58 @@ def typestate_result_to_dict(entry: str, typestate_result) -> Dict[str, Any]:
     problem = getattr(typestate_result, "_problem", None)
     adapter = getattr(problem, "adapter", None)
     enriched = adapter is not None
-    normalized = (
-        {
-            (
-                finding.node_id,
-                finding.kind,
-                finding.properties.get("resource"),
-                finding.properties.get("protocol"),
-                finding.properties.get("state"),
-            ): finding
-            for finding in normalized_typestate_findings(typestate_result)
-        }
-        if enriched
-        else {}
-    )
     findings = []
-    for finding in typestate_result.findings:
-        if enriched:
-            node_id = adapter.supergraph.node_id(finding.node)
-            item = normalized[
+    if enriched:
+        # Normalized findings are folded per source location, so iterate the
+        # folded entries and enrich each from its originating raw finding.
+        raw_by_identity = {
+            (
+                adapter.supergraph.node_id(finding.node),
+                finding.kind,
+                finding.resource_label,
+                finding.protocol,
+                finding.state,
+            ): finding
+            for finding in typestate_result.findings
+        }
+        for normalized_finding in normalized_typestate_findings(typestate_result):
+            raw = raw_by_identity[
                 (
-                    node_id,
-                    finding.kind,
-                    finding.resource_label,
-                    finding.protocol,
-                    finding.state,
+                    normalized_finding.node_id,
+                    normalized_finding.kind,
+                    normalized_finding.properties.get("resource"),
+                    normalized_finding.properties.get("protocol"),
+                    normalized_finding.properties.get("state"),
                 )
-            ].to_dict()
-        else:
+            ]
+            item = normalized_finding.to_dict()
+            item.update(
+                {
+                    "kind": raw.kind,
+                    "operation_name": raw.operation_name,
+                    "resource_label": raw.resource_label,
+                    "protocol": raw.protocol,
+                    "state": raw.state,
+                    "procedure": code_name(raw.node.procedure.code),
+                    "block_kind": raw.node.kind,
+                }
+            )
+            findings.append(item)
+    else:
+        for finding in typestate_result.findings:
             item = {}
-        item.update(
-            {
-                "kind": finding.kind,
-                "operation_name": finding.operation_name,
-                "resource_label": finding.resource_label,
-                "protocol": finding.protocol,
-                "state": finding.state,
-                "procedure": code_name(finding.node.procedure.code),
-                "block_kind": finding.node.kind,
-            }
-        )
-        findings.append(item)
+            item.update(
+                {
+                    "kind": finding.kind,
+                    "operation_name": finding.operation_name,
+                    "resource_label": finding.resource_label,
+                    "protocol": finding.protocol,
+                    "state": finding.state,
+                    "procedure": code_name(finding.node.procedure.code),
+                    "block_kind": finding.node.kind,
+                }
+            )
+            findings.append(item)
 
     statistics = statistics_to_dict(typestate_result.statistics)
 
@@ -263,34 +274,48 @@ def nullness_result_to_dict(entry: str, nullness_result) -> Dict[str, Any]:
     problem = getattr(nullness_result, "_problem", None)
     adapter = getattr(problem, "adapter", None)
     enriched = adapter is not None
-    normalized = (
-        {
-            (
-                finding.node_id,
-                finding.kind,
-                finding.properties.get("expression"),
-            ): finding
-            for finding in normalized_nullness_findings(nullness_result)
-        }
-        if enriched
-        else {}
-    )
     findings = []
-    for finding in nullness_result.findings:
-        if enriched:
-            node_id = adapter.supergraph.node_id(finding.node)
-            item = normalized[(node_id, finding.kind, finding.expression_label)].to_dict()
-        else:
+    if enriched:
+        # Normalized findings are folded per source location, so iterate the
+        # folded entries and enrich each from its originating raw finding.
+        raw_by_identity = {
+            (
+                adapter.supergraph.node_id(finding.node),
+                finding.kind,
+                finding.expression_label,
+            ): finding
+            for finding in nullness_result.findings
+        }
+        for normalized_finding in normalized_nullness_findings(nullness_result):
+            raw = raw_by_identity[
+                (
+                    normalized_finding.node_id,
+                    normalized_finding.kind,
+                    normalized_finding.properties.get("expression"),
+                )
+            ]
+            item = normalized_finding.to_dict()
+            item.update(
+                {
+                    "kind": raw.kind,
+                    "expression_label": raw.expression_label,
+                    "procedure": code_name(raw.node.procedure.code),
+                    "block_kind": raw.node.kind,
+                }
+            )
+            findings.append(item)
+    else:
+        for finding in nullness_result.findings:
             item = {}
-        item.update(
-            {
-                "kind": finding.kind,
-                "expression_label": finding.expression_label,
-                "procedure": code_name(finding.node.procedure.code),
-                "block_kind": finding.node.kind,
-            }
-        )
-        findings.append(item)
+            item.update(
+                {
+                    "kind": finding.kind,
+                    "expression_label": finding.expression_label,
+                    "procedure": code_name(finding.node.procedure.code),
+                    "block_kind": finding.node.kind,
+                }
+            )
+            findings.append(item)
     status, termination_reason = result_status(nullness_result)
     return {
         "entry": entry,

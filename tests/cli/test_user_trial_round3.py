@@ -30,6 +30,8 @@ def cli(*args):
         ('import os, tempfile\nos.path.join(tempfile.gettempdir(), "cache")\n', "B203"),
         ("import os\nos.path.isdir(get_system_path())\n", "B205"),
         ("def worker(token, secret): return token\n", "A104"),
+        ("def configure():\n    DEBUG = True\n", "D101"),
+        ("class Config:\n    DEBUG = True\n", "D101"),
     ],
 )
 def test_scanner_does_not_infer_unrelated_security_roles(tmp_path, source, rule):
@@ -61,6 +63,7 @@ def test_scanner_does_not_infer_unrelated_security_roles(tmp_path, source, rule)
             'def q(cursor, user_id):\n    cursor.execute("SELECT * FROM u WHERE id=" + user_id)\n',
             "B9040",
         ),
+        ("DEBUG = True\n", "D101"),
     ],
 )
 def test_scanner_keeps_supported_positive_matches(tmp_path, source, rule):

@@ -421,11 +421,14 @@ class InterproceduralNullnessProblem(
 
     def findings(self, result) -> tuple[NullnessFinding, ...]:
         findings: list[NullnessFinding] = []
-        seen: set[tuple[CFGNode, str, str]] = set()
+        # Deduplicate by source expression identity: one AST occurrence must
+        # yield one finding even when the supergraph represents it with
+        # several CFG nodes (e.g. a call node plus its operation node).
+        seen: set[tuple[int, str, str]] = set()
 
         def record(node: CFGNode, kind: str, expr) -> None:
             label = self.describe_expression(expr)
-            key = (node, kind, label)
+            key = (id(node.procedure), kind, id(expr))
             if key in seen:
                 return
             seen.add(key)

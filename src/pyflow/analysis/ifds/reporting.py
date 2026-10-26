@@ -185,7 +185,7 @@ def normalized_nullness_findings(result) -> tuple[AnalysisFinding, ...]:
         )
         for finding in result.findings
     )
-    return tuple(sorted(findings, key=_finding_key))
+    return _fold_equivalent_findings(sorted(findings, key=_finding_key))
 
 
 def normalized_typestate_findings(result) -> tuple[AnalysisFinding, ...]:
@@ -208,7 +208,38 @@ def normalized_typestate_findings(result) -> tuple[AnalysisFinding, ...]:
         )
         for finding in result.findings
     )
-    return tuple(sorted(findings, key=_finding_key))
+    return _fold_equivalent_findings(sorted(findings, key=_finding_key))
+
+
+def _fold_equivalent_findings(findings: Sequence[AnalysisFinding]) -> tuple[AnalysisFinding, ...]:
+    """Collapse findings that describe the same user-visible issue.
+
+    One source statement can lower to several supergraph nodes, and one
+    statement can exercise one nullable variable through several source
+    expressions. Clients render one issue per (rule, location, message), so
+    findings sharing that identity fold into their first entry. Findings
+    without a resolved location keep a node-based identity and never fold.
+    """
+    folded: list[AnalysisFinding] = []
+    seen: set[tuple[Any, ...]] = set()
+    for finding in findings:
+        location = finding.primary_location
+        if location is None:
+            folded.append(finding)
+            continue
+        key = (
+            finding.rule_id,
+            location.uri,
+            finding.procedure,
+            location.start_line,
+            finding.message,
+            tuple(sorted(finding.properties.items())),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        folded.append(finding)
+    return tuple(folded)
 
 
 def _procedure_name(node: CFGNode) -> str:

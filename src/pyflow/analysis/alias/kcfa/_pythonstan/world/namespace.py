@@ -66,9 +66,14 @@ class Namespace:
             module_path = path_obj.with_suffix("")
         else:
             module_path = path_obj
-        parts = list(module_path.parts)
+        parts = [p for p in module_path.parts if p and p != "."]
         if parts and parts[0] == os.sep:
             parts = parts[1:]
+        if not parts:
+            if path_obj.stem:
+                parts = [path_obj.stem]
+            else:
+                parts = ["__main__"]
         return cls(parts)
 
     def to_str(self):

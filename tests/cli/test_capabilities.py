@@ -332,3 +332,24 @@ def test_default_text_summarizes_internal_diagnostics_but_verbose_expands():
     assert "20 unresolved-operation diagnostics" in compact
     assert "diagnostic[unknown]" not in compact
     assert _to_text(result, verbose=True).count("diagnostic[unknown]") == 20
+
+
+def test_capabilities_root_init_py_handles_empty_namespace(tmp_path, capsys):
+    from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import Namespace as KcfaNamespace
+
+    ns1 = KcfaNamespace.from_path("__init__.py")
+    assert ns1.names == ["__init__"]
+    ns2 = KcfaNamespace.from_path("./__init__.py")
+    assert ns2.names == ["__init__"]
+    ns3 = KcfaNamespace.from_path("")
+    assert ns3.names == ["__main__"]
+
+    target = tmp_path / "__init__.py"
+    target.write_text("import subprocess\nsubprocess.run(['id'])\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(["capabilities", str(target), "--format", "json"])
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "complete"
+    assert any(f["capability"] == "process.execute" for f in payload["findings"])

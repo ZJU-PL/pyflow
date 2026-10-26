@@ -122,3 +122,13 @@ def test_manager_metrics_are_fresh_for_each_analysis(tmp_path, monkeypatch):
         assert totals["loc"] == 2
         assert totals["SEVERITY.MEDIUM"] == 1
         assert totals["CONFIDENCE.HIGH"] == 1
+
+
+def test_issue_str_handles_none_lineno_and_col_offset():
+    issue = Issue("HIGH", test_id="B101", confidence="HIGH", text="Test issue")
+    issue.lineno = None
+    issue.col_offset = None
+    issue.fname = "sample.py"
+    rendered = str(issue)
+    assert "from B101" in rendered
+    assert "at sample.py:0:-1" in rendered

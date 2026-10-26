@@ -13,6 +13,7 @@ import pytest
 import pyflow.api.ifds as ifds_api
 import pyflow.checker.ifds.api as checker_ifds_api
 import pyflow.analysis.callgraph.publication as callgraph_publication
+from pyflow.checker.ifds.reporting import nullness_result_to_dict
 from pyflow.api.ifds import (
     load_analysis_session,
     run_nullness_analysis,
@@ -505,6 +506,52 @@ def main():
     assert {code.codeName() for code in session.program.liveCode} >= {"main"}
     assert hasattr(result, "findings")
     assert isinstance(result.findings, tuple)
+
+
+def test_run_nullness_analysis_reports_source_expression_once(tmp_path):
+    """A method call produces both call and operation CFG nodes for one statement.
+
+    They share the receiver AST expression, so the receiver must be reported
+    once instead of once per supergraph node.
+    """
+    target = tmp_path / "nullness_duplicate.py"
+    target.write_text("""
+def main():
+    value = None
+    return value.upper()
+""")
+
+    _session, result = run_nullness_analysis([target], function="main")
+
+    observed = [(finding.kind, finding.expression_label) for finding in result.findings]
+    assert observed.count(("attribute_access", "value")) <= 1, observed
+
+
+def test_nullness_report_folds_same_line_findings(tmp_path):
+    """The rendered report shows one issue per (rule, line, message).
+
+    One statement may access one nullable variable through several source
+    expressions; each expression is a distinct analysis finding, but the
+    rendered messages are identical, so the report folds them.
+    """
+    target = tmp_path / "nullness_fold.py"
+    target.write_text("""
+def main(flag):
+    value = None
+    if flag:
+        value = "v"
+    return value.upper() + value.lower()
+""")
+
+    _session, result = run_nullness_analysis([target], function="main")
+    report = nullness_result_to_dict("main", result)
+
+    rendered = [
+        (finding["primary_location"]["start_line"], finding["message"])
+        for finding in report["findings"]
+    ]
+    assert rendered, report
+    assert len(rendered) == len(set(rendered)), rendered
 
 
 def test_run_typestate_analysis_api_on_source_file(tmp_path):

@@ -163,15 +163,18 @@ def _is_user_input(node):
             "data",
             "form",
         }
-    elif isinstance(node, ast.Call) and hasattr(node.func, "attr"):
-        return node.func.attr.lower() in {
-            "get",
-            "post",
-            "input",
-            "read",
-            "load",
-            "parse",
-        }
+    elif isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name):
+            return node.func.id.lower() in {"input", "raw_input"}
+        elif hasattr(node.func, "attr"):
+            return node.func.attr.lower() in {
+                "get",
+                "post",
+                "input",
+                "read",
+                "load",
+                "parse",
+            }
     elif isinstance(node, ast.Attribute) and hasattr(node.value, "id"):
         obj_name = node.value.id.lower()
         return obj_name in {"request", "req", "self"} and node.attr.lower() in {
@@ -215,9 +218,15 @@ def _has_user_input_in_string(node):
         }:
             return any(_is_user_input(arg) for arg in node.args)
         return _is_user_input(node)
+    elif isinstance(node, ast.JoinedStr):
+        return any(
+            isinstance(v, ast.FormattedValue)
+            and (_is_user_input(v.value) or _has_user_input_in_string(v.value))
+            for v in node.values
+        )
     elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return _has_user_input_in_string(node.left) or _has_user_input_in_string(node.right)
-    elif isinstance(node, ast.Mod):
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
         return _has_user_input_in_string(node.left) or any(
             _is_user_input(arg)
             for arg in (node.right.elts if isinstance(node.right, ast.Tuple) else [node.right])
@@ -352,7 +361,7 @@ def unsafe_dict_assignment(context):
     """Check for unsafe dictionary assignments that might affect object attributes"""
     node = context.node
 
-    if isinstance(node.value, (ast.Name, ast.Dict, ast.Call)):
+    if isinstance(node.value, (ast.Name, ast.Dict, ast.Call, ast.Constant)):
         for target in node.targets:
             if isinstance(target, ast.Attribute) and target.attr == "__dict__":
                 if _has_validation(context):
@@ -373,10 +382,13 @@ def unsafe_dict_assignment(context):
                 isinstance(target, ast.Subscript)
                 and isinstance(target.value, ast.Attribute)
                 and target.value.attr == "__dict__"
-                and isinstance(target.slice, ast.Index)
             ):
-
-                key_node = target.slice.value
+                slice_node = target.slice
+                key_node = (
+                    slice_node.value
+                    if isinstance(slice_node, getattr(ast, "Index", ()))
+                    else slice_node
+                )
                 if _has_user_input_in_string(key_node):
                     return class_pollution_issue(
                         f"Dynamic __dict__ key assignment with user-controlled key: {_get_node_description(key_node)}",

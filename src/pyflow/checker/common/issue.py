@@ -213,8 +213,8 @@ class Issue:
             self.severity,
             self.confidence,
             self.fname,
-            self.lineno,
-            self.col_offset,
+            self.lineno or 0,
+            self.col_offset if self.col_offset is not None else -1,
         )
 
     def __eq__(self, other):

@@ -104,10 +104,21 @@ def _is_user_input(node):
     return False
 
 
+def _is_in_function_or_class(node):
+    parent = getattr(node, "_bandit_parent", None)
+    while parent:
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return True
+        parent = getattr(parent, "_bandit_parent", None)
+    return False
+
+
 @test.checks("Assign")
 @test.with_id("D101")
 def debug_true_in_settings(context):
     """Detect DEBUG=True in Django settings."""
+    if _is_in_function_or_class(context.node):
+        return None
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "DEBUG":
             if isinstance(context.node.value, ast.Constant) and context.node.value.value is True:
@@ -124,6 +135,8 @@ def debug_true_in_settings(context):
 @test.with_id("D102")
 def allowed_hosts_wildcard(context):
     """Detect ALLOWED_HOSTS with wildcard or empty."""
+    if _is_in_function_or_class(context.node):
+        return None
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "ALLOWED_HOSTS":
             if _has_wildcard_hosts(context.node):
@@ -140,6 +153,8 @@ def allowed_hosts_wildcard(context):
 @test.with_id("D103")
 def insecure_session_engine(context):
     """Detect insecure SESSION_ENGINE configuration."""
+    if _is_in_function_or_class(context.node):
+        return None
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "SESSION_ENGINE":
             if isinstance(context.node.value, ast.Constant):
@@ -157,6 +172,8 @@ def insecure_session_engine(context):
 @test.with_id("D104")
 def debug_propagate_exceptions(context):
     """Detect DEBUG_PROPAGATE_EXCEPTIONS=True."""
+    if _is_in_function_or_class(context.node):
+        return None
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "DEBUG_PROPAGATE_EXCEPTIONS":
             if isinstance(context.node.value, ast.Constant) and context.node.value.value is True:
@@ -173,6 +190,8 @@ def debug_propagate_exceptions(context):
 @test.with_id("D105")
 def xss_filter_disabled(context):
     """Detect SECURE_BROWSER_XSS_FILTER=False."""
+    if _is_in_function_or_class(context.node):
+        return None
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "SECURE_BROWSER_XSS_FILTER":
             if isinstance(context.node.value, ast.Constant) and context.node.value.value is False:
