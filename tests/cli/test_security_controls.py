@@ -151,6 +151,32 @@ def test_cpg_directory_reports_syntax_errors_instead_of_silently_skipping(tmp_pa
     assert "Could not parse" in diagnostic["message"]
 
 
+def test_ast_scanner_unified_diagnostics_have_common_fields(tmp_path, capsys):
+    (tmp_path / "good.py").write_text("import os\n", encoding="utf-8")
+    (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
+
+    code = run_security(
+        _args(
+            tmp_path,
+            "--engine",
+            "ast-scanner",
+            "--format",
+            "json",
+            "--json-schema",
+            "unified",
+        )
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["status"] == "partial"
+    diagnostic = next(item for item in report["diagnostics"] if item["filename"].endswith("bad.py"))
+    assert diagnostic["code"] == "ast-scanner-error"
+    assert "syntax error" in diagnostic["message"]
+    assert diagnostic["affects_completeness"] is True
+    assert report["errors"] == report["diagnostics"]
+
+
 @pytest.mark.parametrize("engine", ["ast-scanner", "ast-dataflow", "ifds", "cpg"])
 def test_baseline_suppression_precedes_findings_gate(engine, tmp_path, capsys):
     path = tmp_path / "app.py"

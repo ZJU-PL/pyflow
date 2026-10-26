@@ -310,8 +310,27 @@ def unified_report(engine, result):
         report = issue_report(result, constants.LOW, constants.LOW)
         findings = report["results"]
         status = "partial" if report["errors"] else "complete"
-        errors, statistics = report["errors"], report["metrics"].get("_totals", {})
-        diagnostics = errors
+        diagnostics = []
+        for item in report["errors"]:
+            if isinstance(item, dict):
+                diagnostic = dict(item)
+                diagnostic.setdefault("code", "ast-scanner-error")
+                diagnostic.setdefault(
+                    "message",
+                    item.get("reason") or item.get("message") or "AST scan failed",
+                )
+                diagnostic.setdefault("affects_completeness", True)
+                diagnostics.append(diagnostic)
+            else:
+                diagnostics.append(
+                    {
+                        "code": "ast-scanner-error",
+                        "message": str(item),
+                        "affects_completeness": True,
+                    }
+                )
+        errors = [item for item in diagnostics if item.get("affects_completeness")]
+        statistics = report["metrics"].get("_totals", {})
     else:
         report = security_json(engine, result)
         findings = report.get("findings", ())

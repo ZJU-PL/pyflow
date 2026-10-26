@@ -463,4 +463,5 @@ def evaluate(compiler):
 
         rbsa.summarize()
 
-        print(rbsa.dumpStatistics())
+        rbsa.dumpStatistics()
+        return rbsa

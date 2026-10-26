@@ -57,7 +57,14 @@ def add_optimize_parser(subparsers):
     parser.add_argument(
         "input_path", nargs="?", help="Python file, directory, or library to optimize"
     )
-    parser.add_argument("--output", "-o", help="Output file for dumped analysis results")
+    parser.add_argument(
+        "--output",
+        "-o",
+        help=(
+            "Output path for dumped results (a directory for --dump/--dump-ipa; "
+            "a file for --dump-shape)"
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument("--dump", "-d", action="store_true", help="Dump analysis results")
     parser.add_argument("--dump-ipa", action="store_true", help="Dump IPA analysis results")

@@ -271,6 +271,39 @@ def test_capabilities_single_syntax_error_returns_clean_json(tmp_path, capsys):
     assert "Traceback" not in captured.err
 
 
+def test_capabilities_rejects_missing_explicit_entry(tmp_path, capsys):
+    (tmp_path / "main.py").write_text("import subprocess\nsubprocess.run(['id'])\n")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["capabilities", str(tmp_path), "--entry", "missing.py", "--format", "json"]
+    )
+
+    assert run_capabilities(args) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "not found" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_capabilities_reports_unwritable_output(tmp_path, capsys):
+    source = tmp_path / "main.py"
+    source.write_text("import subprocess\nsubprocess.run(['id'])\n")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["capabilities", str(source), "--format", "json", "--output", str(tmp_path)]
+    )
+
+    assert run_capabilities(args) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not write" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_default_text_summarizes_internal_diagnostics_but_verbose_expands():
     from types import SimpleNamespace
     from pyflow.cli.capabilities import _to_text

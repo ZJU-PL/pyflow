@@ -899,6 +899,12 @@ class SimpleCodeGen(TypeDispatcher):
     def visitCode(self, node, name=None):
         if name is None:
             name = node.name
+        if not isIdentifier.match(name):
+            # Synthetic code names (for example ``pkg.<module>`` or
+            # ``<lambda>``) are valid PyFlow names but not Python identifiers.
+            name = re.sub(r"[^0-9a-zA-Z_]", "_", name)
+            if not name or name[0].isdigit():
+                name = "_" + name
         assert isIdentifier.match(name), name
 
         (defines, uses), (globaldefines, globaluses) = defuse.evaluateCode(None, node)

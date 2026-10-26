@@ -118,7 +118,11 @@ def run_capabilities(args) -> int:
             )
             entry = entries[0] if entries else None
         else:
-            entry = resolve_entry_file(target, args.entry)
+            try:
+                entry = resolve_entry_file(target, args.entry)
+            except ValueError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 2
             entries = [entry] if entry is not None else []
         if entry is None:
             from pyflow.frontend.entry_discovery import discover_entry_files
@@ -206,7 +210,11 @@ def run_capabilities(args) -> int:
         rendered = _to_text(result, verbose=getattr(args, "verbose", False))
 
     if args.output:
-        args.output.write_text(rendered + "\n", encoding="utf-8")
+        try:
+            args.output.write_text(rendered + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"Error: could not write {args.output}: {exc}", file=sys.stderr)
+            return 2
     else:
         print(rendered)
     if result.status in {"invalid", "failed"}:

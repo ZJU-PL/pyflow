@@ -61,3 +61,15 @@ def test_observe_only_runner_logs_without_denying(tmp_path):
         event["capability"] == "code.execute" and event["audit_event"] == "compile"
         for event in events
     )
+
+
+def test_audit_log_write_failure_is_reported_without_traceback(tmp_path):
+    script = tmp_path / "clean.py"
+    script.write_text("answer = 42\n")
+    audit_log = tmp_path / "missing" / "events.json"
+
+    completed = _run_guard(script, "--observe-only", "--audit-log", str(audit_log))
+
+    assert completed.returncode == 2
+    assert "could not write audit log" in completed.stderr
+    assert "Traceback" not in completed.stderr

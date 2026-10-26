@@ -83,6 +83,13 @@ def run_capability_guard(args) -> int:
                     json.dumps(payload, indent=2) + "\n",
                     encoding="utf-8",
                 )
+            except OSError as exc:
+                print(
+                    f"Error: could not write audit log {args.audit_log}: {exc}",
+                    file=sys.stderr,
+                )
+                if exit_code == 0:
+                    exit_code = 2
             finally:
                 policy.allowed = original_allowed
     return exit_code

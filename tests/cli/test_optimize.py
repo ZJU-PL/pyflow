@@ -441,3 +441,19 @@ def test_run_analysis_mixed_directory_skips_unparsable_files(tmp_path, capsys):
     assert (destination / "good.py").read_text(encoding="utf-8") == "x = 3\n"
     assert not (destination / "bad.py").exists()
     assert "Could not parse" in captured.err
+
+
+def test_dump_ipa_handles_synthetic_module_code_names(tmp_path, capsys):
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f(x):\n    return x + 1\n", encoding="utf-8")
+    output = tmp_path / "ipa"
+    parser = argparse.ArgumentParser()
+    optimize.add_optimize_parser(parser.add_subparsers())
+    args = parser.parse_args(["optimize", str(sample), "--dump-ipa", "--output", str(output)])
+
+    optimize.run_analysis(sample, args)
+
+    captured = capsys.readouterr()
+    assert "Could not dump IPA results" not in captured.out
+    assert "IPA analysis results dumped to" in captured.out
+    assert (output / "index.html").exists()
