@@ -76,7 +76,19 @@ def document_diagnostics(index, uri):
     try:
         inferred = infer_document(path, module, text)
         for diagnostic in inferred.diagnostics:
-            if diagnostic.code == "syntax-error":
+            # Precision limitations belong in analysis status/debug output,
+            # not squiggles on valid Python constructs.
+            if diagnostic.affects_completeness or diagnostic.code in {
+                "syntax-error",
+                "unsupported-expression",
+                "unsupported-statement",
+                "unmodeled-context-manager",
+                "unresolved-annotation",
+                "call-model-error",
+                "inference-did-not-converge",
+                "loop-widened",
+                "specialization-budget-exceeded",
+            }:
                 continue
             span = diagnostic.span
             result.append(
@@ -132,6 +144,7 @@ def document_diagnostics(index, uri):
                 reference.location.uri == uri
                 and reference.symbol_id is None
                 and reference.location not in index._reference_targets
+                and reference.location not in index._keyword_targets
                 and reference.name not in known
             ):
                 result.append(

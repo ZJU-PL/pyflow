@@ -73,16 +73,21 @@ class AnalysisManager:
         roots = tuple(os.path.abspath(path) for path in root_paths)
         if any(not Path(root).is_dir() for root in roots):
             raise ValueError("Workspace root is not a directory")
-        files = sorted({path for root in roots for path in self._discover_python_files(Path(root))})
-        self.load_source_files(files, workspace_roots=roots)
-
-    def load_source_files(self, files: list[Path], *, workspace_roots=()) -> None:
-        roots = tuple(map(os.path.abspath, workspace_roots))
         try:
             root = os.path.commonpath(roots) if roots else None
         except ValueError:
             root = roots[0]
         generation = self._configure_workspace(roots, root)
+        files = sorted({path for root in roots for path in self._discover_python_files(Path(root))})
+        self.load_source_files(files, workspace_roots=roots, _generation=generation)
+
+    def load_source_files(self, files: list[Path], *, workspace_roots=(), _generation=None) -> None:
+        roots = tuple(map(os.path.abspath, workspace_roots))
+        try:
+            root = os.path.commonpath(roots) if roots else None
+        except ValueError:
+            root = roots[0]
+        generation = self._configure_workspace(roots, root) if _generation is None else _generation
         normalized = [Path(path).absolute() for path in files]
         overrides, source_revision = self._documents.snapshot()
         sources = self._current_source_files(tuple(normalized), overrides)
@@ -137,7 +142,11 @@ class AnalysisManager:
         """Run explicitly requested semantic work; retain source services on failure."""
         with self._state_lock:
             files, roots, root, generation = (
-                list(self._python_files),
+                list(
+                    dict.fromkeys(
+                        [*self._python_files, *(Path(path) for path in self._source_files)]
+                    )
+                ),
                 self._workspace_roots,
                 self._root_path,
                 self._generation,
@@ -342,6 +351,7 @@ class AnalysisManager:
                 self._source_files = dict(all_source_code)
                 self._source_index = source_index
                 self._loaded = True
+                self.analysis_diagnostics = []
             if self._documents.revision != source_revision:
                 self._publish_syntax_snapshot()
 
@@ -428,7 +438,10 @@ class AnalysisManager:
             source_files = dict(current.source_files)
             if changed_path in source_overrides:
                 source_files[changed_path] = source_overrides[changed_path]
-            elif Path(changed_path).is_file():
+            elif Path(changed_path).is_file() and (
+                Path(changed_path) in python_files
+                or any(Path(changed_path).is_relative_to(root) for root in self._workspace_roots)
+            ):
                 source_files[changed_path] = _read_source(Path(changed_path))
             else:
                 source_files.pop(changed_path, None)

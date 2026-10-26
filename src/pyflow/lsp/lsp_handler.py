@@ -104,6 +104,8 @@ class LspHandler:
                     ErrorCodes.InternalError,
                     f"Unable to analyze workspace: {exc}",
                 ) from exc
+        elif not self._server.is_loaded:
+            await asyncio.to_thread(self._server.load_source_files, [])
 
         self._capabilities = {
             "positionEncoding": "utf-16",
@@ -208,7 +210,7 @@ class LspHandler:
             if root not in roots:
                 roots.append(root)
         if not roots:
-            self._server.close()
+            await asyncio.to_thread(self._server.load_source_files, [])
             return
         try:
             await asyncio.to_thread(self._server.load_source_workspaces, roots)
@@ -295,10 +297,7 @@ class LspHandler:
     def _handle_document_symbol(self, params: Any) -> list[dict[str, Any]]:
         self._require_loaded()
         uri = ((params or {}).get("textDocument") or {}).get("uri", "")
-        return [
-            symbol.document_symbol()
-            for symbol in self._server.current_snapshot().source_index.document_symbols(uri)
-        ]
+        return self._server.current_snapshot().source_index.document_symbol_tree(uri)
 
     def _handle_completion(self, params: Any) -> dict[str, Any]:
         self._require_loaded()
@@ -383,7 +382,8 @@ class LspHandler:
         if not new_name.isidentifier() or keyword.iskeyword(new_name):
             raise JsonRpcError(ErrorCodes.InvalidParams, "newName must be a Python identifier")
         uri, line, character = self._position(params)
-        ranges = self._server.current_snapshot().source_index.rename_ranges_at(uri, line, character)
+        source_index = self._server.current_snapshot().source_index
+        ranges = source_index.rename_ranges_at(uri, line, character)
         if not ranges:
             raise JsonRpcError(
                 ErrorCodes.InvalidParams,
@@ -392,7 +392,10 @@ class LspHandler:
         changes: dict[str, list[dict[str, Any]]] = {}
         for source_range in ranges:
             changes.setdefault(source_range.uri, []).append(
-                {"range": source_range.to_lsp(), "newText": new_name}
+                {
+                    "range": source_range.to_lsp(),
+                    "newText": source_index.replacement_text(source_range, new_name),
+                }
             )
         return {"changes": changes}
 
@@ -431,9 +434,19 @@ class LspHandler:
             raise JsonRpcError(
                 ErrorCodes.RequestCancelled, "Document changed while diagnostics were running"
             )
+        compiler_notes = [
+            {
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                "severity": 3,
+                "source": "pyflow-compiler",
+                "code": note.get("code", "analysis-failed"),
+                "message": note["message"],
+            }
+            for note in getattr(self._server, "analysis_diagnostics", ())
+        ]
         return {
             "kind": "full",
-            "items": items,
+            "items": [*items, *compiler_notes],
             "resultId": f"{snapshot.revision}:{snapshot.source_revision}",
         }
 

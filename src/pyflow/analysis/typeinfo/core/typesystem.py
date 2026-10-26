@@ -915,6 +915,49 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         if isinstance(self.right, Instance):
             if not self.graph.is_subclass(left.type, self.right.type):
                 return False
+            covariant = {
+                cabc.Iterable,
+                cabc.Iterator,
+                cabc.Collection,
+                cabc.Container,
+                cabc.Sequence,
+                cabc.Reversible,
+                cabc.Set,
+                cabc.AsyncIterable,
+                cabc.AsyncIterator,
+            }
+            target = self.right.type.raw_type
+            source = left.type.raw_type
+            if target in covariant and self.right.args:
+                if source is str:
+                    elements = (Instance(self.graph.to_class_descriptor(str)),)
+                elif source is bytes:
+                    elements = (Instance(self.graph.to_class_descriptor(int)),)
+                elif source is cabc.ItemsView and len(left.args) >= 2:
+                    elements = (TupleType(left.args[:2]),)
+                else:
+                    elements = left.args[:1] or (ANY,)
+                return all(self.sub_type_check(element, self.right.args[0]) for element in elements)
+            if target in {cabc.MutableSequence, cabc.MutableSet} and self.right.args:
+                elements = left.args[:1] or (ANY,)
+                return all(
+                    self.sub_type_check(element, self.right.args[0])
+                    and self.sub_type_check(self.right.args[0], element)
+                    for element in elements
+                )
+            if target in {cabc.Mapping, cabc.MutableMapping} and self.right.args:
+                arguments = left.args[:2] or (ANY, ANY)
+                if len(arguments) != len(self.right.args):
+                    return False
+                return all(
+                    self.sub_type_check(actual, expected)
+                    and (
+                        target is cabc.Mapping
+                        and index == 1
+                        or self.sub_type_check(expected, actual)
+                    )
+                    for index, (actual, expected) in enumerate(zip(arguments, self.right.args))
+                )
             if left.type == self.right.type and (left.args or self.right.args):
                 # TODO(fk) handle generics properly :(
                 # Until variance metadata exists, same-origin generics are invariant.
@@ -929,6 +972,16 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return False
 
     def visit_tuple_type(self, left: TupleType) -> bool:
+        if isinstance(self.right, Instance) and self.right.type.raw_type in {
+            cabc.Iterable,
+            cabc.Collection,
+            cabc.Sequence,
+            cabc.Reversible,
+            cabc.Container,
+        }:
+            return not self.right.args or all(
+                self.sub_type_check(element, self.right.args[0]) for element in left.args
+            )
         if isinstance(self.right, TupleType):
             if self.right.unknown_size:
                 if not self.right.args:

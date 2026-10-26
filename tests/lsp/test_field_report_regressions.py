@@ -164,7 +164,7 @@ def test_unknown_receivers_never_jump_to_a_unique_global_namesake(tmp_path):
     source = "class A:\n    def run(self): pass\ndef use(unknown):\n    unknown.run()\n"
     index = SourceIndex({str(path): source}, (tmp_path,))
     assert index.definitions_at(path.as_uri(), 3, 14) == []
-    assert index.rename_ranges_at(path.as_uri(), 1, 10) == []
+    assert len(index.rename_ranges_at(path.as_uri(), 1, 10)) == 1
     assert index.outgoing_calls("app.use") == []
 
 
@@ -256,8 +256,10 @@ def test_single_document_does_not_scan_parent_directory(tmp_path, monkeypatch):
         "_discover_python_files",
         lambda *a: pytest.fail("single document caused recursive scan"),
     )
+    handler = LspHandler(manager)
+    asyncio.run(handler._handle_initialize({"rootUri": None}))
     asyncio.run(
-        LspHandler(manager)._handle_did_open(
+        handler._handle_did_open(
             {"textDocument": {"uri": path.as_uri(), "text": "def current(): pass\n", "version": 1}}
         )
     )
@@ -358,3 +360,74 @@ def test_exit_notification_stops_process_with_stdin_still_open():
         if proc.poll() is None:
             proc.kill()
         proc.communicate()
+
+
+def test_source_workspace_discovery_cannot_restore_an_obsolete_root(tmp_path, monkeypatch):
+    import threading
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "one.py").write_text("def one(): pass\n")
+    (second / "two.py").write_text("def two(): pass\n")
+    manager = AnalysisManager()
+    entered, release = threading.Event(), threading.Event()
+    original = manager._discover_python_files
+
+    def discover(root):
+        if root == first:
+            entered.set()
+            assert release.wait(timeout=3)
+        return original(root)
+
+    monkeypatch.setattr(manager, "_discover_python_files", discover)
+    worker = threading.Thread(target=manager.load_source_workspaces, args=([str(first)],))
+    worker.start()
+    try:
+        assert entered.wait(timeout=3)
+        manager.load_source_workspaces([str(second)])
+    finally:
+        release.set()
+        worker.join(timeout=3)
+    assert manager.workspace_roots == (str(second),)
+    assert {symbol.name for symbol in manager.source_index.symbols} == {"two"}
+
+
+def test_superseded_diagnostic_requests_skip_queued_work(tmp_path, monkeypatch):
+    import threading
+    from pyflow.lsp import document_analysis
+
+    manager, path = source_manager(tmp_path, "value = 1\n")
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def diagnose(index, uri):
+        calls.append(index.text_for_uri(uri))
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=3)
+        return []
+
+    monkeypatch.setattr(document_analysis, "document_diagnostics", diagnose)
+
+    async def exercise():
+        handler = LspHandler(manager)
+        params = {"textDocument": {"uri": path.as_uri()}}
+        first = asyncio.create_task(handler._handle_document_diagnostic(params))
+        assert await asyncio.to_thread(entered.wait, 3)
+        manager.open_document(path.as_uri(), "value = 2\n", 1)
+        second = asyncio.create_task(handler._handle_document_diagnostic(params))
+        await asyncio.sleep(0)
+        manager.change_document(path.as_uri(), [{"text": "value = 3\n"}], 2)
+        latest = asyncio.create_task(handler._handle_document_diagnostic(params))
+        release.set()
+        results = await asyncio.gather(first, second, latest, return_exceptions=True)
+        assert isinstance(results[0], JsonRpcError)
+        assert isinstance(results[1], JsonRpcError)
+        assert results[2]["items"] == []
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+    assert calls == ["value = 1\n", "value = 3\n"]

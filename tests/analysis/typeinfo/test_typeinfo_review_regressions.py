@@ -223,10 +223,12 @@ def test_unsupported_statement_invalidates_written_bindings_and_reports_partial(
     assert any(d.code == "unsupported-statement" for d in result.diagnostics)
 
 
-def test_unsupported_expression_reports_partial():
+def test_starred_sequence_literal_preserves_element_type():
     result = StaticTypeInferenceEngine().infer_source("sample", "values = [*[1]]\n")
-    assert result.status == "partial"
-    assert any(d.code == "unsupported-expression" for d in result.diagnostics)
+    assert result.status == "complete"
+    assert isinstance(result.type_of("values"), Instance)
+    assert result.type_of("values").type.raw_type is list
+    assert raw_types(result.type_of("values").args[0]) == {int}
 
 
 def test_cli_partial_diagnostics_are_opt_in_and_legacy_json_is_preserved(capsys):

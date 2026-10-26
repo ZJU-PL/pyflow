@@ -70,6 +70,8 @@ class ModuleIdentityResolver:
         root = max(containing_roots, key=lambda item: len(item.parts))
         relative = path.relative_to(root).with_suffix("")
         parts = list(relative.parts)
+        if len(parts) > 1 and parts[0] == "src" and not (root / "src" / "__init__.py").is_file():
+            parts.pop(0)
         if parts and parts[-1] == "__init__":
             parts.pop()
         return ".".join(parts) or path.stem

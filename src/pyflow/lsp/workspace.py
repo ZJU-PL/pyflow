@@ -100,6 +100,8 @@ class SymbolKind(str, Enum):
     PARAMETER = "parameter"
     VARIABLE = "variable"
     IMPORT = "import"
+    TYPE_PARAMETER = "type-parameter"
+    TYPE_ALIAS = "type-alias"
 
 
 @dataclass(frozen=True)
@@ -156,11 +158,12 @@ class SourceSymbol:
     container_name: Optional[str] = None
     detail: str = ""
     documentation: str = ""
+    accessor: str = ""
 
     def document_symbol(self) -> dict:
         result = {
             "name": self.name,
-            "kind": self.kind,
+            "kind": 7 if self.accessor else self.kind,
             "range": self.full_range.to_lsp(),
             "selectionRange": self.selection_range.to_lsp(),
         }
@@ -171,7 +174,7 @@ class SourceSymbol:
     def symbol_information(self) -> dict:
         result = {
             "name": self.name,
-            "kind": self.kind,
+            "kind": 7 if self.accessor else self.kind,
             "location": self.selection_range.location(),
         }
         if self.container_name:
@@ -185,6 +188,7 @@ class SourceReference:
     location: SourceRange
     enclosing_function: Optional[str]
     symbol_id: Optional[SymbolId] = None
+    string_literal: bool = False
 
 
 @dataclass(frozen=True)
@@ -213,6 +217,9 @@ class _FileIndex:
     return_targets: tuple = ()
     class_bases: tuple = ()
     scopes: tuple = ()
+    keyword_targets: tuple = ()
+    keyword_parameters: tuple = ()
+    fixtures: tuple = ()
     syntax_stale: bool = False
 
 
@@ -220,6 +227,7 @@ class _ScopeKind(str, Enum):
     """Lexical execution contexts relevant to source symbol resolution."""
 
     MODULE = "module"
+    TYPE_PARAMETERS = "type-parameters"
     FUNCTION = "function"
     LAMBDA = "lambda"
     CLASS = "class"
@@ -518,6 +526,11 @@ class SourceIndex:
                 (remap(location, full=True), kind, bindings)
                 for location, kind, bindings in previous.scopes
             ),
+            keyword_targets=tuple(
+                (location, target)
+                for old_range, target in previous.keyword_targets
+                if (location := remap(old_range)) is not None
+            ),
             syntax_stale=True,
         )
 
@@ -536,6 +549,9 @@ class SourceIndex:
         self._return_targets = {}
         self._class_bases = {}
         self._scopes = []
+        self._keyword_targets = {}
+        self._keyword_parameters = {}
+        self._fixtures = {}
         for path in sorted(self._file_indices):
             file_index = self._file_indices[path]
             if file_index.module is not None:
@@ -551,31 +567,9 @@ class SourceIndex:
             self._return_targets.update(file_index.return_targets)
             self._class_bases.update(file_index.class_bases)
             self._scopes.extend(file_index.scopes)
-        from .resolution import WorkspaceResolver
-
-        self._resolver = WorkspaceResolver(
-            self.symbols,
-            self._import_targets,
-            self._value_targets,
-            self._return_targets,
-            self._class_bases,
-        )
-        self._resolve_import_aliases()
-        self._uncertain_member_ranges = {
-            location
-            for location, target in self._reference_targets.items()
-            if not self._resolver.is_complete(target)
-        }
-        self.references = [
-            replace(reference, symbol_id=(target.symbol_id if target else reference.symbol_id))
-            for reference in self.references
-            for target in [self._resolver.symbol(self._reference_targets.get(reference.location))]
-        ]
-        self.calls = [
-            replace(call, callee_id=(target.symbol_id if target else call.callee_id))
-            for call in self.calls
-            for target in [self._resolver.callable_symbol(self._call_targets.get(call.location))]
-        ]
+            self._keyword_targets.update(file_index.keyword_targets)
+            self._keyword_parameters.update(file_index.keyword_parameters)
+            self._fixtures.update(file_index.fixtures)
         modules = {}
         for path, name in self._modules.items():
             uri = path_to_uri(path)
@@ -589,10 +583,98 @@ class SourceIndex:
             )
             identity = SymbolId(name, name, SymbolKind.MODULE, uri, 0, 0)
             modules[uri] = SourceSymbol(
-                identity, name, name, name, 2, location, SourceRange(uri, 0, 0, 0, 0)
+                identity,
+                name,
+                name,
+                name,
+                2,
+                location,
+                SourceRange(uri, 0, 0, 0, 0),
+                container_name=name.rpartition(".")[0] or None,
             )
             self._symbols_by_id[identity] = modules[uri]
         self._module_symbols = modules
+        # Pytest injects fixture values into test/fixture parameters. Resolve
+        # only explicit fixture declarations, with conftest directory scoping.
+        fixtures = []
+        for identity, name in self._fixtures.items():
+            source = self._symbols_by_id.get(identity)
+            if source and source.container_name == source.module:
+                fixtures.append((source, name, Path(uri_to_path(source.selection_range.uri))))
+        for identity, parameters in self._keyword_parameters.items():
+            function = self._symbols_by_id.get(identity)
+            if function is None or not (
+                function.name.startswith("test_") or identity in self._fixtures
+            ):
+                continue
+            path = Path(uri_to_path(function.selection_range.uri))
+            for name, parameter in parameters:
+                if parameter in self._value_targets:
+                    continue
+                candidates = [
+                    (source, fixture_path)
+                    for source, fixture_name, fixture_path in fixtures
+                    if fixture_name == name
+                    and (
+                        fixture_path == path
+                        or fixture_path.name == "conftest.py"
+                        and path.is_relative_to(fixture_path.parent)
+                    )
+                ]
+                candidates.sort(
+                    key=lambda item: (item[1] == path, len(item[1].parts)), reverse=True
+                )
+                if candidates:
+                    self._value_targets[parameter] = (
+                        ("instance", ("symbol", candidates[0][0].symbol_id)),
+                    )
+        from .resolution import WorkspaceResolver
+
+        self._resolver = WorkspaceResolver(
+            self.symbols,
+            self._import_targets,
+            self._value_targets,
+            self._return_targets,
+            self._class_bases,
+            modules=tuple(modules.values()),
+        )
+        self._resolve_import_aliases()
+        self._uncertain_member_ranges = {
+            location
+            for location, target in self._reference_targets.items()
+            if not self._resolver.is_complete(target)
+        }
+        self.references = [
+            replace(reference, symbol_id=(target.symbol_id if target else reference.symbol_id))
+            for reference in self.references
+            for target in [self._resolver.symbol(self._reference_targets.get(reference.location))]
+        ]
+        keyword_ids = {}
+        self._keyword_candidates = {}
+        self._uncertain_keyword_ranges = set()
+        for location, (target, name) in self._keyword_targets.items():
+            parameters = set()
+            for callee in self._resolver.callable_candidates(target):
+                if callee.kind == 5:
+                    callee = self._resolver.member(callee.qualified_name, "__init__")
+                if callee:
+                    parameter = dict(self._keyword_parameters.get(callee.symbol_id, ())).get(name)
+                    if parameter:
+                        parameters.add(parameter)
+            self._keyword_candidates[location] = parameters
+            if len(parameters) == 1:
+                keyword_ids[location] = next(iter(parameters))
+            if len(parameters) > 1 or not self._resolver.is_complete(target):
+                self._uncertain_keyword_ranges.add(location)
+        self.references = [
+            replace(reference, symbol_id=keyword_ids.get(reference.location, reference.symbol_id))
+            for reference in self.references
+        ]
+        self.calls = [
+            replace(call, callee_id=(target.symbol_id if target else call.callee_id))
+            for call in self.calls
+            for target in [self._resolver.callable_symbol(self._call_targets.get(call.location))]
+        ]
         self.calls = [
             (
                 replace(
@@ -645,6 +727,9 @@ class SourceIndex:
         scratch._return_targets = {}
         scratch._class_bases = {}
         scratch._scopes = []
+        scratch._keyword_targets = {}
+        scratch._keyword_parameters = {}
+        scratch._fixtures = {}
         scratch._index_file(path, source)
         return _FileIndex(
             path,
@@ -660,6 +745,9 @@ class SourceIndex:
             tuple((key, tuple(values)) for key, values in scratch._return_targets.items()),
             tuple(scratch._class_bases.items()),
             tuple(scratch._scopes),
+            tuple(scratch._keyword_targets.items()),
+            tuple(scratch._keyword_parameters.items()),
+            tuple(scratch._fixtures.items()),
             syntax_stale=path not in scratch._modules,
         )
 
@@ -672,12 +760,7 @@ class SourceIndex:
             source: target for source, target in aliases.items() if source != target
         }
         self.references = [
-            SourceReference(
-                reference.name,
-                reference.location,
-                reference.enclosing_function,
-                aliases.get(reference.symbol_id, reference.symbol_id),
-            )
+            replace(reference, symbol_id=aliases.get(reference.symbol_id, reference.symbol_id))
             for reference in self.references
         ]
         self.calls = [
@@ -703,12 +786,65 @@ class SourceIndex:
         except ValueError:
             return None
 
+    def _presentable_symbol(self, symbol):
+        kind = symbol.symbol_id.kind
+        if kind in {SymbolKind.PARAMETER, SymbolKind.TYPE_PARAMETER, SymbolKind.IMPORT}:
+            return False
+        if symbol.accessor and self._resolver.symbols.get(symbol.qualified_name) != symbol:
+            return False
+        if kind is SymbolKind.VARIABLE:
+            owner = self._resolver.symbols.get(symbol.container_name)
+            return symbol.container_name == symbol.module or (owner is not None and owner.kind == 5)
+        return True
+
     def document_symbols(self, uri: str) -> list[SourceSymbol]:
-        return [s for s in self.symbols if s.full_range.uri == uri and s.kind in {5, 6, 12}]
+        return [
+            symbol
+            for symbol in self.symbols
+            if symbol.full_range.uri == uri and self._presentable_symbol(symbol)
+        ]
+
+    def document_symbol_tree(self, uri):
+        symbols = self.document_symbols(uri)
+        nodes = {symbol.symbol_id: symbol.document_symbol() for symbol in symbols}
+        by_name = {symbol.qualified_name: symbol for symbol in symbols}
+        roots = []
+        for symbol in sorted(
+            symbols,
+            key=lambda item: (
+                item.selection_range.start_line,
+                item.selection_range.start_character,
+            ),
+        ):
+            node = nodes[symbol.symbol_id]
+            parent = by_name.get(symbol.container_name)
+            if parent and parent.symbol_id != symbol.symbol_id:
+                nodes[parent.symbol_id].setdefault("children", []).append(node)
+            else:
+                roots.append(node)
+        return roots
 
     def workspace_symbols(self, query: str) -> list[SourceSymbol]:
         query = query.casefold()
-        return [s for s in self.symbols if not query or query in s.qualified_name.casefold()]
+        symbols = [
+            symbol
+            for symbol in (*self.symbols, *self._module_symbols.values())
+            if self._presentable_symbol(symbol)
+            and (not query or query in symbol.qualified_name.casefold())
+        ]
+
+        def rank(symbol):
+            declaration = (
+                0
+                if symbol.symbol_id.kind
+                in {SymbolKind.CLASS, SymbolKind.FUNCTION, SymbolKind.MODULE, SymbolKind.TYPE_ALIAS}
+                else 1 if symbol.symbol_id.kind is SymbolKind.METHOD else 2
+            )
+            name = symbol.name.rsplit(".", 1)[-1].casefold()
+            match = 0 if name == query else 1 if name.startswith(query) else 2
+            return declaration, match, symbol.qualified_name.casefold(), symbol.selection_range.uri
+
+        return sorted(symbols, key=rank)
 
     def word_at(self, uri: str, line: int, character: int) -> Optional[str]:
         text = self.text_for_uri(uri)
@@ -754,7 +890,11 @@ class SourceIndex:
             if location.uri == uri and location.contains(line, character)
         ]
         scopes.sort(
-            key=lambda item: (item[0].end_line - item[0].start_line, -item[0].start_line),
+            key=lambda item: (
+                item[0].end_line - item[0].start_line,
+                -item[0].start_line,
+                int(item[1] is _ScopeKind.TYPE_PARAMETERS),
+            ),
             reverse=True,
         )
         inside_function = any(
@@ -814,7 +954,7 @@ class SourceIndex:
         items = [
             {
                 "label": symbol.name,
-                "kind": {5: 7, 6: 2, 12: 3}.get(symbol.kind, 6),
+                "kind": 10 if symbol.accessor else {5: 7, 6: 2, 12: 3}.get(symbol.kind, 6),
                 "detail": symbol.detail or symbol.qualified_name,
                 **(
                     {"documentation": {"kind": "markdown", "value": symbol.documentation}}
@@ -887,13 +1027,13 @@ class SourceIndex:
         symbol = self.symbol_at(uri, line, character)
         if symbol is None:
             return []
+        group = self._resolver.property_group(symbol)
+        identities = {candidate.symbol_id for candidate in group}
         result = [
-            reference.location
-            for reference in self.references
-            if reference.symbol_id == symbol.symbol_id
+            reference.location for reference in self.references if reference.symbol_id in identities
         ]
         if include_declaration:
-            result.insert(0, symbol.selection_range)
+            result = [candidate.selection_range for candidate in group] + result
         return _deduplicate_ranges(result)
 
     def token_range_at(self, uri, line, character):
@@ -910,27 +1050,60 @@ class SourceIndex:
     def rename_ranges_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         """Return declaration and identity-matched references for LSP rename."""
         symbol = self.symbol_at(uri, line, character)
-        if symbol is None:
+        if symbol is None or symbol.symbol_id.kind is SymbolKind.MODULE:
             return []
+        identities = {candidate.symbol_id for candidate in self._resolver.property_group(symbol)}
         owner = self._resolver.symbols.get(symbol.container_name)
-        if (
-            symbol.symbol_id.kind is SymbolKind.METHOD or (owner is not None and owner.kind == 5)
-        ) and any(
-            reference.name == symbol.name
-            and (reference.symbol_id is None or reference.location in self._uncertain_member_ranges)
-            and reference.location in self._reference_targets
-            for reference in self.references
+        if symbol.symbol_id.kind is SymbolKind.METHOD or (owner is not None and owner.kind == 5):
+            for reference in self.references:
+                target = self._reference_targets.get(reference.location)
+                if (
+                    reference.name != symbol.name
+                    or target is None
+                    or reference.location not in self._uncertain_member_ranges
+                ):
+                    continue
+                # Unrelated dynamic receivers do not veto this declaration.
+                candidates = [
+                    self._resolver.member(name, symbol.name)
+                    for name in self._resolver.names(target[1])
+                ]
+                if any(candidate and candidate.symbol_id in identities for candidate in candidates):
+                    return []
+        if symbol.symbol_id.kind is SymbolKind.PARAMETER and any(
+            symbol.symbol_id in self._keyword_candidates.get(location, ())
+            for location in self._uncertain_keyword_ranges
         ):
             return []
-        if any(index.syntax_stale for index in self._file_indices.values()):
+        affected = {
+            candidate.selection_range.uri for candidate in self._resolver.property_group(symbol)
+        } | {
+            reference.location.uri
+            for reference in self.references
+            if reference.symbol_id in identities
+        }
+        if any(
+            index.syntax_stale and path_to_uri(path) in affected
+            for path, index in self._file_indices.items()
+        ):
             return []
         return _deduplicate_ranges(
-            [symbol.selection_range]
+            [candidate.selection_range for candidate in self._resolver.property_group(symbol)]
             + [
                 reference.location
                 for reference in self.references
-                if reference.symbol_id == symbol.symbol_id and reference.name == symbol.name
+                if reference.symbol_id in identities and reference.name == symbol.name
             ]
+        )
+
+    def replacement_text(self, source_range, new_name):
+        return (
+            repr(new_name)
+            if any(
+                reference.location == source_range and reference.string_literal
+                for reference in self.references
+            )
+            else new_name
         )
 
     def diagnostics_for_uri(self, uri: str) -> list[dict[str, object]]:
@@ -1080,6 +1253,11 @@ class _IndexVisitor(ast.NodeVisitor):
         kind: int,
         identity_kind: SymbolKind,
     ) -> SourceSymbol:
+        if identity_kind is SymbolKind.VARIABLE:
+            if scope.kind in {_ScopeKind.MODULE, _ScopeKind.CLASS} and name.isupper():
+                kind = 14
+            elif scope.kind is _ScopeKind.CLASS:
+                kind = 8
         qualified = ".".join([self.module, *scope.path, name])
         container = ".".join([self.module, *scope.path]) if scope.path else self.module
         selection_range = self._range(node, name=name)
@@ -1100,6 +1278,7 @@ class _IndexVisitor(ast.NodeVisitor):
             selection_range=selection_range,
             container_name=container,
             detail=self._declaration(node, name),
+            accessor=self._accessor(node),
             documentation=(
                 (ast.get_docstring(node) or "")
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -1112,16 +1291,38 @@ class _IndexVisitor(ast.NodeVisitor):
         return symbol
 
     @staticmethod
+    def _accessor(node):
+        for decorator in getattr(node, "decorator_list", ()):
+            if isinstance(decorator, ast.Name) and decorator.id in {"property", "cached_property"}:
+                return "getter"
+            if (
+                isinstance(decorator, ast.Attribute)
+                and decorator.attr in {"getter", "setter", "deleter"}
+                and isinstance(decorator.value, ast.Name)
+                and decorator.value.id == getattr(node, "name", None)
+            ):
+                return decorator.attr
+        return ""
+
+    @staticmethod
     def _declaration(node, name):
+        parameters = getattr(node, "type_params", ())
+        generic = (
+            "[" + ", ".join(ast.unparse(parameter) for parameter in parameters) + "]"
+            if parameters
+            else ""
+        )
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            result = f"{'async ' if isinstance(node, ast.AsyncFunctionDef) else ''}def {name}({ast.unparse(node.args)})"
+            result = f"{'async ' if isinstance(node, ast.AsyncFunctionDef) else ''}def {name}{generic}({ast.unparse(node.args)})"
             return result + (" -> " + ast.unparse(node.returns) if node.returns else "")
         if isinstance(node, ast.ClassDef):
-            return f"class {name}" + (
+            return f"class {name}{generic}" + (
                 "(" + ", ".join(ast.unparse(base) for base in node.bases) + ")"
                 if node.bases
                 else ""
             )
+        if type(node).__name__ in {"TypeAlias", "TypeVar", "TypeVarTuple", "ParamSpec"}:
+            return ast.unparse(node)
         if isinstance(node, ast.arg) and node.annotation:
             return f"{name}: {ast.unparse(node.annotation)}"
         return name
@@ -1143,7 +1344,36 @@ class _IndexVisitor(ast.NodeVisitor):
             if node.id in {"str", "int", "float", "bool", "bytes", "list", "dict", "set", "tuple"}:
                 return ("external", "builtins." + node.id)
         if isinstance(node, ast.Attribute):
-            return ("member", self._target(node.value), node.attr)
+            return (
+                "member",
+                self._target(node.value),
+                node.attr,
+                (
+                    "write"
+                    if isinstance(node.ctx, ast.Store)
+                    else "delete" if isinstance(node.ctx, ast.Del) else "read"
+                ),
+            )
+        if isinstance(node, ast.IfExp):
+            body, other = self._target(node.body), self._target(node.orelse)
+            test, nonnull_body = node.test, True
+            if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                test, nonnull_body = test.operand, False
+            if (
+                isinstance(test, ast.Compare)
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], (ast.Is, ast.IsNot))
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value is None
+            ):
+                nonnull_body = isinstance(test.ops[0], ast.IsNot)
+                test = test.left
+            if isinstance(test, (ast.Name, ast.Attribute)):
+                if nonnull_body and ast.dump(node.body) == ast.dump(test):
+                    body = ("nonnull", body)
+                elif not nonnull_body and ast.dump(node.orelse) == ast.dump(test):
+                    other = ("nonnull", other)
+            return ("alternatives", (body, other))
         if isinstance(node, ast.Call):
             return ("instance", self._target(node.func))
         if isinstance(node, ast.Constant):
@@ -1156,6 +1386,33 @@ class _IndexVisitor(ast.NodeVisitor):
                 node = ast.parse(node.value, mode="eval").body
             except SyntaxError:
                 return ("unknown",)
+        if isinstance(node, ast.Constant) and node.value is None:
+            return ("external", "builtins.NoneType")
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return (
+                "alternatives",
+                (self._annotation_target(node.left), self._annotation_target(node.right)),
+            )
+        if isinstance(node, ast.Subscript):
+            name = _call_name(node.value) or ""
+            head, separator, tail = name.partition(".")
+            qualified = self.index._import_targets.get(self._resolve(head), head) + (
+                separator + tail if separator else ""
+            )
+            arguments = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if qualified in {"typing.Optional", "typing_extensions.Optional"}:
+                return (
+                    "alternatives",
+                    (self._annotation_target(arguments[0]), ("external", "builtins.NoneType")),
+                )
+            if qualified in {"typing.Union", "typing_extensions.Union"}:
+                return (
+                    "alternatives",
+                    tuple(self._annotation_target(argument) for argument in arguments),
+                )
+            if qualified in {"typing.Annotated", "typing_extensions.Annotated"}:
+                return self._annotation_target(arguments[0])
+            return self._annotation_target(node.value)
         return ("instance", self._target(node))
 
     def _bind_value(self, target, value):
@@ -1185,12 +1442,56 @@ class _IndexVisitor(ast.NodeVisitor):
         self.generic_visit(node)
         for target in node.targets:
             self._bind_value(target, self._target(node.value))
+            if isinstance(target, ast.Name) and target.id == "__all__":
+                self._record_exports(node.value)
+
+    def _record_exports(self, value):
+        if self._current_scope.kind is not _ScopeKind.MODULE:
+            return
+
+        def literals(node):
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                for child in node.elts:
+                    yield from literals(child)
+            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                yield from literals(node.left)
+                yield from literals(node.right)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                yield node
+
+        for node in literals(value):
+            symbol_id = self._resolve(node.value)
+            if symbol_id and node.value.isidentifier():
+                escaped = node.value not in (ast.get_source_segment(self.source, node) or "")
+                location = self._range(node) if escaped else self._range(node, name=node.value)
+                self.index.references.append(
+                    SourceReference(
+                        node.value,
+                        location,
+                        self._current_function(),
+                        symbol_id,
+                        string_literal=escaped,
+                    )
+                )
+
+    def visit_AugAssign(self, node):
+        self.generic_visit(node)
+        if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+            self._record_exports(node.value)
 
     def visit_AnnAssign(self, node):
         self.generic_visit(node)
-        self._bind_value(node.target, self._annotation_target(node.annotation))
+        self._bind_value(node.target, ("annotation", self._annotation_target(node.annotation)))
         if node.value is not None:
             self._bind_value(node.target, self._target(node.value))
+            if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+                self._record_exports(node.value)
+
+    def visit_Yield(self, node):
+        self.generic_visit(node)
+        identity = self._current_scope.function_id
+        if identity in self.index._fixtures and node.value is not None:
+            self.index._return_targets.setdefault(identity, []).append(self._target(node.value))
 
     def visit_Return(self, node):
         self.generic_visit(node)
@@ -1198,6 +1499,42 @@ class _IndexVisitor(ast.NodeVisitor):
             self.index._return_targets.setdefault(self._current_scope.function_id, []).append(
                 self._target(node.value)
             )
+
+    def _push_type_parameters(self, node, symbol):
+        parameters = getattr(node, "type_params", ())
+        if not parameters:
+            return False
+        parent = self._current_scope
+        self._scopes.append(
+            _Scope(
+                _ScopeKind.TYPE_PARAMETERS,
+                {},
+                path=(*self.scope, symbol.name),
+                function_id=parent.function_id,
+                class_id=parent.class_id,
+                receiver_id=parent.receiver_id,
+            )
+        )
+        for parameter in parameters:
+            self._add_definition(parameter, parameter.name, 26, SymbolKind.TYPE_PARAMETER)
+        for parameter in parameters:
+            for name in ("bound", "default_value"):
+                value = getattr(parameter, name, None)
+                if value is not None:
+                    self.visit(value)
+        return True
+
+    def _pop_type_parameters(self, node):
+        self._record_scope(node)
+        self._scopes.pop()
+
+    def visit_TypeAlias(self, node):
+        name = node.name.id
+        symbol = self._add_local_definition(node, name, SymbolKind.TYPE_ALIAS)
+        scoped = self._push_type_parameters(node, symbol)
+        self.visit(node.value)
+        if scoped:
+            self._pop_type_parameters(node)
 
     def _push_scope(
         self,
@@ -1284,7 +1621,9 @@ class _IndexVisitor(ast.NodeVisitor):
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         # Decorators, defaults, and annotations are evaluated before the new
         # function binding becomes visible in its enclosing scope.
-        self._visit_function_outer_expressions(node)
+        self._visit_function_outer_expressions(
+            node, annotations=not bool(getattr(node, "type_params", ()))
+        )
         is_method = self._current_scope.kind is _ScopeKind.CLASS
         existing = self._current_scope.bindings.get(node.name)
         if existing is not None and existing in self._current_scope.predeclared:
@@ -1296,8 +1635,30 @@ class _IndexVisitor(ast.NodeVisitor):
                 6 if self.scope else 12,
                 SymbolKind.METHOD if is_method else SymbolKind.FUNCTION,
             )
+        for decorator in node.decorator_list:
+            expression = decorator.func if isinstance(decorator, ast.Call) else decorator
+            name = _call_name(expression) or ""
+            head, separator, rest = name.partition(".")
+            imported = self.index._import_targets.get(self._resolve(head), head)
+            if imported + (separator + rest if separator else "") == "pytest.fixture":
+                fixture_name = node.name
+                for keyword in decorator.keywords if isinstance(decorator, ast.Call) else ():
+                    if (
+                        keyword.arg == "name"
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, str)
+                    ):
+                        fixture_name = keyword.value.value
+                self.index._fixtures[symbol.symbol_id] = fixture_name
+        scoped = self._push_type_parameters(node, symbol)
+        if scoped:
+            self._visit_function_annotations(node)
         self._push_scope(node.name, kind=_ScopeKind.FUNCTION, function=symbol.symbol_id)
         self._predeclare_function_bindings(node)
+        self.index._keyword_parameters[symbol.symbol_id] = tuple(
+            (argument.arg, self._resolve(argument.arg))
+            for argument in [*node.args.args, *node.args.kwonlyargs]
+        )
         if is_method:
             positional = [*node.args.posonlyargs, *node.args.args]
             if (
@@ -1311,38 +1672,53 @@ class _IndexVisitor(ast.NodeVisitor):
                 self._current_scope.receiver_id = self._current_scope.bindings.get(
                     positional[0].arg
                 )
+                receiver = ("symbol", self._current_scope.class_id)
                 self.index._value_targets[self._current_scope.receiver_id] = [
-                    ("symbol", self._current_scope.class_id)
+                    ("instance", receiver) if positional[0].arg == "self" else receiver
                 ]
         for argument in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:
             if argument.annotation and self._resolve(argument.arg):
                 self.index._value_targets.setdefault(self._resolve(argument.arg), []).append(
-                    self._annotation_target(argument.annotation)
+                    ("annotation", self._annotation_target(argument.annotation))
                 )
         if node.returns:
             self.index._return_targets.setdefault(symbol.symbol_id, []).append(
-                self._annotation_target(node.returns)
+                (
+                    "annotation",
+                    self._annotation_target(
+                        node.returns.slice
+                        if symbol.symbol_id in self.index._fixtures
+                        and isinstance(node.returns, ast.Subscript)
+                        else node.returns
+                    ),
+                )
             )
         for statement in node.body:
             self.visit(statement)
         self._record_scope(node)
         self._pop_scope()
+        if scoped:
+            self._pop_type_parameters(node)
 
-    def _visit_function_outer_expressions(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
+    def _visit_function_outer_expressions(self, node, *, annotations=True):
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in [*node.args.defaults, *node.args.kw_defaults]:
             if default is not None:
                 self.visit(default)
-        for argument in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:
+        if annotations:
+            self._visit_function_annotations(node)
+
+    def _visit_function_annotations(self, node):
+        for argument in [
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *([node.args.vararg] if node.args.vararg else []),
+            *([node.args.kwarg] if node.args.kwarg else []),
+        ]:
             if argument.annotation is not None:
                 self.visit(argument.annotation)
-        if node.args.vararg and node.args.vararg.annotation is not None:
-            self.visit(node.args.vararg.annotation)
-        if node.args.kwarg and node.args.kwarg.annotation is not None:
-            self.visit(node.args.kwarg.annotation)
         if node.returns is not None:
             self.visit(node.returns)
 
@@ -1393,20 +1769,19 @@ class _IndexVisitor(ast.NodeVisitor):
             )
             self._current_scope.predeclared.add(symbol.symbol_id)
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        # Class decorators, bases and keyword expressions execute in the
-        # enclosing scope.  The class namespace exists only for its body.
+    def visit_ClassDef(self, node):
         for decorator in node.decorator_list:
             self.visit(decorator)
-        for base in node.bases:
-            self.visit(base)
-        for keyword in node.keywords:
-            self.visit(keyword.value)
         existing = self._current_scope.bindings.get(node.name)
         if existing is not None and existing in self._current_scope.predeclared:
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
+        scoped = self._push_type_parameters(node, symbol)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
         self.index._class_bases[symbol.qualified_name] = tuple(
             self._target(base) for base in node.bases
         )
@@ -1415,6 +1790,8 @@ class _IndexVisitor(ast.NodeVisitor):
             self.visit(statement)
         self._record_scope(node)
         self._pop_scope()
+        if scoped:
+            self._pop_type_parameters(node)
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         # Lambda defaults execute outside its anonymous function scope.
@@ -1535,6 +1912,24 @@ class _IndexVisitor(ast.NodeVisitor):
             self.index._import_targets[symbol.symbol_id] = (
                 alias.name if alias.asname else alias.name.split(".")[0]
             )
+            components = alias.name.split(".")
+            prefix = ""
+            for component in components:
+                column = alias.col_offset + len(prefix.encode("utf-8"))
+                token = ast.Name(
+                    id=component,
+                    lineno=alias.lineno,
+                    col_offset=column,
+                    end_lineno=alias.lineno,
+                    end_col_offset=column + len(component.encode("utf-8")),
+                )
+                location = self._range(token)
+                prefix += component
+                self.index._reference_targets[location] = ("external", prefix)
+                self.index.references.append(
+                    SourceReference(component, location, self._current_function())
+                )
+                prefix += "."
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
@@ -1657,6 +2052,13 @@ class _IndexVisitor(ast.NodeVisitor):
                     self._resolve_call(node.func),
                 )
             )
+        for keyword in node.keywords:
+            if keyword.arg is not None:
+                location = self._range(keyword, name=keyword.arg)
+                self.index.references.append(
+                    SourceReference(keyword.arg, location, self._current_function())
+                )
+                self.index._keyword_targets[location] = (self._target(node.func), keyword.arg)
         self.generic_visit(node)
 
     def _current_function(self) -> Optional[str]:
@@ -1786,6 +2188,9 @@ class _ScopeBindingCollector(ast.NodeVisitor):
                 lsp_kind=self._function_lsp_kind,
             )
         )
+
+    def visit_TypeAlias(self, node):
+        self.bindings.append(_FunctionBinding(node, node.name.id, SymbolKind.TYPE_ALIAS))
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.bindings.append(_FunctionBinding(node, node.name, SymbolKind.CLASS, lsp_kind=5))

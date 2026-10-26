@@ -78,6 +78,19 @@ class BuiltinTypeLookup:
             return NEVER
         if qualified_name in {"tuple", "builtins.tuple"}:
             return TupleType((ANY,), unknown_size=True)
+        if qualified_name.startswith(("typing.", "typing_extensions.", "collections.abc.")):
+            import typing
+            import collections.abc
+
+            name = qualified_name.rsplit(".", 1)[-1]
+            alias = (
+                getattr(collections.abc, name, None)
+                if qualified_name.startswith("collections.abc.")
+                else getattr(typing, name, None)
+            )
+            origin = typing.get_origin(alias) or alias
+            if isinstance(origin, type):
+                return Instance(ClassDescriptor(origin))
         if qualified_name.startswith("builtins."):
             qualified_name = qualified_name.rsplit(".", 1)[-1]
         raw = getattr(builtins, qualified_name, None)

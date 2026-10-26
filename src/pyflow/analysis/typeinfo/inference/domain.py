@@ -110,7 +110,12 @@ class AbstractTypeValue:
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:
         """Remove all members represented by ``rejected``."""
         return AbstractTypeValue(
-            frozenset(t for t in self.types if not isinstance(t, rejected)),
+            frozenset(
+                part
+                for typ in self.types
+                for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+                if not isinstance(part, rejected)
+            ),
             unknown=self.unknown,
             callable_targets=self.callable_targets,
             class_targets=self.class_targets,
