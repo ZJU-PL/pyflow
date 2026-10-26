@@ -64,6 +64,43 @@ def test_alias_timeout_preserves_finished_files_and_reports_partial(monkeypatch,
     assert "frontend progress" in captured.err
 
 
+def test_alias_syntax_error_does_not_abort_other_files(tmp_path, capsys):
+    good = tmp_path / "good.py"
+    bad = tmp_path / "bad.py"
+    good.write_text("def f(x):\n    return x\n", encoding="utf-8")
+    bad.write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = ArgumentParser()
+    alias.add_alias_parser(parser.add_subparsers())
+    args = parser.parse_args(["alias", str(tmp_path), "--json"])
+
+    assert alias.run_alias_analysis(str(tmp_path), args) == 0
+
+    captured = capsys.readouterr()
+    reports = json.loads(captured.out)
+    good_report = next(report for report in reports if report["file"].endswith("good.py"))
+    assert good_report["functions"]
+    bad_report = next(report for report in reports if report["file"].endswith("bad.py"))
+    assert "invalid syntax" in bad_report["error"]
+    assert "Traceback" not in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_alias_single_syntax_error_returns_nonzero_with_json(tmp_path, capsys):
+    bad = tmp_path / "bad.py"
+    bad.write_text("def broken(:\n    pass\n", encoding="utf-8")
+    parser = ArgumentParser()
+    alias.add_alias_parser(parser.add_subparsers())
+    args = parser.parse_args(["alias", str(bad), "--json"])
+
+    assert alias.run_alias_analysis(str(bad), args) == 1
+
+    captured = capsys.readouterr()
+    reports = json.loads(captured.out)
+    assert reports[0]["file"].endswith("bad.py")
+    assert "invalid syntax" in reports[0]["error"]
+    assert captured.err == ""
+
+
 def test_capabilities_timeout_is_partial_json_report(monkeypatch, tmp_path, capsys):
     source = tmp_path / "main.py"
     source.write_text("print('hello')\n")

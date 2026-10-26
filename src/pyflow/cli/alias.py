@@ -398,25 +398,37 @@ def run_alias_analysis(input_path: str, args) -> int:
     all_results = []
     text_results = []
     filepath = files[0]
+    analyzed = 0
+    failed = 0
     try:
         with analysis_time_budget(getattr(args, "max_seconds", 30.0)):
             for filepath in files:
-                if json_mode:
-                    with redirect_stdout(sys.stderr):
-                        result = (
-                            _analyze_file_kcfa_json(filepath, k)
-                            if engine == "kcfa"
-                            else _analyze_file_flow_sensitive_json(filepath)
+                try:
+                    if json_mode:
+                        with redirect_stdout(sys.stderr):
+                            result = (
+                                _analyze_file_kcfa_json(filepath, k)
+                                if engine == "kcfa"
+                                else _analyze_file_flow_sensitive_json(filepath)
+                            )
+                        all_results.append(result)
+                    else:
+                        buffer = StringIO()
+                        with redirect_stdout(buffer):
+                            if engine == "kcfa":
+                                _analyze_file_kcfa(filepath, k, verbose)
+                            else:
+                                _analyze_file_flow_sensitive(filepath, verbose)
+                        text_results.append(buffer.getvalue())
+                    analyzed += 1
+                except (OSError, SyntaxError, UnicodeError) as exc:
+                    failed += 1
+                    if json_mode:
+                        all_results.append(
+                            {"file": str(filepath), "engine": engine, "error": str(exc)}
                         )
-                    all_results.append(result)
-                else:
-                    buffer = StringIO()
-                    with redirect_stdout(buffer):
-                        if engine == "kcfa":
-                            _analyze_file_kcfa(filepath, k, verbose)
-                        else:
-                            _analyze_file_flow_sensitive(filepath, verbose)
-                    text_results.append(buffer.getvalue())
+                    else:
+                        text_results.append(f"# {filepath}\n  ERROR — {exc}\n")
     except AnalysisBudgetExceeded as exc:
         all_results.append(
             {
@@ -436,4 +448,4 @@ def run_alias_analysis(input_path: str, args) -> int:
         print(json.dumps(all_results, indent=2))
     else:
         print("".join(text_results), end="")
-    return 0
+    return 0 if analyzed or not failed else 1
