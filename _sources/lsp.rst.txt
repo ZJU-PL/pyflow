@@ -49,16 +49,33 @@ schedule repeated whole-project compiler runs.
 Both full-document and incremental UTF-16 changes are supported. Navigation,
 completion, hover, rename, and diagnostics use unsaved overlays. Unchanged file
 shards are reused, and temporary syntax errors retain and rebase unchanged
-symbols from the previous valid index. Rename is unavailable while a shard has
-incomplete syntax, so stale coordinates cannot be applied as edits.
+symbols from the previous valid index. Rename is unavailable when a file touched
+by the edit has incomplete syntax, so stale coordinates cannot be applied as edits. An unrelated invalid file does
+not disable refactoring elsewhere.
 
 Definitions, references, and call hierarchy resolve module imports, constructor
 instances, aliases, annotations, inherited members, fields, and source-visible
 factory returns. Module-level calls also appear in call hierarchy. Dynamic
 wrappers and reassignment may leave a receiver partially known: navigation can
-offer known targets, but rename requires complete, unambiguous member evidence.
-Unknown receivers never fall back to an unrelated global namesake. Exported
-names can be renamed without rewriting explicit import aliases.
+offer known targets, but rename rejects a partial receiver when its known
+alternatives include the target. Unrelated unresolved uses of a common method
+name do not veto the rename. Only statically linked references are changed;
+runtime-generated accesses remain unresolved. Unknown receivers never fall back
+to an unrelated global namesake. Exported names can be renamed without rewriting
+explicit import aliases, and literal ``__all__`` entries are updated as well.
+Keyword argument labels participate in parameter navigation, references, and
+rename, including imported functions, aliases, bound methods, constructors, and
+callable instances.
+
+The source index recognizes conventional ``src/`` layouts and scoped pytest
+fixture declarations in modules and applicable ``conftest.py`` files. Declared
+return and attribute types guide receiver resolution. Property reads resolve to
+the getter, writes to the setter; property rename includes all accessors. Python
+3.12+ function, class, and type-alias type parameters have distinct lexical
+bindings when the server runs on a Python version supporting that syntax.
+Document outlines contain nested declarations, class fields, and module
+variables/constants. Workspace symbol search excludes parameters and function
+locals and ranks declarations ahead of variable matches.
 
 Completion suggests members after a dot and lexical bindings elsewhere. It can
 use the retained index while a dot leaves the edited document temporarily
@@ -73,8 +90,15 @@ Analysis runs in a worker, is cached by document contents, and rejects results
 for superseded text. Only one diagnostic worker runs at a time; obsolete queued
 requests do not start additional analysis. These diagnostics are document-scoped:
 they do not establish whole-project taint flow or replace a dedicated project
-security scan. Dynamic imports, runtime-generated attributes, and unknown
-external return types remain resolution limits.
+security scan. Standard collection annotations use their real abstract base
+classes and element types. Generator annotations check yielded values separately
+from terminal return values, including async generators. Optional values and
+``isinstance`` checks narrow local and attribute types along control-flow paths.
+Imported types without hierarchy evidence remain explicitly uncertain instead of
+being diagnosed as incompatible dummy classes. Unsupported-model and analysis
+budget notes remain available in type-analysis status/diagnostics APIs but are
+not emitted as editor squiggles. Dynamic imports, runtime-generated attributes,
+and unknown external return types remain resolution limits.
 
 Model Context Protocol
 ----------------------
