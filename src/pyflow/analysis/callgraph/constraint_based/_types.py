@@ -87,6 +87,23 @@ class _TypeAnalysisMixin:
             return list(expr.elts)
         return [expr]
 
+    def _annotation_element_values(
+        self,
+        annotation: Optional[ast.AST],
+        module_name: str,
+    ) -> Set[AbstractValue]:
+        """Type values named by the type arguments of a subscripted annotation.
+
+        `list[C]` / `dict[str, C]` 的类型实参描述元素可能具有的类型；当容器还没有
+        任何元素（值集合为空）时，这些类型就是该容器元素的值来源。
+        """
+        if not isinstance(annotation, ast.Subscript):
+            return set()
+        out: Set[AbstractValue] = set()
+        for item in self._annotation_union_items(annotation.slice):
+            out.update(self._resolve_type_expression_values(item, module_name))
+        return out
+
     def _resolve_type_expression_values(
         self,
         expr: Optional[ast.AST],

@@ -256,12 +256,22 @@ class _ModuleAnalysisMixin:
                 queue.append(imported)
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
-        """Yield imported module names referenced anywhere in the module AST."""
-        yield from self.project_context.iter_imported_modules(
+        """Yield imported module names and the enclosing packages of each name.
+
+        Importing ``a.b`` first executes the ``__init__.py`` of every parent
+        package, so those packages are part of the program as well.  Namespace
+        packages have no ``__init__.py`` and resolve without a path, which the
+        loader skips.
+        """
+        for imported in self.project_context.iter_imported_modules(
             module_info.tree,
             current_module=module_info.name,
             current_path=module_info.path,
-        )
+        ):
+            parts = imported.split(".")
+            for end in range(1, len(parts)):
+                yield ".".join(parts[:end])
+            yield imported
 
     def _resolve_import_module_name(
         self, current_module: str, imported_module: Optional[str], level: int
