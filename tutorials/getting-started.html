@@ -255,14 +255,22 @@ tasks. The main commands are:</p>
 </div>
 <p>This will output the call graph, showing which functions call which other
 functions. You should see output similar to:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
-───────────────────────────────
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph Analysis
+==================================================
 
-fibonacci → fibonacci (recursive)
-factorial → factorial (recursive)
-main → fibonacci
-main → factorial
-main → print
+Functions (5):
+  - &lt;builtin&gt;.print
+  - example (from example)
+  - example.factorial (from example)
+  - example.fibonacci (from example)
+  - example.main (from example)
+
+Call Relationships:
+  &lt;builtin&gt;.print -&gt; (no calls)
+  example -&gt; example.main
+  example.factorial -&gt; example.factorial
+  example.fibonacci -&gt; example.fibonacci
+  example.main -&gt; &lt;builtin&gt;.print, example.factorial, example.fibonacci
 </pre></div>
 </div>
 </section>
@@ -289,11 +297,12 @@ Block 2 (False):
 <section id="visualizing-results">
 <h2>Visualizing Results<a class="headerlink" href="#visualizing-results" title="Link to this heading"></a></h2>
 <p>For more visual output, generate the CFG in DOT format:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>fibonacci.dot
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>dotout
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">--dump-output</span></code> takes a directory; PyFlow writes <code class="docutils literal notranslate"><span class="pre">dotout/fibonacci_cfg.dot</span></code>.</p>
 <p>Then convert it to an image:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>fibonacci.dot<span class="w"> </span>-o<span class="w"> </span>fibonacci.png
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>dotout/fibonacci_cfg.dot<span class="w"> </span>-o<span class="w"> </span>fibonacci.png
 </pre></div>
 </div>
 <p>This creates a visual representation of the control flow graph.</p>

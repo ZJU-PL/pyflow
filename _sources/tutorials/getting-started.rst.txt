@@ -138,14 +138,22 @@ functions. You should see output similar to:
 
 .. code-block:: text
 
-   Call Graph for example.py:
-   ───────────────────────────────
+   Call Graph Analysis
+   ==================================================
 
-   fibonacci → fibonacci (recursive)
-   factorial → factorial (recursive)
-   main → fibonacci
-   main → factorial
-   main → print
+   Functions (5):
+     - <builtin>.print
+     - example (from example)
+     - example.factorial (from example)
+     - example.fibonacci (from example)
+     - example.main (from example)
+
+   Call Relationships:
+     <builtin>.print -> (no calls)
+     example -> example.main
+     example.factorial -> example.factorial
+     example.fibonacci -> example.fibonacci
+     example.main -> <builtin>.print, example.factorial, example.fibonacci
 
 Analyzing Control Flow
 ======================
@@ -178,13 +186,15 @@ For more visual output, generate the CFG in DOT format:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-cfg fibonacci --dump-format dot --dump-output fibonacci.dot
+   pyflow ir example.py --dump-cfg fibonacci --dump-format dot --dump-output dotout
+
+``--dump-output`` takes a directory; PyFlow writes ``dotout/fibonacci_cfg.dot``.
 
 Then convert it to an image:
 
 .. code-block:: bash
 
-   dot -Tpng fibonacci.dot -o fibonacci.png
+   dot -Tpng dotout/fibonacci_cfg.dot -o fibonacci.png
 
 This creates a visual representation of the control flow graph.
 
