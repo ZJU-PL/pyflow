@@ -50,6 +50,47 @@ def test_capabilities_cli_sarif(tmp_path, capsys) -> None:
     assert result["properties"]["reportKind"] == "runtime_guarded"
 
 
+def test_capabilities_does_not_report_bundled_stub_locations(tmp_path, capsys) -> None:
+    """Stdlib models must not leak their own source lines into the report."""
+    target = tmp_path / "main.py"
+    target.write_text("import os\nos.getcwd()\n", encoding="utf-8")
+    args = Namespace(
+        input_path=str(target),
+        entry=None,
+        context_depth=1,
+        import_depth=-1,
+        format="json",
+        output=None,
+    )
+
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert all("_pythonstan" not in finding["location"]["file"] for finding in payload["findings"])
+    assert payload["findings"] == []
+
+
+def test_capabilities_still_reports_user_public_exports(tmp_path, capsys) -> None:
+    target = tmp_path / "main.py"
+    target.write_text("import subprocess\nrun = subprocess.run\n", encoding="utf-8")
+    args = Namespace(
+        input_path=str(target),
+        entry=None,
+        context_depth=1,
+        import_depth=-1,
+        format="json",
+        output=None,
+    )
+
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    exports = [
+        finding
+        for finding in payload["findings"]
+        if finding["escape_kind"] == "public_export" and finding["location"]["file"] == str(target)
+    ]
+    assert exports
+
+
 def test_capabilities_cli_extends_project_model(tmp_path, capsys) -> None:
     target = tmp_path / "main.py"
     target.write_text("import acme\nacme.audit()\n", encoding="utf-8")

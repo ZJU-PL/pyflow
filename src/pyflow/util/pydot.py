@@ -838,8 +838,8 @@ class Node(Common, object):
                 if idx > 0:
                     name, port = name[:idx], name[idx:]
 
-        if isinstance(name, (int,)):
-            name = str(name)
+            if isinstance(name, (int,)):
+                name = str(name)
 
             self.obj_dict["name"] = quote_if_necessary(name)
             self.obj_dict["port"] = port

@@ -3167,5 +3167,30 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             self.assertIn("ns_pkg.child", builder.modules)
 
 
+class TestCallGraphRecursion(unittest.TestCase):
+    def test_direct_recursion_is_retained(self):
+        source = textwrap.dedent("""
+            def fact(n):
+                if n <= 1:
+                    return 1
+                return n * fact(n - 1)
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertIn("main.fact", graph["main.fact"])
+
+    def test_statement_level_recursion_is_retained(self):
+        source = textwrap.dedent("""
+            def loop(n):
+                if n:
+                    loop(n - 1)
+            """)
+
+        graph = extract_call_graph_constraint(source).get()
+
+        self.assertIn("main.loop", graph["main.loop"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -290,6 +290,19 @@ def test_constraint_complete_json_reports_convergence(tmp_path, capsys):
     assert document["diagnostics"] == []
 
 
+def test_constraint_json_retains_direct_recursion(tmp_path, capsys):
+    import json
+
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "def fact(n):\n" "    if n <= 1:\n" "        return 1\n" "    return n * fact(n - 1)\n"
+    )
+    args = parse_callgraph_args(source, "--format", "json", "--json-schema", "unified")
+    assert callgraph_cli.run_callgraph(source, args) == 0
+    graph = json.loads(capsys.readouterr().out)["graph"]
+    assert "sample.fact" in graph["sample.fact"]
+
+
 def test_recursive_encoding_errors_and_declared_latin1(tmp_path, capsys):
     import json
 

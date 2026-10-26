@@ -92,13 +92,13 @@ class TestCallGraph(unittest.TestCase):
         self.assertIn("caller", graph.get())
         self.assertIn("callee", graph.get())
 
-    def test_no_self_loop(self):
-        """Test that self-loops are prevented."""
+    def test_self_loop_is_retained(self):
+        """Test that recursion is represented as a self-edge."""
         graph = CallGraph()
         graph.add_edge("func", "func")
 
         callees = graph.get().get("func", set())
-        self.assertNotIn("func", callees)
+        self.assertIn("func", callees)
 
 
 class TestAnalyzeFunctionCalls(unittest.TestCase):

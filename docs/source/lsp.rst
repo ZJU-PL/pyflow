@@ -65,6 +65,11 @@ statement, so new incomplete lines retain receivers, parameters and locals.
 Definitions, references, and call hierarchy resolve module imports, constructor
 instances, aliases, annotations, inherited members, fields, and source-visible
 factory returns. Module-level calls also appear in call hierarchy.
+When an absolute import has no workspace top-level module, navigation can resolve
+a sibling module under the importing file's nearest package prefix. Existing
+top-level modules take precedence, including when their requested export is
+missing. This source fallback does not infer arbitrary runtime ``sys.path``
+mutations. The resolved import also participates in dependency invalidation.
 ``super()`` and explicit ``super(Class, receiver)`` calls use source-visible base
 declarations for navigation, member completion and bound signature help.
 Ambiguous base members remain unresolved; runtime-dependent method resolution
@@ -138,7 +143,9 @@ security scan.
 Mutually compatible generic union members retain one representative,
 preferring concrete arguments over ``Any``. Empty Protocol, abstract, and
 overload stubs retain their declared return types. Imported ``sys.exit``,
-``os._exit``, and pytest termination calls end their control-flow paths. Dynamic
+``os._exit``, pytest termination calls and known Flask/Werkzeug abort functions
+end their control-flow paths. A ``Never`` or ``NoReturn`` annotation alone does
+not suppress a real fallthrough error. Dynamic
 ``zip(*iterables)`` results use variadic tuples. String and bytes ``%`` operations
 retain their format-result types. Dictionary and set ``|`` operations join
 their key/value or element arguments into the
@@ -146,8 +153,15 @@ result container. Unmodeled operands retain uncertainty rather than inheriting
 the type of their formatting arguments. Standard collection annotations
 use their real abstract base classes and element types. Generator annotations
 check yielded values separately from terminal return values, including async
-generators. Optional values and
-``isinstance`` checks narrow local and attribute types along control-flow paths.
+generators. Optional values, ``isinstance`` checks and assertions narrow local,
+attribute and subscript types along control-flow paths. Assignments invalidate
+dependent element refinements. Integer indexing of bytes and bytearray returns
+int; slices preserve the binary container type. Compatible tuple alternatives
+unpack by position rather than sharing all element types across every target.
+Typing module qualifiers use the actual import aliases, including in nested
+forward references. New dictionary literals and comprehensions can use an
+annotated dictionary's key/value context; existing mutable dictionary aliases
+remain invariant. Structural tuples, callables and None are assignable to object.
 Imported types without hierarchy evidence remain explicitly uncertain instead of
 being diagnosed as incompatible dummy classes. Unsupported-model and analysis
 budget notes remain available in type-analysis status/diagnostics APIs but are

@@ -748,7 +748,8 @@ class SourceIndex:
             uri_to_path(call.callee_id.uri) for call in calls if call.callee_id is not None
         )
         module_paths = self._module_paths
-        for _, imported in shard.import_targets:
+        for identity, imported in shard.import_targets:
+            imported = self._resolver.import_target(identity) or imported
             while imported:
                 if imported in module_paths:
                     dependencies.add(module_paths[imported])

@@ -1085,7 +1085,7 @@ any_distance = _config.settings.generator_selection.generator_any_distance
         (object, str, 1),
         (object, bytes, 1),
         (object, list, 1),
-        (object, tuple, None),  # To match a tuple, both must be a tuple
+        (object, tuple, 1),  # Structural tuples are ordinary Python objects.
         (tuple, Any, None),  # To match a tuple, both must be a tuple
         (object, set, 1),
         (object, dict, 1),

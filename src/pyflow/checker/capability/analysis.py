@@ -48,6 +48,24 @@ from .model import (
 )
 from .registry import CapabilityPattern, CapabilityRegistry
 
+# Bundled stdlib models are analysed so that calls into them can be summarised,
+# but their source lines are not part of the user's program.  Findings located
+# in these files must never be reported as if the user had written them.
+_BUNDLED_STUB_ROOT = (
+    Path(__file__).resolve().parents[2] / "analysis" / "alias" / "kcfa" / "_pythonstan" / "stubs"
+)
+
+
+def _is_bundled_stub(filename: str) -> bool:
+    """Return True when ``filename`` is one of PyFlow's bundled stub models."""
+    if not filename:
+        return False
+    try:
+        Path(filename).resolve().relative_to(_BUNDLED_STUB_ROOT)
+    except (OSError, ValueError):
+        return False
+    return True
+
 
 class DefensiveCapabilityAnalysis:
     """Track security-sensitive objects through k-CFA points-to propagation."""
@@ -132,6 +150,11 @@ class DefensiveCapabilityAnalysis:
             result.findings.extend(self._return_and_yield_findings(pointer_result, reachability))
         if self.report_public_exports:
             result.findings.extend(self._public_export_findings(pointer_result, reachability))
+        result.findings = [
+            finding
+            for finding in result.findings
+            if not _is_bundled_stub(finding.location.filename)
+        ]
         return result.finalize()
 
     @staticmethod
@@ -143,7 +166,7 @@ class DefensiveCapabilityAnalysis:
         if isinstance(obj, FunctionObject):
             module = getattr(obj.container_scope, "module", None)
             filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
-            if "/stubs/" in filename or "\\stubs\\" in filename:
+            if _is_bundled_stub(filename):
                 return obj.ir.get_qualname()
         return None
 
@@ -391,6 +414,11 @@ class DefensiveCapabilityAnalysis:
         state = pointer_result.state
         for scope, context, constraint in state.constraint_definitions:
             if scope.kind != "module":
+                continue
+            module_stmt = getattr(getattr(scope, "module", None), "stmt", None)
+            if _is_bundled_stub(str(getattr(module_stmt, "filename", ""))):
+                # Stub modules export their modelled functions on purpose; those
+                # bindings are not user-authored public surface.
                 continue
             target = getattr(constraint, "target", None)
             if target is None:

@@ -904,9 +904,11 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return True
 
     def visit_none_type(self, left: NoneType) -> bool:
-        # None cannot be subtyped
-        # TODO(fk) handle protocols, e.g., hashable.
-        return isinstance(self.right, NoneType)
+        return (
+            isinstance(self.right, NoneType)
+            or isinstance(self.right, Instance)
+            and self.right.type.raw_type is object
+        )
 
     def visit_never_type(self, left: NeverType) -> bool:
         return True
@@ -972,6 +974,8 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return False
 
     def visit_tuple_type(self, left: TupleType) -> bool:
+        if isinstance(self.right, Instance) and self.right.type.raw_type is object:
+            return True
         if isinstance(self.right, Instance) and self.right.type.raw_type in {
             cabc.Iterable,
             cabc.Collection,
@@ -1015,6 +1019,11 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return isinstance(self.right, Instance) and self.right.type.raw_type is object
 
     def visit_callable_type(self, left: CallableType) -> bool:
+        if isinstance(self.right, Instance):
+            return self.right.type.raw_type is object or (
+                self.right.type.raw_type is cabc.Callable
+                and all(isinstance(argument, AnyType) for argument in self.right.args)
+            )
         if not isinstance(self.right, CallableType):
             return False
         if not self.sub_type_check(left.return_type, self.right.return_type):
@@ -1097,6 +1106,16 @@ class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
         Returns:
             The distance between the two types or None if they are not connected.
         """
+        if supertype.type.raw_type is object and isinstance(
+            self.subtype, (NoneType, TupleType, CallableType)
+        ):
+            return 1
+        if (
+            supertype.type.raw_type is cabc.Callable
+            and isinstance(self.subtype, CallableType)
+            and all(isinstance(argument, AnyType) for argument in supertype.args)
+        ):
+            return 1
         if isinstance(self.subtype, Instance):
             class_distance = self.graph.get_shortest_path_length(supertype.type, self.subtype.type)
             if class_distance is None:

@@ -123,6 +123,35 @@ def test_multiple_mir_artifacts_form_one_json_document_on_stdout(tmp_path, monke
     assert len(list(tmp_path.iterdir())) == 2
 
 
+def test_cfg_dot_dump_writes_valid_graphviz(tmp_path, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\n    if a:\n        return a + b\n    return b\n")
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    destination = tmp_path / "out"
+    args = parser.parse_args(
+        [
+            "ir",
+            str(source),
+            "--dump-cfg",
+            "add",
+            "--dump-format",
+            "dot",
+            "--dump-output",
+            str(destination),
+        ]
+    )
+
+    ir_cli.run_ir_dump(source, args)
+
+    captured = capsys.readouterr()
+    assert "DOT generation failed" not in captured.out
+    content = (destination / "add_cfg.dot").read_text(encoding="utf-8")
+    assert content.startswith("// CFG for function: add")
+    assert "digraph" in content
+    assert "->" in content
+
+
 def test_cfg_default_output_does_not_write_into_working_directory(tmp_path, monkeypatch, capsys):
     source = tmp_path / "sample.py"
     source.write_text("def add(a, b):\n    return a + b\n")

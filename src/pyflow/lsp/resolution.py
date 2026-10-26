@@ -26,6 +26,11 @@ class WorkspaceResolver:
         for name, accessors in self.properties.items():
             self.symbols[name] = accessors.get("getter", self.symbols[name])
         self.modules = {symbol.qualified_name: symbol for symbol in modules}
+        self.namespaces = {
+            ".".join(name.split(".")[:end])
+            for name in self.modules
+            for end in range(1, len(name.split(".")) + 1)
+        }
         self.by_id = {symbol.symbol_id: symbol for symbol in (*symbols, *modules)}
         self.imports = imports
         self.values = values
@@ -45,7 +50,7 @@ class WorkspaceResolver:
             implementation = self.symbols.get(original.qualified_name)
             if implementation and implementation.symbol_id != symbol_id:
                 return implementation.symbol_id
-        target = self.imports.get(symbol_id)
+        target = self.import_target(symbol_id)
         symbol = self.symbols.get(target) or self.modules.get(target)
         if symbol is None and self.models is not None and target:
             symbol = self.models.class_symbol(target)
@@ -53,6 +58,23 @@ class WorkspaceResolver:
                 self.by_id[symbol.symbol_id] = symbol
                 self.symbols.setdefault(symbol.qualified_name, symbol)
         return self._canonical(symbol.symbol_id, seen | {symbol_id}) if symbol else symbol_id
+
+    def import_target(self, identity):
+        """Resolve script-local imports without falling back to leaf names."""
+        target = self.imports.get(identity)
+        if not target:
+            return target
+        head = target.partition(".")[0]
+        if head in self.namespaces:
+            return target
+        parts = identity.module.split(".")
+        if not identity.uri.endswith("/__init__.py"):
+            parts = parts[:-1]
+        for end in range(len(parts), 0, -1):
+            prefix = ".".join(parts[:end])
+            if prefix + "." + head in self.namespaces:
+                return prefix + "." + target
+        return target
 
     def member(self, owner, name, seen=frozenset(), access="read"):
         if owner in seen:
@@ -259,7 +281,7 @@ class WorkspaceResolver:
                 ):
                     return frozenset({value})
             if symbol_id in self.imports:
-                imported = self.imports[symbol_id]
+                imported = self.import_target(symbol_id)
                 return frozenset(
                     {self.models.canonical_class(imported) or imported if self.models else imported}
                 )

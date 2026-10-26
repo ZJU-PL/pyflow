@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ast
 import builtins
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, Mapping
 
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     IGNORE_ANNOTATION_PARTS,
@@ -45,6 +45,24 @@ class TypeLookup(Protocol):
     """
 
     def __call__(self, qualified_name: str) -> ProperType | None: ...
+
+
+class _AliasedTypeLookup:
+    def __init__(self, lookup, aliases):
+        self.lookup = lookup
+        self.aliases = {
+            name: target
+            for name, target in aliases.items()
+            if target in {"typing", "typing_extensions", "collections.abc"}
+            or target.startswith(("typing.", "typing_extensions.", "collections.abc."))
+        }
+
+    def qualify(self, name):
+        head, separator, tail = name.partition(".")
+        return self.aliases.get(head, head) + (separator + tail if separator else "")
+
+    def __call__(self, name):
+        return self.lookup(self.qualify(name))
 
 
 class BuiltinTypeLookup:
@@ -140,6 +158,8 @@ def resolve_forward_reference(
 def resolve_annotation(
     annotation: str,
     lookup: TypeLookup,
+    *,
+    aliases: Mapping[str, str] | None = None,
 ) -> ProperType | None:
     """Resolve a PEP 484 type annotation string to a :class:`ProperType`.
 
@@ -158,6 +178,8 @@ def resolve_annotation(
     annotation = annotation.strip()
     if not annotation:
         return None
+    if aliases:
+        lookup = _AliasedTypeLookup(lookup, aliases)
 
     # Forward reference: quoted string
     if annotation.startswith(('"', "'")) and annotation.endswith(('"', "'")):
@@ -200,9 +222,9 @@ def _resolve_expr(
     if isinstance(node, ast.Attribute):
         qualified_name = _get_qualified_name(node)
         if qualified_name:
-            normalized = _normalize_typing_name(qualified_name)
+            normalized = _normalize_typing_name(qualified_name, lookup)
             if normalized != qualified_name:
-                special = _resolve_name(normalized, lookup)
+                special = _resolve_name(qualified_name, lookup)
                 if special is not None:
                     return special
             direct = lookup(qualified_name)
@@ -225,7 +247,16 @@ def _resolve_expr(
 
 def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
     """Resolve a bare name to a type via the lookup function."""
-    from pyflow.analysis.typeinfo.core.typesystem import ANY, NEVER, NONE_TYPE
+    from pyflow.analysis.typeinfo.core.typesystem import (
+        ANY,
+        NEVER,
+        NONE_TYPE,
+        CallableType,
+        TupleType,
+    )
+
+    qualified = lookup.qualify(name) if isinstance(lookup, _AliasedTypeLookup) else name
+    name = _normalize_typing_name(name, lookup)
 
     if name == "None":
         return NONE_TYPE
@@ -233,6 +264,10 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         return ANY
     if name in {"Never", "NoReturn"}:
         return NEVER
+    if qualified in {"typing.Callable", "typing_extensions.Callable", "collections.abc.Callable"}:
+        return CallableType(None, ANY)
+    if qualified in {"typing.Tuple", "typing_extensions.Tuple"}:
+        return TupleType((ANY,), unknown_size=True)
     return lookup(name)
 
 
@@ -241,7 +276,7 @@ def _resolve_subscript(
     lookup: TypeLookup,
 ) -> ProperType | None:
     """Resolve a subscript annotation like ``List[int]`` or ``Optional[str]``."""
-    base_name = _normalize_typing_name(_get_qualified_name(node.value))
+    base_name = _normalize_typing_name(_get_qualified_name(node.value), lookup)
 
     # Extract subscript arguments
     args = _extract_subscript_args(node.slice)
@@ -252,7 +287,10 @@ def _resolve_subscript(
         return _build_generic_instance(alias, args, lookup)
 
     # Handle special forms
-    return _resolve_special_form(base_name, args, lookup)
+    resolved = _resolve_special_form(base_name, args, lookup)
+    if resolved is None and "." in _get_qualified_name(node.value):
+        return _build_generic_instance(_get_qualified_name(node.value), args, lookup)
+    return resolved
 
 
 def _resolve_special_form(
@@ -438,8 +476,10 @@ def _get_qualified_name(node: ast.expr) -> str:
     return ""
 
 
-def _normalize_typing_name(name: str) -> str:
+def _normalize_typing_name(name: str, lookup=None) -> str:
     """Normalize common typing module qualifiers to their short names."""
+    if isinstance(lookup, _AliasedTypeLookup):
+        name = lookup.qualify(name)
     for prefix in ("typing.", "typing_extensions.", "collections.abc."):
         if name.startswith(prefix):
             return name[len(prefix) :]

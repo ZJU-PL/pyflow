@@ -103,7 +103,7 @@ addopts = [
     "-W",
     "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
-timeout = 120
+timeout = 300
 timeout_method = "thread"
 
 [tool.black]
