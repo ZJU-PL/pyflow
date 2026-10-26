@@ -159,6 +159,9 @@ class SourceSymbol:
     detail: str = ""
     documentation: str = ""
     accessor: str = ""
+    overload: bool = False
+    parameters: tuple = ()
+    binding: str = ""
 
     def document_symbol(self) -> dict:
         result = {
@@ -385,13 +388,14 @@ class SourceIndex:
         source_files: dict[str, str],
         workspace_roots: tuple[Path, ...],
         file_indices: dict[str, _FileIndex],
+        previous=None,
     ) -> "SourceIndex":
         index = cls.__new__(cls)
         index.workspace_roots = workspace_roots
         index.module_identity = ModuleIdentityResolver(workspace_roots)
         index.source_files = source_files
         index._file_indices = file_indices
-        index._rebuild_workspace_maps()
+        index._rebuild_workspace_maps(previous)
         return index
 
     def with_source_files(self, source_files: dict[str, str]) -> "SourceIndex":
@@ -411,7 +415,7 @@ class SourceIndex:
                 if updated.module is None and previous is not None and previous.module is not None
                 else updated
             )
-        return self._from_file_indices(normalized, self.workspace_roots, file_indices)
+        return self._from_file_indices(normalized, self.workspace_roots, file_indices, self)
 
     @staticmethod
     def _retain_valid_ranges(previous, source):
@@ -562,7 +566,156 @@ class SourceIndex:
             syntax_stale=True,
         )
 
-    def _rebuild_workspace_maps(self) -> None:
+    @staticmethod
+    def _resolution_interface(shard):
+        return (
+            tuple((symbol.symbol_id, symbol.overload, symbol.accessor) for symbol in shard.symbols),
+            shard.import_targets,
+            shard.value_targets,
+            shard.return_targets,
+            shard.class_bases,
+            shard.keyword_parameters,
+            shard.fixtures,
+            shard.dynamic_writes,
+            shard.syntax_stale,
+        )
+
+    def _affected_files(self, previous):
+        if previous is None:
+            return set(self._file_indices)
+        # Previously unresolved imports can become resolvable when a module
+        # appears. File-set changes are uncommon and require a full refresh.
+        if self._file_indices.keys() != previous._file_indices.keys():
+            return set(self._file_indices)
+        changed = {
+            path
+            for path in self._file_indices.keys() | previous._file_indices.keys()
+            if self._file_indices.get(path) is not previous._file_indices.get(path)
+        }
+        public = {
+            path
+            for path in changed
+            if path not in self._file_indices
+            or path not in previous._file_indices
+            or self._resolution_interface(self._file_indices[path])
+            != self._resolution_interface(previous._file_indices[path])
+        }
+        affected = set(changed)
+        pending = list(public)
+        expanded = set()
+        while pending:
+            path = pending.pop()
+            if path in expanded:
+                continue
+            expanded.add(path)
+            before, after = previous._file_indices.get(path), self._file_indices.get(path)
+            if (before and before.fixtures) or (after and after.fixtures):
+                return set(self._file_indices)
+            for shard in (before, after):
+                resolver = previous._resolver if shard is before else self._resolver
+                if (
+                    shard
+                    and shard.dynamic_writes
+                    and any(
+                        resolver.dynamic_namespace(owner)
+                        for _, (target, _name, _values, _module) in shard.dynamic_writes
+                        for owner in resolver.names(target)
+                    )
+                ):
+                    return set(self._file_indices)
+            for dependent in previous._dependents.get(path, ()):
+                affected.add(dependent)
+                if dependent not in expanded:
+                    pending.append(dependent)
+        return affected
+
+    def _resolve_file(self, path, shard):
+        aliases = self._resolved_import_aliases
+        refs = []
+        for reference in shard.references:
+            identity = aliases.get(reference.symbol_id, reference.symbol_id)
+            refs.append(
+                reference
+                if identity == reference.symbol_id
+                else replace(reference, symbol_id=identity)
+            )
+        reference_targets = dict(shard.reference_targets)
+        refs = [
+            (
+                replace(reference, symbol_id=target.symbol_id)
+                if (target := self._resolver.symbol(reference_targets.get(reference.location)))
+                else reference
+            )
+            for reference in refs
+        ]
+        uncertain = frozenset(
+            location
+            for location, target in shard.reference_targets
+            if not self._resolver.is_complete(target)
+        )
+        keyword_ids, candidates, uncertain_keywords = {}, {}, set()
+        for location, (target, name) in shard.keyword_targets:
+            parameters = set()
+            for callee in self._resolver.callable_candidates(target):
+                if callee.kind == 5:
+                    callee = self._resolver.member(callee.qualified_name, "__init__")
+                if callee:
+                    parameter = dict(self._keyword_parameters.get(callee.symbol_id, ())).get(name)
+                    if parameter:
+                        parameters.add(parameter)
+            candidates[location] = frozenset(parameters)
+            if len(parameters) == 1:
+                keyword_ids[location] = next(iter(parameters))
+            if len(parameters) > 1 or not self._resolver.is_complete(target):
+                uncertain_keywords.add(location)
+        refs = tuple(
+            (
+                replace(reference, symbol_id=keyword_ids[reference.location])
+                if reference.location in keyword_ids
+                else reference
+            )
+            for reference in refs
+        )
+        calls = []
+        targets = dict(shard.call_targets)
+        for call in shard.calls:
+            callee = self._resolver.callable_symbol(targets.get(call.location))
+            caller = self._module_symbols.get(call.location.uri) if call.caller_id is None else None
+            calls.append(
+                replace(
+                    call,
+                    callee_id=(
+                        callee.symbol_id if callee else aliases.get(call.callee_id, call.callee_id)
+                    ),
+                    caller=caller.name if caller else call.caller,
+                    caller_id=caller.symbol_id if caller else call.caller_id,
+                )
+            )
+        dependencies = {
+            uri_to_path(reference.symbol_id.uri)
+            for reference in refs
+            if reference.symbol_id is not None
+        }
+        dependencies.update(
+            uri_to_path(call.callee_id.uri) for call in calls if call.callee_id is not None
+        )
+        module_paths = self._module_paths
+        for _, imported in shard.import_targets:
+            while imported:
+                if imported in module_paths:
+                    dependencies.add(module_paths[imported])
+                    break
+                imported = imported.rpartition(".")[0]
+        return (
+            refs,
+            tuple(calls),
+            uncertain,
+            candidates,
+            frozenset(uncertain_keywords),
+            frozenset(dependencies),
+        )
+
+    def _rebuild_workspace_maps(self, previous=None) -> None:
         self.symbols: list[SourceSymbol] = []
         self.references: list[SourceReference] = []
         self.calls: list[SourceCall] = []
@@ -624,6 +777,7 @@ class SourceIndex:
             )
             self._symbols_by_id[identity] = modules[uri]
         self._module_symbols = modules
+        self._module_paths = {name: filename for filename, name in self._modules.items()}
         # Pytest injects fixture values into test/fixture parameters. Resolve
         # only explicit fixture declarations, with conftest directory scoping.
         fixtures = []
@@ -700,55 +854,34 @@ class SourceIndex:
             root = group[0].symbol_id
             self._resolver.values[root] = tuple(self._resolver.values.get(root, ())) + tuple(values)
         self._resolve_import_aliases()
-        self._uncertain_member_ranges = {
-            location
-            for location, target in self._reference_targets.items()
-            if not self._resolver.is_complete(target)
-        }
-        self.references = [
-            replace(reference, symbol_id=(target.symbol_id if target else reference.symbol_id))
-            for reference in self.references
-            for target in [self._resolver.symbol(self._reference_targets.get(reference.location))]
-        ]
-        keyword_ids = {}
+        affected = self._affected_files(previous)
+        self._resolved_files = {}
+        self.references, self.calls = [], []
+        self._uncertain_member_ranges = set()
         self._keyword_candidates = {}
         self._uncertain_keyword_ranges = set()
-        for location, (target, name) in self._keyword_targets.items():
-            parameters = set()
-            for callee in self._resolver.callable_candidates(target):
-                if callee.kind == 5:
-                    callee = self._resolver.member(callee.qualified_name, "__init__")
-                if callee:
-                    parameter = dict(self._keyword_parameters.get(callee.symbol_id, ())).get(name)
-                    if parameter:
-                        parameters.add(parameter)
-            self._keyword_candidates[location] = parameters
-            if len(parameters) == 1:
-                keyword_ids[location] = next(iter(parameters))
-            if len(parameters) > 1 or not self._resolver.is_complete(target):
-                self._uncertain_keyword_ranges.add(location)
-        self.references = [
-            replace(reference, symbol_id=keyword_ids.get(reference.location, reference.symbol_id))
-            for reference in self.references
-        ]
-        self.calls = [
-            replace(call, callee_id=(target.symbol_id if target else call.callee_id))
-            for call in self.calls
-            for target in [self._resolver.callable_symbol(self._call_targets.get(call.location))]
-        ]
-        self.calls = [
-            (
-                replace(
-                    call,
-                    caller=modules[call.location.uri].name,
-                    caller_id=modules[call.location.uri].symbol_id,
-                )
-                if call.caller_id is None and call.location.uri in modules
-                else call
+        self._dependents = {}
+        for path, shard in self._file_indices.items():
+            cached = (
+                previous._resolved_files.get(path)
+                if previous is not None and path not in affected
+                else None
             )
-            for call in self.calls
-        ]
-
+            resolved = cached if cached is not None else self._resolve_file(path, shard)
+            self._resolved_files[path] = resolved
+            refs, calls, uncertain, keywords, uncertain_keywords, dependencies = resolved
+            self.references.extend(refs)
+            self.calls.extend(calls)
+            self._uncertain_member_ranges.update(uncertain)
+            self._keyword_candidates.update(keywords)
+            self._uncertain_keyword_ranges.update(uncertain_keywords)
+            for dependency in dependencies:
+                if dependency != path:
+                    self._dependents.setdefault(dependency, set()).add(path)
+        if previous is not None:
+            for identity, symbol in previous._symbols_by_id.items():
+                if uri_to_path(symbol.selection_range.uri) not in previous.source_files:
+                    self._resolver.by_id.setdefault(identity, symbol)
         self._symbols_by_id.update(self._resolver.by_id)
 
     def _module_name(self, path: str) -> str:
@@ -821,23 +954,16 @@ class SourceIndex:
         aliases = {
             symbol_id: self._resolver._canonical(symbol_id) for symbol_id in self._import_targets
         }
+        aliases.update(
+            {
+                symbol.symbol_id: self._resolver._canonical(symbol.symbol_id)
+                for symbol in self.symbols
+                if symbol.overload
+            }
+        )
         self._resolved_import_aliases = {
             source: target for source, target in aliases.items() if source != target
         }
-        self.references = [
-            replace(reference, symbol_id=aliases.get(reference.symbol_id, reference.symbol_id))
-            for reference in self.references
-        ]
-        self.calls = [
-            SourceCall(
-                call.caller,
-                call.callee,
-                call.location,
-                call.caller_id,
-                aliases.get(call.callee_id, call.callee_id),
-            )
-            for call in self.calls
-        ]
 
     def module_for_uri(self, uri: str) -> Optional[str]:
         try:
@@ -855,7 +981,9 @@ class SourceIndex:
         kind = symbol.symbol_id.kind
         if kind in {SymbolKind.PARAMETER, SymbolKind.TYPE_PARAMETER, SymbolKind.IMPORT}:
             return False
-        if symbol.accessor and self._resolver.symbols.get(symbol.qualified_name) != symbol:
+        if (symbol.accessor or symbol.overload) and self._resolver.symbols.get(
+            symbol.qualified_name
+        ) != symbol:
             return False
         if kind is SymbolKind.VARIABLE:
             owner = self._resolver.symbols.get(symbol.container_name)
@@ -1020,7 +1148,11 @@ class SourceIndex:
             {
                 "label": symbol.name,
                 "kind": 10 if symbol.accessor else {5: 7, 6: 2, 12: 3}.get(symbol.kind, 6),
-                "detail": symbol.detail or symbol.qualified_name,
+                "detail": "\n".join(
+                    item.detail for item in self._resolver.overloads.get(symbol.qualified_name, ())
+                )
+                or symbol.detail
+                or symbol.qualified_name,
                 **(
                     {"documentation": {"kind": "markdown", "value": symbol.documentation}}
                     if symbol.documentation
@@ -1078,9 +1210,70 @@ class SourceIndex:
         elif symbol.symbol_id.kind is SymbolKind.IMPORT:
             declaration = "import " + self._import_targets.get(symbol.symbol_id, symbol.name)
         value = f"```python\n{declaration}\n```"
+        overloads = self._resolver.overloads.get(symbol.qualified_name, ())
+        if overloads:
+            value = "```python\n" + "\n".join(item.detail for item in overloads) + "\n```"
         if symbol.documentation:
             value += "\n\n" + symbol.documentation
         return {"contents": {"kind": "markdown", "value": value}}
+
+    def callable_at(self, uri, line, character):
+        for call in self.calls:
+            if call.location.uri == uri and call.location.contains(line, character):
+                symbol = self._symbols_by_id.get(call.callee_id)
+                if symbol and symbol.symbol_id.kind in {
+                    SymbolKind.CLASS,
+                    SymbolKind.FUNCTION,
+                    SymbolKind.METHOD,
+                }:
+                    return symbol
+        symbol = self.symbol_at(uri, line, character)
+        return (
+            symbol
+            if symbol
+            and symbol.symbol_id.kind in {SymbolKind.CLASS, SymbolKind.FUNCTION, SymbolKind.METHOD}
+            else None
+        )
+
+    def signature_help(self, uri, line, character):
+        from .signatures import signature_help
+
+        return signature_help(self, uri, line, character)
+
+    def document_highlights(self, uri, line, character):
+        locations = self.references_at(uri, line, character, include_declaration=True)
+        kinds = {
+            symbol.selection_range: 3
+            for symbol in self.symbols
+            if symbol.selection_range.uri == uri
+        }
+        text = self.text_for_uri(uri) or ""
+        lines = text.splitlines()
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, RecursionError):
+            tree = None
+        for node in ast.walk(tree) if tree is not None else ():
+            if not isinstance(node, (ast.Name, ast.Attribute)):
+                continue
+            row, end_row = node.lineno - 1, node.end_lineno - 1
+            end = _byte_col_to_char(lines[end_row], node.end_col_offset)
+            start = _byte_col_to_char(lines[row], node.col_offset)
+            if isinstance(node, ast.Attribute):
+                row, start = end_row, end - len(node.attr)
+            location = SourceRange(
+                uri,
+                row,
+                offset_to_lsp_character(lines[row], start),
+                end_row,
+                offset_to_lsp_character(lines[end_row], end),
+            )
+            kinds[location] = 3 if isinstance(node.ctx, (ast.Store, ast.Del)) else 2
+        return [
+            {"range": location.to_lsp(), "kind": kinds.get(location, 1)}
+            for location in locations
+            if location.uri == uri
+        ]
 
     def definitions_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         symbol = self.symbol_at(uri, line, character)
@@ -1144,7 +1337,7 @@ class SourceIndex:
                 if any(candidate and candidate.symbol_id in identities for candidate in candidates):
                     return []
         if symbol.symbol_id.kind is SymbolKind.PARAMETER and any(
-            symbol.symbol_id in self._keyword_candidates.get(location, ())
+            identities.intersection(self._keyword_candidates.get(location, ()))
             for location in self._uncertain_keyword_ranges
         ):
             return []
@@ -1752,7 +1945,12 @@ class _IndexVisitor(ast.NodeVisitor):
         )
         is_method = self._current_scope.kind is _ScopeKind.CLASS
         existing = self._current_scope.bindings.get(node.name)
-        if existing is not None and existing in self._current_scope.predeclared:
+        if (
+            existing is not None
+            and existing in self._current_scope.predeclared
+            and self.index._symbols_by_id[existing].selection_range
+            == self._range(node, name=node.name)
+        ):
             symbol = self.index._symbols_by_id[existing]
         else:
             symbol = self._add_definition(
@@ -1761,6 +1959,36 @@ class _IndexVisitor(ast.NodeVisitor):
                 6 if self.scope else 12,
                 SymbolKind.METHOD if is_method else SymbolKind.FUNCTION,
             )
+        from .signatures import parameters
+
+        decorators = []
+        for decorator in node.decorator_list:
+            name = (
+                _call_name(decorator.func if isinstance(decorator, ast.Call) else decorator) or ""
+            )
+            head, separator, tail = name.partition(".")
+            decorators.append(
+                self.index._import_targets.get(self._resolve(head), head)
+                + (separator + tail if separator else "")
+            )
+        symbol = replace(
+            symbol,
+            overload=bool({"typing.overload", "typing_extensions.overload"} & set(decorators)),
+            parameters=parameters(node),
+            binding=(
+                (
+                    "static"
+                    if "staticmethod" in decorators
+                    else "class" if "classmethod" in decorators else "instance"
+                )
+                if is_method
+                else ""
+            ),
+        )
+        self.index._symbols_by_id[symbol.symbol_id] = symbol
+        self.index.symbols = [
+            symbol if item.symbol_id == symbol.symbol_id else item for item in self.index.symbols
+        ]
         for decorator in node.decorator_list:
             expression = decorator.func if isinstance(decorator, ast.Call) else decorator
             name = _call_name(expression) or ""

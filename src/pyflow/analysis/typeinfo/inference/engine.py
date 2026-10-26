@@ -628,6 +628,42 @@ class StaticTypeInferenceEngine:
                 )
         return parameters
 
+    def _interface_stub(self, function):
+        node = function.node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return False
+        marked = any(
+            (self._qualified_callee_name(item.func if isinstance(item, ast.Call) else item) or "")
+            in {
+                "abc.abstractmethod",
+                "abstractmethod",
+                "typing.overload",
+                "typing_extensions.overload",
+                "overload",
+            }
+            for item in node.decorator_list
+        )
+        owner = self._classes.get(function.owner)
+        marked = marked or bool(
+            owner
+            and any(
+                base in {"typing.Protocol", "typing_extensions.Protocol", "Protocol"}
+                for base in owner.bases
+            )
+        )
+
+        def empty(statement):
+            if isinstance(statement, ast.Pass):
+                return True
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant):
+                return statement.value.value is Ellipsis or isinstance(statement.value.value, str)
+            if isinstance(statement, ast.Raise):
+                value = statement.exc.func if isinstance(statement.exc, ast.Call) else statement.exc
+                return isinstance(value, ast.Name) and value.id == "NotImplementedError"
+            return False
+
+        return marked and all(empty(statement) for statement in node.body)
+
     def _analyse_function_context(
         self,
         function: _FunctionInfo,
@@ -702,7 +738,9 @@ class StaticTypeInferenceEngine:
                 explicit_return = AbstractTypeValue.from_type(
                     substitute_type_vars(returned_type, substitutions)
                 )
-            if not yields.is_bottom:
+            if self._interface_stub(function):
+                return_value = explicit_return
+            elif not yields.is_bottom:
                 self._check_generator_annotation(function, explicit_return, yields, return_value)
             else:
                 self._check_annotation_compatibility(
@@ -1423,25 +1461,26 @@ class StaticTypeInferenceEngine:
                 current_function,
             )
         elif isinstance(node, ast.BoolOp):
-            first = self._evaluate_expression(
-                node.values[0],
-                environment,
-                scope=scope,
-                current_function=current_function,
-            )
-            if self._is_never_value(first):
-                value = first
-            else:
-                rest = [
-                    self._evaluate_expression(
-                        item,
-                        environment,
-                        scope=scope,
-                        current_function=current_function,
-                    )
-                    for item in node.values[1:]
-                ]
-                value = self._join_normal_results((first, *rest))
+            contributions = []
+            branch = environment
+            for position, item in enumerate(node.values):
+                operand = self._evaluate_expression(
+                    item, branch, scope=scope, current_function=current_function
+                )
+                if self._is_never_value(operand):
+                    contributions.append(operand)
+                    break
+                # A non-final operand of ``or`` contributes only when truthy.
+                # In particular, Optional[T] or [] cannot return None.
+                contribution = (
+                    self._remove_none(operand)
+                    if isinstance(node.op, ast.Or) and position < len(node.values) - 1
+                    else operand
+                )
+                if not contribution.is_bottom:
+                    contributions.append(contribution)
+                branch = self._narrow_environment(item, branch, truthy=isinstance(node.op, ast.And))
+            value = self._join_normal_results(contributions)
         elif isinstance(node, ast.IfExp):
             test = self._evaluate_expression(
                 node.test, environment, scope=scope, current_function=current_function
@@ -1612,6 +1651,25 @@ class StaticTypeInferenceEngine:
             return AbstractTypeValue.from_type(NEVER)
 
         qualified_callee = self._qualified_callee_name(node.func)
+        if (
+            qualified_callee
+            in {"sys.exit", "os._exit", "pytest.fail", "pytest.skip", "pytest.xfail"}
+            and self._resolve_import_name(_expression_name(node.func)) is not None
+        ):
+            root = _expression_name(node.func).split(".", 1)[0]
+            # Imports do not occupy the local value environment; parameters
+            # and assignments do, and must shadow these external call models.
+            if root not in environment:
+                return AbstractTypeValue.from_type(NEVER)
+        # A dynamic unpack supplies an unknown number of iterables to zip.
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "zip"
+            and any(isinstance(arg, ast.Starred) for arg in node.args)
+        ):
+            elements = [self._iterable_element(argument) for argument in arguments]
+            element = join_all(elements, self.type_system).public_type() or ANY
+            return self._instance(cabc.Iterator, TupleType((element,), unknown_size=True))
         if qualified_callee is not None:
             modelled = self._model_external_call(qualified_callee, arguments, keywords, node)
             if modelled is not None:
@@ -3277,6 +3335,8 @@ class StaticTypeInferenceEngine:
         return self._resolve_import_name(name) or name
 
     def _resolve_class_expression(self, node: ast.expr) -> str | None:
+        if isinstance(node, ast.Subscript):
+            node = node.value
         name = _expression_name(node)
         if name is None:
             return None

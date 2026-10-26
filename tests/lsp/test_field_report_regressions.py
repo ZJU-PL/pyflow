@@ -280,6 +280,13 @@ def test_diagnostics_include_type_undefined_and_security_from_overlay(tmp_path):
     assert any(
         item["code"] == "undefined-name" and item["range"]["start"]["line"] == 4 for item in items
     )
+    assert not any(item["source"] == "pyflow-security" for item in items)
+    scan = asyncio.run(
+        handler._handle_execute_command(
+            {"command": "pyflow.scanDocument", "arguments": [{"uri": path.as_uri()}]}
+        )
+    )
+    items = scan["items"]
     assert any(
         item["source"] == "pyflow-security"
         and item["data"]["cwe"] == "CWE-78"

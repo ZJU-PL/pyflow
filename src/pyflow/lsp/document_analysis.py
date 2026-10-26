@@ -63,7 +63,63 @@ def security_diagnostics(path, module, text):
     return detector.analyze(session)
 
 
-def document_diagnostics(index, uri):
+def _undefined_suppressions(text, tree):
+    import io
+    import re
+    import tokenize
+
+    ignored = set()
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        comment = token.string
+        directive = re.search(r"#\s*type:\s*ignore(?:\[([^]]+)\])?", comment)
+        if directive and (
+            directive.group(1) is None
+            or {"name-defined", "undefined-name"}
+            & {code.strip() for code in directive.group(1).split(",")}
+        ):
+            ignored.add(token.start[0] - 1)
+        directive = re.search(r"#\s*noqa(?::\s*([A-Za-z0-9, ]+))?", comment, re.I)
+        if directive and (
+            directive.group(1) is None
+            or "F821" in {code.strip().upper() for code in directive.group(1).split(",")}
+        ):
+            ignored.add(token.start[0] - 1)
+    guarded = set()
+
+    def catches(handler):
+        if handler.type is None:
+            return True
+        values = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+        return any(
+            isinstance(value, ast.Name) and value.id in {"NameError", "Exception", "BaseException"}
+            for value in values
+        )
+
+    def names(node):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            for value in [
+                *node.args.defaults,
+                *node.args.kw_defaults,
+                *getattr(node, "decorator_list", ()),
+            ]:
+                if value is not None:
+                    names(value)
+            return
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            guarded.add((node.lineno - 1, node.col_offset, node.id))
+        for child in ast.iter_child_nodes(node):
+            names(child)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try) and any(catches(handler) for handler in node.handlers):
+            for statement in node.body:
+                names(statement)
+    return ignored, guarded
+
+
+def document_diagnostics(index, uri, *, include_security=False):
     syntax = index.diagnostics_for_uri(uri)
     if syntax:
         return syntax
@@ -138,6 +194,7 @@ def document_diagnostics(index, uri):
         "__path__",
         "__cached__",
     }
+    ignored, guarded = _undefined_suppressions(text, tree)
     if not wildcard_imports:
         for reference in index.references:
             if (
@@ -146,6 +203,15 @@ def document_diagnostics(index, uri):
                 and reference.location not in index._reference_targets
                 and reference.location not in index._keyword_targets
                 and reference.name not in known
+                and reference.location.start_line not in ignored
+                and (
+                    reference.location.start_line,
+                    index.python_column(
+                        uri, reference.location.start_line, reference.location.start_character
+                    ),
+                    reference.name,
+                )
+                not in guarded
             ):
                 result.append(
                     {
@@ -156,29 +222,30 @@ def document_diagnostics(index, uri):
                         "message": f"Name '{reference.name}' is not defined",
                     }
                 )
-    try:
-        security = security_diagnostics(path, module, text)
-        for finding in security.findings:
+    if include_security:
+        try:
+            security = security_diagnostics(path, module, text)
+            for finding in security.findings:
+                result.append(
+                    {
+                        "range": _range(text, uri, finding.sink_line or 1),
+                        "severity": 1 if finding.severity.lower() in {"high", "critical"} else 2,
+                        "source": "pyflow-security",
+                        "code": finding.rule_id,
+                        "message": finding.rule_title + f" ({finding.sink_name})",
+                        "data": {"cwe": finding.cwe},
+                    }
+                )
+        except Exception as error:
             result.append(
                 {
-                    "range": _range(text, uri, finding.sink_line or 1),
-                    "severity": 1 if finding.severity.lower() in {"high", "critical"} else 2,
+                    "range": _range(text, uri),
+                    "severity": 3,
                     "source": "pyflow-security",
-                    "code": finding.rule_id,
-                    "message": finding.rule_title + f" ({finding.sink_name})",
-                    "data": {"cwe": finding.cwe},
+                    "code": "analysis-failed",
+                    "message": f"Document security analysis could not finish: {error}",
                 }
             )
-    except Exception as error:
-        result.append(
-            {
-                "range": _range(text, uri),
-                "severity": 3,
-                "source": "pyflow-security",
-                "code": "analysis-failed",
-                "message": f"Document security analysis could not finish: {error}",
-            }
-        )
     unique = {}
     for diagnostic in result:
         key = (

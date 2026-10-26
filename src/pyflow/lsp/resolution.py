@@ -1,18 +1,28 @@
 """Conservative source value and member resolution, independent of compiler IR."""
 
-from functools import lru_cache
-
 
 class WorkspaceResolver:
     def __init__(self, symbols, imports, values, returns, bases, modules=(), models=None):
         self.symbols = {}
         self.properties = {}
+        self.overloads = {}
+        self.function_groups = {}
+        self.parameter_declarations = {}
         self.property_declarations = {}
         for symbol in symbols:
+            if symbol.symbol_id.kind.value == "parameter":
+                self.parameter_declarations.setdefault(symbol.qualified_name, []).append(symbol)
+            if symbol.symbol_id.kind.value in {"function", "method"} and not symbol.accessor:
+                self.function_groups.setdefault(symbol.qualified_name, []).append(symbol)
+                if symbol.overload:
+                    self.overloads.setdefault(symbol.qualified_name, []).append(symbol)
             if symbol.accessor:
                 self.properties.setdefault(symbol.qualified_name, {})[symbol.accessor] = symbol
                 self.property_declarations.setdefault(symbol.qualified_name, []).append(symbol)
             self.symbols[symbol.qualified_name] = symbol
+        for name, group in self.function_groups.items():
+            implementations = [item for item in group if not item.overload]
+            self.symbols[name] = implementations[-1] if implementations else group[-1]
         for name, accessors in self.properties.items():
             self.symbols[name] = accessors.get("getter", self.symbols[name])
         self.modules = {symbol.qualified_name: symbol for symbol in modules}
@@ -23,10 +33,18 @@ class WorkspaceResolver:
         self.bases = bases
         self.models = models
         self.dynamic_declarations = {}
+        # Keep memoized targets with their snapshot. A method-level cache
+        # retains old resolvers (and whole workspaces) across many small edits.
+        self._names_cache = {}
 
     def _canonical(self, symbol_id, seen=frozenset()):
         if symbol_id in seen:
             return symbol_id
+        original = self.by_id.get(symbol_id)
+        if original and original.overload:
+            implementation = self.symbols.get(original.qualified_name)
+            if implementation and implementation.symbol_id != symbol_id:
+                return implementation.symbol_id
         target = self.imports.get(symbol_id)
         symbol = self.symbols.get(target) or self.modules.get(target)
         if symbol is None and self.models is not None and target:
@@ -142,8 +160,17 @@ class WorkspaceResolver:
                 return bool(values) and all(self.denotes_instance(value, seen) for value in values)
         return False
 
-    @lru_cache(maxsize=16384)
     def names(self, target, seen=frozenset()):
+        key = target, seen
+        if key in self._names_cache:
+            return self._names_cache[key]
+        result = self._names_uncached(target, seen)
+        if len(self._names_cache) >= 16384:
+            del self._names_cache[next(iter(self._names_cache))]
+        self._names_cache[key] = result
+        return result
+
+    def _names_uncached(self, target, seen):
         if not target or target in seen or len(seen) > 64:
             return frozenset()
         seen = seen | {target}
@@ -329,6 +356,10 @@ class WorkspaceResolver:
         return self.preferred_values(self.returns.get(identity, ()), seen | {marker})
 
     def property_group(self, symbol):
+        if symbol.symbol_id.kind.value == "parameter" and symbol.container_name in self.overloads:
+            return self.parameter_declarations.get(symbol.qualified_name, [symbol])
+        if symbol.qualified_name in self.overloads:
+            return self.function_groups[symbol.qualified_name]
         return self.dynamic_declarations.get(
             symbol.qualified_name
         ) or self.property_declarations.get(symbol.qualified_name, [symbol])

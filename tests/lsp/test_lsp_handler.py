@@ -100,7 +100,8 @@ class TestInitialize:
         assert caps.get("positionEncoding") == "utf-16"
         assert "typeDefinitionProvider" not in caps
         assert "implementationProvider" not in caps
-        assert "signatureHelpProvider" not in caps
+        assert caps["signatureHelpProvider"]["triggerCharacters"] == ["(", ","]
+        assert caps["documentHighlightProvider"] is True
 
     def test_initialize_loads_project_when_root_uri_provided(self, mock_server):
         rpc = JsonRpcServer()

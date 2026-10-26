@@ -140,6 +140,7 @@ class FrameworkModels:
         return (owner, module, node, data) if node else None
 
     def _symbol(self, owner, name, node, data, kind, annotation=None):
+        from .signatures import parameters
         from .workspace import (
             SourceSymbol,
             SymbolId,
@@ -223,6 +224,12 @@ class FrameworkModels:
                 else ""
             ),
             accessor,
+            parameters=(
+                parameters(node)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else ()
+            ),
+            binding="instance" if kind == 6 else "",
         )
         self._symbols[key] = symbol
         return symbol

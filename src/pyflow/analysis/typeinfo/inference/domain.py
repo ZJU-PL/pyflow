@@ -172,17 +172,34 @@ def _normalize_types(
     if any(isinstance(value, AnyType) for value in flattened):
         return frozenset((ANY,))
 
-    # If T is already covered by a known supertype U, ``T | U`` simplifies to U.
-    result: set[ProperType] = set(flattened)
-    for candidate in flattened:
-        for other in flattened:
-            if candidate is other or candidate == other:
-                continue
-            try:
-                covered = type_system.is_subtype(candidate, other)
-            except (AssertionError, KeyError, TypeError):
-                covered = False
-            if covered:
-                result.discard(candidate)
-                break
+    def rank(typ):
+        def anys(item):
+            if isinstance(item, AnyType):
+                return 1
+            children = (
+                *getattr(item, "args", ()),
+                *getattr(item, "items", ()),
+                *(getattr(item, "arg_types", None) or ()),
+            )
+            extra = getattr(item, "return_type", None) or getattr(item, "item", None)
+            return sum(anys(child) for child in children) + (
+                anys(extra) if extra is not None else 0
+            )
+
+        return anys(typ), type(typ).__name__, str(typ)
+
+    def subtype(left, right):
+        try:
+            return type_system.is_subtype(left, right)
+        except (AssertionError, KeyError, TypeError):
+            return False
+
+    # Any consistency is symmetric but not an equivalence relation. Compare
+    # only surviving representatives, preferring concrete nested arguments.
+    result = []
+    for candidate in sorted(flattened, key=rank):
+        if any(subtype(candidate, other) for other in result):
+            continue
+        result = [other for other in result if not subtype(other, candidate)]
+        result.append(candidate)
     return frozenset(result)

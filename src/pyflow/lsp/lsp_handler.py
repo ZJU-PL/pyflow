@@ -57,6 +57,8 @@ class LspHandler:
         rpc.register("textDocument/documentSymbol", self._handle_document_symbol)
         rpc.register("textDocument/completion", self._handle_completion)
         rpc.register("textDocument/hover", self._handle_hover)
+        rpc.register("textDocument/signatureHelp", self._handle_signature_help)
+        rpc.register("textDocument/documentHighlight", self._handle_document_highlight)
         rpc.register("textDocument/prepareRename", self._handle_prepare_rename)
         rpc.register("textDocument/rename", self._handle_rename)
         rpc.register("textDocument/diagnostic", self._handle_document_diagnostic)
@@ -129,7 +131,14 @@ class LspHandler:
                 "resolveProvider": False,
             },
             "hoverProvider": True,
-            "executeCommandProvider": {"commands": ["pyflow.analyzeWorkspace"]},
+            "signatureHelpProvider": {
+                "triggerCharacters": ["(", ","],
+                "retriggerCharacters": [","],
+            },
+            "documentHighlightProvider": True,
+            "executeCommandProvider": {
+                "commands": ["pyflow.analyzeWorkspace", "pyflow.scanDocument"]
+            },
             "renameProvider": {"prepareProvider": True},
             "diagnosticProvider": {
                 "interFileDependencies": True,
@@ -148,6 +157,25 @@ class LspHandler:
             self._start_workspace_analysis()
 
     async def _handle_execute_command(self, params: Any):
+        if (params or {}).get("command") == "pyflow.scanDocument":
+            self._require_loaded()
+            arguments = (params or {}).get("arguments") or []
+            uri = (
+                arguments[0].get("uri")
+                if arguments and isinstance(arguments[0], dict)
+                else arguments[0] if arguments else None
+            )
+            if not isinstance(uri, str):
+                raise JsonRpcError(ErrorCodes.InvalidParams, "scanDocument requires a document URI")
+            from .document_analysis import document_diagnostics
+
+            snapshot = self._server.current_snapshot()
+            items = await asyncio.to_thread(
+                document_diagnostics, snapshot.source_index, uri, include_security=True
+            )
+            if not self._document_is_current(snapshot, uri):
+                raise JsonRpcError(ErrorCodes.RequestCancelled, "Document changed during scan")
+            return {"kind": "full", "items": items}
         if (params or {}).get("command") != "pyflow.analyzeWorkspace":
             raise JsonRpcError(ErrorCodes.InvalidParams, "Unknown command")
         self._require_loaded()
@@ -441,6 +469,17 @@ class LspHandler:
             }
         }
 
+    def _handle_signature_help(self, params):
+        self._require_loaded()
+        uri, line, character = self._position(params)
+        return self._server.current_snapshot().source_index.signature_help(uri, line, character)
+
+    def _handle_document_highlight(self, params):
+        self._require_loaded()
+        uri, line, character = self._position(params)
+        index = self._server.current_snapshot().source_index
+        return index.document_highlights(uri, line, character)
+
     def _handle_prepare_rename(self, params: Any) -> Optional[dict[str, Any]]:
         self._require_loaded()
         uri, line, character = self._position(params)
@@ -534,7 +573,8 @@ class LspHandler:
     def _handle_call_hierarchy_prepare(self, params: Any) -> list[dict[str, Any]]:
         self._require_loaded()
         uri, line, character = self._position(params)
-        symbol = self._server.current_snapshot().source_index.function_at(uri, line, character)
+        index = self._server.current_snapshot().source_index
+        symbol = index.callable_at(uri, line, character) or index.function_at(uri, line, character)
         return [self._call_item(symbol)] if symbol else []
 
     def _handle_call_hierarchy_incoming(self, params: Any) -> list[dict[str, Any]]:

@@ -205,9 +205,7 @@ class _StatementAnalysisMixin:
                 input_changed_scope_contexts,
             )
             if self.options.use_type_hints:
-                self._seed_container_elements_from_annotation(
-                    scope.module, stmt.annotation, value
-                )
+                self._seed_container_elements_from_annotation(scope.module, stmt.annotation, value)
             value = self._filter_values_by_annotation(scope.module, stmt.annotation, value)
             self._assign_target(
                 scope,
