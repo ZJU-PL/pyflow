@@ -49,7 +49,7 @@ class GetLocals(TypeDispatcher):
         if hasattr(node, "visitChildren"):
             node.visitChildren(self)
 
-    @dispatch(str, int, type(None))
+    @dispatch(str, int, type(None), ast.TypeParams, ast.TypeParam, ast.TypeAlias)
     def visitLeaf(self, node):
         pass
 
@@ -358,6 +358,17 @@ class ShapeConstraintBuilder(TypeDispatcher):
         self.pre(node)
         self(node.expr, node.lcls)
         self.post(node)
+
+    @dispatch(
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeAlias,
+        ast.TypeParams,
+        ast.TypeParam,
+    )
+    def visitDeclaration(self, node, targets=None):
+        del node, targets
+        return None
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):

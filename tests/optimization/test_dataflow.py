@@ -171,3 +171,20 @@ def test_forward_traversal_accepts_closure_reads_and_scope_declarations():
     ):
         assert type(traverse(node)) is type(node)
     assert "GetCellDeref" in analyze.seen
+
+
+def test_defuse_visitor_handles_type_alias_and_params():
+    from pyflow.language.python.defuse import DefUseVisitor
+
+    visitor = DefUseVisitor()
+    p = ast.TypeParam("T", ast.Local("bound_type"))
+    tp = ast.TypeParams([p])
+    val = ast.Local("alias_val")
+    ta = ast.TypeAlias("MyType", [p], val)
+
+    visitor(tp)
+    visitor(p)
+    visitor(ta)
+
+    assert any(l.name == "alias_val" for l in visitor.lcluse)
+    assert any(l.name == "bound_type" for l in visitor.lcluse)

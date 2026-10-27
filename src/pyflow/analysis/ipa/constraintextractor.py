@@ -32,7 +32,7 @@ class MarkParameters(TypeDispatcher):
         """
         self.ce = ce
 
-    @dispatch(type(None), ast.DoNotCare)
+    @dispatch(type(None), ast.DoNotCare, ast.TypeParams, ast.TypeParam, ast.TypeAlias)
     def visitNone(self, node):
         """Handle None or DoNotCare parameters (ignored).
 
@@ -643,7 +643,7 @@ class ConstraintExtractor(TypeDispatcher):
     def visitScopeDecl(self, node, targets=None):
         return None
 
-    @dispatch(ast.TypeAlias)
+    @dispatch(ast.TypeAlias, ast.TypeParams, ast.TypeParam)
     def visitTypeAlias(self, node, targets=None):
         del node, targets
         return None

@@ -498,7 +498,7 @@ class ExtractDataflow(TypeDispatcher):
     def visitScopeDecl(self, node, targets=None):
         return None
 
-    @dispatch(ast.TypeAlias)
+    @dispatch(ast.TypeAlias, ast.TypeParams, ast.TypeParam)
     def visitTypeAlias(self, node, targets=None):
         del node, targets
         return None

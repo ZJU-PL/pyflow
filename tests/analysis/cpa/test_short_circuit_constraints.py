@@ -53,3 +53,19 @@ def test_ipa_short_circuit_expression_uses_shared_fresh_result():
         (terms[0], [harness.fresh]),
         (terms[1], [harness.fresh]),
     ]
+
+
+def test_cpa_and_ipa_type_parameters_and_aliases_dispatched_without_error():
+    tp = ast.TypeParams([ast.TypeParam("T", None)])
+    p = ast.TypeParam("T", None)
+    ta = ast.TypeAlias("Point", [p], ast.Local("tuple"))
+
+    cpa = _CPAHarness()
+    assert cpa.visitTypeAlias(tp) is None
+    assert cpa.visitTypeAlias(p) is None
+    assert cpa.visitTypeAlias(ta) is None
+
+    ipa = _IPAHarness()
+    assert ipa.visitTypeAlias(tp) is None
+    assert ipa.visitTypeAlias(p) is None
+    assert ipa.visitTypeAlias(ta) is None

@@ -263,7 +263,15 @@ class DefUseVisitor(TypeDispatcher):
 
     @dispatch(ast.TypeParam)
     def visitTypeParam(self, node):
-        self.use(node, node.bound)
+        if getattr(node, "bound", None) is not None:
+            self.use(node, node.bound)
+
+    @dispatch(ast.TypeAlias)
+    def visitTypeAlias(self, node):
+        if getattr(node, "value", None) is not None:
+            self.use(node, node.value)
+        for param in getattr(node, "params", ()):
+            self(param)
 
     @dispatch(ast.GetCell)
     def visitGetCell(self, node):
