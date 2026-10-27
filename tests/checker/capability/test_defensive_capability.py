@@ -54,6 +54,17 @@ def test_open_mode_distinguishes_read_and_write() -> None:
     assert {finding.capability for finding in write} == {"file.write"}
 
 
+def test_open_method_chain_has_no_unknown_builtin_noise() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source("open('input.txt').read()\n")
+
+    assert result.status == "complete"
+    assert not any("unknown_builtin" in diagnostic.message for diagnostic in result.diagnostics)
+    assert any(
+        finding.capability == "file.read" and finding.report_kind is CapabilityReportKind.DIRECT
+        for finding in result.findings
+    )
+
+
 @pytest.mark.parametrize("callee", ["open", "io.open"])
 @pytest.mark.parametrize(
     "mode, expected",
@@ -411,3 +422,106 @@ def test_unknown_diagnostic_uses_source_filename_instead_of_entry_scope(tmp_path
     assert "__main__:" not in diagnostic.message
     assert diagnostic.location.filename == str(path.resolve())
     assert diagnostic.location.line == 2
+
+
+def test_pathlib_import_does_not_expand_to_every_class_method() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source("from pathlib import Path\n")
+
+    assert result.findings == []
+
+
+def test_pathlib_instance_calls_report_file_access() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source(
+        "from pathlib import Path\n" 'Path("input.txt").read_text()\n'
+    )
+
+    assert any(
+        finding.capability == "file.read"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+        and finding.access_path == "pathlib.Path.read_text"
+        and finding.location.line == 2
+        for finding in result.findings
+    )
+    assert not any(
+        finding.access_path.startswith("pathlib.Path.cwd") for finding in result.findings
+    )
+
+
+def test_os_environ_item_and_get_are_environment_reads() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source(
+        "import os\n"
+        'first = os.environ["SECRET_TOKEN"]\n'
+        'second = os.environ.get("OTHER_TOKEN")\n'
+    )
+
+    direct = [
+        finding
+        for finding in result.findings
+        if finding.capability == "information.environment"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert {finding.location.line for finding in direct} >= {2, 3}
+    assert all(finding.location.line != 0 for finding in result.findings)
+
+
+def test_importing_a_module_is_not_itself_a_capability() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source("import requests\nimport sys\n")
+
+    assert result.findings == []
+
+
+def test_added_process_and_network_models_are_detected() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import asyncio\n"
+        "import aiohttp\n"
+        "import os\n"
+        'asyncio.create_subprocess_exec("id")\n'
+        'asyncio.create_subprocess_shell("id")\n'
+        'aiohttp.ClientSession().get("https://example.test")\n'
+        'os.popen("id")\n'
+        'os.execv("/bin/sh", ["sh"])\n'
+    )
+
+    direct = {
+        (finding.capability, finding.access_path)
+        for finding in result.findings
+        if finding.report_kind is CapabilityReportKind.DIRECT
+    }
+    assert ("process.execute", "asyncio.create_subprocess_exec") in direct
+    assert ("process.execute", "asyncio.create_subprocess_shell") in direct
+    assert ("network.io", "aiohttp.ClientSession.<return>.get") in direct
+    assert ("process.execute", "os.popen") in direct
+    assert ("process.execute", "os.execv") in direct
+
+
+def test_broad_library_prefixes_do_not_report_non_io_helpers() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import tempfile\n"
+        "import shutil\n"
+        "import requests\n"
+        "import httpx\n"
+        "tempfile.gettempdir()\n"
+        'shutil.copystat("a", "b")\n'
+        'shutil.copymode("a", "b")\n'
+        'requests.utils.quote("x")\n'
+        'httpx.URL("https://example.test")\n'
+    )
+
+    assert not any(
+        finding.capability in {"file.write", "network.io"} for finding in result.findings
+    )
+
+
+def test_explicit_temp_and_copy_helpers_remain_file_writes() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import tempfile\n"
+        "import shutil\n"
+        "tempfile.NamedTemporaryFile()\n"
+        'shutil.copy("a", "b")\n'
+    )
+
+    assert {
+        finding.access_path
+        for finding in result.findings
+        if finding.capability == "file.write" and finding.report_kind is CapabilityReportKind.DIRECT
+    } == {"tempfile.NamedTemporaryFile", "shutil.copy"}

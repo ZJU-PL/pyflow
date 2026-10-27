@@ -221,6 +221,68 @@ def test_indirect_sarif_reports_potential_transfer_as_note(tmp_path, capsys) -> 
     assert all("potential capability transfer" in result["message"]["text"] for result in indirect)
 
 
+def test_file_target_uses_package_root_for_relative_imports(tmp_path, capsys) -> None:
+    package = tmp_path / "src" / "pkg"
+    subpackage = package / "sub"
+    subpackage.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (subpackage / "__init__.py").write_text("", encoding="utf-8")
+    (package / "helper.py").write_text(
+        "from subprocess import run\n",
+        encoding="utf-8",
+    )
+    entry = subpackage / "entry.py"
+    entry.write_text(
+        "from ..helper import run\nrun(['id'])\n",
+        encoding="utf-8",
+    )
+
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(
+        ["capabilities", str(entry), "--format", "json", "--no-public-exports"]
+    )
+
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert any(
+        finding["report_kind"] == "direct"
+        and finding["capability"] == "process.execute"
+        and finding["location"]["file"] == str(entry.resolve())
+        and finding["location"]["line"] == 2
+        for finding in payload["findings"]
+    )
+
+
+def test_invalid_import_depth_is_rejected_by_the_parser(tmp_path) -> None:
+    target = tmp_path / "main.py"
+    target.write_text("pass\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers(dest="command"))
+
+    with pytest.raises(SystemExit) as raised:
+        parser.parse_args(["capabilities", str(target), "--import-depth", "-2"])
+
+    assert raised.value.code == 2
+
+
+def test_unresolvable_relative_import_reports_unsupported_without_traceback(
+    tmp_path, capsys
+) -> None:
+    target = tmp_path / "standalone.py"
+    target.write_text("from ..helper import value\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(["capabilities", str(target), "--format", "json"])
+
+    assert run_capabilities(args) == 2
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "failed"
+    assert payload["diagnostics"][0]["kind"] == "unsupported"
+    assert "Traceback" not in captured.err
+
+
 def test_capabilities_findings_exit_policy_is_opt_in(tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("import subprocess\nsubprocess.run(['id'])\n")

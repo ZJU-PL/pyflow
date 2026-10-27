@@ -87,7 +87,11 @@ def unsetenv(key):
     pass
 
 
-environ = {}
+# The private binding name is an analysis-only sentinel used by the capability
+# layer to recognise the environment mapping without adding a stub constructor
+# call (which would itself show up as unresolved in the pointer solver).
+_pyflow_os_environ = {}
+environ = _pyflow_os_environ
 name = "posix"
 sep = "/"
 altsep = None
@@ -163,6 +167,109 @@ def pipe():
 
 
 def system(command):
+    return 0
+
+
+class _Popen:
+    def __init__(self, command, mode="r", buffering=-1):
+        self.command = command
+        self.mode = mode
+
+    def read(self, size=-1):
+        return ""
+
+    def write(self, data):
+        return len(data)
+
+    def close(self):
+        pass
+
+    def poll(self):
+        return 0
+
+    def wait(self):
+        return 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def popen(command, mode="r", buffering=-1):
+    return _Popen(command, mode, buffering)
+
+
+def execv(path, args):
+    pass
+
+
+def execve(path, args, env):
+    pass
+
+
+def execl(path, *args):
+    pass
+
+
+def execle(path, *args):
+    pass
+
+
+def execlp(path, *args):
+    pass
+
+
+def execlpe(path, *args):
+    pass
+
+
+def execvp(path, args):
+    pass
+
+
+def execvpe(path, args, env):
+    pass
+
+
+def spawnv(mode, path, args):
+    return 0
+
+
+def spawnve(mode, path, args, env):
+    return 0
+
+
+def spawnl(mode, path, *args):
+    return 0
+
+
+def spawnle(mode, path, *args):
+    return 0
+
+
+def spawnlp(mode, path, *args):
+    return 0
+
+
+def spawnlpe(mode, path, *args):
+    return 0
+
+
+def spawnvp(mode, path, args):
+    return 0
+
+
+def spawnvpe(mode, path, args, env):
+    return 0
+
+
+def posix_spawn(path, args, env):
+    return 0
+
+
+def posix_spawnp(path, args, env):
     return 0
 
 

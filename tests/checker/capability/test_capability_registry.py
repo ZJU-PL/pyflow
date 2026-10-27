@@ -20,6 +20,26 @@ def test_default_registry_covers_environment_calls_and_common_network_clients():
         "information.environment"
     )
     assert registry.match("requests.get", CapabilityOperation.CALL)[0].capability == "network.io"
+    assert (
+        registry.match("asyncio.create_subprocess_exec", CapabilityOperation.CALL)[0].capability
+        == "process.execute"
+    )
+    assert (
+        registry.match("aiohttp.ClientSession.<return>.get", CapabilityOperation.CALL)[0].capability
+        == "network.io"
+    )
+
+
+def test_default_registry_does_not_treat_helpers_as_io():
+    registry = default_capability_registry()
+    for access_path in (
+        "tempfile.gettempdir",
+        "shutil.copystat",
+        "shutil.copymode",
+        "requests.utils.quote",
+        "httpx.URL",
+    ):
+        assert registry.match(access_path, CapabilityOperation.CALL) == ()
 
 
 def test_registry_loads_versioned_project_extension(tmp_path):

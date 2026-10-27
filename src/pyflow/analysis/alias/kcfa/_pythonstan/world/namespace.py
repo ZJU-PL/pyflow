@@ -101,8 +101,8 @@ class Namespace:
         return self.names[0]
 
     def relative_ns(self, names: List[str], level: int) -> "Namespace":
-        assert level >= 0
-        assert len(self.names) >= level
+        if level < 0 or len(self.names) < level:
+            raise ValueError(f"relative import level {level} is outside package {self.to_str()!r}")
 
         # TODO names=[''] is a special case, need to be clarified in the future
         if len(names) == 1 and names[0] == "":

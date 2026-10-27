@@ -208,6 +208,20 @@ class BuiltinAPIHandler:
             "discard": self._handle_set_discard,
             "remove": self._handle_set_remove,
             "update": self._handle_container_update,
+            # File methods
+            "read": self._handle_generic_method,
+            "readline": self._handle_generic_method,
+            "readlines": self._handle_generic_method,
+            "write": self._handle_generic_method,
+            "writelines": self._handle_generic_method,
+            "close": self._handle_generic_method,
+            "flush": self._handle_generic_method,
+            "seek": self._handle_generic_method,
+            "tell": self._handle_generic_method,
+            "truncate": self._handle_generic_method,
+            "__enter__": self._handle_generic_method,
+            "__exit__": self._handle_generic_method,
+            "__next__": self._handle_generic_method,
         }
 
     def _init_function_handlers(self) -> Dict[str, callable]:
@@ -234,6 +248,7 @@ class BuiltinAPIHandler:
             "issubclass": self._handle_issubclass,
             "type": self._handle_type,
             "object": self._handle_object,
+            "open": self._handle_open,
             "bool": self._handle_bool,
             "int": self._handle_int,
             "float": self._handle_float,
@@ -248,6 +263,16 @@ class BuiltinAPIHandler:
             # Object-oriented functions
             "super": self._handle_super,
         }
+
+    def is_precise_builtin(self, builtin_obj: "AbstractObject") -> bool:
+        """Return whether a dedicated handler exists for ``builtin_obj``."""
+        if isinstance(builtin_obj, BuiltinClassObject):
+            return builtin_obj.builtin_name in self._function_handlers
+        if isinstance(builtin_obj, BuiltinFunctionObject):
+            return builtin_obj.function_name in self._function_handlers
+        if isinstance(builtin_obj, BuiltinMethodObject):
+            return builtin_obj.method_name in self._method_handlers
+        return False
 
     def handle_builtin_call(
         self,
@@ -1563,6 +1588,18 @@ class BuiltinAPIHandler:
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
         return constraints
+
+    def _handle_open(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Handle open() by returning a modeled file instance."""
+        if call.target:
+            target_ctx = self.state.get_variable(scope, context, call.target)
+            file_obj = ObjectFactory.create_builtin_instance("file", context, call.stmt)
+            self.state._worklist.add(
+                (scope, NormalNode(target_ctx), PointsToSet.singleton(file_obj))
+            )
+        return []
 
     def _handle_bool(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"

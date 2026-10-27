@@ -2386,7 +2386,7 @@ class PointerSolver:
             for constraint in constraints:
                 self.add_constraint(scope, context, constraint)
 
-            return len(constraints) > 0
+            return len(constraints) > 0 or handler.is_precise_builtin(builtin_obj)
         finally:
             ...
         # except Exception as e:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import Iterable
 
@@ -25,10 +26,14 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model imp
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     BuiltinFunctionObject,
+    BuiltinMethodObject,
+    ClassObject,
     ConstantObject,
     CoroutineObject,
+    DictObject,
     FunctionObject,
     GeneratorObject,
+    NativeModuleObject,
     NativeObject,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
@@ -65,6 +70,12 @@ def _is_bundled_stub(filename: str) -> bool:
     except (OSError, ValueError):
         return False
     return True
+
+
+def _detail_is_bundled_stub(location: str) -> bool:
+    """Recognise ``/path/to/stub.py:line:column`` diagnostic locations."""
+    filename = location.rsplit(":", 2)[0] if ":" in location else location
+    return _is_bundled_stub(filename)
 
 
 class DefensiveCapabilityAnalysis:
@@ -153,16 +164,28 @@ class DefensiveCapabilityAnalysis:
         result.findings = [
             finding
             for finding in result.findings
-            if not _is_bundled_stub(finding.location.filename)
+            if finding.location.line > 0 and not _is_bundled_stub(finding.location.filename)
         ]
         return result.finalize()
 
     @staticmethod
     def _object_path(obj) -> str | None:
+        # A module object is a namespace, not a capability.  Treating it as
+        # one makes ``import requests`` look like network I/O because the
+        # registry's prefix query sees every member of the module.
+        if isinstance(obj, NativeModuleObject):
+            return None
         if isinstance(obj, NativeObject):
             return obj.access_path
         if isinstance(obj, BuiltinFunctionObject):
             return f"builtins.{obj.function_name}"
+        if isinstance(obj, BuiltinMethodObject):
+            receiver_path = DefensiveCapabilityAnalysis._object_path(obj.receiver)
+            if receiver_path is not None:
+                return f"{receiver_path}.{obj.method_name}"
+            return None
+        if isinstance(obj, DictObject):
+            return "os.environ" if DefensiveCapabilityAnalysis._is_environ_dict(obj) else None
         if isinstance(obj, FunctionObject):
             module = getattr(obj.container_scope, "module", None)
             filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
@@ -170,11 +193,36 @@ class DefensiveCapabilityAnalysis:
                 return obj.ir.get_qualname()
         return None
 
+    @staticmethod
+    def _callable_class_path(obj) -> str | None:
+        """Return a class constructor path without treating the class as a value."""
+        if not isinstance(obj, ClassObject):
+            return None
+        module = getattr(obj.container_scope, "module", None)
+        filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
+        if _is_bundled_stub(filename):
+            return obj.ir.get_qualname()
+        return None
+
+    @staticmethod
+    def _is_environ_dict(obj) -> bool:
+        """Recognise the private dictionary binding used by the bundled os stub."""
+        stmt = getattr(getattr(obj, "alloc_site", None), "stmt", None)
+        target = getattr(stmt, "lval", None)
+        value = getattr(stmt, "rval", None)
+        return (
+            isinstance(target, ast.Name)
+            and target.id == "_pyflow_os_environ"
+            and isinstance(value, ast.Dict)
+        )
+
     def _event_operation_path(
         self,
         event: PointerEvent,
     ) -> tuple[CapabilityOperation | None, str | None]:
         base_path = self._object_path(event.abstract_object)
+        if base_path is None and event.kind is PointerEventKind.CALL:
+            base_path = self._callable_class_path(event.abstract_object)
         if base_path is None:
             return None, None
         if event.kind is PointerEventKind.CALL:
@@ -529,6 +577,12 @@ class DefensiveCapabilityAnalysis:
         for detail in pointer_result.unknown_details():
             kind = "budget" if detail["kind"] == "solver_budget" else "unknown"
             location = locations.get(detail["location"])
+            if location is not None and _is_bundled_stub(location.filename):
+                # Model-internal gaps in our own stdlib stubs should not make
+                # a user's capability report look partial.
+                continue
+            if location is None and _detail_is_bundled_stub(detail["location"]):
+                continue
             label = (
                 f"{location.filename}:{location.line}:{location.column}"
                 if location is not None
@@ -562,11 +616,14 @@ class DefensiveCapabilityAnalysis:
             callee = state.get_variable(scope, scope.context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
                 continue
+            location = self._location(scope, constraint.stmt)
+            if _is_bundled_stub(location.filename):
+                continue
             diagnostics.append(
                 CapabilityDiagnostic(
                     kind="unknown",
                     message=f"unresolved call target: {constraint}",
-                    location=self._location(scope, constraint.stmt),
+                    location=location,
                 )
             )
         return diagnostics
@@ -578,6 +635,10 @@ class DefensiveCapabilityAnalysis:
     @staticmethod
     def _constraint_site(constraint):
         site = getattr(constraint, "stmt", None) or getattr(constraint, "site", None)
+        if site is None:
+            call_site = getattr(constraint, "call_site", None)
+            if call_site is not None:
+                site = getattr(call_site, "statement", call_site)
         if site is None:
             site = getattr(getattr(constraint, "alloc_site", None), "stmt", None)
         return site
@@ -626,6 +687,9 @@ class _CapabilityReachability:
             if obj in seen:
                 continue
             seen.add(obj)
+            if isinstance(obj, NativeModuleObject):
+                # Importing a module does not exercise any of its members.
+                continue
             access_path = DefensiveCapabilityAnalysis._object_path(obj)
             if access_path is not None:
                 if access_path not in self.patterns:
@@ -642,6 +706,12 @@ class _CapabilityReachability:
                         (child, (*trace, f"closure cell {name}"))
                         for child in self.state.get_points_to(captured_var)
                     )
+            if isinstance(obj, ClassObject):
+                # Class dictionaries contain every method of the class.  They
+                # are not values held by the object, and walking them turns
+                # ``from pathlib import Path`` into dozens of "reachable"
+                # file/network capabilities.
+                continue
             for label, points_to in self.fields.get(obj, ()):
                 worklist.extend((child, (*trace, f"carrier field {label}")) for child in points_to)
 

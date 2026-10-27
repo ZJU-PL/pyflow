@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from argparse import ArgumentTypeError
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -20,6 +21,31 @@ from pyflow.cli.analysis_budget import (
     positive_seconds,
     positive_iterations,
 )
+
+
+def import_depth(value: str) -> int:
+    """Parse the import-depth option, allowing ``-1`` for unlimited."""
+    try:
+        depth = int(value)
+    except ValueError as exc:
+        raise ArgumentTypeError(f"invalid import depth: {value!r}") from exc
+    if depth < -1:
+        raise ArgumentTypeError("import depth must be -1 (unlimited) or greater")
+    return depth
+
+
+def _project_root_for_file(path: Path) -> Path:
+    """Find the import root for a source file.
+
+    For ``pkg/sub/module.py`` the import root is the parent of ``pkg`` rather
+    than the file's immediate directory.  Otherwise relative imports such as
+    ``from ..sibling import name`` cannot be resolved when the CLI is invoked
+    on a single file inside a package.
+    """
+    root = path.parent
+    while (root / "__init__.py").is_file():
+        root = root.parent
+    return root
 
 
 def add_capabilities_parser(subparsers) -> None:
@@ -61,7 +87,12 @@ def add_capabilities_parser(subparsers) -> None:
         ),
         help="Context sensitivity policy (overrides --context-depth)",
     )
-    parser.add_argument("--import-depth", type=int, default=-1)
+    parser.add_argument(
+        "--import-depth",
+        type=import_depth,
+        default=-1,
+        help="Maximum transitive import depth (-1 = unlimited, 0 = entry only)",
+    )
     parser.add_argument(
         "--max-iterations",
         type=positive_iterations,
@@ -106,6 +137,13 @@ def add_capabilities_parser(subparsers) -> None:
 
 def run_capabilities(args) -> int:
     target = Path(args.input_path).resolve()
+    import_level = getattr(args, "import_depth", -1)
+    if import_level < -1:
+        print(
+            "Error: --import-depth must be -1 (unlimited) or greater",
+            file=sys.stderr,
+        )
+        return 2
     if target.is_dir():
         if getattr(args, "recursive", False):
             from pyflow.frontend.file_selection import (
@@ -145,7 +183,7 @@ def run_capabilities(args) -> int:
     elif target.is_file() and target.suffix == ".py":
         entry = target
         entries = [entry]
-        project_root = target.parent
+        project_root = _project_root_for_file(target)
     else:
         print(f"Error: expected a Python file or project directory: {target}", file=sys.stderr)
         return 2
@@ -175,9 +213,9 @@ def run_capabilities(args) -> int:
             for entry in entries:
                 try:
                     analyzed = analysis.analyze_project(
-                        entry, project_path=project_root, import_level=args.import_depth
+                        entry, project_path=project_root, import_level=import_level
                     )
-                except (OSError, SyntaxError, UnicodeError) as exc:
+                except (OSError, SyntaxError, UnicodeError, AssertionError, ValueError) as exc:
                     from pyflow.checker.capability.model import (
                         CapabilityDiagnostic,
                         SourceLocation,
