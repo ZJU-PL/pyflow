@@ -213,11 +213,6 @@ class ASTConverter:
         sl = slice_node
         if isinstance(sl, python_ast.Index):  # Python < 3.9
             sl = sl.value
-        if isinstance(sl, python_ast.Slice):
-            start = self._convert_expression_safe(sl.lower) if sl.lower else None
-            stop = self._convert_expression_safe(sl.upper) if sl.upper else None
-            step = self._convert_expression_safe(sl.step) if sl.step else None
-            return pyflow_ast.BuildSlice(start, stop, step)
         return self._convert_expression_safe(sl)
 
     def _push_scope(
@@ -767,6 +762,12 @@ class ASTConverter:
 
             # Fallback
             return pyflow_ast.Existing(Object(None))
+
+        elif isinstance(node, python_ast.Slice):
+            start = self._convert_expression_safe(node.lower) if node.lower else None
+            stop = self._convert_expression_safe(node.upper) if node.upper else None
+            step = self._convert_expression_safe(node.step) if node.step else None
+            return pyflow_ast.BuildSlice(start, stop, step)
 
         elif isinstance(node, python_ast.Subscript):
             value = self._convert_expression(node.value)

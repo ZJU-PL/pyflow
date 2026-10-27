@@ -390,6 +390,18 @@ class TestGirEmitter(unittest.TestCase):
         self.assertEqual(class_statements[0]["class_decl"]["name"], "Box")
         self.assertEqual(class_statements[0]["class_decl"]["type_parameters"], "T")
 
+    def test_empty_unit_and_docstring_flattening(self):
+        _, rows_empty = emit("")
+        self.assertEqual(rows_empty, [])
+        _, rows_doc = emit('"""Docstring only"""')
+        self.assertEqual(rows_doc, [])
+
+    def test_ellipsis_function_gir(self):
+        _, rows = emit("def f():\n    ...")
+        self.assertTrue(
+            any(r.get("name") == "f" for r in rows if r.get("operation") == "method_decl")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

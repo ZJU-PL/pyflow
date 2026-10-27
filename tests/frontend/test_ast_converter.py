@@ -336,6 +336,30 @@ while x > 0:
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
+    def test_convert_slice_and_multidimensional_subscript(self):
+        """Test converting 1D and multi-dimensional slice subscripts into BuildSlice."""
+        source_1d = "arr[1:5]"
+        tree_1d = python_ast.parse(source_1d, mode="eval")
+        result_1d = self.converter._convert_expression(tree_1d.body)
+        self.assertIsInstance(result_1d, pyflow_ast.Call)
+        self.assertIsInstance(result_1d.args[1], pyflow_ast.BuildSlice)
+        self.assertEqual(result_1d.args[1].start.object.pyobj, 1)
+        self.assertEqual(result_1d.args[1].stop.object.pyobj, 5)
+        self.assertIsNone(result_1d.args[1].step)
+
+        source_multi = "arr[1:5, 2:8]"
+        tree_multi = python_ast.parse(source_multi, mode="eval")
+        result_multi = self.converter._convert_expression(tree_multi.body)
+        self.assertIsInstance(result_multi, pyflow_ast.Call)
+        self.assertIsInstance(result_multi.args[1], pyflow_ast.BuildTuple)
+        slice1, slice2 = result_multi.args[1].args
+        self.assertIsInstance(slice1, pyflow_ast.BuildSlice)
+        self.assertIsInstance(slice2, pyflow_ast.BuildSlice)
+        self.assertEqual(slice1.start.object.pyobj, 1)
+        self.assertEqual(slice1.stop.object.pyobj, 5)
+        self.assertEqual(slice2.start.object.pyobj, 2)
+        self.assertEqual(slice2.stop.object.pyobj, 8)
+
     def test_convert_boolop_and(self):
         """Boolean AND operations should use ShortCircutAnd for proper short-circuit semantics."""
         tree = python_ast.parse("a and b and c", mode="eval")

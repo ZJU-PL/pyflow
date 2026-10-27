@@ -36,6 +36,10 @@ class GirFlattener:
         return previous
 
     def flatten(self, stmts: List[Dict[str, Any]]) -> Tuple[int, List[Dict[str, Any]]]:
+        if not isinstance(stmts, list):
+            raise ValueError("The input format of GLang IR is not correct.")
+        if not stmts:
+            return (self.node_id, [])
         if not self.is_gir_format(stmts):
             raise ValueError("The input format of GLang IR is not correct.")
         flattened_nodes = self._flatten_gir(stmts)
