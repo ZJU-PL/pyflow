@@ -61,6 +61,10 @@ class KillContinues(TypeDispatcher):
         else:
             return node
 
+    @defaultdispatch
+    def visitDefault(self, node):
+        return node
+
 
 class Compactor(TypeDispatcher):
     def __init__(self, compiler, g, loops):

@@ -308,6 +308,44 @@ class IRTranslator:
                     ),
                 )
             ]
+        if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
+            container_var = self._make_variable(target.value.id)
+            index_expr = target.slice
+            constraints = []
+            if hasattr(index_expr, "id"):
+                index_var = self._make_variable(index_expr.id)
+            else:
+                index_name = f"$index_{stable_token(stmt)}"
+                index_var = self._make_variable(index_name)
+                if isinstance(index_expr, ast.Constant):
+                    const_assign = IRAssign(
+                        ast.Assign(
+                            targets=[ast.Name(id=index_name, ctx=ast.Store())],
+                            value=index_expr,
+                        )
+                    )
+                    const_alloc = AllocSite.from_ir_node(const_assign, AllocKind.CONSTANT)
+                    constraints.append(AllocConstraint(target=index_var, alloc_site=const_alloc))
+            delitem_method_var = self._make_variable(f"$delitem_{stable_token(stmt)}")
+            constraints.append(
+                LoadConstraint(
+                    base=container_var,
+                    field=attr("__delitem__"),
+                    target=delitem_method_var,
+                    index=None,
+                )
+            )
+            call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
+            constraints.append(
+                CallConstraint(
+                    callee=delitem_method_var,
+                    args=(index_var,),
+                    kwargs=(),
+                    target=None,
+                    call_site=call_site,
+                )
+            )
+            return constraints
         return []
 
     def _translate_copy(self, stmt: IRCopy) -> List["Constraint"]:

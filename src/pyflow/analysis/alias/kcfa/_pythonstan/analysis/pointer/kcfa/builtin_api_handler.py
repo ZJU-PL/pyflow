@@ -194,6 +194,7 @@ class BuiltinAPIHandler:
             "insert": self._handle_list_insert,
             "__getitem__": self._handle_container_getitem,
             "__setitem__": self._handle_container_setitem,
+            "__delitem__": self._handle_generic_method,
             "__iter__": self._handle_container_iter,
             "pop": self._handle_container_pop,
             # Dict methods

@@ -86,7 +86,7 @@ class CollectModifies(TypeDispatcher):
             self._modified(node.index, body)
 
     def _collect_named_exprs(self, node):
-        if node is None:
+        if node is None or isinstance(node, (ast.Code, ast.leafTypes)):
             return
         if isinstance(node, ast.NamedExpr):
             if isinstance(node.target, ast.Local):

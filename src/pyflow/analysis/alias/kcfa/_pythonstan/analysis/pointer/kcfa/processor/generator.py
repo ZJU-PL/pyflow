@@ -149,7 +149,9 @@ class GeneratorProcessor(Processor):
                 context,
                 solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}"),
             )
-            solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(func_obj.instance_obj))
+            solver.handle_new_points_to(
+                self_var, scope, PointsToSet.singleton(func_obj.instance_obj)
+            )
             leading_positional = 1
 
         binding = self._call_service._validate_call(
@@ -250,7 +252,9 @@ class GeneratorProcessor(Processor):
                 context,
                 solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}"),
             )
-            solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(func_obj.instance_obj))
+            solver.handle_new_points_to(
+                self_var, scope, PointsToSet.singleton(func_obj.instance_obj)
+            )
             leading_positional = 1
 
         binding = self._call_service._validate_call(

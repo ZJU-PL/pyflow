@@ -419,6 +419,7 @@ class AttributeResolver(Processor):
                     call_site=constraint.call_site,
                 )
             else:
+                site = getattr(constraint.call_site, "statement", constraint.call_site)
                 solver._apply_store(
                     scope,
                     base_ctx,
@@ -426,6 +427,7 @@ class AttributeResolver(Processor):
                         base=constraint.base,
                         field=attr_field,
                         source=constraint.source,
+                        site=site,
                     ),
                     PointsToSet.singleton(base_obj),
                 )

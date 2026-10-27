@@ -667,8 +667,7 @@ def test_global_and_builtin_not_treated_as_leaking_closure_cell() -> None:
     leaked = [
         finding
         for finding in result.findings
-        if finding.report_kind is CapabilityReportKind.INDIRECT
-        and "closure cell" in finding.reason
+        if finding.report_kind is CapabilityReportKind.INDIRECT and "closure cell" in finding.reason
     ]
     assert leaked == []
 
@@ -686,7 +685,9 @@ def test_builtin_operations_do_not_report_indirect_leaks() -> None:
         finding
         for finding in result.findings
         if finding.report_kind is CapabilityReportKind.INDIRECT
-        and any(f"builtins.{name}" in finding.reason for name in ("len", "iter", "next", "isinstance"))
+        and any(
+            f"builtins.{name}" in finding.reason for name in ("len", "iter", "next", "isinstance")
+        )
     ]
     assert indirect_builtins == []
 
@@ -705,8 +706,7 @@ def test_pathlib_mutations_reported_as_file_writes() -> None:
     writes = [
         finding
         for finding in result.findings
-        if finding.capability == "file.write"
-        and finding.report_kind is CapabilityReportKind.DIRECT
+        if finding.capability == "file.write" and finding.report_kind is CapabilityReportKind.DIRECT
     ]
     assert len(writes) == 6
 
@@ -720,22 +720,17 @@ def test_urllib3_reported_as_network_io() -> None:
     network_findings = [
         finding
         for finding in result.findings
-        if finding.capability == "network.io"
-        and finding.report_kind is CapabilityReportKind.DIRECT
+        if finding.capability == "network.io" and finding.report_kind is CapabilityReportKind.DIRECT
     ]
     assert len(network_findings) >= 1
 
 
 def test_platform_return_string_methods_not_flagged() -> None:
     result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
-        "import platform\n"
-        "name = platform.system()\n"
-        "clean = name.strip().lower().split()\n"
+        "import platform\n" "name = platform.system()\n" "clean = name.strip().lower().split()\n"
     )
     direct_findings = [
-        finding
-        for finding in result.findings
-        if finding.report_kind is CapabilityReportKind.DIRECT
+        finding for finding in result.findings if finding.report_kind is CapabilityReportKind.DIRECT
     ]
     # Only platform.system should be flagged as information.system, not .strip/.lower/.split
     assert len(direct_findings) == 1
@@ -765,9 +760,7 @@ def test_async_with_lowering_propagates_capability() -> None:
 
 def test_os_putenv_and_unsetenv_reported_as_environment_calls() -> None:
     result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
-        "import os\n"
-        "os.putenv('KEY', 'VAL')\n"
-        "os.unsetenv('KEY')\n"
+        "import os\n" "os.putenv('KEY', 'VAL')\n" "os.unsetenv('KEY')\n"
     )
     env_findings = [
         finding

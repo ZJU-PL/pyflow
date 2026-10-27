@@ -15,13 +15,14 @@
     {"capability":"native.access","category":"native","operation":"call","access_paths":["ctypes.*","cffi.*","mmap.mmap","multiprocessing.shared_memory.*","sys.setdlopenflags"]},
     {"capability":"deserialization.unsafe","category":"deserialization","operation":"call","access_paths":["pickle.load*","_pickle.load*","marshal.load*","shelve.open","yaml.load","yaml.unsafe_load","dill.load*","cloudpickle.load*","joblib.load","torch.load"]},
     {"capability":"information.environment","category":"information","operation":"read","access_paths":["os.environ","os.environ.*","sys.argv","sys.argv.*"]},
-    {"capability":"information.environment","category":"information","operation":"call","access_paths":["os.getenv","os.putenv","os.unsetenv","os.environ.get","os.environ.__getitem__","os.environ.__setitem__","os.environ.pop","os.environ.setdefault","os.environ.update","os.environ.clear","os.getlogin","getpass.getuser"]},
+    {"capability":"information.environment","category":"information","operation":"call","access_paths":["os.getenv","os.putenv","os.unsetenv","os.environ.get","os.environ.__getitem__","os.environ.__setitem__","os.environ.__delitem__","os.environ.pop","os.environ.setdefault","os.environ.update","os.environ.clear","os.getlogin","getpass.getuser"]},
     {"capability":"information.system","category":"information","operation":"call","access_paths":["platform.system","platform.platform","platform.release","platform.version","platform.machine","platform.processor","platform.architecture","platform.node","platform.uname","platform.python_*","platform.libc_ver","platform.mac_ver","platform.win32_*","socket.gethostname","os.uname","pwd.*","grp.*","uuid.getnode"]},
     {"capability":"information.credentials","category":"information","operation":"call","access_paths":["keyring.get_password","netrc.netrc","boto3.Session.*","google.auth.*","azure.identity.*"]},
     {"capability":"randomness.secure","category":"randomness","operation":"call","access_paths":["os.urandom","secrets.*","random.SystemRandom.*"]},
     {"capability":"time.observe","category":"time","operation":"call","access_paths":["time.time","time.time_ns","time.monotonic*","datetime.datetime.now","datetime.datetime.utcnow"]},
     {"capability":"application.launch","category":"application","operation":"call","access_paths":["webbrowser.open*","os.startfile"]},
-    {"capability":"module.loader_mutation","category":"module","operation":"write","access_paths":["sys.modules.*","sys.meta_path.*","sys.path_hooks.*","sys.path_importer_cache.*"]},
+    {"capability":"module.loader_mutation","category":"module","operation":"write","access_paths":["sys.path","sys.path.*","sys.modules.*","sys.meta_path.*","sys.path_hooks.*","sys.path_importer_cache.*"]},
+    {"capability":"module.loader_mutation","category":"module","operation":"call","access_paths":["sys.path.append","sys.path.insert","sys.path.extend","sys.path.pop","sys.path.remove","sys.path.clear","sys.meta_path.append","sys.meta_path.insert","sys.meta_path.extend"]},
     {"capability":"debug.introspection","category":"debug","operation":"call","access_paths":["sys.settrace","sys.setprofile","sys._getframe","inspect.currentframe","gc.get_objects"]}
   ],
   "effects": [

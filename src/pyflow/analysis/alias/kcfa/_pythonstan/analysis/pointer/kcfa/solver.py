@@ -2013,7 +2013,7 @@ class PointerSolver:
     def _configured_access_path(callee_obj: "AbstractObject") -> str | None:
         if isinstance(callee_obj, NativeObject):
             return callee_obj.access_path
-        if isinstance(callee_obj, FunctionObject):
+        if isinstance(callee_obj, (FunctionObject, ClassObject)):
             module = getattr(callee_obj.container_scope, "module", None)
             filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
             if "/stubs/" in filename or "\\stubs\\" in filename:

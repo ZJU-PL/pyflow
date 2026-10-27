@@ -690,6 +690,49 @@ def f(obj, key, val):
         ssa.evaluate(self.compiler, graph)
         self.assertIsNotNone(graph)
 
+    def test_cfg_inline_with_keyword_arguments_and_constants(self):
+        import ast as python_ast
+        from pyflow.frontend.conversion.ast import ASTConverter
+
+        callee_src = """
+def callee(a):
+    return helper(42, foo=a)
+"""
+        callee_code = (
+            ASTConverter()._convert_function_def(python_ast.parse(callee_src).body[0]).code
+        )
+        callee_cfg = transform.CFGTransformer().process(callee_code)
+        callee_obj = pyflow_ast.program.Object(object())
+
+        call = pyflow_ast.Call(
+            pyflow_ast.Existing(callee_obj),
+            [pyflow_ast.Existing(pyflow_ast.program.Object(7))],
+            [],
+            None,
+            None,
+        )
+        caller = pyflow_ast.Code(
+            "caller",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite([pyflow_ast.Assign(call, [pyflow_ast.Local("result")])]),
+        )
+        caller_cfg = transform.CFGTransformer().process(caller)
+        remap = inline.evaluate(self.compiler, caller_cfg, {callee_obj: callee_cfg})
+        self.assertEqual(len(remap.call_sites), 1)
+
+    def test_ssa_does_not_descend_into_nested_code_named_exprs(self):
+        src = """
+def f(a, b, args):
+    y = [i for i in args if (k := i + a) > b]
+    return y
+"""
+        program = self.compiler.extractor.extract_from_source(src)
+        for code in program.liveCode:
+            if code.name == "f":
+                cfg = transform.evaluate(self.compiler, code)
+                ssa.evaluate(self.compiler, cfg)
+                self.assertIsNotNone(cfg)
+
 
 if __name__ == "__main__":
     unittest.main()

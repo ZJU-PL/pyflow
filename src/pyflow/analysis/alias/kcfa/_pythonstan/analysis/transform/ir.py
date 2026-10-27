@@ -348,7 +348,9 @@ label_fin:
         self._visit_with_items(node.items, node.body, node, "__enter__", "__exit__", is_async=False)
 
     def visit_AsyncWith(self, node: AsyncWith):
-        self._visit_with_items(node.items, node.body, node, "__aenter__", "__aexit__", is_async=True)
+        self._visit_with_items(
+            node.items, node.body, node, "__aenter__", "__aexit__", is_async=True
+        )
 
     def _visit_with_items(
         self, items, body, node, enter_name: str, exit_name: str, is_async: bool = False

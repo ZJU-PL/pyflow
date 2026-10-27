@@ -132,7 +132,7 @@ class CFGTransformer(TypeDispatcher):
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 
-    @dispatch(ast.Yield)
+    @dispatch(ast.Yield, ast.YieldFrom, ast.AsyncYield)
     def visitYield(self, node):
         """Visit yield statements.
 

@@ -275,7 +275,7 @@ class DefensiveCapabilityAnalysis:
             ):
                 patterns = self._filter_open_patterns(event, patterns, state, access_path)
             for pattern in patterns:
-                result.findings.append(self._direct_finding(event, access_path, operation, pattern))
+                result.findings.append(self._direct_finding(event, access_path, operation, pattern, state))
 
             if event.kind is PointerEventKind.CALL:
                 result.findings.extend(self._indirect_call_findings(event, reachability))
@@ -351,6 +351,8 @@ class DefensiveCapabilityAnalysis:
         base_path = self._object_path(event.abstract_object)
         if base_path is None and event.kind is PointerEventKind.CALL:
             base_path = self._callable_class_path(event.abstract_object)
+        if base_path is None and isinstance(event.abstract_object, NativeModuleObject):
+            base_path = event.abstract_object.access_path
         if base_path is None:
             return None, None
         if event.kind is PointerEventKind.CALL:
@@ -381,6 +383,7 @@ class DefensiveCapabilityAnalysis:
         access_path: str,
         operation: CapabilityOperation,
         pattern: CapabilityPattern,
+        state=None,
     ) -> CapabilityFinding:
         report_kind = (
             CapabilityReportKind.RUNTIME_GUARDED
@@ -388,7 +391,7 @@ class DefensiveCapabilityAnalysis:
             else CapabilityReportKind.DIRECT
         )
         return CapabilityFinding(
-            location=self._event_location(event),
+            location=self._event_location(event, state),
             capability=pattern.capability,
             category=pattern.category,
             operation=operation,
@@ -401,6 +404,8 @@ class DefensiveCapabilityAnalysis:
 
     def _indirect_call_findings(self, event: PointerEvent, reachability) -> list[CapabilityFinding]:
         """Report relevant objects passed into unanalyzed external code."""
+        if _is_internal_constraint(event.constraint):
+            return []
         state = reachability.state
         callee_path = self._object_path(event.abstract_object)
         if callee_path is None or callee_path in _BUILTIN_NON_ESCAPING:
@@ -781,9 +786,22 @@ class DefensiveCapabilityAnalysis:
             )
         return diagnostics
 
-    def _event_location(self, event: PointerEvent) -> SourceLocation:
+    def _event_location(self, event: PointerEvent, state=None) -> SourceLocation:
         site = self._constraint_site(event.constraint)
-        return self._location(event.scope, site)
+        loc = self._location(event.scope, site)
+        if _is_bundled_stub(loc.filename) and hasattr(event.context, "call_sites"):
+            sm = getattr(state, "_scope_manager", None)
+            for cs in reversed(event.context.call_sites):
+                curr = getattr(sm, "names2scope", {}).get(getattr(cs, "scope_name", ""))
+                while curr is not None and not getattr(curr, "filename", None):
+                    curr = getattr(sm, "father", {}).get(curr)
+                if curr is not None and getattr(curr, "filename", None) and not _is_bundled_stub(curr.filename):
+                    call_stmt = getattr(cs, "statement", None)
+                    if call_stmt is not None:
+                        caller_loc = self._location(curr, call_stmt)
+                        if caller_loc.line > 0:
+                            return caller_loc
+        return loc
 
     @staticmethod
     def _constraint_site(constraint):
@@ -798,8 +816,9 @@ class DefensiveCapabilityAnalysis:
 
     @staticmethod
     def _location(scope, site) -> SourceLocation:
-        module = scope.module.stmt
-        filename = getattr(module, "filename", "<unknown>")
+        module = getattr(scope, "module", None)
+        module_stmt = getattr(module, "stmt", None)
+        filename = getattr(module_stmt, "filename", None) or getattr(scope, "filename", None) or "<unknown>"
         ast_node = site.get_ast() if site is not None and hasattr(site, "get_ast") else None
         # TAC call assignments can inherit a synthetic line while their callee
         # expression retains the original source location.

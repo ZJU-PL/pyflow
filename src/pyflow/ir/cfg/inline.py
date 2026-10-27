@@ -58,7 +58,7 @@ class ASTCloner(TypeDispatcher):
             self.generated_from[node] = (original,)
         return node
 
-    @dispatch(str, type(None))
+    @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
         """Visit leaf nodes (no cloning needed).
 
@@ -69,6 +69,17 @@ class ASTCloner(TypeDispatcher):
             Original node.
         """
         return node
+
+    @dispatch(tuple)
+    def visitTuple(self, node):
+        if len(node) == 2 and isinstance(node[0], (str, type(None))):
+            name, value = node
+            return (name, self(value) if value is not None else None)
+        return tuple(self(item) if item is not None else None for item in node)
+
+    @dispatch(list)
+    def visitList(self, node):
+        return [self(item) if item is not None else None for item in node]
 
     @dispatch(ast.Local)
     @memoizeMethod(lambda self: self.cache)

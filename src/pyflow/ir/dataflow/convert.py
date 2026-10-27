@@ -847,3 +847,6 @@ def evaluateCode(compiler, code):
     dataflow = ctd.processCode()
     dce.evaluateDataflow(dataflow)
     return dataflow
+
+
+evaluate = evaluateCode
