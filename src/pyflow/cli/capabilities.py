@@ -197,7 +197,7 @@ def run_capabilities(args) -> int:
         return 2
     analysis = DefensiveCapabilityAnalysis(
         registry,
-        k=args.context_depth,
+        k=None if getattr(args, "context_policy", None) else args.context_depth,
         context_policy=getattr(args, "context_policy", None),
         report_public_exports=not getattr(args, "no_public_exports", False),
         report_callable_boundaries=getattr(args, "report_callable_boundaries", False),
@@ -272,10 +272,17 @@ def _to_text(result, *, verbose=False) -> str:
     lines = [f"Capability analysis: {result.status}"]
     for finding in result.findings:
         loc = finding.location
+        details = []
+        if finding.escape_kind:
+            details.append(f"escape={finding.escape_kind}")
+        if finding.boundary:
+            details.append(f"boundary={finding.boundary}")
+        suffix = f" [{', '.join(details)}]" if details else ""
         lines.append(
             f"{loc.filename}:{loc.line}:{loc.column + 1}: "
-            f"{finding.report_kind.value} {finding.capability} "
-            f"({finding.access_path})"
+            f"{finding.report_kind.value} {finding.operation.value} "
+            f"{finding.capability} "
+            f"({finding.access_path}){suffix}"
         )
     hidden = 0
     for diagnostic in result.diagnostics:

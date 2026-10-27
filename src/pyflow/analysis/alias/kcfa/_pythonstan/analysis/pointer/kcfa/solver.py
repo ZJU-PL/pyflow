@@ -159,6 +159,23 @@ class PointerSolver:
         "exec",
         "compile",
         "__import__",
+        "round",
+        "abs",
+        "repr",
+        "hash",
+        "id",
+        "chr",
+        "ord",
+        "hex",
+        "oct",
+        "bin",
+        "format",
+        "divmod",
+        "pow",
+        "ascii",
+        "complex",
+        "bytearray",
+        "memoryview",
     ]
 
     def initialize_builtins(self, scope: "Scope", context: "AbstractContext") -> None:

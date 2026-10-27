@@ -181,7 +181,8 @@ denies known operations outside its allow list:
        --audit-log observed-capabilities.json app.py
 
 An uncaught denial exits with status ``126``. Unclassified events are ignored
-and are not logged. Audit hooks are process-global and cannot be removed
+and are not logged. Each logged entry records the capability, audit event,
+arguments, and whether the operation was allowed or denied. Audit hooks are process-global and cannot be removed
 through the public API, so use a fresh process to manage their installation.
 Python-level audit hooks are unsuitable for sandboxing malicious code, as the
 `Python documentation <https://docs.python.org/3/library/sys.html#sys.addaudithook>`_
@@ -196,8 +197,11 @@ location, report kind, context, trace, ``escape_kind``, and ``boundary``.
 SARIF output includes the same analysis-specific fields under result
 properties. Indirect SARIF results use level ``note`` because they describe
 potential exposure rather than a verified policy violation. CLI exit status
-is ``0`` for a complete empty result, ``1`` when findings exist or analysis is
-partial, and ``2`` for invalid input or model configuration.
+follows ``--exit-code-policy``: the default ``report`` returns ``0`` for a
+completed report (even when it contains findings or is partial) and ``2`` for
+invalid input, model configuration, or a failed analysis. With
+``--exit-code-policy findings``, status ``1`` is returned whenever findings
+exist or the analysis is partial.
 
 Soundness Boundary
 ------------------
@@ -208,6 +212,13 @@ is conservative and can overestimate authority obtainable from an object.
 It does not prove member accessibility. Unmodeled external calls report relevant
 arguments as potential transfers. Runtime observation does not establish
 static coverage of native, generated, or reflective behavior.
+
+Imports inside function and class bodies are resolved against the enclosing
+module, so lazily imported project modules are analyzed like module-level
+imports. A relative import that cannot be resolved against the project root
+(for example, in a file that is not part of a package) is reported as an
+``import_not_found`` diagnostic and makes the result ``partial`` rather than
+aborting the analysis.
 
 For the detailed deployment assumptions, see
 ``src/pyflow/checker/capability/SOUNDNESS.md``.

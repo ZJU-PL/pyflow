@@ -104,9 +104,16 @@ class Namespace:
         if level < 0 or len(self.names) < level:
             raise ValueError(f"relative import level {level} is outside package {self.to_str()!r}")
 
-        # TODO names=[''] is a special case, need to be clarified in the future
+        # ``from . import name`` has an empty module part.  The package is
+        # still determined by ``level``, so step out of the importing module.
         if len(names) == 1 and names[0] == "":
-            return self
+            if level <= 0:
+                return self
+            if len(self.names) <= level:
+                raise ValueError(
+                    f"relative import level {level} is outside package {self.to_str()!r}"
+                )
+            return self.build(self.names[:-level])
 
         if level > 0:
             return self.build(self.names[:-level] + names)
@@ -349,7 +356,12 @@ class NamespaceManager:
                 # assert ret is not None, f"Failed to resolve import: {ir.module}, {ir.name}"
                 return ret
             else:
-                ret = self.resolve_rel_importfrom(cur_ns, ir.module, ir.name, ir.level)
+                try:
+                    ret = self.resolve_rel_importfrom(cur_ns, ir.module, ir.name, ir.level)
+                except ValueError:
+                    # Relative import climbs above the import root; leave the
+                    # module unresolved so the pipeline can report it.
+                    return None
                 # assert ret is not None, f"Failed to resolve relative import: {ir.module}, {ir.name}, {ir.level}"
                 return ret
         return None

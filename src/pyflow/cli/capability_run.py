@@ -47,6 +47,19 @@ def run_capability_guard(args) -> int:
     policy = RuntimeCapabilityPolicy.allowing(
         args.allow, enforce=not getattr(args, "observe_only", False)
     )
+    # Open the audit log before installing the process-global guard.  Writing
+    # through an already-open handle does not raise the ``open`` audit event,
+    # so the log can be written without temporarily widening the policy.
+    audit_stream = None
+    if args.audit_log:
+        try:
+            audit_stream = args.audit_log.open("w", encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"Error: could not write audit log {args.audit_log}: {exc}",
+                file=sys.stderr,
+            )
+            return 2
     install_runtime_guard(policy)
     old_argv = sys.argv
     old_path = list(sys.path)
@@ -67,22 +80,19 @@ def run_capability_guard(args) -> int:
     finally:
         sys.argv = old_argv
         sys.path[:] = old_path
-        if args.audit_log:
-            original_allowed = policy.allowed
-            policy.allowed = frozenset((*original_allowed, "file.write"))
+        if audit_stream is not None:
             payload = [
                 {
                     "capability": event.capability,
                     "audit_event": event.audit_event,
                     "arguments": list(event.arguments),
+                    "decision": event.decision,
                 }
                 for event in policy.events
             ]
             try:
-                args.audit_log.write_text(
-                    json.dumps(payload, indent=2) + "\n",
-                    encoding="utf-8",
-                )
+                json.dump(payload, audit_stream, indent=2)
+                audit_stream.write("\n")
             except OSError as exc:
                 print(
                     f"Error: could not write audit log {args.audit_log}: {exc}",
@@ -91,7 +101,7 @@ def run_capability_guard(args) -> int:
                 if exit_code == 0:
                     exit_code = 2
             finally:
-                policy.allowed = original_allowed
+                audit_stream.close()
     return exit_code
 
 

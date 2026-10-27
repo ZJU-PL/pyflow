@@ -158,6 +158,40 @@ def test_cross_module_return_preserves_sensitive_identity(tmp_path) -> None:
     )
 
 
+def test_package_relative_imports_are_analyzed(tmp_path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    views = package / "views.py"
+    views.write_text(
+        "import subprocess\n" "def run_it(command):\n" "    subprocess.run(command, shell=True)\n",
+        encoding="utf-8",
+    )
+    entry = package / "main.py"
+    entry.write_text(
+        "from . import views\n"
+        'views.run_it("ls")\n'
+        "def later():\n"
+        "    from . import views as v\n"
+        '    v.run_it("id")\n'
+        "later()\n",
+        encoding="utf-8",
+    )
+
+    result = DefensiveCapabilityAnalysis().analyze_project(
+        entry,
+        project_path=tmp_path,
+    )
+
+    assert result.status == "complete", [d.message for d in result.diagnostics]
+    assert any(
+        finding.capability == "process.execute"
+        and finding.location.filename == str(views)
+        and finding.location.line == 3
+        for finding in result.findings
+    )
+
+
 def test_reports_sensitive_callable_returned_from_function() -> None:
     findings = _findings(
         "from subprocess import run\n"
@@ -525,3 +559,85 @@ def test_explicit_temp_and_copy_helpers_remain_file_writes() -> None:
         for finding in result.findings
         if finding.capability == "file.write" and finding.report_kind is CapabilityReportKind.DIRECT
     } == {"tempfile.NamedTemporaryFile", "shutil.copy"}
+
+
+def test_with_body_capabilities_are_analyzed() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import subprocess\n"
+        "def use():\n"
+        "    with open('input.txt') as stream:\n"
+        "        stream.read()\n"
+        "        subprocess.run(['id'])\n"
+        "use()\n"
+    )
+
+    assert any(
+        finding.capability == "process.execute"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+        and finding.location.line == 5
+        for finding in result.findings
+    )
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("from pathlib import Path\nPath('out.txt').open('w')\n", {"file.write"}),
+        ("from pathlib import Path\nPath('out.txt').open('rb')\n", {"file.read"}),
+        ("from pathlib import Path\nPath('out.txt').open(mode='a')\n", {"file.write"}),
+        ("from pathlib import Path\nPath('out.txt').open()\n", {"file.read"}),
+        ("from pathlib import Path\nPath.open(Path('out.txt'), 'w')\n", {"file.write"}),
+    ],
+)
+def test_pathlib_open_respects_mode(source, expected) -> None:
+    findings = _findings(source, report_public_exports=False)
+
+    assert {
+        finding.capability
+        for finding in findings
+        if finding.access_path == "pathlib.Path.open"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    } == expected
+
+
+def test_class_body_capability_assignments_are_not_calls() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import signal\n"
+        "import socket\n"
+        "import subprocess\n"
+        "class Handlers:\n"
+        "    sock = socket.socket\n"
+        "    stop = signal.signal\n"
+        "    spawn = subprocess.Popen\n"
+    )
+
+    assert result.findings == []
+    assert result.status == "complete"
+
+
+def test_descriptor_access_reports_one_direct_finding() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import subprocess\n"
+        "class Handler:\n"
+        "    @property\n"
+        "    def run(self):\n"
+        "        return subprocess.run\n"
+        "Handler().run(['id'])\n"
+    )
+
+    direct = [
+        finding
+        for finding in result.findings
+        if finding.capability == "process.execute"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(direct) == 1
+    assert direct[0].access_path == "subprocess.run"
+    assert direct[0].location.line == 6
+
+
+def test_print_does_not_make_analysis_partial() -> None:
+    result = DefensiveCapabilityAnalysis().analyze_source("print('hello')\nprint('world')\n")
+
+    assert result.status == "complete"
+    assert result.diagnostics == []

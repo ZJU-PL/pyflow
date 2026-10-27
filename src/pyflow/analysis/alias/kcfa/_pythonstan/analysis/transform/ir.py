@@ -1,4 +1,5 @@
 from ast import *
+import ast
 from typing import List, Dict, Optional, Any, Union
 
 from ..analysis import AnalysisConfig
@@ -61,6 +62,18 @@ class IRTransformer(NodeVisitor):
         self.stmts = []
         self.funcs = []
         self.label_gen = LabelGenerator()
+        self.tmp_idx = 0
+
+    def _new_temporary(self, prefix: str) -> str:
+        """Return a fresh ``$``-prefixed temporary for lowering helpers."""
+        self.tmp_idx += 1
+        return f"${prefix}_{self.tmp_idx}"
+
+    def _emit_assign(self, target, value, location) -> None:
+        """Emit ``target = value`` through the normal assignment dispatch."""
+        assign = ast.Assign(targets=[target], value=value)
+        ast.copy_location(assign, location)
+        self.visit_Assign(assign)
 
     def visit_stmts(self, stmts: List[stmt]):
         for stmt in stmts:
@@ -97,6 +110,9 @@ class IRTransformer(NodeVisitor):
         trans.process_stmts(func_def.body)
         World().scope_manager.add_class(self.scope, func)
         World().scope_manager.set_ir(func, "ir", trans.get_stmts())
+        # Import statements inside a function still resolve relative to the
+        # module namespace and must be part of the module's import graph.
+        self.imports.extend(trans.get_imports())
         self.stmts.append(func)
 
     def visit_ClassDef(self, cls_def: ClassDef):
@@ -106,6 +122,7 @@ class IRTransformer(NodeVisitor):
         trans.process_stmts(cls_def.body)
         World().scope_manager.add_class(self.scope, cls)
         World().scope_manager.set_ir(cls, "ir", trans.get_stmts())
+        self.imports.extend(trans.get_imports())
         self.stmts.append(cls)
 
     def visit_AsyncFunctionDef(self, node: AsyncFunctionDef):
@@ -326,6 +343,73 @@ label_fin:
             self.stmts.append(IRPass())
             for goto in goto_fin_list:
                 goto.set_label(label_fin)
+
+    def visit_With(self, node: With):
+        self._visit_with_items(node.items, node.body, node, "__enter__", "__exit__")
+
+    def visit_AsyncWith(self, node: AsyncWith):
+        self._visit_with_items(node.items, node.body, node, "__aenter__", "__aexit__")
+
+    def _visit_with_items(self, items, body, node, enter_name: str, exit_name: str) -> None:
+        """Lower ``with`` into explicit context-manager calls.
+
+        Three-address lowering leaves ``with`` statements in place but hoists
+        the context expression into a temporary name.  Without this handler the
+        body is wrapped in ``IRAstStmt`` and silently ignored by the pointer
+        analysis, so capabilities exercised inside a ``with`` block disappear.
+        """
+        if not items:
+            self.visit_stmts(body)
+            return
+        item, rest = items[0], items[1:]
+        context_expr = item.context_expr
+        if not isinstance(context_expr, ast.Name):
+            # Not lowered to three-address form: still analyse the body so its
+            # capabilities are not lost wholesale.
+            self._visit_with_items(rest, body, node, enter_name, exit_name)
+            return
+
+        manager = ast.Name(id=context_expr.id, ctx=ast.Load())
+        method_var = self._new_temporary("with_method")
+        self._emit_assign(
+            ast.Name(id=method_var, ctx=ast.Store()),
+            ast.Attribute(value=manager, attr=enter_name, ctx=ast.Load()),
+            node,
+        )
+        result_var = self._new_temporary("with_enter")
+        self._emit_assign(
+            ast.Name(id=result_var, ctx=ast.Store()),
+            ast.Call(func=ast.Name(id=method_var, ctx=ast.Load()), args=[], keywords=[]),
+            node,
+        )
+        if isinstance(item.optional_vars, ast.Name):
+            self._emit_assign(
+                item.optional_vars,
+                ast.Name(id=result_var, ctx=ast.Load()),
+                node,
+            )
+
+        self._visit_with_items(rest, body, node, enter_name, exit_name)
+
+        exit_method_var = self._new_temporary("with_exit_method")
+        self._emit_assign(
+            ast.Name(id=exit_method_var, ctx=ast.Store()),
+            ast.Attribute(
+                value=ast.Name(id=context_expr.id, ctx=ast.Load()),
+                attr=exit_name,
+                ctx=ast.Load(),
+            ),
+            node,
+        )
+        self._emit_assign(
+            ast.Name(id=self._new_temporary("with_exit"), ctx=ast.Store()),
+            ast.Call(
+                func=ast.Name(id=exit_method_var, ctx=ast.Load()),
+                args=[ast.Constant(None), ast.Constant(None), ast.Constant(None)],
+                keywords=[],
+            ),
+            node,
+        )
 
     def visit_Assign(self, stmt: Assign):
         if isinstance(stmt.value, (Yield, YieldFrom)):

@@ -185,7 +185,7 @@ class TestBasicPointerAnalysis:
         }
         assert Counter(visits) == Counter({name: 1 for name in expected})
 
-    def test_nested_imports_do_not_expand_the_eager_module_graph(self, tmp_path) -> None:
+    def test_nested_imports_expand_the_eager_module_graph(self, tmp_path) -> None:
         eager = tmp_path / "eager.py"
         nested = tmp_path / "nested.py"
         eager.write_text("value = object()\n", encoding="utf-8")
@@ -202,11 +202,15 @@ class TestBasicPointerAnalysis:
         result = PointerAnalysis.from_project(entry).run()
         modules = result.state.scope_manager.module_graph.get_modules()
 
+        # Imports inside function bodies resolve relative to the containing
+        # module and must be lowered like module-level imports; otherwise their
+        # members silently degrade to opaque native objects.
         assert {module.get_filename() for module in modules} == {
             str(entry),
             str(eager),
+            str(nested),
         }
-        assert str(nested) not in result.state.scope_manager.file2mod
+        assert str(nested) in result.state.scope_manager.file2mod
 
     def test_type_checking_imports_do_not_expand_the_module_graph(self, tmp_path) -> None:
         type_only = tmp_path / "type_only.py"

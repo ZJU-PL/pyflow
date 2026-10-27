@@ -1103,12 +1103,26 @@ class IRTranslator:
 
         return class_var, constraints
 
+    def _enclosing_module(self) -> Optional["IRModule"]:
+        """Return the module containing the scope currently being translated."""
+        scope = self._current_scope
+        seen = set()
+        while scope is not None and not isinstance(scope, IRModule):
+            if scope in seen:
+                return None
+            seen.add(scope)
+            scope = getattr(self.scope_manager, "father", {}).get(scope)
+        return scope
+
     def _translate_import(self, stmt: IRImport) -> List["Constraint"]:
         """Translate import statement with transitive analysis."""
         constraints = []
 
-        # translate the IRs in the imported module
-        module_ir = self.scope_manager.get_module_graph().get_succ_module(self._current_scope, stmt)
+        # Import resolution always happens in the namespace of the containing
+        # module, even when the statement itself appears inside a function or
+        # class body.
+        module_scope = self._enclosing_module() or self._current_scope
+        module_ir = self.scope_manager.get_module_graph().get_succ_module(module_scope, stmt)
         if module_ir is None:
             # Preserve the import's canonical identity even when source is not
             # available. Anonymous UNKNOWN objects make external APIs vanish
@@ -1116,6 +1130,24 @@ class IRTranslator:
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.NATIVE)
         else:
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.MODULE)
+
+        # ``from pkg import submodule`` and ``from . import views`` resolve to
+        # the submodule itself.  Binding that module directly avoids looking
+        # up an attribute that only exists as a file on disk.
+        if (
+            module_ir is not None
+            and isinstance(stmt.stmt, ast.ImportFrom)
+            and stmt.name
+            and module_ir.get_qualname() != (stmt.module or "")
+            and module_ir.get_qualname().rsplit(".", 1)[-1] == stmt.name
+        ):
+            local_var = self._make_variable(stmt.asname or stmt.name)
+            constraints.append(AllocConstraint(target=local_var, alloc_site=alloc_site))
+            if (
+                isinstance(self._current_scope, IRClass) and not local_var.is_temporary
+            ):  # only store the field to the class if it is not a temporary variable
+                self.used_variables.append(local_var)
+            return constraints
 
         # allocate the module variable
         if stmt.module is None:

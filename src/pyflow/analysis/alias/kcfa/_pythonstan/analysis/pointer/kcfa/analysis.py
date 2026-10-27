@@ -149,6 +149,23 @@ class PointerAnalysis(AnalysisDriver):
                 context=f"deepest skipped import level: {max_depth}",
             )
 
+        for mod, stmt in tuple(self.world.unresolved_imports):
+            statement = getattr(stmt, "stmt", None)
+            line = getattr(statement, "lineno", 0)
+            column = getattr(statement, "col_offset", 0)
+            location = f"{mod.get_qualname()}:{line}:{column}"
+            message = f"unresolved project import: {stmt}"
+            self.solver.mark_semantic_incomplete(
+                kind=UnknownKind.IMPORT_NOT_FOUND.value,
+                message=message,
+            )
+            self.solver._unknown_tracker.record(
+                UnknownKind.IMPORT_NOT_FOUND,
+                location,
+                message,
+                context=f"imported by {mod.get_qualname()}",
+            )
+
         # Generate constraints
         try:
             scope_name = scope.get_qualname()

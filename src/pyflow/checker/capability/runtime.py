@@ -30,6 +30,7 @@ class RuntimeCapabilityEvent:
     capability: str
     audit_event: str
     arguments: tuple[str, ...] = ()
+    decision: str = "allow"
 
 
 @dataclass
@@ -116,15 +117,17 @@ class RuntimeCapabilityGuard:
             return
         self._local.active = True
         try:
+            denied = self.policy.enforce and not self.policy.permits(capability)
             record = RuntimeCapabilityEvent(
                 capability=capability,
                 audit_event=event,
                 arguments=tuple(_safe_argument(value) for value in args[:4]),
+                decision="deny" if denied else "allow",
             )
             self.policy.events.append(record)
             if self.policy.callback is not None:
                 self.policy.callback(record)
-            if self.policy.enforce and not self.policy.permits(capability):
+            if denied:
                 raise CapabilityViolation(capability, event)
         finally:
             self._local.active = False

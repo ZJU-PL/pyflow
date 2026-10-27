@@ -219,9 +219,14 @@ class BuiltinAPIHandler:
             "seek": self._handle_generic_method,
             "tell": self._handle_generic_method,
             "truncate": self._handle_generic_method,
-            "__enter__": self._handle_generic_method,
+            "__enter__": self._handle_enter_method,
             "__exit__": self._handle_generic_method,
             "__next__": self._handle_generic_method,
+            "__len__": self._handle_len_method,
+            "__bool__": self._handle_bool_method,
+            "__contains__": self._handle_bool_method,
+            "__index__": self._handle_len_method,
+            "__hash__": self._handle_len_method,
         }
 
     def _init_function_handlers(self) -> Dict[str, callable]:
@@ -254,6 +259,33 @@ class BuiltinAPIHandler:
             "float": self._handle_float,
             "str": self._handle_str,
             "callable": self._handle_callable,
+            # Side-effect-only functions whose result carries no capability
+            "print": self._handle_print,
+            # Scalar helpers whose results never carry a capability
+            "sum": self._handle_generic_precise,
+            "min": self._handle_generic_precise,
+            "max": self._handle_generic_precise,
+            "bytes": self._handle_generic_precise,
+            "frozenset": self._handle_generic_precise,
+            "round": self._handle_generic_precise,
+            "abs": self._handle_generic_precise,
+            "repr": self._handle_generic_precise,
+            "hash": self._handle_generic_precise,
+            "id": self._handle_generic_precise,
+            "chr": self._handle_generic_precise,
+            "ord": self._handle_generic_precise,
+            "hex": self._handle_generic_precise,
+            "oct": self._handle_generic_precise,
+            "bin": self._handle_generic_precise,
+            "format": self._handle_generic_precise,
+            "divmod": self._handle_generic_precise,
+            "pow": self._handle_generic_precise,
+            "ascii": self._handle_generic_precise,
+            "complex": self._handle_generic_precise,
+            "bytearray": self._handle_generic_precise,
+            "memoryview": self._handle_generic_precise,
+            "all": self._handle_bool_result,
+            "any": self._handle_bool_result,
             # Introspection/dynamic attribute functions
             "getattr": self._handle_getattr,
             "setattr": self._handle_setattr,
@@ -1601,6 +1633,27 @@ class BuiltinAPIHandler:
             )
         return []
 
+    def _handle_enter_method(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Handle ``__enter__`` on a builtin context manager.
+
+        Native context managers such as file objects return themselves from
+        ``__enter__``.  Propagating the receiver keeps their members visible
+        inside the ``with`` body instead of replacing them with an opaque
+        summary object.
+        """
+        if call.target:
+            target_ctx = self.state.get_variable(scope, context, call.target)
+            self.state._worklist.add(
+                (scope, NormalNode(target_ctx), PointsToSet.singleton(method_obj.receiver))
+            )
+        return []
+
     def _handle_bool(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
     ) -> List["Constraint"]:
@@ -1660,6 +1713,44 @@ class BuiltinAPIHandler:
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
         return constraints
+
+    def _handle_print(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Handle print(*args): its result is ``None`` and carries no capability."""
+        return self._handle_generic_builtin(scope, context, call, "print")
+
+    def _handle_generic_precise(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Model a scalar builtin with an opaque, capability-free result."""
+        return self._handle_generic_builtin(scope, context, call, "scalar")
+
+    def _handle_bool_result(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Model a builtin whose result is a boolean."""
+        return self._handle_bool(scope, context, call)
+
+    def _handle_len_method(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model dunder methods returning an integer (``__len__``, ...)."""
+        return self._handle_len(scope, context, call)
+
+    def _handle_bool_method(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model dunder methods returning a boolean (``__bool__``, ...)."""
+        return self._handle_bool(scope, context, call)
 
     def _handle_getattr(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"

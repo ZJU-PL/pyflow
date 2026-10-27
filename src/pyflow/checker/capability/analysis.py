@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -33,6 +34,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     DictObject,
     FunctionObject,
     GeneratorObject,
+    MethodObject,
     NativeModuleObject,
     NativeObject,
 )
@@ -61,6 +63,7 @@ _BUNDLED_STUB_ROOT = (
 )
 
 
+@lru_cache(maxsize=None)
 def _is_bundled_stub(filename: str) -> bool:
     """Return True when ``filename`` is one of PyFlow's bundled stub models."""
     if not filename:
@@ -78,6 +81,75 @@ def _detail_is_bundled_stub(location: str) -> bool:
     return _is_bundled_stub(filename)
 
 
+_DESCRIPTOR_HOOKS = ("__get__", "__set__", "__delete__")
+
+
+def _normalize_descriptor_path(access_path: str) -> str:
+    """Collapse solver-synthesised descriptor plumbing onto the base path.
+
+    Attribute access is lowered through ``__get__``/``__set__``/``__delete__``
+    hooks.  The synthetic hook itself is not a user operation, so findings
+    should be attributed to the underlying object rather than to
+    ``<object>.__get__.<return>``.
+    """
+    for hook in _DESCRIPTOR_HOOKS:
+        access_path = access_path.replace(f".{hook}.<return>", "")
+    return access_path
+
+
+def _is_synthetic_descriptor_call(access_path: str, callee_name: str) -> bool:
+    """Return True for descriptor-protocol calls invented by the solver."""
+    if access_path.endswith(".__set_name__"):
+        # ``__set_name__`` is invoked implicitly when a class is created; it is
+        # never a capability the surrounding code exercises on purpose.
+        return True
+    if access_path.endswith(tuple(f".{hook}" for hook in _DESCRIPTOR_HOOKS)):
+        return callee_name.startswith(("$descriptor_", "$optional_callee@", "$set_name@"))
+    return False
+
+
+_INTERNAL_CONSTRAINT_PREFIXES = (
+    "$getattribute@",
+    "$getattr@",
+    "$setattr@",
+    "$delattr@",
+    "$descriptor_get@",
+    "$descriptor_set@",
+    "$descriptor_delete@",
+    "$optional_method@",
+    "$optional_callee@",
+    "$set_name@",
+    "$init_subclass@",
+    "$new@",
+    "$new_result@",
+    "$bound_init@",
+    "$init_base@",
+    "$class@",
+    "$class_result@",
+    "$class_decorator@",
+    "$class_decorated@",
+    "$class_factory@",
+    "$class_name@",
+    "$class_namespace@",
+    "$prepared_namespace@",
+    "$original_bases@",
+    "$effective_base@",
+)
+
+
+def _is_internal_constraint(constraint) -> bool:
+    """Return True when a constraint was synthesised by the solver itself.
+
+    Internal protocol probes use ``$<purpose>@<site>`` variable names, whereas
+    user-level calls are represented by ``$call@<site>`` and three-address
+    temporaries by plain ``$tmp_<n>`` names.  Their unresolved targets are
+    plumbing, not gaps in the user's program.
+    """
+    callee = getattr(constraint, "callee", None)
+    name = getattr(callee, "name", "") or ""
+    return name.startswith(_INTERNAL_CONSTRAINT_PREFIXES)
+
+
 class DefensiveCapabilityAnalysis:
     """Track security-sensitive objects through k-CFA points-to propagation."""
 
@@ -85,7 +157,7 @@ class DefensiveCapabilityAnalysis:
         self,
         registry: CapabilityRegistry | None = None,
         *,
-        k: int = 1,
+        k: int | None = None,
         context_policy: str | None = None,
         report_public_exports: bool = True,
         report_callable_boundaries: bool = False,
@@ -144,8 +216,8 @@ class DefensiveCapabilityAnalysis:
             if operation is None or access_path is None:
                 continue
             patterns = self.registry.match(access_path, operation)
-            if access_path in {"builtins.open", "io.open"}:
-                patterns = self._filter_open_patterns(event, patterns, state)
+            if access_path in {"builtins.open", "io.open"} or access_path.endswith(".open"):
+                patterns = self._filter_open_patterns(event, patterns, state, access_path)
             for pattern in patterns:
                 result.findings.append(self._direct_finding(event, access_path, operation, pattern))
 
@@ -226,7 +298,13 @@ class DefensiveCapabilityAnalysis:
         if base_path is None:
             return None, None
         if event.kind is PointerEventKind.CALL:
-            return CapabilityOperation.CALL, base_path
+            callee_name = getattr(getattr(event.constraint, "callee", None), "name", "") or ""
+            if _is_synthetic_descriptor_call(base_path, callee_name):
+                return None, None
+            return CapabilityOperation.CALL, _normalize_descriptor_path(base_path)
+        base_path = _normalize_descriptor_path(base_path)
+        if base_path.endswith(".__set_name__"):
+            return None, None
         field = getattr(event.constraint, "field", None)
         if field is None:
             child = "*"
@@ -433,7 +511,10 @@ class DefensiveCapabilityAnalysis:
         reachability,
     ) -> list[CapabilityFinding]:
         findings = []
-        for access_path, patterns, carrier_trace in reachability.relevant(event.objects):
+        follow_closures = event.kind is not EscapeKind.PUBLIC_EXPORT
+        for access_path, patterns, carrier_trace in reachability.relevant(
+            event.objects, follow_closures=follow_closures
+        ):
             for pattern in patterns:
                 findings.append(
                     CapabilityFinding(
@@ -508,6 +589,8 @@ class DefensiveCapabilityAnalysis:
         for scope, constraint in state.constraints.all():
             if not isinstance(constraint, CallConstraint) or (scope, constraint) in observed:
                 continue
+            if _is_internal_constraint(constraint):
+                continue
             callee = state.get_variable(scope, scope.context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
                 continue
@@ -531,13 +614,19 @@ class DefensiveCapabilityAnalysis:
                 )
         return findings
 
-    def _filter_open_patterns(self, event, patterns, state):
+    def _filter_open_patterns(self, event, patterns, state, access_path: str):
         """Use the constant mode argument when available; otherwise report both."""
         constraint = event.constraint
         # Expanded arguments may contain the mode at an unknown position/key.
         if any(constraint.starred) or any(name is None for name, _ in constraint.kwargs):
             return patterns
-        modes = [constraint.args[1]] if len(constraint.args) >= 2 else []
+        # ``p.open("w")`` binds the receiver, so the mode is the first
+        # positional argument.  ``Path.open(p, "w")`` and ``open(path, "w")``
+        # pass the receiver/path explicitly first.
+        callee = event.abstract_object
+        bound = isinstance(callee, MethodObject) and callee.instance_obj is not None
+        mode_index = 0 if bound else 1
+        modes = [constraint.args[mode_index]] if len(constraint.args) > mode_index else []
         modes.extend(var for name, var in constraint.kwargs if name == "mode")
         if len(modes) > 1:
             return patterns
@@ -575,6 +664,12 @@ class DefensiveCapabilityAnalysis:
             if site is not None:
                 locations[str(site)] = self._location(scope, site.statement)
         for detail in pointer_result.unknown_details():
+            if detail["kind"] == "callee_empty" and any(
+                prefix in (detail.get("message") or "") for prefix in _INTERNAL_CONSTRAINT_PREFIXES
+            ):
+                # Internal ``$<purpose>@<site>`` constraints probe optional
+                # protocol hooks; an empty target means the hook is absent.
+                continue
             kind = "budget" if detail["kind"] == "solver_budget" else "unknown"
             location = locations.get(detail["location"])
             if location is not None and _is_bundled_stub(location.filename):
@@ -611,7 +706,7 @@ class DefensiveCapabilityAnalysis:
         for scope, constraint in state.constraints.all():
             if not isinstance(constraint, CallConstraint):
                 continue
-            if (scope, constraint) in observed:
+            if (scope, constraint) in observed or _is_internal_constraint(constraint):
                 continue
             callee = state.get_variable(scope, scope.context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
@@ -663,6 +758,9 @@ class DefensiveCapabilityAnalysis:
         )
 
 
+_CLOSURE_CACHE_ENTRIES = 200_000
+
+
 class _CapabilityReachability:
     """Index a solved heap once and reuse it for every potential transfer."""
 
@@ -671,6 +769,8 @@ class _CapabilityReachability:
         self.registry = registry
         self.fields = {}
         self.patterns = {}
+        self._closures: dict = {}
+        self._cached_entries = 0
         for ctx_field, points_to in state._env.items():
             field_access = getattr(ctx_field, "content", ctx_field)
             if isinstance(field_access, FieldAccess):
@@ -678,42 +778,95 @@ class _CapabilityReachability:
                     (str(field_access.field), points_to)
                 )
 
-    def relevant(self, roots):
-        """Follow heap fields and closure cells, retaining an explanatory path."""
-        worklist = [(obj, ()) for obj in roots]
+    def relevant(self, roots, *, follow_closures: bool = True):
+        """Follow heap fields and closure cells, retaining an explanatory path.
+
+        Public exports deliberately stop at callables: a function that *uses*
+        a capability is not itself a capability value, and descending into its
+        free variables would report every helper that references ``open``.
+
+        Closures are memoised per root object because the same value is stored
+        millions of times in a large heap; the ``seen`` set still provides the
+        cross-root de-duplication expected by callers.
+        """
         seen = set()
-        while worklist:
-            obj, trace = worklist.pop()
-            if obj in seen:
+        total_cached = getattr(self, "_cached_entries", 0)
+        for root in roots:
+            if root in seen:
                 continue
-            seen.add(obj)
+            key = (root, follow_closures)
+            cached = self._closures.get(key)
+            if cached is None:
+                cached = tuple(self._closure_from(root, follow_closures))
+                if total_cached + len(cached) <= _CLOSURE_CACHE_ENTRIES:
+                    self._closures[key] = cached
+                    total_cached += len(cached)
+                    self._cached_entries = total_cached
+            for obj, access_path, patterns, trace in cached:
+                if obj in seen:
+                    continue
+                seen.add(obj)
+                if access_path is not None:
+                    yield access_path, patterns, trace
+
+    def _children(self, obj, follow_closures: bool):
+        """Yield ``(child, label)`` pairs reachable from ``obj``."""
+        closure_owner = obj
+        if isinstance(obj, (GeneratorObject, CoroutineObject)):
+            closure_owner = obj.func_obj
+        if follow_closures and isinstance(closure_owner, FunctionObject):
+            for name, captured_var in self.state.get_cell_vars(closure_owner).items():
+                for child in self.state.get_points_to(captured_var):
+                    yield child, f"closure cell {name}"
+        if isinstance(obj, ClassObject):
+            # Class dictionaries contain every method of the class.  They are
+            # not values held by the object, and walking them turns
+            # ``from pathlib import Path`` into dozens of "reachable"
+            # file/network capabilities.
+            return
+        for label, points_to in self.fields.get(obj, ()):
+            for child in points_to:
+                yield child, f"carrier field {label}"
+
+    def _closure_from(self, root, follow_closures: bool):
+        """Return ``(obj, access_path, patterns, trace)`` reachable from root."""
+        entries = []
+        parents = {root: None}
+        stack = [root]
+        while stack:
+            obj = stack.pop()
             if isinstance(obj, NativeModuleObject):
                 # Importing a module does not exercise any of its members.
                 continue
             access_path = DefensiveCapabilityAnalysis._object_path(obj)
             if access_path is not None:
+                access_path = _normalize_descriptor_path(access_path)
+            if access_path is not None and not access_path.endswith(".__set_name__"):
                 if access_path not in self.patterns:
                     self.patterns[access_path] = self.registry.reachable(access_path)
                 patterns = self.patterns[access_path]
                 if patterns:
-                    yield access_path, patterns, trace
-            closure_owner = obj
-            if isinstance(obj, (GeneratorObject, CoroutineObject)):
-                closure_owner = obj.func_obj
-            if isinstance(closure_owner, FunctionObject):
-                for name, captured_var in self.state.get_cell_vars(closure_owner).items():
-                    worklist.extend(
-                        (child, (*trace, f"closure cell {name}"))
-                        for child in self.state.get_points_to(captured_var)
-                    )
-            if isinstance(obj, ClassObject):
-                # Class dictionaries contain every method of the class.  They
-                # are not values held by the object, and walking them turns
-                # ``from pathlib import Path`` into dozens of "reachable"
-                # file/network capabilities.
-                continue
-            for label, points_to in self.fields.get(obj, ()):
-                worklist.extend((child, (*trace, f"carrier field {label}")) for child in points_to)
+                    entries.append((obj, access_path, patterns, self._trace(obj, parents)))
+            for child, label in self._children(obj, follow_closures):
+                if child in parents:
+                    continue
+                parents[child] = (obj, label)
+                stack.append(child)
+        return entries
+
+    @staticmethod
+    def _trace(obj, parents) -> tuple[str, ...]:
+        """Reconstruct the explanatory path for ``obj`` from parent links."""
+        steps = []
+        node = obj
+        while True:
+            link = parents.get(node)
+            if link is None:
+                break
+            node, label = link
+            steps.append(label)
+        steps.reverse()
+        return tuple(steps)
 
 
 __all__ = ["DefensiveCapabilityAnalysis"]

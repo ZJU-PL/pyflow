@@ -12,6 +12,7 @@ from .config import Config
 from .scope_manager import ModuleGraph
 from .analysis_manager import AnalysisManager
 
+from pathlib import Path
 from typing import Generator
 from collections import deque
 from queue import Queue
@@ -122,7 +123,21 @@ class Pipeline:
                             scheduled_modules.add(new_name)
                             q.append((mod_ns, new_mod, level + 1))
                         World().import_manager.set_import(mod, stmt, new_mod)
+                    elif self._is_project_internal_import(stmt):
+                        # A relative or project-local import that does not
+                        # resolve is a real gap, not an external dependency.
+                        World().unresolved_imports.append((mod, stmt))
         World().scope_manager.set_module_graph(g)
+
+    def _is_project_internal_import(self, stmt) -> bool:
+        """Return True when ``stmt`` should resolve inside the project tree."""
+        if getattr(stmt, "level", 0) > 0:
+            return True
+        target = (stmt.module or stmt.name or "").split(".")[0]
+        if not target:
+            return False
+        project_path = Path(self.config.project_path)
+        return (project_path / target).is_dir() or (project_path / f"{target}.py").is_file()
 
     def analyse_intra_procedure(self, analyzer):
         """Run ``analyzer`` independently on every reachable module."""

@@ -266,7 +266,7 @@ def test_invalid_import_depth_is_rejected_by_the_parser(tmp_path) -> None:
     assert raised.value.code == 2
 
 
-def test_unresolvable_relative_import_reports_unsupported_without_traceback(
+def test_unresolvable_relative_import_reports_diagnostic_without_traceback(
     tmp_path, capsys
 ) -> None:
     target = tmp_path / "standalone.py"
@@ -275,11 +275,14 @@ def test_unresolvable_relative_import_reports_unsupported_without_traceback(
     add_capabilities_parser(parser.add_subparsers(dest="command"))
     args = parser.parse_args(["capabilities", str(target), "--format", "json"])
 
-    assert run_capabilities(args) == 2
+    assert run_capabilities(args) == 0
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["status"] == "failed"
-    assert payload["diagnostics"][0]["kind"] == "unsupported"
+    assert payload["status"] == "partial"
+    assert any(
+        diagnostic["kind"] == "unknown" and "import_not_found" in diagnostic["message"]
+        for diagnostic in payload["diagnostics"]
+    )
     assert "Traceback" not in captured.err
 
 
@@ -415,3 +418,37 @@ def test_capabilities_root_init_py_handles_empty_namespace(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "complete"
     assert any(f["capability"] == "process.execute" for f in payload["findings"])
+
+
+def test_context_policy_overrides_default_context_depth(tmp_path, capsys):
+    target = tmp_path / "main.py"
+    target.write_text("import subprocess\nsubprocess.run(['id'])\n", encoding="utf-8")
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["capabilities", str(target), "--context-policy", "0-cfa", "--format", "json"]
+    )
+
+    assert args.context_depth == 1
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "complete"
+    assert any(finding["capability"] == "process.execute" for finding in payload["findings"])
+
+
+def test_text_output_distinguishes_operation_and_boundary(tmp_path, capsys):
+    target = tmp_path / "main.py"
+    target.write_text(
+        "import subprocess\n"
+        "class Handler:\n"
+        "    run = subprocess.run\n"
+        "Handler.run(['id'])\n",
+        encoding="utf-8",
+    )
+    parser = ArgumentParser()
+    add_capabilities_parser(parser.add_subparsers())
+    args = parser.parse_args(["capabilities", str(target)])
+
+    assert run_capabilities(args) == 0
+    output = capsys.readouterr().out
+    assert "direct call process.execute (subprocess.run)" in output

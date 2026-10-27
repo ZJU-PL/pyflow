@@ -73,3 +73,17 @@ def test_audit_log_write_failure_is_reported_without_traceback(tmp_path):
     assert completed.returncode == 2
     assert "could not write audit log" in completed.stderr
     assert "Traceback" not in completed.stderr
+
+
+def test_audit_log_records_allow_and_deny_decisions(tmp_path):
+    script = tmp_path / "write.py"
+    script.write_text("open('created.txt', 'w').write('x')\n")
+    audit_log = tmp_path / "events.json"
+
+    completed = _run_guard(script, "--audit-log", str(audit_log))
+
+    assert completed.returncode == 126
+    events = json.loads(audit_log.read_text())
+    assert any(
+        event["capability"] == "file.write" and event["decision"] == "deny" for event in events
+    )
