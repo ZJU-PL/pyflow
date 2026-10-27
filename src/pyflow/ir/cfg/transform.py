@@ -185,11 +185,12 @@ class CFGTransformer(TypeDispatcher):
         # Scope declarations are compile-time markers with no runtime operation.
         del node
 
-    @dispatch(ast.TypeAlias)
+    @dispatch(ast.TypeAlias, ast.TypeParams, ast.TypeParam)
     def visitTypeAlias(self, node):
-        # Type aliases are compile-time declarations. The frontend also emits an
-        # ordinary assignment for conservative value binding, so the marker node
-        # itself can be ignored during CFG construction.
+        # Type aliases and PEP 695 type parameters are compile-time declarations.
+        # The frontend emits an ordinary assignment for conservative value binding
+        # of type aliases, while type parameters carry static constraints. Neither
+        # generates runtime control flow operations.
         del node
 
     @dispatch(object)  # Catch-all for unrecognised node types

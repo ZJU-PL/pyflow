@@ -7,6 +7,7 @@ CDG, DDG, and GIR forms for specific functions in Python code.
 
 import sys
 import os
+import argparse
 import fnmatch
 import json
 from contextlib import redirect_stdout
@@ -95,6 +96,12 @@ def add_ir_parser(subparsers):
         "--mir-import-policy",
         choices=("strict", "opaque"),
         help="Reject unmodeled imports, or retain opaque boundaries for inspection (default: opaque)",
+    )
+    parser.add_argument(
+        "--mir-follow-imports",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Whether to follow imports when dumping MIR (default: false unless explicitly requested)",
     )
     parser.add_argument(
         "--dump-cfg",
@@ -561,6 +568,15 @@ def _dump_mir_files(python_files, input_path: Path, args):
     )
     view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
     import_policy = getattr(args, "mir_import_policy", None) or "opaque"
+    # Default dumps inspect the requested files. Following a project's
+    # entire dependency graph requires explicit follow-imports or strict verification.
+    explicit_follow = getattr(args, "mir_follow_imports", None)
+    if explicit_follow is not None:
+        follow_imports = explicit_follow
+    else:
+        follow_imports = (
+            getattr(args, "mir_view", None) == "full" and import_policy == "strict"
+        ) or (import_policy == "strict")
     compiled, diagnostics_by_source = [], {}
     for source in python_files:
         diagnostics = []
@@ -569,9 +585,7 @@ def _dump_mir_files(python_files, input_path: Path, args):
             project_root=project_root,
             import_policy=import_policy,
             diagnostics=diagnostics,
-            # Default dumps inspect the requested files. Following a project's
-            # entire dependency graph is an explicit full-view/strict request.
-            follow_imports=getattr(args, "mir_view", None) == "full" or import_policy == "strict",
+            follow_imports=follow_imports,
         )
         compiled.append((source, program))
         diagnostics_by_source[source] = diagnostics
@@ -678,11 +692,13 @@ def _run_ir_dump(input_path: Path, args):
         program.interface, all_source_code = build_interface_from_paths(
             python_files, InterfaceBuildOptions.from_namespace(args)
         )
+        # Keep source syntax retention enabled by default so that GIR emission
+        # and AST provenance remain intact regardless of dump combinations.
         compiler.extractor = Extractor(
             compiler,
             verbose=args.verbose,
             source_code=all_source_code,
-            retain_source_syntax=bool(args.dump_gir),
+            retain_source_syntax=True,
         )
 
         with console.scope("extraction"):

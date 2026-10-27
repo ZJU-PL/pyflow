@@ -120,11 +120,16 @@ class ASTConverter:
             from pyflow.ir.core.source import syntax_source_span
 
             pending = list(converted.children()) if hasattr(converted, "children") else []
+            seen_ids = set()
             while pending:
                 child = pending.pop()
                 if isinstance(child, (list, tuple)):
                     pending.extend(child)
                     continue
+                child_id = id(child)
+                if child_id in seen_ids:
+                    continue
+                seen_ids.add(child_id)
                 annotation = getattr(child, "annotation", None)
                 if syntax_source_span(child) is not None:
                     continue

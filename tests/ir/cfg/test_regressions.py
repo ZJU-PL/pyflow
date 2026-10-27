@@ -733,6 +733,22 @@ def f(a, b, args):
                 ssa.evaluate(self.compiler, cfg)
                 self.assertIsNotNone(cfg)
 
+    def test_transform_and_ssa_handles_generic_functions_and_classes(self):
+        src = """
+def generic_func[T: str, U](x: T, y: U) -> T:
+    return x
+
+class GenericBox[Item]:
+    def __init__(self, item: Item):
+        self.item = item
+"""
+        program = self.compiler.extractor.extract_from_source(src)
+        self.assertGreaterEqual(len(program.liveCode), 2)
+        for code in program.liveCode:
+            cfg = transform.evaluate(self.compiler, code)
+            self.assertIsNotNone(cfg)
+            ssa.evaluate(self.compiler, cfg)
+
 
 if __name__ == "__main__":
     unittest.main()

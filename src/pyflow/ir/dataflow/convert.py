@@ -777,7 +777,16 @@ class CodeToDataflow(TypeDispatcher):
             f"{type(node).__qualname__} from source-loaded AST"
         )
 
-    @dispatch(str, type(None), ast.Code, ast.GlobalDecl, ast.NonlocalDecl, ast.TypeAlias)
+    @dispatch(
+        str,
+        type(None),
+        ast.Code,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeAlias,
+        ast.TypeParams,
+        ast.TypeParam,
+    )
     def processLeaf(self, node):
         return None
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock
-from typing import Callable
+from typing import Any, Callable
+import copy
 
 from .ids import AllocationSiteId, CallSiteId, CodeId, NodeId, SymbolId, ValueId
 from .storage import StorageLocation
@@ -81,6 +82,26 @@ class IRSemantics:
 
     def mark_ready(self) -> None:
         self._ready = True
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state["_load_lock"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._load_lock = RLock()
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "IRSemantics":
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            if k == "_load_lock":
+                setattr(result, k, RLock())
+            else:
+                setattr(result, k, copy.deepcopy(v, memo))
+        return result
 
     def set_operation(self, node: NodeId, semantics: OperationSemantics) -> None:
         self._operations[node] = semantics

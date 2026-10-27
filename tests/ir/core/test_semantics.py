@@ -90,3 +90,21 @@ def test_frontend_can_still_build_semantics_eagerly():
     )
 
     assert program.ir.semantics.ready is True
+
+
+def test_code_and_ir_semantics_support_deepcopy_and_pickle():
+    import copy
+    import pickle
+
+    compiler = context.CompilerContext(None)
+    program = Extractor(compiler, verbose=False).extract_from_source(
+        "def main(x):\n    return x + 1\n", "pickle_test.py"
+    )
+    code = next(iter(program.liveCode))
+
+    cloned = copy.deepcopy(code)
+    assert cloned.name == code.name
+
+    pickled = pickle.dumps(code)
+    unpickled = pickle.loads(pickled)
+    assert unpickled.name == code.name

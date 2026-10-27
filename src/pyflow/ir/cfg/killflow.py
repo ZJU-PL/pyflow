@@ -171,7 +171,13 @@ class OpFlow(TypeDispatcher):
         if getattr(node, "value", None) is not None:
             self(node.value)
 
-    @dispatch(ast.TypeAlias, ast.GlobalDecl, ast.NonlocalDecl)
+    @dispatch(
+        ast.TypeAlias,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeParams,
+        ast.TypeParam,
+    )
     def visitDeclaration(self, node):
         # Compile-time declarations have no runtime control-flow effects.  The
         # CFG transformer intentionally omits them, but they can still appear
