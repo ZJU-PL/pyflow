@@ -74,6 +74,8 @@ _PREFIX_CAPABILITIES = (
     ("os.listdir", "file.metadata"),
     ("os.scandir", "file.metadata"),
     ("os.chdir", "file.metadata"),
+    ("os.putenv", "information.environment"),
+    ("os.unsetenv", "information.environment"),
     ("import", "module.dynamic_import"),
 )
 

@@ -188,7 +188,11 @@ class PythonStatementTransfer:
         )
         if exceptional:
             return TransferResult(exceptional, events=evaluated.events)
+        outgoing = tuple(
+            (edge, evaluated.state) for edge in edges if edge.kind is not EdgeKind.EXCEPTION
+        )
         return TransferResult(
+            outgoing,
             returned=FlowOutcome(evaluated.state, evaluated.facts),
             events=evaluated.events,
         )

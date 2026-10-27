@@ -641,3 +641,138 @@ def test_print_does_not_make_analysis_partial() -> None:
 
     assert result.status == "complete"
     assert result.diagnostics == []
+
+
+def test_attribute_access_ending_in_open_does_not_crash() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import socket\n"
+        "s = socket.socket()\n"
+        "x = s.open\n"
+        "from pathlib import Path\n"
+        "p = Path('test.txt')\n"
+        "y = p.open\n"
+    )
+    assert isinstance(result.findings, list)
+
+
+def test_global_and_builtin_not_treated_as_leaking_closure_cell() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import external_decorator\n"
+        "def decorated():\n"
+        "    with open('test.txt') as f:\n"
+        "        return f.read()\n"
+        "external_decorator.register(decorated)\n"
+    )
+    # The external registration should not report builtins.open leaking as a closure cell
+    leaked = [
+        finding
+        for finding in result.findings
+        if finding.report_kind is CapabilityReportKind.INDIRECT
+        and "closure cell" in finding.reason
+    ]
+    assert leaked == []
+
+
+def test_builtin_operations_do_not_report_indirect_leaks() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "from subprocess import run\n"
+        "commands = [run]\n"
+        "count = len(commands)\n"
+        "check = isinstance(commands, list)\n"
+        "for cmd in commands:\n"
+        "    pass\n"
+    )
+    indirect_builtins = [
+        finding
+        for finding in result.findings
+        if finding.report_kind is CapabilityReportKind.INDIRECT
+        and any(f"builtins.{name}" in finding.reason for name in ("len", "iter", "next", "isinstance"))
+    ]
+    assert indirect_builtins == []
+
+
+def test_pathlib_mutations_reported_as_file_writes() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "from pathlib import Path\n"
+        "p = Path('test.txt')\n"
+        "p.unlink()\n"
+        "p.mkdir()\n"
+        "p.rmdir()\n"
+        "p.touch()\n"
+        "p.rename('new.txt')\n"
+        "p.replace('new2.txt')\n"
+    )
+    writes = [
+        finding
+        for finding in result.findings
+        if finding.capability == "file.write"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(writes) == 6
+
+
+def test_urllib3_reported_as_network_io() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import urllib3\n"
+        "http = urllib3.PoolManager()\n"
+        "http.request('GET', 'https://example.test')\n"
+    )
+    network_findings = [
+        finding
+        for finding in result.findings
+        if finding.capability == "network.io"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(network_findings) >= 1
+
+
+def test_platform_return_string_methods_not_flagged() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import platform\n"
+        "name = platform.system()\n"
+        "clean = name.strip().lower().split()\n"
+    )
+    direct_findings = [
+        finding
+        for finding in result.findings
+        if finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    # Only platform.system should be flagged as information.system, not .strip/.lower/.split
+    assert len(direct_findings) == 1
+    assert direct_findings[0].access_path == "platform.system"
+
+
+def test_async_with_lowering_propagates_capability() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import asyncio\n"
+        "import subprocess\n"
+        "class AsyncRunner:\n"
+        "    async def __aenter__(self):\n"
+        "        return subprocess.run\n"
+        "    async def __aexit__(self, *args):\n"
+        "        pass\n"
+        "async def main():\n"
+        "    async with AsyncRunner() as r:\n"
+        "        r(['ls'])\n"
+        "asyncio.run(main())\n"
+    )
+    assert any(
+        finding.capability == "process.execute"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+        for finding in result.findings
+    )
+
+
+def test_os_putenv_and_unsetenv_reported_as_environment_calls() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import os\n"
+        "os.putenv('KEY', 'VAL')\n"
+        "os.unsetenv('KEY')\n"
+    )
+    env_findings = [
+        finding
+        for finding in result.findings
+        if finding.capability == "information.environment"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(env_findings) == 2

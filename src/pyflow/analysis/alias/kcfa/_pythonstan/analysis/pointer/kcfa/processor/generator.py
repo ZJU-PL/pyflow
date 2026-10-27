@@ -141,7 +141,20 @@ class GeneratorProcessor(Processor):
         """
         logger.debug(f"Handling generator call: {call.call_site} -> {func_ir.name}")
 
-        binding = self._call_service._validate_call(solver, scope, context, func_ir, call)
+        self_var = None
+        leading_positional = 0
+        if isinstance(func_obj, MethodObject) and func_obj.instance_obj is not None:
+            self_var = solver.state.get_variable(
+                scope,
+                context,
+                solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}"),
+            )
+            solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(func_obj.instance_obj))
+            leading_positional = 1
+
+        binding = self._call_service._validate_call(
+            solver, scope, context, func_ir, call, leading_positional=leading_positional
+        )
         if binding.definitely_invalid:
             return True
 
@@ -195,7 +208,7 @@ class GeneratorProcessor(Processor):
 
         # Match parameters (generator still receives arguments)
         self._match_parameters_simple(
-            solver, func_obj, call, scope, callee_scope, context, call_context
+            solver, func_obj, call, scope, callee_scope, context, call_context, self_var=self_var
         )
 
         # If there's a call target, point it to the generator object
@@ -229,7 +242,20 @@ class GeneratorProcessor(Processor):
         """
         logger.debug(f"Handling coroutine call: {call.call_site} -> {func_ir.name}")
 
-        binding = self._call_service._validate_call(solver, scope, context, func_ir, call)
+        self_var = None
+        leading_positional = 0
+        if isinstance(func_obj, MethodObject) and func_obj.instance_obj is not None:
+            self_var = solver.state.get_variable(
+                scope,
+                context,
+                solver.variable_factory.make_variable(f"$self@{call.call_site.short_id()}"),
+            )
+            solver.handle_new_points_to(self_var, scope, PointsToSet.singleton(func_obj.instance_obj))
+            leading_positional = 1
+
+        binding = self._call_service._validate_call(
+            solver, scope, context, func_ir, call, leading_positional=leading_positional
+        )
         if binding.definitely_invalid:
             return True
 
@@ -283,7 +309,7 @@ class GeneratorProcessor(Processor):
 
         # Match parameters
         self._match_parameters_simple(
-            solver, func_obj, call, scope, callee_scope, context, call_context
+            solver, func_obj, call, scope, callee_scope, context, call_context, self_var=self_var
         )
 
         # If there's a call target, point it to the coroutine object
@@ -371,6 +397,7 @@ class GeneratorProcessor(Processor):
         callee_scope: "Scope",
         context: "AbstractContext",
         call_context: "AbstractContext",
+        self_var: Optional["Ctx[Variable]"] = None,
     ) -> None:
         """Match generator/coroutine parameters with normal call semantics."""
         self._call_service._install_parameter_flows(
@@ -381,4 +408,5 @@ class GeneratorProcessor(Processor):
             callee_scope,
             context,
             call_context,
+            self_var=self_var,
         )

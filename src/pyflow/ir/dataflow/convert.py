@@ -565,6 +565,34 @@ class CodeToDataflow(TypeDispatcher):
     def processDiscard(self, node):
         self.handleOp(node.expr, [])
 
+    @dispatch(
+        ast.SetAttr,
+        ast.SetSubscript,
+        ast.SetSlice,
+        ast.DeleteAttr,
+        ast.DeleteSubscript,
+        ast.DeleteSlice,
+        ast.Assert,
+        ast.SetGlobal,
+        ast.DeleteGlobal,
+        ast.Print,
+        ast.SetCellDeref,
+        ast.InputBlock,
+        ast.OutputBlock,
+    )
+    def processStatement(self, node):
+        return self.genericOp(node)
+
+    @dispatch(ast.Delete)
+    def processDelete(self, node):
+        g = self.genericOp(node)
+        self.set(node.lcl, self.dataflow.null)
+        return g
+
+    @dispatch(ast.UnpackSequence)
+    def processUnpackSequence(self, node):
+        self.handleOp(node.expr, node.targets)
+
     @dispatch(ast.Store)
     def processStore(self, node):
         g = graph.GenericOp(self.hyperblock(), node)

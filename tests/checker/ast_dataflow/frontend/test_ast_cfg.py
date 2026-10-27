@@ -88,3 +88,51 @@ def f(manager):
     body = built.graph.outgoing(with_node)[0].target
 
     assert isinstance(body.syntax, ast.Expr)
+
+
+def test_return_inside_try_routes_through_finally():
+    built = _build("""
+def f():
+    try:
+        return 1
+    finally:
+        cleanup()
+""")
+    ret_node = next(node for node in built.graph.nodes if node.kind is ASTNodeKind.RETURN)
+    cleanup = next(
+        node
+        for node in built.graph.nodes
+        if node.kind is ASTNodeKind.STATEMENT
+        and isinstance(node.syntax, ast.Expr)
+        and getattr(node.syntax.value, "func", None)
+        and node.syntax.value.func.id == "cleanup"
+    )
+    outgoing = built.graph.outgoing(ret_node)
+    assert any(edge.target is cleanup for edge in outgoing)
+
+
+def test_break_and_continue_inside_try_route_through_finally():
+    built = _build("""
+def f(flag):
+    while flag:
+        try:
+            if flag:
+                break
+            else:
+                continue
+        finally:
+            cleanup()
+    return flag
+""")
+    break_node = next(node for node in built.graph.nodes if node.kind is ASTNodeKind.BREAK)
+    continue_node = next(node for node in built.graph.nodes if node.kind is ASTNodeKind.CONTINUE)
+    cleanup = next(
+        node
+        for node in built.graph.nodes
+        if node.kind is ASTNodeKind.STATEMENT
+        and isinstance(node.syntax, ast.Expr)
+        and getattr(node.syntax.value, "func", None)
+        and node.syntax.value.func.id == "cleanup"
+    )
+    assert any(edge.target is cleanup for edge in built.graph.outgoing(break_node))
+    assert any(edge.target is cleanup for edge in built.graph.outgoing(continue_node))

@@ -40,6 +40,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
     FieldAccess,
+    VariableKind,
 )
 
 from .defaults import default_capability_registry
@@ -150,6 +151,57 @@ def _is_internal_constraint(constraint) -> bool:
     return name.startswith(_INTERNAL_CONSTRAINT_PREFIXES)
 
 
+_BUILTIN_NON_ESCAPING = frozenset(
+    f"builtins.{name}"
+    for name in (
+        "len",
+        "iter",
+        "next",
+        "isinstance",
+        "issubclass",
+        "print",
+        "repr",
+        "str",
+        "bytes",
+        "bytearray",
+        "int",
+        "float",
+        "bool",
+        "type",
+        "id",
+        "hash",
+        "all",
+        "any",
+        "min",
+        "max",
+        "sum",
+        "enumerate",
+        "zip",
+        "reversed",
+        "sorted",
+        "list",
+        "tuple",
+        "dict",
+        "set",
+        "frozenset",
+        "range",
+        "slice",
+        "abs",
+        "round",
+        "format",
+        "ascii",
+        "bin",
+        "oct",
+        "hex",
+        "ord",
+        "chr",
+        "callable",
+        "dir",
+        "vars",
+    )
+)
+
+
 class DefensiveCapabilityAnalysis:
     """Track security-sensitive objects through k-CFA points-to propagation."""
 
@@ -216,7 +268,11 @@ class DefensiveCapabilityAnalysis:
             if operation is None or access_path is None:
                 continue
             patterns = self.registry.match(access_path, operation)
-            if access_path in {"builtins.open", "io.open"} or access_path.endswith(".open"):
+            if (
+                patterns
+                and operation is CapabilityOperation.CALL
+                and (access_path in {"builtins.open", "io.open"} or access_path.endswith(".open"))
+            ):
                 patterns = self._filter_open_patterns(event, patterns, state, access_path)
             for pattern in patterns:
                 result.findings.append(self._direct_finding(event, access_path, operation, pattern))
@@ -347,7 +403,7 @@ class DefensiveCapabilityAnalysis:
         """Report relevant objects passed into unanalyzed external code."""
         state = reachability.state
         callee_path = self._object_path(event.abstract_object)
-        if callee_path is None:
+        if callee_path is None or callee_path in _BUILTIN_NON_ESCAPING:
             return []
         constraint = event.constraint
         findings: list[CapabilityFinding] = []
@@ -617,6 +673,8 @@ class DefensiveCapabilityAnalysis:
     def _filter_open_patterns(self, event, patterns, state, access_path: str):
         """Use the constant mode argument when available; otherwise report both."""
         constraint = event.constraint
+        if not isinstance(constraint, CallConstraint):
+            return patterns
         # Expanded arguments may contain the mode at an unknown position/key.
         if any(constraint.starred) or any(name is None for name, _ in constraint.kwargs):
             return patterns
@@ -816,6 +874,12 @@ class _CapabilityReachability:
             closure_owner = obj.func_obj
         if follow_closures and isinstance(closure_owner, FunctionObject):
             for name, captured_var in self.state.get_cell_vars(closure_owner).items():
+                content = getattr(captured_var, "content", captured_var)
+                if getattr(content, "kind", None) is VariableKind.GLOBAL:
+                    continue
+                scope = getattr(captured_var, "scope", None)
+                if scope is not None and getattr(scope, "kind", None) == "module":
+                    continue
                 for child in self.state.get_points_to(captured_var):
                     yield child, f"closure cell {name}"
         if isinstance(obj, ClassObject):

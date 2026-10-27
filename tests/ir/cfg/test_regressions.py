@@ -654,6 +654,42 @@ def iterate(items):
         self.assertEqual(idoms[2], 0)
         self.assertEqual(idoms[3], 0)
 
+    def test_ssa_evaluates_calls_with_keyword_arguments(self):
+        import ast as python_ast
+        from pyflow.frontend.conversion.ast import ASTConverter
+
+        source = """
+def f(x):
+    y = g(key=x)
+    return y
+"""
+        code = ASTConverter()._convert_function_def(python_ast.parse(source).body[0]).code
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        self.assertIsNotNone(graph)
+
+    def test_ssa_evaluates_statements_and_expressions(self):
+        import ast as python_ast
+        from pyflow.frontend.conversion.ast import ASTConverter
+
+        source = """
+def f(obj, key, val):
+    obj.attr = val
+    obj[key] = val
+    assert val > 0
+    if val < 0:
+        raise ValueError(val)
+    x: int = val
+    del obj[key]
+    del obj.attr
+    del val
+    return x
+"""
+        code = ASTConverter()._convert_function_def(python_ast.parse(source).body[0]).code
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        self.assertIsNotNone(graph)
+
 
 if __name__ == "__main__":
     unittest.main()

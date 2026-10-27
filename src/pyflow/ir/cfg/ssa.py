@@ -85,9 +85,51 @@ class CollectModifies(TypeDispatcher):
         if body is not None:
             self._modified(node.index, body)
 
-    @dispatch(ast.Discard, ast.Return, ast.SetAttr, ast.Store, ast.OutputBlock, ast.SetCellDeref)
+    def _collect_named_exprs(self, node):
+        if node is None:
+            return
+        if isinstance(node, ast.NamedExpr):
+            if isinstance(node.target, ast.Local):
+                self.modified(node.target)
+        if hasattr(node, "children"):
+            for child in node.children():
+                if isinstance(child, (list, tuple)):
+                    for item in child:
+                        self._collect_named_exprs(item)
+                else:
+                    self._collect_named_exprs(child)
+
+    @dispatch(
+        ast.Discard,
+        ast.Return,
+        ast.Raise,
+        ast.Assert,
+        ast.SetAttr,
+        ast.DeleteAttr,
+        ast.SetSubscript,
+        ast.DeleteSubscript,
+        ast.SetSlice,
+        ast.DeleteSlice,
+        ast.Delete,
+        ast.SetGlobal,
+        ast.DeleteGlobal,
+        ast.Store,
+        ast.OutputBlock,
+        ast.SetCellDeref,
+        ast.Print,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Await,
+        ast.AsyncYield,
+    )
     def visitDiscard(self, node):
-        pass
+        self._collect_named_exprs(node)
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        if getattr(node, "value", None) is not None and isinstance(node.target, ast.Local):
+            self.modified(node.target)
+        self._collect_named_exprs(node)
 
     @dispatch(
         ast.leafTypes,
@@ -109,6 +151,7 @@ class CollectModifies(TypeDispatcher):
     def visitAssign(self, node):
         for target in node.lcls:
             self.modified(target)
+        self._collect_named_exprs(node.expr)
 
     @dispatch(ast.UnpackSequence)
     def visitUnpackSequence(self, node):
@@ -522,14 +565,24 @@ class SSARename(TypeDispatcher):
         """Preserve structured iteration during CFG-local SSA renaming."""
         return node
 
+    @dispatch(tuple)
+    def visitTuple(self, node):
+        if len(node) == 2 and isinstance(node[0], (str, type(None))):
+            name, value = node
+            return (name, self(value) if value is not None else None)
+        return tuple(self(item) if item is not None else None for item in node)
+
     @dispatch(
         ast.BinaryOp,
         ast.Call,
+        ast.MethodCall,
         ast.ConvertToBool,
         ast.UnaryPrefixOp,
+        ast.Not,
         ast.BuildTuple,
         ast.BuildList,
         ast.BuildMap,
+        ast.BuildSet,
         ast.BuildSlice,
         ast.MakeFunction,
         ast.SetCellDeref,
@@ -545,6 +598,21 @@ class SSARename(TypeDispatcher):
         ast.GetSubscript,
         ast.SetSubscript,
         ast.DeleteSubscript,
+        ast.GetSlice,
+        ast.SetSlice,
+        ast.DeleteSlice,
+        ast.Delete,
+        ast.Assert,
+        ast.Raise,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Await,
+        ast.AsyncYield,
+        ast.ConditionalExpr,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.Import,
+        ast.Print,
         ast.Allocate,
         ast.Load,
         ast.Store,
@@ -552,6 +620,29 @@ class SSARename(TypeDispatcher):
     )
     def visitOK(self, node):
         return node.rewriteChildren(self)
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        value = self(node.value)
+        if isinstance(node.target, ast.Local):
+            target = self.clone(node.target, self.currentFrame, definition=node)
+        else:
+            target = self(node.target) if getattr(node, "target", None) is not None else None
+        return ast.NamedExpr(target, value)
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        value = self(node.value) if getattr(node, "value", None) is not None else None
+        annotation = (
+            self(node.annotation_expr)
+            if getattr(node, "annotation_expr", None) is not None
+            else None
+        )
+        if isinstance(node.target, ast.Local) and value is not None:
+            target = self.clone(node.target, self.currentFrame, definition=node)
+        else:
+            target = self(node.target) if getattr(node, "target", None) is not None else None
+        return ast.AnnAssign(target, annotation, value)
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):

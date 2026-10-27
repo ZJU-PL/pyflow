@@ -345,12 +345,14 @@ label_fin:
                 goto.set_label(label_fin)
 
     def visit_With(self, node: With):
-        self._visit_with_items(node.items, node.body, node, "__enter__", "__exit__")
+        self._visit_with_items(node.items, node.body, node, "__enter__", "__exit__", is_async=False)
 
     def visit_AsyncWith(self, node: AsyncWith):
-        self._visit_with_items(node.items, node.body, node, "__aenter__", "__aexit__")
+        self._visit_with_items(node.items, node.body, node, "__aenter__", "__aexit__", is_async=True)
 
-    def _visit_with_items(self, items, body, node, enter_name: str, exit_name: str) -> None:
+    def _visit_with_items(
+        self, items, body, node, enter_name: str, exit_name: str, is_async: bool = False
+    ) -> None:
         """Lower ``with`` into explicit context-manager calls.
 
         Three-address lowering leaves ``with`` statements in place but hoists
@@ -366,7 +368,7 @@ label_fin:
         if not isinstance(context_expr, ast.Name):
             # Not lowered to three-address form: still analyse the body so its
             # capabilities are not lost wholesale.
-            self._visit_with_items(rest, body, node, enter_name, exit_name)
+            self._visit_with_items(rest, body, node, enter_name, exit_name, is_async=is_async)
             return
 
         manager = ast.Name(id=context_expr.id, ctx=ast.Load())
@@ -376,12 +378,21 @@ label_fin:
             ast.Attribute(value=manager, attr=enter_name, ctx=ast.Load()),
             node,
         )
-        result_var = self._new_temporary("with_enter")
+        enter_call_var = self._new_temporary("with_enter_call" if is_async else "with_enter")
         self._emit_assign(
-            ast.Name(id=result_var, ctx=ast.Store()),
+            ast.Name(id=enter_call_var, ctx=ast.Store()),
             ast.Call(func=ast.Name(id=method_var, ctx=ast.Load()), args=[], keywords=[]),
             node,
         )
+        if is_async:
+            result_var = self._new_temporary("with_enter")
+            self._emit_assign(
+                ast.Name(id=result_var, ctx=ast.Store()),
+                ast.Await(value=ast.Name(id=enter_call_var, ctx=ast.Load())),
+                node,
+            )
+        else:
+            result_var = enter_call_var
         if isinstance(item.optional_vars, ast.Name):
             self._emit_assign(
                 item.optional_vars,
@@ -389,7 +400,7 @@ label_fin:
                 node,
             )
 
-        self._visit_with_items(rest, body, node, enter_name, exit_name)
+        self._visit_with_items(rest, body, node, enter_name, exit_name, is_async=is_async)
 
         exit_method_var = self._new_temporary("with_exit_method")
         self._emit_assign(
@@ -401,8 +412,9 @@ label_fin:
             ),
             node,
         )
+        exit_call_var = self._new_temporary("with_exit_call" if is_async else "with_exit")
         self._emit_assign(
-            ast.Name(id=self._new_temporary("with_exit"), ctx=ast.Store()),
+            ast.Name(id=exit_call_var, ctx=ast.Store()),
             ast.Call(
                 func=ast.Name(id=exit_method_var, ctx=ast.Load()),
                 args=[ast.Constant(None), ast.Constant(None), ast.Constant(None)],
@@ -410,10 +422,18 @@ label_fin:
             ),
             node,
         )
+        if is_async:
+            self._emit_assign(
+                ast.Name(id=self._new_temporary("with_exit"), ctx=ast.Store()),
+                ast.Await(value=ast.Name(id=exit_call_var, ctx=ast.Load())),
+                node,
+            )
 
     def visit_Assign(self, stmt: Assign):
         if isinstance(stmt.value, (Yield, YieldFrom)):
             self.stmts.append(IRYield(stmt))
+        elif isinstance(stmt.value, Await):
+            self.stmts.append(IRAwait(stmt))
         elif isinstance(stmt.value, Call):
             self.stmts.append(IRCall(stmt))
         elif isinstance(stmt.targets[0], Subscript):
@@ -428,6 +448,14 @@ label_fin:
             self.stmts.append(IRCopy(stmt))
         else:
             self.stmts.append(IRAssign(stmt))
+
+    def visit_Expr(self, node: Expr):
+        if isinstance(node.value, Await):
+            self.stmts.append(IRAwait(node))
+        elif isinstance(node.value, Call):
+            self.stmts.append(IRCall(node))
+        else:
+            self.generic_visit(node)
 
     def visit_AnnAssign(self, node: AnnAssign):
         self.stmts.append(IRAnno(node))

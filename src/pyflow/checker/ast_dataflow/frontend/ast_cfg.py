@@ -102,6 +102,7 @@ class ASTCFGBuilder:
         break_target: ASTCFGNode | None = None,
         continue_target: ASTCFGNode | None = None,
         exception_target: ASTCFGNode | None = None,
+        return_target: ASTCFGNode | None = None,
     ) -> ASTCFGNode:
         current = continuation
         for statement in reversed(statements):
@@ -111,6 +112,7 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 exception_target=exception_target,
+                return_target=return_target,
             )
         return current
 
@@ -122,6 +124,7 @@ class ASTCFGBuilder:
         break_target: ASTCFGNode | None,
         continue_target: ASTCFGNode | None,
         exception_target: ASTCFGNode | None,
+        return_target: ASTCFGNode | None = None,
     ) -> ASTCFGNode:
         if isinstance(statement, ast.If):
             branch = self._new(ASTNodeKind.BRANCH, statement)
@@ -131,6 +134,7 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 exception_target=exception_target,
+                return_target=return_target,
             )
             alternate = self._build_block(
                 statement.orelse,
@@ -138,6 +142,7 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 exception_target=exception_target,
+                return_target=return_target,
             )
             self._connect(branch, body, EdgeKind.TRUE)
             self._connect(branch, alternate, EdgeKind.FALSE)
@@ -151,6 +156,7 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 exception_target=exception_target,
+                return_target=return_target,
             )
             body = self._build_block(
                 statement.body,
@@ -158,6 +164,7 @@ class ASTCFGBuilder:
                 break_target=continuation,
                 continue_target=loop,
                 exception_target=exception_target,
+                return_target=return_target,
             )
             self._connect(loop, body, EdgeKind.TRUE)
             self._connect(loop, alternate, EdgeKind.FALSE)
@@ -176,6 +183,7 @@ class ASTCFGBuilder:
                     break_target=break_target,
                     continue_target=continue_target,
                     exception_target=exception_target,
+                    return_target=return_target,
                 )
                 self._connect(match, case_entry, EdgeKind.NORMAL)
             if exception_target is not None:
@@ -190,6 +198,7 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 exception_target=exception_target,
+                return_target=return_target,
             )
             self._connect(node, body)
             if exception_target is not None:
@@ -203,10 +212,13 @@ class ASTCFGBuilder:
                 break_target=break_target,
                 continue_target=continue_target,
                 outer_exception_target=exception_target,
+                return_target=return_target,
             )
 
         if isinstance(statement, ast.Return):
             node = self._new(ASTNodeKind.RETURN, statement)
+            if return_target is not None:
+                self._connect(node, return_target, EdgeKind.NORMAL)
             if exception_target is not None:
                 self._connect(node, exception_target, EdgeKind.EXCEPTION)
             return node
@@ -243,22 +255,34 @@ class ASTCFGBuilder:
         break_target: ASTCFGNode | None,
         continue_target: ASTCFGNode | None,
         outer_exception_target: ASTCFGNode | None,
+        return_target: ASTCFGNode | None = None,
     ) -> ASTCFGNode:
         statement = cast(ast.Try, statement)
         try_node = self._new(ASTNodeKind.TRY, statement)
+        has_finally = bool(statement.finalbody)
         finally_entry = self._build_block(
             statement.finalbody,
             continuation,
             break_target=break_target,
             continue_target=continue_target,
             exception_target=outer_exception_target,
+            return_target=return_target,
         )
+        inner_break_target = (
+            finally_entry if has_finally and break_target is not None else break_target
+        )
+        inner_continue_target = (
+            finally_entry if has_finally and continue_target is not None else continue_target
+        )
+        inner_return_target = finally_entry if has_finally else return_target
+
         normal_after_body = self._build_block(
             statement.orelse,
             finally_entry,
-            break_target=break_target,
-            continue_target=continue_target,
+            break_target=inner_break_target,
+            continue_target=inner_continue_target,
             exception_target=outer_exception_target,
+            return_target=inner_return_target,
         )
 
         handler_dispatch: ASTCFGNode | None = None
@@ -268,9 +292,10 @@ class ASTCFGBuilder:
                 handler_entry = self._build_block(
                     handler.body,
                     finally_entry,
-                    break_target=break_target,
-                    continue_target=continue_target,
+                    break_target=inner_break_target,
+                    continue_target=inner_continue_target,
                     exception_target=outer_exception_target,
+                    return_target=inner_return_target,
                 )
                 self._connect(handler_dispatch, handler_entry, EdgeKind.EXCEPTION)
             if outer_exception_target is not None:
@@ -279,9 +304,10 @@ class ASTCFGBuilder:
         body_entry = self._build_block(
             statement.body,
             normal_after_body,
-            break_target=break_target,
-            continue_target=continue_target,
+            break_target=inner_break_target,
+            continue_target=inner_continue_target,
             exception_target=handler_dispatch or outer_exception_target,
+            return_target=inner_return_target,
         )
         self._connect(try_node, body_entry)
         return try_node
