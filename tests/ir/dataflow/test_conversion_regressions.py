@@ -1,6 +1,7 @@
 """Regression tests for CFG-to-Dataflow IR conversion."""
 
 import ast as python_ast
+import sys
 import unittest
 
 from pyflow.application.context import CompilerContext
@@ -49,6 +50,7 @@ def mutate_slices(items, val):
         ddg = construct_ddg(dataflow)
         self.assertIsNotNone(ddg)
 
+    @unittest.skipIf(sys.version_info < (3, 12), "PEP 695 type alias syntax requires Python 3.12")
     def test_convert_scope_declarations_and_type_alias(self):
         source = """
 def declarations(x):
