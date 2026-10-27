@@ -283,7 +283,8 @@ pyflow<span class="w"> </span>capability-run<span class="w"> </span>--observe-on
 </pre></div>
 </div>
 <p>An uncaught denial exits with status <code class="docutils literal notranslate"><span class="pre">126</span></code>. Unclassified events are ignored
-and are not logged. Audit hooks are process-global and cannot be removed
+and are not logged. Each logged entry records the capability, audit event,
+arguments, and whether the operation was allowed or denied. Audit hooks are process-global and cannot be removed
 through the public API, so use a fresh process to manage their installation.
 Python-level audit hooks are unsuitable for sandboxing malicious code, as the
 <a class="reference external" href="https://docs.python.org/3/library/sys.html#sys.addaudithook">Python documentation</a>
@@ -297,8 +298,11 @@ location, report kind, context, trace, <code class="docutils literal notranslate
 SARIF output includes the same analysis-specific fields under result
 properties. Indirect SARIF results use level <code class="docutils literal notranslate"><span class="pre">note</span></code> because they describe
 potential exposure rather than a verified policy violation. CLI exit status
-is <code class="docutils literal notranslate"><span class="pre">0</span></code> for a complete empty result, <code class="docutils literal notranslate"><span class="pre">1</span></code> when findings exist or analysis is
-partial, and <code class="docutils literal notranslate"><span class="pre">2</span></code> for invalid input or model configuration.</p>
+follows <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: the default <code class="docutils literal notranslate"><span class="pre">report</span></code> returns <code class="docutils literal notranslate"><span class="pre">0</span></code> for a
+completed report (even when it contains findings or is partial) and <code class="docutils literal notranslate"><span class="pre">2</span></code> for
+invalid input, model configuration, or a failed analysis. With
+<code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">findings</span></code>, status <code class="docutils literal notranslate"><span class="pre">1</span></code> is returned whenever findings
+exist or the analysis is partial.</p>
 </section>
 <section id="soundness-boundary">
 <h2>Soundness Boundary<a class="headerlink" href="#soundness-boundary" title="Link to this heading"></a></h2>
@@ -308,6 +312,12 @@ is conservative and can overestimate authority obtainable from an object.
 It does not prove member accessibility. Unmodeled external calls report relevant
 arguments as potential transfers. Runtime observation does not establish
 static coverage of native, generated, or reflective behavior.</p>
+<p>Imports inside function and class bodies are resolved against the enclosing
+module, so lazily imported project modules are analyzed like module-level
+imports. A relative import that cannot be resolved against the project root
+(for example, in a file that is not part of a package) is reported as an
+<code class="docutils literal notranslate"><span class="pre">import_not_found</span></code> diagnostic and makes the result <code class="docutils literal notranslate"><span class="pre">partial</span></code> rather than
+aborting the analysis.</p>
 <p>For the detailed deployment assumptions, see
 <code class="docutils literal notranslate"><span class="pre">src/pyflow/checker/capability/SOUNDNESS.md</span></code>.</p>
 </section>
