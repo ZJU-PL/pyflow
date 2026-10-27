@@ -769,3 +769,54 @@ def test_os_putenv_and_unsetenv_reported_as_environment_calls() -> None:
         and finding.report_kind is CapabilityReportKind.DIRECT
     ]
     assert len(env_findings) == 2
+
+
+def test_os_environ_delitem_reported_as_environment_call() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import os\n" "del os.environ['KEY']\n"
+    )
+    env_findings = [
+        finding
+        for finding in result.findings
+        if finding.capability == "information.environment"
+        and finding.access_path == "os.environ.__delitem__"
+    ]
+    assert len(env_findings) >= 1
+    assert any(finding.report_kind is CapabilityReportKind.DIRECT for finding in env_findings)
+
+
+def test_sys_path_modifications_reported() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import sys\n" "sys.path.append('/custom/path')\n" "sys.path = ['/other/path']\n"
+    )
+    path_findings = [
+        finding
+        for finding in result.findings
+        if finding.capability == "module.loader_mutation"
+        and finding.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(path_findings) >= 2
+
+
+def test_functools_partial_propagates_capability_without_spurious_escape() -> None:
+    result = DefensiveCapabilityAnalysis(report_public_exports=False).analyze_source(
+        "import subprocess\n"
+        "from functools import partial\n"
+        "runner = partial(subprocess.run, ['ls'])\n"
+        "runner()\n"
+    )
+    direct = [
+        f
+        for f in result.findings
+        if f.capability == "process.execute" and f.report_kind is CapabilityReportKind.DIRECT
+    ]
+    assert len(direct) >= 1
+    assert direct[0].location.line == 4
+    # Ensure synthetic __init__ call did not leak as an unanalyzed escape
+    escapes = [
+        f
+        for f in result.findings
+        if f.report_kind is CapabilityReportKind.INDIRECT
+        and "functools.partial.__init__" in f.reason
+    ]
+    assert len(escapes) == 0

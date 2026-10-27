@@ -49,6 +49,19 @@ def mutate_slices(items, val):
         ddg = construct_ddg(dataflow)
         self.assertIsNotNone(ddg)
 
+    def test_convert_scope_declarations_and_type_alias(self):
+        source = """
+def declarations(x):
+    global g
+    nonlocal n
+    type T = int
+    return x
+"""
+        code, dataflow = self._convert(source)
+        self.assertIsNotNone(dataflow)
+        ddg = construct_ddg(dataflow)
+        self.assertIsNotNone(ddg)
+
 
 if __name__ == "__main__":
     unittest.main()

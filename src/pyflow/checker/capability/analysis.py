@@ -275,7 +275,9 @@ class DefensiveCapabilityAnalysis:
             ):
                 patterns = self._filter_open_patterns(event, patterns, state, access_path)
             for pattern in patterns:
-                result.findings.append(self._direct_finding(event, access_path, operation, pattern, state))
+                result.findings.append(
+                    self._direct_finding(event, access_path, operation, pattern, state)
+                )
 
             if event.kind is PointerEventKind.CALL:
                 result.findings.extend(self._indirect_call_findings(event, reachability))
@@ -795,7 +797,11 @@ class DefensiveCapabilityAnalysis:
                 curr = getattr(sm, "names2scope", {}).get(getattr(cs, "scope_name", ""))
                 while curr is not None and not getattr(curr, "filename", None):
                     curr = getattr(sm, "father", {}).get(curr)
-                if curr is not None and getattr(curr, "filename", None) and not _is_bundled_stub(curr.filename):
+                if (
+                    curr is not None
+                    and getattr(curr, "filename", None)
+                    and not _is_bundled_stub(curr.filename)
+                ):
                     call_stmt = getattr(cs, "statement", None)
                     if call_stmt is not None:
                         caller_loc = self._location(curr, call_stmt)
@@ -818,7 +824,11 @@ class DefensiveCapabilityAnalysis:
     def _location(scope, site) -> SourceLocation:
         module = getattr(scope, "module", None)
         module_stmt = getattr(module, "stmt", None)
-        filename = getattr(module_stmt, "filename", None) or getattr(scope, "filename", None) or "<unknown>"
+        filename = (
+            getattr(module_stmt, "filename", None)
+            or getattr(scope, "filename", None)
+            or "<unknown>"
+        )
         ast_node = site.get_ast() if site is not None and hasattr(site, "get_ast") else None
         # TAC call assignments can inherit a synthetic line while their callee
         # expression retains the original source location.

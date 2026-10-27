@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
+from functools import lru_cache
 import json
 from pathlib import Path
+import re
 from typing import Iterable
 
 from .model import CapabilityOperation
 from .effects import ExternalEffectKind, ExternalEffectSummary
+
+
+@lru_cache(maxsize=1024)
+def _compile_pattern(pattern: str) -> re.Pattern[str]:
+    """Compile an access path pattern into a regex that respects dot delimiters."""
+    if pattern.endswith(".*"):
+        base = pattern[:-2]
+        base_regex = re.escape(base).replace(r"\*", r"[^.]*")
+        return re.compile(rf"^{base_regex}(\..+)?$")
+    parts = pattern.split(".")
+    regex_parts = [re.escape(part).replace(r"\*", r"[^.]*") for part in parts]
+    return re.compile(r"^" + r"\.".join(regex_parts) + r"$")
 
 
 @dataclass(frozen=True)
@@ -93,7 +106,8 @@ class CapabilityRegistry:
         return tuple(
             pattern
             for pattern in self._patterns
-            if pattern.operation is operation and fnmatchcase(access_path, pattern.access_path)
+            if pattern.operation is operation
+            and _compile_pattern(pattern.access_path).match(access_path)
         )
 
     def reachable(self, access_path: str) -> tuple[CapabilityPattern, ...]:
@@ -102,15 +116,15 @@ class CapabilityRegistry:
         This is a syntactic over-approximation, not proof that a member exists
         or that the recipient can exercise the corresponding operation.
         """
-        prefix = access_path.removesuffix(".<return>")
         matches = []
         for pattern in self._patterns:
+            compiled = _compile_pattern(pattern.access_path)
             static = pattern.static_prefix
             if (
-                fnmatchcase(prefix, pattern.access_path)
-                or static == prefix
-                or static.startswith(prefix + ".")
-                or prefix.startswith(static + ".")
+                compiled.match(access_path)
+                or static == access_path
+                or static.startswith(access_path + ".")
+                or (pattern.access_path.endswith(".*") and access_path.startswith(static + "."))
             ):
                 matches.append(pattern)
         return tuple(matches)
