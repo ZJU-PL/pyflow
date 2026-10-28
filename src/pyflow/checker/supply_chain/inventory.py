@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import quote
 
 from packaging.requirements import Requirement
@@ -101,6 +101,8 @@ def _purl_version_matches(reference: str, specifier: SpecifierSet) -> bool:
 
 def dedupe_components(
     components: Iterable[dict[str, Any]],
+    *,
+    ref_map: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     components = list(components)
     applications = {item["name"]: item for item in components if item.get("type") == "application"}
@@ -131,7 +133,41 @@ def dedupe_components(
             deduped[key] = component_data
         else:
             _merge_component(existing, component_data)
-    result = [deduped[key] for key in sorted(deduped)]
+
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for comp in deduped.values():
+        cname = canonicalize_name(str(comp.get("name", "")))
+        by_name.setdefault(cname, []).append(comp)
+
+    final_components: list[dict[str, Any]] = []
+    for cname, group in by_name.items():
+        unversioned = [item for item in group if not item.get("version")]
+        versioned = [item for item in group if item.get("version")]
+        if unversioned and versioned:
+            target = versioned[0]
+            if len(versioned) > 1:
+                app_versioned = [item for item in versioned if item.get("type") == "application"]
+                if app_versioned:
+                    target = app_versioned[0]
+            for unv in unversioned:
+                _merge_component(target, unv)
+                target_ref = str(target.get("purl") or target.get("name"))
+                if ref_map is not None:
+                    if unv.get("purl"):
+                        ref_map[str(unv["purl"])] = target_ref
+                    if unv.get("name"):
+                        ref_map[str(unv["name"])] = target_ref
+            final_components.extend(versioned)
+        else:
+            final_components.extend(group)
+
+    result = sorted(
+        final_components,
+        key=lambda item: (
+            str(item.get("purl") or item.get("name")),
+            str(item.get("version") or ""),
+        ),
+    )
     for component_data in result:
         for field in {"hashes", "licenses", "properties", "externalReferences"}:
             values = component_data.get(field)
@@ -178,9 +214,14 @@ def dedupe_findings(
 
 def dedupe_dependencies(
     dependencies: Iterable[tuple[str, str]],
+    *,
+    ref_map: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, set[str]] = {}
     for source, target in dependencies:
+        if ref_map:
+            source = ref_map.get(source, source)
+            target = ref_map.get(target, target)
         if source and target and source != target:
             grouped.setdefault(source, set()).add(target)
     all_targets = {target for targets in grouped.values() for target in targets}

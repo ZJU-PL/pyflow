@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import stat
 import sys
 import tempfile
 from collections import Counter
@@ -66,6 +67,11 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         "--deterministic",
         action="store_true",
         help="Use content-derived identifiers and SOURCE_DATE_EPOCH timestamps",
+    )
+    sbom.add_argument(
+        "--include-scopes",
+        action="store_true",
+        help="Emit build, optional, test, and development requirements as active lines",
     )
     sbom.add_argument(
         "--allow-incomplete",
@@ -242,14 +248,14 @@ def run_supply_chain(args: Any) -> int:
         recursive=getattr(args, "recursive", False),
         exclude=exclude,
         limits=_scan_limits(args),
+        default_excludes=not getattr(args, "no_default_excludes", False),
     )
     environment = _target_environment(args)
-    if environment or getattr(args, "extra", None):
-        scan = resolve_environment(
-            scan,
-            environment=environment,
-            extras=getattr(args, "extra", ()) or (),
-        )
+    scan = resolve_environment(
+        scan,
+        environment=environment or None,
+        extras=getattr(args, "extra", ()) or (),
+    )
 
     out_file = None
     output_path = getattr(args, "output", None)
@@ -259,14 +265,19 @@ def run_supply_chain(args: Any) -> int:
         if output_path:
             try:
                 output_path = Path(output_path)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                descriptor, temporary_name = tempfile.mkstemp(
-                    prefix=f".{output_path.name}.",
-                    suffix=".tmp",
-                    dir=output_path.parent,
-                )
-                temporary_output = Path(temporary_name)
-                out_file = os.fdopen(descriptor, "w", encoding="utf-8")
+                if _is_device_path(output_path):
+                    # Never replace /dev/null or another device with a regular
+                    # file; write to it directly instead of using os.replace.
+                    out_file = output_path.open("w", encoding="utf-8")
+                else:
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    descriptor, temporary_name = tempfile.mkstemp(
+                        prefix=f".{output_path.name}.",
+                        suffix=".tmp",
+                        dir=output_path.parent,
+                    )
+                    temporary_output = Path(temporary_name)
+                    out_file = os.fdopen(descriptor, "w", encoding="utf-8")
             except OSError as exc:
                 print(f"Could not open supply-chain output: {exc}", file=sys.stderr)
                 return 2
@@ -285,7 +296,12 @@ def run_supply_chain(args: Any) -> int:
                 )
                 return 2
             if fmt == "requirements":
-                output.write(build_requirements_text(scan))
+                output.write(
+                    build_requirements_text(
+                        scan,
+                        include_scopes=getattr(args, "include_scopes", False),
+                    )
+                )
             elif fmt == "spdx-json":
                 document = build_spdx_document(
                     scan, deterministic=getattr(args, "deterministic", False)
@@ -442,6 +458,7 @@ def run_supply_chain(args: Any) -> int:
                         require_provenance=getattr(args, "require_provenance", False),
                         require_dsse=getattr(args, "require_dsse", False),
                         authenticated_attestations=authenticated_inputs,
+                        authenticated_artifacts=authenticated_inputs,
                     )
                 )
 
@@ -583,6 +600,11 @@ def _add_common_args(parser: Any) -> None:
     )
     parser.add_argument("--exclude", help="Comma-separated paths to exclude")
     parser.add_argument(
+        "--no-default-excludes",
+        action="store_true",
+        help="Also scan VCS metadata, virtualenvs, caches, and node_modules",
+    )
+    parser.add_argument(
         "--python-version",
         help="Target Python version for PEP 508 marker evaluation (for example 3.12)",
     )
@@ -653,6 +675,13 @@ def _add_common_args(parser: Any) -> None:
 
 def _parse_exclude(exclude: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in exclude.split(",") if item.strip())
+
+
+def _is_device_path(path: Path) -> bool:
+    try:
+        return stat.S_ISCHR(path.stat().st_mode)
+    except OSError:
+        return False
 
 
 def _parse_trusted_digests(values: Any) -> dict[str, str]:

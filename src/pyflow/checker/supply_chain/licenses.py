@@ -146,10 +146,17 @@ def audit_license_policy(
         purl = component.get("purl", name)
         licenses = component.get("licenses", [])
         if not licenses:
+            properties = [
+                prop for prop in component.get("properties", ()) if isinstance(prop, dict)
+            ]
+            if any(prop.get("name") == "pyflow:license-file" for prop in properties):
+                # The project points at a license file we cannot resolve to an
+                # SPDX identifier offline; do not call the license missing.
+                continue
             sources = [
                 str(prop.get("value", ""))
-                for prop in component.get("properties", ())
-                if isinstance(prop, dict) and prop.get("name") == "pyflow:source-file"
+                for prop in properties
+                if prop.get("name") == "pyflow:source-file"
             ]
             # Requirement/lock entries describe dependency selection, not
             # distribution license metadata. Absence there is not a defect.
@@ -243,11 +250,46 @@ def licenses_from_metadata(data: Any) -> list[dict[str, Any]]:
     return list(unique.values())
 
 
+_SPDX_EXPRESSION_RE = re.compile(r"(?:^|[\s(])(?:AND|OR|WITH)(?:[\s)]|$)")
+
+
+def is_spdx_expression(value: str) -> bool:
+    """Return whether *value* is an SPDX license expression, not a name."""
+
+    text = value.strip()
+    if not text:
+        return False
+    return bool(_SPDX_EXPRESSION_RE.search(text)) or ("(" in text and ")" in text)
+
+
 def license_entry(value: str) -> dict[str, dict[str, str]]:
-    value = _LICENSE_ALIASES.get(value.strip().casefold(), value.strip())
-    if value and " " not in value and len(value) <= 64:
-        return {"license": {"id": value}}
-    return {"license": {"name": value}}
+    raw = value.strip()
+    aliased = _LICENSE_ALIASES.get(raw.casefold(), raw)
+    if is_spdx_expression(aliased):
+        return {"expression": aliased}
+    if aliased and " " not in aliased and len(aliased) <= 64:
+        return {"license": {"id": aliased}}
+    return {"license": {"name": aliased}}
+
+
+def license_entries_for_value(value: Any) -> tuple[list[dict[str, Any]], str | None]:
+    """Normalize a ``project.license`` value and report a license *file*.
+
+    Returns ``(entries, license_file)``.  A ``license = {file = "LICENSE"}``
+    declaration carries no machine-readable identifier, so callers mark the
+    component instead of reporting a missing license.
+    """
+
+    if isinstance(value, str):
+        return [license_entry(value)], None
+    if isinstance(value, dict):
+        text = value.get("text")
+        if text:
+            return [license_entry(str(text))], None
+        file_value = value.get("file")
+        if file_value:
+            return [], str(file_value)
+    return [], None
 
 
 def _evaluate_license_expression(

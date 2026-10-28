@@ -229,3 +229,34 @@ def test_unsigned_or_empty_dsse_provenance_never_establishes_trust(tmp_path):
     assert "untrusted-provenance" in {finding.kind for finding in unsigned_findings}
     assert "provenance-dsse-signature-missing" in {finding.kind for finding in empty_findings}
     assert "untrusted-provenance" in {finding.kind for finding in empty_findings}
+
+
+def test_provenance_requires_artifacts_and_accepts_verified_artifacts(tmp_path):
+    artifact = tmp_path / "demo.whl"
+    artifact.write_bytes(b"wheel-bytes")
+    digest = hashlib.sha256(b"wheel-bytes").hexdigest()
+    attestation = tmp_path / "attestation.json"
+    attestation.write_text(
+        json.dumps(
+            {
+                "_type": "https://in-toto.io/Statement/v1",
+                "predicateType": "https://slsa.dev/provenance/v1",
+                "subject": [{"name": "demo.whl", "digest": {"sha256": digest}}],
+                "predicate": {"builder": {"id": "https://builder.example"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    missing = audit_provenance([], [], require_provenance=True)
+    unauthenticated = audit_provenance([artifact], [attestation], require_provenance=True)
+    verified = audit_provenance(
+        [artifact],
+        [attestation],
+        require_provenance=True,
+        authenticated_artifacts=[artifact],
+    )
+
+    assert any(finding.kind == "missing-provenance" for finding in missing)
+    assert any(finding.kind == "untrusted-provenance" for finding in unauthenticated)
+    assert verified == ()

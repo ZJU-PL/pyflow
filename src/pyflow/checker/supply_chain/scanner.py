@@ -13,7 +13,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-from .archives import audit_archive_identity, extract_archive, looks_like_archive
+from packaging.requirements import InvalidRequirement, Requirement
+
+from .archives import (
+    audit_archive_identity,
+    audit_archive_payload,
+    extract_archive,
+    looks_like_archive,
+)
 from .distribution_integrity import audit_distribution_record
 from .input_safety import read_error
 from .inventory import (
@@ -50,16 +57,35 @@ __all__ = [
 ]
 
 
+DEFAULT_EXCLUDES: tuple[str, ...] = (
+    ".git",
+    ".hg",
+    ".svn",
+    ".bzr",
+    "__pycache__",
+    ".tox",
+    ".nox",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+)
+
+
 def scan_targets(
     targets: Iterable[str | os.PathLike[str]],
     *,
     recursive: bool = False,
     exclude: Iterable[str] = (),
     limits: ScanLimits | None = None,
+    default_excludes: bool = True,
 ) -> SupplyChainScan:
     """Scan local paths for package metadata, manifests, and archive issues."""
 
-    excluded = tuple(str(item).strip() for item in exclude if str(item).strip())
+    user_excludes = tuple(str(item).strip() for item in exclude if str(item).strip())
+    excluded = (DEFAULT_EXCLUDES + user_excludes) if default_excludes else user_excludes
     effective_limits = limits or ScanLimits()
     validate_limits(effective_limits)
     components: list[dict[str, Any]] = []
@@ -86,7 +112,7 @@ def scan_targets(
             continue
         _scan_path(
             path,
-            recursive=recursive,
+            recursive=recursive or _looks_like_installed_tree(path),
             excluded=excluded,
             components=components,
             findings=findings,
@@ -140,10 +166,13 @@ def scan_targets(
             and prop.get("value")
         }
     )
+    ref_map: dict[str, str] = {}
+    deduped_components = dedupe_components(components, ref_map=ref_map)
+    deduped_dependencies = dedupe_dependencies(dependencies, ref_map=ref_map)
     return SupplyChainScan(
-        components=tuple(dedupe_components(components)),
+        components=tuple(deduped_components),
         findings=final_findings,
-        dependencies=tuple(dedupe_dependencies(dependencies)),
+        dependencies=tuple(deduped_dependencies),
         metadata={
             "targets": target_values,
             "artifacts": sorted(set(artifacts)),
@@ -219,7 +248,7 @@ def _scan_path(
     component_start = len(components)
     scanned_archive = False
     recognized_input = False
-    if name == "METADATA" and path.parent.name.endswith(".dist-info"):
+    if name in {"METADATA", "PKG-INFO"} and _is_metadata_path(path):
         recognized_input = True
         component = component_from_metadata(path, findings, limits)
         if component is not None:
@@ -229,8 +258,9 @@ def _scan_path(
             )
             components.extend(metadata_components)
             dependencies.extend(metadata_edges)
-        findings.extend(audit_distribution_record(path.parent, limits))
-    elif _is_requirements_file(path):
+        if path.parent.name.endswith(".dist-info"):
+            findings.extend(audit_distribution_record(path.parent, limits))
+    elif _is_requirements_file(path, limits):
         recognized_input = True
         components.extend(components_from_requirements(path, findings, limits))
     elif name == "pyproject.toml":
@@ -334,6 +364,7 @@ def _scan_archive(
         )
         _remap_archive_findings(findings, finding_start, destination, path)
         _remap_archive_component_sources(components[component_start:], destination, path)
+        audit_archive_payload(path, destination, findings, limits)
         audit_archive_identity(path, components[component_start:], findings)
 
 
@@ -345,18 +376,16 @@ def _remap_archive_findings(
 ) -> None:
     """Replace temporary extraction paths with stable archive-member locations."""
 
-    destination_text = str(destination)
+    variants = _path_variants(destination)
     for index in range(start, len(findings)):
         finding = findings[index]
-        if not finding.location.startswith(destination_text):
-            continue
-        try:
-            relative = Path(finding.location).relative_to(destination)
-        except ValueError:
+        relative = _relative_to_variants(finding.location, variants)
+        if relative is None:
             continue
         findings[index] = replace(
             finding,
-            location=f"{archive_path}!/{relative.as_posix()}",
+            location=f"{archive_path}!/{relative}",
+            details=_remap_detail_paths(finding.details, variants, archive_path),
         )
 
 
@@ -368,19 +397,69 @@ def _tag_component_sources(components: Iterable[dict[str, Any]], source: str) ->
 def _remap_archive_component_sources(
     components: Iterable[dict[str, Any]], destination: Path, archive_path: Path
 ) -> None:
-    destination_text = str(destination)
+    variants = _path_variants(destination)
     for component in components:
         for prop in component.get("properties", ()):
             if not isinstance(prop, dict) or prop.get("name") != "pyflow:source-file":
                 continue
             value = str(prop.get("value", ""))
-            if not value.startswith(destination_text):
+            relative = _relative_to_variants(value, variants)
+            if relative is None:
                 continue
-            try:
-                relative = Path(value).relative_to(destination)
-            except ValueError:
-                continue
-            prop["value"] = f"{archive_path}!/{relative.as_posix()}"
+            prop["value"] = f"{archive_path}!/{relative}"
+
+
+def _path_variants(path: Path) -> list[tuple[str, Path]]:
+    """Return both lexical and resolved spellings of a temporary directory."""
+
+    variants: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for candidate in (path, path.resolve(strict=False)):
+        text = str(candidate)
+        if text in seen:
+            continue
+        seen.add(text)
+        variants.append((text, candidate))
+    return variants
+
+
+def _relative_to_variants(location: str, variants: list[tuple[str, Path]]) -> str | None:
+    for text, root in variants:
+        if location == text:
+            return "."
+        prefix = text.rstrip(os.sep) + os.sep
+        if not location.startswith(prefix):
+            continue
+        try:
+            return Path(location).relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return None
+
+
+def _remap_detail_paths(
+    details: dict[str, Any],
+    variants: list[tuple[str, Path]],
+    archive_path: Path,
+) -> dict[str, Any]:
+    remapped: dict[str, Any] = {}
+    for key, value in details.items():
+        if isinstance(value, str):
+            relative = _relative_to_variants(value, variants)
+            remapped[key] = f"{archive_path}!/{relative}" if relative is not None else value
+        elif isinstance(value, list):
+            remapped[key] = [
+                (
+                    f"{archive_path}!/{relative}"
+                    if isinstance(item, str)
+                    and (relative := _relative_to_variants(item, variants)) is not None
+                    else item
+                )
+                for item in value
+            ]
+        else:
+            remapped[key] = value
+    return remapped
 
 
 def _iter_directory_files(
@@ -454,12 +533,96 @@ def _audit_filesystem_symlink(
     )
 
 
-def _is_requirements_file(path: Path) -> bool:
+def _is_requirements_file(path: Path, limits: ScanLimits | None = None) -> bool:
     lowered = path.name.lower()
-    return lowered.startswith(("requirements", "constraints")) and path.suffix.lower() in {
-        ".txt",
-        ".in",
-    }
+    if path.suffix.lower() not in {".txt", ".in"}:
+        return False
+    if lowered.startswith(("requirements", "constraints")):
+        return True
+    if lowered.endswith(("-requirements.txt", "_requirements.txt", "-constraints.txt")):
+        return True
+    if path.parent.name.lower() in {"requirements", "reqs", "constraints"}:
+        return True
+    if path.parent.name.lower().endswith((".dist-info", ".egg-info")):
+        return False
+    return limits is not None and _sniff_requirements_content(path, limits)
+
+
+def _sniff_requirements_content(path: Path, limits: ScanLimits) -> bool:
+    """Detect requirement files that do not follow a conventional name."""
+
+    try:
+        if path.stat().st_size > limits.max_manifest_size:
+            return False
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read(min(limits.max_manifest_size, 64 * 1024))
+    except OSError:
+        return False
+
+    checked = 0
+    strong = False
+    for raw_line in text.splitlines()[:200]:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(
+            (
+                "-r ",
+                "--requirement",
+                "-c ",
+                "--constraint",
+                "--index-url",
+                "--extra-index-url",
+                "--find-links",
+                "--trusted-host",
+                "--no-index",
+                "--require-hashes",
+                "--only-binary",
+                "--no-binary",
+                "--pre",
+                "--prefer-binary",
+            )
+        ):
+            checked += 1
+            strong = True
+            continue
+        if line.startswith(("-", "git+", "hg+", "svn+", "bzr+", "http://", "https://")):
+            checked += 1
+            strong = True
+            continue
+        try:
+            requirement = Requirement(line)
+        except InvalidRequirement:
+            return False
+        if not requirement.name:
+            return False
+        checked += 1
+        if requirement.specifier or requirement.url:
+            strong = True
+    # A bare module name is also valid in a conventional requirements file, but
+    # is far too weak a signal to reclassify arbitrary .txt metadata.
+    return checked > 0 and strong
+
+
+def _is_metadata_path(path: Path) -> bool:
+    parent = path.parent.name
+    if path.name == "PKG-INFO":
+        return True
+    return parent.endswith(".dist-info") or parent.endswith(".egg-info")
+
+
+def _looks_like_installed_tree(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if path.name.lower() in {"site-packages", "dist-packages"}:
+        return True
+    try:
+        return any(
+            child.is_dir() and child.name.endswith((".dist-info", ".egg-info"))
+            for child in path.iterdir()
+        )
+    except OSError:
+        return False
 
 
 def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:

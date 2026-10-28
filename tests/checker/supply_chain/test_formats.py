@@ -232,3 +232,55 @@ def test_sarif_reports_source_region_from_finding_details():
     physical_location = document["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
     assert physical_location["artifactLocation"]["uri"] == "requirements.txt"
     assert physical_location["region"] == {"startLine": 2}
+
+
+def test_deterministic_identity_ignores_absolute_paths(tmp_path):
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    (first_root / "requirements.txt").write_text("demo==1.0\n", encoding="utf-8")
+    (second_root / "requirements.txt").write_text("demo==1.0\n", encoding="utf-8")
+
+    first = build_cyclonedx_document(scan_targets([first_root]), deterministic=True)
+    second = build_cyclonedx_document(scan_targets([second_root]), deterministic=True)
+
+    assert first["serialNumber"] == second["serialNumber"]
+    assert first["metadata"]["timestamp"] == second["metadata"]["timestamp"]
+
+
+def test_requirements_output_comments_non_runtime_scopes():
+    scan = SupplyChainScan(
+        components=(
+            {
+                "name": "runtime-dep",
+                "version": "1.0",
+                "properties": [{"name": "pyflow:scope", "value": "runtime"}],
+            },
+            {
+                "name": "dev-dep",
+                "version": "2.0",
+                "properties": [{"name": "pyflow:scope", "value": "optional:dev"}],
+            },
+        ),
+        findings=(),
+    )
+
+    default = build_requirements_text(scan)
+    included = build_requirements_text(scan, include_scopes=True)
+
+    assert "runtime-dep==1.0" in default
+    assert "# dev-dep==2.0  # scope: optional:dev" in default
+    assert "\ndev-dep==2.0\n" in "\n" + included
+
+
+def test_spdx_document_describes_application_root_only(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1.0"\ndependencies=["requests==2.31.0"]\n',
+        encoding="utf-8",
+    )
+
+    document = build_spdx_document(scan_targets([tmp_path / "pyproject.toml"]))
+    by_name = {package["name"]: package for package in document["packages"]}
+
+    assert document["documentDescribes"] == [by_name["demo"]["SPDXID"]]

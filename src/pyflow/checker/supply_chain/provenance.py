@@ -23,16 +23,20 @@ def audit_provenance(
     require_provenance: bool = False,
     require_dsse: bool = False,
     authenticated_attestations: Iterable[str | Path] = (),
+    authenticated_artifacts: Iterable[str | Path] = (),
 ) -> tuple[SupplyChainFinding, ...]:
     """Audit digest-bound provenance without confusing claims with trust.
 
     An attestation is considered authenticated only when its exact local path is
     supplied in ``authenticated_attestations`` after an independent signature
-    verifier (for example Sigstore) has succeeded.  Merely naming a trusted
-    builder inside unsigned JSON never establishes provenance authenticity.
+    verifier (for example Sigstore) has succeeded.  An artifact whose own
+    signature was verified is reported through ``authenticated_artifacts``.
+    Merely naming a trusted builder inside unsigned JSON never establishes
+    provenance authenticity.
     """
 
     findings: list[SupplyChainFinding] = []
+    artifacts = list(artifacts)
     statements: list[tuple[dict[str, Any], Path, bool]] = []
     for value in attestations:
         path = Path(value)
@@ -54,6 +58,16 @@ def audit_provenance(
 
     builders = {str(builder) for builder in trusted_builders if str(builder)}
     authenticated = {Path(value).resolve(strict=False) for value in authenticated_attestations}
+    verified_artifacts = {Path(value).resolve(strict=False) for value in authenticated_artifacts}
+    if require_provenance and not artifacts:
+        findings.append(
+            SupplyChainFinding(
+                kind="missing-provenance",
+                message="Provenance was required, but no package artifacts were scanned",
+                location="command-line",
+                severity="HIGH",
+            )
+        )
     for value in artifacts:
         artifact = Path(value)
         if not artifact.is_file():
@@ -61,14 +75,15 @@ def audit_provenance(
         digest = _sha256_file(artifact)
         digest_matched = False
         authenticated_match = False
+        artifact_authenticated = artifact.resolve(strict=False) in verified_artifacts
         for statement, source, is_dsse in statements:
             subject = _matching_subject(statement, artifact, digest)
             if subject is None:
                 continue
             digest_matched = True
             source_authenticated = source.resolve(strict=False) in authenticated
-            statement_trusted = source_authenticated
-            if not source_authenticated:
+            statement_trusted = source_authenticated or artifact_authenticated
+            if not source_authenticated and not artifact_authenticated:
                 findings.append(
                     SupplyChainFinding(
                         kind="provenance-authenticity-unverified",

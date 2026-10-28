@@ -45,6 +45,7 @@ def audit_distribution_record(
 
     root = dist_info.parent.resolve(strict=False)
     listed: set[Path] = set()
+    record_roots: set[str] = set()
     seen_records: set[str] = set()
     read_findings: list[SupplyChainFinding] = []
     text = read_text(record, read_findings, limits, "distribution RECORD")
@@ -90,6 +91,9 @@ def audit_distribution_record(
             raw_target = root / raw_target
         target = raw_target.resolve(strict=False)
         if not is_relative_to(target, root):
+            if _is_console_script_target(target):
+                # Console scripts are installed next to site-packages by design.
+                continue
             yield SupplyChainFinding(
                 kind="record-external-path",
                 message="Distribution RECORD references a file outside the scan root",
@@ -99,6 +103,9 @@ def audit_distribution_record(
             )
             continue
         listed.add(target)
+        owned_name = _record_owned_name(raw_target, root, dist_info)
+        if owned_name:
+            record_roots.add(owned_name)
         if _contains_symlink(raw_target, root):
             yield SupplyChainFinding(
                 kind="record-symlink",
@@ -133,6 +140,7 @@ def audit_distribution_record(
         if (
             file_path.is_file()
             and not file_path.is_symlink()
+            and not _is_compiled_artifact(file_path)
             and file_path.resolve(strict=False) not in listed
         ):
             yield SupplyChainFinding(
@@ -142,51 +150,88 @@ def audit_distribution_record(
                 severity="LOW",
             )
 
-    # top_level.txt is the packaging ecosystem's explicit ownership hint.  Use
-    # it to inspect package/module roots without claiming unrelated namespace
-    # packages in a shared site-packages directory.
+    # top_level.txt is the packaging ecosystem's explicit ownership hint.  When
+    # it is absent, derive owned roots from the distribution's own RECORD so a
+    # shared site-packages directory still cannot hide injected modules.
+    owned_names: list[str] = []
     top_level = dist_info / "top_level.txt"
     if top_level.is_file() and not top_level.is_symlink():
         top_level_findings: list[SupplyChainFinding] = []
         names = read_text(top_level, top_level_findings, limits, "top-level metadata")
         yield from top_level_findings
         if names is not None:
-            inspected = 0
             for name in names.splitlines():
                 name = name.strip()
-                if not name.isidentifier():
-                    continue
-                candidates = (root / name, root / f"{name}.py")
-                for owned_root in candidates:
-                    if not owned_root.exists() or owned_root.is_symlink():
-                        continue
-                    paths = [owned_root] if owned_root.is_file() else owned_root.rglob("*")
-                    try:
-                        for file_path in paths:
-                            inspected += 1
-                            if inspected > limits.max_scan_entries:
-                                yield SupplyChainFinding(
-                                    kind="record-owned-file-limit",
-                                    message="Installed-file integrity audit exceeded its entry limit",
-                                    location=str(owned_root),
-                                    severity="HIGH",
-                                    details={"limit": limits.max_scan_entries},
-                                )
-                                return
-                            if (
-                                file_path.is_file()
-                                and not file_path.is_symlink()
-                                and file_path.resolve(strict=False) not in listed
-                            ):
-                                yield SupplyChainFinding(
-                                    kind="record-unlisted-owned-file",
-                                    message="Installed package contains a file not listed in RECORD",
-                                    location=str(file_path),
-                                    severity="HIGH",
-                                    details={"top_level": name},
-                                )
-                    except OSError as exc:
-                        yield read_error(owned_root, exc)
+                if name.isidentifier():
+                    owned_names.append(name)
+    owned_names.extend(sorted(record_roots))
+
+    inspected = 0
+    reported: set[Path] = set()
+    for name in dict.fromkeys(owned_names):
+        candidates = (root / name, root / f"{name}.py")
+        for owned_root in candidates:
+            if not owned_root.exists() or owned_root.is_symlink():
+                continue
+            paths = [owned_root] if owned_root.is_file() else owned_root.rglob("*")
+            try:
+                for file_path in paths:
+                    inspected += 1
+                    if inspected > limits.max_scan_entries:
+                        yield SupplyChainFinding(
+                            kind="record-owned-file-limit",
+                            message="Installed-file integrity audit exceeded its entry limit",
+                            location=str(owned_root),
+                            severity="HIGH",
+                            details={"limit": limits.max_scan_entries},
+                        )
+                        return
+                    if (
+                        file_path.is_file()
+                        and not file_path.is_symlink()
+                        and not _is_compiled_artifact(file_path)
+                        and file_path.resolve(strict=False) not in listed
+                        and file_path not in reported
+                    ):
+                        reported.add(file_path)
+                        yield SupplyChainFinding(
+                            kind="record-unlisted-owned-file",
+                            message="Installed package contains a file not listed in RECORD",
+                            location=str(file_path),
+                            severity="HIGH",
+                            details={"top_level": name},
+                        )
+            except OSError as exc:
+                yield read_error(owned_root, exc)
+
+
+def _is_compiled_artifact(path: Path) -> bool:
+    return path.suffix.casefold() in {".pyc", ".pyo"} or "__pycache__" in path.parts
+
+
+def _is_console_script_target(path: Path) -> bool:
+    if path.suffix.casefold() in {".py", ".pyc", ".pyo"}:
+        return False
+    return path.parent.name in {"bin", "Scripts"}
+
+
+def _record_owned_name(raw_target: Path, root: Path, dist_info: Path) -> str | None:
+    try:
+        relative = raw_target.relative_to(root)
+    except ValueError:
+        return None
+    if not relative.parts:
+        return None
+    first = relative.parts[0]
+    if first == dist_info.name or first in {"__pycache__", "bin", "Scripts"}:
+        return None
+    if first.endswith((".dist-info", ".egg-info", ".data")):
+        return None
+    if first.endswith((".pyc", ".pyo")):
+        return None
+    if first.endswith(".py"):
+        return first[: -len(".py")]
+    return first
 
 
 def _audit_record_hash(

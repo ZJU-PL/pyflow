@@ -116,7 +116,14 @@ def audit_vulnerabilities(
                 continue
             if not _affected_version(version_text, affected):
                 continue
-            vex = vex_status_for(vex_statuses, identifier, purl, name)
+            vex = vex_status_for(
+                vex_statuses,
+                identifier,
+                purl,
+                name,
+                aliases=record.get("aliases", ()) or (),
+                version=version_text,
+            )
             if vex and vex.get("status") in {
                 "not-affected",
                 "resolved",
@@ -631,11 +638,13 @@ def _osv_severity(record: dict[str, Any], affected: dict[str, Any]) -> str:
             except (TypeError, ValueError):
                 pass
         if isinstance(raw_score, str):
-            calculated = _cvss_v3_score(raw_score)
+            calculated = _cvss_v3_score(raw_score) or _cvss_v4_score(raw_score)
             if calculated is not None:
                 scores.append(calculated)
     if not scores:
-        return "HIGH"
+        # OSV records frequently omit severity.  Treat that as unknown rather
+        # than escalating every unscored advisory to HIGH.
+        return "MEDIUM"
     score = max(scores)
     if score >= 9.0:
         return "CRITICAL"
@@ -694,6 +703,39 @@ def _cvss_v3_score(vector: str) -> float | None:
         else min(impact + exploitability, 10)
     )
     return math.ceil(total * 10) / 10
+
+
+def _cvss_v4_score(vector: str) -> float | None:
+    """Approximate a CVSS v4 score using the equivalent v3 metric mapping.
+
+    OSV increasingly publishes CVSS v4 vectors.  The v4 base metric set cannot
+    be scored exactly without a full implementation, but mapping the shared
+    exploitability/impact dimensions to v3 keeps severity ordering useful and
+    deterministic instead of ignoring the vector entirely.
+    """
+
+    if not vector.startswith("CVSS:4.0/"):
+        return None
+    metrics: dict[str, str] = {}
+    for part in vector.split("/")[1:]:
+        if ":" in part:
+            key, value = part.split(":", 1)
+            metrics[key] = value
+    required = {"AV", "AC", "PR", "UI", "VC", "VI", "VA", "SC", "SI", "SA"}
+    if not required.issubset(metrics):
+        return None
+    scope_changed = any(metrics[key] in {"L", "H"} for key in ("SC", "SI", "SA"))
+    v3 = "CVSS:3.1/{av}/{ac}/{pr}/{ui}/{s}/{c}/{i}/{a}".format(
+        av=f"AV:{metrics['AV']}" if metrics["AV"] in {"N", "A", "L", "P"} else "AV:N",
+        ac=f"AC:{metrics['AC']}" if metrics["AC"] in {"L", "H"} else "AC:L",
+        pr=f"PR:{metrics['PR']}" if metrics["PR"] in {"N", "L", "H"} else "PR:N",
+        ui="UI:N" if metrics["UI"] == "N" else "UI:R",
+        s="S:C" if scope_changed else "S:U",
+        c=f"C:{metrics['VC']}" if metrics["VC"] in {"N", "L", "H"} else "C:N",
+        i=f"I:{metrics['VI']}" if metrics["VI"] in {"N", "L", "H"} else "I:N",
+        a=f"A:{metrics['VA']}" if metrics["VA"] in {"N", "L", "H"} else "A:N",
+    )
+    return _cvss_v3_score(v3)
 
 
 def _severity_rank(value: str) -> int:

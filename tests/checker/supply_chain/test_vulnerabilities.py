@@ -382,3 +382,64 @@ def test_reachability_uses_distribution_top_level_metadata(tmp_path):
 
     assert not findings
     assert "pkg:pypi/beautifulsoup4@4.0" in reachable
+
+
+def test_vex_alias_and_version_constraints_are_honoured(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("demo==1.0\n", encoding="utf-8")
+    osv = tmp_path / "osv.json"
+    osv.write_text(
+        json.dumps(
+            {
+                "id": "GHSA-ALIAS",
+                "aliases": ["CVE-ALIAS"],
+                "affected": [
+                    {
+                        "package": {"ecosystem": "PyPI", "name": "demo"},
+                        "versions": ["1.0"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    vex = tmp_path / "vex.json"
+
+    def suppress(version):
+        vex.write_text(
+            json.dumps(
+                {
+                    "vulnerabilities": [
+                        {
+                            "id": "CVE-ALIAS",
+                            "affects": [
+                                {
+                                    "ref": "pkg:pypi/demo",
+                                    "versions": [{"version": version}],
+                                }
+                            ],
+                            "analysis": {
+                                "state": "not_affected",
+                                "justification": "code_not_reachable",
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return audit_vulnerabilities(scan_targets([requirements]), [osv], vex_documents=[vex])
+
+    wrong_version = suppress("2.0")
+    matching = suppress("1.0")
+
+    assert any(finding.kind == "known-vulnerability" for finding in wrong_version)
+    assert any(finding.kind == "vulnerability-suppressed-by-vex" for finding in matching)
+
+
+def test_cvss_v4_and_missing_severity_are_handled():
+    from pyflow.checker.supply_chain.vulnerabilities import _cvss_v4_score, _osv_severity
+
+    score = _cvss_v4_score("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N")
+    assert score is not None and score >= 9.0
+    assert _osv_severity({}, {}) == "MEDIUM"

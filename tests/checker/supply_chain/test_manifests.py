@@ -320,3 +320,301 @@ def test_equivalent_pep440_root_versions_preserve_project_license(tmp_path):
     scan = scan_targets([tmp_path])
     assert all(component.get("licenses") for component in scan.components)
     assert all(component["type"] == "application" for component in scan.components)
+
+
+def test_requirements_whole_line_comments_not_invalid_requirements(tmp_path):
+    req_file = tmp_path / "requirements.txt"
+    req_file.write_text(
+        "# Header comment\n"
+        "   # Indented comment\n"
+        "# Comment ending with backslash \\\n"
+        "click==8.1.7 # inline comment\n"
+        "# Middle comment\n"
+        "requests>=2.28.0\n"
+        "# Trailing comment\n",
+        encoding="utf-8",
+    )
+    scan = scan_targets([req_file])
+    kinds = {finding.kind for finding in scan.findings}
+    assert "invalid-requirement" not in kinds
+    assert {c["name"] for c in scan.components} == {"click", "requests"}
+
+
+def test_setup_py_ast_expression_resolution(tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "numpy>=1.20\n# comment\npandas>=2.0\n", encoding="utf-8"
+    )
+    setup = tmp_path / "setup.py"
+    setup.write_text(
+        """
+import os
+from pathlib import Path
+from setuptools import setup
+
+_deps = ["click>=8.0", "pyyaml>=6.0"]
+core_reqs = [_deps[0]]
+extra_reqs = ["pydantic>=2.0"]
+all_reqs = core_reqs + extra_reqs
+
+def load_file_requirements():
+    return open("requirements.txt").readlines()
+
+setup(
+    name="my-pkg",
+    version="0.1.0",
+    install_requires=list(all_reqs),
+    tests_require=load_file_requirements(),
+)
+""",
+        encoding="utf-8",
+    )
+    scan = scan_targets([setup])
+    assert {c["name"] for c in scan.components} == {
+        "click",
+        "my-pkg",
+        "pydantic",
+        "numpy",
+        "pandas",
+    }
+    assert not any(f.kind == "invalid-setup-script" for f in scan.findings)
+
+
+def test_reconcile_abstract_pyproject_and_concrete_lockfile(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "my-service"
+version = "1.0.0"
+dependencies = [
+    "click>=8.0",
+    "flask>=3.0",
+]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "uv.lock").write_text(
+        """version = 1
+[[package]]
+name = "click"
+version = "8.4.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "flask"
+version = "3.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+]
+""",
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path], recursive=True)
+    assert len(scan.components) == 3
+    by_name = {c["name"]: c for c in scan.components}
+    assert by_name["click"]["version"] == "8.4.0"
+    assert by_name["click"]["purl"] == "pkg:pypi/click@8.4.0"
+    assert by_name["flask"]["version"] == "3.2.0"
+    assert by_name["my-service"]["type"] == "application"
+
+    assert any(
+        dep["ref"] == "pkg:pypi/flask@3.2.0" and dep["dependsOn"] == ["pkg:pypi/click@8.4.0"]
+        for dep in scan.dependencies
+    )
+
+    vuln_db = tmp_path / "osv.json"
+    vuln_db.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "VULN-CLICK-1",
+                    "affected": [
+                        {
+                            "package": {"ecosystem": "PyPI", "name": "click"},
+                            "ranges": [
+                                {
+                                    "type": "ECOSYSTEM",
+                                    "events": [{"introduced": "0"}, {"fixed": "99.0"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    vuln_findings = audit_vulnerabilities(scan, [vuln_db])
+    assert any(
+        f.kind == "known-vulnerability" and f.details.get("component") == "click"
+        for f in vuln_findings
+    )
+    assert not any(
+        f.kind == "vulnerability-scan-unresolved-version" and f.details.get("component") == "click"
+        for f in vuln_findings
+    )
+
+
+def test_abstract_pyproject_and_workspace_root_editable_no_spurious_findings(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "clean-lib"
+version = "0.1.0"
+dependencies = [
+    "requests>=2.0.0",
+]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "uv.lock").write_text(
+        """version = 1
+[[package]]
+name = "clean-lib"
+version = "0.1.0"
+source = { editable = "." }
+""",
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path])
+    kinds = {f.kind for f in scan.findings}
+    assert "unpinned-requirement" not in kinds
+    assert "requirement-missing-hash" not in kinds
+    assert "local-path-requirement" not in kinds
+    assert scan.metadata["inventoryComplete"] is True
+
+
+def test_setup_py_inventories_root_and_extras_require(tmp_path):
+    setup = tmp_path / "setup.py"
+    setup.write_text(
+        """
+from setuptools import setup
+
+EXTRAS = {"dev": ["pytest>=7"], "docs": ["sphinx"]}
+
+setup(
+    name="demo",
+    version="1.0",
+    license="MIT",
+    install_requires=["requests>=2"],
+    extras_require=EXTRAS,
+)
+""",
+        encoding="utf-8",
+    )
+
+    scan = scan_targets([setup])
+    by_name = {component["name"]: component for component in scan.components}
+
+    assert by_name["demo"]["type"] == "application"
+    assert by_name["demo"]["licenses"] == [{"license": {"id": "MIT"}}]
+    pytest_properties = {prop["value"] for prop in by_name["pytest"]["properties"]}
+    assert {"optional:dev", 'extra == "dev"'} <= pytest_properties
+
+
+def test_setup_script_distinguishes_build_tools_from_downloaders(tmp_path):
+    setup = tmp_path / "setup.py"
+    setup.write_text(
+        "import subprocess\n"
+        "subprocess.run(['git', 'describe'])\n"
+        "subprocess.run(['curl', 'https://example.invalid'])\n"
+        "setup(name='demo')\n",
+        encoding="utf-8",
+    )
+
+    findings = [
+        finding
+        for finding in scan_targets([setup]).findings
+        if finding.kind == "install-script-dangerous-behavior"
+    ]
+
+    assert {finding.severity for finding in findings} == {"MEDIUM", "HIGH"}
+
+
+def test_pyproject_type_confusion_is_reported_without_crashing(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+dependencies = "requests>=2"
+
+[build-system]
+requires = "setuptools"
+
+[tool]
+poetry = "not-a-table"
+""",
+        encoding="utf-8",
+    )
+
+    scan = scan_targets([tmp_path / "pyproject.toml"])
+
+    assert any(finding.kind == "invalid-pyproject" for finding in scan.findings)
+    assert "setuptools" in {component["name"] for component in scan.components}
+
+
+def test_lockfile_type_confusion_is_reported_without_crashing(tmp_path):
+    (tmp_path / "Pipfile.lock").write_text("[]", encoding="utf-8")
+    (tmp_path / "pylock.toml").write_text(
+        'lock-version = "1.0"\n[[packages]]\nname = "demo"\nversion = "1.0"\nvcs = "git"\n',
+        encoding="utf-8",
+    )
+
+    scan = scan_targets([tmp_path / "Pipfile.lock", tmp_path / "pylock.toml"])
+
+    kinds = {finding.kind for finding in scan.findings}
+    assert "invalid-lockfile" in kinds
+    assert "invalid-pylock" in kinds
+
+
+def test_vcs_path_revision_counts_as_pinned(tmp_path):
+    revision = "a" * 40
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        f"git+https://github.com/example/demo@{revision}#egg=demo\n",
+        encoding="utf-8",
+    )
+
+    scan = scan_targets([requirements])
+
+    assert not any(finding.kind == "unpinned-vcs-dependency" for finding in scan.findings)
+    remote = next(finding for finding in scan.findings if finding.kind == "remote-requirement")
+    assert remote.severity == "MEDIUM"
+
+
+def test_requirement_content_sniff_ignores_distribution_text_metadata(tmp_path):
+    (tmp_path / "deps.txt").write_text("numpy==1.0\n", encoding="utf-8")
+    (tmp_path / "README.txt").write_text("This is prose, not a requirement.\n", encoding="utf-8")
+    dist_info = tmp_path / "demo-1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text("Name: demo\nVersion: 1.0\n", encoding="utf-8")
+    (dist_info / "top_level.txt").write_text("demo\n", encoding="utf-8")
+
+    scan = scan_targets([tmp_path], recursive=True)
+
+    assert "numpy" in {component["name"] for component in scan.components}
+    assert not any(finding.kind == "unpinned-requirement" for finding in scan.findings)
+
+
+def test_default_excludes_can_be_disabled(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "requirements.txt").write_text("hidden==1\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("visible==1\n", encoding="utf-8")
+
+    default_scan = scan_targets([tmp_path], recursive=True)
+    full_scan = scan_targets([tmp_path], recursive=True, default_excludes=False)
+
+    assert {component["name"] for component in default_scan.components} == {"visible"}
+    assert {component["name"] for component in full_scan.components} == {"hidden", "visible"}
+
+
+def test_pkg_info_and_installed_tree_are_discovered(tmp_path):
+    site_packages = tmp_path / "site-packages"
+    egg_info = site_packages / "demo.egg-info"
+    egg_info.mkdir(parents=True)
+    (egg_info / "PKG-INFO").write_text("Name: demo\nVersion: 1.0\n", encoding="utf-8")
+
+    shallow = scan_targets([site_packages], recursive=False)
+
+    assert {component["name"] for component in shallow.components} == {"demo"}
+    assert not any(finding.kind == "missing-record" for finding in shallow.findings)

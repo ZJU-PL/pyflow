@@ -95,3 +95,27 @@ def test_missing_license_is_still_reported_for_distribution_metadata(tmp_path):
     _write_record(dist, [dist / "METADATA"])
     findings = audit_license_policy(scan_targets([tmp_path], recursive=True))
     assert any(f.kind == "license-not-declared" for f in findings)
+
+
+def test_pyproject_spdx_expression_and_license_file_are_understood(tmp_path):
+    expression_root = tmp_path / "expression"
+    expression_root.mkdir()
+    (expression_root / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1.0"\nlicense="MIT OR GPL-3.0-only"\n',
+        encoding="utf-8",
+    )
+    file_root = tmp_path / "file"
+    file_root.mkdir()
+    (file_root / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1.0"\nlicense={file="LICENSE"}\n',
+        encoding="utf-8",
+    )
+
+    expression_findings = audit_license_policy(
+        scan_targets([expression_root / "pyproject.toml"]),
+        allowed_licenses=["MIT"],
+    )
+    file_findings = audit_license_policy(scan_targets([file_root / "pyproject.toml"]))
+
+    assert not any(finding.kind == "license-not-allowed" for finding in expression_findings)
+    assert not any(finding.kind == "license-not-declared" for finding in file_findings)

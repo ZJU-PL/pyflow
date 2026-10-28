@@ -190,3 +190,74 @@ def test_record_audit_uses_top_level_metadata_for_owned_files(tmp_path):
         and Path(finding.location).parts[-2:] == ("demo", "injected.py")
         for finding in findings
     )
+
+
+def test_archive_path_conflicts_and_wheel_payload_are_reported(tmp_path):
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("demo/__init__.py", "x = 1\n")
+        archive.writestr("demo/hook.pth", "import os\n")
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr("demo-1.0.dist-info/RECORD", "demo/__init__.py,,\n")
+        archive.writestr("conflict", "file\n")
+        archive.writestr("conflict/nested.py", "x = 1\n")
+
+    kinds = {finding.kind for finding in scan_targets([wheel], recursive=True).findings}
+
+    assert {
+        "archive-path-conflict",
+        "archive-pth-file",
+        "archive-record-unlisted-file",
+    } <= kinds
+
+
+def test_wheel_with_multiple_or_mismatched_dist_info_is_reported(tmp_path):
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("one-1.0.dist-info/METADATA", "Name: one\nVersion: 1.0\n")
+        archive.writestr("two-1.0.dist-info/METADATA", "Name: two\nVersion: 1.0\n")
+        archive.writestr("three-9.0.dist-info/METADATA", "Name: three\nVersion: 1.0\n")
+
+    kinds = {finding.kind for finding in scan_targets([wheel], recursive=True).findings}
+
+    assert "archive-multiple-dist-info" in kinds
+    assert "archive-dist-info-mismatch" in kinds
+
+
+def test_record_audit_ignores_bytecode_and_console_scripts_and_derives_roots(tmp_path):
+    package = tmp_path / "demo"
+    package.mkdir()
+    listed = package / "__init__.py"
+    listed.write_text("", encoding="utf-8")
+    unlisted = package / "injected.py"
+    unlisted.write_text("payload = True\n", encoding="utf-8")
+    cache = package / "__pycache__"
+    cache.mkdir()
+    (cache / "demo.cpython-313.pyc").write_text("", encoding="utf-8")
+    scripts = tmp_path / "bin"
+    scripts.mkdir()
+    (scripts / "demo").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    dist_info = tmp_path / "demo-1.0.dist-info"
+    dist_info.mkdir()
+    metadata = dist_info / "METADATA"
+    metadata.write_text("Name: demo\nVersion: 1.0\n", encoding="utf-8")
+    rows = [
+        [str(listed.relative_to(tmp_path)), "", ""],
+        ["../../../bin/demo", "", ""],
+        [str(metadata.relative_to(tmp_path)), "", ""],
+        [str((dist_info / "RECORD").relative_to(tmp_path)), "", ""],
+    ]
+    with (dist_info / "RECORD").open("w", encoding="utf-8", newline="") as handle:
+        csv.writer(handle).writerows(rows)
+
+    findings = scan_targets([tmp_path], recursive=True).findings
+    kinds = {finding.kind for finding in findings}
+
+    assert "record-external-path" not in kinds
+    assert not any("__pycache__" in finding.location for finding in findings)
+    assert any(
+        finding.kind == "record-unlisted-owned-file"
+        and Path(finding.location).name == "injected.py"
+        for finding in findings
+    )

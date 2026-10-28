@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any, Iterable, Mapping
 
@@ -47,7 +48,9 @@ def resolve_environment(
                 )
                 matched = True
                 break
-            candidate_extras = selected_extras or ("",)
+            candidate_extras = selected_extras or tuple(
+                dict.fromkeys(("", *_mentioned_extras(marker_text)))
+            )
             if any(marker.evaluate({**target, "extra": extra}) for extra in candidate_extras):
                 matched = True
                 break
@@ -78,6 +81,21 @@ def resolve_environment(
         dependencies=tuple(dependencies),
         metadata=metadata,
     )
+
+
+_EXTRA_MARKER_RE = re.compile(r"""extra\s*(?:==|!=|in|not\s+in)\s*['"]([^'"]+)['"]""")
+
+
+def _mentioned_extras(marker_text: str) -> tuple[str, ...]:
+    """Extract extras named by a marker without selecting them implicitly.
+
+    Optional and development dependencies carry ``extra == "name"`` markers.
+    When the caller did not select extras, those entries are still part of the
+    declared inventory; platform and Python-version conditions are evaluated
+    normally while the extra clause is satisfied by its own declared name.
+    """
+
+    return tuple(dict.fromkeys(_EXTRA_MARKER_RE.findall(marker_text)))
 
 
 def _property_values(component: Mapping[str, Any], name: str) -> list[str]:

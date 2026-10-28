@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import zipfile
 from types import SimpleNamespace
 
@@ -452,3 +454,81 @@ def test_vex_and_reachability_warn_without_osv_database(tmp_path, capsys):
 
     assert run_supply_chain(SimpleNamespace(**common, reachability=True)) == 0
     assert "--reachability has no effect without --osv-database" in capsys.readouterr().err
+
+
+def test_cli_resolves_markers_without_explicit_environment(tmp_path, capsys):
+    (tmp_path / "requirements.txt").write_text(
+        'old==1; python_version < "3.8"\nnew==1; python_version >= "3.8"\n',
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(
+        supply_chain_command="sbom",
+        targets=[str(tmp_path)],
+        recursive=True,
+        exclude="",
+        output=None,
+        format="requirements",
+        allow_incomplete=False,
+        exit_code_policy="report",
+    )
+
+    assert run_supply_chain(args) == 0
+    output = capsys.readouterr().out
+    assert "new==1" in output
+    assert "old==1" not in output
+
+
+def test_cli_can_disable_default_excludes(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "requirements.txt").write_text("hidden==1\n", encoding="utf-8")
+    output = tmp_path / "sbom.json"
+    args = SimpleNamespace(
+        supply_chain_command="sbom",
+        targets=[str(tmp_path)],
+        recursive=True,
+        exclude="",
+        output=output,
+        format="cyclonedx-json",
+        allow_incomplete=False,
+        exit_code_policy="report",
+        no_default_excludes=True,
+    )
+
+    assert run_supply_chain(args) == 0
+    assert "hidden" in output.read_text(encoding="utf-8")
+
+
+def test_cli_writes_to_dev_null_without_replacing_the_device(tmp_path):
+    (tmp_path / "requirements.txt").write_text("demo==1.0\n", encoding="utf-8")
+    args = SimpleNamespace(
+        supply_chain_command="sbom",
+        targets=[str(tmp_path)],
+        recursive=True,
+        exclude="",
+        output="/dev/null",
+        format="cyclonedx-json",
+        allow_incomplete=True,
+        exit_code_policy="report",
+    )
+
+    assert run_supply_chain(args) == 0
+    assert os.path.exists("/dev/null")
+    assert stat.S_ISCHR(os.stat("/dev/null").st_mode)
+
+
+def test_cli_require_provenance_without_archives_fails(tmp_path, capsys):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    args = SimpleNamespace(
+        supply_chain_command="audit",
+        targets=[str(empty)],
+        recursive=True,
+        exclude="",
+        output=None,
+        format="text",
+        fail_on="high",
+        require_provenance=True,
+    )
+
+    assert run_supply_chain(args) == 1
+    assert "missing-provenance" in capsys.readouterr().out

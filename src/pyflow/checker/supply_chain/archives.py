@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 import stat
 import tarfile
 import unicodedata
 import zipfile
+from email.parser import Parser
 from pathlib import Path, PurePosixPath
 from typing import Any, IO, Iterable
 
@@ -16,6 +18,7 @@ from packaging.utils import (
     parse_sdist_filename,
     parse_wheel_filename,
 )
+from packaging.version import InvalidVersion, Version
 
 from .models import ScanLimits, SupplyChainFinding
 
@@ -174,7 +177,15 @@ def _extract_zip(
                     )
                     continue
 
-                target = destination.joinpath(*PurePosixPath(normalized).parts)
+                target = _prepare_target(
+                    destination,
+                    normalized,
+                    info.is_dir(),
+                    path,
+                    findings,
+                )
+                if target is None:
+                    continue
                 if info.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -285,7 +296,15 @@ def _extract_tar(
                     )
                     return False
 
-                target = destination.joinpath(*PurePosixPath(normalized).parts)
+                target = _prepare_target(
+                    destination,
+                    normalized,
+                    member.isdir(),
+                    path,
+                    findings,
+                )
+                if target is None:
+                    continue
                 if member.isdir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -316,6 +335,59 @@ def _extract_tar(
             )
         )
         return False
+
+
+def _prepare_target(
+    destination: Path,
+    normalized: str,
+    is_dir: bool,
+    archive_path: Path,
+    findings: list[SupplyChainFinding],
+) -> Path | None:
+    """Reject file/directory conflicts before writing an archive member."""
+
+    target = destination.joinpath(*PurePosixPath(normalized).parts)
+    try:
+        relative = target.relative_to(destination)
+    except ValueError:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-invalid-path",
+                message="Archive entry escapes the extraction directory",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"entry": normalized},
+            )
+        )
+        return None
+    current = destination
+    for part in relative.parts:
+        current = current / part
+        if current == target:
+            break
+        if current.exists() and not current.is_dir():
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-path-conflict",
+                    message="Archive entry is nested under an existing regular file",
+                    location=str(archive_path),
+                    severity="HIGH",
+                    details={"entry": normalized, "conflicts_with": current.name},
+                )
+            )
+            return None
+    if target.exists() and target.is_dir() != is_dir:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-path-conflict",
+                message="Archive entry changes an existing path between file and directory",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"entry": normalized},
+            )
+        )
+        return None
+    return target
 
 
 def _archive_entry_issue(
@@ -459,6 +531,211 @@ def _copy_limited(source: IO[bytes], output: IO[bytes], expected_size: int) -> N
         raise OSError("archive member exceeded its declared size")
 
 
+def audit_archive_payload(
+    archive_path: Path,
+    destination: Path,
+    findings: list[SupplyChainFinding],
+    limits: ScanLimits,
+) -> None:
+    """Inspect extracted wheel payload for interpreter hooks and RECORD drift."""
+
+    try:
+        entries = list(destination.rglob("*"))
+    except OSError as exc:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-read-error",
+                message="Could not inspect extracted archive payload",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"error": str(exc)},
+            )
+        )
+        return
+    if len(entries) > limits.max_scan_entries:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-member-limit",
+                message="Extracted archive payload exceeds the inspection limit",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"limit": limits.max_scan_entries},
+            )
+        )
+        entries = entries[: limits.max_scan_entries]
+
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        if entry.suffix.lower() == ".pth":
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-pth-file",
+                    message="Archive installs a .pth file that runs code at interpreter startup",
+                    location=_member_location(archive_path, destination, entry),
+                    severity="HIGH",
+                )
+            )
+
+    try:
+        dist_infos = sorted(
+            child
+            for child in destination.iterdir()
+            if child.is_dir() and child.name.endswith(".dist-info")
+        )
+    except OSError as exc:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-read-error",
+                message="Could not inspect archive distribution metadata",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"error": str(exc)},
+            )
+        )
+        return
+    if len(dist_infos) > 1:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-multiple-dist-info",
+                message="Wheel contains more than one distribution metadata directory",
+                location=str(archive_path),
+                severity="HIGH",
+                details={"dist_info": [item.name for item in dist_infos]},
+            )
+        )
+    if dist_infos and (destination / "setup.py").is_file():
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-unexpected-setup-script",
+                message="Wheel payload contains an installation script",
+                location=_member_location(archive_path, destination, destination / "setup.py"),
+                severity="HIGH",
+            )
+        )
+    for dist_info in dist_infos:
+        _audit_wheel_metadata(archive_path, destination, dist_info, entries, findings)
+
+
+def _audit_wheel_metadata(
+    archive_path: Path,
+    destination: Path,
+    dist_info: Path,
+    entries: list[Path],
+    findings: list[SupplyChainFinding],
+) -> None:
+    metadata = dist_info / "METADATA"
+    if metadata.is_file() and not metadata.is_symlink():
+        try:
+            data = Parser().parsestr(metadata.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            data = None
+        if data is not None:
+            name = str(data.get("Name", "")).strip()
+            version = str(data.get("Version", "")).strip()
+            stem = dist_info.name[: -len(".dist-info")]
+            directory_name, separator, directory_version = stem.rpartition("-")
+            if separator and name:
+                if canonicalize_name(directory_name) != canonicalize_name(name):
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="archive-dist-info-mismatch",
+                            message="Distribution directory and METADATA disagree on the name",
+                            location=_member_location(archive_path, destination, metadata),
+                            severity="HIGH",
+                            details={"directory": directory_name, "metadata": name},
+                        )
+                    )
+                if version and not _same_version(directory_version, version):
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="archive-dist-info-mismatch",
+                            message="Distribution directory and METADATA disagree on the version",
+                            location=_member_location(archive_path, destination, metadata),
+                            severity="HIGH",
+                            details={"directory": directory_version, "metadata": version},
+                        )
+                    )
+
+    record = dist_info / "RECORD"
+    if not record.is_file() or record.is_symlink():
+        return
+    try:
+        rows = list(csv.reader(record.read_text(encoding="utf-8", errors="replace").splitlines()))
+    except (OSError, csv.Error):
+        return
+    listed: set[str] = set()
+    for parts in rows:
+        if len(parts) != 3 or not parts[0]:
+            continue
+        relative = PurePosixPath(parts[0].replace("\\", "/"))
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        normalized = relative.as_posix()
+        listed.add(normalized)
+        target = destination.joinpath(*relative.parts)
+        if not target.is_file() and not target.is_symlink():
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-record-missing-file",
+                    message="Wheel RECORD lists a file that is not present in the payload",
+                    location=str(archive_path),
+                    severity="HIGH",
+                    details={"record": normalized},
+                )
+            )
+
+    for entry in entries:
+        if entry.is_dir() or entry.is_symlink():
+            continue
+        try:
+            relative = entry.relative_to(destination)
+        except ValueError:
+            continue
+        normalized = relative.as_posix()
+        if normalized in listed:
+            continue
+        if normalized.endswith((".pyc", ".pyo")) or "__pycache__" in relative.parts:
+            continue
+        if relative.parts and relative.parts[0] == dist_info.name:
+            continue
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-record-unlisted-file",
+                message="Wheel payload contains a file not listed in RECORD",
+                location=_member_location(archive_path, destination, entry),
+                severity="HIGH",
+                details={"record": normalized},
+            )
+        )
+
+
+def _member_location(archive_path: Path, destination: Path, member: Path) -> str:
+    try:
+        relative = member.relative_to(destination).as_posix()
+    except ValueError:
+        return str(member)
+    return f"{archive_path}!/{relative}"
+
+
+def _same_version(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    try:
+        return Version(left) == Version(right)
+    except InvalidVersion:
+        return False
+
+
+def _is_metadata_component(component: dict[str, Any]) -> bool:
+    return any(
+        isinstance(prop, dict)
+        and prop.get("name") == "pyflow:metadata-source"
+        and str(prop.get("value", "")).lower() == "true"
+        for prop in component.get("properties", ())
+    )
+
+
 def audit_archive_identity(
     path: Path,
     components: Iterable[dict[str, Any]],
@@ -486,7 +763,9 @@ def audit_archive_identity(
 
     expected_name = canonicalize_name(parsed_name)
     expected_version = str(parsed_version)
-    candidates = list(components)
+    candidates = [item for item in components if _is_metadata_component(item)]
+    if not candidates:
+        candidates = [item for item in components if item.get("type") == "application"]
     if not candidates:
         findings.append(
             SupplyChainFinding(

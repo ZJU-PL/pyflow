@@ -28,7 +28,7 @@ def build_cyclonedx_document(
         component.setdefault("bom-ref", component.get("purl") or _component_ref(component))
         components.append(component)
 
-    identity = _document_identity(scan)
+    identity = _document_identity(scan, deterministic=deterministic)
     document: dict[str, Any] = {
         "$schema": "https://cyclonedx.org/schema/bom-1.7.schema.json",
         "bomFormat": "CycloneDX",
@@ -70,6 +70,7 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
 
     packages: list[dict[str, Any]] = []
     spdx_by_ref: dict[str, str] = {}
+    described_ids: list[str] = []
     for i, comp in enumerate(_complete_component_set(scan)):
         name = comp.get("name", "")
         version = comp.get("version")
@@ -109,6 +110,8 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
         if sources:
             package["sourceInfo"] = "Discovered from: " + ", ".join(sources)
         packages.append(package)
+        if comp.get("type") == "application":
+            described_ids.append(spdx_id)
 
     relationships: list[dict[str, str]] = []
     for dependency in scan.dependencies:
@@ -126,7 +129,9 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
                     }
                 )
 
-    document_id = _document_uuid(_document_identity(scan), deterministic)
+    document_id = _document_uuid(
+        _document_identity(scan, deterministic=deterministic), deterministic
+    )
     document: dict[str, Any] = {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
@@ -149,7 +154,7 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
         "packages": packages,
     }
     if packages:
-        document["documentDescribes"] = [package["SPDXID"] for package in packages]
+        document["documentDescribes"] = described_ids or [package["SPDXID"] for package in packages]
     if relationships:
         document["relationships"] = relationships
     validate_spdx_document(document)
@@ -196,8 +201,14 @@ def build_sarif_document(scan: SupplyChainScan) -> dict[str, Any]:
     )
 
 
-def build_requirements_text(scan: SupplyChainScan) -> str:
-    """Format components without discarding markers, extras, or artifact hashes."""
+def build_requirements_text(scan: SupplyChainScan, *, include_scopes: bool = False) -> str:
+    """Format components without discarding markers, extras, or artifact hashes.
+
+    Runtime dependencies are emitted as active requirement lines.  Build,
+    optional, test, and development scopes are commented out unless
+    ``include_scopes`` is requested, because installing them by default would
+    change the runtime environment.
+    """
 
     lines: list[str] = []
     for comp in scan.components:
@@ -228,6 +239,9 @@ def build_requirements_text(scan: SupplyChainScan) -> str:
                 hashes.append(f"--hash={algorithm}:{content}")
         if hashes:
             requirement += " " + " ".join(sorted(hashes))
+        scope = properties.get("pyflow:scope", "")
+        if not include_scopes and scope not in {"", "runtime", "default"}:
+            requirement = f"# {requirement}  # scope: {scope}"
         lines.append(requirement)
     return "\n".join(lines) + "\n" if lines else ""
 
@@ -289,18 +303,65 @@ def _spdx_checksums(component: dict[str, Any]) -> list[dict[str, str]]:
     return checksums
 
 
-def _document_identity(scan: SupplyChainScan) -> str:
+def _document_identity(scan: SupplyChainScan, *, deterministic: bool = False) -> str:
+    components: Any = scan.components
+    dependencies: Any = scan.dependencies
+    metadata: Any = scan.metadata
+    if deterministic:
+        components = sorted(
+            (_stable_component(component) for component in scan.components),
+            key=lambda component: (
+                str(component.get("purl") or ""),
+                str(component.get("bom-ref") or ""),
+                str(component.get("name") or ""),
+            ),
+        )
+        dependencies = sorted(
+            (
+                {
+                    "ref": str(dependency.get("ref", "")),
+                    "dependsOn": sorted(
+                        str(reference) for reference in dependency.get("dependsOn", ())
+                    ),
+                }
+                for dependency in scan.dependencies
+            ),
+            key=lambda dependency: dependency["ref"],
+        )
+        metadata = {
+            "inventoryComplete": bool(scan.metadata.get("inventoryComplete", True)),
+            "inventoryLimitations": sorted(
+                str(value) for value in scan.metadata.get("inventoryLimitations", ())
+            ),
+        }
     content = json.dumps(
         {
-            "components": scan.components,
-            "dependencies": scan.dependencies,
-            "metadata": scan.metadata,
+            "components": components,
+            "dependencies": dependencies,
+            "metadata": metadata,
         },
         sort_keys=True,
         separators=(",", ":"),
         default=str,
     )
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _stable_component(component: dict[str, Any]) -> dict[str, Any]:
+    """Strip machine-local paths so deterministic SBOMs stay reproducible."""
+
+    stable = deepcopy(component)
+    properties = [
+        item
+        for item in stable.get("properties", ())
+        if isinstance(item, dict) and item.get("name") != "pyflow:source-file"
+    ]
+    properties.sort(key=lambda item: (str(item.get("name", "")), str(item.get("value", ""))))
+    if properties:
+        stable["properties"] = properties
+    else:
+        stable.pop("properties", None)
+    return stable
 
 
 def _document_uuid(identity: str, deterministic: bool) -> uuid.UUID:
