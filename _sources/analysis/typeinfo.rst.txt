@@ -77,25 +77,36 @@ Source inference models parameterized generic constructors, receiver-bound
 values currently project to their underlying type rather than a distinct nominal
 type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
 and function/class type parameters. ParamSpec, variadic type parameters, and
-recursive alias expansion are not fully modeled.
+recursive alias expansion are not fully modeled. Module-level PEP 484 and 613
+aliases, including ``Name: TypeAlias = ...``, are also resolved.
 
 Class constants and enum members are recorded. Class-style ``TypedDict``
-declarations support literal key validation (including required and optional
-keys) and key-specific indexing. Class-style ``NamedTuple`` declarations support
-field access, indexing, and unpacking. Protocol compatibility checks declared
+declarations support key validation (including required and optional keys) and
+key-specific indexing. Dictionary key layouts are propagated through variables,
+returns, and calls so helper-returned mappings can be checked structurally.
+Class-style ``NamedTuple`` declarations support field access, indexing, and
+unpacking. Protocol compatibility checks declared
 attributes and method signatures structurally; dynamic attributes and the full
 typing specification are outside this model.
 
 Calls validate supplied arguments against parameter annotations, including
-variadic arguments. Explicit return annotations take precedence over identity
-return specialization. Incompatibilities produce ``annotation-mismatch`` warnings,
-or errors with ``InferenceOptions(strict_annotations=True)``. Inferred numeric
+variadic arguments. Static methods are called without an injected receiver;
+class methods receive the class, and instance methods receive the instance.
+Fresh list, set, and dictionary literals permit their element types to widen to
+an annotated container type. Existing mutable containers retain invariant
+generic checking. Explicit return annotations take precedence over identity
+return specialization, and recursive return structures are widened at the
+configured type-depth limit so recursive summaries can converge.
+Incompatibilities produce ``annotation-mismatch`` warnings, or errors with
+``InferenceOptions(strict_annotations=True)``. Inferred numeric
 unions preserve runtime alternatives such as ``int | float`` even though numeric
 assignment compatibility admits ``int`` where ``float`` is expected.
 
 ``contextlib.contextmanager`` and ``asynccontextmanager`` wrappers bind the yielded
 type in ``with`` and ``async with``. Asynchronous iteration extracts element types
-from async iterable, iterator, and generator annotations.
+from async iterable, iterator, and generator annotations. Built-in annotation
+lookup resolves common types from ``itertools``, ``pathlib``, ``datetime``,
+``re``, ``uuid``, ``types``, and ``contextvars`` without importing analysed code.
 
 ``TypeInfoService`` isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through ``diagnostics()`` and

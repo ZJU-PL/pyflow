@@ -212,22 +212,33 @@ Unresolved documented alternatives are not reduced to a definite partial union.<
 values currently project to their underlying type rather than a distinct nominal
 type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
 and function/class type parameters. ParamSpec, variadic type parameters, and
-recursive alias expansion are not fully modeled.</p>
+recursive alias expansion are not fully modeled. Module-level PEP 484 and 613
+aliases, including <code class="docutils literal notranslate"><span class="pre">Name:</span> <span class="pre">TypeAlias</span> <span class="pre">=</span> <span class="pre">...</span></code>, are also resolved.</p>
 <p>Class constants and enum members are recorded. Class-style <code class="docutils literal notranslate"><span class="pre">TypedDict</span></code>
-declarations support literal key validation (including required and optional
-keys) and key-specific indexing. Class-style <code class="docutils literal notranslate"><span class="pre">NamedTuple</span></code> declarations support
-field access, indexing, and unpacking. Protocol compatibility checks declared
+declarations support key validation (including required and optional keys) and
+key-specific indexing. Dictionary key layouts are propagated through variables,
+returns, and calls so helper-returned mappings can be checked structurally.
+Class-style <code class="docutils literal notranslate"><span class="pre">NamedTuple</span></code> declarations support field access, indexing, and
+unpacking. Protocol compatibility checks declared
 attributes and method signatures structurally; dynamic attributes and the full
 typing specification are outside this model.</p>
 <p>Calls validate supplied arguments against parameter annotations, including
-variadic arguments. Explicit return annotations take precedence over identity
-return specialization. Incompatibilities produce <code class="docutils literal notranslate"><span class="pre">annotation-mismatch</span></code> warnings,
-or errors with <code class="docutils literal notranslate"><span class="pre">InferenceOptions(strict_annotations=True)</span></code>. Inferred numeric
+variadic arguments. Static methods are called without an injected receiver;
+class methods receive the class, and instance methods receive the instance.
+Fresh list, set, and dictionary literals permit their element types to widen to
+an annotated container type. Existing mutable containers retain invariant
+generic checking. Explicit return annotations take precedence over identity
+return specialization, and recursive return structures are widened at the
+configured type-depth limit so recursive summaries can converge.
+Incompatibilities produce <code class="docutils literal notranslate"><span class="pre">annotation-mismatch</span></code> warnings, or errors with
+<code class="docutils literal notranslate"><span class="pre">InferenceOptions(strict_annotations=True)</span></code>. Inferred numeric
 unions preserve runtime alternatives such as <code class="docutils literal notranslate"><span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span></code> even though numeric
 assignment compatibility admits <code class="docutils literal notranslate"><span class="pre">int</span></code> where <code class="docutils literal notranslate"><span class="pre">float</span></code> is expected.</p>
 <p><code class="docutils literal notranslate"><span class="pre">contextlib.contextmanager</span></code> and <code class="docutils literal notranslate"><span class="pre">asynccontextmanager</span></code> wrappers bind the yielded
 type in <code class="docutils literal notranslate"><span class="pre">with</span></code> and <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code>. Asynchronous iteration extracts element types
-from async iterable, iterator, and generator annotations.</p>
+from async iterable, iterator, and generator annotations. Built-in annotation
+lookup resolves common types from <code class="docutils literal notranslate"><span class="pre">itertools</span></code>, <code class="docutils literal notranslate"><span class="pre">pathlib</span></code>, <code class="docutils literal notranslate"><span class="pre">datetime</span></code>,
+<code class="docutils literal notranslate"><span class="pre">re</span></code>, <code class="docutils literal notranslate"><span class="pre">uuid</span></code>, <code class="docutils literal notranslate"><span class="pre">types</span></code>, and <code class="docutils literal notranslate"><span class="pre">contextvars</span></code> without importing analysed code.</p>
 <p><code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through <code class="docutils literal notranslate"><span class="pre">diagnostics()</span></code> and
 <code class="docutils literal notranslate"><span class="pre">inference_result(module).status</span></code>. A failed imported symbol without usable
