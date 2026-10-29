@@ -72,6 +72,31 @@ without it, those sections provide no hints. Python annotations take priority,
 and observed calls/body results take priority over documentation fallbacks.
 Unresolved documented alternatives are not reduced to a definite partial union.
 
+Source inference models parameterized generic constructors, receiver-bound
+``typing.Self``, ``typing.cast``, and ``NewType`` identity constructors. ``NewType``
+values currently project to their underlying type rather than a distinct nominal
+type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
+and function/class type parameters. ParamSpec, variadic type parameters, and
+recursive alias expansion are not fully modeled.
+
+Class constants and enum members are recorded. Class-style ``TypedDict``
+declarations support literal key validation (including required and optional
+keys) and key-specific indexing. Class-style ``NamedTuple`` declarations support
+field access, indexing, and unpacking. Protocol compatibility checks declared
+attributes and method signatures structurally; dynamic attributes and the full
+typing specification are outside this model.
+
+Calls validate supplied arguments against parameter annotations, including
+variadic arguments. Explicit return annotations take precedence over identity
+return specialization. Incompatibilities produce ``annotation-mismatch`` warnings,
+or errors with ``InferenceOptions(strict_annotations=True)``. Inferred numeric
+unions preserve runtime alternatives such as ``int | float`` even though numeric
+assignment compatibility admits ``int`` where ``float`` is expected.
+
+``contextlib.contextmanager`` and ``asynccontextmanager`` wrappers bind the yielded
+type in ``with`` and ``async with``. Asynchronous iteration extracts element types
+from async iterable, iterator, and generator annotations.
+
 ``TypeInfoService`` isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through ``diagnostics()`` and
 ``inference_result(module).status``. A failed imported symbol without usable
@@ -99,7 +124,13 @@ exception behavior.
    print(result.type_of("res"))  # Inferred as int
    assert result.converged
 
-For multi-module projects, ``ProjectTypeInferenceEngine`` resolves import closures and handles cyclic dependencies:
+For multi-module projects, ``ProjectTypeInferenceEngine`` resolves import closures
+and handles cyclic dependencies. Automatic discovery follows source paths within
+the configured project directory and workspace roots, resolving symlinks before
+checking containment. Imports from the standard library and external dependencies
+are left to external type facts and call models. External modules may still be
+listed explicitly as entry modules. For a ``src`` layout, include that directory
+in ``ProjectContext(..., added_sys_path=[...])``.
 
 .. code-block:: python
 

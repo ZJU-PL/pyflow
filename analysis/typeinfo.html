@@ -207,6 +207,27 @@ and <code class="docutils literal notranslate"><span class="pre">TypeInfoService
 without it, those sections provide no hints. Python annotations take priority,
 and observed calls/body results take priority over documentation fallbacks.
 Unresolved documented alternatives are not reduced to a definite partial union.</p>
+<p>Source inference models parameterized generic constructors, receiver-bound
+<code class="docutils literal notranslate"><span class="pre">typing.Self</span></code>, <code class="docutils literal notranslate"><span class="pre">typing.cast</span></code>, and <code class="docutils literal notranslate"><span class="pre">NewType</span></code> identity constructors. <code class="docutils literal notranslate"><span class="pre">NewType</span></code>
+values currently project to their underlying type rather than a distinct nominal
+type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
+and function/class type parameters. ParamSpec, variadic type parameters, and
+recursive alias expansion are not fully modeled.</p>
+<p>Class constants and enum members are recorded. Class-style <code class="docutils literal notranslate"><span class="pre">TypedDict</span></code>
+declarations support literal key validation (including required and optional
+keys) and key-specific indexing. Class-style <code class="docutils literal notranslate"><span class="pre">NamedTuple</span></code> declarations support
+field access, indexing, and unpacking. Protocol compatibility checks declared
+attributes and method signatures structurally; dynamic attributes and the full
+typing specification are outside this model.</p>
+<p>Calls validate supplied arguments against parameter annotations, including
+variadic arguments. Explicit return annotations take precedence over identity
+return specialization. Incompatibilities produce <code class="docutils literal notranslate"><span class="pre">annotation-mismatch</span></code> warnings,
+or errors with <code class="docutils literal notranslate"><span class="pre">InferenceOptions(strict_annotations=True)</span></code>. Inferred numeric
+unions preserve runtime alternatives such as <code class="docutils literal notranslate"><span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span></code> even though numeric
+assignment compatibility admits <code class="docutils literal notranslate"><span class="pre">int</span></code> where <code class="docutils literal notranslate"><span class="pre">float</span></code> is expected.</p>
+<p><code class="docutils literal notranslate"><span class="pre">contextlib.contextmanager</span></code> and <code class="docutils literal notranslate"><span class="pre">asynccontextmanager</span></code> wrappers bind the yielded
+type in <code class="docutils literal notranslate"><span class="pre">with</span></code> and <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code>. Asynchronous iteration extracts element types
+from async iterable, iterator, and generator annotations.</p>
 <p><code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through <code class="docutils literal notranslate"><span class="pre">diagnostics()</span></code> and
 <code class="docutils literal notranslate"><span class="pre">inference_result(module).status</span></code>. A failed imported symbol without usable
@@ -232,7 +253,13 @@ exception behavior.</p>
 <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">converged</span>
 </pre></div>
 </div>
-<p>For multi-module projects, <code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code> resolves import closures and handles cyclic dependencies:</p>
+<p>For multi-module projects, <code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code> resolves import closures
+and handles cyclic dependencies. Automatic discovery follows source paths within
+the configured project directory and workspace roots, resolving symlinks before
+checking containment. Imports from the standard library and external dependencies
+are left to external type facts and call models. External modules may still be
+listed explicitly as entry modules. For a <code class="docutils literal notranslate"><span class="pre">src</span></code> layout, include that directory
+in <code class="docutils literal notranslate"><span class="pre">ProjectContext(...,</span> <span class="pre">added_sys_path=[...])</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectTypeInferenceEngine</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.modules.project_resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectContext</span>
 
