@@ -914,7 +914,46 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         return True
 
     def visit_instance(self, left: Instance) -> bool:
+        if left.type.tuple_fields is not None and (
+            isinstance(self.right, TupleType)
+            or isinstance(self.right, Instance)
+            and self.right.type.raw_type
+            in {cabc.Iterable, cabc.Collection, cabc.Sequence, cabc.Reversible, cabc.Container}
+        ):
+            return self.sub_type_check(
+                TupleType(
+                    tuple(left.type.members.get(name, ANY) for name in left.type.tuple_fields)
+                ),
+                self.right,
+            )
         if isinstance(self.right, Instance):
+            expected_fields = self.right.type.typed_dict_fields
+            if expected_fields is not None:
+                actual_fields = left.type.typed_dict_fields
+                if actual_fields is None:
+                    return False
+                return self.right.type.required_keys <= left.type.required_keys and all(
+                    name in actual_fields
+                    and self.sub_type_check(actual_fields[name], typ)
+                    and self.sub_type_check(typ, actual_fields[name])
+                    for name, typ in expected_fields.items()
+                )
+            if self.right.type.is_protocol:
+                required = self.graph.get_members(self.right.type)
+                available = self.graph.get_members(left.type)
+                # Recursive protocol members are checked coinductively.
+                pair = (left, self.right)
+                active = self.graph._structural_checks
+                if pair in active:
+                    return True
+                active.add(pair)
+                try:
+                    return all(
+                        name in available and self.sub_type_check(available[name], typ)
+                        for name, typ in required.items()
+                    )
+                finally:
+                    active.remove(pair)
             if not self.graph.is_subclass(left.type, self.right.type):
                 return False
             covariant = {
@@ -1333,6 +1372,13 @@ class ClassDescriptor:
         # TODO(fk) store more information on attributes
         self.instance_attributes: OrderedSet[str] = OrderedSet()
         self.attributes: OrderedSet[str] = OrderedSet()
+        # Static declarations, populated without executing analysed source.
+        self.members: dict[str, ProperType] = {}
+        self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
+        self.typed_dict_fields: dict[str, ProperType] | None = None
+        self.required_keys: frozenset[str] = frozenset()
+        self.tuple_fields: tuple[str, ...] | None = None
+        self.type_parameters: tuple[TypeVarType, ...] = ()
 
         # TODO(fk) properly implement generics!
         # For now we just store the number of generic parameters for set, dict and list.
@@ -2031,6 +2077,7 @@ class TypeSystem:  # noqa: PLR0904
     """
 
     def __init__(self):  # noqa: D107
+        self._structural_checks: set[tuple[ProperType, ProperType]] = set()
         self._graph: nx.DiGraph[ClassDescriptor] = nx.DiGraph()
         # Maps all known types from their full name to their type info.
         self._types: dict[str, ClassDescriptor] = {}
@@ -2236,6 +2283,46 @@ class TypeSystem:  # noqa: PLR0904
             Type info, if any.
         """
         return self._types.get(full_name)
+
+    def get_members(self, descriptor: ClassDescriptor) -> dict[str, ProperType]:
+        """Return static declarations and safely inspected runtime members."""
+        members = {}
+
+        def convert(annotation):
+            if isinstance(annotation, str):
+                from pyflow.analysis.typeinfo.resolution.annotations import (
+                    BuiltinTypeLookup,
+                    resolve_annotation,
+                )
+
+                return resolve_annotation(annotation, BuiltinTypeLookup()) or ANY
+            return (
+                ANY if annotation is inspect.Signature.empty else self.convert_type_hint(annotation)
+            )
+
+        raw = descriptor.raw_type
+        for parent in reversed(getattr(raw, "__mro__", ())):
+            if parent in {object, typing.Protocol, typing.Generic}:
+                continue
+            for name, annotation in vars(parent).get("__annotations__", {}).items():
+                members[name] = convert(annotation)
+            for name, member in vars(parent).items():
+                if name in {"__init__", "__init_subclass__", "__subclasshook__"}:
+                    continue
+                if isinstance(member, property) and member.fget is not None:
+                    annotation = member.fget.__annotations__.get("return")
+                    members[name] = convert(annotation)
+                elif inspect.isfunction(member):
+                    signature = inspect.signature(member)
+                    arguments = tuple(signature.parameters.values())[1:]
+                    members[name] = CallableType(
+                        tuple(convert(arg.annotation) for arg in arguments),
+                        convert(signature.return_annotation),
+                    )
+        for parent in self.get_superclasses(descriptor):
+            members.update(parent.members)
+        members.update(descriptor.members)
+        return members
 
     def find_by_attribute(self, attr: str) -> OrderedSet[ClassDescriptor]:
         """Search for all types that have the given attribute.

@@ -48,8 +48,9 @@ class TypeLookup(Protocol):
 
 
 class _AliasedTypeLookup:
-    def __init__(self, lookup, aliases):
+    def __init__(self, lookup, aliases, type_parameters=None):
         self.lookup = lookup
+        self.type_parameters = type_parameters or {}
         self.aliases = {
             name: target
             for name, target in aliases.items()
@@ -83,6 +84,16 @@ class BuiltinTypeLookup:
 
         if qualified_name in {"Any", "typing.Any"}:
             return ANY
+        from pyflow.analysis.typeinfo.core import typesystem
+
+        if "." not in qualified_name or qualified_name.startswith("pyflow.analysis.typeinfo."):
+            subtype = getattr(typesystem, qualified_name.rsplit(".", 1)[-1], None)
+            if (
+                isinstance(subtype, type)
+                and issubclass(subtype, typesystem.StringSubtype)
+                and subtype is not typesystem.StringSubtype
+            ):
+                return subtype()
         if qualified_name in {"None", "NoneType", "types.NoneType"}:
             return NONE_TYPE
         if qualified_name in {
@@ -167,6 +178,7 @@ def resolve_annotation(
     lookup: TypeLookup,
     *,
     aliases: Mapping[str, str] | None = None,
+    type_parameters: Mapping[str, tuple[str, ...]] | None = None,
 ) -> ProperType | None:
     """Resolve a PEP 484 type annotation string to a :class:`ProperType`.
 
@@ -185,8 +197,8 @@ def resolve_annotation(
     annotation = annotation.strip()
     if not annotation:
         return None
-    if aliases:
-        lookup = _AliasedTypeLookup(lookup, aliases)
+    if aliases or type_parameters:
+        lookup = _AliasedTypeLookup(lookup, aliases or {}, type_parameters)
 
     # Forward reference: quoted string
     if annotation.startswith(('"', "'")) and annotation.endswith(('"', "'")):
@@ -288,6 +300,32 @@ def _resolve_subscript(
     # Extract subscript arguments
     args = _extract_subscript_args(node.slice)
 
+    # Aliases can contain type variables inside a nested type expression.
+    # Substitute those variables instead of replacing the outer arguments.
+    base_type = lookup(_get_qualified_name(node.value))
+    if base_type is not None:
+        from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+            collect_type_vars,
+            substitute_type_vars,
+        )
+        from pyflow.analysis.typeinfo.core.typesystem import ANY
+
+        parameters = (
+            lookup.type_parameters.get(_get_qualified_name(node.value))
+            if isinstance(lookup, _AliasedTypeLookup)
+            else None
+        )
+        if parameters is None:
+            parameters = tuple(variable.name for variable in collect_type_vars(base_type))
+        if parameters:
+            return substitute_type_vars(
+                base_type,
+                {
+                    parameter: _resolve_expr(argument, lookup) or ANY
+                    for parameter, argument in zip(parameters, args)
+                },
+            )
+
     # Resolve type alias (List → builtins.list, etc.)
     alias = resolve_type_alias(base_name)
     if alias is not None:
@@ -335,7 +373,7 @@ def _resolve_special_form(
     if name in {"Type", "type", "builtins.type"} and args:
         return TypeType(_resolve_expr(args[0], lookup) or ANY)
 
-    if name in {"Tuple", "tuple", "builtins.tuple"} and args:
+    if name in {"Tuple", "tuple", "builtins.tuple"}:
         return _resolve_tuple(args, lookup)
 
     if name == "Callable" and len(args) >= 1:
@@ -360,7 +398,7 @@ def _resolve_tuple(
     from pyflow.analysis.typeinfo.core.typesystem import ANY, TupleType
 
     if not args:
-        return None
+        return TupleType(())
 
     # Tuple[T, ...] — variable-length
     if len(args) == 2:

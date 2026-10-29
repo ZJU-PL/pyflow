@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Bound automatic project type-inference discovery to project and workspace roots,
+  avoiding recursive interpretation of standard-library and external packages.
+- Model generic constructor specialization, Self, PEP 695 declarations, cast,
+  NewType identity constructors, TypedDict fields, structural protocols, class
+  constants, enums, NamedTuple sequences, and generator context managers.
+- Validate annotated call arguments and preserve explicit return contracts,
+  distinct numeric return alternatives, empty tuple annotations, and async
+  iteration element types.
+- Combine observed string prefixes and suffixes as regex alternatives and resolve
+  built-in PyFlow string subtype annotations.
+
 ## [0.1.2] - 2026-10-08
 
 ### Added

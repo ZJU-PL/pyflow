@@ -16,6 +16,7 @@ from typing import Iterable
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
+    Instance,
     ProperType,
     TypeSystem,
     UnionType,
@@ -189,6 +190,12 @@ def _normalize_types(
         return anys(typ), type(typ).__name__, str(typ)
 
     def subtype(left, right):
+        # Numeric assignment compatibility is not runtime inheritance. Keep
+        # distinct runtime numeric alternatives in inferred unions.
+        if isinstance(left, Instance) and isinstance(right, Instance):
+            numeric = {bool, int, float, complex}
+            if left.type.raw_type in numeric and right.type.raw_type in numeric:
+                return left.type == right.type
         try:
             return type_system.is_subtype(left, right)
         except (AssertionError, KeyError, TypeError):

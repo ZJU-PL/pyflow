@@ -29,10 +29,10 @@ class RegexBuilder:
         self.suffix: list[str] = []
 
     def handle_startswith(self, *args: str) -> None:
-        self.prefix.extend([f"^(?:{re.escape(a)})" for a in args])
+        self.prefix.extend(re.escape(a) for a in args)
 
     def handle_endswith(self, *args: str) -> None:
-        self.suffix.extend([f"(?:{re.escape(a)})$" for a in args])
+        self.suffix.extend(re.escape(a) for a in args)
 
     def handle_splitlike(self, *args: str) -> None:
         sep = re.escape(args[0]) if args else "_"
@@ -65,10 +65,10 @@ class RegexBuilder:
             self.body.append(rf".{{1,{width}}}")
 
     def handle_removeprefix(self, *args: str) -> None:
-        self.prefix.extend([f"(?:{re.escape(a)})?" for a in args])
+        self.body.extend([f"(?:{re.escape(a)})?" for a in args])
 
     def handle_removesuffix(self, *args: str) -> None:
-        self.suffix.extend([f"(?:{re.escape(a)})?" for a in args])
+        self.body.extend([f"(?:{re.escape(a)})?" for a in args])
 
     def handle_translate(self, *args: str) -> None:
         self.body.append("[A-Za-z0-9]+")
@@ -83,7 +83,10 @@ class RegexBuilder:
         self.body.append(".*")
 
     def build(self) -> str:
-        return "".join(self.prefix + self.body + self.suffix) or ".*"
+        prefix = f"^(?:{'|'.join(self.prefix)})" if self.prefix else ""
+        suffix = f"(?:{'|'.join(self.suffix)})$" if self.suffix else ""
+        body = "".join(self.body) or (".*" if prefix and suffix else "")
+        return prefix + body + suffix or ".*"
 
 
 DISPATCH: dict[str, Callable] = {

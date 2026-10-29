@@ -177,11 +177,17 @@ class ProjectTypeInferenceEngine:
                 )
                 if imported:
                     imports.append(imported)
-        return [
-            name
-            for name in dict.fromkeys(imports)
-            if self.project_context.find_module(name) is not None
-        ]
+        roots = (self.project_context.path, *self.project_context.module_identity.workspace_roots)
+        roots = tuple(Path(root).resolve() for root in roots)
+        discovered = []
+        for name in dict.fromkeys(imports):
+            resolution = self.project_context.find_module(name)
+            if resolution is None or resolution.path is None:
+                continue
+            resolved_path = Path(resolution.path).resolve()
+            if any(resolved_path.is_relative_to(root) for root in roots):
+                discovered.append(name)
+        return discovered
 
     @staticmethod
     def _external_type(
