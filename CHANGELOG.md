@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bind static-method calls without injecting a receiver, and bound recursive return
+  structures so recursive collection analyses converge.
+- Accept wider annotated collection element types for fresh list, set, and dict
+  expressions while preserving invariant checking for existing mutable values.
+- Propagate dictionary key shapes through calls and returns for structural
+  TypedDict validation, and resolve PEP 484/613 aliases.
+- Resolve common standard-library annotation types from `itertools`, `pathlib`,
+  `datetime`, `re`, `uuid`, `types`, and `contextvars`.
 - Bound automatic project type-inference discovery to project and workspace roots,
   avoiding recursive interpretation of standard-library and external packages.
 - Model generic constructor specialization, Self, PEP 695 declarations, cast,

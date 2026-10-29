@@ -107,6 +107,7 @@ class _FunctionInfo:
     widened_parameters: dict[str, AbstractTypeValue] = field(default_factory=dict)
     summary: FunctionSummary | None = None
     type_variables: dict[str, TypeVarType] = field(default_factory=dict)
+    method_kind: str = "instance"
 
 
 @dataclass
@@ -413,7 +414,11 @@ class StaticTypeInferenceEngine:
                             signature.return_type
                             if name in class_info.properties
                             else CallableType(
-                                signature.arg_types[1:] if signature.arg_types else (),
+                                (
+                                    signature.arg_types
+                                    if self._functions[target].method_kind == "static"
+                                    else signature.arg_types[1:] if signature.arg_types else ()
+                                ),
                                 signature.return_type,
                             )
                         )
@@ -449,6 +454,11 @@ class StaticTypeInferenceEngine:
                     owner=owner,
                     type_variables=dict(self._type_vars),
                 )
+                decorators = {self._qualified_callee_name(item) for item in node.decorator_list}
+                if decorators & {"staticmethod", "builtins.staticmethod"}:
+                    info.method_kind = "static"
+                elif decorators & {"classmethod", "builtins.classmethod"}:
+                    info.method_kind = "class"
                 for arg in _all_arguments(node.args):
                     if arg.annotation is not None:
                         info.explicit_parameters[arg.arg] = self._annotation_value(arg.annotation)
@@ -568,10 +578,22 @@ class StaticTypeInferenceEngine:
             if isinstance(node, ast.ClassDef):
                 self._collect_type_variables(node.body)
                 continue
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.value is not None
+                and self._qualified_callee_name(node.annotation)
+                in {"typing.TypeAlias", "typing_extensions.TypeAlias"}
+            ):
+                self._type_aliases[node.target.id] = node.value
+                continue
             if not isinstance(node, ast.Assign) or len(node.targets) != 1:
                 continue
             target = node.targets[0]
             value = node.value
+            if isinstance(target, ast.Name) and self._is_type_alias_expression(value):
+                self._type_aliases[target.id] = value
+                continue
             if (
                 isinstance(target, ast.Name)
                 and isinstance(value, ast.Call)
@@ -585,7 +607,8 @@ class StaticTypeInferenceEngine:
                 isinstance(target, ast.Name)
                 and isinstance(value, ast.Call)
                 and isinstance(value.func, (ast.Name, ast.Attribute))
-                and _expression_name(value.func) in {"TypeVar", "typing.TypeVar"}
+                and self._qualified_callee_name(value.func)
+                in {"TypeVar", "typing.TypeVar", "typing_extensions.TypeVar"}
             ):
                 continue
             constraints = tuple(
@@ -616,6 +639,25 @@ class StaticTypeInferenceEngine:
                 bound=bound,
                 variance=variance,
             )
+
+    def _is_type_alias_expression(self, node: ast.expr) -> bool:
+        """Recognize type syntax without treating ordinary indexing as an alias."""
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return self._is_type_alias_expression(node.left) and self._is_type_alias_expression(
+                node.right
+            )
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        base = node.value if isinstance(node, ast.Subscript) else node
+        name = _expression_name(base)
+        if name is None:
+            return False
+        if name in self._class_aliases or name in self._type_aliases or name in self._type_vars:
+            return True
+        qualified = self._qualified_callee_name(base) or name
+        if qualified.startswith(("typing.", "typing_extensions.", "collections.abc.")):
+            return True
+        return BuiltinTypeLookup()(qualified) is not None
 
     def _pep695_type_variables(self, node: ast.AST) -> dict[str, TypeVarType]:
         variables = {}
@@ -801,9 +843,10 @@ class StaticTypeInferenceEngine:
             combined = self._join(evidence, pending)
             if not combined.is_bottom:
                 parameters[name] = combined
-            elif function.owner is not None and index == 0:
+            elif function.owner is not None and function.method_kind != "static" and index == 0:
                 parameters[name] = AbstractTypeValue.from_type(
-                    self._classes[function.owner].instance
+                    self._classes[function.owner].instance,
+                    class_target=function.owner if function.method_kind == "class" else None,
                 )
             else:
                 parameters[name] = function.documented_parameters.get(
@@ -953,8 +996,8 @@ class StaticTypeInferenceEngine:
 
         return FunctionSpecialization(
             parameters=tuple((name, input_parameters[name]) for name in function.parameter_names),
-            return_value=return_value,
-            yield_value=yields,
+            return_value=self._bound_type_depth(return_value),
+            yield_value=self._bound_type_depth(yields),
             widened=widened,
         )
 
@@ -1057,6 +1100,16 @@ class StaticTypeInferenceEngine:
             value.unknown,
             tuple(sorted(value.callable_targets)),
             tuple(sorted(value.class_targets)),
+            (
+                None
+                if value.dict_shapes is None
+                else tuple(
+                    sorted(
+                        tuple((name, str(typ)) for name, typ in shape)
+                        for shape in value.dict_shapes
+                    )
+                )
+            ),
         )
 
     def _environment_fingerprint(
@@ -1141,6 +1194,14 @@ class StaticTypeInferenceEngine:
             return _Outcome(result)
 
         if isinstance(node, ast.AnnAssign):
+            if (
+                isinstance(node.target, ast.Name)
+                and node.target.id in self._type_aliases
+                and self._qualified_callee_name(node.annotation)
+                in {"typing.TypeAlias", "typing_extensions.TypeAlias"}
+            ):
+                result[node.target.id] = self._annotation_value(node.value)
+                return _Outcome(result)
             annotated = self._annotation_value(node.annotation)
             if node.value is not None:
                 inferred = self._evaluate_expression(
@@ -1645,13 +1706,24 @@ class StaticTypeInferenceEngine:
                     TupleType(tuple(item.public_type() or ANY for item in evaluated))
                 )
         elif isinstance(node, ast.Dict):
-            keys = self._evaluate_many(
-                (item for item in node.keys if item is not None),
-                environment,
-                scope,
-                current_function,
-            )
-            values = self._evaluate_many(node.values, environment, scope, current_function)
+            evaluated_keys = [
+                (
+                    None
+                    if item is None
+                    else self._evaluate_expression(
+                        item, environment, scope=scope, current_function=current_function
+                    )
+                )
+                for item in node.keys
+            ]
+            evaluated_values = [
+                self._evaluate_expression(
+                    item, environment, scope=scope, current_function=current_function
+                )
+                for item in node.values
+            ]
+            keys = join_all((item for item in evaluated_keys if item is not None), self.type_system)
+            values = join_all(evaluated_values, self.type_system)
             if self._is_never_value(keys) or self._is_never_value(values):
                 value = AbstractTypeValue.from_type(NEVER)
             else:
@@ -1660,6 +1732,18 @@ class StaticTypeInferenceEngine:
                     keys.public_type() or ANY,
                     values.public_type() or ANY,
                 )
+                if all(
+                    isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    for key in node.keys
+                ):
+                    fields = {
+                        key.value: item.public_type() or ANY
+                        for key, item in zip(node.keys, evaluated_values)
+                    }
+                    value = replace(
+                        value,
+                        dict_shapes=frozenset((tuple(sorted(fields.items())),)),
+                    )
         elif isinstance(node, ast.BinOp):
             left = self._evaluate_expression(
                 node.left, environment, scope=scope, current_function=current_function
@@ -2202,7 +2286,12 @@ class StaticTypeInferenceEngine:
         if method_targets:
             return join_all(
                 [
-                    self._apply_function(target, [base, *arguments], keywords, node=node)
+                    self._apply_function(
+                        target,
+                        self._method_arguments(self._functions[target], base, arguments),
+                        keywords,
+                        node=node,
+                    )
                     for target in method_targets
                 ],
                 self.type_system,
@@ -2265,6 +2354,19 @@ class StaticTypeInferenceEngine:
                 if node.attr in {"update", "clear"}:
                     return AbstractTypeValue.from_type(NONE_TYPE)
         return None
+
+    def _method_arguments(self, function, base, arguments):
+        if function.method_kind == "static":
+            return arguments
+        if function.method_kind == "class":
+            receiver = replace(
+                base,
+                class_targets=frozenset(
+                    typ.type.full_name for typ in base.types if isinstance(typ, Instance)
+                ),
+            )
+            return [receiver, *arguments]
+        return arguments if base.class_targets else [base, *arguments]
 
     def _model_text_method(self, receiver: type, attribute: str) -> AbstractTypeValue | None:
         """Model one ``str`` or ``bytes`` receiver alternative."""
@@ -2855,34 +2957,30 @@ class StaticTypeInferenceEngine:
         ):
             return
         if isinstance(expected, Instance) and expected.type.typed_dict_fields is not None:
-            literal = (
-                node.value if isinstance(node, (ast.AnnAssign, ast.Assign, ast.Return)) else node
-            )
-            if isinstance(literal, ast.Dict) and all(
-                isinstance(key, ast.Constant) and isinstance(key.value, str) for key in literal.keys
+            if inferred.dict_shapes and all(
+                isinstance(candidate, Instance) and candidate.type.raw_type is dict
+                for candidate in inferred.types
             ):
                 fields = expected.type.typed_dict_fields
-                actual = {key.value: value for key, value in zip(literal.keys, literal.values)}
-                missing = expected.type.required_keys - actual.keys()
-                extra = actual.keys() - fields.keys()
-                if missing or extra:
-                    self._add_diagnostic(
-                        "annotation-mismatch",
-                        f"TypedDict {expected} has missing keys {sorted(missing)} "
-                        f"and unexpected keys {sorted(extra)}",
-                        node=node,
-                        severity="error" if self.options.strict_annotations else "warning",
-                    )
-                for name in actual.keys() & fields.keys():
-                    value = self._expressions.get(
-                        _span(actual[name]), AbstractTypeValue.unresolved()
-                    )
-                    self._check_annotation_compatibility(
-                        value,
-                        AbstractTypeValue.from_type(fields[name]),
-                        actual[name],
-                        context=f"TypedDict key {name}",
-                    )
+                for shape in inferred.dict_shapes:
+                    actual = dict(shape)
+                    missing = expected.type.required_keys - actual.keys()
+                    extra = actual.keys() - fields.keys()
+                    if missing or extra:
+                        self._add_diagnostic(
+                            "annotation-mismatch",
+                            f"TypedDict {expected} has missing keys {sorted(missing)} "
+                            f"and unexpected keys {sorted(extra)}",
+                            node=node,
+                            severity="error" if self.options.strict_annotations else "warning",
+                        )
+                    for name in actual.keys() & fields.keys():
+                        self._check_annotation_compatibility(
+                            AbstractTypeValue.from_type(actual[name]),
+                            AbstractTypeValue.from_type(fields[name]),
+                            node,
+                            context=f"TypedDict key {name}",
+                        )
                 return
         incompatible = []
         for candidate in inferred.types:
@@ -2926,16 +3024,17 @@ class StaticTypeInferenceEngine:
                 continue
             try:
                 compatible = self.type_system.is_subtype(candidate, expected)
-                if not compatible and self._fresh_dictionary_context(node):
+                if not compatible and self._fresh_collection_context(node):
                     expected_parts = (
                         expected.items if isinstance(expected, UnionType) else (expected,)
                     )
                     compatible = any(
                         isinstance(candidate, Instance)
                         and isinstance(part, Instance)
-                        and candidate.type.raw_type is dict
-                        and part.type.raw_type is dict
-                        and len(candidate.args) == len(part.args) == 2
+                        and candidate.type.raw_type is part.type.raw_type
+                        and candidate.type.raw_type in {list, set, frozenset, dict}
+                        and candidate.args
+                        and len(candidate.args) == len(part.args)
                         and all(
                             self.type_system.is_subtype(actual, wanted)
                             for actual, wanted in zip(candidate.args, part.args)
@@ -2956,11 +3055,18 @@ class StaticTypeInferenceEngine:
             )
 
     @staticmethod
-    def _fresh_dictionary_context(node):
+    def _fresh_collection_context(node):
         def fresh(expression):
+            if isinstance(
+                expression, (ast.List, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp)
+            ):
+                return True
             return (
-                isinstance(expression, (ast.Dict, ast.DictComp))
-                or isinstance(expression, ast.IfExp)
+                isinstance(expression, ast.BinOp)
+                and isinstance(expression.op, (ast.Add, ast.Mult))
+                and (fresh(expression.left) or fresh(expression.right))
+            ) or (
+                isinstance(expression, ast.IfExp)
                 and fresh(expression.body)
                 and fresh(expression.orelse)
             )
@@ -2986,6 +3092,20 @@ class StaticTypeInferenceEngine:
         return bool(returns) and all(
             fresh(value) or value is None or isinstance(value, ast.Constant) and value.value is None
             for value in returns
+        )
+
+    @staticmethod
+    def _call_argument_node(node, function, name):
+        if not isinstance(node, ast.Call):
+            return None
+        arguments = function.node.args
+        positional = [*arguments.posonlyargs, *arguments.args]
+        if name in {argument.arg for argument in positional}:
+            index = next(i for i, argument in enumerate(positional) if argument.arg == name)
+            return node.args[index] if index < len(node.args) else None
+        return next(
+            (keyword.value for keyword in node.keywords if keyword.arg == name),
+            None,
         )
 
     # ------------------------------------------------------------------
@@ -3094,8 +3214,12 @@ class StaticTypeInferenceEngine:
                 annotated = AbstractTypeValue.from_type(
                     substitute_type_vars(expected, substitutions)
                 )
+            argument_node = self._call_argument_node(node, function, name)
             self._check_annotation_compatibility(
-                actual, annotated, node or function.node, context=f"argument {name} of {target}"
+                actual,
+                annotated,
+                argument_node or node or function.node,
+                context=f"argument {name} of {target}",
             )
         for name, value in bound_arguments.items():
             self._queue_parameter_evidence(target, name, value)
@@ -3229,9 +3353,10 @@ class StaticTypeInferenceEngine:
             actual = bound_arguments.get(name)
             if actual is not None:
                 parameters[name] = self._normalize_context_value(actual)
-            elif function.owner is not None and index == 0:
+            elif function.owner is not None and function.method_kind != "static" and index == 0:
                 parameters[name] = AbstractTypeValue.from_type(
-                    self._classes[function.owner].instance
+                    self._classes[function.owner].instance,
+                    class_target=function.owner if function.method_kind == "class" else None,
                 )
             else:
                 explicit = function.explicit_parameters.get(name)
@@ -3259,6 +3384,7 @@ class StaticTypeInferenceEngine:
             unknown=value.unknown,
             callable_targets=value.callable_targets,
             class_targets=value.class_targets,
+            dict_shapes=value.dict_shapes,
         )
 
     def _bind_call_arguments(
@@ -3346,7 +3472,7 @@ class StaticTypeInferenceEngine:
         actuals: dict[str, AbstractTypeValue],
     ) -> dict[str, ProperType]:
         substitutions: dict[str, ProperType] = {}
-        if function.owner and function.parameter_names:
+        if function.owner and function.method_kind != "static" and function.parameter_names:
             receiver = actuals.get(function.parameter_names[0])
             if receiver is not None:
                 substitutions["Self"] = (
@@ -3529,7 +3655,20 @@ class StaticTypeInferenceEngine:
                 if raw in {list, set, frozenset} and typ.args:
                     values.append(AbstractTypeValue.from_type(typ.args[0]))
                 elif raw is dict and len(typ.args) > 1:
-                    values.append(AbstractTypeValue.from_type(typ.args[1]))
+                    if (
+                        base.dict_shapes
+                        and isinstance(slice_node, ast.Constant)
+                        and isinstance(slice_node.value, str)
+                    ):
+                        for shape in base.dict_shapes:
+                            field = dict(shape).get(slice_node.value)
+                            values.append(
+                                AbstractTypeValue.from_type(field)
+                                if field is not None
+                                else AbstractTypeValue.unresolved()
+                            )
+                    else:
+                        values.append(AbstractTypeValue.from_type(typ.args[1]))
                 elif raw in {bytes, bytearray}:
                     values.append(self._instance(int))
                 elif raw is str:
@@ -3858,6 +3997,7 @@ class StaticTypeInferenceEngine:
             unknown=value.unknown,
             callable_targets=value.callable_targets,
             class_targets=value.class_targets,
+            dict_shapes=value.dict_shapes,
         )
 
     def _join_normal_results(self, values: Iterable[AbstractTypeValue]) -> AbstractTypeValue:
@@ -3976,7 +4116,10 @@ class StaticTypeInferenceEngine:
         prefix, separator, remainder = name.partition(".")
         if not separator or prefix not in self._imports:
             return None
-        return f"{self._imports[prefix]}.{remainder}"
+        target = self._imports[prefix]
+        if name == target or name.startswith(f"{target}."):
+            return name
+        return f"{target}.{remainder}"
 
     def _qualified_callee_name(self, node: ast.expr) -> str | None:
         name = _expression_name(node)

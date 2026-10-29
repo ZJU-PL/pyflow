@@ -40,6 +40,9 @@ class AbstractTypeValue:
     unknown: bool = False
     callable_targets: frozenset[str] = field(default_factory=frozenset)
     class_targets: frozenset[str] = field(default_factory=frozenset)
+    # Exact string-key layouts of dictionary values, independent of their
+    # homogeneous public dict type. None means the keys are not known.
+    dict_shapes: frozenset[tuple[tuple[str, ProperType], ...]] | None = None
 
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
@@ -101,11 +104,22 @@ class AbstractTypeValue:
         if len(candidates) > max_union_size:
             candidates = frozenset((ANY,))
             unknown = True
+        if self.is_bottom:
+            shapes = other.dict_shapes
+        elif other.is_bottom:
+            shapes = self.dict_shapes
+        elif self.dict_shapes is not None and other.dict_shapes is not None:
+            shapes = self.dict_shapes | other.dict_shapes
+            if len(shapes) > max_union_size:
+                shapes = None
+        else:
+            shapes = None
         return AbstractTypeValue(
             candidates,
             unknown=unknown,
             callable_targets=self.callable_targets | other.callable_targets,
             class_targets=self.class_targets | other.class_targets,
+            dict_shapes=shapes,
         )
 
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:

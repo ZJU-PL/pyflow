@@ -22,12 +22,54 @@ from __future__ import annotations
 
 import ast
 import builtins
+import collections
+import contextvars
+import datetime
+import functools
+import io
+import itertools
+import os
+import pathlib
+import re
+import types
+import uuid
 from typing import TYPE_CHECKING, Protocol, Mapping
 
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     IGNORE_ANNOTATION_PARTS,
     resolve_type_alias,
 )
+
+# Resolve a fixed set of annotation namespaces without importing analysed code.
+_STDLIB_TYPES = {
+    module.__name__: module
+    for module in (
+        collections,
+        contextvars,
+        datetime,
+        functools,
+        io,
+        itertools,
+        os,
+        pathlib,
+        re,
+        types,
+        uuid,
+    )
+}
+
+_COMMON_STDLIB_TYPES = {
+    "Path": "pathlib.Path",
+    "PurePath": "pathlib.PurePath",
+    "Pattern": "re.Pattern",
+    "Match": "re.Match",
+    "UUID": "uuid.UUID",
+    "datetime": "datetime.datetime",
+    "date": "datetime.date",
+    "time": "datetime.time",
+    "timedelta": "datetime.timedelta",
+    "ContextVar": "contextvars.ContextVar",
+}
 
 if TYPE_CHECKING:
     from pyflow.analysis.typeinfo.core.typesystem import ProperType
@@ -51,16 +93,14 @@ class _AliasedTypeLookup:
     def __init__(self, lookup, aliases, type_parameters=None):
         self.lookup = lookup
         self.type_parameters = type_parameters or {}
-        self.aliases = {
-            name: target
-            for name, target in aliases.items()
-            if target in {"typing", "typing_extensions", "collections.abc"}
-            or target.startswith(("typing.", "typing_extensions.", "collections.abc."))
-        }
+        self.aliases = {name: target for name, target in aliases.items()}
 
     def qualify(self, name):
         head, separator, tail = name.partition(".")
-        return self.aliases.get(head, head) + (separator + tail if separator else "")
+        target = self.aliases.get(head, head)
+        if name == target or name.startswith(f"{target}."):
+            return name
+        return target + (separator + tail if separator else "")
 
     def __call__(self, name):
         return self.lookup(self.qualify(name))
@@ -129,6 +169,14 @@ class BuiltinTypeLookup:
                 return Instance(descriptor, () if arity is None else (ANY,) * arity)
         if qualified_name.startswith("builtins."):
             qualified_name = qualified_name.rsplit(".", 1)[-1]
+        qualified_name = _COMMON_STDLIB_TYPES.get(qualified_name, qualified_name)
+        module, separator, member = qualified_name.rpartition(".")
+        if separator and module in _STDLIB_TYPES:
+            raw = getattr(_STDLIB_TYPES[module], member, None)
+            if isinstance(raw, type):
+                descriptor = ClassDescriptor(raw)
+                arity = descriptor.num_hardcoded_generic_parameters
+                return Instance(descriptor, () if arity is None else (ANY,) * arity)
         raw = getattr(builtins, qualified_name, None)
         if isinstance(raw, type):
             descriptor = ClassDescriptor(raw)
@@ -274,6 +322,7 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         TupleType,
     )
 
+    original_name = name
     qualified = lookup.qualify(name) if isinstance(lookup, _AliasedTypeLookup) else name
     name = _normalize_typing_name(name, lookup)
 
@@ -287,7 +336,12 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         return CallableType(None, ANY)
     if qualified in {"typing.Tuple", "typing_extensions.Tuple"}:
         return TupleType((ANY,), unknown_size=True)
-    return lookup(name)
+    if isinstance(lookup, _AliasedTypeLookup):
+        direct = lookup.lookup(original_name)
+        if direct is not None:
+            return direct
+        return lookup.lookup(qualified)
+    return lookup(qualified)
 
 
 def _resolve_subscript(
