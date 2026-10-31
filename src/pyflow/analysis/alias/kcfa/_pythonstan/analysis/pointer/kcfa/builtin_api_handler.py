@@ -28,6 +28,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints im
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import (
     FieldKind,
     attr,
+    dict_keys,
     elem,
     key,
     unknown,
@@ -74,6 +75,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["BuiltinAPIHandler", "BuiltinSummaryManager"]
+
+
+#: Builtin exception classes: their construction has no capability effect and
+#: needs no dedicated per-class handler.
+EXCEPTION_BUILTINS = frozenset(
+    {
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "AttributeError",
+        "FileNotFoundError",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "NotImplementedError",
+        "OSError",
+        "RuntimeError",
+        "StopIteration",
+        "TypeError",
+        "ValueError",
+        "ZeroDivisionError",
+    }
+)
 
 
 class BuiltinAPIHandler:
@@ -197,6 +221,8 @@ class BuiltinAPIHandler:
             "__delitem__": self._handle_generic_method,
             "__iter__": self._handle_container_iter,
             "pop": self._handle_container_pop,
+            "sort": self._handle_generic_method,
+            "reverse": self._handle_generic_method,
             # Dict methods
             "get": self._handle_dict_get,
             "setdefault": self._handle_dict_setdefault,
@@ -278,7 +304,7 @@ class BuiltinAPIHandler:
 
     def _init_function_handlers(self) -> Dict[str, callable]:
         """Initialize function handler dispatch table."""
-        return {
+        handlers = {
             # Container constructors
             "list": self._handle_list_constructor,
             "dict": self._handle_dict_constructor,
@@ -342,6 +368,9 @@ class BuiltinAPIHandler:
             # Object-oriented functions
             "super": self._handle_super,
         }
+        for exception_name in EXCEPTION_BUILTINS:
+            handlers.setdefault(exception_name, self._handle_generic_precise)
+        return handlers
 
     def is_precise_builtin(self, builtin_obj: "AbstractObject") -> bool:
         """Return whether a dedicated handler exists for ``builtin_obj``."""
@@ -795,18 +824,19 @@ class BuiltinAPIHandler:
             # The iterator's elem() field should point to container's elem()
             container_type = self._infer_container_type(method_obj.receiver)
             if container_type == "dict":
-                unknown_var = self._make_temp_var("dict_iter_key", call)
+                key_var = self._make_temp_var("dict_iter_key", call)
                 constraints.append(
-                    AllocConstraint(
-                        target=unknown_var,
-                        alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
+                    LoadConstraint(
+                        base=method_obj.receiver_var,
+                        field=dict_keys(),
+                        target=key_var,
                     )
                 )
                 constraints.append(
                     StoreConstraint(
                         base=call.target,
                         field=elem(),
-                        source=unknown_var,
+                        source=key_var,
                     )
                 )
             else:
@@ -1010,22 +1040,23 @@ class BuiltinAPIHandler:
         """Handle dict.keys()."""
         constraints = []
 
-        if call.target:
+        if call.target and method_obj.receiver_var:
             # Create dict_keys object
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
-            unknown_var = self._make_temp_var("dict_keys_elem", call)
+            key_var = self._make_temp_var("dict_keys_elem", call)
             constraints.append(
-                AllocConstraint(
-                    target=unknown_var,
-                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
+                LoadConstraint(
+                    base=method_obj.receiver_var,
+                    field=dict_keys(),
+                    target=key_var,
                 )
             )
             constraints.append(
                 StoreConstraint(
                     base=call.target,
                     field=elem(),
-                    source=unknown_var,
+                    source=key_var,
                 )
             )
 
@@ -1117,9 +1148,10 @@ class BuiltinAPIHandler:
 
             key_var = self._make_temp_var("dict_items_key", call)
             constraints.append(
-                AllocConstraint(
+                LoadConstraint(
+                    base=method_obj.receiver_var,
+                    field=dict_keys(),
                     target=key_var,
-                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
                 )
             )
             constraints.append(
@@ -2144,12 +2176,8 @@ class BuiltinAPIHandler:
                 alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
             )
         )
-        constraints.append(
-            StoreConstraint(base=call.target, field=key(0), source=element_var)
-        )
-        constraints.append(
-            StoreConstraint(base=call.target, field=elem(), source=element_var)
-        )
+        constraints.append(StoreConstraint(base=call.target, field=key(0), source=element_var))
+        constraints.append(StoreConstraint(base=call.target, field=elem(), source=element_var))
         return constraints
 
     def _handle_generic_method(

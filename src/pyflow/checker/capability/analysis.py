@@ -13,10 +13,13 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import 
     DEFAULT_MAX_ITERATIONS,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import (
+    AttrReadConstraint,
     CallConstraint,
     CopyConstraint,
+    LoadConstraint,
     RaiseConstraint,
     ReturnConstraint,
+    SuperResolveConstraint,
     YieldConstraint,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.events import (
@@ -40,6 +43,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     MethodObject,
     NativeModuleObject,
     NativeObject,
+    SuperObject,
     TupleObject,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
@@ -186,6 +190,8 @@ def _is_synthetic_descriptor_call(access_path: str, callee_name: str) -> bool:
 
 
 _INTERNAL_CONSTRAINT_PREFIXES = (
+    "$init_method@",
+    "$init_fn@",
     "$getattribute@",
     "$getattr@",
     "$setattr@",
@@ -211,6 +217,9 @@ _INTERNAL_CONSTRAINT_PREFIXES = (
     "$prepared_namespace@",
     "$original_bases@",
     "$effective_base@",
+    "$mro_entries_receiver@",
+    "$mro_entries_method@",
+    "$mro_entries_result@",
 )
 
 
@@ -366,7 +375,7 @@ class DefensiveCapabilityAnalysis:
                 result.findings.extend(self._indirect_store_findings(event, reachability))
 
         result.diagnostics.extend(self._unknown_diagnostics(pointer_result))
-        result.diagnostics.extend(self._unresolved_call_diagnostics(pointer_result))
+        result.diagnostics.extend(self._unresolved_call_diagnostics(pointer_result, reachability))
         result.diagnostics.extend(self._completeness_diagnostics(pointer_result))
         result.findings.extend(self._unresolved_call_findings(pointer_result, reachability))
         if self.report_callable_boundaries:
@@ -593,6 +602,10 @@ class DefensiveCapabilityAnalysis:
         state = reachability.state
         callee_path = self._object_path(event.abstract_object)
         if callee_path is None or callee_path in _BUILTIN_NON_ESCAPING:
+            return []
+        if callee_path.endswith((".__init__", ".__new__")):
+            # Constructing an object with a capability stores it in the object,
+            # which the heap model already tracks; it is not a trust boundary.
             return []
         constraint = event.constraint
         findings: list[CapabilityFinding] = []
@@ -1029,7 +1042,7 @@ class DefensiveCapabilityAnalysis:
             if not reasons:
                 return diagnostics
             kinds = {reason.get("kind") for reason in reasons}
-            native_only = bool(kinds) and kinds <= {"native_effect"}
+            native_only = bool(kinds) and kinds <= {"native_effect", "semantic_incomplete"}
             if native_only:
                 # Calls into unmodelled native code are already reported
                 # conservatively (every argument escapes, returns get a
@@ -1061,6 +1074,7 @@ class DefensiveCapabilityAnalysis:
     def _unresolved_call_diagnostics(
         self,
         pointer_result: PointerAnalysisResult,
+        reachability=None,
     ) -> list[CapabilityDiagnostic]:
         diagnostics: list[CapabilityDiagnostic] = []
         if not pointer_result.statistics().get("fixpoint_complete", True):
@@ -1068,6 +1082,8 @@ class DefensiveCapabilityAnalysis:
             # have nothing to do with the user's code.
             return diagnostics
         state = pointer_result.state
+        super_names = getattr(reachability, "super_names", set())
+        attribute_bases = self._attribute_base_names(state)
         observed = {
             (event.scope, event.constraint)
             for event in pointer_result.semantic_events
@@ -1084,6 +1100,8 @@ class DefensiveCapabilityAnalysis:
             ):
                 # ``obj(...)`` may-call where another target resolved (``None``
                 # and a decorator); the empty re-dispatch is not a gap.
+                continue
+            if self._is_super_attribute_probe(state, constraint, super_names, attribute_bases):
                 continue
             callee = state.get_variable(scope, scope.context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
@@ -1127,6 +1145,28 @@ class DefensiveCapabilityAnalysis:
                 ):
                     return True
         return False
+
+    @staticmethod
+    def _attribute_base_names(state) -> dict[str, set[str]]:
+        bases: dict[str, set[str]] = {}
+        for _scope, constraint in state.constraints.all():
+            if not isinstance(constraint, (LoadConstraint, AttrReadConstraint)):
+                continue
+            target = getattr(constraint, "target", None)
+            base = getattr(constraint, "base", None)
+            if target is None or base is None:
+                continue
+            bases.setdefault(target.name, set()).add(base.name)
+        return bases
+
+    @staticmethod
+    def _is_super_attribute_probe(state, constraint, super_names, attribute_bases) -> bool:
+        """Whether ``constraint`` calls an attribute loaded from ``super()``."""
+        callee = getattr(constraint, "callee", None)
+        if callee is None:
+            return False
+        bases = attribute_bases.get(callee.name)
+        return bool(bases) and bool(bases & super_names)
 
     def _event_location(self, event: PointerEvent, state=None) -> SourceLocation:
         site = self._constraint_site(event.constraint)
@@ -1226,7 +1266,13 @@ class _CapabilityReachability:
         self.patterns = {}
         self._closures: dict = {}
         self._cached_entries = 0
+        self.super_names: set[str] = set()
         for ctx_field, points_to in state._env.items():
+            if any(isinstance(obj, SuperObject) for obj in points_to):
+                content = getattr(ctx_field, "content", ctx_field)
+                name = getattr(content, "name", None)
+                if name:
+                    self.super_names.add(name)
             field_access = getattr(ctx_field, "content", ctx_field)
             if isinstance(field_access, FieldAccess):
                 self.fields.setdefault(field_access.obj, []).append(

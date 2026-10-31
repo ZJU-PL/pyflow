@@ -18,6 +18,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     AnyType,
     Instance,
     ProperType,
+    TypeType,
     TypeSystem,
     UnionType,
 )
@@ -154,6 +155,31 @@ class AbstractTypeValue:
         if len(self.types) == 1:
             return next(iter(self.types))
         return UnionType(tuple(sorted(self.types)))
+
+    def runtime_type(self) -> ProperType | None:
+        """Return the runtime type, projecting class objects to ``type[T]``.
+
+        ``public_type`` is also used for declaration-style facts, where a class
+        name denotes an instance type (for example a parameter annotated with
+        ``Client``).  Values that are actually class objects, however, have the
+        runtime type ``type[Client]``.  The engine records that distinction in
+        ``class_targets``; this projection makes it visible to clients without
+        changing the declaration-oriented ``public_type`` representation.
+        """
+
+        if not self.types:
+            return None
+        if any(isinstance(item, AnyType) for item in self.types):
+            return ANY
+        projected: list[ProperType] = []
+        for item in self.types:
+            if isinstance(item, Instance) and item.type.full_name in self.class_targets:
+                projected.append(TypeType(item))
+            else:
+                projected.append(item)
+        if len(projected) == 1:
+            return projected[0]
+        return UnionType(tuple(sorted(projected)))
 
 
 def join_all(

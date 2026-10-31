@@ -123,10 +123,7 @@ class BaseResolutionProcessor(Processor):
                 )
                 continue
 
-            if (
-                isinstance(base_obj, NativeObject)
-                and ".<return>" not in base_obj.access_path
-            ):
+            if isinstance(base_obj, NativeObject) and ".<return>" not in base_obj.access_path:
                 # A member of an unmodelled native module (``pydantic.BaseModel``,
                 # ``collections.abc.Mapping``, ...) is a real class at runtime;
                 # probing ``__mro_entries__`` on it only produced one noisy

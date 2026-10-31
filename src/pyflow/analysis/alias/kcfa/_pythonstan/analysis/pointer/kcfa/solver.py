@@ -85,6 +85,8 @@ _INTERNAL_CALL_PREFIXES = (
     "$new@",
     "$new_result@",
     "$bound_init@",
+    "$init_method@",
+    "$init_fn@",
     "$init_base@",
     "$class@",
     "$class_result@",
@@ -219,6 +221,23 @@ class PointerSolver:
         "complex",
         "bytearray",
         "memoryview",
+        # Exception classes are callable builtins: ``assert`` lowering and
+        # ``raise ValueError(...)`` construct them by name.
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "ValueError",
+        "TypeError",
+        "KeyError",
+        "IndexError",
+        "AttributeError",
+        "RuntimeError",
+        "OSError",
+        "NotImplementedError",
+        "StopIteration",
+        "FileNotFoundError",
+        "ImportError",
+        "ZeroDivisionError",
     ]
 
     def initialize_builtins(self, scope: "Scope", context: "AbstractContext") -> None:
@@ -479,9 +498,45 @@ class PointerSolver:
                     return True
         return False
 
+    def _super_bound_variable_names(self) -> Set[str]:
+        """Names of variables that hold objects produced by ``super()``."""
+        names: Set[str] = set()
+        for cvar, points_to in self.state._env.items():
+            if not any(isinstance(obj, SuperObject) for obj in points_to):
+                continue
+            name = getattr(getattr(cvar, "content", cvar), "name", None)
+            if name:
+                names.add(name)
+        return names
+
+    def _attribute_base_names(self) -> Dict[str, Set[str]]:
+        """Map each attribute-load target name to the names it is loaded from."""
+        bases: Dict[str, Set[str]] = {}
+        for _scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, (LoadConstraint, AttrReadConstraint)):
+                continue
+            target = getattr(constraint, "target", None)
+            base = getattr(constraint, "base", None)
+            if target is None or base is None:
+                continue
+            bases.setdefault(target.name, set()).add(base.name)
+        return bases
+
+    @staticmethod
+    def _is_super_attribute_probe(
+        constraint: "CallConstraint",
+        super_names: Set[str],
+        attribute_bases: Dict[str, Set[str]],
+    ) -> bool:
+        """Whether the callee was loaded from an object produced by ``super()``."""
+        bases = attribute_bases.get(constraint.callee.name)
+        return bool(bases) and bool(bases & super_names)
+
     def _record_empty_callees(self) -> None:
         """Make unresolved calls fail-visible after the points-to fixpoint."""
         seen = set()
+        super_names = self._super_bound_variable_names()
+        attribute_bases = self._attribute_base_names()
         for scope, constraint in self.state.constraints.all():
             if not isinstance(constraint, CallConstraint):
                 continue
@@ -492,6 +547,11 @@ class PointerSolver:
             if constraint.callee.name.startswith(("$call@", "$metaclass_call@")) and (
                 self._site_has_callable_target(constraint.call_site)
             ):
+                continue
+            if self._is_super_attribute_probe(constraint, super_names, attribute_bases):
+                # ``super().attr`` walks the MRO; a builtin base (``dict``,
+                # ``type``, ``Exception``) has no Python-level attribute to
+                # find, which is not an analysis gap.
                 continue
             callee = self.state.get_variable(scope, scope.context, constraint.callee)
             if not self.state.get_points_to(callee).is_empty():
@@ -1837,9 +1897,7 @@ class PointerSolver:
                 # may observe that value; without this join a dynamically
                 # populated object (``__init__(**kwargs)``, dataclasses,
                 # config/ORM models) lost every field it was given.
-                dynamic_field = self.state.get_field(
-                    scope, context, base_obj, dynamic_attr()
-                )
+                dynamic_field = self.state.get_field(scope, context, base_obj, dynamic_attr())
                 self.state._add_var_points_flow(dynamic_field, target_var)
 
             if isinstance(base_obj, NativeObject):
@@ -1889,9 +1947,9 @@ class PointerSolver:
                     builtin_type = "set"
                 elif isinstance(base_obj, BuiltinInstanceObject):
                     builtin_type = base_obj.builtin_type
-                elif isinstance(base_obj, ConstantObject) and isinstance(
-                    base_obj.value, str
-                ):
+                elif isinstance(base_obj, InstanceObject):
+                    builtin_type = self.state.builtin_base_name(base_obj.class_obj)
+                elif isinstance(base_obj, ConstantObject) and isinstance(base_obj.value, str):
                     # String literals and ``str(...)`` results must expose the
                     # string method table; otherwise ``s.split(",")`` was an
                     # unresolved call and lost every downstream value.
@@ -2489,11 +2547,32 @@ class PointerSolver:
                 target=init_callee_var,
             ),
         )
+        # ``__init__`` defined in the class body is a ``MethodObject`` whose
+        # ``self`` is supplied by binding.  A plain function assigned to the
+        # attribute (``cls.__init__ = make_init()``, e.g. the dataclasses
+        # stub) is *unbound* and must receive the instance explicitly --
+        # otherwise the first constructor argument was bound to ``self``.
+        ctx_init_callee = self.state.get_variable(scope, context, init_callee_var)
+        bound_init_var = self.variable_factory.make_variable(
+            f"$init_method@{call.call_site.short_id()}"
+        )
+        ctx_bound_init = self.state.get_variable(scope, context, bound_init_var)
+        bound_guard = GuardNode(
+            lambda edge, pts: PointsToSet.from_objects(
+                [obj for obj in pts if isinstance(obj, MethodObject)]
+            )
+        )
+        self.state._add_points_flow_edge(
+            PointerFlowEdge(NormalNode(ctx_init_callee), bound_guard, PointerFlowKind.NORMAL)
+        )
+        self.state._add_points_flow_edge(
+            PointerFlowEdge(bound_guard, NormalNode(ctx_bound_init), PointerFlowKind.NORMAL)
+        )
         self.add_constraint(
             scope,
             context,
             CallConstraint(
-                init_callee_var,
+                bound_init_var,
                 call.args,
                 call.kwargs,
                 None,
@@ -2501,6 +2580,38 @@ class PointerSolver:
                 call.starred,
             ),
         )
+
+        def schedule_unbound_init() -> None:
+            for obj in self.state.get_points_to(ctx_init_callee):
+                if not isinstance(obj, FunctionObject) or isinstance(obj, MethodObject):
+                    continue
+                fact = (call.call_site, obj)
+                if fact in self._scheduled_optional_calls:
+                    continue
+                self._scheduled_optional_calls.add(fact)
+                fn_var = self.variable_factory.make_variable(
+                    f"$init_fn@{call.call_site.short_id()}@{stable_token(obj)}",
+                    VariableKind.TEMPORARY,
+                )
+                ctx_fn = self.state.get_variable(scope, context, fn_var)
+                self.handle_new_points_to(ctx_fn, scope, PointsToSet.singleton(obj))
+                self.add_constraint(
+                    scope,
+                    context,
+                    CallConstraint(
+                        fn_var,
+                        (init_base_var,) + call.args,
+                        call.kwargs,
+                        None,
+                        call.call_site,
+                        (False,) + call.starred,
+                    ),
+                )
+
+        self.state.dependencies.subscribe(
+            ("unbound-init", call.call_site), (ctx_init_callee,), schedule_unbound_init
+        )
+        schedule_unbound_init()
 
         return True
 

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 from .processor import Processor
 from ..object import ListObject, TupleObject, DictObject, SetObject, ConstantObject, AllocKind
-from ..heap_model import elem, key
+from ..heap_model import dict_keys, elem, key
 from ..points_to_set import PointsToSet
 from ..constraints import (
     LoadSubscrConstraint,
@@ -124,7 +124,8 @@ class ContainerProcessor(Processor):
             if isinstance(index_obj, ConstantObject):
                 field = key(index_obj.value)
                 solver.add_constraint(scope, scope.context, LoadConstraint(c.base, field, c.target))
-        # Always include elem() for soundness (dict/list append/update, etc.)
+        # Always include elem() for soundness (dict/list append/update, etc.);
+        # containers populated through ``dict(**x)``/``update`` only fill elem().
         solver.add_constraint(scope, scope.context, LoadConstraint(c.base, elem(), c.target))
         return True
 
@@ -152,6 +153,9 @@ class ContainerProcessor(Processor):
                 unknown_index = True
         if unknown_index or stored_elem:
             solver.add_constraint(scope, scope.context, StoreConstraint(c.base, elem(), c.source))
+        # Remember the key objects so ``keys()``/``items()``/iteration can
+        # enumerate them (``key(name)`` cells are not enumerable).
+        solver.add_constraint(scope, scope.context, StoreConstraint(c.base, dict_keys(), c.index))
         return True
 
     def handle_new_constraint(

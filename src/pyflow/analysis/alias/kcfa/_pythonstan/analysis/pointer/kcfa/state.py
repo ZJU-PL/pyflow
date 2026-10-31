@@ -602,6 +602,26 @@ class PointerAnalysisState:
         else:
             self.class_hierarchy.add_class(owner, bases)
 
+    #: Builtin bases whose method tables the solver models.
+    BUILTIN_METHOD_BASES = frozenset({"list", "dict", "set", "tuple", "str"})
+
+    def builtin_base_name(self, class_obj) -> Optional[str]:
+        """Return the modelled builtin base of a user class, if any.
+
+        ``class B(list)`` instances expose the list method table; without this
+        lookup ``b.append(...)`` on the subclass was an unresolved call.
+        """
+        if class_obj is None:
+            return None
+        for position in range(len(getattr(class_obj, "base_variables", ()) or ())):
+            for sequence in self._effective_base_sequences.get((class_obj, position), ()):
+                for ref in sequence:
+                    if getattr(ref, "kind", None) is TypeRefKind.BUILTIN and (
+                        ref.name in self.BUILTIN_METHOD_BASES
+                    ):
+                        return ref.name
+        return None
+
     def class_base_validity(
         self,
         owner: "ClassObject",

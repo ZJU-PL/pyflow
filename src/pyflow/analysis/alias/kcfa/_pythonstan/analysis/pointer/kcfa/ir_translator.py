@@ -12,7 +12,7 @@ from .constraints import *
 from .config import Config
 from .context import CallSite
 from .variable import Variable, VariableFactory, VariableKind
-from .heap_model import elem, attr, key
+from .heap_model import dict_keys, elem, attr, key
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import *
 from .object import AllocSite, AllocKind
 from .stable_key import stable_token
@@ -326,7 +326,9 @@ class IRTranslator:
                     )
                     const_alloc = AllocSite.from_ir_node(const_assign, AllocKind.CONSTANT)
                     constraints.append(AllocConstraint(target=index_var, alloc_site=const_alloc))
-            delitem_method_var = self._make_variable(f"$optional_callee@delitem:{stable_token(stmt)}")
+            delitem_method_var = self._make_variable(
+                f"$optional_callee@delitem:{stable_token(stmt)}"
+            )
             constraints.append(
                 LoadConstraint(
                     base=container_var,
@@ -506,6 +508,26 @@ class IRTranslator:
                             field = key(key_expr.value)
                             constraints.append(
                                 StoreConstraint(base=target_var, field=field, source=val_var)
+                            )
+                            # Keep the key object itself for keys()/items().
+                            key_name = f"$dict_key_{stable_token(stmt)}_{i}"
+                            key_var = self._make_variable(key_name)
+                            key_assign = IRAssign(
+                                ast.Assign(
+                                    targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                                    value=key_expr,
+                                )
+                            )
+                            constraints.append(
+                                AllocConstraint(
+                                    target=key_var,
+                                    alloc_site=AllocSite.from_ir_node(
+                                        key_assign, AllocKind.CONSTANT
+                                    ),
+                                )
+                            )
+                            constraints.append(
+                                StoreConstraint(base=target_var, field=dict_keys(), source=key_var)
                             )
                         elif isinstance(key_expr, ast.Name) and self.config.index_sensitive:
                             # Key is a name (e.g., from TAC: $const_1 = "a"; d = {$const_1: v})
@@ -935,6 +957,73 @@ class IRTranslator:
 
         return func_var, constraints
 
+    def _class_annotations(self, ir_cls: "IRClass", class_var: "Variable") -> List["Constraint"]:
+        """Expose a class's annotated field names through ``__annotations__``.
+
+        ``dataclasses``, ``attrs`` and friends read ``cls.__annotations__`` to
+        discover fields; without it the dataclass stub generated an empty
+        ``__init__`` and every user dataclass lost its attributes.
+        """
+        body = getattr(getattr(ir_cls, "stmt", None), "body", ()) or ()
+        names = [
+            node.target.id
+            for node in body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        ]
+        if not names:
+            return []
+        constraints: List["Constraint"] = []
+        token = stable_token(ir_cls)
+        annotations_var = self._make_variable(f"$class_annotations@{token}")
+        constraints.append(
+            AllocConstraint(
+                target=annotations_var,
+                alloc_site=AllocSite(stmt=ir_cls, kind=AllocKind.DICT),
+            )
+        )
+        for index, name in enumerate(names):
+            key_name = f"$annotation_key@{token}@{index}"
+            key_var = self._make_variable(key_name)
+            key_stmt = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                    value=ast.Constant(value=name),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=key_var,
+                    alloc_site=AllocSite.from_ir_node(key_stmt, AllocKind.CONSTANT),
+                )
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=dict_keys(), source=key_var)
+            )
+            value_name = f"$annotation_value@{token}@{index}"
+            value_var = self._make_variable(value_name)
+            value_stmt = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=value_name, ctx=ast.Store())],
+                    value=ast.Constant(value=None),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=value_var,
+                    alloc_site=AllocSite.from_ir_node(value_stmt, AllocKind.UNKNOWN),
+                )
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=key(name), source=value_var)
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=elem(), source=value_var)
+            )
+        constraints.append(
+            StoreConstraint(base=class_var, field=attr("__annotations__"), source=annotations_var)
+        )
+        return constraints
+
     #: Descriptor decorators that ``IRFunc`` records explicitly.
     _DESCRIPTOR_DECORATORS = frozenset({"staticmethod", "classmethod", "property"})
 
@@ -967,9 +1056,7 @@ class IRTranslator:
                 continue
             call = decorator_expr if isinstance(decorator_expr, ast.Call) else None
             callee_expr = call.func if call is not None else decorator_expr
-            decorator_var = self._decorator_callee(
-                callee_expr, owner_name, index, constraints
-            )
+            decorator_var = self._decorator_callee(callee_expr, owner_name, index, constraints)
             if call is not None:
                 args = tuple(
                     self._decorator_argument(value, owner_name, index, position, constraints)
@@ -1026,9 +1113,7 @@ class IRTranslator:
         target = self._make_variable(f"$decorator_factory_{owner_name}_{index}")
         if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
             obj_var = self._make_variable(expr.value.id)
-            constraints.append(
-                LoadConstraint(base=obj_var, field=attr(expr.attr), target=target)
-            )
+            constraints.append(LoadConstraint(base=obj_var, field=attr(expr.attr), target=target))
         return target
 
     def _decorator_argument(
@@ -1040,9 +1125,7 @@ class IRTranslator:
         name = f"$decorator_arg_{owner_name}_{index}_{position}"
         var = self._make_variable(name)
         if isinstance(expr, ast.Constant):
-            assignment = ast.Assign(
-                targets=[ast.Name(id=name, ctx=ast.Store())], value=expr
-            )
+            assignment = ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=expr)
             const_alloc = AllocSite.from_ir_node(IRAssign(assignment), AllocKind.CONSTANT)
             constraints.append(AllocConstraint(target=var, alloc_site=const_alloc))
         return var
@@ -1089,6 +1172,7 @@ class IRTranslator:
             skip_descriptors=False,
         )
         constraints.append(CopyConstraint(source=current_var, target=class_var))
+        constraints.extend(self._class_annotations(ir_cls, class_var))
 
         # TODO [CRITICAL] the method of treating inheritances is totally wrong, we should use the class hierarchy manager to handle this.
         """
@@ -1197,7 +1281,9 @@ class IRTranslator:
         """
         constraints = []
 
-        enter_method_var = self._make_variable(f"$optional_callee@enter:{stable_token(context_manager_var)}")
+        enter_method_var = self._make_variable(
+            f"$optional_callee@enter:{stable_token(context_manager_var)}"
+        )
         constraints.append(
             LoadConstraint(
                 base=context_manager_var, field=attr("__enter__"), target=enter_method_var
@@ -1221,7 +1307,9 @@ class IRTranslator:
         """
         constraints = []
 
-        exit_method_var = self._make_variable(f"$optional_callee@exit:{stable_token(context_manager_var)}")
+        exit_method_var = self._make_variable(
+            f"$optional_callee@exit:{stable_token(context_manager_var)}"
+        )
         constraints.append(
             LoadConstraint(base=context_manager_var, field=attr("__exit__"), target=exit_method_var)
         )
@@ -1341,7 +1429,9 @@ class IRTranslator:
 
         if isinstance(op, ast.Not):
             for method_name in ("__bool__", "__len__"):
-                method_var = self._make_variable(f"$optional_callee@truth:{method_name}:{stable_token(operand_var)}")
+                method_var = self._make_variable(
+                    f"$optional_callee@truth:{method_name}:{stable_token(operand_var)}"
+                )
                 constraints.append(
                     LoadConstraint(
                         base=operand_var,

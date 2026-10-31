@@ -361,24 +361,65 @@ def test_diagnostics_are_deduplicated_across_contexts() -> None:
         "    return wrapper\n"
         "@deco\n"
         "def handler(x):\n"
-        "    return x\n"
-        + "".join(f"handler({index})\n" for index in range(12)),
+        "    return x\n" + "".join(f"handler({index})\n" for index in range(12)),
         k=2,
     )
 
     assert len(result.diagnostics) < 12
-    assert all(
-        len(diagnostic.message) < 600 for diagnostic in result.diagnostics
-    )
+    assert all(len(diagnostic.message) < 600 for diagnostic in result.diagnostics)
 
 
 def test_solver_budget_suppresses_unresolved_call_noise() -> None:
     result = _result(
         "import os\n"
-        + "".join(f"def f{index}(x):\n    return os.system(x)\nf{index}('ls')\n" for index in range(40)),
+        + "".join(
+            f"def f{index}(x):\n    return os.system(x)\nf{index}('ls')\n" for index in range(40)
+        ),
         max_iterations=5,
     )
 
     assert result.status == "partial"
     assert result.statistics["diagnostics"] == 1
     assert result.diagnostics[0].kind == "budget"
+
+
+def test_dict_keys_yield_real_key_objects() -> None:
+    result = _result(
+        "import os\n"
+        "import plugin_api\n"
+        "handlers = {'run': os.system}\n"
+        "for name in handlers.keys():\n"
+        "    plugin_api.register(name)\n"
+    )
+
+    names = [
+        finding
+        for finding in result.findings
+        if finding.report_kind is CapabilityReportKind.INDIRECT
+    ]
+    # ``keys()`` must expose the key objects, never the dict's values.
+    assert all(finding.capability != "process.execute" for finding in names)
+    assert result.status == "complete"
+
+
+def test_class_annotations_are_published() -> None:
+    from pyflow.analysis.alias.kcfa import PointerAnalysis
+
+    result = PointerAnalysis("class C:\n    cb: object\na = C.__annotations__\n", k=1).run()
+
+    assert any("DICT" in str(obj) for obj in result.points_to("a"))
+
+
+def test_function_assigned_to_class_attribute_binds_self() -> None:
+    result = _result(
+        "import os\n"
+        "def make_init(self, cb):\n"
+        "    self.cb = cb\n"
+        "class C:\n"
+        "    pass\n"
+        "C.__init__ = make_init\n"
+        "c = C(os.system)\n"
+        "c.cb('ls')\n"
+    )
+
+    assert "process.execute" in _capabilities(result)

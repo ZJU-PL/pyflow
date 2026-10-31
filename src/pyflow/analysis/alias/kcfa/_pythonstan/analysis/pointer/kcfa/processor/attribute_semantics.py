@@ -31,6 +31,7 @@ from ..heap_model import (
 from ..object import (
     AllocKind,
     AllocSite,
+    BuiltinMethodObject,
     ClassObject,
     InstanceObject,
     MethodObject,
@@ -487,6 +488,17 @@ class AttributeResolver(Processor):
             f"{attr_token}@{stable_token(base_obj)}",
         )
         class_obj = base_obj.class_obj
+        builtin_base = state.builtin_base_name(class_obj)
+        if builtin_base and attr_name in state._get_builtin_methods_for_type(builtin_base):
+            # ``class B(list)`` instances expose the list method table.
+            method_obj = BuiltinMethodObject(
+                context=context,
+                alloc_site=AllocSite(stmt=f"<builtin_method:{attr_name}>", kind=AllocKind.BUILTIN),
+                method_name=attr_name,
+                receiver=base_obj,
+                receiver_var=inst_var,
+            )
+            state._worklist.add((scope, NormalNode(target_ctx), PointsToSet.singleton(method_obj)))
         class_var = self._make_object_var(
             solver,
             scope,

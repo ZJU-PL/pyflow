@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 from typing import Iterable
 
-from pyflow.analysis.typeinfo.core.typesystem import ProperType, TypeSystem
+from pyflow.analysis.typeinfo.core.typesystem import ANY, CallableType, ProperType, TypeSystem
 from pyflow.analysis.typeinfo.inference.engine import (
     InferenceOptions,
     StaticTypeInferenceEngine,
@@ -17,6 +17,7 @@ from pyflow.analysis.typeinfo.inference.models import (
     ModuleInferenceResult,
     ProjectInferenceResult,
 )
+from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -165,7 +166,7 @@ class ProjectTypeInferenceEngine:
         except SyntaxError:
             return []
         imports: list[str] = []
-        for node in tree.body:
+        for node in iter_module_imports(tree.body):
             if isinstance(node, ast.Import):
                 imports.extend(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
@@ -197,7 +198,17 @@ class ProjectTypeInferenceEngine:
         for module_name in sorted(results, key=len, reverse=True):
             prefix = f"{module_name}."
             if qualified_name.startswith(prefix):
-                return results[module_name].type_of(qualified_name.removeprefix(prefix))
+                remainder = qualified_name.removeprefix(prefix)
+                result = results[module_name]
+                typ = result.type_of(qualified_name) or result.type_of(remainder)
+                if typ is not None:
+                    return typ
+                summary = result.functions.get(qualified_name) or result.functions.get(remainder)
+                if summary is not None:
+                    parameters = tuple(
+                        value.public_type() or ANY for value in summary.parameters.values()
+                    )
+                    return CallableType(parameters, summary.return_type or ANY)
         return None
 
     @staticmethod

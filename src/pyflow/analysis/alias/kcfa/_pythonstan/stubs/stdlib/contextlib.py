@@ -66,6 +66,16 @@ class ExitStack:
     def __init__(self):
         self._stack = []
 
+    def callback(self, callback, *args, **kwargs):
+        self._stack.append(callback)
+
+    def push(self, exit):
+        self._stack.append(exit)
+        return exit
+
+    def pop_all(self):
+        return ExitStack()
+
     def enter_context(self, cm):
         result = cm.__enter__()
         self._stack.append(cm)

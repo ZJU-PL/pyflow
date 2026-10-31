@@ -33,7 +33,7 @@ from ..object import (
 from ..context import Ctx, Scope, AbstractContext
 from ..variable import VariableKind, Variable
 from ..unknown_tracker import UnknownKind
-from ..heap_model import key, attr, elem, value
+from ..heap_model import key, attr, dict_keys, elem, value
 from ..call_binding import bind_arguments, mapping_key_hints
 from ..stable_key import stable_token
 from ..type_ref import ClassConstructionKind, TypeRefKind
@@ -1338,10 +1338,36 @@ class PythonCallService(Processor):
                     # Also expose the value through ``elem()`` so that
                     # ``kwargs.items()`` / ``values()`` / iteration see the
                     # keyword arguments (dict literals do the same).
-                    elem_var = state.get_field(
-                        callee_scope, call_context, kwarg_dict_obj, elem()
-                    )
+                    elem_var = state.get_field(callee_scope, call_context, kwarg_dict_obj, elem())
                     state._add_var_points_flow(kw_var, elem_var)
+                    # Keep the *key* as a real string constant so that
+                    # ``kwargs.items()`` yields usable names.
+                    key_var_name = f"$kw_key@{call.call_site.short_id()}@{kw_name}"
+                    key_stmt = IRAssign(
+                        ast.Assign(
+                            targets=[ast.Name(id=key_var_name, ctx=ast.Store())],
+                            value=ast.Constant(value=kw_name),
+                        )
+                    )
+                    key_var = state.get_variable(
+                        callee_scope,
+                        call_context,
+                        solver.variable_factory.make_variable(key_var_name, VariableKind.TEMPORARY),
+                    )
+                    solver.add_constraint(
+                        callee_scope,
+                        call_context,
+                        AllocConstraint(
+                            target=solver.variable_factory.make_variable(
+                                key_var_name, VariableKind.TEMPORARY
+                            ),
+                            alloc_site=AllocSite.from_ir_node(key_stmt, AllocKind.CONSTANT),
+                        ),
+                    )
+                    keys_field = state.get_field(
+                        callee_scope, call_context, kwarg_dict_obj, dict_keys()
+                    )
+                    state._add_var_points_flow(key_var, keys_field)
                 for keyword_index, source, source_var in dstar_sources:
                     fields = (elem(), value())
                     expanded = self._expanded_argument(
