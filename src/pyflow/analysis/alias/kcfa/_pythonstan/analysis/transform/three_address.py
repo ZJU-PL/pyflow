@@ -79,6 +79,9 @@ class ThreeAddressTransformer(NodeTransformer):
         self.import_stmts = {*()}
         self.type_checking_names = set()
         self.typing_module_names = set()
+        #: Local aliases of ``typing`` bases that only contribute
+        #: ``__mro_entries__`` (``from typing import Generic as G``).
+        self.typing_base_names = set()
 
     def resolve_single_Assign(self, tgt, value, stmt):
         """
@@ -1065,7 +1068,7 @@ class ThreeAddressTransformer(NodeTransformer):
             for name in self._match_capture_names(case.pattern):
                 bind = ast.Assign(
                     targets=[ast.Name(id=name, ctx=Store())],
-                    value=ast.Name(id=subj_l, ctx=Load()),
+                    value=ast.Name(id=subj_l.id, ctx=Load()),
                 )
                 ast.copy_location(bind, case.pattern)
                 blk.append(bind)
@@ -1111,10 +1114,9 @@ class ThreeAddressTransformer(NodeTransformer):
         while isinstance(root, ast.Attribute):
             root = root.value
         root_name = getattr(root, "id", None)
-        if final in self._TYPING_ONLY_BASES and (
-            root_name in {"typing", "typing_extensions"}
-            or (root_name == final and isinstance(base, ast.Name))
-        ):
+        if isinstance(base, ast.Name) and base.id in self.typing_base_names:
+            return None
+        if final in self._TYPING_ONLY_BASES and root_name in self.typing_module_names:
             return None
         if final in {"Generic", "Protocol"} and isinstance(base, ast.Name):
             return None
@@ -1295,13 +1297,18 @@ class ThreeAddressTransformer(NodeTransformer):
     def visit_Module(self, node):
         self.reset()
         for statement in node.body:
-            if isinstance(statement, ast.ImportFrom) and statement.module == "typing":
+            if isinstance(statement, ast.ImportFrom) and statement.module in {
+                "typing",
+                "typing_extensions",
+            }:
                 for alias in statement.names:
                     if alias.name == "TYPE_CHECKING":
                         self.type_checking_names.add(alias.asname or alias.name)
+                    if alias.name in self._TYPING_ONLY_BASES:
+                        self.typing_base_names.add(alias.asname or alias.name)
             elif isinstance(statement, ast.Import):
                 for alias in statement.names:
-                    if alias.name == "typing":
+                    if alias.name in {"typing", "typing_extensions"}:
                         self.typing_module_names.add(alias.asname or alias.name)
         stmts = self.visit_stmt_list(node.body)
         const_stmts = [

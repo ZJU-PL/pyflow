@@ -200,6 +200,11 @@ class BaseResolutionProcessor(Processor):
                     owner,
                     "__mro_entries__ did not return a tuple",
                 )
+                # Keep the class object alive: an unmodelled ``__mro_entries__``
+                # means the Python-level base is unknown, not that the class
+                # does not exist.  Erasing it made every ``class C(Mapping)``
+                # (and every use of ``C``) invisible to the analysis.
+                solver.state.record_effective_base_sequence(owner, position, ())
                 continue
             result_key = (owner, position, result_obj)
             if result_key in self._installed_results:

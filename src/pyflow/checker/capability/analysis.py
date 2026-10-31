@@ -274,6 +274,7 @@ class DefensiveCapabilityAnalysis:
         self.max_iterations = max_iterations
         self._return_identities: dict = {}
         self._return_capabilities: dict = {}
+        self._stub_scopes: set[str] = set()
 
     def analyze_source(self, source: str) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis(
@@ -315,6 +316,7 @@ class DefensiveCapabilityAnalysis:
         result = CapabilityAnalysisResult()
         state = pointer_result.state
         self._return_identities = self._collect_return_identities(pointer_result)
+        self._stub_scopes = self._bundled_stub_scope_names(pointer_result)
         reachability = _CapabilityReachability(self, state, self.registry)
 
         for event in pointer_result.semantic_events:
@@ -883,7 +885,7 @@ class DefensiveCapabilityAnalysis:
                 # Model-internal gaps in our own stdlib stubs should not make
                 # a user's capability report look partial.
                 continue
-            if location is None and _detail_is_bundled_stub(detail["location"]):
+            if location is None and self._is_stub_detail(detail):
                 continue
             label = (
                 f"{location.filename}:{location.line}:{location.column}"
@@ -899,8 +901,37 @@ class DefensiveCapabilityAnalysis:
             )
         return diagnostics
 
-    @staticmethod
-    def _coverage(pointer_result: PointerAnalysisResult) -> dict:
+    def _bundled_stub_scope_names(self, pointer_result: PointerAnalysisResult) -> set[str]:
+        """Return qualnames of scopes that live in PyFlow's bundled stubs."""
+        names: set[str] = set()
+        for scope, _context, _constraint in pointer_result.state.constraint_definitions:
+            module = getattr(scope, "module", None)
+            filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
+            if not _is_bundled_stub(filename):
+                continue
+            name = getattr(scope, "get_qualname", None)
+            if not callable(name):
+                name = getattr(getattr(scope, "stmt", None), "get_qualname", None)
+            if callable(name):
+                names.add(str(name()))
+        return names
+
+    def _user_incomplete_reasons(self, pointer_result: PointerAnalysisResult) -> list[dict]:
+        """Incompleteness that can affect user code (not bundled model internals)."""
+        return [
+            reason
+            for reason in pointer_result.incomplete_reasons()
+            if reason.get("scope") not in self._stub_scopes
+        ]
+
+    def _is_stub_detail(self, detail: dict) -> bool:
+        location = str(detail.get("location") or "")
+        if not location:
+            return False
+        scope_name = location.split(":", 1)[0]
+        return scope_name in self._stub_scopes or _detail_is_bundled_stub(location)
+
+    def _coverage(self, pointer_result: PointerAnalysisResult) -> dict:
         """Return solver completeness flags so ``complete`` is auditable."""
         stats = pointer_result.statistics()
         return {
@@ -910,7 +941,7 @@ class DefensiveCapabilityAnalysis:
             "semantic_complete": bool(stats.get("semantic_complete", False)),
             "stop_reason": pointer_result.stop_reason,
             "incomplete_kinds": sorted(
-                {reason.get("kind") for reason in pointer_result.incomplete_reasons()}
+                {reason.get("kind") for reason in self._user_incomplete_reasons(pointer_result)}
             ),
         }
 
@@ -939,7 +970,9 @@ class DefensiveCapabilityAnalysis:
                 )
             )
         if not stats.get("semantic_complete", True):
-            reasons = pointer_result.incomplete_reasons()
+            reasons = self._user_incomplete_reasons(pointer_result)
+            if not reasons:
+                return diagnostics
             kinds = {reason.get("kind") for reason in reasons}
             native_only = bool(kinds) and kinds <= {"native_effect"}
             if native_only:
@@ -1064,7 +1097,9 @@ _CLOSURE_CACHE_ENTRIES = 200_000
 class _CapabilityReachability:
     """Index a solved heap once and reuse it for every potential transfer."""
 
-    def __init__(self, analysis: "DefensiveCapabilityAnalysis", state, registry: CapabilityRegistry) -> None:
+    def __init__(
+        self, analysis: "DefensiveCapabilityAnalysis", state, registry: CapabilityRegistry
+    ) -> None:
         self.analysis = analysis
         self.state = state
         self.registry = registry

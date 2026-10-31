@@ -37,6 +37,20 @@ __all__ = [
 ]
 
 
+def _scope_qualname(scope) -> str | None:
+    """Best-effort qualified name for a scope or IR scope."""
+    if scope is None:
+        return None
+    getter = getattr(scope, "get_qualname", None)
+    if callable(getter):
+        return str(getter())
+    inner = getattr(scope, "stmt", None)
+    getter = getattr(inner, "get_qualname", None)
+    if callable(getter):
+        return str(getter())
+    return None
+
+
 class AliasStatus(Enum):
     """Three-valued alias answer that preserves analysis incompleteness."""
 
@@ -260,18 +274,19 @@ class PointerAnalysisResult:
         query = self._inner.query() if self._inner is not None else self._query
         reasons: list[dict] = []
         for reason in getattr(query, "_global_incomplete_reasons", ()) or ():
-            reasons.append(dict(reason))
-        for collection in (
-            getattr(query, "_incomplete_scopes", {}) or {},
-            getattr(query, "_incomplete_variables", {}) or {},
-        ):
-            for scoped in collection.values():
-                for reason in scoped or ():
-                    reasons.append(dict(reason))
+            reasons.append({**reason, "scope": None})
+        for scope, scoped in (getattr(query, "_incomplete_scopes", {}) or {}).items():
+            name = _scope_qualname(scope)
+            for reason in scoped or ():
+                reasons.append({**reason, "scope": name})
+        for variable, scoped in (getattr(query, "_incomplete_variables", {}) or {}).items():
+            name = _scope_qualname(getattr(variable, "scope", None))
+            for reason in scoped or ():
+                reasons.append({**reason, "scope": name})
         unique: list[dict] = []
         seen = set()
         for reason in reasons:
-            key = (reason.get("kind"), reason.get("message"))
+            key = (reason.get("kind"), reason.get("message"), reason.get("scope"))
             if key in seen:
                 continue
             seen.add(key)

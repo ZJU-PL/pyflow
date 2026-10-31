@@ -85,11 +85,7 @@ def _absolute_import_roots(path: Path) -> set[str]:
 
 def _resolved_import_count(root: Path, names: set[str]) -> int:
     """Count imported top-level names that exist as a package or module."""
-    return sum(
-        1
-        for name in names
-        if (root / name).is_dir() or (root / f"{name}.py").is_file()
-    )
+    return sum(1 for name in names if (root / name).is_dir() or (root / f"{name}.py").is_file())
 
 
 def add_capabilities_parser(subparsers) -> None:
@@ -103,7 +99,10 @@ def add_capabilities_parser(subparsers) -> None:
         "--recursive",
         "-r",
         action="store_true",
-        help="Analyze all project Python files instead of choosing one entry file",
+        help=(
+            "Analyze every project Python file as an entry (one whole-project "
+            "analysis each; the report states how many entries were covered)"
+        ),
     )
     parser.add_argument("--context-depth", type=int, choices=(0, 1, 2, 3), default=1)
     parser.add_argument(
@@ -252,6 +251,7 @@ def run_capabilities(args) -> int:
     result = CapabilityAnalysisResult()
     analyzed_entries = 0
     failed_entries = 0
+    solver_coverages: list[dict] = []
     try:
         with analysis_time_budget(getattr(args, "max_seconds", 30.0)), redirect_stdout(sys.stderr):
             for entry in entries:
@@ -278,6 +278,8 @@ def run_capabilities(args) -> int:
                     )
                     continue
                 analyzed_entries += 1
+                if analyzed.coverage:
+                    solver_coverages.append(analyzed.coverage)
                 result.findings.extend(analyzed.findings)
                 result.diagnostics.extend(analyzed.diagnostics)
                 if analyzed.status != "complete":
@@ -287,6 +289,30 @@ def run_capabilities(args) -> int:
 
         result.diagnostics.append(CapabilityDiagnostic(kind="budget", message=str(exc)))
         result.status = "partial"
+    if solver_coverages:
+        result.coverage.update(
+            {
+                "solver_complete": all(c.get("solver_complete") for c in solver_coverages),
+                "fixpoint_complete": all(c.get("fixpoint_complete") for c in solver_coverages),
+                "frontend_complete": all(c.get("frontend_complete") for c in solver_coverages),
+                "semantic_complete": all(c.get("semantic_complete") for c in solver_coverages),
+                "stop_reason": next(
+                    (
+                        c.get("stop_reason")
+                        for c in solver_coverages
+                        if c.get("stop_reason") != "fixpoint"
+                    ),
+                    "fixpoint",
+                ),
+                "incomplete_kinds": sorted(
+                    {
+                        kind
+                        for coverage in solver_coverages
+                        for kind in coverage.get("incomplete_kinds", ())
+                    }
+                ),
+            }
+        )
     processed = analyzed_entries + failed_entries
     result.coverage.update(
         {
@@ -324,7 +350,7 @@ def run_capabilities(args) -> int:
 
 def _to_text(result, *, verbose=False) -> str:
     lines = [f"Capability analysis: {result.status}"]
-    coverage = result.coverage or {}
+    coverage = getattr(result, "coverage", None) or {}
     total = coverage.get("entries_total")
     if total and total > 1:
         lines.append(
