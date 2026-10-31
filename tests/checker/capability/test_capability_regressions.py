@@ -423,3 +423,93 @@ def test_function_assigned_to_class_attribute_binds_self() -> None:
     )
 
     assert "process.execute" in _capabilities(result)
+
+
+def test_object_new_in_custom_new_creates_instance() -> None:
+    result = _result(
+        "import os\n"
+        "class C:\n"
+        "    def __new__(cls, *a, **k):\n"
+        "        return object.__new__(cls)\n"
+        "    def __init__(self, cb):\n"
+        "        self.cb = cb\n"
+        "c = C(os.system)\n"
+        "c.cb('ls')\n"
+    )
+
+    assert "process.execute" in _capabilities(result)
+    assert result.status == "complete"
+
+
+def test_namedtuple_fields_carry_capabilities() -> None:
+    result = _result(
+        "import os\n"
+        "import plugin_api\n"
+        "from collections import namedtuple\n"
+        "P = namedtuple('P', 'cb')\n"
+        "p = P(os.system)\n"
+        "plugin_api.register(p)\n"
+    )
+
+    assert "process.execute" in _capabilities(
+        result, report_kind=CapabilityReportKind.INDIRECT
+    )
+    assert result.status == "complete"
+
+
+def test_exitstack_callback_is_reported() -> None:
+    result = _result(
+        "import os\n"
+        "from contextlib import ExitStack\n"
+        "with ExitStack() as stack:\n"
+        "    stack.callback(os.system, 'ls')\n"
+    )
+
+    assert "process.execute" in _capabilities(result)
+    assert result.status == "complete"
+
+
+def test_generator_send_is_modeled() -> None:
+    result = _result(
+        "import os\n"
+        "def gen():\n"
+        "    value = yield 1\n"
+        "    os.system(value)\n"
+        "it = gen()\n"
+        "next(it)\n"
+        "it.send('ls')\n"
+    )
+
+    assert result.status == "complete"
+
+
+def test_partial_of_bound_method_binds_prebound_arguments() -> None:
+    result = _result(
+        "import os\n"
+        "from functools import partial\n"
+        "class C:\n"
+        "    def run(self, x):\n"
+        "        return os.system(x)\n"
+        "f = partial(C().run, 'ls')\n"
+        "f()\n"
+    )
+
+    assert "process.execute" in _capabilities(result)
+    assert result.status == "complete"
+    assert not any("missing required argument" in d.message for d in result.diagnostics)
+
+
+def test_varargs_forwarding_expands_prebound_arguments() -> None:
+    result = _result(
+        "import os\n"
+        "class P:\n"
+        "    def __init__(self, fn, *args):\n"
+        "        self.fn = fn\n"
+        "        self.args = args\n"
+        "    def __call__(self, *more):\n"
+        "        return self.fn(*self.args, *more)\n"
+        "P(os.system, 'ls')()\n"
+    )
+
+    assert "process.execute" in _capabilities(result)
+    assert result.status == "complete"

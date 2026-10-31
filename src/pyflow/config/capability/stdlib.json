@@ -26,7 +26,7 @@
     {"capability":"debug.introspection","category":"debug","operation":"call","access_paths":["sys.settrace","sys.setprofile","sys._getframe","inspect.currentframe","gc.get_objects"]}
   ],
   "effects": [
-    {"kind":"return_argument","arguments":[0],"access_paths":["copy.copy","copy.deepcopy","weakref.proxy","functools.partial"]},
+    {"kind":"return_argument","arguments":[0],"access_paths":["copy.copy","copy.deepcopy","weakref.proxy"]},
     {"kind":"return_argument","arguments":[1],"access_paths":["typing.cast"]},
     {"kind":"invoke_callback","arguments":[0],"access_paths":["atexit.register","asyncio.call_soon","asyncio.AbstractEventLoop.*.call_soon"]},
     {"kind":"invoke_callback","arguments":[1],"access_paths":["signal.signal","weakref.finalize","asyncio.call_later","asyncio.AbstractEventLoop.*.call_later"]},

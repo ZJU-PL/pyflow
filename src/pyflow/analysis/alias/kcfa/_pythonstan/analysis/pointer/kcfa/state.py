@@ -800,6 +800,13 @@ class PointerAnalysisState:
                 "__iter__",
                 "__next__",
             },
+            "generator": {
+                "send",
+                "throw",
+                "close",
+                "__next__",
+                "__iter__",
+            },
             "str": {
                 "upper",
                 "lower",

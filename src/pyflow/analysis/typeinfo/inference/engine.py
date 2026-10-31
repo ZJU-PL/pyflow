@@ -1216,6 +1216,29 @@ class StaticTypeInferenceEngine:
             self._type_vars = previous_vars
             return _Outcome(result)
         if isinstance(node, ast.Assign):
+            target = node.targets[0] if len(node.targets) == 1 else None
+            if (
+                isinstance(target, ast.Name)
+                and target.id in self._type_aliases
+                and self._is_type_alias_expression(node.value)
+            ):
+                alias_val = self._annotation_value(node.value)
+                if not alias_val.is_bottom and alias_val.types:
+                    if isinstance(node.value, (ast.Name, ast.Attribute)):
+                        # ``Alias = SomeClass`` is both a typing alias and a
+                        # runtime class-object assignment.
+                        runtime = self._evaluate_expression(
+                            node.value,
+                            result,
+                            scope=scope,
+                            current_function=current_function,
+                        )
+                        alias_val = replace(
+                            alias_val,
+                            class_targets=runtime.class_targets,
+                        )
+                    self._assign_target(target, alias_val, result, current_function)
+                    return _Outcome(result)
             value = self._evaluate_expression(
                 node.value, result, scope=scope, current_function=current_function
             )
@@ -1227,26 +1250,6 @@ class StaticTypeInferenceEngine:
                         tv_val = AbstractTypeValue.from_type(self._type_vars[target.id])
                         self._assign_target(target, tv_val, result, current_function)
                         continue
-                    if target.id in self._type_aliases and self._is_type_alias_expression(
-                        node.value
-                    ):
-                        alias_val = self._annotation_value(node.value)
-                        if not alias_val.is_bottom and alias_val.types:
-                            if isinstance(node.value, (ast.Name, ast.Attribute)):
-                                # ``Alias = SomeClass`` is both a typing alias
-                                # and a runtime class-object assignment.
-                                runtime = self._evaluate_expression(
-                                    node.value,
-                                    result,
-                                    scope=scope,
-                                    current_function=current_function,
-                                )
-                                alias_val = replace(
-                                    alias_val,
-                                    class_targets=runtime.class_targets,
-                                )
-                            self._assign_target(target, alias_val, result, current_function)
-                            continue
                 self._assign_target(target, value, result, current_function)
             return _Outcome(result)
 
@@ -1952,6 +1955,18 @@ class StaticTypeInferenceEngine:
                 if self._is_never_value(base) or self._is_never_value(index)
                 else environment.get(ast.unparse(node), self._subscript_value(base, node.slice))
             )
+            if (
+                not base.types
+                and base.unknown
+                and value.unknown
+                and isinstance(node.slice, (ast.Slice, ast.Tuple))
+            ):
+                self._add_diagnostic(
+                    "unsupported-expression",
+                    f"No type model for {type(node).__name__} of an unknown value",
+                    node=node,
+                    affects_completeness=True,
+                )
         elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
             local_env = self._comprehension_environment(
                 node.generators, environment, scope, current_function

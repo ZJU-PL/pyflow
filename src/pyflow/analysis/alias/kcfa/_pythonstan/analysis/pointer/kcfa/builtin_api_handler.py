@@ -221,6 +221,8 @@ class BuiltinAPIHandler:
             "__delitem__": self._handle_generic_method,
             "__iter__": self._handle_container_iter,
             "pop": self._handle_container_pop,
+            "send": self._handle_generic_method,
+            "throw": self._handle_generic_method,
             "sort": self._handle_generic_method,
             "reverse": self._handle_generic_method,
             # Dict methods
@@ -249,6 +251,8 @@ class BuiltinAPIHandler:
             "__enter__": self._handle_enter_method,
             "__exit__": self._handle_generic_method,
             "__next__": self._handle_generic_method,
+            "__new__": self._handle_generic_method,
+            "__init__": self._handle_generic_method,
             "__len__": self._handle_len_method,
             "__bool__": self._handle_bool_method,
             "__contains__": self._handle_bool_method,

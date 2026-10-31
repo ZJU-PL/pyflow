@@ -1196,7 +1196,12 @@ class PythonCallService(Processor):
                     vararg_var, callee_scope, PointsToSet.singleton(vararg_tuple_obj)
                 )
 
-                # All remaining positional arguments go into *args
+                # All remaining positional arguments go into *args.  Each value
+                # is stored at its index *and* through ``elem()`` so that a
+                # later ``f(*args)`` expansion can read the tuple generically.
+                generic_element = state.get_field(
+                    callee_scope, call_context, vararg_tuple_obj, elem()
+                )
                 for i in range(arg_index, len(arg_vars)):
                     # Store each remaining argument as an element of the tuple
                     field = key(i - arg_index)
@@ -1204,6 +1209,7 @@ class PythonCallService(Processor):
                         callee_scope, call_context, vararg_tuple_obj, field
                     )
                     state._add_var_points_flow(arg_vars[i], element_var)
+                    state._add_var_points_flow(arg_vars[i], generic_element)
                 for source_index, source, known_lengths in starred_sources:
                     if known_lengths is not None:
                         continue
@@ -1215,12 +1221,6 @@ class PythonCallService(Processor):
                         source,
                         f"star{source_index}:rest",
                         (elem(),),
-                    )
-                    generic_element = state.get_field(
-                        callee_scope,
-                        call_context,
-                        vararg_tuple_obj,
-                        elem(),
                     )
                     state._add_var_points_flow(expanded, generic_element)
                 for possible_value in plain_after_uncertain_star:

@@ -1949,6 +1949,28 @@ class PointerSolver:
                     builtin_type = base_obj.builtin_type
                 elif isinstance(base_obj, InstanceObject):
                     builtin_type = self.state.builtin_base_name(base_obj.class_obj)
+                elif isinstance(base_obj, (GeneratorObject, CoroutineObject)):
+                    builtin_type = "generator"
+                elif (
+                    isinstance(base_obj, BuiltinFunctionObject)
+                    and base_obj.function_name in {"object", "type"}
+                    and c.field.name in {"__new__", "__init__"}
+                ):
+                    # ``object.__new__(cls)`` / ``type.__new__(...)`` are the
+                    # hooks custom ``__new__`` implementations call.
+                    method_obj = BuiltinMethodObject(
+                        context=context,
+                        alloc_site=AllocSite(
+                            stmt=f"<builtin_method:{c.field.name}>", kind=AllocKind.BUILTIN
+                        ),
+                        method_name=c.field.name,
+                        receiver=base_obj,
+                        receiver_var=c.base,
+                    )
+                    self.state._worklist.add(
+                        (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                    )
+                    continue
                 elif isinstance(base_obj, ConstantObject) and isinstance(base_obj.value, str):
                     # String literals and ``str(...)`` results must expose the
                     # string method table; otherwise ``s.split(",")`` was an
@@ -2637,6 +2659,19 @@ class PointerSolver:
             logger.debug("Builtin handler not initialized")
             return False
 
+        if isinstance(builtin_obj, BuiltinMethodObject) and builtin_obj.method_name in {
+            "__new__",
+            "__init__",
+        }:
+            receiver = getattr(builtin_obj, "receiver", None)
+            if (
+                isinstance(receiver, BuiltinFunctionObject)
+                and receiver.function_name == "object"
+            ):
+                if builtin_obj.method_name == "__new__":
+                    return self._handle_object_new_call(scope, context, call)
+                return True
+
         builtin_name = getattr(builtin_obj, "function_name", None) or getattr(
             builtin_obj, "builtin_name", None
         )
@@ -2664,6 +2699,41 @@ class PointerSolver:
         # except Exception as e:
         #     logger.warning(f"Error handling builtin call: {e}")
         #     return False
+
+    def _handle_object_new_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+    ) -> bool:
+        """Model ``object.__new__(cls, *args)`` as an instance of ``cls``."""
+        if not call.args or call.target is None:
+            return True
+        cls_var = self.state.get_variable(scope, context, call.args[0])
+        target = self.state.get_variable(scope, context, call.target)
+
+        def allocate() -> None:
+            for obj in self.state.get_points_to(cls_var):
+                if not isinstance(obj, ClassObject):
+                    continue
+                fact = (call.call_site, obj)
+                if fact in self._scheduled_optional_calls:
+                    continue
+                self._scheduled_optional_calls.add(fact)
+                alloc_site = AllocSite(call.call_site.statement, AllocKind.INSTANCE)
+                alloc_context = context
+                if self.context_selector:
+                    alloc_context = self.context_selector.select_alloc_context(
+                        context, alloc_site, obj
+                    )
+                instance = InstanceObject(alloc_context, alloc_site, obj)
+                self.handle_new_points_to(target, scope, PointsToSet.singleton(instance))
+
+        self.state.dependencies.subscribe(
+            ("object-new", call.call_site, cls_var), (cls_var,), allocate
+        )
+        allocate()
+        return True
 
     def _handle_dynamic_code_builtin(
         self,
