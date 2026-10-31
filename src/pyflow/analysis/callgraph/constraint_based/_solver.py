@@ -987,8 +987,11 @@ class _FixpointSolverMixin:
             },
         )
         for param in scope.params:
+            # A parameter shadows a same-named module binding; initialize the
+            # local slot empty before merging the call-site arguments.
+            env[param] = set()
             self._merge_value_set(
-                env.setdefault(param, set()),
+                env[param],
                 set(param_inputs.get(param, set())),
                 preserve_callables=True,
             )
