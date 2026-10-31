@@ -3079,6 +3079,16 @@ class StaticTypeInferenceEngine:
                 for part in expected_parts
             ):
                 continue
+            if (
+                isinstance(candidate, Instance)
+                and inferred.class_targets
+                and any(
+                    isinstance(part, TypeType)
+                    or (isinstance(part, Instance) and part.type.raw_type is type)
+                    for part in expected_parts
+                )
+            ):
+                candidate = TypeType(candidate)
             try:
                 compatible = self.type_system.is_subtype(candidate, expected)
                 if not compatible and self._fresh_collection_context(node):

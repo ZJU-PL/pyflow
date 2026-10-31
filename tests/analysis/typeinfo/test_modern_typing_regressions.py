@@ -483,3 +483,31 @@ def test_cross_module_typevar_resolution():
         app_res = res.modules["pkg.app"]
         assert app_res.status == "complete"
         assert not any(d.code == "unresolved-annotation" for d in app_res.diagnostics)
+
+
+def test_io_subtype_compatibility():
+    import io
+    import typing
+
+    ts = TypeSystem()
+    inst_wrapper = ts.convert_type_hint(io.TextIOWrapper)
+    inst_io = ts.convert_type_hint(typing.IO[str])
+    inst_anystr = ts.convert_type_hint(typing.IO[typing.AnyStr])
+    inst_text_io = ts.convert_type_hint(typing.TextIO)
+    assert ts.is_subtype(inst_wrapper, inst_io)
+    assert ts.is_subtype(inst_wrapper, inst_anystr)
+    assert ts.is_subtype(inst_wrapper, inst_text_io)
+
+
+def test_class_object_assignment_to_type_annotation():
+    src = (
+        "class Base:\n"
+        "    pass\n\n"
+        "class Derived(Base):\n"
+        "    pass\n\n"
+        "def run():\n"
+        "    cls: type[Base] = Derived\n"
+    )
+    res = StaticTypeInferenceEngine().infer_source("sample", src)
+    assert res.status == "complete"
+    assert not any(d.code == "annotation-mismatch" for d in res.diagnostics)

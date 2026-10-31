@@ -15,6 +15,7 @@ from ..object import (
     BuiltinClassObject,
     BuiltinFunctionObject,
     ClassObject,
+    NativeObject,
     TupleObject,
 )
 from ..points_to_set import PointsToSet
@@ -120,6 +121,18 @@ class BaseResolutionProcessor(Processor):
                     constraint.position,
                     (solver.state.types.ref(base_obj),),
                 )
+                continue
+
+            if (
+                isinstance(base_obj, NativeObject)
+                and ".<return>" not in base_obj.access_path
+            ):
+                # A member of an unmodelled native module (``pydantic.BaseModel``,
+                # ``collections.abc.Mapping``, ...) is a real class at runtime;
+                # probing ``__mro_entries__`` on it only produced one noisy
+                # "did not return a tuple" diagnostic per subclass.  Keep the
+                # subclass and treat the unknown base as opaque.
+                solver.state.record_effective_base_sequence(owner, constraint.position, ())
                 continue
 
             call_key = (owner, constraint.position, base_obj)

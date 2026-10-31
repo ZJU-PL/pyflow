@@ -289,3 +289,96 @@ def test_recursive_reports_entry_coverage(tmp_path, capsys) -> None:
     assert coverage["entries_total"] == 2
     assert coverage["entries_analyzed"] == 2
     assert coverage["entries_skipped"] == 0
+
+
+def test_star_argument_forwarding_does_not_report_missing_arguments() -> None:
+    result = _result(
+        "import functools\n"
+        "def deco(fn):\n"
+        "    @functools.wraps(fn)\n"
+        "    def wrapper(*a, **k):\n"
+        "        return fn(*a, **k)\n"
+        "    return wrapper\n"
+        "@deco\n"
+        "def handler(path, mode='r'):\n"
+        "    return open(path, mode).read()\n"
+        "handler('x')\n"
+    )
+
+    assert "file.read" in _capabilities(result)
+    assert not any("Unexpected keyword arguments" in d.message for d in result.diagnostics)
+
+
+def test_string_methods_keep_flow_through_split() -> None:
+    result = _result(
+        "import os\n"
+        "parts = os.environ.get('X', 'a,b').split(',')\n"
+        "for item in parts:\n"
+        "    open(item.strip()).read()\n"
+    )
+
+    assert "file.read" in _capabilities(result)
+    assert result.status == "complete"
+
+
+def test_path_class_methods_resolve() -> None:
+    result = _result("from pathlib import Path\nPath.home().joinpath('x').read_text()\n")
+
+    assert "file.read" in _capabilities(result)
+    assert not any("missing required argument" in d.message for d in result.diagnostics)
+
+
+def test_native_base_class_keeps_subclass_analyzable() -> None:
+    result = _result(
+        "from pydantic import BaseModel\n"
+        "class Payload(BaseModel):\n"
+        "    def read(self):\n"
+        "        return open('x').read()\n"
+        "Payload().read()\n"
+    )
+
+    assert "file.read" in _capabilities(result)
+    assert not any("__mro_entries__" in d.message for d in result.diagnostics)
+
+
+def test_native_return_data_is_not_a_capability_transfer() -> None:
+    result = _result(
+        "import importlib\n"
+        "import plugin_api\n"
+        "plugin_api.register(importlib.import_module('json'))\n"
+    )
+
+    assert not any(
+        finding.report_kind is CapabilityReportKind.INDIRECT for finding in result.findings
+    )
+
+
+def test_diagnostics_are_deduplicated_across_contexts() -> None:
+    result = _result(
+        "def deco(fn):\n"
+        "    def wrapper(*a, **k):\n"
+        "        return fn(*a, **k)\n"
+        "    return wrapper\n"
+        "@deco\n"
+        "def handler(x):\n"
+        "    return x\n"
+        + "".join(f"handler({index})\n" for index in range(12)),
+        k=2,
+    )
+
+    assert len(result.diagnostics) < 12
+    assert all(
+        len(diagnostic.message) < 600 for diagnostic in result.diagnostics
+    )
+
+
+def test_solver_budget_suppresses_unresolved_call_noise() -> None:
+    result = _result(
+        "import os\n"
+        + "".join(f"def f{index}(x):\n    return os.system(x)\nf{index}('ls')\n" for index in range(40)),
+        max_iterations=5,
+    )
+
+    assert result.status == "partial"
+    assert result.statistics["diagnostics"] == 1
+    assert result.diagnostics[0].kind == "budget"

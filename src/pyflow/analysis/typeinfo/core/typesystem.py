@@ -954,7 +954,30 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     )
                 finally:
                     active.remove(pair)
-            if not self.graph.is_subclass(left.type, self.right.type):
+            import io as _io
+            import typing as _typing
+
+            is_sub = self.graph.is_subclass(left.type, self.right.type)
+            if not is_sub:
+                if self.right.type.raw_type in {_typing.IO, _typing.TextIO, _typing.BinaryIO}:
+                    source_cls = left.type.raw_type
+                    if isinstance(source_cls, type):
+                        if self.right.type.raw_type is _typing.IO and issubclass(
+                            source_cls, _io.IOBase
+                        ):
+                            is_sub = True
+                        elif self.right.type.raw_type is _typing.TextIO and (
+                            issubclass(
+                                source_cls, (_io.TextIOBase, _io.TextIOWrapper, _io.StringIO)
+                            )
+                            or source_cls is _io.TextIOWrapper
+                        ):
+                            is_sub = True
+                        elif self.right.type.raw_type is _typing.BinaryIO and issubclass(
+                            source_cls, (_io.BufferedIOBase, _io.RawIOBase, _io.BytesIO)
+                        ):
+                            is_sub = True
+            if not is_sub:
                 return False
             covariant = {
                 cabc.Iterable,

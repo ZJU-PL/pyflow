@@ -133,6 +133,21 @@ def value() -> Field:
     return Field(FieldKind.VALUE, None, None)
 
 
+#: Name used for the attribute cell that holds writes whose attribute name
+#: could not be determined statically (``setattr(obj, key, value)``).
+DYNAMIC_ATTR_NAME = "<unknown>"
+
+
+def is_dunder_name(name: Optional[str]) -> bool:
+    """Return True for protocol dunder names such as ``__setattr__``."""
+    return bool(name) and len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
+def dynamic_attr() -> Field:
+    """Return the shared field for dynamically-named attribute writes/reads."""
+    return Field(FieldKind.ATTRIBUTE, DYNAMIC_ATTR_NAME, None)
+
+
 def unknown() -> Field:
     """Create unknown field key for dynamic access.
 

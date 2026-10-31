@@ -211,10 +211,12 @@ class Path(PurePath):
     def expanduser(self):
         return self
 
-    def home(self):
+    @classmethod
+    def home(cls):
         return Path("/home/user")
 
-    def cwd(self):
+    @classmethod
+    def cwd(cls):
         return Path("/")
 
 

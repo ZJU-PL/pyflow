@@ -228,6 +228,52 @@ class BuiltinAPIHandler:
             "__contains__": self._handle_bool_method,
             "__index__": self._handle_len_method,
             "__hash__": self._handle_len_method,
+            # String methods
+            "upper": self._handle_string_result,
+            "lower": self._handle_string_result,
+            "strip": self._handle_string_result,
+            "lstrip": self._handle_string_result,
+            "rstrip": self._handle_string_result,
+            "casefold": self._handle_string_result,
+            "capitalize": self._handle_string_result,
+            "title": self._handle_string_result,
+            "swapcase": self._handle_string_result,
+            "join": self._handle_string_result,
+            "replace": self._handle_string_result,
+            "removeprefix": self._handle_string_result,
+            "removesuffix": self._handle_string_result,
+            "format": self._handle_string_result,
+            "format_map": self._handle_string_result,
+            "zfill": self._handle_string_result,
+            "center": self._handle_string_result,
+            "ljust": self._handle_string_result,
+            "rjust": self._handle_string_result,
+            "expandtabs": self._handle_string_result,
+            "encode": self._handle_string_result,
+            "decode": self._handle_string_result,
+            "__str__": self._handle_string_result,
+            "__repr__": self._handle_string_result,
+            "split": self._handle_string_split,
+            "rsplit": self._handle_string_split,
+            "splitlines": self._handle_string_split,
+            "partition": self._handle_string_split,
+            "rpartition": self._handle_string_split,
+            "startswith": self._handle_bool_method,
+            "endswith": self._handle_bool_method,
+            "isdigit": self._handle_bool_method,
+            "isalpha": self._handle_bool_method,
+            "isalnum": self._handle_bool_method,
+            "isspace": self._handle_bool_method,
+            "isidentifier": self._handle_bool_method,
+            "islower": self._handle_bool_method,
+            "isupper": self._handle_bool_method,
+            "isnumeric": self._handle_bool_method,
+            "isdecimal": self._handle_bool_method,
+            "find": self._handle_len_method,
+            "rfind": self._handle_len_method,
+            "index": self._handle_len_method,
+            "rindex": self._handle_len_method,
+            "count": self._handle_len_method,
         }
 
     def _init_function_handlers(self) -> Dict[str, callable]:
@@ -2049,6 +2095,61 @@ class BuiltinAPIHandler:
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
+        return constraints
+
+    def _handle_string_result(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model a ``str`` method that returns another string.
+
+        Keeping the result typed as a string is what makes chains such as
+        ``name.strip().lower().split(",")`` resolve; the previous generic
+        handler returned an untyped object that broke the chain.
+        """
+        constraints: List["Constraint"] = []
+        if call.target:
+            constraints.append(
+                AllocConstraint(
+                    target=call.target,
+                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
+                )
+            )
+        return constraints
+
+    def _handle_string_split(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model ``split``/``splitlines``/``partition``: a sequence of strings."""
+        constraints: List["Constraint"] = []
+        if not call.target:
+            return constraints
+        constraints.append(
+            AllocConstraint(
+                target=call.target,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.LIST),
+            )
+        )
+        element_var = self._make_temp_var("str_split_elem", call)
+        constraints.append(
+            AllocConstraint(
+                target=element_var,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
+            )
+        )
+        constraints.append(
+            StoreConstraint(base=call.target, field=key(0), source=element_var)
+        )
+        constraints.append(
+            StoreConstraint(base=call.target, field=elem(), source=element_var)
+        )
         return constraints
 
     def _handle_generic_method(

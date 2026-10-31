@@ -23,7 +23,15 @@ from .state import PointerAnalysisState, PointsToSet
 from .constraints import *
 from .variable import Variable, VariableKind, VariableFactory, FieldAccess
 from .config import Config
-from .heap_model import Field, FieldKind, attr, key, elem
+from .heap_model import (
+    Field,
+    FieldKind,
+    attr,
+    dynamic_attr,
+    elem,
+    is_dunder_name,
+    key,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import (
     AbstractCallGraph,
     CallEdge,
@@ -439,6 +447,38 @@ class PointerSolver:
         else:
             logger.warning(f"Stopped after solver budget at {self._iteration} iterations")
 
+    def _site_has_callable_target(self, call_site) -> bool:
+        """Whether some constraint for this call site resolves to a callable.
+
+        ``obj(...)`` on a non-callable value is re-dispatched through
+        ``$call@<site>``.  When the same call also has a real target (a
+        may-call of ``None`` and a decorator), the empty re-dispatch is not an
+        analysis gap.
+        """
+        wanted = str(call_site)
+        for scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, CallConstraint):
+                continue
+            if str(constraint.call_site) != wanted:
+                continue
+            if constraint.callee.name.startswith(("$call@", "$metaclass_call@")):
+                continue
+            callee = self.state.get_variable(scope, scope.context, constraint.callee)
+            for obj in self.state.get_points_to(callee):
+                if isinstance(
+                    obj,
+                    (
+                        FunctionObject,
+                        MethodObject,
+                        ClassObject,
+                        BuiltinFunctionObject,
+                        BuiltinMethodObject,
+                        BuiltinClassObject,
+                    ),
+                ):
+                    return True
+        return False
+
     def _record_empty_callees(self) -> None:
         """Make unresolved calls fail-visible after the points-to fixpoint."""
         seen = set()
@@ -448,6 +488,10 @@ class PointerSolver:
             if constraint.callee.name.startswith(_INTERNAL_CALL_PREFIXES):
                 # These constraints probe optional protocol hooks.  An empty
                 # callee means the hook is absent, not that analysis failed.
+                continue
+            if constraint.callee.name.startswith(("$call@", "$metaclass_call@")) and (
+                self._site_has_callable_target(constraint.call_site)
+            ):
                 continue
             callee = self.state.get_variable(scope, scope.context, constraint.callee)
             if not self.state.get_points_to(callee).is_empty():
@@ -1783,6 +1827,21 @@ class PointerSolver:
                 PointerEvent(PointerEventKind.LOAD, scope, context, c, base_obj)
             )
 
+            if (
+                c.field is not None
+                and c.field.kind == FieldKind.ATTRIBUTE
+                and not is_dunder_name(c.field.name)
+            ):
+                # ``setattr(obj, <non-constant name>, value)`` stores into the
+                # unknown-attribute cell.  Any attribute read on such an object
+                # may observe that value; without this join a dynamically
+                # populated object (``__init__(**kwargs)``, dataclasses,
+                # config/ORM models) lost every field it was given.
+                dynamic_field = self.state.get_field(
+                    scope, context, base_obj, dynamic_attr()
+                )
+                self.state._add_var_points_flow(dynamic_field, target_var)
+
             if isinstance(base_obj, NativeObject):
                 if c.field is None:
                     child_name = "*"
@@ -1830,6 +1889,18 @@ class PointerSolver:
                     builtin_type = "set"
                 elif isinstance(base_obj, BuiltinInstanceObject):
                     builtin_type = base_obj.builtin_type
+                elif isinstance(base_obj, ConstantObject) and isinstance(
+                    base_obj.value, str
+                ):
+                    # String literals and ``str(...)`` results must expose the
+                    # string method table; otherwise ``s.split(",")`` was an
+                    # unresolved call and lost every downstream value.
+                    builtin_type = "str"
+                elif (
+                    isinstance(base_obj, AbstractObject)
+                    and base_obj.alloc_site.kind is AllocKind.STRING
+                ):
+                    builtin_type = "str"
 
                 if builtin_type:
                     builtin_methods = self.state._get_builtin_methods_for_type(builtin_type)

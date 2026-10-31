@@ -1301,7 +1301,16 @@ class PythonCallService(Processor):
                         )
 
             # 5. Handle **kwargs (kwarg) - collects remaining keyword arguments
-            remaining_kwargs = {k: v for k, v in kwarg_vars.items() if k not in consumed_kwargs}
+            # ``maybe_dstar_params`` entries are *speculative* bindings read out
+            # of a ``**mapping`` argument; they were never written as keywords
+            # at the call site.  Reporting them as "unexpected keyword
+            # arguments" fired for every ``fn(*args, **kwargs)`` forwarder when
+            # the callee also had positional parameters.
+            remaining_kwargs = {
+                k: v
+                for k, v in kwarg_vars.items()
+                if k not in consumed_kwargs and k not in maybe_dstar_params
+            }
 
             if func_args.kwarg:
                 kwarg_name = func_args.kwarg.arg
@@ -1326,6 +1335,13 @@ class PythonCallService(Processor):
                         callee_scope, call_context, kwarg_dict_obj, field
                     )
                     state._add_var_points_flow(kw_var, dict_value_var)
+                    # Also expose the value through ``elem()`` so that
+                    # ``kwargs.items()`` / ``values()`` / iteration see the
+                    # keyword arguments (dict literals do the same).
+                    elem_var = state.get_field(
+                        callee_scope, call_context, kwarg_dict_obj, elem()
+                    )
+                    state._add_var_points_flow(kw_var, elem_var)
                 for keyword_index, source, source_var in dstar_sources:
                     fields = (elem(), value())
                     expanded = self._expanded_argument(
