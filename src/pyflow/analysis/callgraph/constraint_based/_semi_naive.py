@@ -198,12 +198,16 @@ class SemiNaiveConstraintSolver:
         destination: Optional[BindingKey],
     ) -> None:
         target = self._expression_key(scope, local_names, call.func)
-        fixed_targets = frozenset(
-            self.builder._eval_expr_static(
-                call.func,
-                self.builder.module_bindings.get(scope.module, {}),
+        fixed_targets = frozenset()
+        if not (isinstance(call.func, ast.Name) and call.func.id in local_names):
+            # Only module-level names may use the static module fallback; a
+            # parameter/local/closure binding shadows it.
+            fixed_targets = frozenset(
+                self.builder._eval_expr_static(
+                    call.func,
+                    self.builder.module_bindings.get(scope.module, {}),
+                )
             )
-        )
         if target is None and not fixed_targets:
             return
         arguments = tuple(
