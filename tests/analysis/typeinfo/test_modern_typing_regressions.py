@@ -1,3 +1,5 @@
+import tempfile
+
 """Typing and scalability regressions found while analysing real projects."""
 
 import ast
@@ -391,3 +393,93 @@ def test_string_subtype_annotations_are_registered():
     result = infer("email: EmailString\n")
     assert isinstance(result.type_of("email"), EmailString)
     assert not result.diagnostics
+
+
+def test_unannotated_type_alias_export_and_project_resolution():
+    src_style = (
+        "from typing import Union\n\n"
+        "class Style:\n    pass\n\n"
+        "StyleType = Union[str, Style]\n"
+    )
+    src_align = (
+        "from .style import StyleType\n\n"
+        "class Align:\n"
+        "    @classmethod\n"
+        "    def center(cls, style: StyleType = None):\n"
+        "        pass\n\n"
+        "Align.center(style='on red')\n"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "style.py").write_text(src_style, encoding="utf-8")
+        (pkg / "align.py").write_text(src_align, encoding="utf-8")
+        ctx = ProjectContext(td)
+        engine = ProjectTypeInferenceEngine(ctx)
+        res = engine.infer_project(["pkg.align"])
+        align_res = res.modules["pkg.align"]
+        assert align_res.status == "complete"
+        assert not any(d.code == "unresolved-annotation" for d in align_res.diagnostics)
+
+
+def test_typed_dict_methods_and_keys():
+    src = (
+        "from typing import TypedDict\n\n"
+        "class Movie(TypedDict):\n"
+        "    title: str\n"
+        "    year: int\n\n"
+        "d: Movie = {'title': 'Inception', 'year': 2010}\n"
+        "t = d.get('title')\n"
+        "y = d.get('year', 0)\n"
+        "keys = d.keys()\n"
+        "items = d.items()\n"
+    )
+    res = StaticTypeInferenceEngine().infer_source("m", src)
+    assert res.status == "complete"
+    assert str(res.type_of("m.t")) == "None | str"
+    assert str(res.type_of("m.y")) == "int"
+    assert "KeysView[str]" in str(res.type_of("m.keys"))
+    assert "ItemsView[str, int | str]" in str(res.type_of("m.items"))
+
+
+def test_with_open_and_unbound_context_manager():
+    src = (
+        "with open('foo.txt') as f:\n"
+        "    pass\n\n"
+        "class DummyLock:\n    pass\n\n"
+        "with DummyLock():\n    pass\n"
+    )
+    res = StaticTypeInferenceEngine().infer_source("m", src)
+    assert res.status == "complete"
+
+
+def test_cross_module_typevar_resolution():
+    src_types = (
+        "from typing import TypeVar, Callable, Any\n"
+        "DecoratedCallable = TypeVar('DecoratedCallable', bound=Callable[..., Any])\n"
+    )
+    src_app = (
+        "from .types import DecoratedCallable\n"
+        "from typing import Callable, Any\n\n"
+        "class App:\n"
+        "    def add_route(self, endpoint: Callable[..., Any]):\n"
+        "        pass\n\n"
+        "    def websocket(self):\n"
+        "        def decorator(func: DecoratedCallable) -> DecoratedCallable:\n"
+        "            self.add_route(func)\n"
+        "            return func\n"
+        "        return decorator\n"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "types.py").write_text(src_types, encoding="utf-8")
+        (pkg / "app.py").write_text(src_app, encoding="utf-8")
+        ctx = ProjectContext(td)
+        engine = ProjectTypeInferenceEngine(ctx)
+        res = engine.infer_project(["pkg.app"])
+        app_res = res.modules["pkg.app"]
+        assert app_res.status == "complete"
+        assert not any(d.code == "unresolved-annotation" for d in app_res.diagnostics)

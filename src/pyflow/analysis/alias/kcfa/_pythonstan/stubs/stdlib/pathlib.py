@@ -91,6 +91,32 @@ class PureWindowsPath(PurePath):
 
 
 class Path(PurePath):
+    # ``PurePath`` deliberately returns ``PurePath`` for its fluent helpers.
+    # ``Path`` must preserve its own identity here, otherwise the ubiquitous
+    # ``Path(__file__).parent / "data.json"`` chain loses ``open``/``read_text``
+    # and every capability behind it.
+    def __truediv__(self, other):
+        return Path(self._path, str(other))
+
+    def joinpath(self, *other):
+        return Path(self._path, *other)
+
+    @property
+    def parent(self):
+        return Path("/".join(self._parts[:-1])) if len(self._parts) > 1 else Path()
+
+    def with_name(self, name):
+        return Path("/".join(self._parts[:-1] + [name]))
+
+    def with_suffix(self, suffix):
+        return Path("/".join(self._parts[:-1] + [self.stem + suffix]))
+
+    def relative_to(self, other):
+        other_str = str(other)
+        if self._path.startswith(other_str):
+            return Path(self._path[len(other_str) :].lstrip("/"))
+        raise ValueError(f"{self._path} is not relative to {other_str}")
+
     def exists(self):
         return True
 

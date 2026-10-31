@@ -116,17 +116,29 @@ class CapabilityRegistry:
         This is a syntactic over-approximation, not proof that a member exists
         or that the recipient can exercise the corresponding operation.
         """
+        # ``<return>`` marks a value produced by the modelled operation (an
+        # open file, a socket, a urlopen response).  Such a value carries the
+        # capability of the operation that produced it, so the suffix is
+        # transparent for the reachability query.
+        origins = [access_path]
+        if ".<return>" in access_path:
+            stripped = access_path
+            while ".<return>" in stripped:
+                stripped = stripped.replace(".<return>", "")
+            origins.append(stripped)
         matches = []
         for pattern in self._patterns:
             compiled = _compile_pattern(pattern.access_path)
             static = pattern.static_prefix
-            if (
-                compiled.match(access_path)
-                or static == access_path
-                or static.startswith(access_path + ".")
-                or (pattern.access_path.endswith(".*") and access_path.startswith(static + "."))
-            ):
-                matches.append(pattern)
+            for origin in origins:
+                if (
+                    compiled.match(origin)
+                    or static == origin
+                    or static.startswith(origin + ".")
+                    or (pattern.access_path.endswith(".*") and origin.startswith(static + "."))
+                ):
+                    matches.append(pattern)
+                    break
         return tuple(matches)
 
 

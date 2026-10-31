@@ -16,8 +16,15 @@ import threading
 from typing import Any, Callable, Iterable
 
 
-class CapabilityViolation(PermissionError):
-    """Raised when the hook observes a classified, denied operation."""
+class CapabilityViolation(BaseException):
+    """Raised when the hook observes a classified, denied operation.
+
+    Deliberately *not* an ``OSError``/``PermissionError``: ordinary code (and
+    the import machinery, which maps ``OSError`` to a failed module lookup)
+    routinely catches those, which silently converted a denial into a
+    ``ModuleNotFoundError`` or into a swallowed ``except OSError: pass``.
+    A denied capability must not be catchable by ``except Exception``.
+    """
 
     def __init__(self, capability: str, event: str) -> None:
         super().__init__(f"denied capability {capability!r} at audit event {event!r}")
@@ -56,24 +63,47 @@ _PREFIX_CAPABILITIES = (
     ("os.exec", "process.execute"),
     ("os.spawn", "process.execute"),
     ("os.posix_spawn", "process.execute"),
+    ("os.fork", "process.execute"),
+    ("os.forkpty", "process.execute"),
     ("os.kill", "process.control"),
+    ("os.killpg", "process.control"),
     ("socket.connect", "network.socket"),
     ("socket.bind", "network.socket"),
     ("socket.getaddrinfo", "network.dns"),
     ("socket.gethostby", "network.dns"),
     ("ctypes.dlopen", "native.access"),
     ("ctypes.dlsym", "native.access"),
+    ("mmap.__new__", "native.access"),
     ("pickle.find_class", "deserialization.unsafe"),
     ("marshal.loads", "deserialization.unsafe"),
     ("webbrowser.open", "application.launch"),
+    ("os.startfile", "application.launch"),
     ("os.remove", "file.write"),
+    ("os.unlink", "file.write"),
     ("os.rename", "file.write"),
     ("os.replace", "file.write"),
     ("os.mkdir", "file.write"),
     ("os.rmdir", "file.write"),
+    ("os.link", "file.write"),
+    ("os.symlink", "file.write"),
+    ("os.truncate", "file.write"),
+    ("shutil.copyfile", "file.write"),
+    ("shutil.copytree", "file.write"),
+    ("shutil.move", "file.write"),
+    ("shutil.rmtree", "file.write"),
+    ("tempfile.mkstemp", "file.write"),
+    ("tempfile.mkdtemp", "file.write"),
     ("os.listdir", "file.metadata"),
     ("os.scandir", "file.metadata"),
     ("os.chdir", "file.metadata"),
+    ("os.chmod", "file.metadata"),
+    ("os.chown", "file.metadata"),
+    ("os.chroot", "file.metadata"),
+    ("os.utime", "file.metadata"),
+    ("os.access", "file.metadata"),
+    ("os.getxattr", "file.metadata"),
+    ("os.setxattr", "file.metadata"),
+    ("os.lockf", "file.metadata"),
     ("os.putenv", "information.environment"),
     ("os.unsetenv", "information.environment"),
     ("import", "module.dynamic_import"),

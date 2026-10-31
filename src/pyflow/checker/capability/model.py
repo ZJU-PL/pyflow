@@ -99,6 +99,8 @@ class CapabilityAnalysisResult:
     diagnostics: list[CapabilityDiagnostic] = field(default_factory=list)
     status: str = "complete"
     statistics: dict[str, Any] = field(default_factory=dict)
+    #: Solver/entry coverage metadata (completeness flags, analyzed entries).
+    coverage: dict[str, Any] = field(default_factory=dict)
 
     def finalize(self) -> "CapabilityAnalysisResult":
         unique = {finding.key(): finding for finding in self.findings}
@@ -115,6 +117,7 @@ class CapabilityAnalysisResult:
         if any(d.kind in {"unsupported", "unknown", "budget"} for d in self.diagnostics):
             self.status = "partial"
         self.statistics = {
+            "coverage": dict(self.coverage),
             "findings": len(self.findings),
             "direct": sum(f.report_kind is CapabilityReportKind.DIRECT for f in self.findings),
             "indirect": sum(f.report_kind is CapabilityReportKind.INDIRECT for f in self.findings),
@@ -128,6 +131,7 @@ class CapabilityAnalysisResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
+            "coverage": dict(self.coverage),
             "statistics": dict(self.statistics),
             "findings": [finding.to_dict() for finding in self.findings],
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],

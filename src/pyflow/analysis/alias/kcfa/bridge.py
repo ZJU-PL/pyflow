@@ -250,6 +250,34 @@ class PointerAnalysisResult:
         """Return fail-visible unresolved-operation diagnostics."""
         return self._query.get_unknown_details()
 
+    def incomplete_reasons(self) -> list[dict]:
+        """Return deduplicated reasons the solver marked itself incomplete.
+
+        ``statistics()["complete"]`` only answers yes/no; analyses such as the
+        capability inventory need to distinguish "an unmodelled native call"
+        (already reported conservatively) from "the frontend dropped code".
+        """
+        query = self._inner.query() if self._inner is not None else self._query
+        reasons: list[dict] = []
+        for reason in getattr(query, "_global_incomplete_reasons", ()) or ():
+            reasons.append(dict(reason))
+        for collection in (
+            getattr(query, "_incomplete_scopes", {}) or {},
+            getattr(query, "_incomplete_variables", {}) or {},
+        ):
+            for scoped in collection.values():
+                for reason in scoped or ():
+                    reasons.append(dict(reason))
+        unique: list[dict] = []
+        seen = set()
+        for reason in reasons:
+            key = (reason.get("kind"), reason.get("message"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(reason)
+        return unique
+
     def statistics(self) -> dict[str, object]:
         """Return solver statistics, including completeness status."""
         return dict(self._query.get_statistics())

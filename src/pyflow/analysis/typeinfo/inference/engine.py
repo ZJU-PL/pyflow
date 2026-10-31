@@ -1190,6 +1190,18 @@ class StaticTypeInferenceEngine:
             if self._is_never_value(value):
                 return _Outcome(result, terminated=True)
             for target in node.targets:
+                if isinstance(target, ast.Name):
+                    if target.id in self._type_vars:
+                        tv_val = AbstractTypeValue.from_type(self._type_vars[target.id])
+                        self._assign_target(target, tv_val, result, current_function)
+                        continue
+                    if target.id in self._type_aliases and self._is_type_alias_expression(
+                        node.value
+                    ):
+                        alias_val = self._annotation_value(node.value)
+                        if not alias_val.is_bottom and alias_val.types:
+                            self._assign_target(target, alias_val, result, current_function)
+                            continue
                 self._assign_target(target, value, result, current_function)
             return _Outcome(result)
 
@@ -1367,7 +1379,7 @@ class StaticTypeInferenceEngine:
                         "unmodeled-context-manager",
                         f"Cannot resolve context manager {method}; bound value remains unknown",
                         node=item.context_expr,
-                        affects_completeness=True,
+                        affects_completeness=item.optional_vars is not None,
                     )
                 if self._is_never_value(entered):
                     return _Outcome(result, terminated=True)
@@ -2059,6 +2071,7 @@ class StaticTypeInferenceEngine:
                 arguments,
                 keywords,
                 environment,
+                call_node=node,
             )
             if method_result is not None:
                 return method_result
@@ -2260,6 +2273,10 @@ class StaticTypeInferenceEngine:
             if len(arguments) == 1:
                 return AbstractTypeValue.from_type(TypeType(arguments[0].public_type() or ANY))
             return self._instance(type)
+        if name == "open":
+            import io as _io
+
+            return self._instance(_io.TextIOWrapper)
         return None
 
     def _call_attribute(
@@ -2269,6 +2286,7 @@ class StaticTypeInferenceEngine:
         arguments: list[AbstractTypeValue],
         keywords: dict[str, AbstractTypeValue],
         environment: dict[str, AbstractTypeValue],
+        call_node: ast.Call | None = None,
     ) -> AbstractTypeValue | None:
         for target in base.callable_targets:
             if node.attr == "__call__":
@@ -2332,27 +2350,66 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(typ)
                 if node.attr in {"count", "index"}:
                     return self._instance(int)
-            if raw is dict:
-                key = args[0] if len(args) > 0 else ANY
-                item = args[1] if len(args) > 1 else ANY
-                if node.attr == "get":
-                    result = AbstractTypeValue.from_type(item)
-                    default = (
-                        arguments[1]
-                        if len(arguments) > 1
-                        else AbstractTypeValue.from_type(NONE_TYPE)
-                    )
-                    return self._join(result, default)
-                if node.attr in {"setdefault", "pop"}:
-                    return AbstractTypeValue.from_type(item)
-                if node.attr == "keys":
-                    return self._instance(cabc.KeysView, key)
-                if node.attr == "values":
-                    return self._instance(cabc.ValuesView, item)
-                if node.attr == "items":
-                    return self._instance(cabc.ItemsView, key, item)
-                if node.attr in {"update", "clear"}:
-                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is dict or typ.type.typed_dict_fields is not None:
+                if typ.type.typed_dict_fields is not None:
+                    fields = typ.type.typed_dict_fields
+                    key = self._proper_instance(str)
+                    field_values = list(fields.values())
+                    if not field_values:
+                        item = ANY
+                    elif len(field_values) == 1:
+                        item = field_values[0]
+                    else:
+                        item = UnionType(tuple(sorted(field_values)))
+                    if node.attr == "get":
+                        item_type = item
+                        if (
+                            call_node
+                            and call_node.args
+                            and isinstance(call_node.args[0], ast.Constant)
+                            and isinstance(call_node.args[0].value, str)
+                        ):
+                            key_name = call_node.args[0].value
+                            if key_name in fields:
+                                item_type = fields[key_name]
+                        result = AbstractTypeValue.from_type(item_type)
+                        default = (
+                            arguments[1]
+                            if len(arguments) > 1
+                            else AbstractTypeValue.from_type(NONE_TYPE)
+                        )
+                        return self._join(result, default)
+                    if node.attr in {"setdefault", "pop"}:
+                        return AbstractTypeValue.from_type(item)
+                    if node.attr == "keys":
+                        return self._instance(cabc.KeysView, key)
+                    if node.attr == "values":
+                        return self._instance(cabc.ValuesView, item)
+                    if node.attr == "items":
+                        return self._instance(cabc.ItemsView, key, item)
+                    if node.attr in {"update", "clear"}:
+                        return AbstractTypeValue.from_type(NONE_TYPE)
+                else:
+                    key = args[0] if len(args) > 0 else ANY
+                    item = args[1] if len(args) > 1 else ANY
+                    if node.attr == "get":
+                        result = AbstractTypeValue.from_type(item)
+                        default = (
+                            arguments[1]
+                            if len(arguments) > 1
+                            else AbstractTypeValue.from_type(NONE_TYPE)
+                        )
+                        return self._join(result, default)
+                    if node.attr in {"setdefault", "pop"}:
+                        return AbstractTypeValue.from_type(item)
+                    if node.attr == "keys":
+                        return self._instance(cabc.KeysView, key)
+                    if node.attr == "values":
+                        return self._instance(cabc.ValuesView, item)
+                    if node.attr == "items":
+                        return self._instance(cabc.ItemsView, key, item)
+                    if node.attr in {"update", "clear"}:
+                        return AbstractTypeValue.from_type(NONE_TYPE)
         return None
 
     def _method_arguments(self, function, base, arguments):

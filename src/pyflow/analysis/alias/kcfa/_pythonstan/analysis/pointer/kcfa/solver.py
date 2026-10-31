@@ -59,6 +59,41 @@ __all__ = ["PointerSolver", "SolverQuery"]
 logger = logging.getLogger(__name__)
 
 
+#: Solver-synthesised call targets.  An empty points-to set means an optional
+#: protocol hook is absent, or that the instance-construction plumbing found no
+#: Python-level ``__new__``/``__init__`` -- not that user code is unmodelled.
+_INTERNAL_CALL_PREFIXES = (
+    "$getattribute@",
+    "$getattr@",
+    "$setattr@",
+    "$delattr@",
+    "$descriptor_get@",
+    "$descriptor_set@",
+    "$descriptor_delete@",
+    "$optional_method@",
+    "$optional_callee@",
+    "$set_name@",
+    "$init_subclass@",
+    "$new@",
+    "$new_result@",
+    "$bound_init@",
+    "$init_base@",
+    "$class@",
+    "$class_result@",
+    "$class_decorator@",
+    "$class_decorated@",
+    "$class_factory@",
+    "$class_name@",
+    "$class_namespace@",
+    "$prepared_namespace@",
+    "$original_bases@",
+    "$effective_base@",
+    "$mro_entries_receiver@",
+    "$mro_entries_method@",
+    "$mro_entries_result@",
+)
+
+
 class PointerSolver:
     """Compute a fixed point over constraints and pointer-flow edges.
 
@@ -179,8 +214,19 @@ class PointerSolver:
     ]
 
     def initialize_builtins(self, scope: "Scope", context: "AbstractContext") -> None:
-        """Initialize builtin function objects in a module-like scope."""
+        """Initialize builtin function objects in a module-like scope.
+
+        Builtins live in their own namespace at runtime.  Injecting them into
+        the module's *own* global bindings merged them with a user binding of
+        the same name (points-to sets are joined, never killed), so
+        ``def open(...)`` or ``os.open`` also resolved to ``builtins.open``.
+        Skip names the module binds itself so that shadowing behaves like
+        Python.
+        """
+        shadowed = self._module_bound_names(scope)
         for builtin_name in self.BUILTIN_FUNCTIONS:
+            if builtin_name in shadowed:
+                continue
             builtin_obj = ObjectFactory.create_builtin_function(builtin_name, context)
             builtin_var = Variable(name=builtin_name, kind=VariableKind.GLOBAL)
             ctx_var = self.state.get_variable(scope, context, builtin_var)
@@ -191,6 +237,47 @@ class PointerSolver:
                     PointsToSet.singleton(builtin_obj),
                 )
             )
+
+    @staticmethod
+    def _module_bound_names(scope: "Scope") -> Set[str]:
+        """Return the names bound by a module's top-level statements."""
+        module = getattr(getattr(scope, "stmt", None), "stmt", None)
+        if not isinstance(module, ast.Module):
+            return set()
+
+        names: Set[str] = set()
+
+        def add_target(target) -> None:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                for element in target.elts:
+                    add_target(element)
+            elif isinstance(target, ast.Starred):
+                add_target(target.value)
+
+        for stmt in module.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(stmt.name)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    add_target(target)
+            elif isinstance(stmt, (ast.AnnAssign, ast.AugAssign)):
+                add_target(stmt.target)
+            elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                for alias in stmt.names:
+                    names.add(alias.asname or alias.name.split(".", 1)[0])
+            elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+                add_target(stmt.target)
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                for item in stmt.items:
+                    if item.optional_vars is not None:
+                        add_target(item.optional_vars)
+            elif isinstance(stmt, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+                for handler in stmt.handlers:
+                    if handler.name:
+                        names.add(handler.name)
+        return names
 
     def _reset(self) -> None:
         self._iteration = 0
@@ -358,21 +445,7 @@ class PointerSolver:
         for scope, constraint in self.state.constraints.all():
             if not isinstance(constraint, CallConstraint):
                 continue
-            if constraint.callee.name.startswith(
-                (
-                    "$getattribute@",
-                    "$getattr@",
-                    "$setattr@",
-                    "$delattr@",
-                    "$descriptor_get@",
-                    "$descriptor_set@",
-                    "$descriptor_delete@",
-                    "$optional_method@",
-                    "$optional_callee@",
-                    "$set_name@",
-                    "$init_subclass@",
-                )
-            ):
+            if constraint.callee.name.startswith(_INTERNAL_CALL_PREFIXES):
                 # These constraints probe optional protocol hooks.  An empty
                 # callee means the hook is absent, not that analysis failed.
                 continue

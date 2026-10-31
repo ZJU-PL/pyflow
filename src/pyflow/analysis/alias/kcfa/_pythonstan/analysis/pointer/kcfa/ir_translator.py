@@ -1317,14 +1317,30 @@ class IRTranslator:
     ) -> List["Constraint"]:
         constraints = []
 
-        op_name = BINOP_TABLE.get(op, None)
+        # ``BINOP_TABLE`` is keyed by AST *classes*; look up with ``type(op)``
+        # (previously this compared a class against an instance and therefore
+        # never matched, so ``a / b`` and friends were never modelled as dunder
+        # calls -- which silently broke e.g. ``Path(a) / b``).
+        op_name = BINOP_TABLE.get(type(op), None)
         if not op_name:
             return constraints
 
-        method_var = self._make_variable(f"${op_name}_{stable_token(left_var)}")
+        # Optional protocol hook: an operand without this dunder (``int + int``)
+        # is not an analysis gap, so do not emit unknown-callee diagnostics.
+        token = stable_token(left_var)
+        method_var = self._make_variable(f"$optional_callee@binop:{op_name}@{token}")
         constraints.append(LoadConstraint(base=left_var, field=attr(op_name), target=method_var))
 
-        call_stmt = IRCall(ast.parse(f"[{target_var}] = {left_var}.{op_name}({right_var})").body[0])
+        # Syntactic placeholder only: three-address temporaries such as
+        # ``$tmp_0`` are not valid Python identifiers, and IRCall requires a
+        # bare-name callee, so the rendered call uses neutral names.
+        call_stmt = IRCall(
+            ast.Call(
+                func=ast.Name(id=op_name, ctx=ast.Load()),
+                args=[ast.Name(id="_right", ctx=ast.Load())],
+                keywords=[],
+            )
+        )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
             CallConstraint(
@@ -1395,13 +1411,16 @@ class IRTranslator:
             )
             return constraints
 
-        op_name = UNARYOP_TABLE.get(op, None)
+        op_name = UNARYOP_TABLE.get(type(op), None)
         if not op_name:
             return constraints
 
-        method_var = self._make_variable(f"${op_name}_{stable_token(operand_var)}")
+        token = stable_token(operand_var)
+        method_var = self._make_variable(f"$optional_callee@unaryop:{op_name}@{token}")
         constraints.append(LoadConstraint(base=operand_var, field=attr(op_name), target=method_var))
-        call_stmt = IRCall(ast.parse(f"[{target_var}] = {operand_var}.{op_name}()").body[0])
+        call_stmt = IRCall(
+            ast.Call(func=ast.Name(id=op_name, ctx=ast.Load()), args=[], keywords=[])
+        )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
             CallConstraint(

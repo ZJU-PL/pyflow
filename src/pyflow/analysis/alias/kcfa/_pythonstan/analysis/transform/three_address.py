@@ -956,6 +956,15 @@ class ThreeAddressTransformer(NodeTransformer):
         return ins
 
     def visit_Try(self, node):
+        return self._lower_try(node)
+
+    def visit_TryStar(self, node):
+        # ``except*`` only changes how an exception group is matched.  For a
+        # may-analysis it is sound (and far better than dropping the whole
+        # statement) to lower it exactly like ``try``.
+        return self._lower_try(node)
+
+    def _lower_try(self, node):
         handlers = []
         body_stmts = self.visit_stmt_list(node.body)
         stmts = []
@@ -1032,13 +1041,92 @@ class ThreeAddressTransformer(NodeTransformer):
         return blk
 
     def visit_Match(self, node):
-        # TODO: add support for pattern matching
-        return node
+        """Lower ``match`` conservatively for a may-analysis.
+
+        Capturing every case body in sequence is a sound over-approximation of
+        the pattern-matching control flow: each body is analyzed as reachable.
+        Capture patterns bind the subject value so that later uses of a
+        captured name still participate in propagation.  Previously this
+        method returned the raw ``ast.Match`` node, which the MIR builder
+        silently discarded, so every operation inside every case vanished
+        from the analysis.
+        """
+        blk = []
+        subj_blk, subj_val = self.split_expr(node.subject)
+        blk.extend(subj_blk)
+        subj_l, subj_s = self.tmp_gen()
+        subj_stmt = ast.Assign(targets=[subj_s], value=subj_val)
+        ast.copy_location(subj_stmt, node.subject)
+        blk.append(subj_stmt)
+        for case in node.cases:
+            if case.guard is not None:
+                guard_blk, _ = self.split_expr(case.guard)
+                blk.extend(guard_blk)
+            for name in self._match_capture_names(case.pattern):
+                bind = ast.Assign(
+                    targets=[ast.Name(id=name, ctx=Store())],
+                    value=ast.Name(id=subj_l, ctx=Load()),
+                )
+                ast.copy_location(bind, case.pattern)
+                blk.append(bind)
+            blk.extend(self.visit_stmt_list(case.body))
+        return blk
+
+    @staticmethod
+    def _match_capture_names(pattern):
+        """Return the names bound by a match pattern, in source order."""
+        names = []
+        for child in ast.walk(pattern):
+            if isinstance(child, (ast.MatchAs, ast.MatchStar)):
+                if child.name:
+                    names.append(child.name)
+            elif isinstance(child, ast.MatchMapping):
+                if child.rest:
+                    names.append(child.rest)
+        seen = set()
+        ordered = []
+        for name in names:
+            if name not in seen:
+                seen.add(name)
+                ordered.append(name)
+        return ordered
+
+    #: ``typing`` helpers whose only runtime role is ``__mro_entries__``.
+    _TYPING_ONLY_BASES = frozenset({"Generic", "Protocol", "NamedTuple", "TypedDict"})
+
+    def _normalize_class_base(self, base):
+        """Return the runtime base for a class definition.
+
+        ``class C(list[int])`` subclasses ``list``; the type arguments are
+        erased at runtime.  Leaving the subscript in place made the base
+        expression an unresolved ``__getitem__`` call, which erased the whole
+        class (empty points-to) and turned every use of it into an unknown.
+        ``Generic[T]``/``Protocol``/``NamedTuple`` are likewise erased here:
+        they contribute no runtime base beyond ``object``/``tuple``.
+        """
+        if isinstance(base, ast.Subscript):
+            base = base.value
+        final = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", None)
+        root = base
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        root_name = getattr(root, "id", None)
+        if final in self._TYPING_ONLY_BASES and (
+            root_name in {"typing", "typing_extensions"}
+            or (root_name == final and isinstance(base, ast.Name))
+        ):
+            return None
+        if final in {"Generic", "Protocol"} and isinstance(base, ast.Name):
+            return None
+        return base
 
     def visit_ClassDef(self, node):
         blk, bases, keywords = [], [], []
         for base in node.bases:
-            if base is None or isinstance(base, ast.Name):
+            base = self._normalize_class_base(base)
+            if base is None:
+                continue
+            if isinstance(base, ast.Name):
                 bases.append(base)
             else:
                 base_blk, base_elt = self.split_expr(base)
