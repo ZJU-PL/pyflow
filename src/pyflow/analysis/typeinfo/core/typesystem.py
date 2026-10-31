@@ -954,7 +954,30 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     )
                 finally:
                     active.remove(pair)
-            if not self.graph.is_subclass(left.type, self.right.type):
+            import io as _io
+            import typing as _typing
+
+            is_sub = self.graph.is_subclass(left.type, self.right.type)
+            if not is_sub:
+                if self.right.type.raw_type in {_typing.IO, _typing.TextIO, _typing.BinaryIO}:
+                    source_cls = left.type.raw_type
+                    if isinstance(source_cls, type):
+                        if self.right.type.raw_type is _typing.IO and issubclass(
+                            source_cls, _io.IOBase
+                        ):
+                            is_sub = True
+                        elif self.right.type.raw_type is _typing.TextIO and (
+                            issubclass(
+                                source_cls, (_io.TextIOBase, _io.TextIOWrapper, _io.StringIO)
+                            )
+                            or source_cls is _io.TextIOWrapper
+                        ):
+                            is_sub = True
+                        elif self.right.type.raw_type is _typing.BinaryIO and issubclass(
+                            source_cls, (_io.BufferedIOBase, _io.RawIOBase, _io.BytesIO)
+                        ):
+                            is_sub = True
+            if not is_sub:
                 return False
             covariant = {
                 cabc.Iterable,
@@ -1069,7 +1092,12 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             return False
         if self.right.arg_types is None:
             return True
-        if left.arg_types is None or len(left.arg_types) != len(self.right.arg_types):
+        if left.arg_types is None:
+            # ``Callable[..., R]`` accepts any argument list.  Gradual typing
+            # treats it as compatible with every concrete callable whose
+            # return type is compatible; only the return check above remains.
+            return True
+        if len(left.arg_types) != len(self.right.arg_types):
             return False
         return all(
             self.sub_type_check(right_arg, left_arg)
@@ -1077,7 +1105,10 @@ class _SubtypeVisitor(TypeVisitor[bool]):
         )
 
     def visit_type_type(self, left: TypeType) -> bool:
-        return isinstance(self.right, TypeType) and self.sub_type_check(left.item, self.right.item)
+        if isinstance(self.right, TypeType):
+            return self.sub_type_check(left.item, self.right.item)
+        # ``type[T]`` is a subtype of the builtin ``type`` (and ``object``).
+        return isinstance(self.right, Instance) and self.right.type.raw_type in {type, object}
 
     def visit_string_subtype(self, left: StringSubtype) -> bool:
         if isinstance(self.right, StringSubtype):
@@ -2245,6 +2276,30 @@ class TypeSystem:  # noqa: PLR0904
             # Case that would be duplicated for each type, so we put it here.
             return any(self.is_maybe_subtype(left, right_elem) for right_elem in right.items)
         return left.accept(_MaybeSubtypeVisitor(self, right, self.is_maybe_subtype))
+
+    def invalidate_subtype_caches(self) -> None:
+        """Discard memoized subtype answers after descriptors were mutated.
+
+        ``ClassDescriptor`` members, protocols, and typed-dict layouts are
+        populated incrementally.  ``is_subtype`` memoizes structural answers,
+        so callers that mutate a descriptor must invalidate the cache before
+        asking about the same pair of types again.
+        """
+
+        type(self).is_subtype.cache_clear()
+        type(self).is_maybe_subtype.cache_clear()
+
+    def forget_class_descriptor(self, full_name: str) -> None:
+        """Drop a descriptor so a later analysis can recreate fresh state."""
+
+        descriptor = self._types.pop(full_name, None)
+        if descriptor is None:
+            return
+        if self._graph.has_node(descriptor):
+            self._graph.remove_node(descriptor)
+        for descriptors in self._attribute_map.values():
+            descriptors.discard(descriptor)
+        self.invalidate_subtype_caches()
 
     @property
     def dot(self) -> str:

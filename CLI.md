@@ -427,13 +427,19 @@ pyflow callgraph library/ -r
 pyflow capabilities library/ -r --import-depth 0 --format json
 ```
 
-``capabilities -r`` analyzes all discovered project source files; without it,
-``--entry`` selects one root. Explicit file targets are analyzed even when
-they live in directories normally excluded from discovery.
+``capabilities -r`` analyzes every discovered project source file as its own
+entry (one whole-project analysis each); without it, ``--entry`` selects one
+root. Explicit file targets are analyzed even when they live in directories
+normally excluded from discovery. JSON and text reports include the entry
+coverage (`entries_total`, `entries_analyzed`, `entries_failed`,
+`entries_skipped`), so a budget-truncated run is never mistaken for a complete
+project inventory.
 
 Capabilities use `--max-iterations` (default: 20000 per entry) and
 `--max-seconds` (default: 30 across all entries). Budget exhaustion preserves
-completed reports and adds partial diagnostics. Alias and capabilities time
+completed reports and adds partial diagnostics. Each report also carries a
+`coverage` block with the solver's completeness flags; `complete` means only
+that no unknown/unsupported/budget diagnostic was emitted. Alias and capabilities time
 budgets interrupt synchronous Unix CLI work, including frontend work; other
 platforms/embedded threads rely on cooperative engine limits and an elapsed
 time check. JSON progress is sent to stderr.

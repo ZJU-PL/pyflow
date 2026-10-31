@@ -12,7 +12,7 @@ from .constraints import *
 from .config import Config
 from .context import CallSite
 from .variable import Variable, VariableFactory, VariableKind
-from .heap_model import elem, attr, key
+from .heap_model import dict_keys, elem, attr, key
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import *
 from .object import AllocSite, AllocKind
 from .stable_key import stable_token
@@ -326,7 +326,9 @@ class IRTranslator:
                     )
                     const_alloc = AllocSite.from_ir_node(const_assign, AllocKind.CONSTANT)
                     constraints.append(AllocConstraint(target=index_var, alloc_site=const_alloc))
-            delitem_method_var = self._make_variable(f"$delitem_{stable_token(stmt)}")
+            delitem_method_var = self._make_variable(
+                f"$optional_callee@delitem:{stable_token(stmt)}"
+            )
             constraints.append(
                 LoadConstraint(
                     base=container_var,
@@ -506,6 +508,26 @@ class IRTranslator:
                             field = key(key_expr.value)
                             constraints.append(
                                 StoreConstraint(base=target_var, field=field, source=val_var)
+                            )
+                            # Keep the key object itself for keys()/items().
+                            key_name = f"$dict_key_{stable_token(stmt)}_{i}"
+                            key_var = self._make_variable(key_name)
+                            key_assign = IRAssign(
+                                ast.Assign(
+                                    targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                                    value=key_expr,
+                                )
+                            )
+                            constraints.append(
+                                AllocConstraint(
+                                    target=key_var,
+                                    alloc_site=AllocSite.from_ir_node(
+                                        key_assign, AllocKind.CONSTANT
+                                    ),
+                                )
+                            )
+                            constraints.append(
+                                StoreConstraint(base=target_var, field=dict_keys(), source=key_var)
                             )
                         elif isinstance(key_expr, ast.Name) and self.config.index_sensitive:
                             # Key is a name (e.g., from TAC: $const_1 = "a"; d = {$const_1: v})
@@ -804,7 +826,7 @@ class IRTranslator:
             constraints.append(LoadConstraint(base=container_var, field=elem(), target=target_var))
 
         # Also generate __getitem__ call for custom container types
-        getitem_method_var = self._make_variable(f"$getitem_{stable_token(stmt)}")
+        getitem_method_var = self._make_variable(f"$optional_callee@getitem:{stable_token(stmt)}")
         constraints.append(
             LoadConstraint(
                 base=container_var, field=attr("__getitem__"), target=getitem_method_var, index=None
@@ -875,7 +897,7 @@ class IRTranslator:
             constraints.append(StoreConstraint(base=container_var, field=elem(), source=value_var))
 
         # Also generate __setitem__ call for custom container types
-        setitem_method_var = self._make_variable(f"$setitem_{stable_token(stmt)}")
+        setitem_method_var = self._make_variable(f"$optional_callee@setitem:{stable_token(stmt)}")
         constraints.append(
             LoadConstraint(
                 base=container_var, field=attr("__setitem__"), target=setitem_method_var, index=None
@@ -916,138 +938,16 @@ class IRTranslator:
         constraints.append(AllocConstraint(target=func_var, alloc_site=func_alloc))
 
         if hasattr(stmt, "decorator_list") and stmt.decorator_list:
-            current_var = func_var
-            for idx, decorator_expr in enumerate(reversed(stmt.decorator_list)):
-                if isinstance(decorator_expr, ast.Name) and decorator_expr.id in {
-                    "staticmethod",
-                    "classmethod",
-                    "property",
-                }:
-                    # IRFunc records these descriptor semantics explicitly.
-                    # Reapplying them as unresolved global calls loses the method.
-                    continue
-                try:
-                    # Extract decorator variable/name
-                    if isinstance(decorator_expr, ast.Name):
-                        decorator_var = self._make_variable(decorator_expr.id)
-                    elif isinstance(decorator_expr, ast.Attribute):
-                        # e.g., @obj.decorator
-                        # Create temporary and load decorator from object
-                        decorator_var = self._make_variable(f"$decorator_{stmt.name}_{idx}")
-                        if isinstance(decorator_expr.value, ast.Name):
-                            obj_var = self._make_variable(decorator_expr.value.id)
-                            constraints.append(
-                                LoadConstraint(
-                                    base=obj_var,
-                                    field=attr(decorator_expr.attr),
-                                    target=decorator_var,
-                                )
-                            )
-                    elif isinstance(decorator_expr, ast.Call):
-                        # e.g., @decorator(args) - decorator factory pattern
-                        # This is critical for Flask's @app.route() pattern
-
-                        # Get the decorator factory (the callable being called)
-                        factory_callable = decorator_expr.func
-
-                        # Create variable for the factory
-                        if isinstance(factory_callable, ast.Name):
-                            factory_var = self._make_variable(factory_callable.id)
-                        elif isinstance(factory_callable, ast.Attribute):
-                            # e.g., @app.route() - need to load app.route
-                            factory_var = self._make_variable(
-                                f"$decorator_factory_{stmt.name}_{idx}"
-                            )
-                            if isinstance(factory_callable.value, ast.Name):
-                                obj_var = self._make_variable(factory_callable.value.id)
-                                constraints.append(
-                                    LoadConstraint(
-                                        base=obj_var,
-                                        field=attr(factory_callable.attr),
-                                        target=factory_var,
-                                    )
-                                )
-                        else:
-                            # Complex factory expression
-                            factory_var = self._make_variable(
-                                f"$decorator_factory_{stmt.name}_{idx}"
-                            )
-                            logger.debug(f"Complex decorator factory expression for {stmt.name}")
-
-                        # Extract arguments to the factory call
-                        factory_args = []
-                        for arg in decorator_expr.args:
-                            if isinstance(arg, ast.Name):
-                                factory_args.append(self._make_variable(arg.id))
-                            else:
-                                # Constant or complex expression - create temp
-                                arg_name = f"$decorator_arg_{stmt.name}_{idx}_{len(factory_args)}"
-                                arg_var = self._make_variable(arg_name)
-                                factory_args.append(arg_var)
-                                if isinstance(arg, ast.Constant):
-                                    const_assign = IRAssign(
-                                        ast.Assign(
-                                            targets=[ast.Name(id=arg_name, ctx=ast.Store())],
-                                            value=arg,
-                                        )
-                                    )
-                                    const_alloc = AllocSite.from_ir_node(
-                                        const_assign, AllocKind.CONSTANT
-                                    )
-                                    constraints.append(
-                                        AllocConstraint(target=arg_var, alloc_site=const_alloc)
-                                    )
-
-                        # Create temporary for the decorator returned by the factory
-                        decorator_var = self._make_variable(f"$decorator_{stmt.name}_{idx}")
-
-                        # Create call to the decorator factory
-                        factory_call_site = CallSite(
-                            statement=stmt,
-                            scope_name=self._get_current_scope_label(),
-                            index=idx * 2,
-                        )
-                        constraints.append(
-                            CallConstraint(
-                                callee=factory_var,
-                                args=tuple(factory_args),
-                                kwargs=(),
-                                target=decorator_var,
-                                call_site=factory_call_site,
-                            )
-                        )
-                    else:
-                        # Complex decorator expression - create temporary
-                        decorator_var = self._make_variable(f"$decorator_{stmt.name}_{idx}")
-                        logger.debug(f"Complex decorator expression for {stmt.name}")
-
-                    # result = decorator(current)
-                    result_var = self._make_variable(f"{stmt.name}_decorated_{idx}")
-                    call_site = CallSite(
-                        statement=stmt,
-                        scope_name=self._get_current_scope_label(),
-                        index=idx * 2 + 1,
-                    )
-
-                    constraints.append(
-                        CallConstraint(
-                            callee=decorator_var,
-                            args=(current_var,),
-                            kwargs=(),
-                            target=result_var,
-                            call_site=call_site,
-                        )
-                    )
-
-                    current_var = result_var
-                finally:
-                    pass
-                # except Exception as e:
-                #     logger.debug(f"Error handling decorator {idx} for {stmt.name}: {e}")
-
+            current_var = self._apply_decorators(
+                stmt.decorator_list,
+                func_var,
+                stmt.name,
+                stmt,
+                constraints,
+                skip_descriptors=True,
+            )
             # Rebind function name to final decorated result
-            if len(stmt.decorator_list) > 0:
-                constraints.append(CopyConstraint(source=current_var, target=func_var))
+            constraints.append(CopyConstraint(source=current_var, target=func_var))
 
         # for fields of class, we need to store the value to the class
         if (
@@ -1056,6 +956,179 @@ class IRTranslator:
             self.used_variables.append(func_var)
 
         return func_var, constraints
+
+    def _class_annotations(self, ir_cls: "IRClass", class_var: "Variable") -> List["Constraint"]:
+        """Expose a class's annotated field names through ``__annotations__``.
+
+        ``dataclasses``, ``attrs`` and friends read ``cls.__annotations__`` to
+        discover fields; without it the dataclass stub generated an empty
+        ``__init__`` and every user dataclass lost its attributes.
+        """
+        body = getattr(getattr(ir_cls, "stmt", None), "body", ()) or ()
+        names = [
+            node.target.id
+            for node in body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        ]
+        if not names:
+            return []
+        constraints: List["Constraint"] = []
+        token = stable_token(ir_cls)
+        annotations_var = self._make_variable(f"$class_annotations@{token}")
+        constraints.append(
+            AllocConstraint(
+                target=annotations_var,
+                alloc_site=AllocSite(stmt=ir_cls, kind=AllocKind.DICT),
+            )
+        )
+        for index, name in enumerate(names):
+            key_name = f"$annotation_key@{token}@{index}"
+            key_var = self._make_variable(key_name)
+            key_stmt = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                    value=ast.Constant(value=name),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=key_var,
+                    alloc_site=AllocSite.from_ir_node(key_stmt, AllocKind.CONSTANT),
+                )
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=dict_keys(), source=key_var)
+            )
+            value_name = f"$annotation_value@{token}@{index}"
+            value_var = self._make_variable(value_name)
+            value_stmt = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=value_name, ctx=ast.Store())],
+                    value=ast.Constant(value=None),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=value_var,
+                    alloc_site=AllocSite.from_ir_node(value_stmt, AllocKind.UNKNOWN),
+                )
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=key(name), source=value_var)
+            )
+            constraints.append(
+                StoreConstraint(base=annotations_var, field=elem(), source=value_var)
+            )
+        constraints.append(
+            StoreConstraint(base=class_var, field=attr("__annotations__"), source=annotations_var)
+        )
+        return constraints
+
+    #: Descriptor decorators that ``IRFunc`` records explicitly.
+    _DESCRIPTOR_DECORATORS = frozenset({"staticmethod", "classmethod", "property"})
+
+    def _apply_decorators(
+        self,
+        decorators,
+        current_var: "Variable",
+        owner_name: str,
+        site_stmt,
+        constraints: List["Constraint"],
+        *,
+        skip_descriptors: bool,
+    ) -> "Variable":
+        """Bind ``name`` to ``decorator_n(...decorator_0(name))``.
+
+        Handles bare decorators, attribute decorators (``@obj.hook``) and
+        decorator *factories* (``@dataclass(slots=True)``, ``@app.route("/")``)
+        for both functions and classes.  Keyword arguments are forwarded: they
+        were previously dropped, so ``@dataclass(slots=True)`` called the
+        factory with no arguments.
+        """
+        for index, decorator_expr in enumerate(reversed(list(decorators))):
+            if (
+                skip_descriptors
+                and isinstance(decorator_expr, ast.Name)
+                and decorator_expr.id in self._DESCRIPTOR_DECORATORS
+            ):
+                # IRFunc records these descriptor semantics explicitly.
+                # Reapplying them as unresolved global calls loses the method.
+                continue
+            call = decorator_expr if isinstance(decorator_expr, ast.Call) else None
+            callee_expr = call.func if call is not None else decorator_expr
+            decorator_var = self._decorator_callee(callee_expr, owner_name, index, constraints)
+            if call is not None:
+                args = tuple(
+                    self._decorator_argument(value, owner_name, index, position, constraints)
+                    for position, value in enumerate(call.args)
+                )
+                kwargs = tuple(
+                    (
+                        keyword.arg,
+                        self._decorator_argument(
+                            keyword.value, owner_name, index, position, constraints
+                        ),
+                    )
+                    for position, keyword in enumerate(call.keywords)
+                    if keyword.arg is not None
+                )
+                factory_var = self._make_variable(f"$decorator_{owner_name}_{index}")
+                constraints.append(
+                    CallConstraint(
+                        callee=decorator_var,
+                        args=args,
+                        kwargs=kwargs,
+                        target=factory_var,
+                        call_site=CallSite(
+                            statement=site_stmt,
+                            scope_name=self._get_current_scope_label(),
+                            index=index * 2,
+                        ),
+                    )
+                )
+                decorator_var = factory_var
+            result_var = self._make_variable(f"{owner_name}_decorated_{index}")
+            constraints.append(
+                CallConstraint(
+                    callee=decorator_var,
+                    args=(current_var,),
+                    kwargs=(),
+                    target=result_var,
+                    call_site=CallSite(
+                        statement=site_stmt,
+                        scope_name=self._get_current_scope_label(),
+                        index=index * 2 + 1,
+                    ),
+                )
+            )
+            current_var = result_var
+        return current_var
+
+    def _decorator_callee(
+        self, expr, owner_name: str, index: int, constraints: List["Constraint"]
+    ) -> "Variable":
+        """Resolve the callable part of a decorator expression."""
+        if isinstance(expr, ast.Name):
+            return self._make_variable(expr.id)
+        target = self._make_variable(f"$decorator_factory_{owner_name}_{index}")
+        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
+            obj_var = self._make_variable(expr.value.id)
+            constraints.append(LoadConstraint(base=obj_var, field=attr(expr.attr), target=target))
+        return target
+
+    def _decorator_argument(
+        self, expr, owner_name: str, index: int, position: int, constraints: List["Constraint"]
+    ) -> "Variable":
+        """Resolve one decorator-factory argument."""
+        if isinstance(expr, ast.Name):
+            return self._make_variable(expr.id)
+        name = f"$decorator_arg_{owner_name}_{index}_{position}"
+        var = self._make_variable(name)
+        if isinstance(expr, ast.Constant):
+            assignment = ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=expr)
+            const_alloc = AllocSite.from_ir_node(IRAssign(assignment), AllocKind.CONSTANT)
+            constraints.append(AllocConstraint(target=var, alloc_site=const_alloc))
+        return var
 
     def _translate_class_def(self, ir_cls: IRClass) -> Tuple[Variable, List["Constraint"]]:
         """Translate class definition: allocate class object and bind methods."""
@@ -1090,34 +1163,16 @@ class IRTranslator:
         raw_class_var = self._make_variable(f"$class_result@{stable_token(ir_cls)}")
         constraints.append(AllocConstraint(target=raw_class_var, alloc_site=class_alloc))
 
-        current_var = raw_class_var
-        for index, decorator in enumerate(reversed(ir_cls.decorator_list)):
-            if isinstance(decorator, ast.Name):
-                decorator_var = self._make_variable(decorator.id)
-            else:
-                # Three-address lowering normally leaves a name here.  Keep
-                # unsupported expressions fail-visible through an empty
-                # callee instead of accidentally bypassing the decorator.
-                decorator_var = self._make_variable(
-                    f"$class_decorator@{stable_token(ir_cls)}@{index}"
-                )
-            result_var = self._make_variable(f"$class_decorated@{stable_token(ir_cls)}@{index}")
-            constraints.append(
-                CallConstraint(
-                    callee=decorator_var,
-                    args=(current_var,),
-                    kwargs=(),
-                    target=result_var,
-                    call_site=CallSite(
-                        statement=ir_cls,
-                        scope_name=self._get_current_scope_label(),
-                        index=index,
-                    ),
-                )
-            )
-            current_var = result_var
-
+        current_var = self._apply_decorators(
+            ir_cls.decorator_list,
+            raw_class_var,
+            ir_cls.name,
+            ir_cls,
+            constraints,
+            skip_descriptors=False,
+        )
         constraints.append(CopyConstraint(source=current_var, target=class_var))
+        constraints.extend(self._class_annotations(ir_cls, class_var))
 
         # TODO [CRITICAL] the method of treating inheritances is totally wrong, we should use the class hierarchy manager to handle this.
         """
@@ -1226,7 +1281,9 @@ class IRTranslator:
         """
         constraints = []
 
-        enter_method_var = self._make_variable(f"$enter_{stable_token(context_manager_var)}")
+        enter_method_var = self._make_variable(
+            f"$optional_callee@enter:{stable_token(context_manager_var)}"
+        )
         constraints.append(
             LoadConstraint(
                 base=context_manager_var, field=attr("__enter__"), target=enter_method_var
@@ -1250,7 +1307,9 @@ class IRTranslator:
         """
         constraints = []
 
-        exit_method_var = self._make_variable(f"$exit_{stable_token(context_manager_var)}")
+        exit_method_var = self._make_variable(
+            f"$optional_callee@exit:{stable_token(context_manager_var)}"
+        )
         constraints.append(
             LoadConstraint(base=context_manager_var, field=attr("__exit__"), target=exit_method_var)
         )
@@ -1276,7 +1335,7 @@ class IRTranslator:
         """
         constraints = []
 
-        iter_method_var = self._make_variable(f"$iter_{stable_token(iterable_var)}")
+        iter_method_var = self._make_variable(f"$optional_callee@iter:{stable_token(iterable_var)}")
         constraints.append(
             LoadConstraint(base=iterable_var, field=attr("__iter__"), target=iter_method_var)
         )
@@ -1297,7 +1356,7 @@ class IRTranslator:
         """Generate constraints for iterator next."""
         constraints = []
 
-        next_method_var = self._make_variable(f"$next_{stable_token(iterator_var)}")
+        next_method_var = self._make_variable(f"$optional_callee@next:{stable_token(iterator_var)}")
         constraints.append(
             LoadConstraint(base=iterator_var, field=attr("__next__"), target=next_method_var)
         )
@@ -1317,14 +1376,30 @@ class IRTranslator:
     ) -> List["Constraint"]:
         constraints = []
 
-        op_name = BINOP_TABLE.get(op, None)
+        # ``BINOP_TABLE`` is keyed by AST *classes*; look up with ``type(op)``
+        # (previously this compared a class against an instance and therefore
+        # never matched, so ``a / b`` and friends were never modelled as dunder
+        # calls -- which silently broke e.g. ``Path(a) / b``).
+        op_name = BINOP_TABLE.get(type(op), None)
         if not op_name:
             return constraints
 
-        method_var = self._make_variable(f"${op_name}_{stable_token(left_var)}")
+        # Optional protocol hook: an operand without this dunder (``int + int``)
+        # is not an analysis gap, so do not emit unknown-callee diagnostics.
+        token = stable_token(left_var)
+        method_var = self._make_variable(f"$optional_callee@binop:{op_name}@{token}")
         constraints.append(LoadConstraint(base=left_var, field=attr(op_name), target=method_var))
 
-        call_stmt = IRCall(ast.parse(f"[{target_var}] = {left_var}.{op_name}({right_var})").body[0])
+        # Syntactic placeholder only: three-address temporaries such as
+        # ``$tmp_0`` are not valid Python identifiers, and IRCall requires a
+        # bare-name callee, so the rendered call uses neutral names.
+        call_stmt = IRCall(
+            ast.Call(
+                func=ast.Name(id=op_name, ctx=ast.Load()),
+                args=[ast.Name(id="_right", ctx=ast.Load())],
+                keywords=[],
+            )
+        )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
             CallConstraint(
@@ -1354,7 +1429,9 @@ class IRTranslator:
 
         if isinstance(op, ast.Not):
             for method_name in ("__bool__", "__len__"):
-                method_var = self._make_variable(f"${method_name}_{stable_token(operand_var)}")
+                method_var = self._make_variable(
+                    f"$optional_callee@truth:{method_name}:{stable_token(operand_var)}"
+                )
                 constraints.append(
                     LoadConstraint(
                         base=operand_var,
@@ -1395,13 +1472,16 @@ class IRTranslator:
             )
             return constraints
 
-        op_name = UNARYOP_TABLE.get(op, None)
+        op_name = UNARYOP_TABLE.get(type(op), None)
         if not op_name:
             return constraints
 
-        method_var = self._make_variable(f"${op_name}_{stable_token(operand_var)}")
+        token = stable_token(operand_var)
+        method_var = self._make_variable(f"$optional_callee@unaryop:{op_name}@{token}")
         constraints.append(LoadConstraint(base=operand_var, field=attr(op_name), target=method_var))
-        call_stmt = IRCall(ast.parse(f"[{target_var}] = {operand_var}.{op_name}()").body[0])
+        call_stmt = IRCall(
+            ast.Call(func=ast.Name(id=op_name, ctx=ast.Load()), args=[], keywords=[])
+        )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
             CallConstraint(

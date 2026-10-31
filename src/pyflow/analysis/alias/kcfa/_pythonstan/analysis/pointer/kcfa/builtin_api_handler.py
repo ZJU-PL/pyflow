@@ -28,6 +28,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints im
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import (
     FieldKind,
     attr,
+    dict_keys,
     elem,
     key,
     unknown,
@@ -74,6 +75,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["BuiltinAPIHandler", "BuiltinSummaryManager"]
+
+
+#: Builtin exception classes: their construction has no capability effect and
+#: needs no dedicated per-class handler.
+EXCEPTION_BUILTINS = frozenset(
+    {
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "AttributeError",
+        "FileNotFoundError",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "NotImplementedError",
+        "OSError",
+        "RuntimeError",
+        "StopIteration",
+        "TypeError",
+        "ValueError",
+        "ZeroDivisionError",
+    }
+)
 
 
 class BuiltinAPIHandler:
@@ -197,6 +221,10 @@ class BuiltinAPIHandler:
             "__delitem__": self._handle_generic_method,
             "__iter__": self._handle_container_iter,
             "pop": self._handle_container_pop,
+            "send": self._handle_generic_method,
+            "throw": self._handle_generic_method,
+            "sort": self._handle_generic_method,
+            "reverse": self._handle_generic_method,
             # Dict methods
             "get": self._handle_dict_get,
             "setdefault": self._handle_dict_setdefault,
@@ -223,16 +251,64 @@ class BuiltinAPIHandler:
             "__enter__": self._handle_enter_method,
             "__exit__": self._handle_generic_method,
             "__next__": self._handle_generic_method,
+            "__new__": self._handle_generic_method,
+            "__init__": self._handle_generic_method,
             "__len__": self._handle_len_method,
             "__bool__": self._handle_bool_method,
             "__contains__": self._handle_bool_method,
             "__index__": self._handle_len_method,
             "__hash__": self._handle_len_method,
+            # String methods
+            "upper": self._handle_string_result,
+            "lower": self._handle_string_result,
+            "strip": self._handle_string_result,
+            "lstrip": self._handle_string_result,
+            "rstrip": self._handle_string_result,
+            "casefold": self._handle_string_result,
+            "capitalize": self._handle_string_result,
+            "title": self._handle_string_result,
+            "swapcase": self._handle_string_result,
+            "join": self._handle_string_result,
+            "replace": self._handle_string_result,
+            "removeprefix": self._handle_string_result,
+            "removesuffix": self._handle_string_result,
+            "format": self._handle_string_result,
+            "format_map": self._handle_string_result,
+            "zfill": self._handle_string_result,
+            "center": self._handle_string_result,
+            "ljust": self._handle_string_result,
+            "rjust": self._handle_string_result,
+            "expandtabs": self._handle_string_result,
+            "encode": self._handle_string_result,
+            "decode": self._handle_string_result,
+            "__str__": self._handle_string_result,
+            "__repr__": self._handle_string_result,
+            "split": self._handle_string_split,
+            "rsplit": self._handle_string_split,
+            "splitlines": self._handle_string_split,
+            "partition": self._handle_string_split,
+            "rpartition": self._handle_string_split,
+            "startswith": self._handle_bool_method,
+            "endswith": self._handle_bool_method,
+            "isdigit": self._handle_bool_method,
+            "isalpha": self._handle_bool_method,
+            "isalnum": self._handle_bool_method,
+            "isspace": self._handle_bool_method,
+            "isidentifier": self._handle_bool_method,
+            "islower": self._handle_bool_method,
+            "isupper": self._handle_bool_method,
+            "isnumeric": self._handle_bool_method,
+            "isdecimal": self._handle_bool_method,
+            "find": self._handle_len_method,
+            "rfind": self._handle_len_method,
+            "index": self._handle_len_method,
+            "rindex": self._handle_len_method,
+            "count": self._handle_len_method,
         }
 
     def _init_function_handlers(self) -> Dict[str, callable]:
         """Initialize function handler dispatch table."""
-        return {
+        handlers = {
             # Container constructors
             "list": self._handle_list_constructor,
             "dict": self._handle_dict_constructor,
@@ -296,6 +372,9 @@ class BuiltinAPIHandler:
             # Object-oriented functions
             "super": self._handle_super,
         }
+        for exception_name in EXCEPTION_BUILTINS:
+            handlers.setdefault(exception_name, self._handle_generic_precise)
+        return handlers
 
     def is_precise_builtin(self, builtin_obj: "AbstractObject") -> bool:
         """Return whether a dedicated handler exists for ``builtin_obj``."""
@@ -749,18 +828,19 @@ class BuiltinAPIHandler:
             # The iterator's elem() field should point to container's elem()
             container_type = self._infer_container_type(method_obj.receiver)
             if container_type == "dict":
-                unknown_var = self._make_temp_var("dict_iter_key", call)
+                key_var = self._make_temp_var("dict_iter_key", call)
                 constraints.append(
-                    AllocConstraint(
-                        target=unknown_var,
-                        alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
+                    LoadConstraint(
+                        base=method_obj.receiver_var,
+                        field=dict_keys(),
+                        target=key_var,
                     )
                 )
                 constraints.append(
                     StoreConstraint(
                         base=call.target,
                         field=elem(),
-                        source=unknown_var,
+                        source=key_var,
                     )
                 )
             else:
@@ -964,22 +1044,23 @@ class BuiltinAPIHandler:
         """Handle dict.keys()."""
         constraints = []
 
-        if call.target:
+        if call.target and method_obj.receiver_var:
             # Create dict_keys object
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
-            unknown_var = self._make_temp_var("dict_keys_elem", call)
+            key_var = self._make_temp_var("dict_keys_elem", call)
             constraints.append(
-                AllocConstraint(
-                    target=unknown_var,
-                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
+                LoadConstraint(
+                    base=method_obj.receiver_var,
+                    field=dict_keys(),
+                    target=key_var,
                 )
             )
             constraints.append(
                 StoreConstraint(
                     base=call.target,
                     field=elem(),
-                    source=unknown_var,
+                    source=key_var,
                 )
             )
 
@@ -1071,9 +1152,10 @@ class BuiltinAPIHandler:
 
             key_var = self._make_temp_var("dict_items_key", call)
             constraints.append(
-                AllocConstraint(
+                LoadConstraint(
+                    base=method_obj.receiver_var,
+                    field=dict_keys(),
                     target=key_var,
-                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.UNKNOWN),
                 )
             )
             constraints.append(
@@ -2049,6 +2131,57 @@ class BuiltinAPIHandler:
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
+        return constraints
+
+    def _handle_string_result(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model a ``str`` method that returns another string.
+
+        Keeping the result typed as a string is what makes chains such as
+        ``name.strip().lower().split(",")`` resolve; the previous generic
+        handler returned an untyped object that broke the chain.
+        """
+        constraints: List["Constraint"] = []
+        if call.target:
+            constraints.append(
+                AllocConstraint(
+                    target=call.target,
+                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
+                )
+            )
+        return constraints
+
+    def _handle_string_split(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model ``split``/``splitlines``/``partition``: a sequence of strings."""
+        constraints: List["Constraint"] = []
+        if not call.target:
+            return constraints
+        constraints.append(
+            AllocConstraint(
+                target=call.target,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.LIST),
+            )
+        )
+        element_var = self._make_temp_var("str_split_elem", call)
+        constraints.append(
+            AllocConstraint(
+                target=element_var,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
+            )
+        )
+        constraints.append(StoreConstraint(base=call.target, field=key(0), source=element_var))
+        constraints.append(StoreConstraint(base=call.target, field=elem(), source=element_var))
         return constraints
 
     def _handle_generic_method(

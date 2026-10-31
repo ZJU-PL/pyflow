@@ -19,10 +19,19 @@ from ..constraints import (
     AllocConstraint,
 )
 from ..context import Ctx, CallSite
-from ..heap_model import Field, FieldKind, attr, unknown
+from ..heap_model import (
+    DYNAMIC_ATTR_NAME,
+    Field,
+    FieldKind,
+    attr,
+    dynamic_attr,
+    is_dunder_name,
+    unknown,
+)
 from ..object import (
     AllocKind,
     AllocSite,
+    BuiltinMethodObject,
     ClassObject,
     InstanceObject,
     MethodObject,
@@ -479,6 +488,17 @@ class AttributeResolver(Processor):
             f"{attr_token}@{stable_token(base_obj)}",
         )
         class_obj = base_obj.class_obj
+        builtin_base = state.builtin_base_name(class_obj)
+        if builtin_base and attr_name in state._get_builtin_methods_for_type(builtin_base):
+            # ``class B(list)`` instances expose the list method table.
+            method_obj = BuiltinMethodObject(
+                context=context,
+                alloc_site=AllocSite(stmt=f"<builtin_method:{attr_name}>", kind=AllocKind.BUILTIN),
+                method_name=attr_name,
+                receiver=base_obj,
+                receiver_var=inst_var,
+            )
+            state._worklist.add((scope, NormalNode(target_ctx), PointsToSet.singleton(method_obj)))
         class_var = self._make_object_var(
             solver,
             scope,
@@ -539,6 +559,16 @@ class AttributeResolver(Processor):
             )
             selector.add_edge(instance_edge, 1)
             state._add_points_flow_edge(instance_edge)
+
+        if attr_field != dynamic_attr() and not is_dunder_name(attr_field.name):
+            # ``setattr(obj, <non-constant name>, value)`` writes the dynamic
+            # cell; any named read may observe it.
+            dynamic_field = state.raw_field(scope, context, base_obj, dynamic_attr())
+            dynamic_edge = PointerFlowEdge(
+                NormalNode(dynamic_field), selector, PointerFlowKind.NORMAL
+            )
+            selector.add_edge(dynamic_edge, 1)
+            state._add_points_flow_edge(dynamic_edge)
 
         descriptor_var = self._make_temp_var(
             "descriptor", call_site, f"{attr_token}@{stable_token(base_obj)}"
@@ -799,15 +829,19 @@ class AttributeResolver(Processor):
 
     @staticmethod
     def _resolve_attr(attr_value: Any) -> Tuple[Field, str]:
-        if isinstance(attr_value, Field):
+        if isinstance(attr_value, Field) and attr_value.kind == FieldKind.UNKNOWN:
+            # Dynamic attribute names share one cell so that a read of any
+            # name can observe a write of an unknown name.
+            field = dynamic_attr()
+        elif isinstance(attr_value, Field):
             field = attr_value
         elif isinstance(attr_value, str):
-            field = attr(attr_value if attr_value else "<unknown>")
+            field = attr(attr_value if attr_value else DYNAMIC_ATTR_NAME)
         else:
             field = unknown()
         if field.kind == FieldKind.ATTRIBUTE and field.name:
             return field, field.name
-        return field, "<unknown>"
+        return field, DYNAMIC_ATTR_NAME
 
     def _make_const_name_var(
         self,

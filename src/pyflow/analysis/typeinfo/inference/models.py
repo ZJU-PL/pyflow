@@ -49,7 +49,7 @@ class InferredSymbol:
     @property
     def typ(self) -> ProperType | None:
         """Return the public type projection."""
-        return self.value.public_type()
+        return self.value.runtime_type()
 
     @property
     def is_complete(self) -> bool:
@@ -79,7 +79,7 @@ class FunctionSpecialization:
     @property
     def return_type(self) -> ProperType | None:
         """Return the public return-type projection."""
-        return self.return_value.public_type()
+        return self.return_value.runtime_type()
 
 
 @dataclass(frozen=True)
@@ -98,7 +98,7 @@ class FunctionSummary:
     @property
     def return_type(self) -> ProperType | None:
         """Return the public return-type projection."""
-        return self.return_value.public_type()
+        return self.return_value.runtime_type()
 
 
 @dataclass
@@ -147,7 +147,7 @@ class ModuleInferenceResult:
     ) -> ProperType | None:
         """Return the type of the expression covering a source position."""
         value = self.expression_value(lineno, col_offset)
-        return None if value is None else value.public_type()
+        return None if value is None else value.runtime_type()
 
     def expression_value(
         self,

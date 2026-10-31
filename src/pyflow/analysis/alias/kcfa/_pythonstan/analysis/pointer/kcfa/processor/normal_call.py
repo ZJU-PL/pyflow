@@ -33,7 +33,7 @@ from ..object import (
 from ..context import Ctx, Scope, AbstractContext
 from ..variable import VariableKind, Variable
 from ..unknown_tracker import UnknownKind
-from ..heap_model import key, attr, elem, value
+from ..heap_model import key, attr, dict_keys, elem, value
 from ..call_binding import bind_arguments, mapping_key_hints
 from ..stable_key import stable_token
 from ..type_ref import ClassConstructionKind, TypeRefKind
@@ -1196,7 +1196,12 @@ class PythonCallService(Processor):
                     vararg_var, callee_scope, PointsToSet.singleton(vararg_tuple_obj)
                 )
 
-                # All remaining positional arguments go into *args
+                # All remaining positional arguments go into *args.  Each value
+                # is stored at its index *and* through ``elem()`` so that a
+                # later ``f(*args)`` expansion can read the tuple generically.
+                generic_element = state.get_field(
+                    callee_scope, call_context, vararg_tuple_obj, elem()
+                )
                 for i in range(arg_index, len(arg_vars)):
                     # Store each remaining argument as an element of the tuple
                     field = key(i - arg_index)
@@ -1204,6 +1209,7 @@ class PythonCallService(Processor):
                         callee_scope, call_context, vararg_tuple_obj, field
                     )
                     state._add_var_points_flow(arg_vars[i], element_var)
+                    state._add_var_points_flow(arg_vars[i], generic_element)
                 for source_index, source, known_lengths in starred_sources:
                     if known_lengths is not None:
                         continue
@@ -1215,12 +1221,6 @@ class PythonCallService(Processor):
                         source,
                         f"star{source_index}:rest",
                         (elem(),),
-                    )
-                    generic_element = state.get_field(
-                        callee_scope,
-                        call_context,
-                        vararg_tuple_obj,
-                        elem(),
                     )
                     state._add_var_points_flow(expanded, generic_element)
                 for possible_value in plain_after_uncertain_star:
@@ -1301,7 +1301,16 @@ class PythonCallService(Processor):
                         )
 
             # 5. Handle **kwargs (kwarg) - collects remaining keyword arguments
-            remaining_kwargs = {k: v for k, v in kwarg_vars.items() if k not in consumed_kwargs}
+            # ``maybe_dstar_params`` entries are *speculative* bindings read out
+            # of a ``**mapping`` argument; they were never written as keywords
+            # at the call site.  Reporting them as "unexpected keyword
+            # arguments" fired for every ``fn(*args, **kwargs)`` forwarder when
+            # the callee also had positional parameters.
+            remaining_kwargs = {
+                k: v
+                for k, v in kwarg_vars.items()
+                if k not in consumed_kwargs and k not in maybe_dstar_params
+            }
 
             if func_args.kwarg:
                 kwarg_name = func_args.kwarg.arg
@@ -1326,6 +1335,39 @@ class PythonCallService(Processor):
                         callee_scope, call_context, kwarg_dict_obj, field
                     )
                     state._add_var_points_flow(kw_var, dict_value_var)
+                    # Also expose the value through ``elem()`` so that
+                    # ``kwargs.items()`` / ``values()`` / iteration see the
+                    # keyword arguments (dict literals do the same).
+                    elem_var = state.get_field(callee_scope, call_context, kwarg_dict_obj, elem())
+                    state._add_var_points_flow(kw_var, elem_var)
+                    # Keep the *key* as a real string constant so that
+                    # ``kwargs.items()`` yields usable names.
+                    key_var_name = f"$kw_key@{call.call_site.short_id()}@{kw_name}"
+                    key_stmt = IRAssign(
+                        ast.Assign(
+                            targets=[ast.Name(id=key_var_name, ctx=ast.Store())],
+                            value=ast.Constant(value=kw_name),
+                        )
+                    )
+                    key_var = state.get_variable(
+                        callee_scope,
+                        call_context,
+                        solver.variable_factory.make_variable(key_var_name, VariableKind.TEMPORARY),
+                    )
+                    solver.add_constraint(
+                        callee_scope,
+                        call_context,
+                        AllocConstraint(
+                            target=solver.variable_factory.make_variable(
+                                key_var_name, VariableKind.TEMPORARY
+                            ),
+                            alloc_site=AllocSite.from_ir_node(key_stmt, AllocKind.CONSTANT),
+                        ),
+                    )
+                    keys_field = state.get_field(
+                        callee_scope, call_context, kwarg_dict_obj, dict_keys()
+                    )
+                    state._add_var_points_flow(key_var, keys_field)
                 for keyword_index, source, source_var in dstar_sources:
                     fields = (elem(), value())
                     expanded = self._expanded_argument(

@@ -37,6 +37,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     Instance,
     ProperType,
     TupleType,
+    TypeType,
     TypeSystem,
 )
 from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
@@ -47,6 +48,7 @@ from pyflow.analysis.typeinfo.resolution.docstrings import (
     search_return_in_docstr,
 )
 from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_documented_type
+from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -80,6 +82,7 @@ class TypeInfoService:
         self._inference_results: dict[str, ModuleInferenceResult] = {}
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._failed_modules: set[str] = set()
+        self._known_class_cache: dict[str, bool] = {}
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
 
@@ -122,6 +125,9 @@ class TypeInfoService:
             self._collected_modules.add(module_name)
         finally:
             self._collecting_modules.discard(module_name)
+            if not self._collecting_modules:
+                self.type_system.invalidate_subtype_caches()
+                self._known_class_cache.clear()
             # Inference may replace the result while recursively resolving a
             # dependency. Attach collection diagnostics to the final result.
             for diagnostic in self._collection_diagnostics:
@@ -175,6 +181,17 @@ class TypeInfoService:
 
     def members_of(self, qualified_name: str) -> dict[str, TypeFact]:
         """Return known members for a module or class."""
+        if qualified_name in self._classes:
+            return dict(self._classes[qualified_name].members)
+        if qualified_name not in self._module_facts:
+            # ``pkg.models.Client`` names a class, not a module.  Load the
+            # longest importable module prefix first so the class can be found.
+            prefix = qualified_name
+            while "." in prefix:
+                prefix = prefix.rpartition(".")[0]
+                if self.project_context.find_module(prefix) is not None:
+                    self.collect_module(prefix)
+                    break
         if qualified_name in self._classes:
             return dict(self._classes[qualified_name].members)
         self._ensure_collected(qualified_name)
@@ -276,7 +293,7 @@ class TypeInfoService:
         local_classes: set[str] = set()
         imports = self._collect_import_aliases(module_name, tree, path)
         module_aliases = self._module_class_aliases.setdefault(module_name, {})
-        for node in tree.body:
+        for node in iter_module_imports(tree.body):
             if isinstance(node, ast.ClassDef):
                 qualified_name = f"{module_name}.{node.name}"
                 self._class_aliases[node.name] = qualified_name
@@ -371,7 +388,11 @@ class TypeInfoService:
             if "." in local_name or symbol.typ is None:
                 continue
             existing = facts.get(local_name)
-            if existing is not None and existing.source in {"annotation", "stub"}:
+            if (
+                existing is not None
+                and existing.source in {"annotation", "stub"}
+                and existing.typ is not None
+            ):
                 continue
             facts[local_name] = TypeFact(
                 name=local_name,
@@ -440,6 +461,8 @@ class TypeInfoService:
         if module_name in self._collecting_modules:
             fact = self._module_facts.get(module_name, {}).get(name)
             return None if fact is None else fact.typ
+        if not self._module_may_be_project(module_name):
+            return None
         return self._lookup_project_type(qualified_name, allow_synthetic=False)
 
     def _collect_stub_module(
@@ -960,7 +983,7 @@ class TypeInfoService:
             if node.id in local_classes:
                 return self._synthetic_instance(f"{module_name}.{node.id}")
             imported = self._resolve_imported_type_name(node.id, imports)
-            if imported is not None:
+            if imported is not None and self._is_known_class_name(imported):
                 return self._synthetic_instance(imported)
         if isinstance(node, ast.Call):
             callee = _expr_name(node.func)
@@ -971,9 +994,67 @@ class TypeInfoService:
             imported = imports.get(callee)
             if imported is None:
                 imported = self._resolve_imported_type_name(callee, imports)
-            if imported is not None:
+            if imported is not None and self._is_known_class_name(imported):
                 return self._synthetic_instance(imported)
         return None
+
+    def _is_known_class_name(self, qualified_name: str) -> bool:
+        """Return whether ``qualified_name`` denotes a class, not a callable.
+
+        The syntactic collector sees only a call expression, so it must not
+        assume that ``json.loads(...)`` constructs ``json.loads``.  Restrict
+        the synthetic-instance fallback to names with class evidence.
+        """
+
+        cached = self._known_class_cache.get(qualified_name)
+        if cached is not None:
+            return cached
+        if qualified_name in self._classes:
+            self._known_class_cache[qualified_name] = True
+            return True
+        builtin = BuiltinTypeLookup()(qualified_name)
+        if isinstance(builtin, Instance) or isinstance(builtin, TypeType):
+            self._known_class_cache[qualified_name] = True
+            return True
+        module_name, _, _ = qualified_name.rpartition(".")
+        if not module_name or any(part[:1].isupper() for part in module_name.split(".")):
+            self._known_class_cache[qualified_name] = False
+            return False
+        if not self._module_may_be_project(module_name):
+            self._known_class_cache[qualified_name] = False
+            return False
+        resolution = self.project_context.find_module(module_name)
+        if resolution is None or resolution.path is None:
+            self._known_class_cache[qualified_name] = False
+            return False
+        roots = (self.project_context.path, *self.project_context.module_identity.workspace_roots)
+        try:
+            path = Path(resolution.path).resolve()
+            if not any(path.is_relative_to(Path(root).resolve()) for root in roots):
+                self._known_class_cache[qualified_name] = False
+                return False
+        except OSError:
+            self._known_class_cache[qualified_name] = False
+            return False
+        self.collect_module(module_name)
+        result = qualified_name in self._classes
+        self._known_class_cache[qualified_name] = result
+        return result
+
+    def _module_may_be_project(self, module_name: str) -> bool:
+        """Cheaply rule out stdlib and third-party modules before resolving."""
+
+        first = module_name.split(".", 1)[0]
+        roots = (
+            self.project_context.path,
+            *self.project_context.module_identity.workspace_roots,
+            *(Path(item) for item in self.project_context.added_sys_path),
+        )
+        for root in roots:
+            root_path = Path(root)
+            if (root_path / first).is_dir() or (root_path / f"{first}.py").is_file():
+                return True
+        return False
 
 
 def _iter_arguments(args: ast.arguments) -> Iterator[ast.arg]:

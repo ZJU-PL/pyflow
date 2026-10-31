@@ -1,4 +1,3 @@
-from collections import namedtuple as _namedtuple
 
 
 class Counter(dict):
@@ -184,4 +183,32 @@ class UserString:
         return self.data[index]
 
 
-namedtuple = _namedtuple
+def namedtuple(typename, field_names, *, rename=False, defaults=None, module=None):
+    """Minimal model: a class whose instances carry the declared fields."""
+    if isinstance(field_names, str):
+        field_names = field_names.replace(",", " ").split()
+    fields = tuple(field_names)
+
+    class _NamedTuple:
+        _fields = fields
+
+        def __new__(cls, *args, **kwargs):
+            obj = object.__new__(cls)
+            for name, value in zip(fields, args):
+                setattr(obj, name, value)
+            for name in fields:
+                if name in kwargs:
+                    setattr(obj, name, kwargs[name])
+            return obj
+
+        def __iter__(self):
+            return iter([getattr(self, name) for name in fields])
+
+        def _asdict(self):
+            return {name: getattr(self, name) for name in fields}
+
+        def __getitem__(self, index):
+            return getattr(self, fields[index])
+
+    _NamedTuple.__name__ = typename
+    return _NamedTuple

@@ -37,6 +37,20 @@ __all__ = [
 ]
 
 
+def _scope_qualname(scope) -> str | None:
+    """Best-effort qualified name for a scope or IR scope."""
+    if scope is None:
+        return None
+    getter = getattr(scope, "get_qualname", None)
+    if callable(getter):
+        return str(getter())
+    inner = getattr(scope, "stmt", None)
+    getter = getattr(inner, "get_qualname", None)
+    if callable(getter):
+        return str(getter())
+    return None
+
+
 class AliasStatus(Enum):
     """Three-valued alias answer that preserves analysis incompleteness."""
 
@@ -249,6 +263,35 @@ class PointerAnalysisResult:
     def unknown_details(self) -> list[dict]:
         """Return fail-visible unresolved-operation diagnostics."""
         return self._query.get_unknown_details()
+
+    def incomplete_reasons(self) -> list[dict]:
+        """Return deduplicated reasons the solver marked itself incomplete.
+
+        ``statistics()["complete"]`` only answers yes/no; analyses such as the
+        capability inventory need to distinguish "an unmodelled native call"
+        (already reported conservatively) from "the frontend dropped code".
+        """
+        query = self._inner.query() if self._inner is not None else self._query
+        reasons: list[dict] = []
+        for reason in getattr(query, "_global_incomplete_reasons", ()) or ():
+            reasons.append({**reason, "scope": None})
+        for scope, scoped in (getattr(query, "_incomplete_scopes", {}) or {}).items():
+            name = _scope_qualname(scope)
+            for reason in scoped or ():
+                reasons.append({**reason, "scope": name})
+        for variable, scoped in (getattr(query, "_incomplete_variables", {}) or {}).items():
+            name = _scope_qualname(getattr(variable, "scope", None))
+            for reason in scoped or ():
+                reasons.append({**reason, "scope": name})
+        unique: list[dict] = []
+        seen = set()
+        for reason in reasons:
+            key = (reason.get("kind"), reason.get("message"), reason.get("scope"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(reason)
+        return unique
 
     def statistics(self) -> dict[str, object]:
         """Return solver statistics, including completeness status."""

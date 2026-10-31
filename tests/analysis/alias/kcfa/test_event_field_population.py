@@ -62,7 +62,12 @@ def test_name_assignment_generates_copy_constraint():
 def test_dict_values_populate_key_and_generic_fields():
     constraints = _translate_assignment('tmp = {"a": x, "b": y}')
 
-    assert _alloc_kinds(constraints) == [AllocKind.DICT]
+    kinds = _alloc_kinds(constraints)
+    assert kinds[0] == AllocKind.DICT
+    assert kinds.count(AllocKind.DICT) == 1
+    # Dict keys are additionally materialised as constant objects so that
+    # ``keys()``/``items()`` can enumerate them.
+    assert set(kinds) <= {AllocKind.DICT, AllocKind.CONSTANT}
     assert _store_sources(constraints).count("x") == 2
     assert _store_sources(constraints).count("y") == 2
     assert any(

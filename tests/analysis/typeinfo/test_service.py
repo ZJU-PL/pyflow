@@ -15,12 +15,15 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     CallableType,
     Instance,
     NoneType,
+    TypeType,
     UnionType,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
 def _instance_name(value) -> str:
+    if isinstance(value, TypeType):
+        value = value.item
     assert isinstance(value, Instance)
     return value.type.full_name
 

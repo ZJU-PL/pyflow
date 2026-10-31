@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -12,10 +13,13 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import 
     DEFAULT_MAX_ITERATIONS,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import (
+    AttrReadConstraint,
     CallConstraint,
     CopyConstraint,
+    LoadConstraint,
     RaiseConstraint,
     ReturnConstraint,
+    SuperResolveConstraint,
     YieldConstraint,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.events import (
@@ -27,6 +31,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model imp
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     BuiltinFunctionObject,
+    BuiltinInstanceObject,
     BuiltinMethodObject,
     ClassObject,
     ConstantObject,
@@ -34,9 +39,12 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     DictObject,
     FunctionObject,
     GeneratorObject,
+    InstanceObject,
     MethodObject,
     NativeModuleObject,
     NativeObject,
+    SuperObject,
+    TupleObject,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
     FieldAccess,
@@ -76,6 +84,21 @@ def _is_bundled_stub(filename: str) -> bool:
     return True
 
 
+@lru_cache(maxsize=4096)
+def _source_line(filename: str, line: int) -> str:
+    """Return the stripped source line for diagnostics, or an empty string."""
+    if not filename or line <= 0:
+        return ""
+    try:
+        with open(filename, encoding="utf-8", errors="replace") as handle:
+            for index, text in enumerate(handle, start=1):
+                if index == line:
+                    return text.strip()[:160]
+    except OSError:
+        return ""
+    return ""
+
+
 def _detail_is_bundled_stub(location: str) -> bool:
     """Recognise ``/path/to/stub.py:line:column`` diagnostic locations."""
     filename = location.rsplit(":", 2)[0] if ":" in location else location
@@ -83,6 +106,63 @@ def _detail_is_bundled_stub(location: str) -> bool:
 
 
 _DESCRIPTOR_HOOKS = ("__get__", "__set__", "__delete__")
+
+#: Builtin types whose instances are plain values, never resource handles.
+#: Mapping a returned value of one of these to ``<callee>.<return>`` would turn
+#: e.g. ``content = path.read_text()`` into a spurious file capability.
+_NON_HANDLE_BUILTIN_TYPES = frozenset(
+    {
+        "list",
+        "dict",
+        "tuple",
+        "set",
+        "frozenset",
+        "str",
+        "bytes",
+        "bytearray",
+        "int",
+        "float",
+        "bool",
+        "complex",
+        "range",
+        "slice",
+        "memoryview",
+        "type",
+        "NoneType",
+    }
+)
+
+#: Capability categories whose *return value* is itself a resource the
+#: caller can use later (an open file, a socket, a process).  Returns of the
+#: remaining categories (``code.execute``, ``module.dynamic_import``,
+#: ``deserialization.unsafe``, ...) are ordinary data: ``eval`` returns the
+#: evaluated value and ``import_module`` returns the imported module.
+_RETURN_IDENTITY_CATEGORIES = frozenset({"file", "network", "process"})
+
+#: Methods that read from / write to a file-like handle.
+_HANDLE_READ_METHODS = frozenset({"read", "readline", "readlines", "__iter__", "__next__"})
+_HANDLE_WRITE_METHODS = frozenset({"write", "writelines", "truncate"})
+
+#: APIs whose *second* positional argument (or ``mode`` keyword) selects
+#: between reading and writing, in addition to anything ending in ``.open``.
+_MODE_AWARE_OPEN_PATHS = frozenset({"builtins.open", "io.open", "zipfile.ZipFile"})
+
+
+def _is_mode_aware_open(access_path: str) -> bool:
+    return access_path in _MODE_AWARE_OPEN_PATHS or access_path.endswith(".open")
+
+
+def _can_denote_handle(obj) -> bool:
+    """Return True for abstract objects whose value may be a resource handle."""
+    if isinstance(obj, BuiltinInstanceObject):
+        return obj.builtin_type not in _NON_HANDLE_BUILTIN_TYPES
+    if isinstance(obj, NativeObject):
+        return True
+    if isinstance(obj, InstanceObject):
+        # Instances of user/stub classes: ``io.TextIOWrapper``/``FileIO`` are
+        # handles, ``_StatResult`` is metadata.  Both are worth tracking.
+        return True
+    return False
 
 
 def _normalize_descriptor_path(access_path: str) -> str:
@@ -110,6 +190,8 @@ def _is_synthetic_descriptor_call(access_path: str, callee_name: str) -> bool:
 
 
 _INTERNAL_CONSTRAINT_PREFIXES = (
+    "$init_method@",
+    "$init_fn@",
     "$getattribute@",
     "$getattr@",
     "$setattr@",
@@ -135,6 +217,9 @@ _INTERNAL_CONSTRAINT_PREFIXES = (
     "$prepared_namespace@",
     "$original_bases@",
     "$effective_base@",
+    "$mro_entries_receiver@",
+    "$mro_entries_method@",
+    "$mro_entries_result@",
 )
 
 
@@ -221,6 +306,9 @@ class DefensiveCapabilityAnalysis:
         self.report_public_exports = report_public_exports
         self.report_callable_boundaries = report_callable_boundaries
         self.max_iterations = max_iterations
+        self._return_identities: dict = {}
+        self._return_capabilities: dict = {}
+        self._stub_scopes: set[str] = set()
 
     def analyze_source(self, source: str) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis(
@@ -261,17 +349,19 @@ class DefensiveCapabilityAnalysis:
     ) -> CapabilityAnalysisResult:
         result = CapabilityAnalysisResult()
         state = pointer_result.state
-        reachability = _CapabilityReachability(state, self.registry)
+        self._return_identities = self._collect_return_identities(pointer_result)
+        self._stub_scopes = self._bundled_stub_scope_names(pointer_result)
+        reachability = _CapabilityReachability(self, state, self.registry)
 
         for event in pointer_result.semantic_events:
             operation, access_path = self._event_operation_path(event)
             if operation is None or access_path is None:
                 continue
-            patterns = self.registry.match(access_path, operation)
+            patterns = self._match_patterns(access_path, operation)
             if (
                 patterns
                 and operation is CapabilityOperation.CALL
-                and (access_path in {"builtins.open", "io.open"} or access_path.endswith(".open"))
+                and _is_mode_aware_open(access_path)
             ):
                 patterns = self._filter_open_patterns(event, patterns, state, access_path)
             for pattern in patterns:
@@ -285,7 +375,8 @@ class DefensiveCapabilityAnalysis:
                 result.findings.extend(self._indirect_store_findings(event, reachability))
 
         result.diagnostics.extend(self._unknown_diagnostics(pointer_result))
-        result.diagnostics.extend(self._unresolved_call_diagnostics(pointer_result))
+        result.diagnostics.extend(self._unresolved_call_diagnostics(pointer_result, reachability))
+        result.diagnostics.extend(self._completeness_diagnostics(pointer_result))
         result.findings.extend(self._unresolved_call_findings(pointer_result, reachability))
         if self.report_callable_boundaries:
             result.findings.extend(self._return_and_yield_findings(pointer_result, reachability))
@@ -296,10 +387,11 @@ class DefensiveCapabilityAnalysis:
             for finding in result.findings
             if finding.location.line > 0 and not _is_bundled_stub(finding.location.filename)
         ]
+        result.diagnostics = _dedupe_diagnostics(result.diagnostics)
+        result.coverage = self._coverage(pointer_result)
         return result.finalize()
 
-    @staticmethod
-    def _object_path(obj) -> str | None:
+    def _object_path(self, obj) -> str | None:
         # A module object is a namespace, not a capability.  Treating it as
         # one makes ``import requests`` look like network I/O because the
         # registry's prefix query sees every member of the module.
@@ -310,18 +402,117 @@ class DefensiveCapabilityAnalysis:
         if isinstance(obj, BuiltinFunctionObject):
             return f"builtins.{obj.function_name}"
         if isinstance(obj, BuiltinMethodObject):
-            receiver_path = DefensiveCapabilityAnalysis._object_path(obj.receiver)
+            receiver_path = self._object_path(obj.receiver)
             if receiver_path is not None:
                 return f"{receiver_path}.{obj.method_name}"
             return None
         if isinstance(obj, DictObject):
-            return "os.environ" if DefensiveCapabilityAnalysis._is_environ_dict(obj) else None
+            return "os.environ" if self._is_environ_dict(obj) else None
         if isinstance(obj, FunctionObject):
             module = getattr(obj.container_scope, "module", None)
             filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
             if _is_bundled_stub(filename):
                 return obj.ir.get_qualname()
-        return None
+            return None
+        # Resource handles returned by a capability-producing call (``open``,
+        # ``Path.open`` ...) get a synthetic identity so that method calls on
+        # the handle and transfers of the handle itself stay visible.
+        return self._return_identities.get(obj)
+
+    def _collect_return_identities(self, pointer_result: PointerAnalysisResult) -> dict:
+        """Map objects returned by capability calls to ``<callee>.<return>``.
+
+        The solver discards the callee identity for stub-modelled and builtin
+        return values (``open`` returns ``BuiltinInstanceObject('file')``), so
+        a file handle, socket or urlopen response had no access path at all
+        and every transfer of it was invisible.  Re-attach the identity here,
+        but only for objects that can actually denote a handle: scalar and
+        container results (``read_text()`` returns ``str``) are left alone.
+        """
+        state = pointer_result.state
+        identities: dict = {}
+        self._return_capabilities = {}
+        for event in pointer_result.semantic_events:
+            if event.kind is not PointerEventKind.CALL:
+                continue
+            callee_path = self._object_path_of_callee(event)
+            if callee_path is None:
+                continue
+            if not self.registry.reachable(callee_path):
+                continue
+            target = getattr(event.constraint, "target", None)
+            if target is None:
+                continue
+            target_var = state.get_variable(event.scope, event.context, target)
+            result_path = f"{callee_path}.<return>"
+            capabilities = self._return_capability_set(event, callee_path, state)
+            if capabilities is not None:
+                capabilities = frozenset(
+                    capability
+                    for capability in capabilities
+                    if self._capability_category(capability) in _RETURN_IDENTITY_CATEGORIES
+                )
+                if not capabilities:
+                    # The call's return value is data, not a resource handle.
+                    continue
+            for obj in state.get_points_to(target_var):
+                if not _can_denote_handle(obj):
+                    continue
+                identities.setdefault(obj, result_path)
+                if capabilities is not None:
+                    # Keyed by object: two ``open`` calls with different modes
+                    # share the ``builtins.open.<return>`` identity string.
+                    self._return_capabilities[obj] = capabilities
+        return identities
+
+    def _capability_category(self, capability: str) -> str:
+        for pattern in self.registry.patterns:
+            if pattern.capability == capability:
+                return pattern.category
+        return capability.split(".", 1)[0]
+
+    def _return_capability_set(self, event, callee_path: str, state) -> frozenset[str] | None:
+        """Refine the capabilities of a handle using the constant open mode."""
+        patterns = self.registry.match(callee_path, CapabilityOperation.CALL)
+        if not patterns:
+            return None
+        if _is_mode_aware_open(callee_path):
+            patterns = self._filter_open_patterns(event, patterns, state, callee_path)
+        return frozenset(pattern.capability for pattern in patterns)
+
+    def _object_path_of_callee(self, event: PointerEvent) -> str | None:
+        obj = event.abstract_object
+        path = self._object_path(obj)
+        if path is None:
+            path = self._callable_class_path(obj)
+        return path
+
+    def _match_patterns(
+        self, access_path: str, operation: CapabilityOperation
+    ) -> tuple[CapabilityPattern, ...]:
+        """Match a path, resolving synthetic ``<return>`` handle identities."""
+        patterns = self.registry.match(access_path, operation)
+        if patterns or ".<return>" not in access_path:
+            return patterns
+        normalized = access_path
+        while ".<return>" in normalized:
+            normalized = normalized.replace(".<return>", "")
+        method = normalized.rsplit(".", 1)[-1]
+        if method in _HANDLE_READ_METHODS:
+            wanted = {"file.read"}
+        elif method in _HANDLE_WRITE_METHODS:
+            wanted = {"file.write"}
+        else:
+            # ``close``/``seek``/``__enter__`` on a handle are not a capability
+            # use of their own.
+            return ()
+        origin = normalized.rsplit(".", 1)[0]
+        for candidate in (origin, normalized):
+            matched = self.registry.match(candidate, operation)
+            if matched:
+                filtered = tuple(p for p in matched if p.capability in wanted)
+                return filtered or matched
+        return ()
 
     @staticmethod
     def _callable_class_path(obj) -> str | None:
@@ -411,6 +602,10 @@ class DefensiveCapabilityAnalysis:
         state = reachability.state
         callee_path = self._object_path(event.abstract_object)
         if callee_path is None or callee_path in _BUILTIN_NON_ESCAPING:
+            return []
+        if callee_path.endswith((".__init__", ".__new__")):
+            # Constructing an object with a capability stores it in the object,
+            # which the heap model already tracks; it is not a trust boundary.
             return []
         constraint = event.constraint
         findings: list[CapabilityFinding] = []
@@ -649,24 +844,32 @@ class DefensiveCapabilityAnalysis:
             for event in pointer_result.semantic_events
             if event.kind is PointerEventKind.CALL
         }
-        for scope, constraint in state.constraints.all():
+        # ``constraints.all()`` drops the defining context, so a call inside a
+        # function invoked with a non-empty context looked up the argument in
+        # the empty context and found nothing.  Use the recorded definitions.
+        for scope, context, constraint in state.constraint_definitions:
             if not isinstance(constraint, CallConstraint) or (scope, constraint) in observed:
                 continue
             if _is_internal_constraint(constraint):
                 continue
-            callee = state.get_variable(scope, scope.context, constraint.callee)
+            callee_name = getattr(getattr(constraint, "callee", None), "name", "") or ""
+            if callee_name.startswith(("$call@", "$metaclass_call@")):
+                # Re-dispatch of ``obj(...)`` through ``__call__``; the solver
+                # tracker reports it once for genuinely non-callable values.
+                continue
+            callee = state.get_variable(scope, context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
                 continue
             arguments = list(constraint.args) + [var for _, var in constraint.kwargs]
             for argument in arguments:
-                ctx_var = state.get_variable(scope, scope.context, argument)
+                ctx_var = state.get_variable(scope, context, argument)
                 findings.extend(
                     self._escape_findings(
                         CapabilityEscapeEvent(
                             kind=EscapeKind.ARGUMENT,
                             objects=tuple(state.get_points_to(ctx_var)),
                             location=self._location(scope, constraint.stmt),
-                            context=str(scope.context),
+                            context=str(context),
                             operation=CapabilityOperation.CALL,
                             boundary="unresolved call",
                             reason="escapes through an unresolved call target",
@@ -723,12 +926,19 @@ class DefensiveCapabilityAnalysis:
         pointer_result: PointerAnalysisResult,
     ) -> list[CapabilityDiagnostic]:
         diagnostics = []
+        stats = pointer_result.statistics()
+        fixpoint_complete = bool(stats.get("fixpoint_complete", True))
         locations = {}
         for scope, constraint in pointer_result.state.constraints.all():
             site = getattr(constraint, "call_site", None)
             if site is not None:
                 locations[str(site)] = self._location(scope, site.statement)
         for detail in pointer_result.unknown_details():
+            if not fixpoint_complete and detail["kind"] == "callee_empty":
+                # The worklist was cut short, so "empty points-to set" is not
+                # evidence that the call is genuinely unresolved; the budget
+                # diagnostic below reports the truncated analysis instead.
+                continue
             if detail["kind"] == "callee_empty" and any(
                 prefix in (detail.get("message") or "") for prefix in _INTERNAL_CONSTRAINT_PREFIXES
             ):
@@ -741,7 +951,7 @@ class DefensiveCapabilityAnalysis:
                 # Model-internal gaps in our own stdlib stubs should not make
                 # a user's capability report look partial.
                 continue
-            if location is None and _detail_is_bundled_stub(detail["location"]):
+            if location is None and self._is_stub_detail(detail):
                 continue
             label = (
                 f"{location.filename}:{location.line}:{location.column}"
@@ -757,12 +967,123 @@ class DefensiveCapabilityAnalysis:
             )
         return diagnostics
 
-    def _unresolved_call_diagnostics(
+    def _bundled_stub_scope_names(self, pointer_result: PointerAnalysisResult) -> set[str]:
+        """Return qualnames of scopes that live in PyFlow's bundled stubs."""
+        names: set[str] = set()
+        for scope, _context, _constraint in pointer_result.state.constraint_definitions:
+            module = getattr(scope, "module", None)
+            filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
+            if not _is_bundled_stub(filename):
+                continue
+            name = getattr(scope, "get_qualname", None)
+            if not callable(name):
+                name = getattr(getattr(scope, "stmt", None), "get_qualname", None)
+            if callable(name):
+                names.add(str(name()))
+        return names
+
+    def _user_incomplete_reasons(self, pointer_result: PointerAnalysisResult) -> list[dict]:
+        """Incompleteness that can affect user code (not bundled model internals)."""
+        return [
+            reason
+            for reason in pointer_result.incomplete_reasons()
+            if reason.get("scope") not in self._stub_scopes
+        ]
+
+    def _is_stub_detail(self, detail: dict) -> bool:
+        location = str(detail.get("location") or "")
+        if not location:
+            return False
+        scope_name = location.split(":", 1)[0]
+        return scope_name in self._stub_scopes or _detail_is_bundled_stub(location)
+
+    def _coverage(self, pointer_result: PointerAnalysisResult) -> dict:
+        """Return solver completeness flags so ``complete`` is auditable."""
+        stats = pointer_result.statistics()
+        return {
+            "solver_complete": bool(stats.get("complete", False)),
+            "fixpoint_complete": bool(stats.get("fixpoint_complete", False)),
+            "frontend_complete": bool(stats.get("frontend_complete", False)),
+            "semantic_complete": bool(stats.get("semantic_complete", False)),
+            "stop_reason": pointer_result.stop_reason,
+            "incomplete_kinds": sorted(
+                {reason.get("kind") for reason in self._user_incomplete_reasons(pointer_result)}
+            ),
+        }
+
+    def _completeness_diagnostics(
         self,
         pointer_result: PointerAnalysisResult,
     ) -> list[CapabilityDiagnostic]:
+        """Surface solver incompleteness that the unknown tracker does not.
+
+        ``status`` used to be derived only from tracker entries, so a solver
+        that explicitly reported ``semantic_incomplete`` (native calls without
+        an exhaustive effect summary, widening, ...) still produced
+        ``status: complete``.  Emit one aggregated diagnostic per category so
+        the documented meaning of ``complete`` holds.
+        """
+        stats = pointer_result.statistics()
         diagnostics: list[CapabilityDiagnostic] = []
+        if not stats.get("frontend_complete", True):
+            diagnostics.append(
+                CapabilityDiagnostic(
+                    kind="unsupported",
+                    message=(
+                        "frontend translation was incomplete; operations in the "
+                        "affected scopes may be missing"
+                    ),
+                )
+            )
+        if not stats.get("semantic_complete", True) and stats.get("fixpoint_complete", True):
+            # When the worklist was cut short, the budget diagnostic already
+            # explains the incompleteness.
+            reasons = self._user_incomplete_reasons(pointer_result)
+            if not reasons:
+                return diagnostics
+            kinds = {reason.get("kind") for reason in reasons}
+            native_only = bool(kinds) and kinds <= {"native_effect", "semantic_incomplete"}
+            if native_only:
+                # Calls into unmodelled native code are already reported
+                # conservatively (every argument escapes, returns get a
+                # ``<callee>.<return>`` identity), so this does not hide a
+                # transfer.  Surface it as a note without flipping the status.
+                diagnostics.append(
+                    CapabilityDiagnostic(
+                        kind="note",
+                        message=(
+                            f"{len(reasons)} operation(s) had no exhaustive native "
+                            "effect summary; capability identity behind their "
+                            "return values is opaque"
+                        ),
+                    )
+                )
+            else:
+                diagnostics.append(
+                    CapabilityDiagnostic(
+                        kind="unknown",
+                        message=(
+                            "semantic model incomplete: at least one operation had no "
+                            "exhaustive effect model (widening, protocol resolution, or "
+                            "unmodelled lowering); capabilities behind it may be missing"
+                        ),
+                    )
+                )
+        return diagnostics
+
+    def _unresolved_call_diagnostics(
+        self,
+        pointer_result: PointerAnalysisResult,
+        reachability=None,
+    ) -> list[CapabilityDiagnostic]:
+        diagnostics: list[CapabilityDiagnostic] = []
+        if not pointer_result.statistics().get("fixpoint_complete", True):
+            # A truncated worklist leaves many callees empty for reasons that
+            # have nothing to do with the user's code.
+            return diagnostics
         state = pointer_result.state
+        super_names = getattr(reachability, "super_names", set())
+        attribute_bases = self._attribute_base_names(state)
         observed = {
             (event.scope, event.constraint)
             for event in pointer_result.semantic_events
@@ -773,20 +1094,79 @@ class DefensiveCapabilityAnalysis:
                 continue
             if (scope, constraint) in observed or _is_internal_constraint(constraint):
                 continue
+            callee_name = getattr(getattr(constraint, "callee", None), "name", "") or ""
+            if callee_name.startswith(("$call@", "$metaclass_call@")) and (
+                self._site_has_callable_target(state, constraint.call_site)
+            ):
+                # ``obj(...)`` may-call where another target resolved (``None``
+                # and a decorator); the empty re-dispatch is not a gap.
+                continue
+            if self._is_super_attribute_probe(state, constraint, super_names, attribute_bases):
+                continue
             callee = state.get_variable(scope, scope.context, constraint.callee)
             if not state.get_points_to(callee).is_empty():
                 continue
             location = self._location(scope, constraint.stmt)
             if _is_bundled_stub(location.filename):
                 continue
+            message = f"unresolved call target: {constraint}"
+            source = _source_line(location.filename, location.line)
+            if source:
+                message = f"{message} | {source}"
+            message = f"{message} ({location.filename}:{location.line}:{location.column})"
             diagnostics.append(
-                CapabilityDiagnostic(
-                    kind="unknown",
-                    message=f"unresolved call target: {constraint}",
-                    location=location,
-                )
+                CapabilityDiagnostic(kind="unknown", message=message, location=location)
             )
         return diagnostics
+
+    @staticmethod
+    def _site_has_callable_target(state, call_site) -> bool:
+        """Whether some constraint for this call site resolves to a callable."""
+        wanted = str(call_site)
+        for scope, other in state.constraints.all():
+            if not isinstance(other, CallConstraint):
+                continue
+            if str(getattr(other, "call_site", None)) != wanted:
+                continue
+            name = getattr(getattr(other, "callee", None), "name", "") or ""
+            if name.startswith(("$call@", "$metaclass_call@")):
+                continue
+            callee = state.get_variable(scope, scope.context, other.callee)
+            for obj in state.get_points_to(callee):
+                if isinstance(
+                    obj,
+                    (
+                        FunctionObject,
+                        MethodObject,
+                        ClassObject,
+                        BuiltinFunctionObject,
+                        BuiltinMethodObject,
+                    ),
+                ):
+                    return True
+        return False
+
+    @staticmethod
+    def _attribute_base_names(state) -> dict[str, set[str]]:
+        bases: dict[str, set[str]] = {}
+        for _scope, constraint in state.constraints.all():
+            if not isinstance(constraint, (LoadConstraint, AttrReadConstraint)):
+                continue
+            target = getattr(constraint, "target", None)
+            base = getattr(constraint, "base", None)
+            if target is None or base is None:
+                continue
+            bases.setdefault(target.name, set()).add(base.name)
+        return bases
+
+    @staticmethod
+    def _is_super_attribute_probe(state, constraint, super_names, attribute_bases) -> bool:
+        """Whether ``constraint`` calls an attribute loaded from ``super()``."""
+        callee = getattr(constraint, "callee", None)
+        if callee is None:
+            return False
+        bases = attribute_bases.get(callee.name)
+        return bool(bases) and bool(bases & super_names)
 
     def _event_location(self, event: PointerEvent, state=None) -> SourceLocation:
         site = self._constraint_site(event.constraint)
@@ -848,17 +1228,51 @@ class DefensiveCapabilityAnalysis:
 _CLOSURE_CACHE_ENTRIES = 200_000
 
 
+def _dedupe_diagnostics(diagnostics: list[CapabilityDiagnostic]) -> list[CapabilityDiagnostic]:
+    """Collapse diagnostics repeated once per analysed calling context.
+
+    The solver records an unresolved call per ``(scope, constraint)`` pair, so
+    a single decorator inside a function instantiated in N contexts produced N
+    identical entries -- enough to turn one report into megabytes of output.
+    """
+    counts: dict[tuple, int] = {}
+    merged: dict[tuple, CapabilityDiagnostic] = {}
+    for diagnostic in diagnostics:
+        key = (diagnostic.kind, diagnostic.message, diagnostic.location)
+        counts[key] = counts.get(key, 0) + 1
+        merged.setdefault(key, diagnostic)
+    unique: list[CapabilityDiagnostic] = []
+    for key, diagnostic in merged.items():
+        repeated = counts[key]
+        if repeated > 1:
+            diagnostic = replace(
+                diagnostic,
+                message=f"{diagnostic.message} (repeated in {repeated} calling contexts)",
+            )
+        unique.append(diagnostic)
+    return unique
+
+
 class _CapabilityReachability:
     """Index a solved heap once and reuse it for every potential transfer."""
 
-    def __init__(self, state, registry: CapabilityRegistry) -> None:
+    def __init__(
+        self, analysis: "DefensiveCapabilityAnalysis", state, registry: CapabilityRegistry
+    ) -> None:
+        self.analysis = analysis
         self.state = state
         self.registry = registry
         self.fields = {}
         self.patterns = {}
         self._closures: dict = {}
         self._cached_entries = 0
+        self.super_names: set[str] = set()
         for ctx_field, points_to in state._env.items():
+            if any(isinstance(obj, SuperObject) for obj in points_to):
+                content = getattr(ctx_field, "content", ctx_field)
+                name = getattr(content, "name", None)
+                if name:
+                    self.super_names.add(name)
             field_access = getattr(ctx_field, "content", ctx_field)
             if isinstance(field_access, FieldAccess):
                 self.fields.setdefault(field_access.obj, []).append(
@@ -911,15 +1325,43 @@ class _CapabilityReachability:
                     continue
                 for child in self.state.get_points_to(captured_var):
                     yield child, f"closure cell {name}"
-        if isinstance(obj, ClassObject):
-            # Class dictionaries contain every method of the class.  They are
-            # not values held by the object, and walking them turns
-            # ``from pathlib import Path`` into dozens of "reachable"
-            # file/network capabilities.
-            return
+        if isinstance(obj, MethodObject) and obj.instance_obj is not None:
+            # A bound method carries its ``self``; handing ``host.handler`` to
+            # a plugin hands over everything reachable from the instance.
+            yield obj.instance_obj, "bound method receiver"
+        if isinstance(obj, (ClassObject, InstanceObject)):
+            class_obj = obj if isinstance(obj, ClassObject) else getattr(obj, "class_obj", None)
+            if class_obj is None or self._is_bundled_stub_class(class_obj):
+                # Bundled model classes list every member (``Path.open``...);
+                # walking those turns a Path *instance* into dozens of
+                # spurious file capabilities.
+                if isinstance(obj, ClassObject):
+                    return
+            else:
+                for label, points_to in self.fields.get(class_obj, ()):
+                    for child in points_to:
+                        if self._is_class_method(class_obj, child):
+                            continue
+                        yield child, f"class attribute {label}"
         for label, points_to in self.fields.get(obj, ()):
             for child in points_to:
                 yield child, f"carrier field {label}"
+
+    @staticmethod
+    def _is_class_method(class_obj: ClassObject, child) -> bool:
+        """Return True when ``child`` is a method defined on ``class_obj``."""
+        if not isinstance(child, FunctionObject):
+            return False
+        if getattr(child, "class_obj", None) is class_obj:
+            return True
+        scope = getattr(child, "container_scope", None)
+        return getattr(scope, "obj", None) is class_obj
+
+    @staticmethod
+    def _is_bundled_stub_class(class_obj: ClassObject) -> bool:
+        module = getattr(getattr(class_obj, "container_scope", None), "module", None)
+        filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
+        return _is_bundled_stub(filename)
 
     def _closure_from(self, root, follow_closures: bool):
         """Return ``(obj, access_path, patterns, trace)`` reachable from root."""
@@ -931,15 +1373,30 @@ class _CapabilityReachability:
             if isinstance(obj, NativeModuleObject):
                 # Importing a module does not exercise any of its members.
                 continue
-            access_path = DefensiveCapabilityAnalysis._object_path(obj)
+            access_path = self.analysis._object_path(obj)
             if access_path is not None:
                 access_path = _normalize_descriptor_path(access_path)
             if access_path is not None and not access_path.endswith(".__set_name__"):
                 if access_path not in self.patterns:
-                    self.patterns[access_path] = self.registry.reachable(access_path)
+                    patterns = self.registry.reachable(access_path)
+                    if not patterns and obj in self.analysis._return_identities:
+                        # A *mapped* handle (``builtins.open.<return>``) carries
+                        # the capability of the call that produced it.  Opaque
+                        # native returns are deliberately excluded: the value
+                        # returned by ``importlib.import_module`` is a module,
+                        # not the capability to import one.
+                        origin = access_path
+                        while ".<return>" in origin:
+                            origin = origin.replace(".<return>", "")
+                        patterns = self.registry.reachable(origin)
+                    self.patterns[access_path] = patterns
                 patterns = self.patterns[access_path]
                 if patterns:
-                    entries.append((obj, access_path, patterns, self._trace(obj, parents)))
+                    allowed = self.analysis._return_capabilities.get(obj)
+                    if allowed is not None:
+                        patterns = tuple(p for p in patterns if p.capability in allowed)
+                    if patterns:
+                        entries.append((obj, access_path, patterns, self._trace(obj, parents)))
             for child, label in self._children(obj, follow_closures):
                 if child in parents:
                     continue

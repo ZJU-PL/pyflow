@@ -23,7 +23,15 @@ from .state import PointerAnalysisState, PointsToSet
 from .constraints import *
 from .variable import Variable, VariableKind, VariableFactory, FieldAccess
 from .config import Config
-from .heap_model import Field, FieldKind, attr, key, elem
+from .heap_model import (
+    Field,
+    FieldKind,
+    attr,
+    dynamic_attr,
+    elem,
+    is_dunder_name,
+    key,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import (
     AbstractCallGraph,
     CallEdge,
@@ -57,6 +65,43 @@ from .type_ref import TypeRefKind
 __all__ = ["PointerSolver", "SolverQuery"]
 
 logger = logging.getLogger(__name__)
+
+
+#: Solver-synthesised call targets.  An empty points-to set means an optional
+#: protocol hook is absent, or that the instance-construction plumbing found no
+#: Python-level ``__new__``/``__init__`` -- not that user code is unmodelled.
+_INTERNAL_CALL_PREFIXES = (
+    "$getattribute@",
+    "$getattr@",
+    "$setattr@",
+    "$delattr@",
+    "$descriptor_get@",
+    "$descriptor_set@",
+    "$descriptor_delete@",
+    "$optional_method@",
+    "$optional_callee@",
+    "$set_name@",
+    "$init_subclass@",
+    "$new@",
+    "$new_result@",
+    "$bound_init@",
+    "$init_method@",
+    "$init_fn@",
+    "$init_base@",
+    "$class@",
+    "$class_result@",
+    "$class_decorator@",
+    "$class_decorated@",
+    "$class_factory@",
+    "$class_name@",
+    "$class_namespace@",
+    "$prepared_namespace@",
+    "$original_bases@",
+    "$effective_base@",
+    "$mro_entries_receiver@",
+    "$mro_entries_method@",
+    "$mro_entries_result@",
+)
 
 
 class PointerSolver:
@@ -176,11 +221,39 @@ class PointerSolver:
         "complex",
         "bytearray",
         "memoryview",
+        # Exception classes are callable builtins: ``assert`` lowering and
+        # ``raise ValueError(...)`` construct them by name.
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "ValueError",
+        "TypeError",
+        "KeyError",
+        "IndexError",
+        "AttributeError",
+        "RuntimeError",
+        "OSError",
+        "NotImplementedError",
+        "StopIteration",
+        "FileNotFoundError",
+        "ImportError",
+        "ZeroDivisionError",
     ]
 
     def initialize_builtins(self, scope: "Scope", context: "AbstractContext") -> None:
-        """Initialize builtin function objects in a module-like scope."""
+        """Initialize builtin function objects in a module-like scope.
+
+        Builtins live in their own namespace at runtime.  Injecting them into
+        the module's *own* global bindings merged them with a user binding of
+        the same name (points-to sets are joined, never killed), so
+        ``def open(...)`` or ``os.open`` also resolved to ``builtins.open``.
+        Skip names the module binds itself so that shadowing behaves like
+        Python.
+        """
+        shadowed = self._module_bound_names(scope)
         for builtin_name in self.BUILTIN_FUNCTIONS:
+            if builtin_name in shadowed:
+                continue
             builtin_obj = ObjectFactory.create_builtin_function(builtin_name, context)
             builtin_var = Variable(name=builtin_name, kind=VariableKind.GLOBAL)
             ctx_var = self.state.get_variable(scope, context, builtin_var)
@@ -191,6 +264,47 @@ class PointerSolver:
                     PointsToSet.singleton(builtin_obj),
                 )
             )
+
+    @staticmethod
+    def _module_bound_names(scope: "Scope") -> Set[str]:
+        """Return the names bound by a module's top-level statements."""
+        module = getattr(getattr(scope, "stmt", None), "stmt", None)
+        if not isinstance(module, ast.Module):
+            return set()
+
+        names: Set[str] = set()
+
+        def add_target(target) -> None:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                for element in target.elts:
+                    add_target(element)
+            elif isinstance(target, ast.Starred):
+                add_target(target.value)
+
+        for stmt in module.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(stmt.name)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    add_target(target)
+            elif isinstance(stmt, (ast.AnnAssign, ast.AugAssign)):
+                add_target(stmt.target)
+            elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                for alias in stmt.names:
+                    names.add(alias.asname or alias.name.split(".", 1)[0])
+            elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+                add_target(stmt.target)
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                for item in stmt.items:
+                    if item.optional_vars is not None:
+                        add_target(item.optional_vars)
+            elif isinstance(stmt, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+                for handler in stmt.handlers:
+                    if handler.name:
+                        names.add(handler.name)
+        return names
 
     def _reset(self) -> None:
         self._iteration = 0
@@ -352,29 +466,92 @@ class PointerSolver:
         else:
             logger.warning(f"Stopped after solver budget at {self._iteration} iterations")
 
-    def _record_empty_callees(self) -> None:
-        """Make unresolved calls fail-visible after the points-to fixpoint."""
-        seen = set()
+    def _site_has_callable_target(self, call_site) -> bool:
+        """Whether some constraint for this call site resolves to a callable.
+
+        ``obj(...)`` on a non-callable value is re-dispatched through
+        ``$call@<site>``.  When the same call also has a real target (a
+        may-call of ``None`` and a decorator), the empty re-dispatch is not an
+        analysis gap.
+        """
+        wanted = str(call_site)
         for scope, constraint in self.state.constraints.all():
             if not isinstance(constraint, CallConstraint):
                 continue
-            if constraint.callee.name.startswith(
-                (
-                    "$getattribute@",
-                    "$getattr@",
-                    "$setattr@",
-                    "$delattr@",
-                    "$descriptor_get@",
-                    "$descriptor_set@",
-                    "$descriptor_delete@",
-                    "$optional_method@",
-                    "$optional_callee@",
-                    "$set_name@",
-                    "$init_subclass@",
-                )
-            ):
+            if str(constraint.call_site) != wanted:
+                continue
+            if constraint.callee.name.startswith(("$call@", "$metaclass_call@")):
+                continue
+            callee = self.state.get_variable(scope, scope.context, constraint.callee)
+            for obj in self.state.get_points_to(callee):
+                if isinstance(
+                    obj,
+                    (
+                        FunctionObject,
+                        MethodObject,
+                        ClassObject,
+                        BuiltinFunctionObject,
+                        BuiltinMethodObject,
+                        BuiltinClassObject,
+                    ),
+                ):
+                    return True
+        return False
+
+    def _super_bound_variable_names(self) -> Set[str]:
+        """Names of variables that hold objects produced by ``super()``."""
+        names: Set[str] = set()
+        for cvar, points_to in self.state._env.items():
+            if not any(isinstance(obj, SuperObject) for obj in points_to):
+                continue
+            name = getattr(getattr(cvar, "content", cvar), "name", None)
+            if name:
+                names.add(name)
+        return names
+
+    def _attribute_base_names(self) -> Dict[str, Set[str]]:
+        """Map each attribute-load target name to the names it is loaded from."""
+        bases: Dict[str, Set[str]] = {}
+        for _scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, (LoadConstraint, AttrReadConstraint)):
+                continue
+            target = getattr(constraint, "target", None)
+            base = getattr(constraint, "base", None)
+            if target is None or base is None:
+                continue
+            bases.setdefault(target.name, set()).add(base.name)
+        return bases
+
+    @staticmethod
+    def _is_super_attribute_probe(
+        constraint: "CallConstraint",
+        super_names: Set[str],
+        attribute_bases: Dict[str, Set[str]],
+    ) -> bool:
+        """Whether the callee was loaded from an object produced by ``super()``."""
+        bases = attribute_bases.get(constraint.callee.name)
+        return bool(bases) and bool(bases & super_names)
+
+    def _record_empty_callees(self) -> None:
+        """Make unresolved calls fail-visible after the points-to fixpoint."""
+        seen = set()
+        super_names = self._super_bound_variable_names()
+        attribute_bases = self._attribute_base_names()
+        for scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, CallConstraint):
+                continue
+            if constraint.callee.name.startswith(_INTERNAL_CALL_PREFIXES):
                 # These constraints probe optional protocol hooks.  An empty
                 # callee means the hook is absent, not that analysis failed.
+                continue
+            if constraint.callee.name.startswith(("$call@", "$metaclass_call@")) and (
+                self._site_has_callable_target(constraint.call_site)
+            ):
+                continue
+            if self._is_super_attribute_probe(constraint, super_names, attribute_bases):
+                # ``super().attr`` walks the MRO; a builtin base (``dict``,
+                # ``type``, ``Exception``) has no Python-level attribute to
+                # find, which is not an analysis gap.
                 continue
             callee = self.state.get_variable(scope, scope.context, constraint.callee)
             if not self.state.get_points_to(callee).is_empty():
@@ -1710,6 +1887,19 @@ class PointerSolver:
                 PointerEvent(PointerEventKind.LOAD, scope, context, c, base_obj)
             )
 
+            if (
+                c.field is not None
+                and c.field.kind == FieldKind.ATTRIBUTE
+                and not is_dunder_name(c.field.name)
+            ):
+                # ``setattr(obj, <non-constant name>, value)`` stores into the
+                # unknown-attribute cell.  Any attribute read on such an object
+                # may observe that value; without this join a dynamically
+                # populated object (``__init__(**kwargs)``, dataclasses,
+                # config/ORM models) lost every field it was given.
+                dynamic_field = self.state.get_field(scope, context, base_obj, dynamic_attr())
+                self.state._add_var_points_flow(dynamic_field, target_var)
+
             if isinstance(base_obj, NativeObject):
                 if c.field is None:
                     child_name = "*"
@@ -1757,6 +1947,40 @@ class PointerSolver:
                     builtin_type = "set"
                 elif isinstance(base_obj, BuiltinInstanceObject):
                     builtin_type = base_obj.builtin_type
+                elif isinstance(base_obj, InstanceObject):
+                    builtin_type = self.state.builtin_base_name(base_obj.class_obj)
+                elif isinstance(base_obj, (GeneratorObject, CoroutineObject)):
+                    builtin_type = "generator"
+                elif (
+                    isinstance(base_obj, BuiltinFunctionObject)
+                    and base_obj.function_name in {"object", "type"}
+                    and c.field.name in {"__new__", "__init__"}
+                ):
+                    # ``object.__new__(cls)`` / ``type.__new__(...)`` are the
+                    # hooks custom ``__new__`` implementations call.
+                    method_obj = BuiltinMethodObject(
+                        context=context,
+                        alloc_site=AllocSite(
+                            stmt=f"<builtin_method:{c.field.name}>", kind=AllocKind.BUILTIN
+                        ),
+                        method_name=c.field.name,
+                        receiver=base_obj,
+                        receiver_var=c.base,
+                    )
+                    self.state._worklist.add(
+                        (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                    )
+                    continue
+                elif isinstance(base_obj, ConstantObject) and isinstance(base_obj.value, str):
+                    # String literals and ``str(...)`` results must expose the
+                    # string method table; otherwise ``s.split(",")`` was an
+                    # unresolved call and lost every downstream value.
+                    builtin_type = "str"
+                elif (
+                    isinstance(base_obj, AbstractObject)
+                    and base_obj.alloc_site.kind is AllocKind.STRING
+                ):
+                    builtin_type = "str"
 
                 if builtin_type:
                     builtin_methods = self.state._get_builtin_methods_for_type(builtin_type)
@@ -2345,11 +2569,32 @@ class PointerSolver:
                 target=init_callee_var,
             ),
         )
+        # ``__init__`` defined in the class body is a ``MethodObject`` whose
+        # ``self`` is supplied by binding.  A plain function assigned to the
+        # attribute (``cls.__init__ = make_init()``, e.g. the dataclasses
+        # stub) is *unbound* and must receive the instance explicitly --
+        # otherwise the first constructor argument was bound to ``self``.
+        ctx_init_callee = self.state.get_variable(scope, context, init_callee_var)
+        bound_init_var = self.variable_factory.make_variable(
+            f"$init_method@{call.call_site.short_id()}"
+        )
+        ctx_bound_init = self.state.get_variable(scope, context, bound_init_var)
+        bound_guard = GuardNode(
+            lambda edge, pts: PointsToSet.from_objects(
+                [obj for obj in pts if isinstance(obj, MethodObject)]
+            )
+        )
+        self.state._add_points_flow_edge(
+            PointerFlowEdge(NormalNode(ctx_init_callee), bound_guard, PointerFlowKind.NORMAL)
+        )
+        self.state._add_points_flow_edge(
+            PointerFlowEdge(bound_guard, NormalNode(ctx_bound_init), PointerFlowKind.NORMAL)
+        )
         self.add_constraint(
             scope,
             context,
             CallConstraint(
-                init_callee_var,
+                bound_init_var,
                 call.args,
                 call.kwargs,
                 None,
@@ -2357,6 +2602,38 @@ class PointerSolver:
                 call.starred,
             ),
         )
+
+        def schedule_unbound_init() -> None:
+            for obj in self.state.get_points_to(ctx_init_callee):
+                if not isinstance(obj, FunctionObject) or isinstance(obj, MethodObject):
+                    continue
+                fact = (call.call_site, obj)
+                if fact in self._scheduled_optional_calls:
+                    continue
+                self._scheduled_optional_calls.add(fact)
+                fn_var = self.variable_factory.make_variable(
+                    f"$init_fn@{call.call_site.short_id()}@{stable_token(obj)}",
+                    VariableKind.TEMPORARY,
+                )
+                ctx_fn = self.state.get_variable(scope, context, fn_var)
+                self.handle_new_points_to(ctx_fn, scope, PointsToSet.singleton(obj))
+                self.add_constraint(
+                    scope,
+                    context,
+                    CallConstraint(
+                        fn_var,
+                        (init_base_var,) + call.args,
+                        call.kwargs,
+                        None,
+                        call.call_site,
+                        (False,) + call.starred,
+                    ),
+                )
+
+        self.state.dependencies.subscribe(
+            ("unbound-init", call.call_site), (ctx_init_callee,), schedule_unbound_init
+        )
+        schedule_unbound_init()
 
         return True
 
@@ -2381,6 +2658,19 @@ class PointerSolver:
         if not handler:
             logger.debug("Builtin handler not initialized")
             return False
+
+        if isinstance(builtin_obj, BuiltinMethodObject) and builtin_obj.method_name in {
+            "__new__",
+            "__init__",
+        }:
+            receiver = getattr(builtin_obj, "receiver", None)
+            if (
+                isinstance(receiver, BuiltinFunctionObject)
+                and receiver.function_name == "object"
+            ):
+                if builtin_obj.method_name == "__new__":
+                    return self._handle_object_new_call(scope, context, call)
+                return True
 
         builtin_name = getattr(builtin_obj, "function_name", None) or getattr(
             builtin_obj, "builtin_name", None
@@ -2409,6 +2699,41 @@ class PointerSolver:
         # except Exception as e:
         #     logger.warning(f"Error handling builtin call: {e}")
         #     return False
+
+    def _handle_object_new_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+    ) -> bool:
+        """Model ``object.__new__(cls, *args)`` as an instance of ``cls``."""
+        if not call.args or call.target is None:
+            return True
+        cls_var = self.state.get_variable(scope, context, call.args[0])
+        target = self.state.get_variable(scope, context, call.target)
+
+        def allocate() -> None:
+            for obj in self.state.get_points_to(cls_var):
+                if not isinstance(obj, ClassObject):
+                    continue
+                fact = (call.call_site, obj)
+                if fact in self._scheduled_optional_calls:
+                    continue
+                self._scheduled_optional_calls.add(fact)
+                alloc_site = AllocSite(call.call_site.statement, AllocKind.INSTANCE)
+                alloc_context = context
+                if self.context_selector:
+                    alloc_context = self.context_selector.select_alloc_context(
+                        context, alloc_site, obj
+                    )
+                instance = InstanceObject(alloc_context, alloc_site, obj)
+                self.handle_new_points_to(target, scope, PointsToSet.singleton(instance))
+
+        self.state.dependencies.subscribe(
+            ("object-new", call.call_site, cls_var), (cls_var,), allocate
+        )
+        allocate()
+        return True
 
     def _handle_dynamic_code_builtin(
         self,

@@ -24,7 +24,9 @@ def lstat(path):
 
 
 def listdir(path="."):
-    return []
+    # One concrete entry keeps ``for name in os.listdir(...)`` bound to a str
+    # instead of leaving the loop variable unanalysed.
+    return ["file"]
 
 
 def getcwd():
@@ -72,7 +74,7 @@ def replace(src, dst):
 
 
 def walk(top, topdown=True, onerror=None, followlinks=False):
-    return [(top, [], [])]
+    return [(top, ["dir"], ["file"])]
 
 
 def getenv(key, default=None):
@@ -104,7 +106,7 @@ devnull = "/dev/null"
 class _ScandirIterator:
     def __init__(self, path):
         self.path = path
-        self._entries = []
+        self._entries = [DirEntry("file", path)]
 
     def __iter__(self):
         return iter(self._entries)

@@ -21,13 +21,30 @@ through assignments, imports, calls, returns, containers, and heap fields.
 
 Indirect findings also expose a machine-readable `escape_kind` and `boundary`.
 The unified escape vocabulary covers arguments, returns, yields, raised values,
-public exports, field stores, closure capture, callback registration, spawned
-tasks/processes, and serialization.
+public exports, field stores, callback registration, spawned tasks/processes,
+and serialization. A capability that reaches a value through a captured closure
+cell is reported with `escape_kind="argument"` (or the corresponding boundary)
+and a `closure cell <name>` step in `trace`.
+
+Capability-bearing values returned by a modelled call keep an identity of the
+form `<callee>.<return>`: an open file handle, a socket, or a `urlopen`
+response therefore stays visible when it is stored, returned, or handed to
+another component. Scalar and container results (`read_text()` -> `str`) are
+not treated as handles. Bound methods (`host.handler`) and user class
+attributes are followed to the instance they expose.
 
 `complete` means that no unknown, unsupported, or budget diagnostic was emitted
 by this analysis. It does not certify absence of vulnerabilities or unmodeled
 authority. Unresolved call targets, translation failures, and exhausted
 fixpoint budgets make the result `partial` and are emitted as diagnostics.
+
+Every result carries a `coverage` block with the solver's own completeness
+flags (`solver_complete`, `fixpoint_complete`, `frontend_complete`,
+`semantic_complete`, `stop_reason`, `incomplete_kinds`) plus, for multi-entry
+runs, `entries_total`/`entries_analyzed`/`entries_failed`/`entries_skipped`.
+Calls into unmodelled native code are reported as a `note` diagnostic instead
+of flipping the status: their arguments are already reported conservatively and
+their return values receive an opaque `<callee>.<return>` identity.
 
 ## Security interpretation
 

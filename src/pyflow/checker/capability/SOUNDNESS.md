@@ -27,6 +27,16 @@ extensions, generated code, reflection, import machinery, and interpreter
 mutation may introduce behavior outside those models. Runtime observation
 does not make the static analysis complete for such behavior.
 
+Statements are lowered conservatively: every `match` case body is analysed
+(capture names are bound to the subject), and `try`/`except*` is lowered like
+`try`. A decorator whose result the solver cannot resolve still hides the
+decorated function body; review such handlers explicitly.
+
+The pointer solver is flow-insensitive for both locals and globals: points-to
+sets are joined across assignments, so a variable that once held a sensitive
+callable remains sensitive after reassignment, and `-r`/per-entry reports
+overlap on branches that cannot execute together.
+
 `complete` means no unknown, unsupported, or budget diagnostic was emitted.
 `partial` exposes unresolved calls, translation failures, or solver exhaustion.
 An empty `complete` result is an empty modeled inventory, not a certificate

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import sys
 from argparse import ArgumentTypeError
@@ -41,11 +42,50 @@ def _project_root_for_file(path: Path) -> Path:
     than the file's immediate directory.  Otherwise relative imports such as
     ``from ..sibling import name`` cannot be resolved when the CLI is invoked
     on a single file inside a package.
+
+    PEP 420 namespace packages have no ``__init__.py``, so the walk above stops
+    too early (``pkg/mod.py`` -> root ``pkg/``, where ``import pkg.util`` cannot
+    resolve) and the analysis silently lost cross-module facts.  When that
+    happens, use the file's absolute imports to pick the shallowest ancestor
+    under which they resolve.
     """
     root = path.parent
     while (root / "__init__.py").is_file():
         root = root.parent
-    return root
+    names = _absolute_import_roots(path)
+    if not names:
+        return root
+    best, best_score = root, _resolved_import_count(root, names)
+    candidate = root.parent
+    for _ in range(4):
+        if candidate == candidate.parent:
+            break
+        score = _resolved_import_count(candidate, names)
+        if score > best_score:
+            best, best_score = candidate, score
+        candidate = candidate.parent
+    return best
+
+
+def _absolute_import_roots(path: Path) -> set[str]:
+    """Return top-level names of absolute imports in ``path``."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError, UnicodeError):
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".", 1)[0])
+    return names
+
+
+def _resolved_import_count(root: Path, names: set[str]) -> int:
+    """Count imported top-level names that exist as a package or module."""
+    return sum(1 for name in names if (root / name).is_dir() or (root / f"{name}.py").is_file())
 
 
 def add_capabilities_parser(subparsers) -> None:
@@ -59,7 +99,10 @@ def add_capabilities_parser(subparsers) -> None:
         "--recursive",
         "-r",
         action="store_true",
-        help="Analyze all project Python files instead of choosing one entry file",
+        help=(
+            "Analyze every project Python file as an entry (one whole-project "
+            "analysis each; the report states how many entries were covered)"
+        ),
     )
     parser.add_argument("--context-depth", type=int, choices=(0, 1, 2, 3), default=1)
     parser.add_argument(
@@ -208,6 +251,7 @@ def run_capabilities(args) -> int:
     result = CapabilityAnalysisResult()
     analyzed_entries = 0
     failed_entries = 0
+    solver_coverages: list[dict] = []
     try:
         with analysis_time_budget(getattr(args, "max_seconds", 30.0)), redirect_stdout(sys.stderr):
             for entry in entries:
@@ -234,6 +278,8 @@ def run_capabilities(args) -> int:
                     )
                     continue
                 analyzed_entries += 1
+                if analyzed.coverage:
+                    solver_coverages.append(analyzed.coverage)
                 result.findings.extend(analyzed.findings)
                 result.diagnostics.extend(analyzed.diagnostics)
                 if analyzed.status != "complete":
@@ -243,6 +289,40 @@ def run_capabilities(args) -> int:
 
         result.diagnostics.append(CapabilityDiagnostic(kind="budget", message=str(exc)))
         result.status = "partial"
+    if solver_coverages:
+        result.coverage.update(
+            {
+                "solver_complete": all(c.get("solver_complete") for c in solver_coverages),
+                "fixpoint_complete": all(c.get("fixpoint_complete") for c in solver_coverages),
+                "frontend_complete": all(c.get("frontend_complete") for c in solver_coverages),
+                "semantic_complete": all(c.get("semantic_complete") for c in solver_coverages),
+                "stop_reason": next(
+                    (
+                        c.get("stop_reason")
+                        for c in solver_coverages
+                        if c.get("stop_reason") != "fixpoint"
+                    ),
+                    "fixpoint",
+                ),
+                "incomplete_kinds": sorted(
+                    {
+                        kind
+                        for coverage in solver_coverages
+                        for kind in coverage.get("incomplete_kinds", ())
+                    }
+                ),
+            }
+        )
+    processed = analyzed_entries + failed_entries
+    result.coverage.update(
+        {
+            "entries_total": len(entries),
+            "entries_analyzed": analyzed_entries,
+            "entries_failed": failed_entries,
+            "entries_skipped": max(len(entries) - processed, 0),
+            "recursive": bool(getattr(args, "recursive", False)),
+        }
+    )
     result.finalize()
     if failed_entries and not analyzed_entries:
         result.status = "failed"
@@ -270,6 +350,22 @@ def run_capabilities(args) -> int:
 
 def _to_text(result, *, verbose=False) -> str:
     lines = [f"Capability analysis: {result.status}"]
+    coverage = getattr(result, "coverage", None) or {}
+    total = coverage.get("entries_total")
+    if total and total > 1:
+        lines.append(
+            f"entries: {coverage.get('entries_analyzed', 0)}/{total} analyzed, "
+            f"{coverage.get('entries_failed', 0)} failed, "
+            f"{coverage.get('entries_skipped', 0)} skipped"
+        )
+    if coverage and not coverage.get("solver_complete", True):
+        lines.append(
+            "solver coverage: "
+            f"fixpoint={coverage.get('fixpoint_complete')} "
+            f"frontend={coverage.get('frontend_complete')} "
+            f"semantic={coverage.get('semantic_complete')} "
+            f"stop={coverage.get('stop_reason')}"
+        )
     for finding in result.findings:
         loc = finding.location
         details = []
@@ -285,8 +381,11 @@ def _to_text(result, *, verbose=False) -> str:
             f"({finding.access_path}){suffix}"
         )
     hidden = 0
+    notes = 0
     for diagnostic in result.diagnostics:
-        if diagnostic.kind == "unknown" and not verbose:
+        if diagnostic.kind == "note":
+            notes += 1
+        if diagnostic.kind in {"unknown", "note"} and not verbose:
             hidden += 1
         else:
             lines.append(f"diagnostic[{diagnostic.kind}]: {diagnostic.message}")

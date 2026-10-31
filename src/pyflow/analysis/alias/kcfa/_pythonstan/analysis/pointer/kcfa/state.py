@@ -602,6 +602,26 @@ class PointerAnalysisState:
         else:
             self.class_hierarchy.add_class(owner, bases)
 
+    #: Builtin bases whose method tables the solver models.
+    BUILTIN_METHOD_BASES = frozenset({"list", "dict", "set", "tuple", "str"})
+
+    def builtin_base_name(self, class_obj) -> Optional[str]:
+        """Return the modelled builtin base of a user class, if any.
+
+        ``class B(list)`` instances expose the list method table; without this
+        lookup ``b.append(...)`` on the subclass was an unresolved call.
+        """
+        if class_obj is None:
+            return None
+        for position in range(len(getattr(class_obj, "base_variables", ()) or ())):
+            for sequence in self._effective_base_sequences.get((class_obj, position), ()):
+                for ref in sequence:
+                    if getattr(ref, "kind", None) is TypeRefKind.BUILTIN and (
+                        ref.name in self.BUILTIN_METHOD_BASES
+                    ):
+                        return ref.name
+        return None
+
     def class_base_validity(
         self,
         owner: "ClassObject",
@@ -780,22 +800,63 @@ class PointerAnalysisState:
                 "__iter__",
                 "__next__",
             },
+            "generator": {
+                "send",
+                "throw",
+                "close",
+                "__next__",
+                "__iter__",
+            },
             "str": {
                 "upper",
                 "lower",
                 "strip",
+                "lstrip",
+                "rstrip",
+                "casefold",
+                "capitalize",
+                "title",
+                "swapcase",
                 "split",
+                "rsplit",
+                "splitlines",
+                "partition",
+                "rpartition",
                 "join",
                 "replace",
+                "removeprefix",
+                "removesuffix",
                 "startswith",
                 "endswith",
                 "find",
+                "rfind",
                 "index",
+                "rindex",
+                "count",
                 "format",
+                "format_map",
+                "encode",
+                "decode",
+                "zfill",
+                "center",
+                "ljust",
+                "rjust",
+                "expandtabs",
+                "isdigit",
+                "isalpha",
+                "isalnum",
+                "isspace",
+                "isidentifier",
+                "islower",
+                "isupper",
+                "isnumeric",
+                "isdecimal",
                 "__getitem__",
                 "__iter__",
                 "__len__",
                 "__contains__",
+                "__str__",
+                "__repr__",
             },
         }
         return methods.get(builtin_type, set())
