@@ -342,3 +342,81 @@ source = { registry = "https://pypi.org/simple" }
     # Commented lines must contain dev/typing dependencies with scope annotation
     commented_lines = [l for l in requirements_text.splitlines() if l.startswith("#")]
     assert any("mypy-transitive" in l and "scope: optional:typing" in l for l in commented_lines)
+
+
+def test_parse_requirement_strips_outer_quotes_and_normalizes_single_equal(tmp_path: Path):
+    req_file = tmp_path / "requirements.txt"
+    req_file.write_text(
+        "streamlit\n\"routellm[serve,eval]\"\n'package-single=2.0.0'\nhello-agents=1.0.0\n",
+        encoding="utf-8",
+    )
+    scan = scan_targets([req_file])
+    names = {c["name"] for c in scan.components}
+    assert "streamlit" in names
+    assert "routellm" in names
+    assert "package-single" in names
+    assert "hello-agents" in names
+    assert not any(f.kind == "invalid-requirement" for f in scan.findings)
+
+
+def test_expand_dependency_groups_attributes_included_groups_to_root_group(tmp_path: Path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """
+[project]
+name = "group-demo"
+version = "1.0.0"
+
+[dependency-groups]
+test = ["pytest>=8"]
+all = [{include-group = "test"}, "flake8"]
+""",
+        encoding="utf-8",
+    )
+
+    scan = scan_targets([pyproject])
+    scan_all = resolve_environment(scan, extras=("all",))
+    names_all = {c["name"] for c in scan_all.components}
+    assert "pytest" in names_all
+    assert "flake8" in names_all
+
+    scan_test = resolve_environment(scan, extras=("test",))
+    names_test = {c["name"] for c in scan_test.components}
+    assert "pytest" in names_test
+    assert "flake8" not in names_test
+
+
+def test_reachability_with_common_packages_and_dynamic_imports(tmp_path: Path):
+    from pyflow.checker.supply_chain.reachability import analyze_reachability
+
+    src_file = tmp_path / "app.py"
+    src_file.write_text(
+        """
+from .relative_mod import internal_func
+from docx import Document
+import multipart
+import skimage
+import websocket
+import importlib
+importlib.import_module("dns.resolver")
+""",
+        encoding="utf-8",
+    )
+
+    components = (
+        {"name": "python-docx", "purl": "pkg:pypi/python-docx@1.0"},
+        {"name": "python-multipart", "purl": "pkg:pypi/python-multipart@0.0.9"},
+        {"name": "scikit-image", "purl": "pkg:pypi/scikit-image@0.22"},
+        {"name": "websocket-client", "purl": "pkg:pypi/websocket-client@1.7"},
+        {"name": "dnspython", "purl": "pkg:pypi/dnspython@2.6"},
+        {"name": "relative-mod", "purl": "pkg:pypi/relative-mod@1.0"},
+    )
+    scan = SupplyChainScan(components=components, findings=(), dependencies=(), metadata={})
+    reachable, findings = analyze_reachability(scan, [tmp_path])
+
+    assert "pkg:pypi/python-docx@1.0" in reachable
+    assert "pkg:pypi/python-multipart@0.0.9" in reachable
+    assert "pkg:pypi/scikit-image@0.22" in reachable
+    assert "pkg:pypi/websocket-client@1.7" in reachable
+    assert "pkg:pypi/dnspython@2.6" in reachable
+    assert "pkg:pypi/relative-mod@1.0" not in reachable

@@ -12,26 +12,55 @@ from .input_safety import load_json_file
 from .models import SupplyChainFinding, SupplyChainScan
 
 _COMMON_IMPORT_NAMES = {
+    "apache-airflow": {"airflow"},
     "attrs": {"attr", "attrs"},
+    "azure-core": {"azure"},
+    "azure-identity": {"azure"},
+    "azure-storage-blob": {"azure"},
     "beautifulsoup4": {"bs4"},
     "djangorestframework": {"rest_framework"},
+    "dnspython": {"dns"},
+    "faiss-cpu": {"faiss"},
+    "faiss-gpu": {"faiss"},
     "google-api-python-client": {"googleapiclient"},
+    "google-auth": {"google"},
+    "google-cloud-core": {"google"},
+    "google-cloud-storage": {"google"},
     "grpcio": {"grpc"},
+    "hydra-core": {"hydra"},
+    "msgpack-python": {"msgpack"},
     "mysqlclient": {"MySQLdb"},
+    "opencv-contrib-python": {"cv2"},
+    "opencv-contrib-python-headless": {"cv2"},
     "opencv-python": {"cv2"},
     "opencv-python-headless": {"cv2"},
+    "paho-mqtt": {"paho"},
     "pillow": {"PIL"},
     "protobuf": {"google"},
     "psycopg2-binary": {"psycopg2"},
+    "pydub": {"pydub"},
+    "pygithub": {"github"},
     "pyjwt": {"jwt"},
     "pyopenssl": {"OpenSSL"},
+    "pypdf": {"pypdf"},
+    "pypdf2": {"PyPDF2", "pypdf2"},
+    "pyserial": {"serial"},
     "python-dateutil": {"dateutil"},
+    "python-docx": {"docx"},
     "python-dotenv": {"dotenv"},
+    "python-jose": {"jose"},
+    "python-levenshtein": {"Levenshtein", "levenshtein"},
+    "python-magic": {"magic"},
+    "python-multipart": {"multipart"},
+    "python-pptx": {"pptx"},
+    "pyusb": {"usb"},
     "pyyaml": {"yaml"},
     "ruamel-yaml": {"ruamel"},
+    "scikit-image": {"skimage"},
     "scikit-learn": {"sklearn"},
     "setuptools": {"pkg_resources", "setuptools"},
     "typing-extensions": {"typing_extensions"},
+    "websocket-client": {"websocket"},
 }
 
 
@@ -83,8 +112,23 @@ def analyze_reachability(
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imports.update(alias.name.split(".", 1)[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
+            elif (
+                isinstance(node, ast.ImportFrom) and node.module and getattr(node, "level", 0) == 0
+            ):
                 imports.add(node.module.split(".", 1)[0])
+            elif isinstance(node, ast.Call):
+                func = node.func
+                func_name = ""
+                if isinstance(func, ast.Name):
+                    func_name = func.id
+                elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                    func_name = f"{func.value.id}.{func.attr}"
+                if func_name in ("importlib.import_module", "__import__") and node.args:
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        target = arg.value.split(".", 1)[0]
+                        if target:
+                            imports.add(target)
 
     modules_by_distribution: dict[str, set[str]] = {}
     for distribution, modules in (import_map or {}).items():

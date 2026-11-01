@@ -557,64 +557,79 @@ def _parse_requirement(
     scope: str | None = None,
     marker: str | None = None,
 ) -> dict[str, Any] | None:
-    details: dict[str, Any] = {"requirement": _redact_requirement_text(requirement_text)}
+    cleaned = requirement_text.strip()
+    if (cleaned.startswith('"') and cleaned.endswith('"')) or (
+        cleaned.startswith("'") and cleaned.endswith("'")
+    ):
+        cleaned = cleaned[1:-1].strip()
+    details: dict[str, Any] = {"requirement": _redact_requirement_text(cleaned)}
     if line_no is not None:
         details["line"] = line_no
     if scope:
         details["scope"] = scope
     try:
-        requirement = Requirement(requirement_text)
+        requirement = Requirement(cleaned)
     except InvalidRequirement:
-        legacy = _component_from_legacy_reference(requirement_text)
-        if requirement_text.startswith(("git+", "hg+", "svn+", "bzr+", "http://", "https://")):
-            details["requirement"] = _redacted_url(requirement_text)
-            unpinned = _is_unpinned_vcs_url(requirement_text)
-            details["pinned"] = not unpinned and _remote_requirement_pinned(requirement_text)
-            if legacy is not None:
-                fragment_hashes = _url_fragment_hashes(requirement_text, path, findings)
-                if fragment_hashes:
-                    legacy["hashes"] = fragment_hashes
-            findings.append(
-                SupplyChainFinding(
-                    kind="remote-requirement",
-                    message="Requirement uses a legacy VCS or direct reference",
-                    location=str(path),
-                    severity="HIGH" if unpinned else "MEDIUM",
-                    details=details,
-                )
-            )
-            if unpinned:
+        requirement = None
+        if "=" in cleaned and not any(
+            op in cleaned for op in ("==", ">=", "<=", "!=", "~=", "===")
+        ):
+            try:
+                candidate = re.sub(r"(?<![=<>!~])=(?!=)", "==", cleaned)
+                requirement = Requirement(candidate)
+            except InvalidRequirement:
+                requirement = None
+        if requirement is None:
+            legacy = _component_from_legacy_reference(cleaned)
+            if cleaned.startswith(("git+", "hg+", "svn+", "bzr+", "http://", "https://")):
+                details["requirement"] = _redacted_url(cleaned)
+                unpinned = _is_unpinned_vcs_url(cleaned)
+                details["pinned"] = not unpinned and _remote_requirement_pinned(cleaned)
+                if legacy is not None:
+                    fragment_hashes = _url_fragment_hashes(cleaned, path, findings)
+                    if fragment_hashes:
+                        legacy["hashes"] = fragment_hashes
                 findings.append(
                     SupplyChainFinding(
-                        kind="unpinned-vcs-dependency",
-                        message="VCS dependency is not pinned to an immutable revision",
+                        kind="remote-requirement",
+                        message="Requirement uses a legacy VCS or direct reference",
                         location=str(path),
-                        severity="HIGH",
+                        severity="HIGH" if unpinned else "MEDIUM",
                         details=details,
                     )
                 )
-            return legacy
-        if _looks_like_local_requirement(requirement_text):
+                if unpinned:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="unpinned-vcs-dependency",
+                            message="VCS dependency is not pinned to an immutable revision",
+                            location=str(path),
+                            severity="HIGH",
+                            details=details,
+                        )
+                    )
+                return legacy
+            if _looks_like_local_requirement(cleaned):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="local-path-requirement",
+                        message="Local path dependency is not reproducible outside this workspace",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details=details,
+                    )
+                )
+                return None
             findings.append(
                 SupplyChainFinding(
-                    kind="local-path-requirement",
-                    message="Local path dependency is not reproducible outside this workspace",
+                    kind="invalid-requirement",
+                    message="Could not parse requirement",
                     location=str(path),
-                    severity="MEDIUM",
+                    severity="LOW",
                     details=details,
                 )
             )
             return None
-        findings.append(
-            SupplyChainFinding(
-                kind="invalid-requirement",
-                message="Could not parse requirement",
-                location=str(path),
-                severity="LOW",
-                details=details,
-            )
-        )
-        return None
 
     version = _exact_version(requirement)
     component = _component(requirement.name, version=version)
@@ -821,15 +836,15 @@ def _expand_dependency_groups(
 
     resolved: list[tuple[str, str, str | None]] = []
 
-    def expand(name: str, stack: frozenset[str]) -> None:
+    def expand(name: str, stack: frozenset[str], root_group: str) -> None:
         values = groups.get(name)
         if not isinstance(values, (list, tuple)):
             _manifest_type_finding(path, findings, f"dependency-groups.{name}", "an array")
             return
-        marker = f'extra == "{name}"'
+        marker = f'extra == "{root_group}"'
         for item in values:
             if isinstance(item, str):
-                resolved.append((item, f"group:{name}", marker))
+                resolved.append((item, f"group:{root_group}", marker))
             elif isinstance(item, dict) and item.get("include-group"):
                 included = str(item["include-group"])
                 if included in stack:
@@ -853,7 +868,7 @@ def _expand_dependency_groups(
                         )
                     )
                 else:
-                    expand(included, stack | {name})
+                    expand(included, stack | {name}, root_group)
             else:
                 _manifest_type_finding(
                     path,
@@ -863,7 +878,7 @@ def _expand_dependency_groups(
                 )
 
     for group_name in groups:
-        expand(str(group_name), frozenset())
+        expand(str(group_name), frozenset(), str(group_name))
     return resolved
 
 
