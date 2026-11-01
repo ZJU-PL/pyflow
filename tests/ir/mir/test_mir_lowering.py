@@ -355,3 +355,55 @@ def test_mir_opaque_mode_evaluates_fstring_expressions():
         )
         for node in cfg.nodes.values()
     )
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        # A cached character object must not be reused past a control-flow
+        # boundary: the definition then no longer dominates the new use.
+        ("def f(flag):\n if flag:\n  s='z'\n return len('z')\nresult=f(False)", 1),
+        ("if 1==2:\n s='ab'\nresult='ab'=='ab'", True),
+        ("for i in []:\n s='w'\nresult=len('w')", 1),
+        ("try:\n raise ValueError()\n s='r'\nexcept ValueError:\n pass\nresult=len('r')", 1),
+        # Defaults are evaluated when the def statement runs, so a def inside a
+        # loop must not share one environment slot across iterations.
+        (
+            "fs=[]\nfor i in range(3):\n def f(i=i):return i\n fs.append(f)\n"
+            "result=[g() for g in fs]",
+            [0, 1, 2],
+        ),
+        (
+            "fs=[]\nfor i in range(3):\n def f(*,v=i):return v\n fs.append(f)\n"
+            "result=[g() for g in fs]",
+            [0, 1, 2],
+        ),
+        ("def f(a=[]):\n a.append(1);return len(a)\nresult=(f(),f())", (1, 2)),
+        # Set displays insert elements one by one and therefore deduplicate.
+        ("result=len({1,1,2})", 2),
+        ("result={1,1,2}=={1,2}", True),
+        # True/False are singletons.
+        ("x=True\nresult=x is True", True),
+        ("result=(True is True, False is False)", (True, True)),
+    ],
+)
+def test_lowering_regressions_found_on_real_projects(source, expected):
+    actual, _, _ = run_source(source)
+    assert actual == expected
+
+
+def test_namespace_package_relative_imports_resolve_without_package_root_argument(tmp_path):
+    """PEP 420 packages have no ``__init__.py``; the import root comes from a marker."""
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+    package = tmp_path / "demo"
+    package.mkdir()
+    (package / "util.py").write_text("value=6\n", encoding="utf-8")
+    (package / "mod.py").write_text("from .util import value\nresult=value+1\n", encoding="utf-8")
+
+    program = lower_file(package / "mod.py")
+    execution = MIRInterpreter(program).run()
+    modules = execution.value("$modules")
+    module = execution.memory[modules.fields["demo.mod"]]
+    environment = execution.memory[module.fields["$env"]]
+    result = execution.memory[environment.fields["result"]]
+    assert execution.memory[result.fields["$value"]] == 7

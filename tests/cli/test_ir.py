@@ -450,3 +450,35 @@ def test_dump_gir_wildcard_dumps_all_functions(tmp_path):
     dumps = {p.name for p in output.glob("*_gir.*")}
     assert any("f1" in name for name in dumps)
     assert any("f2" in name for name in dumps)
+
+
+def test_dump_mir_text_includes_lowering_diagnostics(tmp_path):
+    source = tmp_path / "sample.py"
+    source.write_text("def f(x):\n    return f'value={x}'\n", encoding="utf-8")
+    destination = tmp_path / "out"
+    args = parse_mir_args(source, "--dump-output", destination)
+    ir_cli.run_ir_dump(source, args)
+
+    content = (destination / "sample_mir.text").read_text(encoding="utf-8")
+    header = content.splitlines()[0]
+    assert "partial" in header
+    assert "sample.py:2" in content
+    assert "JoinedStr" in content
+
+
+def test_dump_mir_rejects_strict_policy_without_following_imports(tmp_path, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("import os\n", encoding="utf-8")
+    args = parse_mir_args(
+        source,
+        "--mir-import-policy",
+        "strict",
+        "--no-mir-follow-imports",
+        "--dump-output",
+        tmp_path / "out",
+    )
+
+    with pytest.raises(SystemExit) as error:
+        ir_cli.run_ir_dump(source, args)
+    assert error.value.code == 1
+    assert "requires resolving imports" in capsys.readouterr().err
