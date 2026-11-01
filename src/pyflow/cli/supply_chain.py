@@ -559,7 +559,11 @@ def run_supply_chain(args: Any) -> int:
                             ),
                             "installed": bool(scan.metadata.get("installed", False)),
                             "declaredOnly": bool(scan.metadata.get("declaredOnly", True)),
-                            "environment": scan.metadata.get("environment", {}),
+                            "environment": (
+                                {}
+                                if scan.metadata.get("declaredOnly", True)
+                                else scan.metadata.get("environment", {})
+                            ),
                             "extras": list(scan.metadata.get("extras", ())),
                         },
                         "results": results,

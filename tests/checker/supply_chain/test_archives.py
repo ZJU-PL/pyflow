@@ -196,7 +196,7 @@ def test_archive_path_conflicts_and_wheel_payload_are_reported(tmp_path):
     wheel = tmp_path / "demo-1.0-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("demo/__init__.py", "x = 1\n")
-        archive.writestr("demo/hook.pth", "import os\n")
+        archive.writestr("hook.pth", "import os\n")
         archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
         archive.writestr("demo-1.0.dist-info/RECORD", "demo/__init__.py,,\n")
         archive.writestr("conflict", "file\n")

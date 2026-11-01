@@ -326,6 +326,8 @@ def test_uv_virtual_source_is_not_a_registry_with_missing_hash(tmp_path):
     )
     scan = scan_targets([tmp_path / "uv.lock"])
     assert not any(f.kind == "lock-artifact-missing-hash" for f in scan.findings)
+    root = next(c for c in scan.components if c["name"] == "demo")
+    assert root["type"] == "application"
 
 
 def test_baseline_ids_survive_line_shifts(tmp_path):
@@ -775,3 +777,139 @@ def test_installed_root_is_not_filtered_by_merged_extra_markers(tmp_path):
     resolved = resolve_environment(scan_targets([site], recursive=True))
     names = {c["name"] for c in resolved.components}
     assert {"demo", "pytest"} <= names
+
+
+def test_editable_requirement_marks_inventory_incomplete(tmp_path):
+    (tmp_path / "requirements.txt").write_text("-e .\n", encoding="utf-8")
+    scan = scan_targets([tmp_path / "requirements.txt"])
+    assert not scan.metadata["inventoryComplete"]
+    assert "editable-requirement" in scan.metadata["inventoryLimitations"]
+
+
+def test_valid_pep508_vcs_requirement_reports_unpinned_revision(tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "foo @ git+https://example.invalid/foo.git@main\n"
+        "bar @ git+https://example.invalid/bar.git@0123456789abcdef0123456789abcdef01234567\n",
+        encoding="utf-8",
+    )
+    findings = [
+        f
+        for f in scan_targets([tmp_path / "requirements.txt"]).findings
+        if f.kind == "unpinned-vcs-dependency"
+    ]
+    assert len(findings) == 1
+    assert findings[0].details["requirement"].startswith("foo @")
+
+
+def test_policy_exception_requires_a_selector(tmp_path):
+    from pyflow.checker.supply_chain import load_finding_policy
+
+    policy = tmp_path / "policy.json"
+    policy.write_text(
+        json.dumps({"exceptions": [{"expires": "2099-01-01", "reason": "no selector"}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="selector"):
+        load_finding_policy(policy)
+
+
+def test_nested_pth_and_sdist_example_pth_are_inert(tmp_path):
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("demo/__init__.py", "")
+        archive.writestr("demo/tests/example.pth", "example\n")
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr("demo-1.0.dist-info/RECORD", "")
+    assert not any(f.kind == "archive-pth-file" for f in scan_targets([wheel]).findings)
+
+    sdist = tmp_path / "demo-1.0.tar.gz"
+    import io
+    import tarfile
+
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+        for member_name, content in (
+            ("demo-1.0/PKG-INFO", "Name: demo\nVersion: 1.0\n"),
+            ("demo-1.0/tests/example.pth", "example\n"),
+        ):
+            data = content.encode()
+            info = tarfile.TarInfo(member_name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    sdist.write_bytes(payload.getvalue())
+    assert not any(f.kind == "archive-pth-file" for f in scan_targets([sdist]).findings)
+
+
+def test_wheel_data_purelib_pth_is_still_flagged(tmp_path):
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("demo/__init__.py", "")
+        archive.writestr("demo-1.0.data/purelib/hook.pth", "import os\n")
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr("demo-1.0.dist-info/RECORD", "")
+    assert any(f.kind == "archive-pth-file" for f in scan_targets([wheel]).findings)
+
+
+def test_wheel_record_escaping_paths_are_reported(tmp_path):
+    wheel = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("demo/__init__.py", "")
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr(
+            "demo-1.0.dist-info/RECORD",
+            "../../../etc/passwd,,\ndemo/__init__.py,,\n",
+        )
+    assert any(f.kind == "archive-record-invalid-path" for f in scan_targets([wheel]).findings)
+
+
+def test_pipfile_lock_git_branch_is_unpinned_but_commit_is_not(tmp_path):
+    (tmp_path / "Pipfile.lock").write_text(
+        json.dumps(
+            {
+                "default": {
+                    "branchy": {"git": "https://example.invalid/branchy.git", "ref": "main"},
+                    "pinned": {
+                        "git": "https://example.invalid/pinned.git",
+                        "ref": "0123456789abcdef0123456789abcdef01234567",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    findings = [
+        f
+        for f in scan_targets([tmp_path / "Pipfile.lock"]).findings
+        if f.kind == "unpinned-vcs-dependency"
+    ]
+    assert [f.details["component"] for f in findings] == ["branchy"]
+
+
+def test_pinned_remote_requirements_do_not_make_inventory_incomplete(tmp_path):
+    pinned = tmp_path / "pinned.txt"
+    pinned.write_text(
+        "foo @ git+https://example.invalid/foo.git@"
+        "0123456789abcdef0123456789abcdef01234567\n"
+        "bar @ https://files.example.invalid/bar-1.0.whl#sha256=" + "a" * 64 + "\n",
+        encoding="utf-8",
+    )
+    scan = scan_targets([pinned])
+    assert scan.metadata["inventoryComplete"] is True
+
+    mutable = tmp_path / "mutable.txt"
+    mutable.write_text("foo @ git+https://example.invalid/foo.git@main\n", encoding="utf-8")
+    mutable_scan = scan_targets([mutable])
+    assert mutable_scan.metadata["inventoryComplete"] is False
+    assert "unpinned-vcs-dependency" in mutable_scan.metadata["inventoryLimitations"]
+
+
+def test_sitecustomize_in_record_is_still_an_installed_hook(tmp_path):
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    dist_info = _dist(site, "demo", "1.0")
+    (site / "sitecustomize.py").write_text("import os\n", encoding="utf-8")
+    _write_record(dist_info, [dist_info / "METADATA", site / "sitecustomize.py"])
+    assert any(
+        f.kind == "python-startup-hook" and f.severity == "HIGH"
+        for f in scan_targets([site], recursive=True).findings
+    )

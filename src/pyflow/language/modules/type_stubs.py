@@ -15,9 +15,13 @@ SPDX-License-Identifier: MIT
 
 from __future__ import annotations
 
+import ast
 from collections import namedtuple
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from .project_resolution import ProjectContext
 
 # ---------------------------------------------------------------------------
 # Path information tuple
@@ -242,12 +246,6 @@ def clear_stub_map_cache() -> None:
 # ---------------------------------------------------------------------------
 # Stub-file parsing — extract type information from .pyi files
 # ---------------------------------------------------------------------------
-
-
-import ast
-from dataclasses import dataclass, field
-
-from .project_resolution import ProjectContext
 
 
 @dataclass
@@ -583,9 +581,7 @@ class _StubVisitor(ast.NodeVisitor):
                     cls.methods.append(self._extract_function(stmt))
             elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                 if not any(name == stmt.target.id for name, _ in cls.class_vars):
-                    cls.class_vars.append(
-                        (stmt.target.id, _expr_to_str(stmt.annotation))
-                    )
+                    cls.class_vars.append((stmt.target.id, _expr_to_str(stmt.annotation)))
         self._info.classes.append(cls)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802

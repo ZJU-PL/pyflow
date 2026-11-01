@@ -38,6 +38,14 @@ def load_finding_policy(path: Path) -> FindingPolicy:
         expiry = _parse_expiry(item.get("expires"))
         if expiry == dt.date.min:
             raise ValueError("policy exception expiry must use YYYY-MM-DD")
+        if not any(
+            key in item
+            for key in ("id", "kind", "location", "severity", "vulnerability", "component")
+        ):
+            raise ValueError(
+                "every policy exception requires at least one selector "
+                "(id, kind, location, severity, vulnerability, or component)"
+            )
     baseline = data.get("baseline", ()) or ()
     if not isinstance(baseline, list):
         raise ValueError("policy baseline must be an array of finding IDs")

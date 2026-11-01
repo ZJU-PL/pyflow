@@ -573,32 +573,6 @@ def audit_archive_payload(
         )
         entries = entries[: limits.max_scan_entries]
 
-    for entry in entries:
-        if entry.is_symlink() or not entry.is_file():
-            continue
-        entry_name = entry.name.lower()
-        if entry_name.endswith(".pth"):
-            findings.append(
-                SupplyChainFinding(
-                    kind="archive-pth-file",
-                    message="Archive installs a .pth file that runs code at interpreter startup",
-                    location=_member_location(archive_path, destination, entry),
-                    severity="HIGH",
-                )
-            )
-        elif entry_name in {"sitecustomize.py", "usercustomize.py"}:
-            findings.append(
-                SupplyChainFinding(
-                    kind="archive-startup-hook",
-                    message=(
-                        "Archive installs a module that runs automatically at Python "
-                        "interpreter startup"
-                    ),
-                    location=_member_location(archive_path, destination, entry),
-                    severity="HIGH",
-                )
-            )
-
     try:
         dist_infos = sorted(
             child
@@ -616,6 +590,40 @@ def audit_archive_payload(
             )
         )
         return
+
+    # Only install-root startup hooks execute.  An sdist or a package's test
+    # fixture containing example.pth/sitecustomize.py is inert.
+    wheel_payload = archive_path.suffix.casefold() == ".whl" or bool(dist_infos)
+    if wheel_payload:
+        for entry in entries:
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            if not _installed_startup_path(entry, destination):
+                continue
+            entry_name = entry.name.lower()
+            if entry_name.endswith(".pth"):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="archive-pth-file",
+                        message=(
+                            "Archive installs a .pth file that runs code at " "interpreter startup"
+                        ),
+                        location=_member_location(archive_path, destination, entry),
+                        severity="HIGH",
+                    )
+                )
+            elif entry_name in {"sitecustomize.py", "usercustomize.py"}:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="archive-startup-hook",
+                        message=(
+                            "Archive installs a module that runs automatically at Python "
+                            "interpreter startup"
+                        ),
+                        location=_member_location(archive_path, destination, entry),
+                        severity="HIGH",
+                    )
+                )
     if len(dist_infos) > 1:
         findings.append(
             SupplyChainFinding(
@@ -692,6 +700,15 @@ def _audit_wheel_metadata(
             continue
         relative = PurePosixPath(parts[0].replace("\\", "/"))
         if relative.is_absolute() or ".." in relative.parts:
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-record-invalid-path",
+                    message="Wheel RECORD contains an absolute or escaping path",
+                    location=str(archive_path),
+                    severity="HIGH",
+                    details={"record": parts[0]},
+                )
+            )
             continue
         normalized = relative.as_posix()
         listed.add(normalized)
@@ -732,6 +749,20 @@ def _audit_wheel_metadata(
         )
 
 
+def _installed_startup_path(entry: Path, destination: Path) -> bool:
+    try:
+        relative = entry.relative_to(destination)
+    except ValueError:
+        return False
+    if len(relative.parts) == 1:
+        return True
+    return (
+        len(relative.parts) >= 3
+        and relative.parts[0].endswith(".data")
+        and relative.parts[1] in {"purelib", "platlib"}
+    )
+
+
 def _member_location(archive_path: Path, destination: Path, member: Path) -> str:
     try:
         relative = member.relative_to(destination).as_posix()
@@ -766,7 +797,7 @@ def audit_archive_identity(
     """Compare wheel/sdist filename identity with discovered package metadata."""
 
     try:
-        if path.suffix == ".whl":
+        if path.suffix.casefold() == ".whl":
             parsed_name, parsed_version, _build, _tags = parse_wheel_filename(path.name)
         else:
             parsed_name, parsed_version = parse_sdist_filename(path.name)
@@ -850,7 +881,7 @@ def looks_like_archive(path: Path) -> bool:
     suffixes = path.suffixes
     if not suffixes:
         return False
-    if path.suffix == ".whl":
+    if path.suffix.casefold() == ".whl":
         return True
     if path.suffix.lower() in {".zip", ".tar", ".tgz", ".tbz2", ".txz"}:
         return True

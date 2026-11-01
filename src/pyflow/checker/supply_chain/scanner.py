@@ -173,16 +173,25 @@ def scan_targets(
         "invalid-lockfile",
         "invalid-pipfile",
         "invalid-pyproject",
+        "metadata-missing-version",
+        "dependency-group-cycle",
+        "unresolved-dependency-group",
         "invalid-pylock",
         "invalid-setup-config",
         "invalid-setup-script",
         "unresolved-setup-requirements",
         "dynamic-dependency-metadata",
         "unpinned-requirement",
+        "unpinned-vcs-dependency",
         "remote-requirement",
         "local-path-requirement",
+        "editable-requirement",
+        "invalid-requirement-include",
+        "requirement-include-cycle",
+        "external-requirement-include",
         "missing-requirement-include",
         "requirement-include-symlink",
+        "invalid-lock-package",
         "unversioned-lock-package",
         "archive-read-error",
         "archive-unrecognized-format",
@@ -193,8 +202,16 @@ def scan_targets(
         "archive-nesting-limit",
         "unsupported-supply-chain-target",
     }
+
+    def limits_inventory(finding: SupplyChainFinding) -> bool:
+        if finding.kind not in incomplete_kinds:
+            return False
+        if finding.kind == "remote-requirement" and finding.details.get("pinned") is True:
+            return False
+        return True
+
     inventory_limitations = sorted(
-        {finding.kind for finding in final_findings if finding.kind in incomplete_kinds}
+        {finding.kind for finding in final_findings if limits_inventory(finding)}
     )
     inventory_evidence = sorted(
         {
@@ -583,12 +600,20 @@ def _drop_listed_startup_hooks(
     listed = _installed_record_paths(targets, limits)
     if not listed:
         return result
-    return [
-        finding
-        for finding in result
-        if finding.kind != "python-startup-hook"
-        or Path(finding.location).resolve(strict=False) not in listed
-    ]
+    result_filtered: list[SupplyChainFinding] = []
+    for finding in result:
+        if finding.kind != "python-startup-hook":
+            result_filtered.append(finding)
+            continue
+        path = Path(finding.location)
+        if path.name in {"sitecustomize.py", "usercustomize.py"}:
+            # Legitimate packages should not install interpreter-wide startup
+            # modules.  Do not let a RECORD entry legitimize this hook.
+            result_filtered.append(finding)
+            continue
+        if path.resolve(strict=False) not in listed:
+            result_filtered.append(finding)
+    return result_filtered
 
 
 def _iter_directory_files(

@@ -72,6 +72,15 @@ def _component_from_metadata(
         )
         return None
     version = data.get("Version")
+    if not version:
+        findings.append(
+            SupplyChainFinding(
+                kind="metadata-missing-version",
+                message="Distribution metadata does not declare a version",
+                location=str(metadata_path),
+                severity="MEDIUM",
+            )
+        )
     component = _component(name, version=version)
     description = data.get("Description") or data.get("Summary")
     if description:
@@ -332,6 +341,7 @@ def _audit_pip_option(
         "--only-binary",
         "--no-binary",
         "--prefer-binary",
+        "--require-hashes",
     }:
         if line.startswith("-"):
             findings.append(
@@ -443,6 +453,32 @@ def _requirement_hashes(
     return hashes
 
 
+def _url_fragment_hashes(
+    url: str,
+    path: Path,
+    findings: list[SupplyChainFinding],
+) -> list[dict[str, str]]:
+    fragment = parse_qs(urlparse(url).fragment)
+    values = {
+        key: items[0]
+        for key, items in fragment.items()
+        if items and key.casefold() in hashlib.algorithms_guaranteed
+    }
+    return _hashes_from_mapping(values, path, findings) if values else []
+
+
+def _remote_requirement_pinned(url: str) -> bool:
+    """Return whether a direct URL identifies an immutable artifact/revision."""
+
+    parsed = urlparse(url)
+    fragment = parse_qs(parsed.fragment)
+    if any(key.casefold() in {"md5", "sha1", "sha256", "sha384", "sha512"} for key in fragment):
+        return True
+    if url.startswith(("git+", "hg+", "svn+", "bzr+")):
+        return bool(_source_revision({}, url))
+    return False
+
+
 def _combine_markers(req_marker: str | None, extra_marker: str | None) -> str | None:
     if req_marker and extra_marker:
         return f"({req_marker}) and ({extra_marker})"
@@ -470,6 +506,11 @@ def _parse_requirement(
         if requirement_text.startswith(("git+", "hg+", "svn+", "bzr+", "http://", "https://")):
             details["requirement"] = _redacted_url(requirement_text)
             unpinned = _is_unpinned_vcs_url(requirement_text)
+            details["pinned"] = not unpinned and _remote_requirement_pinned(requirement_text)
+            if legacy is not None:
+                fragment_hashes = _url_fragment_hashes(requirement_text, path, findings)
+                if fragment_hashes:
+                    legacy["hashes"] = fragment_hashes
             findings.append(
                 SupplyChainFinding(
                     kind="remote-requirement",
@@ -554,11 +595,15 @@ def _parse_requirement(
         component["externalReferences"] = [
             {"type": "distribution", "url": _redacted_url(requirement.url)}
         ]
+        fragment_hashes = _url_fragment_hashes(str(requirement.url), path, findings)
+        if fragment_hashes:
+            component["hashes"] = _dedupe_hashes(fragment_hashes)
         url_details = dict(details)
         url_details["requirement"] = requirement_text.replace(
             requirement.url, _redacted_url(requirement.url)
         )
         url_details["url"] = _redacted_url(requirement.url)
+        url_details["pinned"] = _remote_requirement_pinned(str(requirement.url))
         findings.append(
             SupplyChainFinding(
                 kind="remote-requirement",
@@ -568,6 +613,16 @@ def _parse_requirement(
                 details=url_details,
             )
         )
+        if _is_unpinned_vcs_url(str(requirement.url)):
+            findings.append(
+                SupplyChainFinding(
+                    kind="unpinned-vcs-dependency",
+                    message="VCS dependency is not pinned to an immutable revision",
+                    location=str(path),
+                    severity="HIGH",
+                    details=url_details,
+                )
+            )
         if _contains_credentials(requirement.url):
             findings.append(
                 SupplyChainFinding(
@@ -1301,6 +1356,10 @@ def _components_from_toml_lock(
                 )
             )
         component = _component(name, version=version)
+        if isinstance(source, dict) and (
+            source.get("virtual") or source.get("editable") or source.get("workspace")
+        ):
+            component["type"] = "application"
         if package.get("license"):
             component["licenses"] = [_license_entry(str(package["license"]))]
         markers = package.get("markers")
@@ -1549,6 +1608,19 @@ def _components_from_pipfile(
         for source in sources:
             if isinstance(source, dict):
                 _audit_primary_index(path, str(source.get("url", "")), findings)
+                if source.get("verify_ssl") is False:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="insecure-package-index",
+                            message="Package source disables TLS certificate verification",
+                            location=str(path),
+                            severity="HIGH",
+                            details={
+                                "url": _redacted_url(str(source.get("url", ""))),
+                                "verify_ssl": False,
+                            },
+                        )
+                    )
     elif sources:
         _manifest_type_finding(path, findings, "source", "an array of tables")
     return components
@@ -1634,18 +1706,25 @@ def _components_from_pipfile_lock(
                 )
             source_url = entry.get("git") or entry.get("path") or entry.get("file")
             if source_url:
+                revision = str(entry.get("ref") or entry.get("rev") or entry.get("commit") or "")
+                recorded_url = str(source_url)
+                if entry.get("git"):
+                    if not recorded_url.startswith(("git+", "hg+", "svn+", "bzr+", "ssh://")):
+                        recorded_url = "git+" + recorded_url
+                    if revision:
+                        recorded_url += f"@{revision}"
                 component["externalReferences"] = [
-                    {"type": "distribution", "url": _redacted_url(str(source_url))}
+                    {"type": "distribution", "url": _redacted_url(recorded_url)}
                 ]
                 _audit_embedded_credentials(path, str(source_url), findings, str(name))
-                if entry.get("git") and not entry.get("ref"):
+                if entry.get("git") and not re.fullmatch(r"[0-9a-fA-F]{40,64}", revision):
                     findings.append(
                         SupplyChainFinding(
                             kind="unpinned-vcs-dependency",
-                            message="VCS dependency is not locked to a revision",
+                            message="VCS dependency is not locked to a full commit identifier",
                             location=str(path),
                             severity="HIGH",
-                            details={"component": name},
+                            details={"component": name, "ref": revision},
                         )
                     )
             components.append(component)
@@ -1996,8 +2075,9 @@ def _read_setup_requirement_file(
             continue
         if line.startswith("-"):
             # Index options, --require-hashes, editable installs, etc. are not
-            # dependency strings.  Their safety is audited by the dedicated
-            # requirements-file parser when the file is scanned directly.
+            # dependency strings, but index/security options still need an
+            # audit when setup.py is the only reference to this file.
+            _audit_pip_option(path, line_no, line, findings)
             continue
         requirements.append(line)
     return requirements
@@ -2736,7 +2816,7 @@ def _hashes_from_mapping(
             findings.append(
                 SupplyChainFinding(
                     kind="unsupported-lock-hash",
-                    message="Lockfile uses an unsupported artifact hash algorithm",
+                    message="Artifact hash uses an unsupported algorithm",
                     location=str(path),
                     severity="HIGH",
                     details={"algorithm": algorithm},
@@ -2747,7 +2827,7 @@ def _hashes_from_mapping(
             findings.append(
                 SupplyChainFinding(
                     kind="weak-lock-hash",
-                    message="Lockfile uses a collision-prone artifact hash",
+                    message="Artifact hash uses a collision-prone algorithm",
                     location=str(path),
                     severity="HIGH",
                     details={"algorithm": algorithm},
@@ -2760,7 +2840,7 @@ def _hashes_from_mapping(
             findings.append(
                 SupplyChainFinding(
                     kind="invalid-lock-hash",
-                    message="Lockfile artifact hash has an invalid digest",
+                    message="Artifact hash has an invalid digest",
                     location=str(path),
                     severity="HIGH",
                     details={"algorithm": algorithm},

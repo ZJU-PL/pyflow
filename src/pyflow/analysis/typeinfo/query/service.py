@@ -179,9 +179,7 @@ class TypeInfoService:
             return fact
         if "." not in name:
             return None
-        typ = self._lookup_project_type(
-            f"{module_name}.{name}", allow_synthetic=False
-        )
+        typ = self._lookup_project_type(f"{module_name}.{name}", allow_synthetic=False)
         if typ is None:
             return None
         return TypeFact(
@@ -762,9 +760,7 @@ class TypeInfoService:
         imports: dict[str, str],
     ) -> FunctionTypeInfo:
         raw_params = {name: annotation for name, annotation in function.params}
-        decorators = {
-            decorator.rsplit(".", 1)[-1] for decorator in function.decorators
-        }
+        decorators = {decorator.rsplit(".", 1)[-1] for decorator in function.decorators}
         return FunctionTypeInfo(
             name=function.name,
             params={
@@ -957,9 +953,7 @@ class TypeInfoService:
             summary = result.functions.get(qualified_name)
             if summary is None:
                 continue
-            parameters = tuple(
-                value.public_type() or ANY for value in summary.parameters.values()
-            )
+            parameters = tuple(value.public_type() or ANY for value in summary.parameters.values())
             return CallableType(parameters, summary.return_type or ANY)
         return None
 

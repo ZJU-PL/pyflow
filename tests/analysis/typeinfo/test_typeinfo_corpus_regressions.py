@@ -16,7 +16,6 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     CallableType,
     Instance,
     TupleType,
-    TypeType,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
 
@@ -35,9 +34,7 @@ def raw_types(typ) -> set[type]:
 
 
 def test_unknown_operand_does_not_produce_complete_numeric_type() -> None:
-    result = infer(
-        "import sys\nu = sys.argv[0]\nx = u * 2\n"
-    )
+    result = infer("import sys\nu = sys.argv[0]\nx = u * 2\n")
     value = result.value_of("x")
     assert value is not None
     assert value.public_type() is None or value.unknown
@@ -136,10 +133,7 @@ def c(): return CONFIG['x']
 
 
 def test_varargs_and_kwargs_bodies_see_containers() -> None:
-    result = infer(
-        "def f(*xs: int):\n    return xs[0]\n"
-        "def g(**kw: int):\n    return kw['a']\n"
-    )
+    result = infer("def f(*xs: int):\n    return xs[0]\n" "def g(**kw: int):\n    return kw['a']\n")
     assert raw_types(result.functions["m.f"].return_type) == {int}
     assert raw_types(result.functions["m.g"].return_type) == {int}
     assert isinstance(result.functions["m.f"].parameters["xs"].public_type(), TupleType)
@@ -284,9 +278,7 @@ def test_validator_accepts_local_classes_type_objects_and_numeric_tower() -> Non
     result = infer(source)
     namespace: dict[str, object] = {"__name__": "m"}
     exec(source, namespace)
-    assert not validate_observed_types(
-        result, [ObservedType(namespace["a"].__class__, "a")]
-    )
+    assert not validate_observed_types(result, [ObservedType(namespace["a"].__class__, "a")])
 
     result = infer("x = type(1)\n")
     assert not validate_observed_types(result, [ObservedType(type, "x")])
@@ -300,10 +292,7 @@ def _write_order_project(root: Path, *, dependency_first: bool) -> tuple[str, st
     app = "z_app" if dependency_first else "a_app"
     root.mkdir(parents=True, exist_ok=True)
     (root / f"{dependency}.py").write_text(
-        "class A:\n"
-        "    value: int = 1\n"
-        "    def m(self) -> int:\n"
-        "        return 1\n"
+        "class A:\n" "    value: int = 1\n" "    def m(self) -> int:\n" "        return 1\n"
     )
     (root / f"{app}.py").write_text(
         f"from {dependency} import A\n"
@@ -353,9 +342,7 @@ def test_project_module_qualified_access_and_reexports(tmp_path: Path) -> None:
         "c = helper(1)\n"
         "d = A().m()\n"
     )
-    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(
-        ["app"]
-    )
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["app"])
     module = result.modules["app"]
     assert raw_types(module.type_of("a")) == {int}
     assert raw_types(module.type_of("b")) == {str}

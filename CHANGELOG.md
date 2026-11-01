@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pyflow supply-chain audit --reachability-source` separates application code
+  from an installed package tree during vulnerability reachability annotation.
+
 ### Fixed
 
 - Supply-chain scans now report empty inventories, follow explicitly targeted

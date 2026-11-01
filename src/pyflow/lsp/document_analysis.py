@@ -71,9 +71,7 @@ def _type_ignore_lines(text):
 
     ignored = set()
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type == tokenize.COMMENT and re.search(
-            r"#\s*type:\s*ignore\b", token.string
-        ):
+        if token.type == tokenize.COMMENT and re.search(r"#\s*type:\s*ignore\b", token.string):
             ignored.add(token.start[0] - 1)
     return ignored
 
@@ -179,8 +177,7 @@ def document_diagnostics(index, uri, *, include_security=False):
                 continue
             span = diagnostic.span
             if span is not None and (
-                (span.lineno - 1) in type_ignored
-                or function_has_ignored_return(span.lineno - 1)
+                (span.lineno - 1) in type_ignored or function_has_ignored_return(span.lineno - 1)
             ):
                 continue
             result.append(

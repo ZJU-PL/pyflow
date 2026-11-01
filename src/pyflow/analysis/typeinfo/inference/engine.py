@@ -17,7 +17,6 @@ import ast
 import builtins
 import collections.abc as cabc
 import contextlib
-import enum
 import io
 import operator
 import tokenize
@@ -376,9 +375,7 @@ class StaticTypeInferenceEngine:
                             if isinstance(resolved, Instance) and resolved.args:
                                 base_info = self._classes.get(resolved.type.full_name)
                                 if base_info is not None and base_info.type_variables:
-                                    class_info.type_variables = dict(
-                                        base_info.type_variables
-                                    )
+                                    class_info.type_variables = dict(base_info.type_variables)
                 class_info.instance.type.type_parameters = tuple(class_info.type_variables.values())
                 self._type_vars.update(class_info.type_variables)
                 for base in class_info.bases:
@@ -988,7 +985,6 @@ class StaticTypeInferenceEngine:
         collect_specializations: bool,
     ) -> FunctionSpecialization:
         environment = self._declaration_environment()
-        environment.update(self._module_environment)
         environment.update(function.closure_evidence)
         substitutions = self._generic_substitutions(function, parameters)
         input_parameters: dict[str, AbstractTypeValue] = {}
@@ -1643,9 +1639,7 @@ class StaticTypeInferenceEngine:
                                 if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store):
                                     if enum_class and not name.id.startswith("_"):
                                         class_info.enum_values[name.id] = value
-                                        member = AbstractTypeValue.from_type(
-                                            class_info.instance
-                                        )
+                                        member = AbstractTypeValue.from_type(class_info.instance)
                                     else:
                                         member = class_environment[name.id]
                                     class_info.attributes[name.id] = member
@@ -1898,9 +1892,7 @@ class StaticTypeInferenceEngine:
             ]
             key_parts: list[AbstractTypeValue] = []
             value_parts: list[AbstractTypeValue] = []
-            for key_node, key_value, item_value in zip(
-                node.keys, evaluated_keys, evaluated_values
-            ):
+            for key_node, key_value, item_value in zip(node.keys, evaluated_keys, evaluated_values):
                 if key_node is None:
                     mapping_key, mapping_value = self._mapping_key_value(item_value)
                     key_parts.append(mapping_key)
@@ -2350,8 +2342,7 @@ class StaticTypeInferenceEngine:
                     )
                     substitutions = self._generic_substitutions(initializer_info, bound)
                     inferred_args = tuple(
-                        substitutions.get(name, ANY)
-                        for name in class_info.type_variables
+                        substitutions.get(name, ANY) for name in class_info.type_variables
                     )
                     specialized = Instance(class_info.instance.type, inferred_args)
                     instance = AbstractTypeValue.from_type(specialized)
@@ -2451,9 +2442,7 @@ class StaticTypeInferenceEngine:
         if name == "open":
             mode = "r"
             if call_node is not None:
-                mode_node: ast.expr | None = (
-                    call_node.args[1] if len(call_node.args) > 1 else None
-                )
+                mode_node: ast.expr | None = call_node.args[1] if len(call_node.args) > 1 else None
                 if mode_node is None:
                     mode_node = next(
                         (kw.value for kw in call_node.keywords if kw.arg == "mode"),
@@ -2677,9 +2666,7 @@ class StaticTypeInferenceEngine:
                         AbstractTypeValue.from_type(self._instance(str)),
                         AbstractTypeValue.from_type(NONE_TYPE),
                     )
-                binary = issubclass(raw, io.BufferedIOBase) or issubclass(
-                    raw, io.RawIOBase
-                )
+                binary = issubclass(raw, io.BufferedIOBase) or issubclass(raw, io.RawIOBase)
                 if not issubclass(raw, io.TextIOBase) and not binary:
                     binary = False
                 if node.attr in {"read", "readline"}:
@@ -3109,7 +3096,10 @@ class StaticTypeInferenceEngine:
         if isinstance(operator, ast.Mult):
             for tuple_side, count_side in ((left, right), (right, left)):
                 tuple_args = [
-                    arg for typ in tuple_side.types if isinstance(typ, TupleType) for arg in typ.args
+                    arg
+                    for typ in tuple_side.types
+                    if isinstance(typ, TupleType)
+                    for arg in typ.args
                 ]
                 if tuple_args and all(
                     isinstance(typ, Instance) and typ.type.raw_type in {int, bool}
@@ -3462,9 +3452,7 @@ class StaticTypeInferenceEngine:
         elements: list[ast.expr] | None = None
         if isinstance(container, (ast.Set, ast.List, ast.Tuple)):
             elements = list(container.elts)
-        elif isinstance(container, ast.Constant) and isinstance(
-            container.value, (str, bytes)
-        ):
+        elif isinstance(container, ast.Constant) and isinstance(container.value, (str, bytes)):
             elements = [container]
         elif (
             isinstance(container, ast.Call)
@@ -3508,7 +3496,9 @@ class StaticTypeInferenceEngine:
         if not allowed_parts:
             return old
         alternatives = [
-            part for typ in old.types for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+            part
+            for typ in old.types
+            for part in (typ.items if isinstance(typ, UnionType) else (typ,))
         ]
         if not alternatives:
             return (
@@ -3571,9 +3561,7 @@ class StaticTypeInferenceEngine:
             for index, child in enumerate(pattern.patterns):
                 field_name = field_order[index] if index < len(field_order) else None
                 child_value = (
-                    fields[field_name]
-                    if field_name is not None
-                    else AbstractTypeValue.unresolved()
+                    fields[field_name] if field_name is not None else AbstractTypeValue.unresolved()
                 )
                 result = self._narrow_pattern(
                     child,
@@ -3836,6 +3824,10 @@ class StaticTypeInferenceEngine:
     ) -> AbstractTypeValue:
         if name in environment:
             return environment[name]
+        if scope != self._module_name:
+            module_value = self._module_environment.get(name)
+            if module_value is not None:
+                return module_value
         qualified = self._resolve_lexical_function(name, scope)
         if qualified is not None:
             return self._function_value(self._functions[qualified])
@@ -4411,9 +4403,7 @@ class StaticTypeInferenceEngine:
                 if member_type is not None:
                     substitutions = {
                         parameter.name: argument
-                        for parameter, argument in zip(
-                            typ.type.type_parameters, typ.args
-                        )
+                        for parameter, argument in zip(typ.type.type_parameters, typ.args)
                     }
                     if substitutions:
                         member_type = substitute_type_vars(member_type, substitutions)
@@ -4605,20 +4595,24 @@ class StaticTypeInferenceEngine:
             keys.append(AbstractTypeValue.unresolved())
             items.append(AbstractTypeValue.unresolved())
         return (
-            join_all(
-                keys,
-                self.type_system,
-                max_union_size=self.options.max_union_size,
-            )
-            if keys
-            else AbstractTypeValue.unresolved(),
-            join_all(
-                items,
-                self.type_system,
-                max_union_size=self.options.max_union_size,
-            )
-            if items
-            else AbstractTypeValue.unresolved(),
+            (
+                join_all(
+                    keys,
+                    self.type_system,
+                    max_union_size=self.options.max_union_size,
+                )
+                if keys
+                else AbstractTypeValue.unresolved()
+            ),
+            (
+                join_all(
+                    items,
+                    self.type_system,
+                    max_union_size=self.options.max_union_size,
+                )
+                if items
+                else AbstractTypeValue.unresolved()
+            ),
         )
 
     def _iterable_element(self, value: AbstractTypeValue) -> AbstractTypeValue:
