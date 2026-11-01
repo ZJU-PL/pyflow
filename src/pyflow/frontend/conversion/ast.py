@@ -13,6 +13,7 @@ Supported Python features:
 """
 
 import ast as python_ast
+import builtins
 import sys
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -68,6 +69,11 @@ class ASTConverter:
             tuple[int, ...], tuple[frozenset[str], frozenset[str]]
         ] = {}
         self._function_analysis_cache: Dict[tuple[int, ...], FunctionBodyAnalysis] = {}
+        # Names bound at module scope by the file currently being converted.
+        # Existing analyses resolve module-level definitions by local name, so
+        # keep that representation for compatibility; unresolved/builtin names
+        # are emitted as GetGlobal.
+        self.module_scope_names: Set[str] = set()
 
     def _with_source_origin(
         self, converted: Optional[PythonASTNode], source: python_ast.AST
@@ -345,6 +351,21 @@ class ASTConverter:
             return pyflow_ast.GetCellDeref(self._resolve_nonlocal_cell(name))
         if name in scope["cell_names"]:
             return pyflow_ast.GetCellDeref(self._get_local_cell(name))
+        if scope["kind"] in ("function", "class") and name not in scope["bound_names"]:
+            # Module-level functions/classes/imports are still resolved by
+            # name by the legacy IPA/IFDS consumers, so preserve their Local
+            # representation.  Builtins and unresolved names become explicit
+            # global reads instead of silently unbound locals.
+            if name in self.module_scope_names:
+                return pyflow_ast.Local(name)
+            if hasattr(builtins, name):
+                builtin = getattr(builtins, name)
+                if isinstance(builtin, type) and issubclass(builtin, BaseException):
+                    # Exception classes need a concrete object so that a
+                    # ``raise ValueError`` expression cannot itself fail with a
+                    # spurious name-resolution error edge.
+                    return pyflow_ast.Existing(Object(builtin))
+            return pyflow_ast.GetGlobal(self._name_constant(name))
         return pyflow_ast.Local(name)
 
     def _name_store(self, name: str, value: PythonASTNode) -> PythonASTNode:

@@ -362,6 +362,11 @@ class FlowSensitiveSlotNode(SlotNode):
 
     def canonical(self):
         if isinstance(self.defn, Split):
+            # DCE's Split.optimize() may have removed the split input.  An
+            # optimized split no longer represents this slot, so treat the
+            # slot itself as canonical instead of dereferencing None.
+            if self.defn.read is None:
+                return self
             return self.defn.read.canonical()
         else:
             return self
@@ -1358,8 +1363,20 @@ class Split(OpNode):
         if len(self.modifies) == 1:
             new = self.read
             old = self.modifies[0]
-            old.use.replaceUse(old, new)
-            new.use = old.use
+            if new is None:
+                # A split without an input is already malformed; leave it
+                # intact so callers can diagnose it rather than creating a
+                # dangling definition on its output slot.
+                return self
+            if old.use is not None:
+                old.use.replaceUse(old, new)
+                new.use = old.use
+                old.use = None
+            # The output slot is being removed.  Leaving ``old.defn`` pointing
+            # at this optimized-away split made later canonical() calls
+            # dereference ``self.read`` (None) and crash DDG construction.
+            if old.defn is self:
+                old.defn = None
 
             self.read = None
             self.modifies = []

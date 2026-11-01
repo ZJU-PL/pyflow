@@ -45,7 +45,7 @@ Scan an entire project:
 Python API
 ----------
 
-Use ``explore_file`` or ``explore_function`` for programmatic exploration:
+Use ``explore_file`` for programmatic exploration:
 
 .. code-block:: python
 

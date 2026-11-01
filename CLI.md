@@ -10,6 +10,12 @@ This document matches the current `pyflow` command surface.
 - `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - `concolic`: Generate branch-covering inputs and check simple postconditions
 - `security`: Unified security analysis (dispatches to any of four engines)
+- `supply-chain`: Run local package and dependency supply-chain analyses
+- `capabilities`: Report security-sensitive capabilities used by Python code
+- `capability-run`: Observe or deny classified CPython audit events
+- `lsp`: Run pyflow as a Language Server Protocol server
+- `mcp`: Run pyflow as a Model Context Protocol server
+- `query`: Query pyflow analysis results (one-shot)
 
 ## Optimize
 
@@ -42,6 +48,8 @@ Key options:
 - `--no-opt-passes`
 - `--output`, `-o`
 - `--emit-optimized PATH`: Write optimized Python copies; without output flags the command prints an analysis summary and suggested output commands
+- `--opt-level {0, 1, 2}`: Source optimization level (0=format only, 1=safe local rewrites, 2=guarded propagation; default: 1)
+- `--report-optimizations PATH`: Write JSON source-optimization report (requires `--emit-optimized`)
 - `--verbose`, `-v`
 
 Available optimization passes:
@@ -377,9 +385,9 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds``
   engines).
   Pass with no values to auto-detect packs from imports.
-  (choices: ``aiohttp``, ``cloud``, ``concurrency``, ``django``, ``falcon``,
-  ``fastapi``, ``flask``, ``injection``, ``network``, ``nosql``, ``pandas``,
-  ``requests``, ``serialization``, ``sql``, ``sqlalchemy``, ``stdlib``,
+  (choices: ``aiohttp``, ``bottle``, ``cloud``, ``concurrency``, ``django``, ``falcon``,
+  ``fastapi``, ``flask``, ``injection``, ``network``, ``nosql``, ``pandas``, ``pyramid``,
+  ``requests``, ``sanic``, ``serialization``, ``sql``, ``sqlalchemy``, ``stdlib``,
   ``tornado``, ``wtforms``, ``xml``)
 - ``--registry-path`` — load custom rule-pack JSON file(s) or directories
   (``ast-dataflow``, ``cpg``, and ``ifds`` engines)

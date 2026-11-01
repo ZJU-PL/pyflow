@@ -268,6 +268,18 @@ def _build_cpg_from_program(
                 function=func_name,
                 stage="pdg",
             )
+        if getattr(pdg, "data_dependence_mode", "") == "semantics":
+            reason = getattr(pdg, "data_dependence_reason", "")
+            cpg.add_construction_diagnostic(
+                code="cpg-pdg-data-dependence-fallback",
+                message=(
+                    f"DDG-derived data dependences unavailable for {func_name!r}; "
+                    f"using semantic def/use edges only: {reason}"
+                ).rstrip(": "),
+                function=func_name,
+                stage="pdg",
+                affects_completeness=True,
+            )
         cpg.add_function(func_name, pdg)
     return cpg
 

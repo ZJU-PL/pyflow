@@ -280,7 +280,7 @@ class ConstraintExtractor(TypeDispatcher):
         assert len(targets) == 1
         return self.context.is_(self(node.left), self(node.right), targets[0])
 
-    @dispatch(ast.Not)
+    @dispatch(ast.ConvertToBool, ast.Not)
     def visitNot(self, node, targets=None):
         # Evaluate not expression for side effects
         self(node.expr)

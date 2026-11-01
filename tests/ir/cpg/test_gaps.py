@@ -427,3 +427,58 @@ class TestGap16SyntaxErrorEmptyCPG:
                 meta = cpg.node_meta(n)
                 # Must not raise and return valid meta
                 assert isinstance(meta, dict)
+
+
+class TestDataLayerHygiene:
+    """DATA-edge indexes expose source variables, not dataflow internals."""
+
+    def test_defs_and_uses_exclude_internal_slot_labels(self):
+        source = """
+def f(a, b):
+    x = a + b
+    a, b = g(a, b)
+    return x
+"""
+        cpg = build_cpg(source)
+        cpg.build()
+
+        defs = cpg.defs
+        uses = cpg.uses
+        for index in (defs, uses):
+            assert "a" in index
+            assert "x" in index
+            for name in index:
+                assert not name.startswith(
+                    (
+                        "field(",
+                        "pred(",
+                        "lcl(",
+                        "hyperblock(",
+                        "null(",
+                        "exist(",
+                        "RAW@",
+                        "WAR@",
+                        "WAW@",
+                        "%__pyflow_tmp_",
+                        "__pyflow_tmp_",
+                    )
+                ), name
+                node_ids = [node.node_id for node in index[name]]
+                assert len(node_ids) == len(set(node_ids)), (name, node_ids)
+
+    def test_ddg_data_dependence_fallback_is_diagnosed(self, monkeypatch):
+        from pyflow.application import cpg as cpg_module
+
+        original = cpg_module.construct_pdg
+
+        def construct_with_fallback(cfg, **kwargs):
+            pdg = original(cfg, **kwargs)
+            pdg.data_dependence_mode = "semantics"
+            pdg.data_dependence_reason = "synthetic DDG failure"
+            return pdg
+
+        monkeypatch.setattr(cpg_module, "construct_pdg", construct_with_fallback)
+        cpg = cpg_module.build_cpg("def f(a):\n    return a\n")
+        codes = [d.get("code") for d in cpg.construction_diagnostics]
+        assert "cpg-pdg-data-dependence-fallback" in codes
+        assert any(d.get("affects_completeness") for d in cpg.construction_diagnostics)

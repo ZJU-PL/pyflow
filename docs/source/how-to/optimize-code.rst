@@ -68,9 +68,11 @@ Apply specific passes:
 
 .. code-block:: bash
 
-   pyflow optimize input.py \
-       --opt-passes simplify methodcall inlining \
-       --experimental-inlining
+   # Run specific passes
+   pyflow optimize input.py --opt-passes simplify methodcall
+
+   # Or run default pipeline with experimental inlining
+   pyflow optimize input.py --experimental-inlining
 
 Write a report to disk:
 
@@ -277,7 +279,7 @@ Not all optimizations help every program. Test different combinations:
    # Try different pass combinations
    pyflow optimize input.py --opt-passes simplify
    pyflow optimize input.py --opt-passes simplify methodcall
-   pyflow optimize input.py --opt-passes simplify methodcall inlining --experimental-inlining
+   pyflow optimize input.py --experimental-inlining
 
 Troubleshooting
 ===============

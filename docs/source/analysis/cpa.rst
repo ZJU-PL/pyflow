@@ -70,6 +70,7 @@ Models type checking and conditional operations:
 .. code-block:: python
 
    if isinstance(x, int):  # Creates IsConstraint for type checking
+       pass
 
 LoadConstraint/StoreConstraint
 ------------------------------
@@ -119,8 +120,8 @@ Analysis Process
 4. **Constraint Solving**
    - Process constraints using worklist algorithm
    - Propagate information through constraint graph
-   - Maintain context sensitivity throughout analysis (?)
+   - Maintain context sensitivity throughout analysis
 
-5. **Result Annotation** (?)
+5. **Result Annotation**
    - Annotate original code with analysis results
   

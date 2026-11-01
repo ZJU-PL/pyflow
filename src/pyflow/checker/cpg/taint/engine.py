@@ -419,7 +419,16 @@ class CPGTaintEngine(
             src = self._detect_source(node)
             if src:
                 seeds.append((node, src, self._source_kinds_for_name(src)))
-        # Strategy 2: Match via DATA edges from source-named definitions
+        # Strategy 2: Match via DATA edges from source-named definitions.
+        # ``cpg.defs`` intentionally exposes source-level variable names only,
+        # while source nodes can also define compiler temporaries and storage
+        # slots.  Build the unfiltered definition map locally so taint seeding
+        # still follows those internal labels.
+        raw_defs: Dict[str, List[PDGNode]] = {}
+        for edge in cpg.all_edges(kinds={CPGEdgeKind.DATA}):
+            if edge.label:
+                raw_defs.setdefault(edge.label, []).append(edge.source)
+
         source_vars: Dict[str, Tuple[str, FrozenSet[str]]] = {}
         for node in cpg.nodes():
             source_name = self._detect_source(node)
@@ -433,7 +442,7 @@ class CPGTaintEngine(
                         )
         if source_vars:
             for var, (source_name, source_kinds) in source_vars.items():
-                for seed_node in cpg.defs.get(var, []):
+                for seed_node in raw_defs.get(var, []):
                     if seed_node not in [s[0] for s in seeds]:
                         seeds.append((seed_node, source_name, source_kinds))
         return seeds

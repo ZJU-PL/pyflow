@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reconciled documentation across Sphinx sources, CLI references, and tutorials with actual CLI options, default parameters, query APIs, and output schemas.
+- Fixed DDG memory dependencies for lowered IR: slot keys now identify storage
+  locations rather than individual value versions, so field reads/writes produce
+  RAW, WAR, and WAW edges instead of dropping WAR/WAW and mislabeling WAW as RAW.
+- Prevented stores from emitting spurious RAW edges through their implicit
+  pseudo-read, and made memory-dependence propagation sparse and near-linear on
+  large modules (for example, Rich's `examples/table_movie.py` dropped from
+  roughly 12s to about 1s).
+- Fixed a DCE/DDG crash (`'NoneType' object has no attribute 'canonical'`) when
+  `Split.optimize()` removed an output slot but left a dangling split definition.
+- CPG `defs` and `uses` indexes now expose source variables only, omit internal
+  dataflow labels and compiler temporaries, and do not return duplicate nodes.
+- CPG construction now reports `cpg-pdg-data-dependence-fallback` when DDG-derived
+  data dependences are unavailable and only semantic def/use edges are used.
 - Resolved Graphviz DOT generation syntax errors in `pydot.py` by properly quoting attribute values and node identifiers containing colons and special characters.
 - Modeled the PEP 572 walrus operator (`:=`, `ast.NamedExpr`) during DataflowGraph and DDG construction to ensure local targets are defined and def-use chains are preserved.
 - Handled `ast.Delete` in CFG SSA so that variable deletion unbinds locals and introduces `None` (undefined) into downstream control-flow joins and Phi nodes.

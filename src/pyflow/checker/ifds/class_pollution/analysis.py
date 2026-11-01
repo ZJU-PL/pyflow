@@ -318,6 +318,8 @@ class ClassPollutionProblem(
     def _call_leaf_name(self, expression):
         if isinstance(expression, py_ast.Local):
             return expression.name
+        if isinstance(expression, py_ast.GetGlobal):
+            return self._constant_string(expression.name)
         if isinstance(expression, py_ast.Existing):
             return self._constant_string(expression)
         if isinstance(expression, py_ast.GetAttr):

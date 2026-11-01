@@ -426,6 +426,10 @@ class CFGSupergraphAdapter:
         def expression_name(expression):
             if isinstance(expression, py_ast.Local):
                 return self._qualify_call_name(procedure, expression.name)
+            if isinstance(expression, py_ast.GetGlobal):
+                name = getattr(getattr(expression, "name", None), "object", None)
+                name = getattr(name, "pyobj", None)
+                return self._qualify_call_name(procedure, name) if isinstance(name, str) else None
             if isinstance(expression, py_ast.GetAttr):
                 base = expression_name(expression.expr)
                 name = getattr(getattr(expression.name, "object", None), "pyobj", None)
@@ -536,6 +540,10 @@ class CFGSupergraphAdapter:
         name = None
         if isinstance(call_expression, py_ast.Call) and isinstance(
             call_expression.expr, py_ast.GetAttr
+        ):
+            name = call_expression.expr.name
+        elif isinstance(call_expression, py_ast.Call) and isinstance(
+            call_expression.expr, py_ast.GetGlobal
         ):
             name = call_expression.expr.name
         elif isinstance(call_expression, py_ast.MethodCall):

@@ -53,23 +53,35 @@ class _GraphMetadataMixin:
     def _resolve_call_name(call_node: Any) -> Optional[str]:
         if not isinstance(call_node, py_ast.Call):
             return None
-        expr = getattr(call_node, "expr", None)
-        if expr is None:
+
+        def expression_name(expr: Any) -> Optional[str]:
+            if expr is None:
+                return None
+            if isinstance(expr, py_ast.Local):
+                name = getattr(expr, "name", None)
+                return name if isinstance(name, str) and name else None
+            if isinstance(expr, py_ast.GetGlobal):
+                name = getattr(getattr(expr, "name", None), "object", None)
+                name = getattr(name, "pyobj", None)
+                return name if isinstance(name, str) and name else None
+            if isinstance(expr, py_ast.GetAttr):
+                base = expression_name(getattr(expr, "expr", None))
+                attr = getattr(getattr(expr, "name", None), "object", None)
+                attr = getattr(attr, "pyobj", None)
+                return f"{base}.{attr}" if base and isinstance(attr, str) else base
+            if isinstance(expr, py_ast.Call):
+                return expression_name(getattr(expr, "expr", None))
+            if isinstance(expr, py_ast.MethodCall):
+                base = expression_name(getattr(expr, "obj", None))
+                name = getattr(expr, "name", None)
+                if isinstance(name, py_ast.Local):
+                    name = getattr(name, "name", None)
+                elif isinstance(name, py_ast.Existing):
+                    name = getattr(getattr(name, "object", None), "pyobj", None)
+                return f"{base}.{name}" if base and isinstance(name, str) else base
             return None
-        if isinstance(expr, py_ast.Local):
-            n = getattr(expr, "name", None)
-            return str(n) if n is not None and isinstance(n, str) else None
-        if hasattr(expr, "children"):
-            parts: List[str] = []
-            for child in expr.children():
-                if isinstance(child, (list, tuple)) or child is None:
-                    continue
-                if isinstance(child, py_ast.Local):
-                    n = getattr(child, "name", None)
-                    if isinstance(n, str):
-                        parts.append(n)
-            return ".".join(parts) if parts else None
-        return None
+
+        return expression_name(getattr(call_node, "expr", None))
 
     def _build_phi_metadata(self, pdg: ProgramDependenceGraph) -> None:
         """Mark PDG nodes that correspond to Merge-block phi operations.

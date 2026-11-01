@@ -446,32 +446,60 @@ class _GraphQueryMixin:
             edge_kinds=edge_kinds,
         )
 
+    @staticmethod
+    def _is_source_variable_label(label: str) -> bool:
+        """Whether a DATA edge label names a source-level variable."""
+        if not label or label.startswith("__pyflow_tmp_"):
+            return False
+        if label.startswith("%__pyflow_tmp_"):
+            return False
+        return not label.startswith(
+            (
+                "field(",
+                "pred(",
+                "lcl(",
+                "hyperblock(",
+                "null(",
+                "exist(",
+                "RAW@",
+                "WAR@",
+                "WAW@",
+            )
+        )
+
     @property
     def defs(self) -> Dict[str, List[PDGNode]]:
-        """Map variable names to their defining PDG nodes.
+        """Map source variable names to their defining PDG nodes.
 
-        Derived from ``DATA`` edges whose ``label`` is the variable name
-        and whose ``source`` is the definition site.
+        Derived from ``DATA`` edges whose ``label`` is a source variable
+        name and whose ``source`` is the definition site.  Internal dataflow
+        labels (predicate, heap-storage, and temporary slots) are omitted so
+        this index remains a variable-level view of the program.
         """
         self._ensure_built()
         result: Dict[str, List[PDGNode]] = {}
         for e in self.all_edges(kinds={CPGEdgeKind.DATA}):
-            if e.label:
-                result.setdefault(e.label, []).append(e.source)
+            if self._is_source_variable_label(e.label):
+                bucket = result.setdefault(e.label, [])
+                if e.source not in bucket:
+                    bucket.append(e.source)
         return result
 
     @property
     def uses(self) -> Dict[str, List[PDGNode]]:
-        """Map variable names to their using PDG nodes.
+        """Map source variable names to their using PDG nodes.
 
-        Derived from ``DATA`` edges whose ``label`` is the variable name
-        and whose ``target`` is the use site.
+        Derived from ``DATA`` edges whose ``label`` is a source variable
+        name and whose ``target`` is the use site.  Internal dataflow labels
+        are omitted.
         """
         self._ensure_built()
         result: Dict[str, List[PDGNode]] = {}
         for e in self.all_edges(kinds={CPGEdgeKind.DATA}):
-            if e.label:
-                result.setdefault(e.label, []).append(e.target)
+            if self._is_source_variable_label(e.label):
+                bucket = result.setdefault(e.label, [])
+                if e.target not in bucket:
+                    bucket.append(e.target)
         return result
 
     def to_dict(self) -> Dict[str, Any]:

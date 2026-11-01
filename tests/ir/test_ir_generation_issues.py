@@ -503,3 +503,182 @@ def test_dataflow_state_deep_parent_chain_no_recursion_error():
 
     val = child.get(local)
     assert val is not None
+
+
+def _reachable_blocks(entry):
+    order, seen, pending = [], set(), [entry]
+    while pending:
+        b = pending.pop(0)
+        if b in seen:
+            continue
+        seen.add(b)
+        order.append(b)
+        pending.extend(b.next.values())
+    return order
+
+
+def test_foriter_body_starts_with_if_retains_loop_index_definition():
+    """SSA renaming must not lose ForIter index definitions when body starts with if."""
+    from pyflow.ir.cfg import graph as G
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f(xs):
+    for x in xs:
+        if x:
+            print(x)
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ssa.evaluate(None, cfg)
+
+    cat = code.ir_catalog
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    foriter_nodes = [b for b in blocks if isinstance(b, G.ForIter)]
+    assert len(foriter_nodes) == 1
+    fi = foriter_nodes[0]
+    fi_val = cat.value_id(fi.index, code)
+    assert fi_val is not None
+    assert cat.value_for(fi.index, code).definition is not None
+
+    uses = []
+    for b in blocks:
+        for op in getattr(b, "ops", ()):
+            for child in getattr(op, "exprs", [getattr(op, "expr", None)]):
+                if child is not None:
+                    for arg in getattr(child, "args", ()):
+                        if isinstance(arg, pyflow_ast.Local) and arg.name == "x":
+                            uses.append(cat.value_id(arg, code))
+
+    assert fi_val in uses
+
+
+def test_foriter_retains_error_and_fail_exits_for_iterator_protocol():
+    """ForIter must retain abnormal exits so iter() and next() exceptions reach handlers."""
+    from pyflow.ir.cfg import graph as G
+
+    source = """
+def f(it):
+    try:
+        for x in it:
+            pass
+    except ValueError:
+        return 1
+    return 0
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    foriter_nodes = [b for b in blocks if isinstance(b, G.ForIter)]
+    assert len(foriter_nodes) == 1
+    fi = foriter_nodes[0]
+    assert fi.getExit("error") is not None or fi.getExit("fail") is not None
+
+
+def test_truth_test_in_try_retains_exception_exit():
+    """Switch conditions in a try block must retain error exits for __bool__ exceptions."""
+    from pyflow.ir.cfg import graph as G
+
+    source = """
+def f(x):
+    try:
+        if x:
+            return 1
+    except ValueError:
+        return 2
+    return 0
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    switches = [b for b in blocks if isinstance(b, G.Switch)]
+    cond_switch = next(s for s in switches if "Local(%x)" in str(s.condition))
+    assert cond_switch.getExit("error") is not None
+
+
+def test_ssa_evaluate_is_idempotent():
+    """Calling ssa.evaluate multiple times must not duplicate phi nodes."""
+    from pyflow.ir.cfg import graph as G
+
+    source = """
+def f(a, c):
+    x = a
+    if c:
+        x = x + 1
+    return x
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ssa.evaluate(None, cfg)
+    ret = ssa.evaluate(None, cfg)
+    assert ret is None
+
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    merges = [b for b in blocks if isinstance(b, G.Merge)]
+    for m in merges:
+        assert len(getattr(m, "phi", ())) <= 1
+
+
+def test_free_names_emitted_as_getglobal_not_unbound_local():
+    """Unbound free names must be emitted as GetGlobal so they are not mistaken for locals."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f():
+    return g
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    ops = [op for b in blocks for op in getattr(b, "ops", ())]
+    returns = [op for op in ops if isinstance(op, pyflow_ast.Return)]
+    assert len(returns) == 1
+    ret_expr = returns[0].exprs[0]
+    assert isinstance(ret_expr, pyflow_ast.GetGlobal)
+
+
+def test_ddg_aliased_attribute_memory_dependencies():
+    """DDG must connect memory dependencies between aliased parameter attributes and copies."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def f(a, b):
+    a.x = 1
+    return b.x
+
+def g(a):
+    a.x = 1
+    b = a
+    return b.x
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    compiler = CompilerContext(Console(verbose=False))
+
+    code_f = conv._convert_function_def(tree.body[0]).code
+    df_f = convert.evaluateCode(compiler, code_f)
+    ddg_f = construction.construct_ddg(df_f)
+    mem_edges_f = [e for e in ddg_f.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" for e in mem_edges_f)
+
+    code_g = conv._convert_function_def(tree.body[1]).code
+    df_g = convert.evaluateCode(compiler, code_g)
+    ddg_g = construction.construct_ddg(df_g)
+    mem_edges_g = [e for e in ddg_g.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" for e in mem_edges_g)

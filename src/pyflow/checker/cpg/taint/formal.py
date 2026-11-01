@@ -2766,6 +2766,9 @@ class FormalCPGTaintAnalysis:
                         return ""
                     return resolve(definitions[0], active | {name})
                 return self._qualify_import_alias(name)
+            if isinstance(expression, py_ast.GetGlobal):
+                name = self._constant_value(expression.name)
+                return self._qualify_import_alias(name) if isinstance(name, str) else ""
             if isinstance(expression, py_ast.GetAttr):
                 base = resolve(expression.expr, active)
                 attribute = self.engine._resolve_call_expr(expression.name)

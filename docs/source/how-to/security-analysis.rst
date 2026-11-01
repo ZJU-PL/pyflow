@@ -114,12 +114,12 @@ analysis result:
        --format json --output report.json \
        --exit-code-policy report
 
-With the ``report`` policy, exit code zero means PyFlow successfully emitted
+With the default ``report`` policy, exit code zero means PyFlow successfully emitted
 the requested report. The report's ``status`` field communicates
 ``complete``, ``partial``, ``cancelled``, ``invalid``, or ``failed``; findings
-and diagnostics remain available even when the analysis is partial. The
-default ``findings`` policy retains the traditional scanner exit codes for
-interactive and CI usage.
+and diagnostics remain available even when the analysis is partial. Passing
+``--exit-code-policy findings`` enables scanner exit codes (1 for findings, 3 for
+partial/cancelled) for CI gating.
 
 Available Security Checks
 ==========================
@@ -350,7 +350,7 @@ Create a workflow file:
            with:
              python-version: '3.10'
          - name: Install PyFlow
-           run: pip install pyflow
+           run: pip install pyflow-analysis
          - name: Run Security Analysis
            run: pyflow security . --format sarif --output security_report.sarif.json
          - name: Upload SARIF
@@ -369,7 +369,7 @@ Create a CI configuration:
    security_scan:
      image: python:3.10
      script:
-       - pip install pyflow
+       - pip install pyflow-analysis
        - pyflow security . --format sarif --output security_report.sarif.json
      artifacts:
        reports:
@@ -390,7 +390,8 @@ Issue: Missing findings
 
 - Ensure all files are analyzed
 - Check for syntax errors that prevent full parsing
-- Use ``--analysis all`` for comprehensive analysis
+- Use deeper analysis engines such as ``--engine cpg`` or ``--engine ifds``
+- Check severity threshold (e.g. ``--severity low`` to include all findings)
 
 Issue: Performance issues
 -------------------------

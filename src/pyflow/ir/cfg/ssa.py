@@ -7,6 +7,7 @@ including phi function insertion and variable renaming.
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.ir.core import ensure_code_indexed, index_cfg
+from pyflow.ir.core.symbols import SymbolKind
 
 from . import graph as cfg
 from .dfs import CFGDFS
@@ -21,6 +22,22 @@ class UnsupportedSSAError(Exception):
 def local_key(catalog, code, local):
     """Return the lexical ``SymbolId`` for one local occurrence."""
     return catalog.symbol_id(local, code)
+
+
+def _definition_local(catalog, code, name):
+    """Create a Local occurrence bound to the *name* symbol in *code*.
+
+    Definition statements such as ``ClassDef`` carry their bound name as a
+    string rather than as a Local occurrence.  SSA still needs a Local to
+    represent the value produced by the definition.
+    """
+    scope = catalog.procedure(code).root_scope
+    symbol = catalog.symbols.find(scope, name)
+    if symbol is None:
+        symbol = catalog.symbols.intern(scope, name, SymbolKind.LOCAL)
+    local = ast.Local(name)
+    catalog.bind_symbol(local, symbol.id)
+    return local
 
 
 class CollectModifies(TypeDispatcher):
@@ -154,6 +171,20 @@ class CollectModifies(TypeDispatcher):
         for input in node.inputs:
             self.modified(input.lcl)
 
+    @dispatch(ast.ClassDef)
+    def visitClassDef(self, node):
+        """A class definition binds its name in the enclosing scope.
+
+        The class body has its own namespace and must not be treated as part of
+        the enclosing function's local variable space.
+        """
+        self._modified(_definition_local(self.catalog, self.code, node.name), self.current)
+        for expr in (*node.bases, *node.decorators):
+            self._collect_named_exprs(expr)
+        for keyword in node.keywords:
+            if isinstance(keyword, tuple) and len(keyword) == 2:
+                self._collect_named_exprs(keyword[1])
+
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         for target in node.lcls:
@@ -229,6 +260,10 @@ class SSARename(TypeDispatcher):
         self.code = g.code if g is not None else None
 
         self.frames = {}
+        # Branch-specific frames keyed by (predecessor, exit_label, target).
+        # A block-level seed is not enough when the same target also has a
+        # normal back-edge (nested loops, TypeSwitch cases).
+        self.edgeFrames = {}
         self.currentFrame = None
 
         self.read = set()
@@ -339,7 +374,13 @@ class SSARename(TypeDispatcher):
 
     @dispatch(cfg.Switch)
     def visitCFGSwitch(self, node):
-        self.currentFrame = dict(self.frames[node.prev])
+        # A predecessor may have seeded a branch-specific frame (for example
+        # the ForIter body frame carrying the renamed loop index).  Do not
+        # discard it by always inheriting from ``node.prev``.
+        if node in self.frames:
+            self.currentFrame = dict(self.frames[node])
+        else:
+            self.currentFrame = dict(self.frames[node.prev])
 
         node.condition = self(node.condition)
 
@@ -347,7 +388,10 @@ class SSARename(TypeDispatcher):
 
     @dispatch(cfg.TypeSwitch)
     def visitTypeSwitch(self, node):
-        incoming = dict(self.frames[node.prev])
+        if node in self.frames:
+            incoming = dict(self.frames[node])
+        else:
+            incoming = dict(self.frames[node.prev])
         self.currentFrame = incoming
 
         conditional = self(node.original.conditional)
@@ -361,6 +405,7 @@ class SSARename(TypeDispatcher):
                 successor = node.getExit(i)
                 if successor is not None:
                     self.frames[successor] = case_frame
+                    self.edgeFrames[(node, i, successor)] = case_frame
             else:
                 cases.append(case)
 
@@ -372,7 +417,10 @@ class SSARename(TypeDispatcher):
     @dispatch(cfg.ForIter)
     def visitForIter(self, node):
         header = node.prev
-        incoming = dict(self.frames[header])
+        if node in self.frames:
+            incoming = dict(self.frames[node])
+        else:
+            incoming = dict(self.frames[header])
 
         # The iterable expression is evaluated once in the preheader, before
         # loop-carried phi values exist. Region membership distinguishes that
@@ -387,26 +435,47 @@ class SSARename(TypeDispatcher):
         node.iterator = iterator
 
         body_frame = dict(incoming)
-        node.index = self.clone(node.index, body_frame)
+        # The loop index is defined by this ForIter block on every iteration.
+        # Register that definition so catalog.value_for(index).definition is
+        # meaningful (previously it was None and indistinguishable from an
+        # entry parameter).
+        node.index = self.clone(node.index, body_frame, definition=node)
         body = node.getExit("body")
         if body is not None:
             self.frames[body] = body_frame
+            self.edgeFrames[(node, "body", body)] = body_frame
         self.currentFrame = incoming
         self.frames[node] = incoming
 
     @dispatch(cfg.Yield)
     def visitCFGYield(self, node):
-        self.currentFrame = dict(self.frames[node.prev])
+        if node in self.frames:
+            self.currentFrame = dict(self.frames[node])
+        else:
+            self.currentFrame = dict(self.frames[node.prev])
         self.frames[node] = self.currentFrame
 
     @dispatch(cfg.Merge)
     def visitCFGMerge(self, node):
-        # Copy a previous frame, any previous frame.
+        # A branch predecessor may have seeded this merge with an
+        # edge-specific frame (nested-loop header, TypeSwitch case entry).
+        # Prefer that seed, then fall back to predecessor frames.
         frame = None
-        for prev in node.reverse():
-            if prev in self.frames:
-                if frame is None:
-                    frame = dict(self.frames[prev])
+        if node in self.frames:
+            frame = dict(self.frames[node])
+        for prev, label in node.iterprev():
+            if prev is None:
+                continue
+            incoming = self.edgeFrames.get((prev, label, node))
+            if incoming is None:
+                incoming = self.frames.get(prev)
+            if incoming is None:
+                continue
+            if frame is None:
+                frame = dict(incoming)
+            else:
+                for key, value in incoming.items():
+                    frame.setdefault(key, value)
 
         # Guard: if no predecessor has been processed yet (can happen in
         # certain loop configurations), start with an empty frame rather
@@ -577,6 +646,32 @@ class SSARename(TypeDispatcher):
     def visitASTLeaf(self, node):
         return node
 
+    @dispatch(ast.ClassDef)
+    def visitClassDef(self, node):
+        """Rename the class name binding and header expressions.
+
+        The class body is a separate namespace; it is intentionally not
+        renamed into the enclosing frame.
+        """
+        bases = [self(base) for base in node.bases]
+        decorators = [self(decorator) for decorator in node.decorators]
+        keywords = []
+        for keyword in node.keywords:
+            if isinstance(keyword, tuple) and len(keyword) == 2:
+                keywords.append((keyword[0], self(keyword[1]) if keyword[1] is not None else None))
+            else:
+                keywords.append(keyword)
+        target = _definition_local(self.catalog, self.code, node.name)
+        self.clone(target, self.currentFrame, definition=node)
+        return ast.ClassDef(
+            node.name,
+            bases,
+            keywords,
+            node.body,
+            decorators,
+            node.type_params,
+        )
+
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         expr = self(node.expr)
@@ -640,8 +735,11 @@ class SSARename(TypeDispatcher):
                 if target in self.read:
                     # Variable is read, need phi node
                     arguments = []
-                    for prev in merge.reverse():
-                        arguments.append(self.frames[prev].get(name))
+                    for prev, label in merge.iterprev():
+                        frame = self.edgeFrames.get((prev, label, merge))
+                        if frame is None:
+                            frame = self.frames.get(prev, {})
+                        arguments.append(frame.get(name))
 
                     if not any(arg is not None for arg in arguments):
                         defer.append((merge, name))
@@ -747,6 +845,10 @@ def evaluate(compiler, g):
         raise UnsupportedSSAError(
             "SSA requires exception blocks to be lowered by cfg.transform first"
         )
+    if _contains_phi(g.entryTerminal):
+        # SSA is already present.  Re-running the pass would append a second
+        # phi per merge and silently create duplicate definitions.
+        return None
     transaction = CFGTransformTransaction(g, "ssa")
     _lower_function_definitions(g, transaction.catalog)
 
@@ -801,6 +903,21 @@ def evaluate(compiler, g):
         ssar(node)
     ssar.doFixup()
     return transaction.commit()
+
+
+def _contains_phi(entry):
+    """Return True when the CFG already contains SSA phi nodes."""
+    pending = [entry]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        if getattr(node, "phi", None):
+            return True
+        pending.extend(node.forward())
+    return False
 
 
 def _contains_try_except_finally(entry):

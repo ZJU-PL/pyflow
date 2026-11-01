@@ -39,7 +39,7 @@ Converts Python's AST into PyFlow's internal representation:
    from pyflow.frontend.conversion.ast import ASTConverter
 
    converter = ASTConverter()
-   pyflow_ir = converter.convert(python_ast)
+   pyflow_ir = converter.convert_python_ast_to_pyflow(python_ast)
 
 Key responsibilities:
 
@@ -54,10 +54,12 @@ Extracts the complete program structure from source files:
 
 .. code-block:: python
 
+   from pyflow.application.context import CompilerContext
    from pyflow.frontend.extractor import Extractor
 
-   extractor = Extractor()
-   program = extractor.process(["input.py"])
+   compiler = CompilerContext()
+   extractor = Extractor(compiler)
+   program = extractor.extract_from_file("input.py")
 
 Key responsibilities:
 
@@ -75,7 +77,7 @@ Resolves module and import dependencies:
    from pyflow.frontend.resolution.dependencies import DependencyResolver
 
    resolver = DependencyResolver()
-   dependencies = resolver.resolve(program)
+   import_graph = resolver.get_import_graph()
 
 Key responsibilities:
 
@@ -135,8 +137,7 @@ Represents data flow information for analysis:
 
    from pyflow.ir.dataflow.convert import CodeToDataflow
 
-   converter = CodeToDataflow()
-   df_graph = converter.convert(cfg_block)
+   converter = CodeToDataflow(code)
 
 Key components:
 
@@ -151,10 +152,10 @@ Represents object allocation and field access:
 
 .. code-block:: python
 
-   from pyflow.ir.storegraph.storegraph import StoreGraph, ObjectNode
+   from pyflow.ir.storegraph.storegraph import StoreGraph, RegionNode
 
    graph = StoreGraph()
-   node = ObjectNode("obj", "Object()")
+   region = RegionNode(graph)
 
 Key components:
 
@@ -174,10 +175,11 @@ CPA uses constraint solving for precise analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.cpa import InterproceduralDataflow
+   from pyflow.application.context import CompilerContext
+   from pyflow.application.pipeline import Pipeline
 
-   cpa = InterproceduralDataflow()
-   cpa.run(program)
+   compiler = CompilerContext()
+   results = Pipeline().run_custom_pipeline(compiler, program, ["cpa"])
 
 Key concepts:
 
@@ -199,10 +201,11 @@ Extends analysis across function boundaries:
 
 .. code-block:: python
 
-   from pyflow.analysis.ipa import IPAnalysis
+   from pyflow.application.context import CompilerContext
+   from pyflow.application.pipeline import Pipeline
 
-   ipa = IPAnalysis()
-   ipa.analyze(program)
+   compiler = CompilerContext()
+   results = Pipeline().run_custom_pipeline(compiler, program, ["ipa"])
 
 Key concepts:
 
@@ -217,10 +220,11 @@ Analyzes data structure shapes:
 
 .. code-block:: python
 
-   from pyflow.analysis.shape import RegionBasedShapeAnalysis
+   from pyflow.application.context import CompilerContext
+   from pyflow.application.pipeline import Pipeline
 
-   shape = RegionBasedShapeAnalysis()
-   shape.analyze(program)
+   compiler = CompilerContext()
+   results = Pipeline().run_custom_pipeline(compiler, program, ["shape"])
 
 Key concepts:
 

@@ -109,8 +109,11 @@ Profile Before Optimizing
    stats = pstats.Stats("profile.prof")
    stats.sort_stats("cumulative").print_stats(20)
 
-   # Then optimize based on results
-   pyflow optimize hot_path.py --opt-passes all
+Then optimize based on results:
+
+.. code-block:: bash
+
+   pyflow optimize hot_path.py
 
 Verify Optimized Code
 ---------------------
@@ -170,16 +173,10 @@ Configure Context Sensitivity
 
 .. code-block:: python
 
-   # Fast, context-insensitive
-   context.set_config("cpa.context_sensitive", False)
+   from pyflow.application.session import AnalysisOptions
 
-   # Balanced, k-limiting
-   context.set_config("cpa.context_sensitive", True)
-   context.set_config("cpa.k_value", 3)
-
-   # Precise, full context
-   context.set_config("cpa.context_sensitive", True)
-   context.set_config("cpa.max_context_depth", 10)
+   # Configure analysis options on the program session
+   program.session.configure(AnalysisOptions(cpa_path_length=3))
 
 Customize for Your Codebase
 ----------------------------

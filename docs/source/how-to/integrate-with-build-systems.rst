@@ -30,7 +30,7 @@ GitHub Actions
              python-version: "3.10"
          - run: pip install -e .
          - run: pyflow security src/ --recursive
-          - run: pyflow callgraph src/ --output callgraph.txt
+         - run: pyflow callgraph src/ --output callgraph.txt
 
 GitLab CI
 ~~~~~~~~~
@@ -43,7 +43,7 @@ GitLab CI
      script:
        - pip install -e .
        - pyflow security src/ --recursive
-        - pyflow callgraph src/ --output callgraph.txt
+       - pyflow callgraph src/ --output callgraph.txt
 
 Pre-commit Hooks
 ----------------

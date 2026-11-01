@@ -5,6 +5,10 @@ import os
 import tempfile
 import unittest
 
+from pyflow.application.context import CompilerContext
+from pyflow.frontend.extractor import Extractor
+from pyflow.ir.core.source import syntax_source_span
+from pyflow.ir.dataflow import convert
 from pyflow.ir.dataflow import graph as df
 from pyflow.ir.ddg import (
     construct_ddg,
@@ -296,6 +300,82 @@ class TestDDGConstructionRegression(unittest.TestCase):
 
         self.assertIsNot(first, second)
         self.assertEqual(first.stats(), second.stats())
+
+
+def _lower_ddg(source: str, function: str = "f") -> DataDependenceGraph:
+    """Build a DDG through the same source lowering used by the CLI."""
+    compiler = CompilerContext(None)
+    compiler.extractor = Extractor(compiler, verbose=False)
+    program = compiler.extractor.extract_from_source(source, filename="<ddg-test>")
+    code = next(code for code in program.liveCode if code.codeName() == function)
+    return construct_ddg(convert.evaluateCode(compiler, code))
+
+
+def _memory_edges_by_line(ddg: DataDependenceGraph):
+    edges = set()
+    for node in ddg.nodes:
+        for edge in node.edges_out:
+            if edge.kind != "memory":
+                continue
+            source_span = syntax_source_span(getattr(edge.source.ir_node, "op", None))
+            target_span = syntax_source_span(getattr(edge.target.ir_node, "op", None))
+            if source_span is None or target_span is None:
+                continue
+            edges.add((edge.label, source_span.start_line, target_span.start_line))
+    return edges
+
+
+class TestLoweredMemoryDependencies(unittest.TestCase):
+    """Memory dependences must survive real dataflow lowering.
+
+    The hand-built FakeSlot tests above use one slot object for both reads and
+    writes.  Lowered IR creates a new FieldNode per value version, so those
+    tests did not catch version-keyed WAR/WAW regressions.
+    """
+
+    SOURCE = """def f(c):
+    c.x = 1
+    y = c.x
+    c.x = 2
+    return y
+"""
+
+    def test_field_read_write_dependencies_have_distinct_labels(self):
+        ddg = _lower_ddg(self.SOURCE)
+        edges = _memory_edges_by_line(ddg)
+
+        self.assertIn(("RAW", 2, 3), edges)
+        self.assertIn(("WAR", 3, 4), edges)
+        self.assertIn(("WAW", 2, 4), edges)
+        # A store is not a true read: it must not produce RAW from the
+        # previous store to the next store.
+        self.assertNotIn(("RAW", 2, 4), edges)
+
+    def test_distinct_field_stores_do_not_scale_quadratically(self):
+        count = 400
+        source = "def f(o, x):\n" + "".join(f"    o.a{i} = x\n" for i in range(count))
+        import time
+
+        started = time.time()
+        ddg = _lower_ddg(source)
+        elapsed = time.time() - started
+        self.assertGreater(len(ddg.nodes), count)
+        self.assertLess(elapsed, 2.0)
+
+
+class TestSplitOptimize(unittest.TestCase):
+    def test_optimize_clears_removed_output_definition(self):
+        split = df.Split(None)
+        value = df.LocalNode(None, ())
+        output = df.LocalNode(None, ())
+        split.read = value
+        output.defn = split
+        split.modifies = [output]
+
+        split.optimize()
+
+        self.assertIsNone(output.defn)
+        self.assertIs(output.canonical(), output)
 
 
 class TestDDGDumpRegression(unittest.TestCase):

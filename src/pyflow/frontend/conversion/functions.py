@@ -370,6 +370,8 @@ class FunctionExtractor:
         body_nodes = list(body_nodes)
         if not body_nodes:
             return None, []
+        bound_names, _loaded = self.ast_converter._collect_scope_names(body_nodes)
+        self.ast_converter.module_scope_names.update(bound_names)
         code = self.create_synthetic_code(
             f"{module_name}.<module>",
             body_nodes,

@@ -63,6 +63,14 @@ class _GraphAssemblyMixin:
                 continue
             node = pdg.get_node_for_ast(ast_node)
             if node is not None and node.cfg_node is not None:
+                # ClassDef is now a real CFG/PDG definition node.  It still
+                # needs the source-statement metadata used by CPG queries
+                # (is_class_def/class_name) and the synthetic AST anchor.
+                if isinstance(ast_node, py_ast.ClassDef):
+                    meta = self._meta_for(node)
+                    meta["synthetic_ast"] = True
+                    self._annotate_statement_meta(node)
+                    pdg_ast_ids.add(id(ast_node))
                 continue
 
             label = self._ast_value(ast_node) or _safe_type_name(ast_node)

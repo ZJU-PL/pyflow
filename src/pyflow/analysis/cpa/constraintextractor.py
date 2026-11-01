@@ -259,6 +259,13 @@ class ExtractDataflow(TypeDispatcher):
     def visitJunk(self, node):
         pass
 
+    @dispatch(ast.ConvertToBool, ast.Not)
+    def visitTruthTest(self, node, targets=None):
+        # Evaluate the operand for side effects; the truth test itself does not
+        # create an IPA/CPA constraint.
+        self(node.expr)
+        return None
+
     @dispatch(ast.Suite, ast.Condition)
     def visitOK(self, node):
         node.visitChildren(self)

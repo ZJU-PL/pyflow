@@ -39,9 +39,13 @@ The constructor takes a dataflow IR.DataflowGraph which contains:
 """
 
 from collections import deque
-from typing import Any
+from typing import Any, Dict, List, Set, Tuple
 
+from pyflow.ir.core.source import syntax_source_span
+from pyflow.ir.core.storage import UnknownStorage
 from pyflow.ir.dataflow import graph as df
+from pyflow.ir.core.storage import AttributeStorage, LocalStorage, SubscriptStorage
+from pyflow.ir.core.symbols import SymbolKind
 from .graph import DataDependenceGraph, DDGNode
 
 
@@ -49,9 +53,19 @@ class MalformedForwardingCycleError(ValueError):
     """Raised when a dataflow slot's forwarding chain contains a cycle."""
 
 
-def _memory_slot_key(slot: Any) -> Any:
+def _memory_slot_key(slot: Any, aliases=None, parameter_symbols=()) -> Any:
+    """Return a stable identity for the storage location of *slot*.
+
+    Dataflow slots are value versions, not storage locations: a store to a
+    field creates a fresh ``FieldNode`` and a later load may canonicalize to
+    that version.  Memory dependences must group all versions of the same
+    storage (for example ``AttributeStorage(base=c, field='x')``), otherwise
+    a later write never shares a key with an earlier read/write and WAR/WAW
+    edges disappear.
+    """
+
     def canonicalize(value):
-        seen = []
+        seen: List[Any] = []
         while value is not None:
             if any(candidate is value for candidate in seen):
                 raise MalformedForwardingCycleError(
@@ -62,7 +76,13 @@ def _memory_slot_key(slot: Any) -> Any:
             if hasattr(replacement, "getForward"):
                 replacement = replacement.getForward()
             if hasattr(replacement, "canonical"):
-                replacement = replacement.canonical()
+                try:
+                    replacement = replacement.canonical()
+                except AttributeError:
+                    # A dead Split may have been optimized away while a
+                    # removed slot still points at it.  Treat the slot as
+                    # unforwarded instead of aborting DDG construction.
+                    replacement = None
             if replacement is value:
                 break
             value = replacement
@@ -70,13 +90,45 @@ def _memory_slot_key(slot: Any) -> Any:
 
     canonical = canonicalize(slot)
 
+    aliases = aliases or {}
+    parameter_symbols = parameter_symbols or ()
+
+    def canonical_storage(storage):
+        if isinstance(storage, LocalStorage):
+            symbol = aliases.get(storage.symbol, storage.symbol)
+            if symbol in parameter_symbols:
+                # Parameters may alias at the call site.  Treat their field
+                # bases as a single conservative parameter location.
+                return ("parameter-base",)
+            return LocalStorage(symbol)
+        if isinstance(storage, AttributeStorage):
+            return AttributeStorage(canonical_storage(storage.base), storage.field)
+        if isinstance(storage, SubscriptStorage):
+            return SubscriptStorage(canonical_storage(storage.base), storage.key)
+        return storage
+
     slot_name = canonicalize(getattr(canonical, "name", None))
+    if isinstance(slot_name, UnknownStorage):
+        # Opaque calls model reads and writes with different UnknownStorage
+        # kinds (call-read / call-write).  They still refer to the same
+        # unrefined heap, so all unknown storage aliases conservatively.
+        return UnknownStorage("unknown")
     if slot_name is not None and (hasattr(slot_name, "object") or hasattr(slot_name, "slotName")):
         return slot_name
 
     slot_object = canonicalize(getattr(canonical, "object", None))
     if slot_object is not None:
         return (slot_object, slot_name)
+
+    if slot_name is not None:
+        # Immutable StorageLocation identities (LocalStorage,
+        # AttributeStorage, GlobalStorage, ...) already distinguish the base
+        # object and the field, and they are shared by every value version.
+        return canonical_storage(slot_name)
+
+    names = canonicalize(getattr(canonical, "names", None))
+    if names:
+        return tuple(names)
 
     return canonical
 
@@ -103,11 +155,13 @@ class DDGConstructor(object):
         ddg: The Data Dependence Graph being constructed
     """
 
-    __slots__ = ("ddg",)
+    __slots__ = ("ddg", "_memory_aliases", "_parameter_symbols")
 
     def __init__(self):
         """Initialize a DDG constructor."""
         self.ddg = DataDependenceGraph()
+        self._memory_aliases = {}
+        self._parameter_symbols = set()
 
     def construct_from_dataflow(self, dataflow: df.DataflowGraph) -> DataDependenceGraph:
         """
@@ -127,9 +181,12 @@ class DDGConstructor(object):
         # Constructors are reusable, but each construction represents exactly
         # one input graph.
         self.ddg = DataDependenceGraph(getattr(dataflow, "code", None))
+        self._memory_aliases = {}
+        self._parameter_symbols = set()
 
         # Create nodes for all ops and slots reachable from graph roots.
         self._index_dataflow(dataflow)
+        self._index_memory_aliases(dataflow)
 
         # Connect def-use edges for local and heap flows
         self._connect_def_use()
@@ -207,6 +264,37 @@ class DDGConstructor(object):
                 if nxt not in visited:
                     stack.append(nxt)
 
+    def _index_memory_aliases(self, dataflow: df.DataflowGraph) -> None:
+        """Canonicalize local storage symbols that share one dataflow value.
+
+        Copy propagation merges ``b = a`` into the LocalNode for ``a``; the
+        FieldNode base still mentions the syntactic ``b`` symbol.  Build the
+        symbol alias map so memory dependencies use the canonical base.
+        """
+        code = getattr(dataflow, "code", None)
+        catalog = getattr(code, "ir_catalog", None)
+        if catalog is None:
+            return
+        for ir_slot in self.ddg.slot_node_map:
+            names = getattr(ir_slot, "names", None)
+            if not names:
+                continue
+            symbols = []
+            for name in names:
+                try:
+                    symbols.append(catalog.symbol_id(name, code))
+                except (KeyError, ValueError):
+                    continue
+            if not symbols:
+                continue
+            canonical = symbols[0]
+            for symbol in symbols:
+                self._memory_aliases[symbol] = canonical
+            for symbol in symbols:
+                info = catalog.symbols.get(symbol)
+                if info is not None and info.kind is SymbolKind.PARAMETER:
+                    self._parameter_symbols.add(symbol)
+
     def _connect_def_use(self) -> None:
         """
         Connect definition-use pairs in the DDG.
@@ -256,9 +344,16 @@ class DDGConstructor(object):
         dependencies from every feasible predecessor.
 
         **Slot Identification:**
-        Heap slots are identified by their name (for FieldNode) or by the
-        slot object itself. Operations that access the same slot name are
-        considered to potentially alias.
+        Heap slots are identified by their storage location (``FieldNode.name``
+        or the slot object for legacy dataflow nodes), not by a particular
+        value version. Operations accessing the same location are considered
+        to potentially alias.
+
+        **Pseudo reads:**
+        ``heapPsedoReads`` records the implicit read of the old value performed
+        by a store. It participates in WAR state, but it is not a true read and
+        must not create a RAW edge (a write followed by a write is WAW, not
+        RAW).
 
         **Algorithm:**
         1. Build operation predecessor/successor relations
@@ -279,56 +374,90 @@ class DDGConstructor(object):
                     result.update(user for user in child.forward() if isinstance(user, df.OpNode))
             return result & op_set
 
-        successors = {ir: operation_successors(ir) for ir in ir_ops}
-        predecessors = {ir: set() for ir in ir_ops}
+        # Three distinct categories: true reads (RAW), pseudo reads (WAR),
+        # and writes (WAW).  Treating pseudo reads as true reads made every
+        # write emit a spurious RAW edge from the previous write.
+        accesses: Dict[Any, Tuple[Set[Any], Set[Any], Set[Any]]] = {}
+        ops_by_location: Dict[Any, List[Any]] = {}
+        for ir in ir_ops:
+            values: List[Any] = []
+            for attribute in ("heapReads", "heapPsedoReads", "heapModifies"):
+                entries = getattr(ir, attribute, None)
+                values.append(entries.values() if isinstance(entries, dict) else ())
+            true_reads, pseudo_reads, writes = (
+                {
+                    _memory_slot_key(
+                        slot,
+                        self._memory_aliases,
+                        self._parameter_symbols,
+                    )
+                    for slot in group
+                }
+                for group in values
+            )
+            accesses[ir] = (true_reads, pseudo_reads, writes)
+            for key in true_reads | pseudo_reads | writes:
+                ops_by_location.setdefault(key, []).append(ir)
+
+        successors: Dict[Any, Set[Any]] = {ir: operation_successors(ir) for ir in ir_ops}
+
+        # The dataflow graph only links operations through values.  A read
+        # followed by an unrelated write to the same field therefore has no
+        # path between the two operations, and WAR could never be reported.
+        # Add a conservative source-order chain among heap-accessing operations
+        # that share a path predicate.  Operations in different branches use
+        # different canonical predicates and remain unordered relative to each
+        # other.
+        ordered: Dict[Any, List[Tuple[int, int, Any]]] = {}
+        for ir in ir_ops:
+            if not any(accesses[ir]):
+                continue
+            ast_node = getattr(ir, "op", None)
+            span = syntax_source_span(ast_node)
+            if span is None:
+                continue
+            predicate = getattr(ir, "predicate", None)
+            canonical_predicate = None
+            if predicate is not None and hasattr(predicate, "canonical"):
+                try:
+                    canonical_predicate = predicate.canonical()
+                except Exception:
+                    canonical_predicate = predicate
+            key = (canonical_predicate, span.path)
+            ordered.setdefault(key, []).append((span.start_line, span.start_column, ir))
+        for entries in ordered.values():
+            entries.sort(key=lambda entry: (entry[0], entry[1]))
+            for (_, _, earlier), (_, _, later) in zip(entries, entries[1:]):
+                if earlier is not later:
+                    successors.setdefault(earlier, set()).add(later)
+
+        predecessors: Dict[Any, Set[Any]] = {ir: set() for ir in ir_ops}
         for source, targets in successors.items():
             for target in targets:
                 predecessors[target].add(source)
 
-        accesses = {}
-        for ir in ir_ops:
-            reads = []
-            writes = []
-            if isinstance(getattr(ir, "heapReads", None), dict):
-                reads.extend(ir.heapReads.values())
-            if isinstance(getattr(ir, "heapPsedoReads", None), dict):
-                reads.extend(ir.heapPsedoReads.values())
-            if isinstance(getattr(ir, "heapModifies", None), dict):
-                writes.extend(ir.heapModifies.values())
-            accesses[ir] = (
-                {_memory_slot_key(slot) for slot in reads},
-                {_memory_slot_key(slot) for slot in writes},
-            )
-
-        # Solve one abstract location at a time.  The previous product state
-        # copied a growing location->state dictionary at every operation; its
-        # peak memory was O(operations * locations).  This formulation keeps
-        # only two scalar reaching sets per operation and releases them before
-        # moving to the next location.
-        locations = sorted(
-            {key for read, write in accesses.values() for key in read | write},
-            key=repr,
-        )
-        empty_state = (frozenset(), frozenset())
-
-        # Solve only abstract locations that can participate in memory dependencies
-        # (must have at least one write, and either at least one read or multiple writes).
-        # Read-only or single-write-no-read locations cannot produce RAW, WAR, or WAW edges.
-        relevant_locations = []
-        ops_by_location = {}
-        for key in locations:
-            accessing_ops = [
-                ir for ir in ir_ops if key in accesses[ir][0] or key in accesses[ir][1]
-            ]
-            writes_count = sum(1 for ir in accessing_ops if key in accesses[ir][1])
-            reads_count = len(accessing_ops) - writes_count
-            if writes_count > 0 and (reads_count > 0 or writes_count > 1):
+        relevant_locations: List[Any] = []
+        for key, accessing_ops in ops_by_location.items():
+            writes_count = sum(1 for ir in accessing_ops if key in accesses[ir][2])
+            has_true_read = any(key in accesses[ir][0] for ir in accessing_ops)
+            # Read-only locations and single-write locations whose only reads
+            # are the store's implicit pseudo reads cannot produce a RAW, WAR,
+            # or WAW edge.  Treating those pseudo reads as a reason to solve
+            # the location made every distinct field store traverse its whole
+            # downstream graph, which is quadratic for large modules.
+            if writes_count > 0 and (has_true_read or writes_count > 1):
                 relevant_locations.append(key)
-                ops_by_location[key] = accessing_ops
 
-        for key in relevant_locations:
-            in_states = {ir: empty_state for ir in ir_ops}
-            out_states = {ir: empty_state for ir in ir_ops}
+        # Solve one abstract location at a time.  The forward state tracks
+        # only reaching writes: a write kills all earlier writes, so this set
+        # stays proportional to the number of open paths (join fan-in) rather
+        # than growing along a long chain of reads.  Reads-since-write are
+        # recovered backwards from each write instead; storing them in every
+        # forward state caused quadratic set copying for long read sequences.
+        empty_state: Any = frozenset()
+        for key in sorted(relevant_locations, key=repr):
+            in_writes: Dict[Any, Any] = {}
+            out_writes: Dict[Any, Any] = {}
             start_ops = ops_by_location[key]
             worklist = deque(start_ops)
             queued = set(start_ops)
@@ -338,48 +467,60 @@ class DDGConstructor(object):
                 queued.discard(ir)
 
                 reaching_writes = set()
-                reaching_reads = set()
                 for predecessor in predecessors[ir]:
-                    writes, reads = out_states[predecessor]
-                    reaching_writes.update(writes)
-                    reaching_reads.update(reads)
-                incoming = (
-                    frozenset(reaching_writes),
-                    frozenset(reaching_reads),
-                )
+                    reaching_writes.update(out_writes.get(predecessor, empty_state))
+                incoming = frozenset(reaching_writes)
 
-                reads, writes = accesses[ir]
-                if key in reads:
-                    outgoing = (incoming[0], incoming[1] | frozenset((ir,)))
+                _, _, writes = accesses[ir]
+                if key in writes:
+                    outgoing = frozenset((ir,))
                 else:
                     outgoing = incoming
-                if key in writes:
-                    outgoing = (frozenset((ir,)), frozenset())
 
-                if incoming == in_states[ir] and outgoing == out_states[ir]:
+                if incoming == in_writes.get(ir, empty_state) and outgoing == out_writes.get(
+                    ir, empty_state
+                ):
                     continue
-                in_states[ir] = incoming
-                out_states[ir] = outgoing
+                in_writes[ir] = incoming
+                out_writes[ir] = outgoing
                 for successor in successors[ir]:
                     if successor not in queued:
                         queued.add(successor)
                         worklist.append(successor)
 
-            for ir in ops_by_location[key]:
-                reads, writes = accesses[ir]
+            def reads_reaching(write_op):
+                """True/pseudo reads that reach *write_op* before any write."""
+                readers = set()
+                visited = set()
+                pending = list(predecessors[write_op])
+                while pending:
+                    current = pending.pop()
+                    if current in visited:
+                        continue
+                    visited.add(current)
+                    current_writes = accesses[current][2]
+                    if key not in current_writes:
+                        current_reads = accesses[current][0] | accesses[current][1]
+                        if key in current_reads:
+                            readers.add(current)
+                        pending.extend(predecessors[current])
+                return readers
+
+            for ir in start_ops:
+                true_reads, _, writes = accesses[ir]
                 op = op_nodes[ir]
-                reaching_writes, reaching_reads = in_states[ir]
-                if key in reads:
+                reaching_writes = in_writes.get(ir, empty_state)
+                if key in true_reads:
                     for writer in reaching_writes:
                         if writer is not ir:
                             self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW", location=key)
                 if key in writes:
-                    for reader in reaching_reads:
-                        if reader is not ir:
-                            self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
                     for writer in reaching_writes:
                         if writer is not ir:
                             self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW", location=key)
+                    for reader in reads_reaching(ir):
+                        if reader is not ir:
+                            self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
 
 
 def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:

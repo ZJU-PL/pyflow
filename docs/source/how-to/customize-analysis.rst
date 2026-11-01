@@ -115,46 +115,40 @@ Using Custom Formatter
 Advanced Configuration
 ======================
 
-Context-Sensitive Analysis
---------------------------
-
-Configure context-sensitive analysis:
-
-.. code-block:: toml
-
-   [analysis.cpa]
-   context_sensitive = true
-   # Context depth limit (0 = unlimited)
-   max_context_depth = 5
-   # Context representation: "k-limiting", "-object-sensitive", "call-string"
-   context_representation = "k-limiting"
-   k_value = 3
-
-Field Sensitivity
------------------
-
-Configure field-sensitive analysis:
-
-.. code-block:: toml
-
-   [analysis.cpa]
-   field_sensitive = true
-   # Track individual fields separately
-   track_individual_fields = true
-   # Maximum fields to track per object
-   max_tracked_fields = 20
-
-Flow Sensitivity
+Analysis Options
 ----------------
 
-Configure flow-sensitive analysis:
+Configure analysis parameters programmatically via ``AnalysisOptions`` on the program session:
 
-.. code-block:: toml
+.. code-block:: python
 
-   [analysis.cpa]
-   flow_sensitive = true
-   # Statement-level vs block-level analysis
-   granularity = "statement"  # or "block"
+   from pyflow.application.session import AnalysisOptions
+
+   # Configure CPA path sensitivity, caching, and report options
+   options = AnalysisOptions(
+       cpa_path_length=3,
+       enable_caching=True,
+       dump_reports=False,
+   )
+   program.session.configure(options)
+
+Security & IFDS Configuration
+------------------------------
+
+For IFDS security analysis, reusable project defaults can be supplied via ``pyflow.json``:
+
+.. code-block:: json
+
+   {
+     "analysis": "taint",
+     "entry": ["app.py"],
+     "frameworks": ["stdlib", "flask"],
+     "unknown_call_policy": "preserve",
+     "solver_options": {
+       "max_seconds": 30,
+       "max_path_edges": 100000
+     }
+   }
 
 Command-Line Overrides
 ======================

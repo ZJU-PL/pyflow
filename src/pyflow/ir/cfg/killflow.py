@@ -20,6 +20,18 @@ from .dfs import CFGDFS
 NoNormalFlow = cfg.NoNormalFlow
 
 
+def _truth_test_may_raise(expression):
+    """Whether evaluating ``bool(expression)`` can raise.
+
+    Constants with a concrete bool value are the only case we can fold safely;
+    every other expression may invoke ``__bool__``/``__len__``.
+    """
+    if isinstance(expression, ast.Existing):
+        obj = getattr(expression, "object", None)
+        return not (hasattr(obj, "pyobj") and isinstance(obj.pyobj, bool))
+    return True
+
+
 class OpFlow(TypeDispatcher):
     """Analyzes AST operations to determine control flow properties.
 
@@ -145,13 +157,18 @@ class OpFlow(TypeDispatcher):
         ast.BuildList,
         ast.BuildSet,
         ast.BuildSlice,
-        ast.ShortCircutAnd,
-        ast.ShortCircutOr,
-        ast.ConditionalExpr,
         ast.NamedExpr,
         ast.MakeFunction,
     )
     def visitStructuredExpr(self, node):
+        node.visitChildren(self)
+
+    @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr, ast.ConditionalExpr)
+    def visitTruthyExpr(self, node):
+        # Condition contexts mark the truth test as erroring in
+        # FlowKiller.visitSwitch/visitWhile.  In value position, treating the
+        # whole boolean expression as unconditionally erroring made downstream
+        # taint analyses invent exception-path facts.
         node.visitChildren(self)
 
     @dispatch(ast.Return)
@@ -198,6 +215,8 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.While)
     def visitWhile(self, node):
         condition = self.summarize(node.condition)
+        if _truth_test_may_raise(node.condition.conditional):
+            condition.errors = True
         body = self.summarize(node.body)
         else_ = self.summarize(node.else_)
         self.include_abnormal(condition, body, else_)
@@ -236,6 +255,8 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.Switch)
     def visitStructuredSwitch(self, node):
         condition = self.summarize(node.condition)
+        if _truth_test_may_raise(node.condition.conditional):
+            condition.errors = True
         true = self.summarize(node.t)
         false = self.summarize(node.f)
         self.include_abnormal(condition, true, false)
@@ -374,6 +395,8 @@ class FlowKiller(TypeDispatcher):
             node: Switch CFG block to analyze
         """
         self.opFlow.process(node.condition)
+        if _truth_test_may_raise(node.condition):
+            self.opFlow.errors = True
         self.yields |= self.opFlow.yields
 
         if not self.opFlow.normal:
@@ -414,15 +437,16 @@ class FlowKiller(TypeDispatcher):
 
     @dispatch(cfg.ForIter)
     def visitForIter(self, node):
+        # The iterable expression is evaluated once, but the implicit
+        # ``iter(...)`` call can raise and every ``next(...)`` can raise.
+        # Keeping the abnormal exits is conservative but sound; the previous
+        # implementation analyzed only the expression and deleted both exits
+        # for a plain local iterable, silently losing handlers.
         self.opFlow.process(node.iterator)
         self.yields |= self.opFlow.yields
         if not self.opFlow.normal:
             node.killExit("body")
             node.killExit("exit")
-        if not self.opFlow.fails:
-            node.killExit("fail")
-        if not self.opFlow.errors:
-            node.killExit("error")
 
 
 def evaluate(compiler, g):

@@ -59,38 +59,20 @@ Analysis Configuration
 ======================
 
 PyFlow supports configurable analysis with different precision/performance trade-offs.
+Analysis parameters are configured via ``AnalysisOptions`` on the program session:
 
-Context-Sensitive Analysis
---------------------------
+.. code-block:: python
 
-By default, PyFlow performs context-insensitive analysis for performance. Enable
-context-sensitive analysis for more precise results:
+   from pyflow.application.session import AnalysisOptions
+
+   # Configure analysis options on the program session
+   program.session.configure(AnalysisOptions(cpa_path_length=3))
+
+CLI flags can also select specific analyses:
 
 .. code-block:: bash
 
    pyflow optimize input.py --analysis cpa
-
-.. code-block:: python
-
-   context.set_config("cpa.context_sensitive", True)
-
-Flow-Sensitive Analysis
------------------------
-
-Enable flow-sensitive analysis for statement-by-statement precision:
-
-.. code-block:: python
-
-   context.set_config("cpa.flow_sensitive", True)
-
-Field-Sensitive Analysis
-------------------------
-
-Enable field-sensitive analysis to track individual object fields:
-
-.. code-block:: python
-
-   context.set_config("cpa.field_sensitive", True)
 
 Running Analyses
 ================
@@ -105,7 +87,7 @@ PyFlow provides several CLI commands for running analyses:
 * ``pyflow ir`` - Dump intermediate representations (AST, CFG, SSA, CDG, DDG)
 * ``pyflow alias`` - Run alias analysis (flow-sensitive heap or k-CFA pointer)
 * ``pyflow security`` - Unified security analysis dispatching to
-  ast-scanner, CPA, IFDS, or CPG engines
+  ast-scanner, ast-dataflow, ifds, or cpg engines
 * ``pyflow supply-chain`` - Generate CycloneDX SBOMs and audit distribution metadata
 
 Programmatic Usage
@@ -115,12 +97,13 @@ Use the Python API for programmatic analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.cpa import InterproceduralDataflow
+   from pyflow.application.context import CompilerContext
+   from pyflow.application.pipeline import Pipeline
    from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 
-   # Run CPA
-   cpa = InterproceduralDataflow()
-   cpa.run(program)
+   # Run analysis pipeline
+   compiler = CompilerContext()
+   results = Pipeline().run(program, compiler=compiler)
 
    # Build call graph
    graph = extract_call_graph_constraint(source_code)
