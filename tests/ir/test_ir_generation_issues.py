@@ -221,3 +221,259 @@ def test_cli_ir_dump_ast_dot_format(tmp_path):
     output = stdout_buf.getvalue()
     assert "digraph G" in output
     assert "ast_" in output
+
+
+def test_gir_for_loop_attribute_and_subscript_targets():
+    """GIR generation must handle for loops with attribute or subscript targets without crashing."""
+    from pyflow.ir.gir import build_function_gir
+
+    source = """
+def f(opt, weights, data, items):
+    for opt.weights in weights:
+        pass
+    for data['k'] in items:
+        pass
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    rows = build_function_gir(code, "f")
+
+    operations = [row["operation"] for row in rows]
+    assert "forin_stmt" in operations
+    assert "field_write" in operations
+    assert "array_write" in operations
+
+
+def test_gir_comprehension_tuple_unpacking():
+    """GIR generation for comprehensions with tuple targets
+    must unpack elements and use valid schema.
+    """
+    from pyflow.ir.gir import build_function_gir
+
+    source = """
+def f(items):
+    return [v for k, v in items if k > 0]
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    rows = build_function_gir(code, "f")
+
+    array_reads = [r for r in rows if r.get("operation") == "array_read"]
+    target_names = {r.get("target") for r in array_reads}
+    assert "k" in target_names
+    assert "v" in target_names
+
+    forin_rows = [r for r in rows if r.get("operation") == "forin_stmt"]
+    assert len(forin_rows) == 1
+    # Ensure "(k, v)" tuple string was not left as
+    # the forin loop variable name
+    assert forin_rows[0].get("name") != "(k, v)"
+
+
+def test_lambda_default_arguments_recorded_in_makefunction_and_defuse():
+    """Lambda default arguments must be preserved on MakeFunction and tracked in def-use chains."""
+    from pyflow.language.python.defuse import evaluateCode
+
+    source = """
+def f(val):
+    fn = lambda x=val: x + 1
+    return fn()
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+
+    # Verify MakeFunction defaults
+    make_fn = code.ast.blocks[0].expr
+    assert len(make_fn.defaults) == 1
+    assert getattr(make_fn.defaults[0], "name", None) == "val"
+
+    # Verify def-use visitor tracks the usage of 'val'
+    (lcldef, lcluse), _ = evaluateCode(None, code)
+    val_local = next(k for k in lcluse if k.name == "val")
+    assert len(lcluse[val_local]) >= 1
+
+
+def test_ast_nodes_traversal_linear_scaling():
+    """_ast_nodes must scale linearly with the number of AST nodes without O(N^2) explosion."""
+    from pyflow.ir.cfg.revision import _ast_nodes
+    from pyflow.language.python import ast as pyflow_ast
+    from pyflow.ir.cfg import graph as cfg_graph
+
+    region = object()
+    code = object()
+    entry = cfg_graph.Entry(region)
+    suite = cfg_graph.Suite(region)
+    suite.ops = [pyflow_ast.Local(f"var_{i}") for i in range(4000)]
+    entry.setExit("entry", suite)
+    normal_term = cfg_graph.Exit(region)
+    fail_term = cfg_graph.Exit(region)
+    error_term = cfg_graph.Exit(region)
+    suite.setExit("normal", normal_term)
+
+    class DummyCFG:
+        pass
+
+    cfg = DummyCFG()
+    cfg.code = code
+    cfg.entryTerminal = entry
+    cfg.normalTerminal = normal_term
+    cfg.failTerminal = fail_term
+    cfg.errorTerminal = error_term
+
+    t0 = time.time()
+    nodes = _ast_nodes(cfg)
+    elapsed = time.time() - t0
+
+    assert len(nodes) >= 4000
+    assert elapsed < 0.2, f"_ast_nodes traversal took too long: {elapsed:.3f}s"
+
+
+def test_ddg_dot_dump_syntax_validity(tmp_path):
+    """DDG DOT dump must produce valid Graphviz syntax that passes dot parsing."""
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction, dump as ddg_dump
+    import shutil
+
+    source = """
+def is_even(number):
+    if number % 2 == 0:
+        return True
+    return False
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    compiler = CompilerContext(Console(verbose=False))
+    dfg = convert.evaluateCode(compiler, code)
+    ddg = construction.construct_ddg(dfg)
+
+    dot_file = tmp_path / "ddg.dot"
+    ddg_dump.dump_ddg(ddg, str(dot_file), fmt="dot", title="is_even")
+
+    dot_content = dot_file.read_text(encoding="utf-8")
+    assert "digraph G" in dot_content
+    for line in dot_content.splitlines():
+        if "label=" in line and ("@" in line or ":" in line) and not line.strip().startswith("//"):
+            label_part = line.split("label=", 1)[1]
+            assert label_part.startswith('"') or label_part.startswith(
+                "<"
+            ), f"Unquoted label: {line}"
+
+    dot_bin = shutil.which("dot")
+    if dot_bin:
+        proc = subprocess.run(
+            [dot_bin, "-Tpng", str(dot_file), "-o", "/dev/null"], capture_output=True, text=True
+        )
+        assert proc.returncode == 0, f"Graphviz dot failed on DDG DOT output: {proc.stderr}"
+
+
+def test_dataflow_and_ddg_named_expr_def_use():
+    """Walrus operator := must create definition edges and def-use chains in DDG."""
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def f(x):
+    if (val := x + 10) > 20:
+        return val * 2
+    return 0
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    compiler = CompilerContext(Console(verbose=False))
+    dfg = convert.evaluateCode(compiler, code)
+    ddg = construction.construct_ddg(dfg)
+
+    val_edges = [e for e in ddg.all_edges() if "val" in repr(e.label)]
+    assert len(val_edges) >= 2, "Expected at least 2 def-use edges involving walrus target 'val'"
+
+    ret_op = [n for n in ddg.nodes if "interpreter__mul__" in repr(n.ir_node)][0]
+    in_edges_null = [
+        e for e in ddg.all_edges() if e.target is ret_op and "null" in repr(e.source.ir_node)
+    ]
+    assert len(in_edges_null) == 0, "Return calculation should not read from null()"
+
+
+def test_ssa_delete_statement_unbinds_local():
+    """del x in a branch must unbind x so merge blocks receive None on the deleted path."""
+    from pyflow.ir.cfg.verifier import _all_blocks, verify_cfg
+
+    source = """
+def f(flag):
+    val = 42
+    if flag:
+        del val
+    return val
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    compiler = CompilerContext(Console(verbose=False))
+    cfg = transform.evaluate(compiler, code)
+    ssa.evaluate(compiler, cfg)
+
+    verify_cfg(cfg)
+
+    all_phis = [phi for b in _all_blocks(cfg) for phi in getattr(b, "phi", [])]
+    assert len(all_phis) == 1, f"Expected 1 Phi node, found {len(all_phis)}"
+    phi = all_phis[0]
+    assert (
+        None in phi.arguments
+    ), f"Expected None in Phi arguments for deleted local: {phi.arguments}"
+    assert any(a is not None for a in phi.arguments), "Expected at least one defined argument"
+
+
+def test_dataflow_dce_preserves_generator_yields():
+    """Dataflow DCE must treat yields as live sinks so generator bodies are retained in DDG."""
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def gen():
+    x = 1
+    yield x
+    y = 2
+    yield y
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    compiler = CompilerContext(Console(verbose=False))
+    dfg = convert.evaluateCode(compiler, code)
+    ddg = construction.construct_ddg(dfg)
+
+    yield_nodes = [n for n in ddg.nodes if "Yield" in repr(n.ir_node)]
+    assert (
+        len(yield_nodes) >= 2
+    ), f"Expected at least 2 yield operations in DDG, found {len(yield_nodes)}"
+
+
+def test_cfg_dump_foriter_and_typeswitch_content():
+    """CFG text and JSON dumps must include ForIter iterator and index information."""
+    from pyflow.ir.cfg.dump import generate_clang_style_cfg, generate_json_cfg
+
+    source = """
+def f(items):
+    for item in items:
+        pass
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    code = conv._convert_function_def(tree.body[0]).code
+    compiler = CompilerContext(Console(verbose=False))
+    cfg = transform.evaluate(compiler, code)
+
+    text_cfg = generate_clang_style_cfg(cfg)
+    assert "Iterator: Local(%item) <- iter(Local(%items))" in text_cfg
+
+    json_cfg = generate_json_cfg(cfg)
+    foriter_blocks = [b for b in json_cfg["blocks"] if b["kind"] == "ForIter"]
+    assert len(foriter_blocks) == 1
+    assert "item" in foriter_blocks[0]["condition"]
+    assert "items" in foriter_blocks[0]["condition"]
+    assert foriter_blocks[0].get("index") == "Local(%item)"
+    assert foriter_blocks[0].get("iterator") == "Local(%items)"

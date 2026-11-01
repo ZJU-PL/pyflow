@@ -55,6 +55,9 @@ def _iter_slot_reads(node):
         return
     if isinstance(node, ast.leafTypes):
         return
+    if isinstance(node, ast.NamedExpr):
+        yield from _iter_slot_reads(node.value)
+        return
     children = getattr(node, "children", None)
     if children is None:
         return
@@ -66,6 +69,25 @@ def _iter_slot_reads(node):
                 yield from _iter_slot_reads(item)
         else:
             yield from _iter_slot_reads(child)
+
+
+def _collect_named_exprs(node):
+    """Yield all named expressions (walrus :=) contained in node."""
+    if node is None or isinstance(node, (ast.Code, ast.leafTypes)):
+        return
+    if isinstance(node, ast.NamedExpr):
+        if isinstance(node.target, ast.Local):
+            yield node
+    children = getattr(node, "children", None)
+    if children is not None:
+        for child in children():
+            if child is None:
+                continue
+            if isinstance(child, (list, tuple)):
+                for item in child:
+                    yield from _collect_named_exprs(item)
+            else:
+                yield from _collect_named_exprs(child)
 
 
 class AbstractState(object):
@@ -457,6 +479,15 @@ class CodeToDataflow(TypeDispatcher):
             assert False
         return node
 
+    def _apply_named_exprs(self, node, g):
+        if node is None:
+            return
+        for named_expr in _collect_named_exprs(node):
+            if isinstance(named_expr.target, ast.Local):
+                target = self.localTarget(named_expr.target)
+                self.set(named_expr.target, target)
+                g.addLocalModify(named_expr.target, target)
+
     def handleOp(self, node, targets):
         g = self(node)
         if isinstance(node, (ast.Local, ast.Existing)):
@@ -468,6 +499,7 @@ class CodeToDataflow(TypeDispatcher):
             target = self.localTarget(lcl)
             self.set(lcl, target)
             g.addLocalModify(lcl, target)
+        self._apply_named_exprs(node, g)
 
     def handleMemory(self, node, g):
         catalog = getattr(self.code, "ir_catalog", None)
@@ -545,6 +577,7 @@ class CodeToDataflow(TypeDispatcher):
                 continue
             seen.add(key)
             self.localRead(g, read)
+        self._apply_named_exprs(node, g)
         return self.finishOp(node, g)
 
     @dispatch(ast.Allocate)
@@ -727,6 +760,7 @@ class CodeToDataflow(TypeDispatcher):
         g.setPredicate(self.pred())
         for read in _iter_slot_reads(node.condition.conditional):
             self.localRead(g, read)
+        self._apply_named_exprs(node.condition.conditional, g)
         self.finishOp(node.condition.conditional, g)
 
         predicates = []
@@ -752,6 +786,7 @@ class CodeToDataflow(TypeDispatcher):
         for read in _iter_slot_reads(expression):
             self.localRead(g, read)
         if expression is not None:
+            self._apply_named_exprs(expression, g)
             self.finishOp(expression, g)
 
         predicates = []

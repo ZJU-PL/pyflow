@@ -185,6 +185,45 @@ class LivenessSearcher(TypeDispatcher):
         """
         self.mark(dataflow.exit)
 
+        from pyflow.language.python import ast as lang_ast
+
+        def _is_yield_op(op):
+            if not isinstance(op, graph.GenericOp):
+                return False
+            ast_node = getattr(op, "op", None)
+            if ast_node is None:
+                return False
+
+            def check_yield(n):
+                if isinstance(n, (lang_ast.Yield, lang_ast.YieldFrom, lang_ast.AsyncYield)):
+                    return True
+                children = getattr(n, "children", None)
+                if children is not None:
+                    for child in children():
+                        if child is None:
+                            continue
+                        if isinstance(child, (list, tuple)):
+                            if any(check_yield(c) for c in child):
+                                return True
+                        elif check_yield(child):
+                            return True
+                return False
+
+            return check_yield(ast_node)
+
+        visited = set()
+        stack = [dataflow.entry]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            if _is_yield_op(node):
+                self.mark(node)
+            for nxt in node.forward():
+                if nxt not in visited:
+                    stack.append(nxt)
+
         while self.queue:
             current = self.queue.pop()
             if current.isOp() and current.isExit():

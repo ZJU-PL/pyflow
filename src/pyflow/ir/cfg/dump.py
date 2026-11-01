@@ -7,7 +7,9 @@ in various formats including DOT graphs for visualization.
 import pyflow.util.pydot as pydot
 from pyflow.util.typedispatch import *
 from pyflow.util.io import filesystem
-from pyflow.ir.cfg import graph as cfg
+from pyflow.ir.cfg import graph as cfg_graph
+
+cfg = cfg_graph
 
 
 def makeStr(s):
@@ -325,6 +327,12 @@ def generate_clang_style_cfg(cfg):
                 elif hasattr(node, "phi") and node.phi:
                     for phi in node.phi:
                         content += f"    Phi: {phi}\n"
+                elif isinstance(node, cfg_graph.ForIter):
+                    content += f"    Iterator: {node.index} <- iter({node.iterator})\n"
+                elif isinstance(node, cfg_graph.TypeSwitch):
+                    content += f"    TypeSwitch: {node.original.conditional}\n"
+                elif isinstance(node, cfg_graph.State) and getattr(node, "name", None):
+                    content += f"    State: {node.name}\n"
 
                 # Outgoing edges
                 if hasattr(node, "next") and node.next:
@@ -379,19 +387,30 @@ def generate_json_cfg(cfg):
             kind = type(node).__name__
 
         condition = getattr(node, "condition", None)
-        blocks.append(
-            {
-                "id": f"B{i}",
-                "kind": kind,
-                "ops": [str(op) for op in getattr(node, "ops", ()) or ()],
-                "condition": str(condition) if condition else None,
-                "phi": [str(phi) for phi in getattr(node, "phi", ()) or ()],
-                "successors": [
-                    {"exit": name, "target": node_to_block[target]}
-                    for name, target in (getattr(node, "next", {}) or {}).items()
-                    if target is not None and target in node_to_block
-                ],
-            }
-        )
+        if condition is None and isinstance(node, cfg_graph.ForIter):
+            condition = f"{node.index} <- iter({node.iterator})"
+        elif condition is None and isinstance(node, cfg_graph.TypeSwitch):
+            condition = str(node.original.conditional)
+        elif (
+            condition is None and isinstance(node, cfg_graph.State) and getattr(node, "name", None)
+        ):
+            condition = str(node.name)
+
+        block_data = {
+            "id": f"B{i}",
+            "kind": kind,
+            "ops": [str(op) for op in getattr(node, "ops", ()) or ()],
+            "condition": str(condition) if condition else None,
+            "phi": [str(phi) for phi in getattr(node, "phi", ()) or ()],
+            "successors": [
+                {"exit": name, "target": node_to_block[target]}
+                for name, target in (getattr(node, "next", {}) or {}).items()
+                if target is not None and target in node_to_block
+            ],
+        }
+        if isinstance(node, cfg_graph.ForIter):
+            block_data["iterator"] = str(node.iterator)
+            block_data["index"] = str(node.index)
+        blocks.append(block_data)
 
     return {"entry": "B0" if all_nodes else None, "blocks": blocks}

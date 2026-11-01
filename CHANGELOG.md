@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resolved Graphviz DOT generation syntax errors in `pydot.py` by properly quoting attribute values and node identifiers containing colons and special characters.
+- Modeled the PEP 572 walrus operator (`:=`, `ast.NamedExpr`) during DataflowGraph and DDG construction to ensure local targets are defined and def-use chains are preserved.
+- Handled `ast.Delete` in CFG SSA so that variable deletion unbinds locals and introduces `None` (undefined) into downstream control-flow joins and Phi nodes.
+- Preserved generator function bodies in Dataflow DCE by recognizing yield expressions as observable live roots.
+- Optimized DDG memory dependency fixed-point analysis to skip read-only and single-write memory locations and seed worklists with accessing operations.
+- Enriched CFG clang-style text and JSON exports with loop index, iterator, and condition details for `ForIter`, `TypeSwitch`, and `State` blocks.
+
 - Supply-chain scans now report empty inventories, follow explicitly targeted
   virtualenvs and symlinked manifests, resolve setup.py requirements across
   platform files with bounded reads, and model Poetry/uv/Pipfile metadata,

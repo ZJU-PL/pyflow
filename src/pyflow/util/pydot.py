@@ -307,9 +307,8 @@ class frozendict(dict):
 
 dot_keywords = ["graph", "subgraph", "digraph", "node", "edge", "strict"]
 
-id_re_alpha_nums = re.compile("^[_a-zA-Z][a-zA-Z0-9_:,]*$")
-id_re_num = re.compile("^[0-9]+$")
-id_re_with_port = re.compile('^.*:([^"]+|[^"]*"[^"]*"[^"]*)$')
+id_re_alpha_nums = re.compile("^[_a-zA-Z][a-zA-Z0-9_]*$")
+id_re_num = re.compile(r"^[-+]?(\d+(\.\d*)?|\.\d+)$")
 id_re_dbl_quoted = re.compile('^".*"$', re.S)
 id_re_html = re.compile("^<.*>$", re.S)
 
@@ -322,28 +321,20 @@ def needs_quotes(s):
     If the string is one of the reserved keywords it will
     need quotes too.
     """
-
     if s in dot_keywords:
+        return True
+
+    if id_re_dbl_quoted.match(s) or id_re_html.match(s):
         return False
 
     chars = [ord(c) for c in s if ord(c) > 0x7F or ord(c) == 0]
     if chars:
-        return False
-
-    res = id_re_alpha_nums.match(s)
-    if not res:
-        res = id_re_num.match(s)
-        if not res:
-            res = id_re_dbl_quoted.match(s)
-            if not res:
-                res = id_re_html.match(s)
-                if not res:
-                    res = id_re_with_port.match(s)
-
-    if not res:
         return True
 
-    return False
+    if id_re_alpha_nums.match(s) or id_re_num.match(s):
+        return False
+
+    return True
 
 
 def quote_if_necessary(s):
@@ -360,7 +351,8 @@ def quote_if_necessary(s):
         return s
 
     if needs_quotes(s):
-        return '"%s"' % s
+        escaped = s.replace('"', '"')
+        return '"%s"' % escaped
     else:
         return s
 

@@ -974,7 +974,9 @@ class ASTConverter:
                 interpreter=False,
             )
             register_code_definition_metadata(code, closure_cells=closure_cells)
-            return pyflow_ast.MakeFunction(defaults=[], cells=list(closure_cells), code=code)
+            return pyflow_ast.MakeFunction(
+                defaults=list(codeparams.defaults), cells=list(closure_cells), code=code
+            )
 
         else:
             return self._unsupported_expr(node, "unhandled expression node")

@@ -554,20 +554,67 @@ class GirEmitter:
                     {"if_stmt": {"condition": condition, "then_body": then_body}},
                 )
 
+            if isinstance(generator.target, python_ast.Name):
+                name = generator.target.id
+                self._append_python_stmt(
+                    destination,
+                    generator.target,
+                    {"variable_decl": {"name": name}},
+                )
+            elif isinstance(generator.target, (python_ast.Tuple, python_ast.List)):
+                name = tmp_variable(self.counter)
+                self._append_python_stmt(
+                    destination,
+                    generator.target,
+                    {"variable_decl": {"name": name}},
+                )
+                for el_idx, el in enumerate(generator.target.elts):
+                    if isinstance(el, python_ast.Name):
+                        self._append_python_stmt(
+                            body,
+                            generator.target,
+                            {
+                                "array_read": {
+                                    "array": name,
+                                    "index": str(el_idx),
+                                    "target": el.id,
+                                }
+                            },
+                        )
+                    else:
+                        el_tmp = tmp_variable(self.counter)
+                        self._append_python_stmt(
+                            body,
+                            generator.target,
+                            {
+                                "array_read": {
+                                    "array": name,
+                                    "index": str(el_idx),
+                                    "target": el_tmp,
+                                }
+                            },
+                        )
+                        self._emit_python_store(el, el_tmp, body, generator.target, declare=True)
+            else:
+                name = tmp_variable(self.counter)
+                self._append_python_stmt(
+                    destination,
+                    generator.target,
+                    {"variable_decl": {"name": name}},
+                )
+                self._emit_python_store(
+                    generator.target, name, body, generator.target, declare=True
+                )
+
             build_filters(0, body)
             receiver = self._emit_python_expression(generator.iter, destination)
-            name = self._python_target_name(generator.target)
-            self._append_python_stmt(
-                destination,
-                generator.target,
-                {"variable_decl": {"name": name}},
-            )
             self._append_python_stmt(
                 destination,
                 generator.target,
                 {
                     "forin_stmt": {
                         "attr": ["async"] if generator.is_async else [],
+                        "attrs": ["async"] if generator.is_async else [],
                         "name": name,
                         "receiver": receiver,
                         "body": body,
@@ -1151,21 +1198,39 @@ class GirEmitter:
             body: List[Dict[str, Any]] = []
             if isinstance(node.target, python_ast.Name):
                 name = node.target.id
-            else:
+            elif isinstance(node.target, (python_ast.Tuple, python_ast.List)):
                 name = tmp_variable(self.counter)
                 for index, target in enumerate(node.target.elts):
-                    target_name = self._python_target_name(target)
-                    self._append_python_stmt(
-                        body,
-                        node,
-                        {
-                            "array_read": {
-                                "array": name,
-                                "index": str(index),
-                                "target": target_name,
-                            }
-                        },
-                    )
+                    if isinstance(target, python_ast.Name):
+                        target_name = target.id
+                        self._append_python_stmt(
+                            body,
+                            node,
+                            {
+                                "array_read": {
+                                    "array": name,
+                                    "index": str(index),
+                                    "target": target_name,
+                                }
+                            },
+                        )
+                    else:
+                        element_tmp = tmp_variable(self.counter)
+                        self._append_python_stmt(
+                            body,
+                            node,
+                            {
+                                "array_read": {
+                                    "array": name,
+                                    "index": str(index),
+                                    "target": element_tmp,
+                                }
+                            },
+                        )
+                        self._emit_python_store(target, element_tmp, body, node, declare=True)
+            else:
+                name = tmp_variable(self.counter)
+                self._emit_python_store(node.target, name, body, node, declare=True)
             self._emit_python_body(node.body, body)
             self._append_python_stmt(statements, node, {"variable_decl": {"name": name}})
             self._append_python_stmt(

@@ -110,7 +110,6 @@ class CollectModifies(TypeDispatcher):
         ast.DeleteSubscript,
         ast.SetSlice,
         ast.DeleteSlice,
-        ast.Delete,
         ast.SetGlobal,
         ast.DeleteGlobal,
         ast.Store,
@@ -125,6 +124,12 @@ class CollectModifies(TypeDispatcher):
         ast.Continue,
     )
     def visitDiscard(self, node):
+        self._collect_named_exprs(node)
+
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        if isinstance(node.lcl, ast.Local):
+            self.modified(node.lcl)
         self._collect_named_exprs(node)
 
     @dispatch(ast.AnnAssign)
@@ -421,7 +426,7 @@ class SSARename(TypeDispatcher):
     @dispatch(ast.Local)
     def visitLocal(self, node):
         key = local_key(self.catalog, self.code, node)
-        if key in self.currentFrame:
+        if key in self.currentFrame and self.currentFrame[key] is not None:
             result = self.currentFrame[key]
         else:
             # Handle missing local variables by cloning them
@@ -494,7 +499,6 @@ class SSARename(TypeDispatcher):
         ast.GetSlice,
         ast.SetSlice,
         ast.DeleteSlice,
-        ast.Delete,
         ast.Assert,
         ast.Raise,
         ast.Yield,
@@ -512,6 +516,14 @@ class SSARename(TypeDispatcher):
         ast.Check,
     )
     def visitOK(self, node):
+        return node.rewriteChildren(self)
+
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        if isinstance(node.lcl, ast.Local):
+            key = local_key(self.catalog, self.code, node.lcl)
+            self.currentFrame[key] = None
+            return ast.Delete(node.lcl)
         return node.rewriteChildren(self)
 
     @dispatch(ast.NamedExpr)

@@ -59,6 +59,7 @@ def _roots(block):
 def _ast_nodes(cfg) -> tuple[object, ...]:
     ordered = []
     seen: list[ast.PythonASTNode] = []
+    seen_ids: set[int] = set()
 
     def visit(node):
         if node is None or isinstance(node, ast.leafTypes):
@@ -69,10 +70,12 @@ def _ast_nodes(cfg) -> tuple[object, ...]:
             return
         if not isinstance(node, ast.PythonASTNode):
             return
-        if any(candidate is node for candidate in seen):
+        node_id = id(node)
+        if node_id in seen_ids:
             return
         if isinstance(node, ast.Code) and node is not cfg.code:
             return
+        seen_ids.add(node_id)
         seen.append(node)
         ordered.append(node)
         children = getattr(node, "children", None)

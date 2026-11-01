@@ -311,11 +311,27 @@ class DDGConstructor(object):
         )
         empty_state = (frozenset(), frozenset())
 
+        # Solve only abstract locations that can participate in memory dependencies
+        # (must have at least one write, and either at least one read or multiple writes).
+        # Read-only or single-write-no-read locations cannot produce RAW, WAR, or WAW edges.
+        relevant_locations = []
+        ops_by_location = {}
         for key in locations:
+            accessing_ops = [
+                ir for ir in ir_ops if key in accesses[ir][0] or key in accesses[ir][1]
+            ]
+            writes_count = sum(1 for ir in accessing_ops if key in accesses[ir][1])
+            reads_count = len(accessing_ops) - writes_count
+            if writes_count > 0 and (reads_count > 0 or writes_count > 1):
+                relevant_locations.append(key)
+                ops_by_location[key] = accessing_ops
+
+        for key in relevant_locations:
             in_states = {ir: empty_state for ir in ir_ops}
             out_states = {ir: empty_state for ir in ir_ops}
-            worklist = deque(ir_ops)
-            queued = set(ir_ops)
+            start_ops = ops_by_location[key]
+            worklist = deque(start_ops)
+            queued = set(start_ops)
 
             while worklist:
                 ir = worklist.popleft()
@@ -349,10 +365,8 @@ class DDGConstructor(object):
                         queued.add(successor)
                         worklist.append(successor)
 
-            for ir in ir_ops:
+            for ir in ops_by_location[key]:
                 reads, writes = accesses[ir]
-                if key not in reads and key not in writes:
-                    continue
                 op = op_nodes[ir]
                 reaching_writes, reaching_reads = in_states[ir]
                 if key in reads:
