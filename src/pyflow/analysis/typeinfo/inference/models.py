@@ -70,6 +70,7 @@ class FunctionSpecialization:
     return_value: AbstractTypeValue
     yield_value: AbstractTypeValue = field(default_factory=AbstractTypeValue.bottom)
     widened: bool = False
+    mutated_parameters: tuple[tuple[str, AbstractTypeValue], ...] = ()
 
     @property
     def parameter_map(self) -> dict[str, AbstractTypeValue]:

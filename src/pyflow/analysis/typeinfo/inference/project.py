@@ -17,7 +17,6 @@ from pyflow.analysis.typeinfo.inference.models import (
     ModuleInferenceResult,
     ProjectInferenceResult,
 )
-from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -124,6 +123,19 @@ class ProjectTypeInferenceEngine:
                 continue
             path = resolution.path
             if path is None:
+                if resolution.is_namespace and resolution.namespace_paths:
+                    # PEP 420 packages have no ``__init__.py``.  Treat the
+                    # package as an empty module and analyze its children.
+                    sources[module_name] = ""
+                    paths[module_name] = ""
+                    for namespace_path in resolution.namespace_paths:
+                        for child in Path(namespace_path).rglob("*.py"):
+                            if "__pycache__" in child.parts:
+                                continue
+                            child_name = self.project_context.module_name_from_path(child)
+                            if child_name and child_name not in sources:
+                                pending.append(child_name)
+                    continue
                 diagnostics.append(
                     InferenceDiagnostic(
                         code="module-path-missing",
@@ -166,7 +178,8 @@ class ProjectTypeInferenceEngine:
         except SyntaxError:
             return []
         imports: list[str] = []
-        for node in iter_module_imports(tree.body):
+        # Function-local imports are part of the dependency closure too.
+        for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imports.extend(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):

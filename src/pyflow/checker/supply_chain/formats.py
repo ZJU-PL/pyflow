@@ -357,6 +357,8 @@ def _spdx_license(component: dict[str, Any]) -> str:
     for choice in component.get("licenses", ()):
         if choice.get("expression"):
             expression = str(choice["expression"])
+            if expression.startswith("LicenseRef-"):
+                return expression
             return expression if is_spdx_expression(expression) else _license_ref(expression)
         inner = choice.get("license", {})
         identifier = inner.get("id")

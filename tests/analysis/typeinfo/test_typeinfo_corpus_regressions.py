@@ -16,6 +16,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     CallableType,
     Instance,
     TupleType,
+    TypeType,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
 
@@ -405,3 +406,299 @@ def test_stub_version_conditional_members_are_collected(tmp_path: Path) -> None:
     service.collect_module("lib")
     member = service.type_of("lib", "C.m")
     assert member is not None
+
+
+def test_interprocedural_mutation_widens_callers() -> None:
+    source = """
+def add(xs): xs.append('s')
+def put(d): d['b'] = 's'
+a = [1]
+add(a)
+y = a[-1]
+d = {'a': 1}
+put(d)
+z = d['b']
+"""
+    result = infer(source)
+    a_type = result.type_of("a")
+    assert isinstance(a_type, Instance)
+    assert [str(arg) for arg in a_type.args] == ["int | str"]
+    assert raw_types(result.type_of("y")) == {int, str}
+    d_type = result.type_of("d")
+    assert isinstance(d_type, Instance)
+    assert [str(arg) for arg in d_type.args] == ["str", "int | str"]
+    assert raw_types(result.type_of("z")) == {int, str}
+
+
+def test_rebinding_parameter_does_not_mutate_caller() -> None:
+    result = infer("def reset(xs): xs = []\na = [1]\nreset(a)\ny = a[-1]\n")
+    a_type = result.type_of("a")
+    assert isinstance(a_type, Instance)
+    assert [str(arg) for arg in a_type.args] == ["int"]
+    assert raw_types(result.type_of("y")) == {int}
+
+
+def test_global_writes_propagate_to_module_scope() -> None:
+    source = """
+g = 1
+def set_g():
+    global g
+    g = 's'
+set_g()
+x = g
+"""
+    result = infer(source)
+    assert raw_types(result.type_of("g")) == {str}
+    assert raw_types(result.type_of("x")) == {str}
+
+
+def test_yield_expression_value_is_unknown_sent_value() -> None:
+    result = infer(
+        "from typing import Generator\n"
+        "def g():\n"
+        "    x = yield 1\n"
+        "    return x\n"
+        "def h() -> Generator[int, None, str]:\n"
+        "    x = yield 1\n"
+        "    return 's'\n"
+    )
+    assert raw_types(result.functions["m.g"].yield_value.public_type()) == {int}
+    assert raw_types(result.functions["m.h"].yield_value.public_type()) == {int}
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_syntactic_generator_with_bare_return_is_not_compared_to_iterable() -> None:
+    source = """
+from typing import Iterable
+def f(xs: Iterable[int]) -> Iterable[int]:
+    if not xs:
+        return
+    for x in xs:
+        yield x
+"""
+    result = infer(source)
+    summary = result.functions["m.f"]
+    assert summary.is_generator
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_function_local_import_is_not_shadowed_by_class_method() -> None:
+    import tempfile
+
+    root = Path(tempfile.mkdtemp())
+    (root / "other.py").write_text("def render() -> str:\n    return 's'\n")
+    (root / "app.py").write_text(
+        "class C:\n"
+        "    def render(self):\n"
+        "        yield 1\n"
+        "    def f(self):\n"
+        "        from other import render\n"
+        "        x = render()\n"
+        "        return x\n"
+    )
+    result = ProjectTypeInferenceEngine(ProjectContext(root)).infer_project(["app"])
+    assert raw_types(result.modules["app"].functions["app.C.f"].return_type) == {str}
+
+
+def test_iterable_protocol_uses_iter_method() -> None:
+    source = """
+from typing import Iterable, Iterator
+class Items:
+    def __iter__(self) -> Iterator[dict[str, int]]:
+        return iter([])
+def consume(items: Iterable[dict[str, int]]) -> None: ...
+consume(Items())
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_callable_protocol_accepts_instances_with_call() -> None:
+    source = """
+from typing import Callable
+class Handler:
+    def __call__(self, value: int) -> str:
+        return str(value)
+def consume(callback: Callable[[int], str]) -> None: ...
+consume(Handler())
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_subscript_uses_user_getitem_and_selects_overload_shape() -> None:
+    source = """
+from typing import List, Union, overload
+class Text:
+    pass
+class Lines:
+    @overload
+    def __getitem__(self, index: int) -> Text: ...
+    @overload
+    def __getitem__(self, index: slice) -> List[Text]: ...
+    def __getitem__(self, index: Union[int, slice]) -> Union[Text, List[Text]]:
+        return Text()
+def first(lines: Lines) -> Text:
+    return lines[1]
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_tuple_class_object_dictionary_key_is_type() -> None:
+    result = infer(
+        "from typing import Dict\nitems: Dict[type, int] = {tuple: 1, dict: 2}\n",
+        strict=True,
+    )
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_recursive_typeddict_subtyping_does_not_recurse_forever() -> None:
+    source = """
+from typing import TypedDict, NotRequired
+class Node(TypedDict):
+    value: int
+    child: NotRequired["Node"]
+def same(left: Node, right: Node) -> Node:
+    return right
+"""
+    result = infer(source, strict=True)
+    assert result.converged
+    assert result.functions["m.same"].return_type is not None
+
+
+def test_namespace_package_children_are_analyzed(tmp_path: Path) -> None:
+    package = tmp_path / "namespace_pkg"
+    package.mkdir()
+    (package / "module.py").write_text("VALUE: int = 1\n")
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["namespace_pkg"])
+    assert "namespace_pkg.module" in result.modules
+    assert raw_types(result.modules["namespace_pkg.module"].type_of("VALUE")) == {int}
+
+
+def test_int_enum_is_assignable_to_int() -> None:
+    source = """
+from enum import IntEnum
+class Mode(IntEnum):
+    A = 1
+def consume(value: int) -> None: ...
+consume(Mode.A)
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_bool_arithmetic_and_tuple_methods_promote_to_int() -> None:
+    result = infer(
+        "a = True + True\n"
+        "b = -True\n"
+        "c = abs(True)\n"
+        "d = (1, 2).count(1)\n"
+        "e = (1).__class__\n"
+    )
+    for name in ("a", "b", "c", "d"):
+        assert raw_types(result.type_of(name)) == {int}
+    assert isinstance(result.type_of("e"), TypeType)
+
+
+def test_paramspec_callable_accepts_preserved_signature() -> None:
+    source = """
+from typing import Callable, ParamSpec, TypeVar
+P = ParamSpec("P")
+T = TypeVar("T")
+def deco(func: Callable[P, T]) -> Callable[P, T]:
+    return func
+def target(value: int) -> str:
+    return str(value)
+wrapped = deco(target)
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_async_function_satisfies_async_callable_annotation() -> None:
+    source = """
+from typing import Any, Callable, Coroutine
+async def fetch(value: int) -> str:
+    return str(value)
+def consume(callback: Callable[[int], Coroutine[Any, Any, str]]) -> None: ...
+consume(fetch)
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_metaclass_call_returns_a_class_object() -> None:
+    result = infer(
+        "class Meta(type):\n" "    pass\n" "def make() -> type:\n" "    return Meta('C', (), {})\n",
+        strict=True,
+    )
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_cross_module_newtype_annotation_projects_to_wrapped_type(tmp_path: Path) -> None:
+    (tmp_path / "ids.py").write_text(
+        "from typing import NewType\nUserId = NewType('UserId', int)\n"
+    )
+    (tmp_path / "app.py").write_text(
+        "from ids import UserId\n" "def use(value: UserId) -> int:\n" "    return value\n"
+    )
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["app"])
+    summary = result.modules["app"].functions["app.use"]
+    assert raw_types(summary.parameters["value"].public_type()) == {int}
+    assert not [d for d in result.modules["app"].diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_list_of_dict_literals_checks_typeddict_elements() -> None:
+    source = """
+from typing import TypedDict
+class Message(TypedDict):
+    role: str
+    content: str
+def good() -> list[Message]:
+    return [{"role": "user", "content": "x"}]
+def bad() -> list[Message]:
+    return [{"role": "user"}]
+"""
+    result = infer(source, strict=True)
+    mismatches = [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert len(mismatches) == 1
+    assert "missing keys ['content']" in mismatches[0].message
+
+
+def test_decorator_factory_can_replace_generator_return_type() -> None:
+    source = """
+from typing import Callable, Iterable
+class Group:
+    pass
+def group() -> Callable[..., Callable[..., Group]]:
+    def decorator(method):
+        def wrapper(*args, **kwargs) -> Group:
+            return Group()
+        return wrapper
+    return decorator
+@group()
+def render() -> Iterable[int]:
+    yield 1
+def use() -> Group:
+    return render()
+"""
+    result = infer(source, strict=True)
+    render_type = result.functions["m.render"].return_type
+    assert isinstance(render_type, Instance)
+    assert render_type.type.full_name == "m.Group"
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_metaclass_first_parameter_is_a_class_object() -> None:
+    source = """
+def describe(cls: type) -> str:
+    return cls.__name__
+class Meta(type):
+    def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, object]):
+        text = describe(cls)
+    def __call__(cls, *args: object, **kwargs: object):
+        return describe(cls)
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

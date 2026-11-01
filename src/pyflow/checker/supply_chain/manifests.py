@@ -141,14 +141,28 @@ def _metadata_dependencies(
 def _requirements_scope(path: Path) -> str:
     lowered = path.stem.lower()
     parts = set(re.split(r"[-_.]", lowered))
+    path_parts = {part.casefold() for part in path.parts}
     if "constraint" in parts or "constraints" in parts or path.parent.name.lower() == "constraints":
         return "constraint"
-    if parts & {"test", "tests", "testing"}:
+    if path_parts & {"test", "tests", "testing"} or parts & {"test", "tests", "testing"}:
         return "test"
+    if path_parts & {"doc", "docs"} or parts & {"doc", "docs"}:
+        return "docs"
+    if path_parts & {"benchmark", "benchmarks"} or parts & {"benchmark", "benchmarks"}:
+        return "benchmark"
+    if path_parts & {"example", "examples", "topic", "topics"} or parts & {
+        "example",
+        "examples",
+    }:
+        return "examples"
+    if path_parts & {"script", "scripts", "tool", "tools"}:
+        return "dev"
     if parts & {"dev", "develop", "development"}:
         return "dev"
     if parts & {"lint", "linting", "mypy", "flake8", "ruff"}:
         return "lint"
+    if parts & {"type", "typing", "types"}:
+        return "typing"
     if parts & {"doc", "docs"}:
         return "docs"
     if parts & {"build", "ci"}:
@@ -160,14 +174,54 @@ def _requirements_scope(path: Path) -> str:
     return "runtime"
 
 
+def _requirement_boundary(path: Path) -> Path:
+    for ancestor in (path.parent, *path.parent.parents):
+        if any(
+            (ancestor / marker).exists()
+            for marker in (
+                ".git",
+                ".hg",
+                ".svn",
+                "Pipfile",
+                "Pipfile.lock",
+                "poetry.lock",
+                "pyproject.toml",
+                "requirements.in",
+                "requirements.txt",
+                "setup.cfg",
+                "setup.py",
+                "uv.lock",
+            )
+        ):
+            return ancestor
+    return path.parent
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
 def _components_from_requirements(
     path: Path,
     findings: list[SupplyChainFinding],
     limits: ScanLimits,
     _stack: frozenset[Path] = frozenset(),
     scope: str | None = None,
+    root: Path | None = None,
 ) -> list[dict[str, Any]]:
     effective_scope = scope or _requirements_scope(path)
+    project_boundary = _requirement_boundary(path).resolve(strict=False)
+    if root is not None:
+        root_boundary = root.resolve(strict=False)
+        boundary = (
+            project_boundary if _is_relative_to(root_boundary, project_boundary) else root_boundary
+        )
+    else:
+        boundary = project_boundary
     resolved = path.resolve(strict=False)
     if resolved in _stack:
         findings.append(
@@ -181,6 +235,9 @@ def _components_from_requirements(
         return []
     text = _read_text(path, findings, limits, "requirements file")
     if text is None:
+        return []
+    if _looks_like_template(text):
+        findings.append(_template_manifest_finding(path, "requirements"))
         return []
 
     components: list[dict[str, Any]] = []
@@ -202,18 +259,21 @@ def _components_from_requirements(
                 )
                 continue
             included_path = Path(include)
-            if included_path.is_absolute() or ".." in included_path.parts:
+            explicitly_absolute = included_path.is_absolute()
+            if not explicitly_absolute:
+                included_path = path.parent / included_path
+            resolved_included = included_path.resolve(strict=False)
+            if explicitly_absolute or not _is_relative_to(resolved_included, boundary):
                 findings.append(
                     SupplyChainFinding(
                         kind="external-requirement-include",
-                        message="Requirement include escapes the manifest directory",
+                        message="Requirement include escapes the project boundary",
                         location=str(path),
                         severity="MEDIUM",
                         details={"line": line_no, "include": include},
                     )
                 )
-            if not included_path.is_absolute():
-                included_path = path.parent / included_path
+                continue
             if included_path.is_symlink():
                 findings.append(
                     SupplyChainFinding(
@@ -243,6 +303,7 @@ def _components_from_requirements(
                         limits,
                         _stack | {resolved},
                         scope=included_scope if included_scope != "runtime" else effective_scope,
+                        root=root,
                     )
                 )
             continue
@@ -262,7 +323,7 @@ def _components_from_requirements(
                     kind="editable-requirement",
                     message="Editable dependency can change without updating the manifest",
                     location=str(path),
-                    severity="HIGH",
+                    severity="MEDIUM",
                     details={"line": line_no, "requirement": requirement_text},
                 )
             )
@@ -499,6 +560,8 @@ def _parse_requirement(
     details: dict[str, Any] = {"requirement": _redact_requirement_text(requirement_text)}
     if line_no is not None:
         details["line"] = line_no
+    if scope:
+        details["scope"] = scope
     try:
         requirement = Requirement(requirement_text)
     except InvalidRequirement:
@@ -1093,6 +1156,88 @@ def _components_from_pyproject(
     elif uv_dev:
         _manifest_type_finding(path, findings, "tool.uv.dev-dependencies", "an array")
 
+    rye = tool.get("rye", {}) or {}
+    rye_dev = rye.get("dev-dependencies", ()) if isinstance(rye, dict) else ()
+    if isinstance(rye_dev, (list, tuple)):
+        for value in rye_dev:
+            if not isinstance(value, str):
+                _manifest_type_finding(
+                    path, findings, "tool.rye.dev-dependencies entry", "a string"
+                )
+                continue
+            component = _parse_requirement(
+                value,
+                path,
+                None,
+                findings,
+                audit_pin=False,
+                scope="dev",
+                marker='extra == "dev"',
+            )
+            if component is not None:
+                components.append(component)
+                if root is not None:
+                    edges.append((str(root["purl"]), str(component["purl"])))
+    elif rye_dev:
+        _manifest_type_finding(path, findings, "tool.rye.dev-dependencies", "an array")
+
+    pdm = tool.get("pdm", {}) or {}
+    hatch = tool.get("hatch", {}) or {}
+    hatch_envs = hatch.get("envs", {}) if isinstance(hatch, dict) else {}
+    if isinstance(hatch_envs, dict):
+        for env_name, env_config in hatch_envs.items():
+            if not isinstance(env_config, dict):
+                continue
+            values = env_config.get("dependencies", ()) or ()
+            if not isinstance(values, (list, tuple)):
+                _manifest_type_finding(
+                    path, findings, f"tool.hatch.envs.{env_name}.dependencies", "an array"
+                )
+                continue
+            for value in values:
+                if not isinstance(value, str):
+                    continue
+                component = _parse_requirement(
+                    value,
+                    path,
+                    None,
+                    findings,
+                    audit_pin=False,
+                    scope=f"env:{env_name}",
+                    marker=f'extra == "{env_name}"',
+                )
+                if component is not None:
+                    components.append(component)
+                    if root is not None:
+                        edges.append((str(root["purl"]), str(component["purl"])))
+
+    pdm_dev = pdm.get("dev-dependencies", {}) if isinstance(pdm, dict) else {}
+    if isinstance(pdm_dev, dict):
+        for group_name, values in pdm_dev.items():
+            if not isinstance(values, (list, tuple)):
+                _manifest_type_finding(
+                    path, findings, f"tool.pdm.dev-dependencies.{group_name}", "an array"
+                )
+                continue
+            for value in values:
+                if not isinstance(value, str):
+                    continue
+                component = _parse_requirement(
+                    value,
+                    path,
+                    None,
+                    findings,
+                    audit_pin=False,
+                    scope=f"dev:{group_name}",
+                    marker=f'extra == "{group_name}"',
+                )
+                if component is not None:
+                    components.append(component)
+                    if root is not None:
+                        edges.append((str(root["purl"]), str(component["purl"])))
+    elif pdm_dev:
+        _manifest_type_finding(path, findings, "tool.pdm.dev-dependencies", "a table")
+
     uv_indexes = uv.get("index", ()) or ()
     if isinstance(uv_indexes, dict):
         uv_indexes = [uv_indexes]
@@ -1155,6 +1300,20 @@ def _components_from_pyproject(
                 if revision and source_url and not str(source_url).endswith(f"@{revision}"):
                     source_url = f"{source_url}@{revision}"
             if entry.get("git") or entry.get("url"):
+                if source_url and not _remote_requirement_pinned(str(source_url)):
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="remote-requirement",
+                            message="Dependency bypasses normal package-index resolution",
+                            location=str(path),
+                            severity="MEDIUM",
+                            details={
+                                "component": str(name),
+                                "url": _redacted_url(str(source_url)),
+                                "pinned": False,
+                            },
+                        )
+                    )
                 target_component = next(
                     (
                         component
@@ -1170,6 +1329,9 @@ def _components_from_pyproject(
                     target_component["externalReferences"] = [
                         {"type": "vcs" if entry.get("git") else "distribution", "url": safe_url}
                     ]
+                    fragment_hashes = _url_fragment_hashes(str(source_url), path, findings)
+                    if fragment_hashes:
+                        target_component["hashes"] = _dedupe_hashes(fragment_hashes)
             if entry.get("git") and not _source_revision(entry, str(source_url or "")):
                 findings.append(
                     SupplyChainFinding(
@@ -1357,7 +1519,9 @@ def _components_from_toml_lock(
             )
         component = _component(name, version=version)
         if isinstance(source, dict) and (
-            source.get("virtual") or source.get("editable") or source.get("workspace")
+            source.get("virtual")
+            or str(source.get("editable", "")).strip() in {".", "./"}
+            or str(source.get("workspace", "")).strip() in {".", "./"}
         ):
             component["type"] = "application"
         if package.get("license"):
@@ -1587,6 +1751,17 @@ def _components_from_pipfile(
             _manifest_type_finding(path, findings, section, "a table")
             continue
         for name, value in mapping.items():
+            if not isinstance(value, (str, dict)):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="invalid-pipfile",
+                        message="Pipfile dependency must be a string or table",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details={"section": section, "component": str(name)},
+                    )
+                )
+                continue
             requirement_text = _pipfile_requirement(str(name), value)
             if not requirement_text:
                 continue
@@ -1704,7 +1879,19 @@ def _components_from_pipfile_lock(
                         details={"component": name, "version": version},
                     )
                 )
-            source_url = entry.get("git") or entry.get("path") or entry.get("file")
+            source_url = (
+                entry.get("git") or entry.get("path") or entry.get("file") or entry.get("url")
+            )
+            if not version and not source_url:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="unversioned-lock-package",
+                        message="Pipfile.lock entry has neither an exact version nor an immutable source",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"component": str(name)},
+                    )
+                )
             if source_url:
                 revision = str(entry.get("ref") or entry.get("rev") or entry.get("commit") or "")
                 recorded_url = str(source_url)
@@ -1713,9 +1900,23 @@ def _components_from_pipfile_lock(
                         recorded_url = "git+" + recorded_url
                     if revision:
                         recorded_url += f"@{revision}"
-                component["externalReferences"] = [
-                    {"type": "distribution", "url": _redacted_url(recorded_url)}
-                ]
+                if entry.get("path") or entry.get("file"):
+                    local_source = Path(str(source_url))
+                    if not local_source.is_absolute():
+                        local_source = path.parent / local_source
+                    recorded_url = local_source.resolve(strict=False).as_uri()
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="local-path-requirement",
+                            message="Locked dependency references mutable local path content",
+                            location=str(path),
+                            severity="MEDIUM",
+                            details={"component": str(name), "path": str(source_url)},
+                        )
+                    )
+                safe_url = _redacted_url(recorded_url)
+                component["externalReferences"] = [{"type": "distribution", "url": safe_url}]
+                _add_property(component, "pyflow:source-url", safe_url)
                 _audit_embedded_credentials(path, str(source_url), findings, str(name))
                 if entry.get("git") and not re.fullmatch(r"[0-9a-fA-F]{40,64}", revision):
                     findings.append(
@@ -1775,7 +1976,45 @@ def _components_from_pylock(
         if not isinstance(package, dict) or not package.get("name"):
             continue
         name = str(package["name"])
-        component = _component(name, version=_string_or_none(package.get("version")))
+        version = _string_or_none(package.get("version"))
+        component = _component(name, version=version)
+        if not version and not package.get("vcs") and not package.get("directory"):
+            findings.append(
+                SupplyChainFinding(
+                    kind="unversioned-lock-package",
+                    message="Lockfile package has neither an exact version nor an immutable source",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
+        directory = package.get("directory")
+        if directory is not None and not isinstance(directory, dict):
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-pylock",
+                    message="pylock.toml directory entry must be a table",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
+        elif isinstance(directory, dict) and directory.get("path"):
+            local_path = str(directory["path"])
+            local_source = Path(local_path)
+            if not local_source.is_absolute():
+                local_source = path.parent / local_source
+            source_uri = local_source.resolve(strict=False).as_uri()
+            _add_property(component, "pyflow:source-url", source_uri)
+            findings.append(
+                SupplyChainFinding(
+                    kind="local-path-requirement",
+                    message="Locked dependency references mutable local path content",
+                    location=str(path),
+                    severity="MEDIUM",
+                    details={"component": name, "path": local_path},
+                )
+            )
         artifact_hashes: list[dict[str, str]] = []
         for key in ("archive", "sdist"):
             artifact = package.get(key)
@@ -1805,10 +2044,20 @@ def _components_from_pylock(
             )
         elif isinstance(vcs, dict):
             url = vcs.get("url") or vcs.get("path")
-            if url:
-                component["externalReferences"] = [{"type": "vcs", "url": _redacted_url(str(url))}]
-                _audit_embedded_credentials(path, str(url), findings, name)
             commit = str(vcs.get("commit-id", ""))
+            if url:
+                recorded_url = str(url)
+                vcs_type = str(vcs.get("type") or "git").casefold()
+                if vcs_type in {"git", "hg", "svn", "bzr"} and not recorded_url.startswith(
+                    ("git+", "hg+", "svn+", "bzr+", "ssh://")
+                ):
+                    recorded_url = f"{vcs_type}+{recorded_url}"
+                if commit:
+                    recorded_url += f"@{commit}"
+                safe_url = _redacted_url(recorded_url)
+                component["externalReferences"] = [{"type": "vcs", "url": safe_url}]
+                _add_property(component, "pyflow:source-url", safe_url)
+                _audit_embedded_credentials(path, str(url), findings, name)
             if not re.fullmatch(r"[0-9a-fA-F]{40,64}", commit):
                 findings.append(
                     SupplyChainFinding(
@@ -2031,18 +2280,22 @@ def _read_setup_requirement_file(
                 )
                 continue
             included = Path(include)
-            if included.is_absolute() or ".." in included.parts:
+            explicitly_absolute = included.is_absolute()
+            if not explicitly_absolute:
+                included = path.parent / included
+            boundary = _requirement_boundary(path).resolve(strict=False)
+            resolved_included = included.resolve(strict=False)
+            if explicitly_absolute or not _is_relative_to(resolved_included, boundary):
                 findings.append(
                     SupplyChainFinding(
                         kind="external-requirement-include",
-                        message="Requirement include escapes the manifest directory",
+                        message="Requirement include escapes the project boundary",
                         location=str(path),
                         severity="MEDIUM",
                         details={"line": line_no, "include": include},
                     )
                 )
-            if not included.is_absolute():
-                included = path.parent / included
+                continue
             if included.is_symlink():
                 findings.append(
                     SupplyChainFinding(
@@ -2077,6 +2330,17 @@ def _read_setup_requirement_file(
             # Index options, --require-hashes, editable installs, etc. are not
             # dependency strings, but index/security options still need an
             # audit when setup.py is the only reference to this file.
+            if line.startswith(("-e ", "--editable ", "--editable=")):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="editable-requirement",
+                        message="Editable dependency can change without updating the manifest",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details={"line": line_no, "requirement": line},
+                    )
+                )
+                continue
             _audit_pip_option(path, line_no, line, findings)
             continue
         requirements.append(line)
@@ -2422,14 +2686,28 @@ def _components_from_setup_py(
 
         extras_keyword = keywords.get("extras_require")
         if extras_keyword is not None:
-            for group, values in _resolve_setup_extras(
+            extras_groups = _resolve_setup_extras(
                 extras_keyword.value,
                 env,
                 funcs,
                 path.parent,
                 limits=limits,
                 findings=findings,
-            ):
+            )
+            if not extras_groups and not _is_empty_mapping_literal(extras_keyword.value, env):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="unresolved-setup-requirements",
+                        message=(
+                            "setup.py extras_require could not be resolved statically; "
+                            "the inventory may be incomplete"
+                        ),
+                        location=str(path),
+                        severity="HIGH",
+                        details={"keyword": "extras_require"},
+                    )
+                )
+            for group, values in extras_groups:
                 marker = f'extra == "{group}"'
                 for value in values:
                     clean_val = _strip_requirement_comment(value).strip()
@@ -2449,6 +2727,14 @@ def _components_from_setup_py(
             if component is not None:
                 components.append(component)
     return components
+
+
+def _is_empty_mapping_literal(expr: ast.AST, env: dict[str, ast.AST]) -> bool:
+    if isinstance(expr, ast.Dict):
+        return not expr.keys
+    if isinstance(expr, ast.Name) and expr.id in env:
+        return _is_empty_mapping_literal(env[expr.id], env)
+    return False
 
 
 def _is_empty_sequence_literal(expr: ast.AST) -> bool:
@@ -2735,6 +3021,22 @@ def _call_name(node: ast.AST) -> str:
     return ""
 
 
+def _looks_like_template(text: str) -> bool:
+    return any(
+        ("{{" in line or "{%" in line) and not line.lstrip().startswith("#")
+        for line in text.splitlines()
+    )
+
+
+def _template_manifest_finding(path: Path, description: str) -> SupplyChainFinding:
+    return SupplyChainFinding(
+        kind="template-manifest-skipped",
+        message=f"Skipped an unrendered {description} template",
+        location=str(path),
+        severity="LOW",
+    )
+
+
 def _load_toml(
     path: Path,
     findings: list[SupplyChainFinding],
@@ -2743,6 +3045,9 @@ def _load_toml(
 ) -> dict[str, Any] | None:
     text = _read_text(path, findings, limits, "TOML manifest")
     if text is None:
+        return None
+    if _looks_like_template(text):
+        findings.append(_template_manifest_finding(path, "TOML"))
         return None
     try:
         data = tomllib.loads(text)
@@ -2895,9 +3200,12 @@ def _apply_lock_source(
     if registry:
         _audit_index_url(path, str(registry), findings, None)
     source_type = str(source.get("type", "")).lower()
-    vcs_url = source.get("git") or (source.get("url") if source_type == "git" else None)
+    direct_url = source.get("url")
+    vcs_url = source.get("git") or (direct_url if source_type == "git" else None)
     if vcs_url:
-        component["externalReferences"] = [{"type": "vcs", "url": _redacted_url(str(vcs_url))}]
+        safe_url = _redacted_url(str(vcs_url))
+        component["externalReferences"] = [{"type": "vcs", "url": safe_url}]
+        _add_property(component, "pyflow:source-url", safe_url)
         _audit_embedded_credentials(path, str(vcs_url), findings, str(component.get("name", "")))
         commit = _source_revision(source, str(vcs_url))
         if not commit:
@@ -2910,15 +3218,45 @@ def _apply_lock_source(
                     details={"component": component.get("name"), "commit": commit},
                 )
             )
+    elif direct_url:
+        safe_url = _redacted_url(str(direct_url))
+        component["externalReferences"] = [{"type": "distribution", "url": safe_url}]
+        _add_property(component, "pyflow:source-url", safe_url)
+        if source.get("hash"):
+            lock_hashes = _hashes_from_strings([str(source["hash"])], path, findings)
+            if lock_hashes:
+                component["hashes"] = lock_hashes
+        _audit_embedded_credentials(path, str(direct_url), findings, str(component.get("name", "")))
+        if not _remote_requirement_pinned(str(direct_url)) and not source.get("hash"):
+            findings.append(
+                SupplyChainFinding(
+                    kind="remote-requirement",
+                    message="Locked dependency uses a mutable direct URL",
+                    location=str(path),
+                    severity="MEDIUM",
+                    details={
+                        "component": component.get("name"),
+                        "url": safe_url,
+                        "pinned": False,
+                    },
+                )
+            )
     local_path = source.get("path") or source.get("directory") or source.get("editable")
     if local_path and str(local_path).strip() not in {".", "./"}:
+        local_text = str(local_path)
+        local_source = Path(local_text)
+        if not local_source.is_absolute():
+            local_source = path.parent / local_source
+        source_uri = local_source.resolve(strict=False).as_uri()
+        _add_property(component, "pyflow:source-url", source_uri)
+        component["externalReferences"] = [{"type": "distribution", "url": source_uri}]
         findings.append(
             SupplyChainFinding(
                 kind="local-path-requirement",
                 message="Locked dependency references mutable local workspace content",
                 location=str(path),
                 severity="MEDIUM",
-                details={"component": component.get("name"), "path": str(local_path)},
+                details={"component": component.get("name"), "path": local_text},
             )
         )
 

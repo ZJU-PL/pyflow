@@ -27,7 +27,9 @@ def load_finding_policy(path: Path) -> FindingPolicy:
     data = load_json_file(path)
     if not isinstance(data, dict):
         raise ValueError("finding policy must be a JSON object")
-    exceptions = data.get("exceptions", ()) or ()
+    exceptions = data.get("exceptions", [])
+    if exceptions is None:
+        exceptions = []
     if not isinstance(exceptions, list) or not all(isinstance(item, dict) for item in exceptions):
         raise ValueError("policy exceptions must be an array of objects")
     for item in exceptions:
@@ -46,7 +48,9 @@ def load_finding_policy(path: Path) -> FindingPolicy:
                 "every policy exception requires at least one selector "
                 "(id, kind, location, severity, vulnerability, or component)"
             )
-    baseline = data.get("baseline", ()) or ()
+    baseline = data.get("baseline", [])
+    if baseline is None:
+        baseline = []
     if not isinstance(baseline, list):
         raise ValueError("policy baseline must be an array of finding IDs")
     return FindingPolicy(
@@ -113,7 +117,7 @@ def apply_finding_policy(
                             kind="policy-exception-expired",
                             message="A supply-chain policy exception has expired",
                             location=str(exception.get("location") or finding.location),
-                            severity="MEDIUM",
+                            severity="HIGH",
                             details={
                                 "expires": expires.isoformat(),
                                 "reason": str(exception.get("reason", "")),

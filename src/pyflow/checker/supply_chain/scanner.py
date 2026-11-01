@@ -123,9 +123,18 @@ def scan_targets(
             continue
         target_installed = _target_is_installed_tree(path)
         installed_flags.append(target_installed)
+        scan_path = path
+        if path.is_symlink():
+            try:
+                resolved_target = path.resolve(strict=True)
+            except OSError:
+                resolved_target = None
+            if resolved_target is not None and resolved_target.is_dir():
+                _audit_filesystem_symlink(path, findings)
+                scan_path = resolved_target
         recognized = _scan_path(
-            path,
-            recursive=recursive or _looks_like_installed_tree(path),
+            scan_path,
+            recursive=recursive or _looks_like_installed_tree(scan_path),
             excluded=target_excluded,
             components=components,
             findings=findings,
@@ -135,11 +144,11 @@ def scan_targets(
             archive_depth=0,
             scan_entries=scan_entries,
             artifacts=artifacts,
-            scan_root=path,
+            scan_root=scan_path.parent if scan_path.is_file() else scan_path,
             report_unsupported=True,
         )
         if path.is_dir() and not recognized:
-            nested = _has_nested_manifest(path, effective_limits)
+            nested, package_like = _has_nested_manifest(path, effective_limits)
             findings.append(
                 SupplyChainFinding(
                     kind="empty-supply-chain-inventory",
@@ -148,9 +157,10 @@ def scan_targets(
                         "package metadata, or archives"
                     ),
                     location=str(path),
-                    severity="HIGH" if nested else "MEDIUM",
+                    severity="HIGH" if package_like else "MEDIUM",
                     details={
                         "nested_manifests": nested,
+                        "package_like": package_like,
                         "hint": (
                             "Use --recursive for repositories whose manifests are in "
                             "subdirectories, or pass the package directory explicitly."
@@ -161,7 +171,8 @@ def scan_targets(
 
     installed_target = bool(installed_flags) and all(installed_flags)
     findings = _drop_shared_namespace_findings(findings, components)
-    findings = _drop_listed_startup_hooks(findings, target_values, effective_limits)
+    findings = _classify_startup_hooks(findings, target_values, effective_limits)
+    findings = _downgrade_non_shipping_archive_findings(findings)
     final_findings = tuple(dedupe_findings(findings))
     incomplete_kinds = {
         "missing-target",
@@ -173,6 +184,7 @@ def scan_targets(
         "invalid-lockfile",
         "invalid-pipfile",
         "invalid-pyproject",
+        "metadata-missing-name",
         "metadata-missing-version",
         "dependency-group-cycle",
         "unresolved-dependency-group",
@@ -196,6 +208,10 @@ def scan_targets(
         "archive-read-error",
         "archive-unrecognized-format",
         "archive-missing-package-metadata",
+        "archive-metadata-name-mismatch",
+        "archive-metadata-version-mismatch",
+        "archive-dist-info-mismatch",
+        "archive-multiple-dist-info",
         "archive-file-size-limit",
         "archive-member-limit",
         "archive-expanded-size-limit",
@@ -349,7 +365,7 @@ def _scan_path(
             findings.extend(audit_distribution_record(path.parent, limits, component))
     elif _is_requirements_file(path, limits):
         recognized_input = True
-        components.extend(components_from_requirements(path, findings, limits))
+        components.extend(components_from_requirements(path, findings, limits, root=scan_root))
     elif name == "pyproject.toml":
         recognized_input = True
         parsed_components, parsed_dependencies = components_from_pyproject(path, findings, limits)
@@ -556,6 +572,53 @@ def _remap_detail_paths(
     return remapped
 
 
+_NON_SHIPPING_PARTS = frozenset(
+    {"doc", "docs", "example", "examples", "fixture", "fixtures", "test", "tests", "testdata"}
+)
+_ARCHIVE_STRUCTURAL_KINDS = frozenset(
+    {
+        "archive-absolute-path",
+        "archive-case-collision",
+        "archive-duplicate-entry",
+        "archive-encrypted-entry",
+        "archive-expanded-size-limit",
+        "archive-file-size-limit",
+        "archive-invalid-path",
+        "archive-invalid-size",
+        "archive-link-entry",
+        "archive-member-limit",
+        "archive-member-too-large",
+        "archive-nonportable-path",
+        "archive-parent-reference",
+        "archive-path-conflict",
+        "archive-read-error",
+        "archive-special-file",
+        "archive-suspicious-compression-ratio",
+        "archive-unrecognized-format",
+    }
+)
+
+
+def _downgrade_non_shipping_archive_findings(
+    findings: Iterable[SupplyChainFinding],
+) -> list[SupplyChainFinding]:
+    """Keep test/docs archive fixtures visible without failing production gates."""
+
+    result: list[SupplyChainFinding] = []
+    for finding in findings:
+        if finding.kind in _ARCHIVE_STRUCTURAL_KINDS:
+            outer = finding.location.partition("!/")[0]
+            parts = {part.casefold() for part in Path(outer).parts}
+            if parts & _NON_SHIPPING_PARTS:
+                finding = replace(
+                    finding,
+                    severity="LOW",
+                    details={**finding.details, "context": "test-or-docs"},
+                )
+        result.append(finding)
+    return result
+
+
 def _installed_record_paths(targets: Iterable[str], limits: ScanLimits) -> set[Path]:
     listed: set[Path] = set()
     for target in targets:
@@ -582,15 +645,17 @@ def _installed_record_paths(targets: Iterable[str], limits: ScanLimits) -> set[P
     return listed
 
 
-def _drop_listed_startup_hooks(
+def _classify_startup_hooks(
     findings: Iterable[SupplyChainFinding],
     targets: Iterable[str],
     limits: ScanLimits,
 ) -> list[SupplyChainFinding]:
-    """Do not flag startup files that a distribution legitimately owns.
+    """Classify installed startup hooks by whether RECORD owns them.
 
-    Editable installs use ``__editable__*.pth`` files listed in RECORD.  An
-    unlisted .pth/sitecustomize.py is the relevant malicious-persistence signal.
+    A RECORD entry does not make arbitrary startup code safe: ``.pth`` files
+    execute imports at every interpreter start.  Unlisted hooks are HIGH;
+    listed hooks are MEDIUM unless they match a known installer-generated
+    pattern.  sitecustomize/usercustomize are always HIGH.
     """
 
     result = list(findings)
@@ -598,22 +663,100 @@ def _drop_listed_startup_hooks(
     if not hooks:
         return result
     listed = _installed_record_paths(targets, limits)
-    if not listed:
-        return result
-    result_filtered: list[SupplyChainFinding] = []
+    classified: list[SupplyChainFinding] = []
     for finding in result:
         if finding.kind != "python-startup-hook":
-            result_filtered.append(finding)
+            classified.append(finding)
             continue
         path = Path(finding.location)
         if path.name in {"sitecustomize.py", "usercustomize.py"}:
-            # Legitimate packages should not install interpreter-wide startup
-            # modules.  Do not let a RECORD entry legitimize this hook.
-            result_filtered.append(finding)
+            classified.append(finding)
             continue
         if path.resolve(strict=False) not in listed:
-            result_filtered.append(finding)
-    return result_filtered
+            classified.append(finding)
+            continue
+        name = path.name.lower()
+        editable_style = name.startswith("__editable__")
+        namespace_style = name.endswith("-nspkg.pth")
+        distutils_style = name == "distutils-precedence.pth"
+        installer_generated = (
+            (editable_style and _looks_like_editable_pth(path))
+            or (distutils_style and _looks_like_distutils_pth(path))
+            or (namespace_style and _looks_like_namespace_pth(path))
+        )
+        if (editable_style or namespace_style or distutils_style) and not installer_generated:
+            classified.append(
+                replace(
+                    finding,
+                    severity="HIGH",
+                    message=(
+                        ".pth file uses an installer-style name but contains code "
+                        "outside the expected generated pattern"
+                    ),
+                    details={**finding.details, "record_listed": True},
+                )
+            )
+            continue
+        if installer_generated:
+            classified.append(
+                replace(
+                    finding,
+                    severity="LOW",
+                    message="Installer-generated .pth startup hook is listed in RECORD",
+                    details={**finding.details, "record_listed": True},
+                )
+            )
+        else:
+            classified.append(
+                replace(
+                    finding,
+                    severity="MEDIUM",
+                    message=(
+                        "Installed .pth startup hook is listed in RECORD; "
+                        "review the code it executes"
+                    ),
+                    details={**finding.details, "record_listed": True},
+                )
+            )
+    return classified
+
+
+def _looks_like_distutils_pth(path: Path) -> bool:
+    try:
+        if path.stat().st_size > 64 * 1024:
+            return False
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "SETUPTOOLS_USE_DISTUTILS" in text and "_distutils_hack" in text
+
+
+def _looks_like_namespace_pth(path: Path) -> bool:
+    try:
+        if path.stat().st_size > 64 * 1024:
+            return False
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "sys.modules.setdefault" in text and ("__path__" in text or "PathFinder" in text)
+
+
+def _looks_like_editable_pth(path: Path) -> bool:
+    """Recognize pip's editable-install .pth payload, not just its filename."""
+
+    try:
+        if path.stat().st_size > 64 * 1024:
+            return False
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return False
+    imports = [line for line in lines if line.startswith("import ")]
+    if not imports:
+        return True
+    return all(re.match(r"import __editable___[A-Za-z0-9_.]+_finder\s*;", line) for line in imports)
 
 
 def _iter_directory_files(
@@ -727,21 +870,85 @@ _REQUIREMENT_SCOPE_WORDS = frozenset(
 )
 
 
+def _first_requirement_line_valid(path: Path, limits: ScanLimits) -> bool:
+    """Reject prose/docs files that merely use a requirements-like name."""
+
+    try:
+        if path.stat().st_size > limits.max_manifest_size:
+            # Keep the named file recognized so read_text reports the size
+            # limit instead of silently treating it as unsupported.
+            return True
+        text = path.read_text(encoding="utf-8-sig", errors="replace")[: 64 * 1024]
+    except OSError:
+        return False
+    logical: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not logical and (not stripped or stripped.startswith("#")):
+            continue
+        if stripped.endswith("\\"):
+            logical.append(stripped[:-1].strip())
+            continue
+        logical.append(stripped)
+        break
+    if not logical:
+        # An empty/commented requirements file is a valid zero-dependency manifest.
+        return True
+    line = " ".join(logical)
+    if "{{" in line or "{%" in line:
+        return True
+    line = re.sub(r"\s--hash(?:=|\s+)\S+", "", line).strip()
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        return False
+    if line.startswith(
+        (
+            "-",
+            "git+",
+            "hg+",
+            "svn+",
+            "bzr+",
+            "http://",
+            "https://",
+            "file:",
+            ".",
+            "/",
+            "~",
+        )
+    ):
+        return True
+    try:
+        Requirement(line)
+    except InvalidRequirement:
+        return False
+    return True
+
+
 def _is_requirements_file(path: Path, limits: ScanLimits | None = None) -> bool:
     lowered = path.name.lower()
     if path.suffix.lower() not in {".txt", ".in"}:
         return False
-    if lowered.startswith(("requirements", "constraints")):
-        return True
     scoped = re.match(r"(.+)[-_](?:requirements|constraints)\.txt$", lowered)
-    if scoped and scoped.group(1) in _REQUIREMENT_SCOPE_WORDS:
-        return True
-    if path.parent.name.lower() in {"requirements", "reqs", "constraints"}:
-        return True
+    named = (
+        lowered.startswith(("requirements", "constraints"))
+        or lowered
+        in {
+            "dependencies.in",
+            "dependencies.txt",
+            "deps.in",
+            "deps.txt",
+            "pip-requirements.txt",
+        }
+        or bool(scoped and scoped.group(1) in _REQUIREMENT_SCOPE_WORDS)
+        or path.parent.name.lower() in {"requirements", "reqs", "constraints"}
+        or lowered.endswith(("-constraints.txt",))
+    )
+    if named:
+        if limits is None:
+            return True
+        return _first_requirement_line_valid(path, limits)
     if scoped and limits is None:
         return False
-    if lowered.endswith(("-constraints.txt",)):
-        return True
     if path.parent.name.lower().endswith((".dist-info", ".egg-info")):
         return False
     return limits is not None and _sniff_requirements_content(path, limits)
@@ -785,10 +992,14 @@ def _sniff_requirements_content(path: Path, limits: ScanLimits) -> bool:
             checked += 1
             strong = True
             continue
-        if line.startswith(("-", "git+", "hg+", "svn+", "bzr+", "http://", "https://")):
+        if line.startswith(("git+", "hg+", "svn+", "bzr+", "http://", "https://")):
             checked += 1
             strong = True
             continue
+        if line.startswith("-"):
+            # Unknown options are not evidence that arbitrary text data is a
+            # requirements file (for example scikit-learn's "-1 ..." fixtures).
+            return False
         try:
             requirement = Requirement(line)
         except InvalidRequirement:
@@ -868,23 +1079,43 @@ _MANIFEST_NAMES = frozenset(
 )
 
 
-def _has_nested_manifest(root: Path, limits: ScanLimits) -> bool:
+def _has_nested_manifest(root: Path, limits: ScanLimits) -> tuple[bool, bool]:
     entries = 0
     limit = min(limits.max_scan_entries, 20_000)
+    nested = False
+    package_like = False
+    auxiliary_parts = {
+        "doc",
+        "docs",
+        "example",
+        "examples",
+        "script",
+        "scripts",
+        "tool",
+        "tools",
+        "topic",
+        "topics",
+    }
     try:
         for child in root.rglob("*"):
             entries += 1
             if entries > limit:
-                return False
+                break
             if child.is_symlink():
                 continue
-            if child.name in _MANIFEST_NAMES or child.name.endswith(".pylock.toml"):
-                return True
-            if child.suffix.lower() in {".txt", ".in"} and _is_requirements_file(child, limits):
-                return True
-    except OSError:
-        return False
-    return False
+            manifest = child.name in _MANIFEST_NAMES or child.name.endswith(".pylock.toml")
+            if not manifest and child.suffix.lower() in {".txt", ".in"}:
+                manifest = _is_requirements_file(child, limits)
+            if not manifest:
+                continue
+            nested = True
+            parts = {part.casefold() for part in child.relative_to(root).parts[:-1]}
+            if not parts or not (parts & auxiliary_parts):
+                package_like = True
+                break
+    except (OSError, ValueError):
+        pass
+    return nested, package_like
 
 
 def _target_is_installed_tree(path: Path) -> bool:
@@ -925,14 +1156,15 @@ def _drop_shared_namespace_findings(
         return list(findings)
 
     result: list[SupplyChainFinding] = []
+    shared_files: dict[str, list[str]] = {root: [] for root in shared}
     for finding in findings:
-        if (
-            finding.kind == "record-unlisted-owned-file"
-            and str(finding.details.get("top_level", "")) in shared
-        ):
+        root = str(finding.details.get("top_level", ""))
+        if finding.kind == "record-unlisted-owned-file" and root in shared:
+            shared_files[root].append(finding.location)
             continue
         result.append(finding)
     for root in sorted(shared):
+        files = sorted(set(shared_files[root]))
         result.append(
             SupplyChainFinding(
                 kind="shared-python-namespace",
@@ -942,7 +1174,12 @@ def _drop_shared_namespace_findings(
                 ),
                 location=root,
                 severity="LOW",
-                details={"top_level": root, "distributions": owners[root]},
+                details={
+                    "top_level": root,
+                    "distributions": owners[root],
+                    "unlisted_file_count": len(files),
+                    "unlisted_files": files[:20],
+                },
             )
         )
     return result

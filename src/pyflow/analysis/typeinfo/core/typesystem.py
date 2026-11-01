@@ -14,6 +14,7 @@ from ``pynguin.analyses.module``.
 from __future__ import annotations
 
 import collections.abc as cabc
+import contextvars
 import dataclasses
 import enum
 import functools
@@ -23,7 +24,7 @@ import re
 import types
 import typing
 from abc import ABC, abstractmethod
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import starmap
 from typing import (
@@ -926,18 +927,39 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                 ),
                 self.right,
             )
+        if isinstance(self.right, CallableType):
+            call = self.graph.get_members(left.type).get("__call__")
+            if not isinstance(call, CallableType):
+                return False
+            if self.right.arg_types is None or call.arg_types is None:
+                return self.sub_type_check(call.return_type, self.right.return_type)
+            if len(call.arg_types) != len(self.right.arg_types):
+                return False
+            return all(
+                self.sub_type_check(expected, actual)
+                for expected, actual in zip(self.right.arg_types, call.arg_types)
+            ) and self.sub_type_check(call.return_type, self.right.return_type)
+
         if isinstance(self.right, Instance):
             expected_fields = self.right.type.typed_dict_fields
             if expected_fields is not None:
                 actual_fields = left.type.typed_dict_fields
                 if actual_fields is None:
                     return False
-                return self.right.type.required_keys <= left.type.required_keys and all(
-                    name in actual_fields
-                    and self.sub_type_check(actual_fields[name], typ)
-                    and self.sub_type_check(typ, actual_fields[name])
-                    for name, typ in expected_fields.items()
-                )
+                pair = (left, self.right)
+                active = self.graph._structural_checks
+                if pair in active:
+                    return True
+                active.add(pair)
+                try:
+                    return self.right.type.required_keys <= left.type.required_keys and all(
+                        name in actual_fields
+                        and self.sub_type_check(actual_fields[name], typ)
+                        and self.sub_type_check(typ, actual_fields[name])
+                        for name, typ in expected_fields.items()
+                    )
+                finally:
+                    active.remove(pair)
             if self.right.type.is_protocol:
                 required = self.graph.get_members(self.right.type)
                 available = self.graph.get_members(left.type)
@@ -958,6 +980,31 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             import typing as _typing
 
             is_sub = self.graph.is_subclass(left.type, self.right.type)
+            target = self.right.type.raw_type
+            if not is_sub and target in {
+                cabc.Iterable,
+                cabc.Iterator,
+                cabc.Collection,
+                cabc.Sequence,
+                cabc.Reversible,
+            }:
+                iter_sig = self.graph.get_members(left.type).get("__iter__")
+                if isinstance(iter_sig, CallableType):
+                    returned = iter_sig.return_type
+                    element: ProperType | None = None
+                    if isinstance(returned, Instance) and returned.args:
+                        element = returned.args[0]
+                    elif isinstance(returned, Instance) and returned.type.raw_type in {
+                        list,
+                        set,
+                        frozenset,
+                        dict,
+                    }:
+                        element = ANY
+                    if element is not None:
+                        if self.right.args:
+                            return self.sub_type_check(element, self.right.args[0])
+                        return True
             if not is_sub:
                 if self.right.type.raw_type in {_typing.IO, _typing.TextIO, _typing.BinaryIO}:
                     source_cls = left.type.raw_type
@@ -990,7 +1037,6 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                 cabc.AsyncIterable,
                 cabc.AsyncIterator,
             }
-            target = self.right.type.raw_type
             source = left.type.raw_type
             if target in covariant and self.right.args:
                 if source is str:
@@ -1418,7 +1464,22 @@ class ClassDescriptor:
         # TODO(fk) properly implement generics!
         # For now we just store the number of generic parameters for set, dict and list.
         self.num_hardcoded_generic_parameters: int | None = (
-            2 if raw_type is dict else 1 if raw_type in {set, list} else None
+            2
+            if raw_type in {dict, defaultdict}
+            else (
+                1
+                if raw_type
+                in {
+                    set,
+                    list,
+                    deque,
+                    Counter,
+                    re.Pattern,
+                    re.Match,
+                    contextvars.ContextVar,
+                }
+                else None
+            )
         )
 
     def refresh(self, raw_type: type | types.UnionType) -> None:

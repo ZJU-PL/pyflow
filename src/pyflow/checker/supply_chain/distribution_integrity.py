@@ -261,7 +261,7 @@ def _audit_direct_url(
         )
     if url.startswith("file:"):
         yield SupplyChainFinding(
-            kind="local-path-requirement",
+            kind="installed-local-path",
             message="Installed distribution comes from a local path",
             location=str(path),
             severity="MEDIUM",
@@ -273,7 +273,7 @@ def _audit_direct_url(
         url_has_commit = bool(re.search(r"@[0-9a-fA-F]{40,64}(?:$|[#?])", url))
         if not re.fullmatch(r"[0-9a-fA-F]{40,64}", commit) and not url_has_commit:
             yield SupplyChainFinding(
-                kind="unpinned-vcs-dependency",
+                kind="installed-vcs-unpinned",
                 message="Installed VCS distribution is not pinned to a full commit",
                 location=str(path),
                 severity="HIGH",

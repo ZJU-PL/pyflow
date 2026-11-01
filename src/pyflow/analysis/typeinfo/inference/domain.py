@@ -44,6 +44,10 @@ class AbstractTypeValue:
     # Exact string-key layouts of dictionary values, independent of their
     # homogeneous public dict type. None means the keys are not known.
     dict_shapes: frozenset[tuple[tuple[str, ProperType], ...]] | None = None
+    # Exact key layouts of dictionaries stored in a list/set literal.
+    element_dict_shapes: frozenset[tuple[tuple[str, ProperType], ...]] = field(
+        default_factory=frozenset, compare=False, repr=False
+    )
 
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
@@ -121,6 +125,7 @@ class AbstractTypeValue:
             callable_targets=self.callable_targets | other.callable_targets,
             class_targets=self.class_targets | other.class_targets,
             dict_shapes=shapes,
+            element_dict_shapes=self.element_dict_shapes | other.element_dict_shapes,
         )
 
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:

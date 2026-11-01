@@ -487,6 +487,11 @@ def _resolve_callable(
     elif isinstance(params_expr, ast.Tuple):
         param_items = params_expr.elts
     else:
+        # ``Callable[P, R]`` where P is a ParamSpec is an arbitrary argument
+        # list.  The same applies to ``Concatenate[...]``, which this resolver
+        # does not model in detail.
+        if _resolve_expr(params_expr, lookup) is None:
+            return CallableType(None, return_type)
         param_items = [params_expr]
 
     param_types = tuple(_resolve_expr(item, lookup) or ANY for item in param_items)

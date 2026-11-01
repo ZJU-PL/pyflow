@@ -24,6 +24,15 @@ from packaging.version import InvalidVersion, Version
 
 from .models import ScanLimits, SupplyChainFinding
 
+_NON_SHIPPING_PATH_PARTS = frozenset(
+    {"doc", "docs", "example", "examples", "fixture", "fixtures", "test", "tests", "testdata"}
+)
+
+
+def _archive_severity(path: Path, default: str = "HIGH") -> str:
+    parts = {part.casefold() for part in path.parts}
+    return "LOW" if parts & _NON_SHIPPING_PATH_PARTS else default
+
 
 def extract_archive(
     path: Path,
@@ -56,7 +65,7 @@ def extract_archive(
                 kind="archive-read-error",
                 message="Could not identify package archive",
                 location=str(path),
-                severity="HIGH",
+                severity=_archive_severity(path),
                 details={"error": str(exc)},
             )
         )
@@ -68,7 +77,7 @@ def extract_archive(
                 "File extension indicates an archive but content is not a " "supported archive"
             ),
             location=str(path),
-            severity="HIGH",
+            severity=_archive_severity(path),
         )
     )
     return False
@@ -208,7 +217,7 @@ def _extract_zip(
                 kind="archive-read-error",
                 message="Could not read zip archive",
                 location=str(path),
-                severity="HIGH",
+                severity=_archive_severity(path),
                 details={"error": str(exc)},
             )
         )
@@ -339,7 +348,7 @@ def _extract_tar(
                 kind="archive-read-error",
                 message="Could not read tar archive",
                 location=str(path),
-                severity="HIGH",
+                severity=_archive_severity(path),
                 details={"error": str(exc)},
             )
         )
@@ -602,6 +611,13 @@ def audit_archive_payload(
                 continue
             entry_name = entry.name.lower()
             if entry_name.endswith(".pth"):
+                known_installer_hook = (
+                    entry_name == "distutils-precedence.pth"
+                    and _pth_contains(entry, "SETUPTOOLS_USE_DISTUTILS", "_distutils_hack")
+                ) or (
+                    entry_name.endswith("-nspkg.pth")
+                    and _pth_contains(entry, "sys.modules.setdefault")
+                )
                 findings.append(
                     SupplyChainFinding(
                         kind="archive-pth-file",
@@ -609,7 +625,8 @@ def audit_archive_payload(
                             "Archive installs a .pth file that runs code at " "interpreter startup"
                         ),
                         location=_member_location(archive_path, destination, entry),
-                        severity="HIGH",
+                        severity="LOW" if known_installer_hook else "HIGH",
+                        details={"known_installer_hook": known_installer_hook},
                     )
                 )
             elif entry_name in {"sitecustomize.py", "usercustomize.py"}:
@@ -749,6 +766,16 @@ def _audit_wheel_metadata(
         )
 
 
+def _pth_contains(entry: Path, *needles: str) -> bool:
+    try:
+        if entry.stat().st_size > 64 * 1024:
+            return False
+        text = entry.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return all(needle in text for needle in needles)
+
+
 def _installed_startup_path(entry: Path, destination: Path) -> bool:
     try:
         relative = entry.relative_to(destination)
@@ -796,6 +823,9 @@ def audit_archive_identity(
 ) -> None:
     """Compare wheel/sdist filename identity with discovered package metadata."""
 
+    if _archive_severity(path) == "LOW":
+        # Test/docs data archives are not shipped package artifacts.
+        return
     try:
         if path.suffix.casefold() == ".whl":
             parsed_name, parsed_version, _build, _tags = parse_wheel_filename(path.name)

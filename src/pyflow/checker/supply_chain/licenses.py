@@ -170,6 +170,9 @@ def audit_license_policy(
                 and str(prop.get("value", "")).lower() == "true"
                 for prop in properties
             )
+            lock_only = bool(sources) and all(source.endswith((".lock",)) for source in sources)
+            if lock_only:
+                continue
             if (
                 component.get("type") != "application"
                 and sources
@@ -362,6 +365,10 @@ def _evaluate_license_expression(
 
 _TROVE_LICENSES = {
     "License :: OSI Approved :: Apache Software License": "Apache-2.0",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)": "GPL-2.0-only",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)": "GPL-3.0-only",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)": "LGPL-2.1-only",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)": "LGPL-3.0-only",
     "License :: OSI Approved :: BSD License": "BSD-3-Clause",
     "License :: OSI Approved :: ISC License (ISCL)": "ISC",
     "License :: OSI Approved :: MIT License": "MIT",
@@ -381,6 +388,10 @@ _LICENSE_ALIASES = {
     "apache software license": "Apache-2.0",
     "apache software license 2.0": "Apache-2.0",
     "bsd": "BSD-3-Clause",
+    "bsd 2-clause": "BSD-2-Clause",
+    "bsd 2-clause license": "BSD-2-Clause",
+    "bsd 3-clause": "BSD-3-Clause",
+    "bsd 3-clause license": "BSD-3-Clause",
     "bsd license": "BSD-3-Clause",
     "bsd-2-clause": "BSD-2-Clause",
     "bsd-3-clause": "BSD-3-Clause",
@@ -390,12 +401,17 @@ _LICENSE_ALIASES = {
     "gnu general public license v2 (gplv2)": "GPL-2.0-only",
     "gnu general public license v3 (gplv3)": "GPL-3.0-only",
     "gnu lesser general public license v3 (lgplv3)": "LGPL-3.0-only",
+    "gnu general public license v3.0 (gplv3)": "GPL-3.0-only",
     "gplv2": "GPL-2.0-only",
     "gplv3": "GPL-3.0-only",
+    "isc": "ISC",
     "isc license": "ISC",
     "lgplv3": "LGPL-3.0-only",
     "mit license": "MIT",
     "mit no attribution": "MIT-0",
     "mozilla public license 2.0": "MPL-2.0",
     "python software foundation license": "PSF-2.0",
+    "python software foundation license 2.0": "PSF-2.0",
+    "the unlicense": "Unlicense",
+    "unlicense": "Unlicense",
 }
