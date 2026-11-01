@@ -141,7 +141,9 @@ class AbstractState(object):
         """Get the dataflow node for a variable slot.
 
         If slot hasn't been seen before, generates it using generate().
-        Otherwise returns cached value.
+        Otherwise returns cached value. Traverses State parent chains
+        iteratively with path compression to prevent RecursionError on
+        deeply nested blocks.
 
         Args:
             slot: Variable slot (ast.Local, ast.Existing, or SlotNode)
@@ -149,11 +151,20 @@ class AbstractState(object):
         Returns:
             SlotNode: Dataflow node for the slot
         """
-        if slot not in self.slots:
-            result = self.generate(slot)
-            self.slots[slot] = result
+        curr = self
+        chain = []
+        while isinstance(curr, State) and slot not in curr.slots:
+            chain.append(curr)
+            curr = curr.parent
+
+        if slot in curr.slots:
+            result = curr.slots[slot]
         else:
-            result = self.slots[slot]
+            result = curr.generate(slot)
+            curr.slots[slot] = result
+
+        for s in chain:
+            s.slots[slot] = result
         return result
 
     def generate(self, slot):

@@ -477,3 +477,29 @@ def f(items):
     assert "items" in foriter_blocks[0]["condition"]
     assert foriter_blocks[0].get("index") == "Local(%item)"
     assert foriter_blocks[0].get("iterator") == "Local(%items)"
+
+
+def test_dataflow_state_deep_parent_chain_no_recursion_error():
+    """AbstractState.get must traverse deep State parent chains
+    iteratively without RecursionError.
+    """
+    from pyflow.ir.dataflow import convert, graph as df_graph
+    from pyflow.language.python import ast as lang_ast
+
+    hyperblock = df_graph.Hyperblock(0)
+    pred = df_graph.PredicateNode(hyperblock, "true")
+
+    base = convert.DeferedEntryPoint(hyperblock, pred, None, None)
+    curr = convert.State(hyperblock, pred, base)
+    for _ in range(1500):
+        curr = convert.State(hyperblock, pred, curr)
+
+    local = lang_ast.Local("x")
+    curr.set(local, df_graph.LocalNode(hyperblock, (local,)))
+
+    child = curr
+    for _ in range(500):
+        child = convert.State(hyperblock, pred, child)
+
+    val = child.get(local)
+    assert val is not None
