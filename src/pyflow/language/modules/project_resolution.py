@@ -311,6 +311,9 @@ class ProjectContext:
 
         if self.smart_sys_path:
             prefixed.append(str(self.path))
+            src_dir = self.path.joinpath("src")
+            if src_dir.is_dir() and not src_dir.joinpath("__init__.py").is_file():
+                prefixed.append(str(src_dir))
 
             if script_path is not None:
                 script = Path(script_path).absolute()

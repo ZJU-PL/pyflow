@@ -167,6 +167,15 @@ class BuiltinTypeLookup:
             "typing_extensions.TypeIs",
         }:
             return Instance(ClassDescriptor(bool))
+        if qualified_name in {
+            "Final",
+            "ClassVar",
+            "typing.Final",
+            "typing.ClassVar",
+            "typing_extensions.Final",
+            "typing_extensions.ClassVar",
+        }:
+            return ANY
         if qualified_name.startswith(("typing.", "typing_extensions.", "collections.abc.")):
             import typing
             import collections.abc
@@ -352,6 +361,8 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
 
         return Instance(ClassDescriptor(bool))
+    if name in {"Final", "ClassVar"}:
+        return ANY
     if name == "LiteralString":
         from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
 

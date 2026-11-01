@@ -396,9 +396,19 @@ class StaticTypeInferenceEngine:
                         class_info.attributes.update(base_info.attributes)
                 for item in node.body:
                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                        class_info.attributes[item.target.id] = self._annotation_value(
-                            item.annotation
+                        val_annotation = self._annotation_value(item.annotation)
+                        is_bare = (
+                            isinstance(item.annotation, ast.Name)
+                            and item.annotation.id in {"Final", "ClassVar"}
+                        ) or (
+                            isinstance(item.annotation, ast.Attribute)
+                            and item.annotation.attr in {"Final", "ClassVar"}
                         )
+                        if is_bare and item.value is not None:
+                            val_annotation = self._evaluate_expression(
+                                item.value, {}, scope=qualified, current_function=None
+                            )
+                        class_info.attributes[item.target.id] = val_annotation
                 self._collect_declarations(
                     node.body,
                     parent=qualified,
@@ -1443,8 +1453,17 @@ class StaticTypeInferenceEngine:
                 self._check_annotation_compatibility(
                     inferred, annotated, node, context="annotated assignment"
                 )
-            if inferred is not None and (annotated.unknown or not annotated.types):
-                # An unresolved annotation is not evidence that the value has
+            is_bare_qualifier = (
+                isinstance(node.annotation, ast.Name)
+                and node.annotation.id in {"Final", "ClassVar"}
+            ) or (
+                isinstance(node.annotation, ast.Attribute)
+                and node.annotation.attr in {"Final", "ClassVar"}
+            )
+            if inferred is not None and (
+                annotated.unknown or not annotated.types or is_bare_qualifier
+            ):
+                # An unresolved annotation or bare qualifier is not evidence that the value has
                 # no type.  Keep the value evidence instead of propagating a
                 # synthetic placeholder for the missing annotation.
                 self._assign_target(node.target, inferred, result, current_function)
@@ -1810,9 +1829,13 @@ class StaticTypeInferenceEngine:
                     # import would make the abort path look shadowed.
                     continue
                 external = self._external_type(qualified)
+                builtin_class = False
+                if external is None:
+                    external = BuiltinTypeLookup()(qualified)
+                    builtin_class = external is not None
                 if external is None:
                     if self.project_context.find_module(qualified) is not None:
-                        # ``from . import submodule`` keeps the module itself
+                        # from . import submodule keeps the module itself
                         # unresolved; attribute access resolves through imports.
                         continue
                     result[local] = AbstractTypeValue.unresolved()
@@ -1821,7 +1844,9 @@ class StaticTypeInferenceEngine:
                     external = external.item
                 result[local] = AbstractTypeValue.from_type(
                     external,
-                    class_target=self._external_class_target(external, alias.name),
+                    class_target=self._external_class_target(
+                        external, alias.name, builtin_class=builtin_class
+                    ),
                 )
             return _Outcome(result)
 
@@ -2406,9 +2431,10 @@ class StaticTypeInferenceEngine:
             element = join_all(elements, self.type_system).public_type() or ANY
             return self._instance(cabc.Iterator, TupleType((element,), unknown_size=True))
         if isinstance(node.func, ast.Attribute) and qualified_callee is not None:
-            # Attribute-style module access (``import pathlib;
-            # pathlib.Path(...)``) is common and should construct the class
-            # when a builtin annotation lookup or an external fact knows it.
+            # Attribute-style module access (import pathlib;
+            # pathlib.Path(...)) or imported names (from pathlib import Path; Path(...))
+            # are common and should construct the class when a builtin annotation lookup
+            # or an external fact knows it.
             external_class = self._external_type(qualified_callee)
             if external_class is None:
                 external_class = BuiltinTypeLookup()(qualified_callee)

@@ -818,3 +818,44 @@ item = d.popitem()
     assert str(result.type_of("v1")) == "None | int"
     assert str(result.type_of("v2")) == "int | str"
     assert str(result.type_of("item")) == "tuple[str, int]"
+
+
+def test_bare_final_and_classvar_preserve_inferred_types() -> None:
+    source = """
+from typing import Final, ClassVar
+
+MAX_RETRIES: Final = 3
+NAME: Final[str] = "app"
+
+class C:
+    val: ClassVar = 10
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "unresolved-annotation"]
+    assert str(result.type_of("MAX_RETRIES")) == "int"
+    assert str(result.type_of("NAME")) == "str"
+
+
+def test_imported_stdlib_class_constructors_infer_instance_types() -> None:
+    source = """
+from pathlib import Path
+from datetime import datetime as dt, timedelta
+
+p = Path("test.txt")
+d = dt(2020, 1, 1)
+td = timedelta(days=1)
+"""
+    result = infer(source, strict=True)
+    assert "Path" in str(result.type_of("p"))
+    assert str(result.type_of("d")) == "datetime.datetime"
+    assert str(result.type_of("td")) == "datetime.timedelta"
+
+
+def test_project_context_discovers_src_directory(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src" / "mypkg"
+    src_dir.mkdir(parents=True)
+    (src_dir / "__init__.py").write_text("VALUE = 42\n")
+    ctx = ProjectContext(str(tmp_path))
+    res = ctx.find_module("mypkg")
+    assert res is not None
+    assert res.is_package
