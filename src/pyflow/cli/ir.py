@@ -621,6 +621,23 @@ def _select_mir_programs(compiled, scope):
     raise ValueError(f"MIR scope '{scope}' is ambiguous; choose one of: {choices}")
 
 
+def _format_mir_diagnostics(diagnostics):
+    """Render lowering diagnostics for text artifacts (JSON embeds them)."""
+    if not diagnostics:
+        return ""
+    lines = ["", f"diagnostics ({len(diagnostics)} unmodeled site(s); lowering is partial):"]
+    for item in diagnostics:
+        filename = item.get("filename", "<unknown>")
+        line = item.get("line")
+        location = f"{filename}:{line}" if line is not None else str(filename)
+        message = item.get("message", "")
+        prefix = f"{location}: "
+        if message.startswith(prefix):
+            message = message[len(prefix) :]
+        lines.append(f"  {location}: {message} [{item.get('code', '')}]")
+    return "\n".join(lines) + "\n"
+
+
 def _format_mir_view(program, args, scope, diagnostics=()):
     """Keep human inspection compact while preserving default JSON exports."""
     from dataclasses import replace
@@ -640,7 +657,11 @@ def _format_mir_view(program, args, scope, diagnostics=()):
             return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
         content = format_program(program, format=args.dump_format, scope=scope)
         if diagnostics and args.dump_format == "text":
-            return "MIR partial inspection (opaque imports/literals; see diagnostics)\n" + content
+            return (
+                "MIR partial inspection (opaque imports/literals; see diagnostics)\n"
+                + content
+                + _format_mir_diagnostics(diagnostics)
+            )
         return content
     cfgs = {
         name: cfg for name, cfg in program.cfgs.items() if cfg.filename and not cfg.is_synthetic
@@ -654,6 +675,12 @@ def _format_mir_view(program, args, scope, diagnostics=()):
         return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     content = format_program(source_program, format=args.dump_format)
     if args.dump_format == "text":
+        if diagnostics:
+            header = (
+                "MIR partial source view (runtime CFGs omitted; see diagnostics; "
+                "use --mir-view full)\n"
+            )
+            return header + content + _format_mir_diagnostics(diagnostics)
         return "MIR source view (runtime CFGs omitted; use --mir-view full)\n" + content
     return content
 
@@ -672,6 +699,11 @@ def _dump_mir_files(python_files, input_path: Path, args):
     # Default dumps inspect the requested files. Following a project's
     # entire dependency graph requires explicit follow-imports or strict verification.
     explicit_follow = getattr(args, "mir_follow_imports", None)
+    if explicit_follow is False and import_policy == "strict":
+        raise ValueError(
+            "--mir-import-policy strict requires resolving imports; "
+            "drop --no-mir-follow-imports or use --mir-import-policy opaque"
+        )
     if explicit_follow is not None:
         follow_imports = explicit_follow
     else:

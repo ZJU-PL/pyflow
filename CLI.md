@@ -58,8 +58,8 @@ pyflow ir [OPTIONS] INPUT_PATH
 
 Key options:
 - `--dump-mir [SCOPE]`: Dump the seven-instruction MIR program, optionally selecting a scope
-- `--mir-view {source,full}`: Text/DOT default to compact source inspection; JSON defaults to a complete export
-- `--mir-import-policy {strict,opaque}`: Source inspection defaults to opaque boundaries; complete exports require modeled imports and syntax
+- `--mir-view {source,full}`: Text/DOT default to compact source inspection; JSON defaults to the full view
+- `--mir-import-policy {strict,opaque}`: Imports default to opaque boundaries. JSON exports are marked `status: partial` whenever anything is unmodelled; pass `--mir-import-policy strict` (which follows imports) to require complete semantics
 - `--list-functions`: List available function names discovered in the input
 - `--dump-ast [FUNCTION]`: Dump AST for the specified function, or all functions if omitted or '*'
 - `--dump-cfg [FUNCTION]`: Dump CFG for a qualified function or unambiguous short name, or all functions if omitted or '*'
@@ -79,8 +79,11 @@ MIR dumps lower source directly without executing target modules. Omitting
 `SCOPE` dumps source CFGs for text/DOT, or the full program for JSON. Use
 `--mir-view full` to inspect runtime CFGs. Source views lower only the selected
 input files, retaining imports and unsupported expressions as explicit opaque
-boundaries; diagnostics mark these views partial. They are inspection artifacts,
-not executable or semantically complete programs. Full exports remain strict.
+boundaries; diagnostics mark these views partial and are appended to text
+artifacts (JSON embeds them under `diagnostics`). They are inspection artifacts,
+not executable or semantically complete programs. A complete export requires
+`--mir-import-policy strict`, which follows and validates the import graph and
+therefore rejects modules that have no MIR model.
 A scope can be a qualified name or an unambiguous function name.
 MIR supports `text`, `json`, and `dot` output. For recursive directory input,
 output paths preserve the source directory structure.
