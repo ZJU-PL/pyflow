@@ -451,7 +451,8 @@ derives document IDs from content and uses <code class="docutils literal notrans
 Generated inventories return 0 by default, including incomplete inventories
 and unpinned dependencies. Completeness stays visible in document metadata
 and stderr. <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">strict</span></code> / <code class="docutils literal notranslate"><span class="pre">--require-complete</span></code> return 2
-for incomplete inventories; <code class="docutils literal notranslate"><span class="pre">--allow-incomplete</span></code> overrides that gate.
+for incomplete inventories; <code class="docutils literal notranslate"><span class="pre">--allow-incomplete</span></code> accepts them, but the two
+flags are mutually exclusive.
 Missing/unreadable input and schema-validation errors still return 2.
 Diagnostics never enter JSON stdout.</p>
 </dd>
@@ -490,7 +491,9 @@ the official Sigstore verifier for a local bundle</p></li>
 official schema bundle is supplied with <code class="docutils literal notranslate"><span class="pre">--schema</span></code>; network reference
 resolution is disabled</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--reachability</span></code>: annotate vulnerabilities with conservative import
-evidence; absence of an import is explicitly not treated as proof of safety</p></li>
+evidence; absence of an import is explicitly not treated as proof of safety.
+Use <code class="docutils literal notranslate"><span class="pre">--reachability-source</span></code> to name application code when scanning an
+installed tree, so installed libraries are not mistaken for the application</p></li>
 </ul>
 </section>
 </section>
