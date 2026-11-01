@@ -159,6 +159,8 @@ class Runtime:
         return name
 
     def invoke(self, b, kind, args, operator=None, unique=True):
+        if b.cfg.is_synthetic:
+            unique = False
         owner = f"{b.name}.{b.temp('site')}" if unique else b.name
         return b.invoke(self.helper(kind, owner, operator), args)
 
