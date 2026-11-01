@@ -149,6 +149,9 @@ dependence edges</p></li>
 <li><p><strong>Optimization Support</strong>: Identifies independent operations for
 parallelization and dead code elimination</p></li>
 </ul>
+<p>DDG generation supports source-level <code class="docutils literal notranslate"><span class="pre">try/except/else/finally</span></code>, <code class="docutils literal notranslate"><span class="pre">with</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code> through the dataflow converter’s exceptional state merges.
+See <a class="reference internal" href="dataflow.html"><span class="doc">Data Flow Intermediate Representation</span></a> for the conservative exception and loop modeling limits.</p>
 </section>
 <section id="graph-structure">
 <h2>Graph Structure<a class="headerlink" href="#graph-structure" title="Link to this heading"></a></h2>

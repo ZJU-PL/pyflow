@@ -17,6 +17,23 @@ Key Features
   program slicing and optimization
 - **Type Annotations**: Associates type information with operations and slots
 
+Exception state merging
+-----------------------
+
+Source-loaded ``try/except/else/finally`` and context managers can be converted
+to dataflow IR and DDGs. Exceptional states are captured before committing
+assignment targets, so handlers see the bindings established before the
+operation that failed. Local occurrences are matched by lexical symbol
+identity. Normal and handled states merge at joins; ``else`` applies only to
+normal completion of the protected body. Finally suites also process pending
+returns, loop transfers, and unhandled exceptions, including overrides by a
+return or raise in cleanup.
+
+These graphs conservatively retain possible handler matches and heap states
+before and after a throwing operation. As with the acyclic loop summary,
+this supports dependence analysis rather than exact execution simulation.
+``except*`` exception-group partitioning remains approximate.
+
 Core Components
 ---------------
 

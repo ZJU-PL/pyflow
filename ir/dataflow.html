@@ -73,6 +73,7 @@
 <li class="toctree-l2"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Data Flow Intermediate Representation</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#key-features">Key Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exception-state-merging">Exception state merging</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#core-components">Core Components</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#graph-model">Graph Model</a></li>
 </ul>
@@ -152,6 +153,21 @@ form for precise use-def chains</p></li>
 program slicing and optimization</p></li>
 <li><p><strong>Type Annotations</strong>: Associates type information with operations and slots</p></li>
 </ul>
+</section>
+<section id="exception-state-merging">
+<h2>Exception state merging<a class="headerlink" href="#exception-state-merging" title="Link to this heading"></a></h2>
+<p>Source-loaded <code class="docutils literal notranslate"><span class="pre">try/except/else/finally</span></code> and context managers can be converted
+to dataflow IR and DDGs. Exceptional states are captured before committing
+assignment targets, so handlers see the bindings established before the
+operation that failed. Local occurrences are matched by lexical symbol
+identity. Normal and handled states merge at joins; <code class="docutils literal notranslate"><span class="pre">else</span></code> applies only to
+normal completion of the protected body. Finally suites also process pending
+returns, loop transfers, and unhandled exceptions, including overrides by a
+return or raise in cleanup.</p>
+<p>These graphs conservatively retain possible handler matches and heap states
+before and after a throwing operation. As with the acyclic loop summary,
+this supports dependence analysis rather than exact execution simulation.
+<code class="docutils literal notranslate"><span class="pre">except*</span></code> exception-group partitioning remains approximate.</p>
 </section>
 <section id="core-components">
 <h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading"></a></h2>

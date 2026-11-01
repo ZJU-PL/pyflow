@@ -73,6 +73,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#key-features">Key Features</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#core-components">Core Components</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#cfg-construction">CFG Construction</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#exception-flow">Exception flow</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#dominance-analysis">Dominance Analysis</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#ssa-transformation">SSA Transformation</a></li>
 </ul>
@@ -161,6 +162,34 @@ transformations used by analyses and optimization passes.</p>
 <li><p>Manages exceptional control flow (exceptions, returns, breaks)</p></li>
 <li><p>Builds edge relationships between blocks</p></li>
 </ol>
+</section>
+<section id="exception-flow">
+<h3>Exception flow<a class="headerlink" href="#exception-flow" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">try/except/else/finally</span></code> is lowered into separate protected, handler,
+else, and cleanup blocks. Potentially raising operations have explicit
+<code class="docutils literal notranslate"><span class="pre">fail</span></code>/<code class="docutils literal notranslate"><span class="pre">error</span></code> successors. Typed handlers are tested in source order;
+unmatched exceptions propagate outwards. Errors in a handler or <code class="docutils literal notranslate"><span class="pre">else</span></code>
+suite bypass that try’s handlers.</p>
+<p>Assignments in protected suites evaluate their right-hand side before
+committing local bindings on the normal edge. SSA therefore merges the
+values available at each exceptional predecessor, including assignments
+completed before a later operation raises. Cleanup executes on normal,
+return, break, continue, and exceptional paths; abrupt completion in
+<code class="docutils literal notranslate"><span class="pre">finally</span></code> replaces a pending transfer.</p>
+<p>Source-level <code class="docutils literal notranslate"><span class="pre">with</span></code> and <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code> use these same exception regions,
+including cleanup when their bodies return or leave a loop. Handler type
+matching is conservative: both match and non-match paths may remain in the
+graph without exception type facts. Exception-group partitioning for
+<code class="docutils literal notranslate"><span class="pre">except*</span></code> is not modeled precisely. Reconstruction of exception-aware CFGs
+back into structured AST by <code class="docutils literal notranslate"><span class="pre">structuralanalysis</span></code> is not yet supported;
+CFG and SSA inspection are available directly.</p>
+<p>IFDS and CPG consume the lowered graph directly. <code class="docutils literal notranslate"><span class="pre">ExceptionMatch</span></code> blocks
+identify ordered handler dispatch separately from application calls.
+Exceptional cleanup paths capture the pending exception and end in an explicit
+rethrow, preserving value flow into enclosing handlers. Both consumers track
+anonymous local temporaries by symbol identity; built-in exception types and
+tuple handlers support first-match refinement, while dynamic types retain
+conservative branches.</p>
 </section>
 <section id="dominance-analysis">
 <h3>Dominance Analysis<a class="headerlink" href="#dominance-analysis" title="Link to this heading"></a></h3>
