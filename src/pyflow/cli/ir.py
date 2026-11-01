@@ -236,6 +236,51 @@ def _write_json_ir_file(output_file: str, label: str, payload) -> None:
     print(f"{label} dumped to: {output_file}")
 
 
+def _ast_to_dot(node, function_name: str) -> str:
+    """Render a Python AST node as a Graphviz DOT tree."""
+    from pyflow.language.python import ast as py_ast
+
+    g = pydot.Dot(graph_type="digraph")
+    counter = 0
+
+    def add_node(n, label=None):
+        nonlocal counter
+        counter += 1
+        nid = f"ast_{counter}"
+        if label is None:
+            label = type(n).__name__ if isinstance(n, py_ast.PythonASTNode) else repr(n)[:30]
+        g.add_node(pydot.Node(nid, label=label, shape="box"))
+        return nid
+
+    def traverse(n, parent_id=None, edge_label=""):
+        if n is None:
+            return
+        if isinstance(n, (str, int, float, bool)):
+            nid = add_node(n, repr(n)[:30])
+            if parent_id:
+                g.add_edge(pydot.Edge(parent_id, nid, label=edge_label))
+            return
+        if isinstance(n, (list, tuple)):
+            for idx, item in enumerate(n):
+                traverse(item, parent_id, f"[{idx}]")
+            return
+        if isinstance(n, py_ast.PythonASTNode):
+            nid = add_node(n)
+            if parent_id:
+                g.add_edge(pydot.Edge(parent_id, nid, label=edge_label))
+            for name, val in n.fields():
+                traverse(val, nid, name)
+            return
+        pyobj = getattr(n, "pyobj", None)
+        label = repr(pyobj)[:30] if pyobj is not None else type(n).__name__
+        nid = add_node(n, label)
+        if parent_id:
+            g.add_edge(pydot.Edge(parent_id, nid, label=edge_label))
+
+    traverse(node)
+    return f"// AST for function: {function_name}\n" + g.to_string()
+
+
 def _dump_ir_single(
     compiler,
     func,
@@ -260,8 +305,16 @@ def _dump_ir_single(
         elif format == "text":
             content = _get_ast_content(func, function_name)
             write_ir_file(output_file, function_name, "AST", content)
+        elif format == "dot":
+            ast_node = _get_ast_node(func)
+            if ast_node is None:
+                raise ValueError(f"No AST available for function '{function_name}'")
+            content = _ast_to_dot(ast_node, function_name)
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"AST dumped to: {output_file}")
         else:
-            raise ValueError("AST dumps support only text and json formats")
+            raise ValueError("AST dumps support text, dot, and json formats")
     elif ir_type == "CFG":
         cfg = transform.evaluate(compiler, func)
         if format == "dot":

@@ -426,7 +426,7 @@ class PythonToMIR:
                             "code": "mir-opaque-expression",
                             "filename": self.module.filename,
                             "line": getattr(node, "lineno", b.lineno),
-                            "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: dictionary unpacking in displays is not supported; use explicit item assignments",
+                            "message": f"{self.module.filename}:{getattr(node, 'lineno', b.lineno)}: dictionary unpacking in displays is not supported; use explicit item assignments",
                             "affects_completeness": True,
                         }
                     )
@@ -445,7 +445,7 @@ class PythonToMIR:
                         "code": "mir-opaque-expression",
                         "filename": self.module.filename,
                         "line": getattr(node, "lineno", b.lineno),
-                        "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: slice objects are not part of the current Python-to-MIR runtime",
+                        "message": f"{self.module.filename}:{getattr(node, 'lineno', b.lineno)}: slice objects are not part of the current Python-to-MIR runtime",
                         "affects_completeness": True,
                     }
                 )
@@ -568,7 +568,7 @@ class PythonToMIR:
                     "code": "mir-opaque-expression",
                     "filename": self.module.filename,
                     "line": getattr(node, "lineno", self.b.lineno),
-                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: JoinedStr is not supported by the MIR frontend",
+                    "message": f"{self.module.filename}:{getattr(node, 'lineno', self.b.lineno)}: JoinedStr is not supported by the MIR frontend",
                     "affects_completeness": True,
                 }
             )
@@ -588,7 +588,7 @@ class PythonToMIR:
                     "code": "mir-opaque-expression",
                     "filename": self.module.filename,
                     "line": getattr(node, "lineno", self.b.lineno),
-                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: Await is not supported by the MIR frontend",
+                    "message": f"{self.module.filename}:{getattr(node, 'lineno', self.b.lineno)}: Await is not supported by the MIR frontend",
                     "affects_completeness": True,
                 }
             )
@@ -1099,7 +1099,7 @@ class PythonToMIR:
                         "code": "mir-opaque-statement",
                         "filename": self.module.filename,
                         "line": getattr(node, "lineno", self.b.lineno),
-                        "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: unsupported statement AsyncFunctionDef",
+                        "message": f"{self.module.filename}:{getattr(node, 'lineno', self.b.lineno)}: unsupported statement AsyncFunctionDef",
                         "affects_completeness": True,
                     }
                 )
@@ -1193,7 +1193,7 @@ class PythonToMIR:
                     "code": "mir-opaque-statement",
                     "filename": self.module.filename,
                     "line": getattr(node, "lineno", self.b.lineno),
-                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: unsupported statement Match",
+                    "message": f"{self.module.filename}:{getattr(node, 'lineno', self.b.lineno)}: unsupported statement Match",
                     "affects_completeness": True,
                 }
             )
@@ -1217,7 +1217,7 @@ class PythonToMIR:
                     "code": "mir-opaque-statement",
                     "filename": self.module.filename,
                     "line": getattr(node, "lineno", b.lineno),
-                    "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: custom metaclasses and class-definition keywords require a runtime model",
+                    "message": f"{self.module.filename}:{getattr(node, 'lineno', b.lineno)}: custom metaclasses and class-definition keywords require a runtime model",
                     "affects_completeness": True,
                 }
             )

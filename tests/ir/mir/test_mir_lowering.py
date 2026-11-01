@@ -357,6 +357,25 @@ def test_mir_opaque_mode_evaluates_fstring_expressions():
     )
 
 
+def test_mir_opaque_mode_compiles_dict_unpacking_and_slices():
+    source = (
+        "def make(base, items):\n"
+        "    d = {**base, 'k': 1}\n"
+        "    sub = items[1:3]\n"
+        "    return d, sub\n"
+    )
+    diagnostics = []
+    program = lower_source(source, import_policy="opaque", diagnostics=diagnostics)
+    assert any(
+        "dictionary unpacking in displays is not supported" in d["message"] for d in diagnostics
+    )
+    assert any(
+        "slice objects are not part of the current Python-to-MIR runtime" in d["message"]
+        for d in diagnostics
+    )
+    assert "__main__.make" in program.cfgs
+
+
 @pytest.mark.parametrize(
     "source,expected",
     [

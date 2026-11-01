@@ -197,3 +197,27 @@ def test_cli_ir_directory_without_recursive_hints_subdirectories(tmp_path):
 
     output = stderr_buf.getvalue()
     assert "--recursive" in output or "-r" in output
+
+
+def test_cli_ir_dump_ast_dot_format(tmp_path):
+    """--dump-ast with --dump-format dot should dump a valid Graphviz digraph."""
+    target = tmp_path / "simple.py"
+    target.write_text("def f(x): return x + 1\n", encoding="utf-8")
+
+    from pyflow.cli.main import main as cli_main
+    from unittest.mock import patch
+    import io
+
+    stdout_buf = io.StringIO()
+    with (
+        patch("sys.stdout", stdout_buf),
+        patch("sys.argv", ["pyflow", "ir", str(target), "--dump-ast", "f", "--dump-format", "dot"]),
+    ):
+        try:
+            cli_main()
+        except SystemExit:
+            pass
+
+    output = stdout_buf.getvalue()
+    assert "digraph G" in output
+    assert "ast_" in output
