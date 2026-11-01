@@ -352,16 +352,18 @@ JSON output can be processed programmatically:
 
    import json
 
-   # Load call graph
+   # Load call graph (adjacency mapping {caller: [callees]})
    with open("callgraph.json") as f:
-       graph = json.load(f)
+       data = json.load(f)
+
+   graph = data.get("graph", data)
 
    # Find all functions that call a given function
    def find_callers(graph, target):
        callers = []
-       for edge in graph["edges"]:
-           if edge["to"] == target:
-               callers.append(edge["from"])
+       for caller, callees in graph.items():
+           if target in callees:
+               callers.append(caller)
        return callers
 
    # Usage
@@ -371,17 +373,17 @@ JSON output can be processed programmatically:
 Exporting for Visualization
 ============================
 
-Use DOT format with Graphviz for professional visualizations:
+Use DOT format with Graphviz for professional IR visualizations:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --output callgraph.txt
+   pyflow ir example.py --dump-cfg main --dump-format dot --dump-output ./out
 
-Customize the visualization:
+Render the visualization with Graphviz:
 
 .. code-block:: bash
 
-   dot -Tpng callgraph.dot -o callgraph.png -Gdpi=300
+   dot -Tpng out/main_cfg.dot -o cfg.png -Gdpi=300
 
 Or create an HTML visualization:
 

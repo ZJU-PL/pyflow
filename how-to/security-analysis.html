@@ -267,12 +267,12 @@ analysis result:</p>
 <span class="w">    </span>--exit-code-policy<span class="w"> </span>report
 </pre></div>
 </div>
-<p>With the <code class="docutils literal notranslate"><span class="pre">report</span></code> policy, exit code zero means PyFlow successfully emitted
+<p>With the default <code class="docutils literal notranslate"><span class="pre">report</span></code> policy, exit code zero means PyFlow successfully emitted
 the requested report. The report’s <code class="docutils literal notranslate"><span class="pre">status</span></code> field communicates
 <code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">partial</span></code>, <code class="docutils literal notranslate"><span class="pre">cancelled</span></code>, <code class="docutils literal notranslate"><span class="pre">invalid</span></code>, or <code class="docutils literal notranslate"><span class="pre">failed</span></code>; findings
-and diagnostics remain available even when the analysis is partial. The
-default <code class="docutils literal notranslate"><span class="pre">findings</span></code> policy retains the traditional scanner exit codes for
-interactive and CI usage.</p>
+and diagnostics remain available even when the analysis is partial. Passing
+<code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">findings</span></code> enables scanner exit codes (1 for findings, 3 for
+partial/cancelled) for CI gating.</p>
 </section>
 </section>
 <section id="available-security-checks">
@@ -478,7 +478,7 @@ interactive and CI usage.</p>
 <span class="w">        </span><span class="nt">with</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">'3.10'</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
-<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow-analysis</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Security Analysis</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security . --format sarif --output security_report.sarif.json</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload SARIF</span>
@@ -497,7 +497,7 @@ interactive and CI usage.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">security_scan</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python:3.10</span>
 <span class="w">  </span><span class="nt">script</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow-analysis</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security . --format sarif --output security_report.sarif.json</span>
 <span class="w">  </span><span class="nt">artifacts</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">reports</span><span class="p">:</span>
@@ -522,7 +522,8 @@ interactive and CI usage.</p>
 <ul class="simple">
 <li><p>Ensure all files are analyzed</p></li>
 <li><p>Check for syntax errors that prevent full parsing</p></li>
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">all</span></code> for comprehensive analysis</p></li>
+<li><p>Use deeper analysis engines such as <code class="docutils literal notranslate"><span class="pre">--engine</span> <span class="pre">cpg</span></code> or <code class="docutils literal notranslate"><span class="pre">--engine</span> <span class="pre">ifds</span></code></p></li>
+<li><p>Check severity threshold (e.g. <code class="docutils literal notranslate"><span class="pre">--severity</span> <span class="pre">low</span></code> to include all findings)</p></li>
 </ul>
 </section>
 <section id="issue-performance-issues">

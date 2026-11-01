@@ -211,9 +211,11 @@ performance of your Python programs.</p>
 </pre></div>
 </div>
 <p>Apply specific passes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall<span class="w"> </span>inlining<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--experimental-inlining
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run specific passes</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall
+
+<span class="c1"># Or run default pipeline with experimental inlining</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--experimental-inlining
 </pre></div>
 </div>
 <p>Write a report to disk:</p>
@@ -411,7 +413,7 @@ performance of your Python programs.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Try different pass combinations</span>
 pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify
 pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall
-pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall<span class="w"> </span>inlining<span class="w"> </span>--experimental-inlining
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--experimental-inlining
 </pre></div>
 </div>
 </section>

@@ -72,9 +72,8 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#advanced-configuration">Advanced Configuration</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#field-sensitivity">Field Sensitivity</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#flow-sensitivity">Flow Sensitivity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-options">Analysis Options</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#security-ifds-configuration">Security &amp; IFDS Configuration</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#command-line-overrides">Command-Line Overrides</a></li>
@@ -255,38 +254,34 @@ for your specific needs.</p>
 </section>
 <section id="advanced-configuration">
 <h2>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading"></a></h2>
-<section id="context-sensitive-analysis">
-<h3>Context-Sensitive Analysis<a class="headerlink" href="#context-sensitive-analysis" title="Link to this heading"></a></h3>
-<p>Configure context-sensitive analysis:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
-<span class="n">context_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="c1"># Context depth limit (0 = unlimited)</span>
-<span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
-<span class="c1"># Context representation: "k-limiting", "-object-sensitive", "call-string"</span>
-<span class="n">context_representation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"k-limiting"</span>
-<span class="n">k_value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span>
+<section id="analysis-options">
+<h3>Analysis Options<a class="headerlink" href="#analysis-options" title="Link to this heading"></a></h3>
+<p>Configure analysis parameters programmatically via <code class="docutils literal notranslate"><span class="pre">AnalysisOptions</span></code> on the program session:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisOptions</span>
+
+<span class="c1"># Configure CPA path sensitivity, caching, and report options</span>
+<span class="n">options</span> <span class="o">=</span> <span class="n">AnalysisOptions</span><span class="p">(</span>
+    <span class="n">cpa_path_length</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">enable_caching</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">dump_reports</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">program</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
-<section id="field-sensitivity">
-<h3>Field Sensitivity<a class="headerlink" href="#field-sensitivity" title="Link to this heading"></a></h3>
-<p>Configure field-sensitive analysis:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
-<span class="n">field_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="c1"># Track individual fields separately</span>
-<span class="n">track_individual_fields</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="c1"># Maximum fields to track per object</span>
-<span class="n">max_tracked_fields</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
-</pre></div>
-</div>
-</section>
-<section id="flow-sensitivity">
-<h3>Flow Sensitivity<a class="headerlink" href="#flow-sensitivity" title="Link to this heading"></a></h3>
-<p>Configure flow-sensitive analysis:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
-<span class="n">flow_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="c1"># Statement-level vs block-level analysis</span>
-<span class="n">granularity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"statement"</span><span class="w">  </span><span class="c1"># or "block"</span>
+<section id="security-ifds-configuration">
+<h3>Security &amp; IFDS Configuration<a class="headerlink" href="#security-ifds-configuration" title="Link to this heading"></a></h3>
+<p>For IFDS security analysis, reusable project defaults can be supplied via <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"analysis"</span><span class="p">:</span><span class="w"> </span><span class="s2">"taint"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"entry"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"app.py"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"frameworks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"stdlib"</span><span class="p">,</span><span class="w"> </span><span class="s2">"flask"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"unknown_call_policy"</span><span class="p">:</span><span class="w"> </span><span class="s2">"preserve"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"solver_options"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"max_seconds"</span><span class="p">:</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"max_path_edges"</span><span class="p">:</span><span class="w"> </span><span class="mi">100000</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
 </pre></div>
 </div>
 </section>

@@ -226,23 +226,23 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span cl
 <section id="interactive-visualization">
 <h3>Interactive visualization<a class="headerlink" href="#interactive-visualization" title="Link to this heading"></a></h3>
 <p>Use pygraphviz for interactive graphs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>import<span class="w"> </span>pygraphviz<span class="w"> </span>as<span class="w"> </span>pgv
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
 
 <span class="c1"># Load DOT file</span>
-<span class="nv">G</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>pgv.AGraph<span class="o">(</span><span class="s2">"callgraph.dot"</span><span class="o">)</span>
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">"callgraph.dot"</span><span class="p">)</span>
 
 <span class="c1"># Add layout options</span>
-G.graph_attr<span class="o">[</span><span class="s2">"rankdir"</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"TB"</span>
-G.node_attr<span class="o">[</span><span class="s2">"shape"</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"box"</span>
-G.node_attr<span class="o">[</span><span class="s2">"style"</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"rounded,filled"</span>
+<span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">"rankdir"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"TB"</span>
+<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">"shape"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"box"</span>
+<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">"style"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"rounded,filled"</span>
 
 <span class="c1"># Highlight specific nodes</span>
-G.get_node<span class="o">(</span><span class="s2">"main"</span><span class="o">)</span>.attr<span class="o">[</span><span class="s2">"fillcolor"</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"lightgreen"</span>
-G.get_node<span class="o">(</span><span class="s2">"recursive_func"</span><span class="o">)</span>.attr<span class="o">[</span><span class="s2">"fillcolor"</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"lightyellow"</span>
+<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">"main"</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">"fillcolor"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"lightgreen"</span>
+<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">"recursive_func"</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">"fillcolor"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"lightyellow"</span>
 
 <span class="c1"># Render</span>
-G.layout<span class="o">(</span><span class="nv">prog</span><span class="o">=</span><span class="s2">"dot"</span><span class="o">)</span>
-G.draw<span class="o">(</span><span class="s2">"callgraph.png"</span><span class="o">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">"dot"</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">"callgraph.png"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -357,9 +357,9 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/function_name_cfg.do
    }
 </pre></div>
 </div>
-<p>Export for Jupyter notebooks:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">output</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span>
-<span class="n">dot</span> <span class="o">-</span><span class="n">Tpng</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span> <span class="o">-</span><span class="n">o</span> <span class="n">temp</span><span class="o">.</span><span class="n">png</span>
+<p>Export for Jupyter notebooks or image generation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>./out
+dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span class="w"> </span>-o<span class="w"> </span>temp.png
 </pre></div>
 </div>
 </section>

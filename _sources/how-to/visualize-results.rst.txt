@@ -80,7 +80,7 @@ Interactive visualization
 
 Use pygraphviz for interactive graphs:
 
-.. code-block:: bash
+.. code-block:: python
 
    import pygraphviz as pgv
 
@@ -220,12 +220,12 @@ Export for Sphinx documentation:
           func_a -> func_c;
       }
 
-Export for Jupyter notebooks:
+Export for Jupyter notebooks or image generation:
 
-.. code-block:: python
+.. code-block:: bash
 
-   pyflow callgraph input.py --output temp.dot
-   dot -Tpng temp.dot -o temp.png
+   pyflow ir input.py --dump-cfg main --dump-format dot --dump-output ./out
+   dot -Tpng out/main_cfg.dot -o temp.png
 
 Advanced Visualization Techniques
 ==================================

@@ -316,8 +316,8 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/function_name_cfg.do
 </section>
 <section id="all-cfgs-for-a-file">
 <h3>All CFGs for a file<a class="headerlink" href="#all-cfgs-for-a-file" title="Link to this heading"></a></h3>
-<p>Dump all CFGs in a file:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-output<span class="w"> </span>./out
+<p>Dump all CFGs in a file (omit the function name or pass ‘*’):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>--dump-output<span class="w"> </span>./out
 </pre></div>
 </div>
 </section>
@@ -331,24 +331,23 @@ themselves):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_reachability</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""Identify potentially unreachable code."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]</span>
-    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
+    <span class="n">cfg</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cfg"</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"blocks"</span><span class="p">,</span> <span class="p">[])</span>
 
     <span class="c1"># Build set of blocks with incoming edges</span>
     <span class="n">reachable</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
-    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
-        <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">"from"</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">succ</span> <span class="ow">in</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"successors"</span><span class="p">,</span> <span class="p">[]):</span>
+            <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">succ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"target"</span><span class="p">))</span>
 
     <span class="c1"># Entry block is always reachable</span>
-    <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"entry_block"</span><span class="p">))</span>
+    <span class="k">if</span> <span class="s2">"entry"</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">:</span>
+        <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">cfg</span><span class="p">[</span><span class="s2">"entry"</span><span class="p">])</span>
 
-    <span class="c1"># Find unreachable blocks</span>
     <span class="n">all_blocks</span> <span class="o">=</span> <span class="p">{</span><span class="n">block</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">}</span>
-    <span class="n">unreachable</span> <span class="o">=</span> <span class="n">all_blocks</span> <span class="o">-</span> <span class="n">reachable</span>
-
-    <span class="k">return</span> <span class="n">unreachable</span>
+    <span class="k">return</span> <span class="n">all_blocks</span> <span class="o">-</span> <span class="n">reachable</span>
 </pre></div>
 </div>
 </section>
@@ -358,18 +357,21 @@ themselves):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_loop_depth</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""Analyze loop nesting depth."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-    <span class="c1"># Back edges indicate loops</span>
-    <span class="c1"># Count edges from higher blocks to lower blocks</span>
-    <span class="n">back_edges</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"from"</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"to"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"loop"</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"type"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
-    <span class="p">]</span>
+    <span class="n">cfg</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cfg"</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"blocks"</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="c1"># Count loop/back edges among block successors</span>
+    <span class="n">loop_edges</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">succ</span> <span class="ow">in</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"successors"</span><span class="p">,</span> <span class="p">[]):</span>
+            <span class="k">if</span> <span class="n">succ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"exit"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"loop"</span><span class="p">:</span>
+                <span class="n">loop_edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">block</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="n">succ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"target"</span><span class="p">)))</span>
 
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">"num_loops"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">back_edges</span><span class="p">),</span>
-        <span class="s2">"back_edges"</span><span class="p">:</span> <span class="n">back_edges</span>
+        <span class="s2">"num_loops"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">loop_edges</span><span class="p">),</span>
+        <span class="s2">"loop_edges"</span><span class="p">:</span> <span class="n">loop_edges</span>
     <span class="p">}</span>
 </pre></div>
 </div>
@@ -380,14 +382,13 @@ themselves):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_complexity</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""Calculate control flow complexity metrics."""</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]</span>
-    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]</span>
+    <span class="n">cfg</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cfg"</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"blocks"</span><span class="p">,</span> <span class="p">[])</span>
 
-    <span class="c1"># Cyclomatic complexity = edges - nodes + 2</span>
-    <span class="n">n_edges</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span>
     <span class="n">n_nodes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+    <span class="n">n_edges</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"successors"</span><span class="p">,</span> <span class="p">[]))</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">)</span>
 
     <span class="n">complexity</span> <span class="o">=</span> <span class="n">n_edges</span> <span class="o">-</span> <span class="n">n_nodes</span> <span class="o">+</span> <span class="mi">2</span>
 

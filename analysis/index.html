@@ -78,12 +78,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#specialized-analysis">Specialized Analysis</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="#analysis-configuration">Analysis Configuration</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#flow-sensitive-analysis">Flow-Sensitive Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#field-sensitive-analysis">Field-Sensitive Analysis</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="#analysis-configuration">Analysis Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="#running-analyses">Running Analyses</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#command-line">Command Line</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#programmatic-usage">Programmatic Usage</a></li>
@@ -212,32 +207,18 @@ memory/heap reasoning systems in PyFlow, including when to use each one.</p>
 </section>
 <section id="analysis-configuration">
 <h1>Analysis Configuration<a class="headerlink" href="#analysis-configuration" title="Link to this heading"></a></h1>
-<p>PyFlow supports configurable analysis with different precision/performance trade-offs.</p>
-<section id="context-sensitive-analysis">
-<h2>Context-Sensitive Analysis<a class="headerlink" href="#context-sensitive-analysis" title="Link to this heading"></a></h2>
-<p>By default, PyFlow performs context-insensitive analysis for performance. Enable
-context-sensitive analysis for more precise results:</p>
+<p>PyFlow supports configurable analysis with different precision/performance trade-offs.
+Analysis parameters are configured via <code class="docutils literal notranslate"><span class="pre">AnalysisOptions</span></code> on the program session:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisOptions</span>
+
+<span class="c1"># Configure analysis options on the program session</span>
+<span class="n">program</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">AnalysisOptions</span><span class="p">(</span><span class="n">cpa_path_length</span><span class="o">=</span><span class="mi">3</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>CLI flags can also select specific analyses:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
 </pre></div>
 </div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.context_sensitive"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="flow-sensitive-analysis">
-<h2>Flow-Sensitive Analysis<a class="headerlink" href="#flow-sensitive-analysis" title="Link to this heading"></a></h2>
-<p>Enable flow-sensitive analysis for statement-by-statement precision:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.flow_sensitive"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="field-sensitive-analysis">
-<h2>Field-Sensitive Analysis<a class="headerlink" href="#field-sensitive-analysis" title="Link to this heading"></a></h2>
-<p>Enable field-sensitive analysis to track individual object fields:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">"cpa.field_sensitive"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
 </section>
 <section id="running-analyses">
 <h1>Running Analyses<a class="headerlink" href="#running-analyses" title="Link to this heading"></a></h1>
@@ -250,19 +231,20 @@ context-sensitive analysis for more precise results:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">ir</span></code> - Dump intermediate representations (AST, CFG, SSA, CDG, DDG)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">alias</span></code> - Run alias analysis (flow-sensitive heap or k-CFA pointer)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">security</span></code> - Unified security analysis dispatching to
-ast-scanner, CPA, IFDS, or CPG engines</p></li>
+ast-scanner, ast-dataflow, ifds, or cpg engines</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">supply-chain</span></code> - Generate CycloneDX SBOMs and audit distribution metadata</p></li>
 </ul>
 </section>
 <section id="programmatic-usage">
 <h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
 <p>Use the Python API for programmatic analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterproceduralDataflow</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.constraint_based.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 
-<span class="c1"># Run CPA</span>
-<span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
-<span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="c1"># Run analysis pipeline</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">compiler</span><span class="o">=</span><span class="n">compiler</span><span class="p">)</span>
 
 <span class="c1"># Build call graph</span>
 <span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="n">source_code</span><span class="p">)</span>

@@ -184,11 +184,11 @@ This writes ``out/function_name_cfg.json``.
 All CFGs for a file
 -------------------
 
-Dump all CFGs in a file:
+Dump all CFGs in a file (omit the function name or pass '*'):
 
 .. code-block:: bash
 
-   pyflow ir input.py --dump-cfg function_name --dump-output ./out
+   pyflow ir input.py --dump-cfg --dump-output ./out
 
 Common Analysis Tasks
 =====================
@@ -204,24 +204,23 @@ themselves):
    def analyze_reachability(json_path):
        """Identify potentially unreachable code."""
        with open(json_path) as f:
-           cfg = json.load(f)
+           data = json.load(f)
 
-       blocks = cfg["blocks"]
-       edges = cfg["edges"]
+       cfg = data.get("cfg", data)
+       blocks = cfg.get("blocks", [])
 
        # Build set of blocks with incoming edges
        reachable = set()
-       for edge in edges:
-           reachable.add(edge["from"])
+       for block in blocks:
+           for succ in block.get("successors", []):
+               reachable.add(succ.get("target"))
 
        # Entry block is always reachable
-       reachable.add(cfg.get("entry_block"))
+       if "entry" in cfg:
+           reachable.add(cfg["entry"])
 
-       # Find unreachable blocks
        all_blocks = {block["id"] for block in blocks}
-       unreachable = all_blocks - reachable
-
-       return unreachable
+       return all_blocks - reachable
 
 Task 2: Find loop complexity
 -----------------------------
@@ -233,18 +232,21 @@ Analyze loop nesting depth:
    def analyze_loop_depth(json_path):
        """Analyze loop nesting depth."""
        with open(json_path) as f:
-           cfg = json.load(f)
+           data = json.load(f)
 
-       # Back edges indicate loops
-       # Count edges from higher blocks to lower blocks
-       back_edges = [
-           e for e in cfg["edges"]
-           if e["from"] > e.get("to", 0) and "loop" in e.get("type", "")
-       ]
+       cfg = data.get("cfg", data)
+       blocks = cfg.get("blocks", [])
+
+       # Count loop/back edges among block successors
+       loop_edges = []
+       for block in blocks:
+           for succ in block.get("successors", []):
+               if succ.get("exit") == "loop":
+                   loop_edges.append((block["id"], succ.get("target")))
 
        return {
-           "num_loops": len(back_edges),
-           "back_edges": back_edges
+           "num_loops": len(loop_edges),
+           "loop_edges": loop_edges
        }
 
 Task 3: Simplify complex conditionals
@@ -257,14 +259,13 @@ Identify functions with complex control flow:
    def analyze_complexity(json_path):
        """Calculate control flow complexity metrics."""
        with open(json_path) as f:
-           cfg = json.load(f)
+           data = json.load(f)
 
-       edges = cfg["edges"]
-       blocks = cfg["blocks"]
+       cfg = data.get("cfg", data)
+       blocks = cfg.get("blocks", [])
 
-       # Cyclomatic complexity = edges - nodes + 2
-       n_edges = len(edges)
        n_nodes = len(blocks)
+       n_edges = sum(len(block.get("successors", [])) for block in blocks)
 
        complexity = n_edges - n_nodes + 2
 

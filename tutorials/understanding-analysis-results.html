@@ -457,16 +457,18 @@ config: Dict[Fixed(keys={str}, values={str, int})]
 <p>JSON output can be processed programmatically:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
-<span class="c1"># Load call graph</span>
+<span class="c1"># Load call graph (adjacency mapping {caller: [callees]})</span>
 <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"callgraph.json"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-    <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"graph"</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
 
 <span class="c1"># Find all functions that call a given function</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">find_callers</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">target</span><span class="p">):</span>
     <span class="n">callers</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">"edges"</span><span class="p">]:</span>
-        <span class="k">if</span> <span class="n">edge</span><span class="p">[</span><span class="s2">"to"</span><span class="p">]</span> <span class="o">==</span> <span class="n">target</span><span class="p">:</span>
-            <span class="n">callers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">"from"</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">caller</span><span class="p">,</span> <span class="n">callees</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">target</span> <span class="ow">in</span> <span class="n">callees</span><span class="p">:</span>
+            <span class="n">callers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">caller</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">callers</span>
 
 <span class="c1"># Usage</span>
@@ -477,12 +479,12 @@ config: Dict[Fixed(keys={str}, values={str, int})]
 </section>
 <section id="exporting-for-visualization">
 <h2>Exporting for Visualization<a class="headerlink" href="#exporting-for-visualization" title="Link to this heading"></a></h2>
-<p>Use DOT format with Graphviz for professional visualizations:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
+<p>Use DOT format with Graphviz for professional IR visualizations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>./out
 </pre></div>
 </div>
-<p>Customize the visualization:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-Gdpi<span class="o">=</span><span class="m">300</span>
+<p>Render the visualization with Graphviz:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png<span class="w"> </span>-Gdpi<span class="o">=</span><span class="m">300</span>
 </pre></div>
 </div>
 <p>Or create an HTML visualization:</p>

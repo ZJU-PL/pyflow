@@ -9,8 +9,8 @@ consumes this representation in ``pyflow.analysis.callgraph.pycg_mir``.
 
 This implementation adds a separate representation to PyFlow. Existing CFG,
 GIR, constraint-based call-graph analysis, and the optional upstream PyCG
-adapter retain their APIs and defaults. The command-line default is still
-``--algorithm simple``; select ``pycg-mir`` explicitly to use the new engine.
+adapter retain their APIs and defaults. The command-line default is
+``--algorithm constraint``; select ``pycg-mir`` explicitly to use the new engine.
 
 Quick Start
 -----------

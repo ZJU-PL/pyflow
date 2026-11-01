@@ -368,10 +368,10 @@ Edges:
 <p>You can output call graphs in different formats:</p>
 <ul class="simple">
 <li><p><strong>text</strong> (default): Human-readable text format</p></li>
-<li><p><strong>dot</strong>: Graphviz DOT format for visualization</p></li>
-<li><p><strong>json</strong>: JSON format for programmatic processing</p></li>
+<li><p><strong>json</strong>: JSON format for programmatic processing (legacy adjacency map or <code class="docutils literal notranslate"><span class="pre">--json-schema</span> <span class="pre">unified</span></code>)</p></li>
 </ul>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
 </pre></div>
 </div>
 </section>
@@ -382,8 +382,11 @@ Edges:
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze a directory recursively</span>
 pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--recursive
 
-<span class="c1"># Include specific patterns</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--include<span class="w"> </span><span class="s2">"*.py"</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">"test_*"</span>
+<span class="c1"># Explicit entry point in project directory</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--entry<span class="w"> </span>app.py
+
+<span class="c1"># For file inclusion/exclusion patterns, use optimize or ir:</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>src/<span class="w"> </span>--recursive<span class="w"> </span>--include<span class="w"> </span><span class="s2">"*.py"</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">"test_*"</span>
 </pre></div>
 </div>
 </section>

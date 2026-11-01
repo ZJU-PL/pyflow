@@ -85,9 +85,12 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#checker-categories">Checker Categories</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#injection-vulnerabilities">Injection Vulnerabilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#authentication-and-authorization">Authentication and Authorization</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#web-framework-security">Web Framework Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#aws-cloud-security">AWS Cloud Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#code-safety">Code Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#object-oriented-safety">Object-Oriented Safety</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#analysis-framework">Analysis Framework</a><ul>
@@ -195,72 +198,61 @@ subsystems directly and import shared types from <code class="docutils literal n
 </section>
 <section id="checker-categories">
 <h1>Checker Categories<a class="headerlink" href="#checker-categories" title="Link to this heading"></a></h1>
-<p>HR|Injection Vulnerabilities
-XX|————————-
-NV|
-BH|**sql_injection.py**: SQL injection detection
-NB|- Identifies string formatting used in SQL queries
-NY|- Detects unsafe database query construction
-MW|- Flags potential injection points
-HQ|
-ZP|**sql_injection_enhanced.py**: Enhanced SQL injection detection
-QT|- Advanced SQL injection for ORMs (Django ORM, SQLAlchemy)
-QK|- Detects ORM extra() injection, raw SQL, dynamic table names
-JX|- NoSQL injection detection (MongoDB-style)
-BQ|
-MG|**command_injection.py**: Command injection detection
-QK|- Detects user input in shell commands via subprocess, os.system, os.popen
-QS|- Identifies shell=True usage with user-controlled arguments
-QV|- Flags dangerous string formatting in command construction
-BR|
-YN|**shell_injection.py**: Shell injection detection
-JM|- Identifies shell command construction
-KP|- Detects unsafe subprocess calls
-WV|- Flags potential command injection vulnerabilities
-QY|
-XW|**ssrf.py**: Server-Side Request Forgery detection
-QP|- Detects user-controlled URLs in requests/urllib
-QS|- Identifies internal metadata access (AWS, Kubernetes)
-JK|- Flags dangerous URL schemes and socket connections
-BR|
-YW|**xxe_vulnerabilities.py**: XXE vulnerability detection
-QT|- Detects unsafe XML parsing with external entity resolution
-QP|- Identifies lxml, xml.dom.minidom, xml.sax vulnerabilities
-QS|- Flags dangerous parser configurations
-BR|
-XR|**ldap_injection.py**: LDAP injection detection
-QT|- Detects unsanitized user input in LDAP operations
-QP|- Identifies unsafe LDAP bind and search operations
-QS|- Flags dangerous LDAP connection strings
-BR|
-YW|**deserialization.py**: Unsafe deserialization detection
-QT|- Detects unsafe pickle, yaml, marshal, jsonpickle usage
-QP|- Identifies user-controlled deserialization
-QS|- Flags shelve with user input
-BR|
-YM|**template_security.py**: Template security analysis
-QT|- Detects Jinja2 autoescape disablement
-QP|- Identifies unsafe template loading and mark_safe usage
-QS|- Flags SSTI (Server-Side Template Injection) patterns
-BQ|
-Authentication and Authorization
-——————————–</p>
-<p>HZ|**hardcoded_password.py**: Hardcoded credentials detection
-WM|- Identifies hardcoded passwords and secrets
-ZV|- Detects embedded authentication tokens
-YP|- Flags insecure credential storage
-JW|
-YX|**hardcoded_secrets.py**: Hardcoded secrets detection
-RM|- Detects API tokens (GitHub, Google, Slack)
-QN|- Identifies hardcoded AWS access keys
-QZ|- Detects private keys and database passwords
-QK|- Flags JWT secrets and encryption keys
-JQ|
-XY|**weak_crypto.py**: Weak cryptography detection
-RB|- Identifies deprecated cryptographic functions
-SW|- Detects weak encryption algorithms
-SH|- Flags insecure random number generation
-MX|JQ|</p>
+<section id="injection-vulnerabilities">
+<h2>Injection Vulnerabilities<a class="headerlink" href="#injection-vulnerabilities" title="Link to this heading"></a></h2>
+<p><strong>sql_injection.py</strong>: SQL injection detection
+- Identifies string formatting used in SQL queries
+- Detects unsafe database query construction
+- Flags potential injection points</p>
+<p><strong>sql_injection_enhanced.py</strong>: Enhanced SQL injection detection
+- Advanced SQL injection for ORMs (Django ORM, SQLAlchemy)
+- Detects ORM extra() injection, raw SQL, dynamic table names
+- NoSQL injection detection (MongoDB-style)</p>
+<p><strong>command_injection.py</strong>: Command injection detection
+- Detects user input in shell commands via subprocess, os.system, os.popen
+- Identifies shell=True usage with user-controlled arguments
+- Flags dangerous string formatting in command construction</p>
+<p><strong>shell_injection.py</strong>: Shell injection detection
+- Identifies shell command construction
+- Detects unsafe subprocess calls
+- Flags potential command injection vulnerabilities</p>
+<p><strong>ssrf.py</strong>: Server-Side Request Forgery detection
+- Detects user-controlled URLs in requests/urllib
+- Identifies internal metadata access (AWS, Kubernetes)
+- Flags dangerous URL schemes and socket connections</p>
+<p><strong>xxe_vulnerabilities.py</strong>: XXE vulnerability detection
+- Detects unsafe XML parsing with external entity resolution
+- Identifies lxml, xml.dom.minidom, xml.sax vulnerabilities
+- Flags dangerous parser configurations</p>
+<p><strong>ldap_injection.py</strong>: LDAP injection detection
+- Detects unsanitized user input in LDAP operations
+- Identifies unsafe LDAP bind and search operations
+- Flags dangerous LDAP connection strings</p>
+<p><strong>deserialization.py</strong>: Unsafe deserialization detection
+- Detects unsafe pickle, yaml, marshal, jsonpickle usage
+- Identifies user-controlled deserialization
+- Flags shelve with user input</p>
+<p><strong>template_security.py</strong>: Template security analysis
+- Detects Jinja2 autoescape disablement
+- Identifies unsafe template loading and mark_safe usage
+- Flags SSTI (Server-Side Template Injection) patterns</p>
+</section>
+<section id="authentication-and-authorization">
+<h2>Authentication and Authorization<a class="headerlink" href="#authentication-and-authorization" title="Link to this heading"></a></h2>
+<p><strong>hardcoded_password.py</strong>: Hardcoded credentials detection
+- Identifies hardcoded passwords and secrets
+- Detects embedded authentication tokens
+- Flags insecure credential storage</p>
+<p><strong>hardcoded_secrets.py</strong>: Hardcoded secrets detection
+- Detects API tokens (GitHub, Google, Slack)
+- Identifies hardcoded AWS access keys
+- Detects private keys and database passwords
+- Flags JWT secrets and encryption keys</p>
+<p><strong>weak_crypto.py</strong>: Weak cryptography detection
+- Identifies deprecated cryptographic functions
+- Detects weak encryption algorithms
+- Flags insecure random number generation</p>
+</section>
 <section id="web-framework-security">
 <h2>Web Framework Security<a class="headerlink" href="#web-framework-security" title="Link to this heading"></a></h2>
 <p><strong>django_security.py</strong>: Django security analysis
@@ -313,8 +305,7 @@ MX|JQ|</p>
 <p><strong>blacklist_imports.py</strong>: Blacklisted module imports
 - Identifies imports of unsafe modules
 - Detects potentially dangerous library usage
-NS|- Configurable import restrictions
-TJ|</p>
+- Configurable import restrictions</p>
 <p><strong>path_traversal.py</strong>: Path traversal detection
 - Identifies unsafe file operations with user input
 - Detects open(), pathlib, os.path with user-controlled paths
@@ -323,10 +314,10 @@ TJ|</p>
 - Detects bare except clauses
 - Identifies try/except with only pass statements
 - Flags exception handling that swallows errors
-- Checks for improper exception propagation
-TJ|
-Object-Oriented Safety
-———————-</p>
+- Checks for improper exception propagation</p>
+</section>
+<section id="object-oriented-safety">
+<h2>Object-Oriented Safety<a class="headerlink" href="#object-oriented-safety" title="Link to this heading"></a></h2>
 <p><strong>class_pollution.py</strong>: Class pollution detection
 - Identifies unsafe attribute manipulation
 - Detects potential prototype pollution

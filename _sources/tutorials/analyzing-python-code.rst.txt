@@ -245,12 +245,12 @@ Call Graph Formats
 You can output call graphs in different formats:
 
 - **text** (default): Human-readable text format
-- **dot**: Graphviz DOT format for visualization
-- **json**: JSON format for programmatic processing
+- **json**: JSON format for programmatic processing (legacy adjacency map or ``--json-schema unified``)
 
 .. code-block:: bash
 
    pyflow callgraph example.py --output callgraph.txt
+   pyflow callgraph example.py --format json --output callgraph.json
 
 Analyzing Multiple Files
 ========================
@@ -262,8 +262,11 @@ PyFlow can analyze entire projects:
    # Analyze a directory recursively
    pyflow callgraph src/ --recursive
 
-   # Include specific patterns
-   pyflow callgraph src/ --include "*.py" --exclude "test_*"
+   # Explicit entry point in project directory
+   pyflow callgraph src/ --entry app.py
+
+   # For file inclusion/exclusion patterns, use optimize or ir:
+   pyflow optimize src/ --recursive --include "*.py" --exclude "test_*"
 
 Advanced Analysis Options
 ==========================

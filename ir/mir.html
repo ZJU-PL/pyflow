@@ -147,8 +147,8 @@ Python Program Analysis</em>, Hakjoo Oh’s IFIP WG 2.4 presentation, March 2026
 consumes this representation in <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.callgraph.pycg_mir</span></code>.</p>
 <p>This implementation adds a separate representation to PyFlow. Existing CFG,
 GIR, constraint-based call-graph analysis, and the optional upstream PyCG
-adapter retain their APIs and defaults. The command-line default is still
-<code class="docutils literal notranslate"><span class="pre">--algorithm</span> <span class="pre">simple</span></code>; select <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> explicitly to use the new engine.</p>
+adapter retain their APIs and defaults. The command-line default is
+<code class="docutils literal notranslate"><span class="pre">--algorithm</span> <span class="pre">constraint</span></code>; select <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> explicitly to use the new engine.</p>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
 <p>Install the regular PyFlow package; no optional <code class="docutils literal notranslate"><span class="pre">pycg</span></code> dependency is needed:</p>

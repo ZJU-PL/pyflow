@@ -237,7 +237,7 @@ pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span clas
 
 <span class="c1"># CI-friendly bounded analysis with SARIF output</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ifds-mode<span class="w"> </span>strict<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--ifds-max-seconds<span class="w"> </span><span class="m">60</span><span class="w"> </span>--ifds-max-memory-bytes<span class="w"> </span><span class="m">1073741824</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>pyflow.sarif
 </pre></div>
@@ -251,7 +251,7 @@ the analysis and return a partial result rather than silently presenting it as
 complete.  Library callers may select <code class="docutils literal notranslate"><span class="pre">limit_behavior=&quot;raise&quot;</span></code> when an
 exception is preferable.  <code class="docutils literal notranslate"><span class="pre">CancellationToken</span></code> supports cooperative
 cancellation; <code class="docutils literal notranslate"><span class="pre">trace_mode</span></code> accepts <code class="docutils literal notranslate"><span class="pre">none</span></code>, <code class="docutils literal notranslate"><span class="pre">findings</span></code>, or <code class="docutils literal notranslate"><span class="pre">all</span></code>.</p>
-<p>The CLI uses distinct process exit codes:</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">findings</span></code>, the CLI uses distinct process exit codes:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">0</span></code>: complete with no findings</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">1</span></code>: complete with findings</p></li>
@@ -259,9 +259,7 @@ cancellation; <code class="docutils literal notranslate"><span class="pre">trace
 <li><p><code class="docutils literal notranslate"><span class="pre">3</span></code>: partial or cancelled analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">4</span></code>: analysis failure</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">--ifds-mode</span> <span class="pre">strict</span></code> fails when preparation cannot construct required
-analysis state.  <code class="docutils literal notranslate"><span class="pre">best-effort</span></code> records coded diagnostics and marks the result
-partial when recovery can affect completeness.</p>
+<p>The default <code class="docutils literal notranslate"><span class="pre">report</span></code> exit code policy returns 0 for both complete and partial reports.</p>
 </section>
 <section id="findings-and-sarif">
 <h2>Findings and SARIF<a class="headerlink" href="#findings-and-sarif" title="Link to this heading"></a></h2>

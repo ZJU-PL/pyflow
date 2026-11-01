@@ -193,10 +193,9 @@ Options:
 - ``--config``: JSON config file for IFDS parameters; defaults to ``pyflow.json`` in the target directory (or the parent of a file target)
 - ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
 - ``--entry``: Entry file relative to the project root for IFDS; repeat to select multiple files. All discovered entries are analyzed when omitted
-- ``--analysis``: IFDS client (``taint``, ``nullness``, or ``typestate``)
+- ``--analysis``: IFDS client (``taint``, ``nullness``, ``typestate``, or ``class-pollution``)
 - ``--registry-path``: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
 - ``--typestate-protocol``: Typestate protocols for ``--analysis typestate`` (repeatable; supports ``resource``, ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``)
-- ``--ifds-mode``: ``strict`` preparation or diagnostic ``best-effort`` mode
 - ``--ifds-max-seconds`` / ``--ifds-max-memory-bytes``: Solver wall-clock and memory budgets (default: 30 seconds per entry; memory is unbounded). Explicit CLI values override project configuration; exhaustion returns partial results
 - ``--ifds-max-path-edges`` / ``--ifds-max-queue-size``: Solver work budgets
 - ``--ifds-max-incoming-records`` / ``--ifds-max-summary-entries``: Interprocedural table budgets
@@ -211,7 +210,7 @@ Options:
 - ``--cpg-total-max-seconds``: Total budget across CPG targets, including construction (default: 60 seconds); remaining targets are skipped with a partial-analysis diagnostic when exhausted
 - ``--ast-max-seconds``: Total AST-dataflow budget including source preparation (default: 30 seconds)
 - ``--ifds-total-max-seconds``: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted
-- ``--framework``: Framework rule packs for the CPG engine
+- ``--framework``: Framework rule packs for taint sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds`` engines)
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``. The ``ifds`` and ``cpg`` engines support ``text``, ``json``, ``sarif``, and ``custom``; requesting another format is an error rather than a silent text fallback.
 - ``--output``: Output file path
 - ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis

@@ -121,8 +121,9 @@ Query components are created for an analyzed program snapshot via
    callgraph = queries.call_graph.get_callgraph()
    callers = queries.call_graph.get_callers("function_name")
    callees = queries.call_graph.get_callees("function_name")
-   reaching_defs = queries.data_flow.get_reaching_definitions("function_name")
-   aliases = queries.data_flow.get_aliases("function_name", "variable_name")
+   reaching_defs = queries.data_flow.get_reaching_defs("function_name")
+   aliases = queries.data_flow.get_aliases("function_name")
+   alias_var = queries.data_flow.get_aliases_for_variable("variable_name")
 
 **Control Flow Queries (``queries.control_flow``):**
 
@@ -130,7 +131,6 @@ Query components are created for an analyzed program snapshot via
 - ``get_cfg_structure(function)``: Get CFG as dictionary
 - ``get_ssa(function)``: Get SSA form
 - ``get_cdg(function)``: Get Control Dependence Graph
-- ``get_pdg(function)``: Get Program Dependence Graph
 
 **Call Graph Queries (``queries.call_graph``):**
 
@@ -140,14 +140,22 @@ Query components are created for an analyzed program snapshot via
 
 **Data Flow Queries (``queries.data_flow``):**
 
-- ``get_reaching_definitions(function)``: Get reaching definitions
-- ``get_aliases(function, variable)``: Get alias and points-to information
-- ``compute_backward_slice(target)``: Compute backward program slice
-- ``compute_forward_slice(target)``: Compute forward program slice
+- ``get_reaching_defs(function)``: Get reaching definitions
+- ``get_aliases(function)``: Get alias information for all variables in function
+- ``get_aliases_for_variable(variable)``: Get alias information for a single variable
+- ``get_points_to(function)``: Get points-to information for all variables
+- ``get_variable_uses(function, variable)``: Get use locations for a variable
+
+**Localization Queries (``queries.localization``):**
+
+- ``compute_backward_slice(function, variable)``: Compute backward program slice
+- ``compute_forward_slice(function, variable)``: Compute forward program slice
+- ``trace_data_flow(function, variable)``: Trace variable definitions and uses
+- ``get_localization_candidates(function, variable)``: Get ranked fault-localization candidates
 
 **Type Information Queries (``queries.type_info``):**
 
-- ``get_type(module, line, column)``: Query inferred type at a source position
+- ``get_expression_type(module, line, column)``: Query inferred type at a source position
 
 Query Context
 ~~~~~~~~~~~~~
@@ -173,8 +181,8 @@ The ``GraphQueryEngine`` provides graph-based querying capabilities.
    engine = GraphQueryEngine(context)
    
    # Query graph structures
-   nodes = engine.get_nodes(function_name)
-   edges = engine.get_edges(function_name)
+   cfg = engine.get_cfg("function_name")
+   callgraph = engine.get_callgraph()
 
 Query Helper Classes
 ~~~~~~~~~~~~~~~~~~~~
@@ -251,7 +259,8 @@ Query for code localization (finding where variables are defined/used):
 .. code-block:: python
 
    loc_queries = queries.localization
-   definitions = loc_queries.get_definitions("variable_name")
+   trace = loc_queries.trace_data_flow("function_name", "variable_name")
+   candidates = loc_queries.get_localization_candidates("function_name", "variable_name")
 
 Test Generation Queries
 ~~~~~~~~~~~~~~~~~~~~~~~

@@ -248,11 +248,11 @@ and ``out/function_name_cfg.json``.
 Debug Mode
 ----------
 
-Run analysis in debug mode for maximum information:
+Run security analysis in debug mode for maximum diagnostic information:
 
 .. code-block:: bash
 
-   pyflow optimize input.py --verbose --debug
+   pyflow security input.py --verbose --debug
 
 Common Error Messages
 ======================

@@ -81,7 +81,7 @@ Options:
 
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
-- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``simple``)
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``constraint``)
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
 - ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
@@ -207,7 +207,7 @@ The CLI rejects constraint context-sensitivity, fixed-point control,
 allocation-sensitivity, scope-selection, and assignment-graph options for this
 backend. The stdlib flags affect only constraint analysis and do not extend
 MIR's supported import graph. The native backend does not change the existing
-public API default or the ``simple`` CLI default.
+public API default or the ``constraint`` CLI default.
 
 Upstream PyCG Adapter
 ~~~~~~~~~~~~~~~~~~~~

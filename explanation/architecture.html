@@ -183,7 +183,7 @@ distinct layers:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.ast</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
 
 <span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
-<span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">python_ast</span><span class="p">)</span>
+<span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">(</span><span class="n">python_ast</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>
@@ -196,10 +196,12 @@ distinct layers:</p>
 <section id="program-extractor">
 <h4>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h4>
 <p>Extracts the complete program structure from source files:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 
-<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">()</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">"input.py"</span><span class="p">])</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>
@@ -215,7 +217,7 @@ distinct layers:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.resolution.dependencies</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
 
 <span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">()</span>
-<span class="n">dependencies</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">import_graph</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">get_import_graph</span><span class="p">()</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>
@@ -269,8 +271,7 @@ representing program structure and analysis results.</p>
 <p>Represents data flow information for analysis:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.dataflow.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
 
-<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
-<span class="n">df_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
+<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key components:</p>
@@ -283,10 +284,10 @@ representing program structure and analysis results.</p>
 <section id="store-graph">
 <h3>Store Graph<a class="headerlink" href="#store-graph" title="Link to this heading"></a></h3>
 <p>Represents object allocation and field access:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.storegraph.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span><span class="p">,</span> <span class="n">ObjectNode</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.storegraph.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span><span class="p">,</span> <span class="n">RegionNode</span>
 
 <span class="n">graph</span> <span class="o">=</span> <span class="n">StoreGraph</span><span class="p">()</span>
-<span class="n">node</span> <span class="o">=</span> <span class="n">ObjectNode</span><span class="p">(</span><span class="s2">"obj"</span><span class="p">,</span> <span class="s2">"Object()"</span><span class="p">)</span>
+<span class="n">region</span> <span class="o">=</span> <span class="n">RegionNode</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key components:</p>
@@ -303,10 +304,11 @@ representing program structure and analysis results.</p>
 <section id="constraint-based-analysis-cpa">
 <h3>Constraint-Based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h3>
 <p>CPA uses constraint solving for precise analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterproceduralDataflow</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 
-<span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
-<span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span><span class="o">.</span><span class="n">run_custom_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="p">[</span><span class="s2">"cpa"</span><span class="p">])</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>
@@ -326,10 +328,11 @@ representing program structure and analysis results.</p>
 <section id="inter-procedural-analysis-ipa">
 <h3>Inter-Procedural Analysis (IPA)<a class="headerlink" href="#inter-procedural-analysis-ipa" title="Link to this heading"></a></h3>
 <p>Extends analysis across function boundaries:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ipa</span><span class="w"> </span><span class="kn">import</span> <span class="n">IPAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 
-<span class="n">ipa</span> <span class="o">=</span> <span class="n">IPAnalysis</span><span class="p">()</span>
-<span class="n">ipa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span><span class="o">.</span><span class="n">run_custom_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="p">[</span><span class="s2">"ipa"</span><span class="p">])</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>
@@ -342,10 +345,11 @@ representing program structure and analysis results.</p>
 <section id="shape-analysis">
 <h3>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h3>
 <p>Analyzes data structure shapes:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.shape</span><span class="w"> </span><span class="kn">import</span> <span class="n">RegionBasedShapeAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 
-<span class="n">shape</span> <span class="o">=</span> <span class="n">RegionBasedShapeAnalysis</span><span class="p">()</span>
-<span class="n">shape</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span><span class="o">.</span><span class="n">run_custom_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="p">[</span><span class="s2">"shape"</span><span class="p">])</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>

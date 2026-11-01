@@ -221,7 +221,7 @@ Running Inlining
 
 .. code-block:: bash
 
-   pyflow optimize input.py --opt-passes inlining --experimental-inlining
+   pyflow optimize input.py --experimental-inlining
 
 Method Call Optimization
 ========================
@@ -313,7 +313,7 @@ Generating Optimization Reports
 
 .. code-block:: bash
 
-   pyflow optimize input.py --opt-passes all --verbose
+   pyflow optimize input.py --verbose
 
 This outputs detailed information about each optimization pass.
 

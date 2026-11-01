@@ -97,7 +97,7 @@ targets. It does not run the IPA or CPA pipelines as a preparation step.
 
    # CI-friendly bounded analysis with SARIF output
    pyflow security input.py --engine ifds \
-       --sources input --sinks eval --ifds-mode strict \
+       --sources input --sinks eval \
        --ifds-max-seconds 60 --ifds-max-memory-bytes 1073741824 \
        --format sarif --output pyflow.sarif
 
@@ -111,7 +111,7 @@ complete.  Library callers may select ``limit_behavior="raise"`` when an
 exception is preferable.  ``CancellationToken`` supports cooperative
 cancellation; ``trace_mode`` accepts ``none``, ``findings``, or ``all``.
 
-The CLI uses distinct process exit codes:
+Under ``--exit-code-policy findings``, the CLI uses distinct process exit codes:
 
 - ``0``: complete with no findings
 - ``1``: complete with findings
@@ -119,9 +119,7 @@ The CLI uses distinct process exit codes:
 - ``3``: partial or cancelled analysis
 - ``4``: analysis failure
 
-``--ifds-mode strict`` fails when preparation cannot construct required
-analysis state.  ``best-effort`` records coded diagnostics and marks the result
-partial when recovery can affect completeness.
+The default ``report`` exit code policy returns 0 for both complete and partial reports.
 
 Findings and SARIF
 ------------------

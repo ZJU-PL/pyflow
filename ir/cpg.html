@@ -319,10 +319,9 @@ sanitizer policy is complete for every third-party library.</p>
 <p>The CPG can be built from the command line:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build CPG from a Python file and run CPG-backed security analysis</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpg
-
-<span class="c1"># Export CPG representation via IR dump (see pyflow ir for available dump options)</span>
 </pre></div>
 </div>
+<p>Programmatic exports use <code class="docutils literal notranslate"><span class="pre">cpg.to_dot()</span></code> or <code class="docutils literal notranslate"><span class="pre">cpg.to_dict()</span></code>.</p>
 </section>
 <section id="related-modules">
 <h2>Related Modules<a class="headerlink" href="#related-modules" title="Link to this heading"></a></h2>

@@ -73,14 +73,14 @@ Recursive analysis
 
    pyflow callgraph src/ --recursive
 
-Filter by patterns
-------------------
+Explicit project entry
+----------------------
 
-Include only specific files:
+Select an explicit project entry point:
 
 .. code-block:: bash
 
-   pyflow callgraph src/ --include "*.py" --exclude "test_*"
+   pyflow callgraph src/ --entry app.py
 
 Constrain solver resources
 --------------------------
@@ -117,24 +117,24 @@ Use the JSON output for programmatic analysis:
    def analyze_call_graph(json_path):
        """Analyze call graph for potential issues."""
        with open(json_path) as f:
-           graph = json.load(f)
+           data = json.load(f)
+
+       # PyFlow outputs a {caller: [callees]} adjacency map,
+       # or a structured envelope with a "graph" key.
+       adj = data.get("graph", data)
 
        # Build reverse mapping (who calls whom)
        callers = {}
-       for edge in graph.get("edges", []):
-           callee = edge["to"]
-           caller = edge["from"]
-           callers.setdefault(callee, []).append(caller)
+       for caller, callees in adj.items():
+           for callee in callees:
+               callers.setdefault(callee, []).append(caller)
 
-       # Find functions with no callers (potentially dead code)
-       all_functions = {node["name"] for node in graph.get("nodes", [])}
+       # Find functions with no callers (potentially dead code or root entries)
+       all_functions = set(adj.keys()) | set(callers.keys())
        dead_code = all_functions - set(callers.keys())
 
-       # Find recursive functions
-       recursive = []
-       for node in graph.get("nodes", []):
-           if node["name"] in callers.get(node["name"], []):
-               recursive.append(node["name"])
+       # Find recursive functions (self-loops)
+       recursive = [func for func, callees in adj.items() if func in callees]
 
        return {
            "dead_code": dead_code,
@@ -166,7 +166,7 @@ Customized visualization
 
 Create a custom layout script:
 
-.. code-block:: python
+.. code-block:: text
 
    # custom_layout.gv
    graph [rankdir=TB, nodesep=0.5, ranksep=0.5]
@@ -197,11 +197,11 @@ Task 1: Find unused functions
    import json
 
    with open("callgraph.json") as f:
-       graph = json.load(f)
+       data = json.load(f)
 
-   # Functions with no incoming edges are potentially unused
-   all_functions = {node["name"] for node in graph["nodes"]}
-   called_functions = {edge["to"] for edge in graph["edges"]}
+   adj = data.get("graph", data)
+   all_functions = set(adj.keys())
+   called_functions = {callee for callees in adj.values() for callee in callees}
    unused = all_functions - called_functions
 
    if unused:
@@ -219,12 +219,13 @@ Functions called from many places are critical and should be tested carefully:
 .. code-block:: python
 
    with open("callgraph.json") as f:
-       graph = json.load(f)
+       data = json.load(f)
 
+   adj = data.get("graph", data)
    caller_counts = {}
-   for edge in graph["edges"]:
-       callee = edge["to"]
-       caller_counts[callee] = caller_counts.get(callee, 0) + 1
+   for caller, callees in adj.items():
+       for callee in callees:
+           caller_counts[callee] = caller_counts.get(callee, 0) + 1
 
    # Sort by number of callers
    critical = sorted(caller_counts.items(), key=lambda x: -x[1])
@@ -250,8 +251,8 @@ Troubleshooting
 Issue: Call graph is too large
 -------------------------------
 
-- Use ``--exclude`` to filter out test files
-- Analyze specific modules instead of the whole project
+- Use ``--entry`` to target specific entry points instead of the entire project
+- Analyze specific modules instead of whole repositories
 - Limit fixpoint iterations with ``--fixpoint-max-iterations`` (constraint algorithm)
 
 Issue: Missing functions in call graph
