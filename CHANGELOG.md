@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed GIR emission for `For`/`AsyncFor` loops with attribute or subscript targets (such as `for opt.weights in weights:`) and unpacked comprehension tuple targets into declared local variables.
 - Preserved default argument expressions in `MakeFunction` for lambdas during AST conversion so def-use analysis and dataflow solvers track default value references.
 - Optimized CFG transformation transaction AST node collection (`_ast_nodes`) with O(1) set lookups to eliminate quadratic scaling on large functions.
+- Resolved a `RecursionError` during DataflowGraph construction on deeply nested context manager and exception blocks by traversing `State` parent chains iteratively with path compression.
 
 - Supply-chain scans now report empty inventories, follow explicitly targeted
   virtualenvs and symlinked manifests, resolve setup.py requirements across
