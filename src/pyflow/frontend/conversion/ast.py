@@ -1861,25 +1861,53 @@ class ASTConverter:
         for condition, bindings, guard, body in reversed(cases):
             body_suite = self._ensure_suite(body)
             if guard is not None:
-                guarded_body: PythonASTNode = pyflow_ast.Switch(
+                guard_ok = self._tmp_local("match_guard_ok", node)
+                init_guard_ok = pyflow_ast.Assign(pyflow_ast.Existing(Object(False)), [guard_ok])
+                set_guard_ok = pyflow_ast.Assign(pyflow_ast.Existing(Object(True)), [guard_ok])
+
+                guarded_body = pyflow_ast.Switch(
                     condition=pyflow_ast.Condition(pyflow_ast.Suite([]), guard),
-                    t=body_suite,
-                    f=self._ensure_suite(result),
+                    t=pyflow_ast.Suite([set_guard_ok] + list(body_suite.blocks)),
+                    f=pyflow_ast.Suite([]),
                 )
+                full_t = pyflow_ast.Suite(list(bindings) + [guarded_body])
+
+                if condition is None:
+                    case_switch = pyflow_ast.Suite([init_guard_ok, full_t])
+                else:
+                    case_switch = pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(
+                            pyflow_ast.Suite([init_guard_ok]), condition
+                        ),
+                        t=full_t,
+                        f=pyflow_ast.Suite([]),
+                    )
+
+                next_step = self._ensure_suite(result)
+                if next_step.blocks:
+                    check_next = pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(
+                            pyflow_ast.Suite([]), pyflow_ast.Not(guard_ok)
+                        ),
+                        t=next_step,
+                        f=pyflow_ast.Suite([]),
+                    )
+                    result = pyflow_ast.Suite([case_switch, check_next])
+                else:
+                    result = case_switch
             else:
-                guarded_body = body_suite
-            if bindings:
-                full_body = pyflow_ast.Suite(list(bindings) + [guarded_body])
-            else:
-                full_body = self._ensure_suite(guarded_body)
-            if condition is None:
-                result = full_body
-            else:
-                result = pyflow_ast.Switch(
-                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
-                    t=full_body,
-                    f=self._ensure_suite(result),
-                )
+                if bindings:
+                    full_body = pyflow_ast.Suite(list(bindings) + list(body_suite.blocks))
+                else:
+                    full_body = self._ensure_suite(body_suite)
+                if condition is None:
+                    result = full_body
+                else:
+                    result = pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
+                        t=full_body,
+                        f=self._ensure_suite(result),
+                    )
 
         suite.append(result)
         suite._origin_tag = "Match"
@@ -1973,9 +2001,10 @@ class ASTConverter:
             )
             for key, sub_pattern in zip(pattern.keys, pattern.patterns):
                 key_expr = self._convert_expression_safe(key)
+                has_key = self._call_named("interpreter__contains__", [subject, key_expr])
                 value = self._call_named("interpreter_getitem", [subject, key_expr])
                 sub_condition = self._convert_pattern_with_bindings(sub_pattern, value, bindings)
-                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
+                result = pyflow_ast.ShortCircutAnd([result, has_key, sub_condition])
             if getattr(pattern, "rest", None):
                 matched_keys = pyflow_ast.BuildList(
                     [self._convert_expression_safe(key) for key in pattern.keys]
@@ -1993,12 +2022,14 @@ class ASTConverter:
                 sub_condition = self._convert_pattern_with_bindings(sub_pattern, elem, bindings)
                 result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             for attr_name, sub_pattern in zip(pattern.kwd_attrs, pattern.kwd_patterns):
+                attr_lit = pyflow_ast.Existing(Object(attr_name))
+                has_attr = self._call_named("interpreter_hasattr", [subject, attr_lit])
                 attr = self._call_named(
                     "interpreter_getattr",
-                    [subject, pyflow_ast.Existing(Object(attr_name))],
+                    [subject, attr_lit],
                 )
                 sub_condition = self._convert_pattern_with_bindings(sub_pattern, attr, bindings)
-                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
+                result = pyflow_ast.ShortCircutAnd([result, has_attr, sub_condition])
             return result
 
         elif hasattr(python_ast, "MatchStar") and isinstance(pattern, python_ast.MatchStar):

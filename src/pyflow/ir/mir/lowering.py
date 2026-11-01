@@ -839,10 +839,10 @@ class PythonToMIR:
             kwdefaults_source = self._defaults_source(
                 b, original, defaults_env, kw_defaults_name, "$kwdefaults"
             )
-            # The dispatcher forwards the callee under a reserved keyword so
-            # defaults can be read from the function object.  Remove it before
-            # any other binding so it cannot reach ``**kwargs`` or the
-            # "unexpected keyword" check.
+        # The dispatcher forwards the callee under a reserved keyword so the
+        # defaults above can be read from the function object.  Remove the
+        # entry before any other binding so it cannot reach ``**kwargs`` or the
+        # "unexpected keyword" check.
         present, absent = b.branch(Binary("in", Literal("$callee"), named))
         b.use(present)
         b.emit(Delete(field(named, "$callee")))
@@ -1604,23 +1604,37 @@ _PROJECT_MARKERS = (
 
 
 def _default_root(path):
-    """Best-effort import root for a file or an ``__init__.py`` path.
+    """Best-effort import root for a file or an ``__init__.py`` probe.
 
     Regular packages are delimited by ``__init__.py``.  PEP 420 namespace
-    packages have none, so walking upwards would stop inside the package and
-    turn ``from .x import y`` into a bogus "relative import escapes the
-    package" error.  In that case prefer the nearest project marker.
+    packages have none, so a plain upward walk would stop inside the package
+    and turn ``from .x import y`` into a bogus "relative import escapes the
+    package" error.  In that case keep the qualified module name by using the
+    enclosing package, or fall back to the nearest project marker.
     """
-    root = path.parent
+    # CLI callers probe ``<directory>/__init__.py``, which need not exist; only
+    # an existing directory is treated as an entry directory.
+    entry = path if path.is_dir() else path.parent
+    root = entry
     while (root / "__init__.py").is_file():
         root = root.parent
-    if root == path.parent and not (root / "__init__.py").is_file():
-        candidate = path.parent
-        while candidate != candidate.parent:
-            if any((candidate / marker).exists() for marker in _PROJECT_MARKERS):
-                return candidate
-            candidate = candidate.parent
-    return root
+    if root != entry:
+        return root
+
+    # ``entry`` is not itself a package: a namespace package, a script, or a
+    # directory probe.  Prefer an enclosing package so ``pkg.sub.mod`` keeps
+    # its qualified name, then a project marker so ``src/`` layouts resolve.
+    candidate = entry.parent
+    while candidate != candidate.parent:
+        if (candidate / "__init__.py").is_file():
+            return candidate.parent
+        if any((candidate / marker).exists() for marker in _PROJECT_MARKERS):
+            source_root = candidate / "src"
+            if entry.is_relative_to(source_root):
+                return source_root
+            return candidate
+        candidate = candidate.parent
+    return entry
 
 
 def _discover(

@@ -382,7 +382,7 @@ def _integers(rt, root):
             raw, cls = Binary(operator, left, right), "int"
         elif operator == "*":
             raw, cls = _multiply(b, left, right), "int"
-        elif operator in {"//", "%"}:
+        elif operator in {"//", "%", "/"}:
             _guard(rt, b, Not(Binary("=", right, Literal(0))), "ZeroDivisionError")
             a, denominator = b.alloc(left, "numerator"), b.alloc(right, "denominator")
             neg_a = b.alloc(Binary("<", a, Literal(0)), "negative")
@@ -408,7 +408,7 @@ def _integers(rt, root):
             b.use(yes)
             b.emit(Alloc(remainder.name, Binary("-", Literal(0), remainder)))
             b.join(b.tails, no)
-            raw, cls = quotient if operator == "//" else remainder, "int"
+            raw, cls = quotient if operator in {"//", "/"} else remainder, "int"
         elif operator == "**":
             _guard(rt, b, Not(Binary("<", right, Literal(0))))
             result = b.alloc(Literal(1), "power")
@@ -458,6 +458,7 @@ def _integers(rt, root):
         ("add", "+"),
         ("sub", "-"),
         ("mul", "*"),
+        ("truediv", "/"),
         ("floordiv", "//"),
         ("mod", "%"),
         ("pow", "**"),
@@ -838,8 +839,21 @@ def _strings(rt, root):
         b.use(other)
         b.ret(rt.not_implemented)
         b.use(string)
-        if operation == "=":
-            b.ret(rt.box(b, Binary("=", field(left, "$value"), field(right, "$value")), "bool"))
+        if operation in {"=", "!=", "<", ">", "<=", ">="}:
+            lv, rv = field(left, "$value"), field(right, "$value")
+            if operation == "=":
+                raw = Binary("=", lv, rv)
+            elif operation == "!=":
+                raw = Not(Binary("=", lv, rv))
+            elif operation == "<":
+                raw = Binary("<", lv, rv)
+            elif operation == ">":
+                raw = Binary("<", rv, lv)
+            elif operation == "<=":
+                raw = Not(Binary("<", rv, lv))
+            elif operation == ">=":
+                raw = Not(Binary("<", lv, rv))
+            b.ret(rt.box(b, raw, "bool"))
         else:
             result = rt.box(b, Binary("+", field(left, "$value"), field(right, "$value")), "str")
             has_left, missing_left = b.branch(Binary("in", Literal("$chars"), left))
@@ -876,6 +890,11 @@ def _strings(rt, root):
     _define(rt, root, "str", "__init__", lambda b: b.ret(rt.none))
     _define(rt, root, "str", "__str__", lambda b: b.ret(_arg(b, 1)))
     _define(rt, root, "str", "__eq__", lambda b: binary(b, "="))
+    _define(rt, root, "str", "__ne__", lambda b: binary(b, "!="))
+    _define(rt, root, "str", "__lt__", lambda b: binary(b, "<"))
+    _define(rt, root, "str", "__gt__", lambda b: binary(b, ">"))
+    _define(rt, root, "str", "__le__", lambda b: binary(b, "<="))
+    _define(rt, root, "str", "__ge__", lambda b: binary(b, ">="))
     _define(rt, root, "str", "__add__", lambda b: binary(b, "+"))
     _define(rt, root, "str", "__len__", length)
     _define(rt, root, "str", "__getitem__", getitem)

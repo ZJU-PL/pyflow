@@ -805,7 +805,14 @@ def _run_ir_dump(input_path: Path, args):
         elif input_path.is_dir():
             python_files = find_python_files(input_path, args)
             if not python_files:
-                print("No Python files found to analyze")
+                if not getattr(args, "recursive", False) and any(input_path.rglob("*.py")):
+                    print(
+                        f"No Python files found directly in '{input_path}'. "
+                        "Python files exist in subdirectories; use -r / --recursive to analyze subdirectories.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print("No Python files found to analyze")
                 return
         else:
             print(

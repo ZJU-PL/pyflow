@@ -310,6 +310,7 @@ class IntrinsicManager:
             "interpreter_exception_type": type,
             "interpreter_make_generator": lambda value: iter((value,)),
             "interpreter_getattr": getattr,
+            "interpreter_hasattr": hasattr,
             "interpreter_merge_varargs": _safe_merge_varargs,
             "interpreter_merge_kwargs": _safe_merge_kwargs,
             "interpreter_set_add": lambda s, item: s.add(item),
@@ -435,6 +436,7 @@ class IntrinsicManager:
                     "interpreter_make_generator": create_stub_code("interpreter_make_generator"),
                     # Generic attribute access helper
                     "interpreter_getattr": create_stub_code("interpreter_getattr"),
+                    "interpreter_hasattr": create_stub_code("interpreter_hasattr"),
                 }
             },
         )()

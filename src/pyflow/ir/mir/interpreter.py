@@ -268,7 +268,7 @@ class MIRInterpreter:
                 return left == right
             if isinstance(left, ObjectValue):
                 return left.fields == right.fields
-        if op == "<" and type(left) is int and type(right) is int:
+        if op == "<" and same_type and type(left) in (int, str):
             return left < right
         if op in ("or", "∨") and type(left) is bool and type(right) is bool:
             return left or right

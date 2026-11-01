@@ -8,6 +8,10 @@ def evaluateCode(compiler, code):
     expandphi.evaluate(compiler, g)
     simplify.evaluate(compiler, g)
 
-    structuralanalysis.evaluate(compiler, g)
+    try:
+        structuralanalysis.evaluate(compiler, g)
+    except structuralanalysis.StructuralAnalysisError:
+        if not getattr(g, "has_exception_regions", False):
+            raise
 
     return g.code
