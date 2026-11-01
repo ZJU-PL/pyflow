@@ -1028,8 +1028,12 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                 if len(left.args) != len(self.right.args):
                     return False
                 return all(
-                    self.sub_type_check(left_elem, right_elem)
-                    and self.sub_type_check(right_elem, left_elem)
+                    isinstance(left_elem, NeverType)
+                    or isinstance(right_elem, NeverType)
+                    or (
+                        self.sub_type_check(left_elem, right_elem)
+                        and self.sub_type_check(right_elem, left_elem)
+                    )
                     for left_elem, right_elem in zip(left.args, self.right.args)
                 )
             return True
@@ -1414,6 +1418,25 @@ class ClassDescriptor:
         # TODO(fk) properly implement generics!
         # For now we just store the number of generic parameters for set, dict and list.
         self.num_hardcoded_generic_parameters: int | None = (
+            2 if raw_type is dict else 1 if raw_type in {set, list} else None
+        )
+
+    def refresh(self, raw_type: type | types.UnionType) -> None:
+        """Refresh identity fields after the same class is re-created.
+
+        Project inference creates a fresh synthetic ``type`` object for every
+        source class on every module pass.  The descriptor is intentionally
+        keyed by full name so instances from earlier passes keep pointing at
+        the same analysis object; refreshing the raw type in place prevents an
+        early unresolved placeholder from shadowing the real class forever.
+        ``members`` and the other analysis-owned fields are preserved because
+        callers update those incrementally.
+        """
+        self.raw_type = raw_type
+        self.name, self.qualname, self.module = self._extract_name_qualname_module(raw_type)
+        self.is_abstract = inspect.isabstract(raw_type)
+        self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
+        self.num_hardcoded_generic_parameters = (
             2 if raw_type is dict else 1 if raw_type in {set, list} else None
         )
 
@@ -2320,8 +2343,21 @@ class TypeSystem:  # noqa: PLR0904
             A `ClassDescriptor` object.
         """
         # TODO(fk) what to do when we encounter a new type?
-        found = self._types.get(ClassDescriptor.to_full_name(typ))
+        full_name = ClassDescriptor.to_full_name(typ)
+        found = self._types.get(full_name)
         if found is not None:
+            if found.raw_type is typ:
+                return found
+            existing_unresolved = bool(
+                getattr(found.raw_type, "__pyflow_unresolved_external__", False)
+            )
+            new_unresolved = bool(getattr(typ, "__pyflow_unresolved_external__", False))
+            # A real class always wins over a placeholder.  Two real classes
+            # with the same full name are normally the same source class
+            # re-created for a later project iteration; refresh in place so
+            # existing instances and graph edges keep working.
+            if not (new_unresolved and not existing_unresolved):
+                found.refresh(typ)
             return found
         info = ClassDescriptor(typ)
         self._types[info.full_name] = info
@@ -2359,8 +2395,13 @@ class TypeSystem:  # noqa: PLR0904
         for parent in reversed(getattr(raw, "__mro__", ())):
             if parent in {object, typing.Protocol, typing.Generic}:
                 continue
-            for name, annotation in vars(parent).get("__annotations__", {}).items():
-                members[name] = convert(annotation)
+            annotations = vars(parent).get("__annotations__")
+            # ``type`` (and some metaclasses) expose ``__annotations__`` as a
+            # getset descriptor rather than a mapping.  Walking that MRO used
+            # to crash every protocol check involving ``type``.
+            if isinstance(annotations, dict):
+                for name, annotation in annotations.items():
+                    members[name] = convert(annotation)
             for name, member in vars(parent).items():
                 if name in {"__init__", "__init_subclass__", "__subclasshook__"}:
                     continue

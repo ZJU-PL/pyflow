@@ -11,6 +11,29 @@ from packaging.utils import canonicalize_name
 from .input_safety import load_json_file
 from .models import SupplyChainFinding, SupplyChainScan
 
+_COMMON_IMPORT_NAMES = {
+    "attrs": {"attr", "attrs"},
+    "beautifulsoup4": {"bs4"},
+    "djangorestframework": {"rest_framework"},
+    "google-api-python-client": {"googleapiclient"},
+    "grpcio": {"grpc"},
+    "mysqlclient": {"MySQLdb"},
+    "opencv-python": {"cv2"},
+    "opencv-python-headless": {"cv2"},
+    "pillow": {"PIL"},
+    "protobuf": {"google"},
+    "psycopg2-binary": {"psycopg2"},
+    "pyjwt": {"jwt"},
+    "pyopenssl": {"OpenSSL"},
+    "python-dateutil": {"dateutil"},
+    "python-dotenv": {"dotenv"},
+    "pyyaml": {"yaml"},
+    "ruamel-yaml": {"ruamel"},
+    "scikit-learn": {"sklearn"},
+    "setuptools": {"pkg_resources", "setuptools"},
+    "typing-extensions": {"typing_extensions"},
+}
+
 
 def analyze_reachability(
     scan: SupplyChainScan,
@@ -80,7 +103,10 @@ def analyze_reachability(
         }
         candidates = modules_by_distribution.get(name) or declared_imports
         if not candidates:
-            candidates = {name.replace("-", "_"), name.replace("-", "")}
+            candidates = set(_COMMON_IMPORT_NAMES.get(name, ())) | {
+                name.replace("-", "_"),
+                name.replace("-", ""),
+            }
         if candidates & imports:
             reachable.add(str(component.get("purl") or name))
 

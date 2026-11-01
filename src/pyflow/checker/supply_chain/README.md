@@ -17,6 +17,17 @@ Current capabilities include:
 - policy baselines, SARIF output, in-toto/SLSA provenance checks, and optional
   verification through the Sigstore CLI.
 
+Behavior notes:
+
+- source-tree SBOMs describe the declared dependency set across platforms and
+  Python versions by default; `--python-version`, `--platform`,
+  `--implementation`, and `--extra` opt into an environment-specific inventory;
+- installed-tree inventories are environment-specific, ignore optional
+  `Requires-Dist` extras unless selected, and report editable/VCS installs from
+  `direct_url.json`;
+- `--reachability-source` names application code when scanning an installed
+  tree, so installed libraries are not mistaken for the application.
+
 Important limitations:
 
 - vulnerability matching generally requires exact package versions and does

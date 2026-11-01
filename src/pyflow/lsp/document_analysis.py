@@ -63,6 +63,21 @@ def security_diagnostics(path, module, text):
     return detector.analyze(session)
 
 
+def _type_ignore_lines(text):
+    """Return zero-based line numbers carrying a ``# type: ignore`` comment."""
+    import io
+    import re
+    import tokenize
+
+    ignored = set()
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT and re.search(
+            r"#\s*type:\s*ignore\b", token.string
+        ):
+            ignored.add(token.start[0] - 1)
+    return ignored
+
+
 def _undefined_suppressions(text, tree):
     import io
     import re
@@ -128,6 +143,22 @@ def document_diagnostics(index, uri, *, include_security=False):
         return []
     path = uri_to_path(uri)
     module = index.module_for_uri(uri) or "__document__"
+    type_ignored = _type_ignore_lines(text)
+    tree = ast.parse(text)
+
+    def function_has_ignored_return(line0: int) -> bool:
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.lineno - 1 != line0:
+                continue
+            if any(
+                isinstance(child, ast.Return) and (child.lineno - 1) in type_ignored
+                for child in ast.walk(node)
+            ):
+                return True
+        return False
+
     result = []
     try:
         inferred = infer_document(path, module, text)
@@ -147,6 +178,11 @@ def document_diagnostics(index, uri, *, include_security=False):
             }:
                 continue
             span = diagnostic.span
+            if span is not None and (
+                (span.lineno - 1) in type_ignored
+                or function_has_ignored_return(span.lineno - 1)
+            ):
+                continue
             result.append(
                 {
                     "range": _range(
@@ -177,7 +213,6 @@ def document_diagnostics(index, uri, *, include_security=False):
                 "message": f"Document type analysis could not finish: {error}",
             }
         )
-    tree = ast.parse(text)
     wildcard_imports = any(
         isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names)
         for node in ast.walk(tree)

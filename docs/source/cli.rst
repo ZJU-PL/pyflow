@@ -315,7 +315,8 @@ Subcommands:
   Generated inventories return 0 by default, including incomplete inventories
   and unpinned dependencies. Completeness stays visible in document metadata
   and stderr. ``--exit-code-policy strict`` / ``--require-complete`` return 2
-  for incomplete inventories; ``--allow-incomplete`` overrides that gate.
+  for incomplete inventories; ``--allow-incomplete`` accepts them, but the two
+  flags are mutually exclusive.
   Missing/unreadable input and schema-validation errors still return 2.
   Diagnostics never enter JSON stdout.
 
@@ -354,7 +355,9 @@ Audit format:
   official schema bundle is supplied with ``--schema``; network reference
   resolution is disabled
 - ``--reachability``: annotate vulnerabilities with conservative import
-  evidence; absence of an import is explicitly not treated as proof of safety
+  evidence; absence of an import is explicitly not treated as proof of safety.
+  Use ``--reachability-source`` to name application code when scanning an
+  installed tree, so installed libraries are not mistaken for the application
 
 Alias Command
 --------------

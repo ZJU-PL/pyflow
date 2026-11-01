@@ -6,8 +6,10 @@ is intentionally limited to target traversal, dispatch, and result assembly.
 
 from __future__ import annotations
 
+import csv
 import fnmatch
 import os
+import re
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -32,6 +34,7 @@ from .inventory import (
 from .licenses import audit_license_policy as audit_license_policy
 from .manifests import (
     component_from_metadata,
+    components_from_pipfile,
     components_from_pipfile_lock,
     components_from_pylock,
     components_from_pyproject,
@@ -96,10 +99,18 @@ def scan_targets(
     artifacts: list[str] = []
 
     target_values = [str(target) for target in targets]
+    installed_flags: list[bool] = []
     for target in target_values:
         path = Path(target)
-        if _is_excluded(path, excluded):
+        if _is_excluded(path, user_excludes):
             continue
+        # Default excludes are meant for descendants.  A user who explicitly
+        # names .venv or site-packages wants that tree inspected.
+        target_excluded = excluded
+        if default_excludes:
+            target_excluded = tuple(
+                pattern for pattern in excluded if not _path_matches_pattern(path, pattern)
+            )
         if not path.exists() and not path.is_symlink():
             findings.append(
                 SupplyChainFinding(
@@ -110,10 +121,12 @@ def scan_targets(
                 )
             )
             continue
-        _scan_path(
+        target_installed = _target_is_installed_tree(path)
+        installed_flags.append(target_installed)
+        recognized = _scan_path(
             path,
             recursive=recursive or _looks_like_installed_tree(path),
-            excluded=excluded,
+            excluded=target_excluded,
             components=components,
             findings=findings,
             dependencies=dependencies,
@@ -122,21 +135,48 @@ def scan_targets(
             archive_depth=0,
             scan_entries=scan_entries,
             artifacts=artifacts,
+            scan_root=path,
             report_unsupported=True,
         )
+        if path.is_dir() and not recognized:
+            nested = _has_nested_manifest(path, effective_limits)
+            findings.append(
+                SupplyChainFinding(
+                    kind="empty-supply-chain-inventory",
+                    message=(
+                        "Supply-chain target yielded no supported Python manifests, "
+                        "package metadata, or archives"
+                    ),
+                    location=str(path),
+                    severity="HIGH" if nested else "MEDIUM",
+                    details={
+                        "nested_manifests": nested,
+                        "hint": (
+                            "Use --recursive for repositories whose manifests are in "
+                            "subdirectories, or pass the package directory explicitly."
+                        ),
+                    },
+                )
+            )
 
+    installed_target = bool(installed_flags) and all(installed_flags)
+    findings = _drop_shared_namespace_findings(findings, components)
+    findings = _drop_listed_startup_hooks(findings, target_values, effective_limits)
     final_findings = tuple(dedupe_findings(findings))
     incomplete_kinds = {
         "missing-target",
+        "empty-supply-chain-inventory",
         "file-read-error",
         "manifest-size-limit",
         "scan-entry-limit",
         "invalid-requirement",
         "invalid-lockfile",
+        "invalid-pipfile",
         "invalid-pyproject",
         "invalid-pylock",
         "invalid-setup-config",
         "invalid-setup-script",
+        "unresolved-setup-requirements",
         "dynamic-dependency-metadata",
         "unpinned-requirement",
         "remote-requirement",
@@ -178,6 +218,7 @@ def scan_targets(
             "artifacts": sorted(set(artifacts)),
             "inventoryComplete": not inventory_limitations,
             "inventoryEvidence": inventory_evidence,
+            "installed": installed_target,
             "inventoryLimitations": inventory_limitations,
         },
     )
@@ -196,14 +237,25 @@ def _scan_path(
     archive_depth: int,
     scan_entries: list[int],
     artifacts: list[str],
+    scan_root: Path,
     report_unsupported: bool,
-) -> None:
+) -> bool:
     if _is_excluded(path, excluded):
-        return
+        return False
     if path.is_symlink():
-        _audit_filesystem_symlink(path, findings)
-        return
+        try:
+            resolved = path.resolve(strict=True)
+            root_resolved = scan_root.resolve(strict=False)
+        except OSError:
+            _audit_filesystem_symlink(path, findings)
+            return False
+        if not resolved.is_file() or not _is_relative_to(resolved, root_resolved):
+            # Do not follow links out of the explicitly selected tree or into
+            # directories, and keep the symlink finding for those cases.
+            _audit_filesystem_symlink(path, findings)
+            return False
     if path.is_dir():
+        recognized = False
         for child in _iter_directory_files(
             path,
             recursive,
@@ -211,40 +263,58 @@ def _scan_path(
             findings,
             limits,
             scan_entries,
+            scan_root,
         ):
-            _scan_path(
-                child,
-                recursive=False,
-                excluded=excluded,
-                components=components,
-                findings=findings,
-                dependencies=dependencies,
-                seen_files=seen_files,
-                limits=limits,
-                archive_depth=archive_depth,
-                scan_entries=scan_entries,
-                artifacts=artifacts,
-                report_unsupported=False,
+            recognized = (
+                _scan_path(
+                    child,
+                    recursive=False,
+                    excluded=excluded,
+                    components=components,
+                    findings=findings,
+                    dependencies=dependencies,
+                    seen_files=seen_files,
+                    limits=limits,
+                    archive_depth=archive_depth,
+                    scan_entries=scan_entries,
+                    artifacts=artifacts,
+                    scan_root=scan_root,
+                    report_unsupported=False,
+                )
+                or recognized
             )
-        return
+        return recognized
     try:
         is_file = path.is_file()
     except OSError as exc:
         findings.append(read_error(path, exc))
-        return
+        return False
     if not is_file:
-        return
+        return False
 
     try:
         resolved = path.resolve(strict=False)
     except OSError as exc:
         findings.append(read_error(path, exc))
-        return
+        return False
     if resolved in seen_files:
-        return
+        return False
     seen_files.add(resolved)
 
     name = path.name
+    if name.lower().endswith(".pth") or name in {"sitecustomize.py", "usercustomize.py"}:
+        if path.parent.name.lower() in {"site-packages", "dist-packages"}:
+            findings.append(
+                SupplyChainFinding(
+                    kind="python-startup-hook",
+                    message=(
+                        "Installed tree contains a file that runs automatically at "
+                        "Python interpreter startup"
+                    ),
+                    location=str(path),
+                    severity="HIGH",
+                )
+            )
     component_start = len(components)
     scanned_archive = False
     recognized_input = False
@@ -259,7 +329,7 @@ def _scan_path(
             components.extend(metadata_components)
             dependencies.extend(metadata_edges)
         if path.parent.name.endswith(".dist-info"):
-            findings.extend(audit_distribution_record(path.parent, limits))
+            findings.extend(audit_distribution_record(path.parent, limits, component))
     elif _is_requirements_file(path, limits):
         recognized_input = True
         components.extend(components_from_requirements(path, findings, limits))
@@ -273,6 +343,9 @@ def _scan_path(
         parsed_components, parsed_dependencies = components_from_toml_lock(path, findings, limits)
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
+    elif name == "Pipfile":
+        recognized_input = True
+        components.extend(components_from_pipfile(path, findings, limits))
     elif name == "Pipfile.lock":
         recognized_input = True
         components.extend(components_from_pipfile_lock(path, findings, limits))
@@ -302,6 +375,7 @@ def _scan_path(
             archive_depth=archive_depth,
             scan_entries=scan_entries,
             artifacts=artifacts,
+            scan_root=scan_root,
         )
     if not scanned_archive:
         _tag_component_sources(components[component_start:], str(path))
@@ -314,6 +388,7 @@ def _scan_path(
                 severity="HIGH",
             )
         )
+    return recognized_input
 
 
 def _scan_archive(
@@ -328,6 +403,7 @@ def _scan_archive(
     archive_depth: int,
     scan_entries: list[int],
     artifacts: list[str],
+    scan_root: Path,
 ) -> None:
     if archive_depth >= limits.max_archive_depth:
         findings.append(
@@ -360,6 +436,7 @@ def _scan_archive(
             archive_depth=archive_depth + 1,
             scan_entries=scan_entries,
             artifacts=artifacts,
+            scan_root=destination,
             report_unsupported=False,
         )
         _remap_archive_findings(findings, finding_start, destination, path)
@@ -462,6 +539,58 @@ def _remap_detail_paths(
     return remapped
 
 
+def _installed_record_paths(targets: Iterable[str], limits: ScanLimits) -> set[Path]:
+    listed: set[Path] = set()
+    for target in targets:
+        directory = Path(target)
+        if not directory.is_dir():
+            continue
+        try:
+            records = directory.rglob("RECORD")
+        except OSError:
+            continue
+        for record in records:
+            if record.is_symlink() or not record.parent.name.endswith(".dist-info"):
+                continue
+            try:
+                if record.stat().st_size > limits.max_manifest_size:
+                    continue
+                text = record.read_text(encoding="utf-8-sig", errors="replace")
+                root = record.parent.parent.resolve(strict=False)
+                for row in csv.reader(text.splitlines()):
+                    if row and row[0]:
+                        listed.add((root / row[0].replace("\\", "/")).resolve(strict=False))
+            except (OSError, csv.Error):
+                continue
+    return listed
+
+
+def _drop_listed_startup_hooks(
+    findings: Iterable[SupplyChainFinding],
+    targets: Iterable[str],
+    limits: ScanLimits,
+) -> list[SupplyChainFinding]:
+    """Do not flag startup files that a distribution legitimately owns.
+
+    Editable installs use ``__editable__*.pth`` files listed in RECORD.  An
+    unlisted .pth/sitecustomize.py is the relevant malicious-persistence signal.
+    """
+
+    result = list(findings)
+    hooks = [finding for finding in result if finding.kind == "python-startup-hook"]
+    if not hooks:
+        return result
+    listed = _installed_record_paths(targets, limits)
+    if not listed:
+        return result
+    return [
+        finding
+        for finding in result
+        if finding.kind != "python-startup-hook"
+        or Path(finding.location).resolve(strict=False) not in listed
+    ]
+
+
 def _iter_directory_files(
     root: Path,
     recursive: bool,
@@ -469,6 +598,7 @@ def _iter_directory_files(
     findings: list[SupplyChainFinding],
     limits: ScanLimits,
     scan_entries: list[int],
+    scan_root: Path,
 ) -> Iterator[Path]:
     """Yield directory files once, without following symlinked directories."""
 
@@ -495,7 +625,10 @@ def _iter_directory_files(
         if _is_excluded(child, excluded):
             continue
         if child.is_symlink():
-            _audit_filesystem_symlink(child, findings)
+            # Let _scan_path audit the link and decide whether it is a safe
+            # in-tree file symlink or a directory link that must not be
+            # followed.
+            yield child
             continue
         try:
             if child.is_file():
@@ -508,6 +641,7 @@ def _iter_directory_files(
                     findings,
                     limits,
                     scan_entries,
+                    scan_root,
                 )
         except OSError as exc:
             findings.append(read_error(child, exc))
@@ -533,15 +667,55 @@ def _audit_filesystem_symlink(
     )
 
 
+_REQUIREMENT_SCOPE_WORDS = frozenset(
+    {
+        "all",
+        "base",
+        "benchmark",
+        "benchmarks",
+        "build",
+        "ci",
+        "dev",
+        "develop",
+        "development",
+        "doc",
+        "docs",
+        "editable",
+        "example",
+        "examples",
+        "extra",
+        "install",
+        "lint",
+        "main",
+        "optional",
+        "prod",
+        "production",
+        "release",
+        "runtime",
+        "security",
+        "test",
+        "tests",
+        "testing",
+        "type",
+        "typing",
+    }
+)
+
+
 def _is_requirements_file(path: Path, limits: ScanLimits | None = None) -> bool:
     lowered = path.name.lower()
     if path.suffix.lower() not in {".txt", ".in"}:
         return False
     if lowered.startswith(("requirements", "constraints")):
         return True
-    if lowered.endswith(("-requirements.txt", "_requirements.txt", "-constraints.txt")):
+    scoped = re.match(r"(.+)[-_](?:requirements|constraints)\.txt$", lowered)
+    if scoped and scoped.group(1) in _REQUIREMENT_SCOPE_WORDS:
         return True
     if path.parent.name.lower() in {"requirements", "reqs", "constraints"}:
+        return True
+    if scoped and limits is None:
+        return False
+    if lowered.endswith(("-constraints.txt",)):
         return True
     if path.parent.name.lower().endswith((".dist-info", ".egg-info")):
         return False
@@ -614,7 +788,9 @@ def _is_metadata_path(path: Path) -> bool:
 def _looks_like_installed_tree(path: Path) -> bool:
     if not path.is_dir():
         return False
-    if path.name.lower() in {"site-packages", "dist-packages"}:
+    if path.name.lower() in {"site-packages", "dist-packages", ".venv", "venv"}:
+        return True
+    if (path / "pyvenv.cfg").is_file():
         return True
     try:
         return any(
@@ -625,19 +801,123 @@ def _looks_like_installed_tree(path: Path) -> bool:
         return False
 
 
-def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:
+def _path_matches_pattern(path: Path, pattern: str) -> bool:
+    normalized = pattern.replace("\\", "/").rstrip("/")
+    if not normalized:
+        return False
     path_text = path.as_posix()
-    for pattern in excluded:
-        normalized = pattern.replace("\\", "/").rstrip("/")
-        if not normalized:
-            continue
-        if fnmatch.fnmatch(path_text, normalized) or fnmatch.fnmatch(path.name, normalized):
-            return True
-        if normalized in path.parts:
-            return True
-        try:
-            if Path(normalized).resolve(strict=False) == path.resolve(strict=False):
+    if fnmatch.fnmatch(path_text, normalized) or fnmatch.fnmatch(path.name, normalized):
+        return True
+    if normalized in path.parts:
+        return True
+    try:
+        return Path(normalized).resolve(strict=False) == path.resolve(strict=False)
+    except OSError:
+        return False
+
+
+def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:
+    return any(_path_matches_pattern(path, pattern) for pattern in excluded)
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+_MANIFEST_NAMES = frozenset(
+    {
+        "Pipfile",
+        "Pipfile.lock",
+        "pdm.lock",
+        "poetry.lock",
+        "pylock.toml",
+        "pyproject.toml",
+        "setup.cfg",
+        "setup.py",
+        "uv.lock",
+    }
+)
+
+
+def _has_nested_manifest(root: Path, limits: ScanLimits) -> bool:
+    entries = 0
+    limit = min(limits.max_scan_entries, 20_000)
+    try:
+        for child in root.rglob("*"):
+            entries += 1
+            if entries > limit:
+                return False
+            if child.is_symlink():
+                continue
+            if child.name in _MANIFEST_NAMES or child.name.endswith(".pylock.toml"):
                 return True
-        except OSError:
-            pass
+            if child.suffix.lower() in {".txt", ".in"} and _is_requirements_file(child, limits):
+                return True
+    except OSError:
+        return False
     return False
+
+
+def _target_is_installed_tree(path: Path) -> bool:
+    if _looks_like_installed_tree(path):
+        return True
+    return path.name.lower().endswith((".dist-info", ".egg-info"))
+
+
+def _drop_shared_namespace_findings(
+    findings: Iterable[SupplyChainFinding],
+    components: Iterable[dict[str, Any]],
+) -> list[SupplyChainFinding]:
+    """Suppress namespace-package false positives in installed trees.
+
+    A site-packages tree can contain many distributions that legitimately share
+    one import package (google, sphinxcontrib, opentelemetry, ...).  Without
+    this guard every distribution is blamed for every sibling's files.
+    """
+
+    owners: dict[str, int] = {}
+    for component in components:
+        properties = [prop for prop in component.get("properties", ()) if isinstance(prop, dict)]
+        if not any(
+            prop.get("name") == "pyflow:metadata-source"
+            and str(prop.get("value", "")).lower() == "true"
+            for prop in properties
+        ):
+            continue
+        component_roots = {
+            str(prop["value"])
+            for prop in properties
+            if prop.get("name") in {"pyflow:import-name", "pyflow:owned-root"} and prop.get("value")
+        }
+        for root in component_roots:
+            owners[root] = owners.get(root, 0) + 1
+    shared = {root for root, count in owners.items() if count > 1}
+    if not shared:
+        return list(findings)
+
+    result: list[SupplyChainFinding] = []
+    for finding in findings:
+        if (
+            finding.kind == "record-unlisted-owned-file"
+            and str(finding.details.get("top_level", "")) in shared
+        ):
+            continue
+        result.append(finding)
+    for root in sorted(shared):
+        result.append(
+            SupplyChainFinding(
+                kind="shared-python-namespace",
+                message=(
+                    "Installed distributions share a Python namespace package; "
+                    "per-file ownership cannot be attributed to one distribution"
+                ),
+                location=root,
+                severity="LOW",
+                details={"top_level": root, "distributions": owners[root]},
+            )
+        )
+    return result

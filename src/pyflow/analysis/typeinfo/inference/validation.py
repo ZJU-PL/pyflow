@@ -11,10 +11,13 @@ from dataclasses import dataclass
 
 from pyflow.analysis.typeinfo.core.typesystem import (
     AnyType,
+    CallableType,
     Instance,
     NoneType,
     ProperType,
+    StringSubtype,
     TupleType,
+    TypeType,
     TypeVarType,
 )
 from pyflow.analysis.typeinfo.inference.models import (
@@ -85,17 +88,44 @@ def validate_observed_types(
     return violations
 
 
+_NUMERIC_WIDENINGS: dict[type, frozenset[type]] = {
+    bool: frozenset((int, float, complex)),
+    int: frozenset((float, complex)),
+    float: frozenset((complex,)),
+}
+
+
 def _admits_runtime_type(inferred: ProperType, observed: type) -> bool:
     if isinstance(inferred, (AnyType, TypeVarType)):
         return True
     if isinstance(inferred, NoneType):
         return observed is type(None)
     if isinstance(inferred, TupleType):
-        return observed is tuple
+        return issubclass(observed, tuple)
+    if isinstance(inferred, TypeType):
+        # ``ObservedType`` records the runtime class of a value.  For a class
+        # object that is ``type``; the type argument describes its instances
+        # and cannot be recovered from ``observed`` alone.
+        return isinstance(observed, type)
+    if isinstance(inferred, CallableType):
+        return callable(observed)
+    if isinstance(inferred, StringSubtype):
+        return observed is str
     if isinstance(inferred, Instance):
         raw = inferred.type.raw_type
         if not isinstance(raw, type):
             return False
+        # Source classes are represented by synthetic class objects.  Compare
+        # the stable qualified name before falling back to runtime identity.
+        observed_name = (
+            f"{getattr(observed, '__module__', '')}."
+            f"{getattr(observed, '__qualname__', getattr(observed, '__name__', ''))}"
+        )
+        if inferred.type.full_name == observed_name:
+            return True
+        # The engine enables the numeric tower (int <: float <: complex).
+        if raw in _NUMERIC_WIDENINGS.get(observed, ()):
+            return True
         try:
             return issubclass(observed, raw)
         except TypeError:

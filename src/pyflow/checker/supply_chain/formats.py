@@ -13,6 +13,7 @@ from typing import Any
 from pyflow import __version__
 from pyflow.checker.formatters.sarif import severity_level, sarif_document
 
+from .licenses import is_spdx_expression
 from .models import SupplyChainScan
 from .validation import validate_cyclonedx_document, validate_spdx_document
 
@@ -25,6 +26,17 @@ def build_cyclonedx_document(
     components: list[dict[str, Any]] = []
     for scanned_component in _complete_component_set(scan):
         component = deepcopy(scanned_component)
+        if deterministic:
+            component["properties"] = [
+                prop
+                for prop in component.get("properties", ())
+                if not (
+                    isinstance(prop, dict)
+                    and prop.get("name") in {"pyflow:source-file", "pyflow:source-url"}
+                )
+            ]
+            if not component["properties"]:
+                component.pop("properties", None)
         component.setdefault("bom-ref", component.get("purl") or _component_ref(component))
         components.append(component)
 
@@ -50,7 +62,27 @@ def build_cyclonedx_document(
                 {
                     "name": "pyflow:inventory-complete",
                     "value": str(bool(scan.metadata.get("inventoryComplete", True))).lower(),
-                }
+                },
+                {
+                    "name": "pyflow:declared-only",
+                    "value": str(bool(scan.metadata.get("declaredOnly", True))).lower(),
+                },
+                {
+                    "name": "pyflow:environment",
+                    "value": json.dumps(
+                        (
+                            {}
+                            if deterministic or scan.metadata.get("declaredOnly", True)
+                            else scan.metadata.get("environment", {})
+                        ),
+                        sort_keys=True,
+                        default=str,
+                    ),
+                },
+                {
+                    "name": "pyflow:extras",
+                    "value": ",".join(str(item) for item in scan.metadata.get("extras", ())),
+                },
             ]
             + [
                 {"name": "pyflow:inventory-limitation", "value": str(value)}
@@ -107,7 +139,7 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
             and item.get("name") == "pyflow:source-file"
             and item.get("value")
         )
-        if sources:
+        if sources and not deterministic:
             package["sourceInfo"] = "Discovered from: " + ", ".join(sources)
         packages.append(package)
         if comp.get("type") == "application":
@@ -145,6 +177,24 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
         "comment": (
             "PyFlow inventory complete: "
             f"{str(bool(scan.metadata.get('inventoryComplete', True))).lower()}"
+            + ("; declared-only: " f"{str(bool(scan.metadata.get('declaredOnly', True))).lower()}")
+            + (
+                "; environment: "
+                + json.dumps(
+                    (
+                        {}
+                        if deterministic or scan.metadata.get("declaredOnly", True)
+                        else scan.metadata.get("environment", {})
+                    ),
+                    sort_keys=True,
+                    default=str,
+                )
+            )
+            + (
+                "; extras: " + ",".join(str(item) for item in scan.metadata.get("extras", ()))
+                if scan.metadata.get("extras")
+                else ""
+            )
             + (
                 "; limitations: " + ", ".join(scan.metadata.get("inventoryLimitations", ()))
                 if scan.metadata.get("inventoryLimitations")
@@ -153,8 +203,8 @@ def build_spdx_document(scan: SupplyChainScan, *, deterministic: bool = False) -
         ),
         "packages": packages,
     }
-    if packages:
-        document["documentDescribes"] = described_ids or [package["SPDXID"] for package in packages]
+    if described_ids:
+        document["documentDescribes"] = described_ids
     if relationships:
         document["relationships"] = relationships
     validate_spdx_document(document)
@@ -202,13 +252,26 @@ def build_sarif_document(scan: SupplyChainScan) -> dict[str, Any]:
 
 
 def build_requirements_text(scan: SupplyChainScan, *, include_scopes: bool = False) -> str:
-    """Format components without discarding markers, extras, or artifact hashes.
+    """Format components without discarding markers, extras, URLs, or hashes.
 
     Runtime dependencies are emitted as active requirement lines.  Build,
     optional, test, and development scopes are commented out unless
     ``include_scopes`` is requested, because installing them by default would
-    change the runtime environment.
+    change the runtime environment.  Conflicting versions are commented out
+    rather than producing a requirements file pip cannot resolve.
     """
+
+    versions_by_name: dict[str, set[str]] = {}
+    for comp in scan.components:
+        if comp.get("type") == "application":
+            continue
+        name = str(comp.get("name", ""))
+        version = comp.get("version")
+        if name and version:
+            versions_by_name.setdefault(name, set()).add(str(version))
+    conflicts = {
+        name: sorted(versions) for name, versions in versions_by_name.items() if len(versions) > 1
+    }
 
     lines: list[str] = []
     for comp in scan.components:
@@ -218,19 +281,31 @@ def build_requirements_text(scan: SupplyChainScan, *, include_scopes: bool = Fal
         version = comp.get("version")
         if not name:
             continue
-        properties = {
-            str(item.get("name")): str(item.get("value"))
+        properties = [
+            item
             for item in comp.get("properties", ())
             if isinstance(item, dict) and item.get("name")
-        }
-        extras = properties.get("pyflow:extras", "")
+        ]
+        values: dict[str, list[str]] = {}
+        for item in properties:
+            values.setdefault(str(item["name"]), []).append(str(item.get("value", "")))
+        extras = (values.get("pyflow:extras") or [""])[-1]
         requirement = f"{name}[{extras}]" if extras else str(name)
-        if version:
+        source_url = (values.get("pyflow:source-url") or [""])[-1]
+        if source_url:
+            # Never turn a direct URL/VCS dependency into a PyPI name: that
+            # would reintroduce dependency-confusion risk in the exported file.
+            requirement += f" @ {source_url}"
+        elif version:
             requirement += f"=={version}"
-        elif properties.get("pyflow:specifier"):
-            requirement += properties["pyflow:specifier"]
-        if properties.get("pyflow:marker"):
-            requirement += f" ; {properties['pyflow:marker']}"
+        elif values.get("pyflow:specifier"):
+            requirement += values["pyflow:specifier"][-1]
+        markers = list(dict.fromkeys(values.get("pyflow:marker", ())))
+        if markers:
+            marker_text = (
+                markers[0] if len(markers) == 1 else " or ".join(f"({m})" for m in markers)
+            )
+            requirement += f" ; {marker_text}"
         hashes = []
         for item in comp.get("hashes", ()):
             algorithm = _requirement_hash_name(str(item.get("alg", "")))
@@ -239,8 +314,14 @@ def build_requirements_text(scan: SupplyChainScan, *, include_scopes: bool = Fal
                 hashes.append(f"--hash={algorithm}:{content}")
         if hashes:
             requirement += " " + " ".join(sorted(hashes))
-        scope = properties.get("pyflow:scope", "")
-        if not include_scopes and scope not in {"", "runtime", "default"}:
+        scopes = values.get("pyflow:scope", ())
+        scope = "runtime" if "runtime" in scopes else (scopes[-1] if scopes else "")
+        if name in conflicts:
+            requirement = (
+                f"# {requirement}  # conflict: {name} has multiple versions: "
+                + ", ".join(conflicts[name])
+            )
+        elif not include_scopes and scope not in {"", "runtime", "default"}:
             requirement = f"# {requirement}  # scope: {scope}"
         lines.append(requirement)
     return "\n".join(lines) + "\n" if lines else ""
@@ -275,12 +356,24 @@ def _component_ref(component: dict[str, Any]) -> str:
 def _spdx_license(component: dict[str, Any]) -> str:
     for choice in component.get("licenses", ()):
         if choice.get("expression"):
-            return str(choice["expression"])
+            expression = str(choice["expression"])
+            return expression if is_spdx_expression(expression) else _license_ref(expression)
         inner = choice.get("license", {})
-        identifier = inner.get("id") or inner.get("name")
+        identifier = inner.get("id")
         if identifier:
             return str(identifier)
+        name = inner.get("name")
+        if name:
+            # SPDX licenseDeclared must be an SPDX expression or LicenseRef.
+            return _license_ref(str(name))
     return "NOASSERTION"
+
+
+def _license_ref(value: str) -> str:
+    clean = "".join(
+        character if character.isalnum() or character in ".-" else "-" for character in value
+    ).strip("-")
+    return f"LicenseRef-{clean[:64]}" if clean else "NOASSERTION"
 
 
 def _spdx_checksums(component: dict[str, Any]) -> list[dict[str, str]]:

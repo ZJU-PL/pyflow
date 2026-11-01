@@ -91,7 +91,8 @@ def read_text(
                 )
             )
             return None
-        return raw.decode("utf-8", errors="replace")
+        # utf-8-sig transparently strips a BOM while accepting normal UTF-8.
+        return raw.decode("utf-8-sig", errors="replace")
     except OSError as exc:
         findings.append(read_error(path, exc))
         return None

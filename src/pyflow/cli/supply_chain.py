@@ -176,6 +176,16 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         help="Annotate vulnerabilities with conservative source-import evidence",
     )
     audit.add_argument(
+        "--reachability-source",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Application source root for --reachability (repeatable; required "
+            "when scanning an installed tree)"
+        ),
+    )
+    audit.add_argument(
         "--import-map",
         type=Path,
         help="JSON mapping of distribution names to importable top-level modules",
@@ -284,6 +294,16 @@ def run_supply_chain(args: Any) -> int:
         output = out_file or sys.stdout
 
         if args.supply_chain_command == "sbom":
+            if (
+                getattr(args, "allow_incomplete", False)
+                and getattr(args, "exit_code_policy", "report") == "strict"
+            ):
+                print(
+                    "Supply-chain command failed: --require-complete and "
+                    "--allow-incomplete are mutually exclusive",
+                    file=sys.stderr,
+                )
+                return 2
             fmt = args.format
             if (
                 getattr(args, "require_schema_validation", False)
@@ -395,10 +415,28 @@ def run_supply_chain(args: Any) -> int:
                             if getattr(args, "import_map", None)
                             else None
                         )
-                        reachable_refs, reachability_findings = analyze_reachability(
-                            scan, targets, import_map=import_map
-                        )
-                        findings.extend(reachability_findings)
+                        reachability_roots = list(getattr(args, "reachability_source", ()) or ())
+                        if not reachability_roots and scan.metadata.get("installed"):
+                            findings.append(
+                                SupplyChainFinding(
+                                    kind="reachability-source-required",
+                                    message=(
+                                        "Reachability for an installed tree requires an "
+                                        "application source root; no import evidence was "
+                                        "attributed"
+                                    ),
+                                    location="command-line",
+                                    severity="MEDIUM",
+                                    details={"option": "--reachability-source"},
+                                )
+                            )
+                        else:
+                            reachable_refs, reachability_findings = analyze_reachability(
+                                scan,
+                                reachability_roots or targets,
+                                import_map=import_map,
+                            )
+                            findings.extend(reachability_findings)
                     except (OSError, ValueError, json.JSONDecodeError) as exc:
                         findings.append(
                             _configuration_finding(f"Could not load reachability import map: {exc}")
@@ -513,6 +551,16 @@ def run_supply_chain(args: Any) -> int:
                                 severity: severity_counts.get(severity, 0)
                                 for severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
                             },
+                        },
+                        "metadata": {
+                            "inventoryComplete": bool(scan.metadata.get("inventoryComplete", True)),
+                            "inventoryLimitations": list(
+                                scan.metadata.get("inventoryLimitations", ())
+                            ),
+                            "installed": bool(scan.metadata.get("installed", False)),
+                            "declaredOnly": bool(scan.metadata.get("declaredOnly", True)),
+                            "environment": scan.metadata.get("environment", {}),
+                            "extras": list(scan.metadata.get("extras", ())),
                         },
                         "results": results,
                     },
@@ -788,7 +836,11 @@ def _should_fail(findings: list[Any], fail_on: str) -> bool:
     if fail_on == "none":
         return False
     threshold = _severity_rank(fail_on)
-    return any(_severity_rank(finding.severity) >= threshold for finding in findings)
+    return any(
+        finding.kind != "vulnerability-suppressed-by-vex"
+        and _severity_rank(finding.severity) >= threshold
+        for finding in findings
+    )
 
 
 def _target_environment(args: Any) -> dict[str, str]:
@@ -797,12 +849,31 @@ def _target_environment(args: Any) -> dict[str, str]:
     if python_version:
         environment["python_version"] = str(python_version)
         environment["python_full_version"] = str(python_version)
+        environment["implementation_version"] = str(python_version)
     platform = getattr(args, "platform", None)
     if platform:
-        environment["sys_platform"] = str(platform)
+        platform_text = str(platform)
+        environment["sys_platform"] = platform_text
+        if platform_text == "win32":
+            environment["platform_system"] = "Windows"
+            environment["os_name"] = "nt"
+        elif platform_text == "darwin":
+            environment["platform_system"] = "Darwin"
+            environment["os_name"] = "posix"
+        elif platform_text.startswith("linux"):
+            environment["platform_system"] = "Linux"
+            environment["os_name"] = "posix"
+        environment["platform_release"] = ""
+        environment["platform_version"] = ""
     implementation = getattr(args, "implementation", None)
     if implementation:
-        environment["implementation_name"] = str(implementation)
+        implementation_text = str(implementation)
+        environment["implementation_name"] = implementation_text
+        environment["platform_python_implementation"] = {
+            "cpython": "CPython",
+            "pypy": "PyPy",
+            "jython": "Jython",
+        }.get(implementation_text.casefold(), implementation_text)
     return environment
 
 

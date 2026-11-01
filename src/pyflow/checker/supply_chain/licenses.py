@@ -11,6 +11,9 @@ from .models import SupplyChainFinding, SupplyChainScan
 DEFAULT_ALLOWED_LICENSES: frozenset[str] = frozenset(
     {
         "MIT",
+        "MIT-0",
+        "0BSD",
+        "BSL-1.0",
         "Apache-2.0",
         "BSD-2-Clause",
         "BSD-3-Clause",
@@ -160,11 +163,30 @@ def audit_license_policy(
             ]
             # Requirement/lock entries describe dependency selection, not
             # distribution license metadata. Absence there is not a defect.
+            # METADATA dependencies (Requires-Dist) likewise describe another
+            # distribution's dependency, not that dependency's license.
+            metadata_source = any(
+                prop.get("name") == "pyflow:metadata-source"
+                and str(prop.get("value", "")).lower() == "true"
+                for prop in properties
+            )
             if (
                 component.get("type") != "application"
                 and sources
+                and not metadata_source
                 and all(
-                    source.endswith((".lock", ".toml", ".txt", ".in", "setup.cfg", "setup.py"))
+                    source.endswith(
+                        (
+                            ".lock",
+                            ".toml",
+                            ".txt",
+                            ".in",
+                            "setup.cfg",
+                            "setup.py",
+                            "METADATA",
+                            "PKG-INFO",
+                        )
+                    )
                     for source in sources
                 )
             ):
@@ -194,7 +216,10 @@ def audit_license_policy(
                             message=f"Component {name} has an invalid SPDX expression",
                             location=purl,
                             severity="MEDIUM",
-                            details={"expression": expression_text, "error": str(exc)},
+                            details={
+                                "expression": _short_license_text(expression_text),
+                                "error": str(exc),
+                            },
                         )
                     )
                     continue
@@ -209,7 +234,7 @@ def audit_license_policy(
                 accepted = identifier_text in allowed
                 choices_allowed.append(accepted)
                 if not accepted:
-                    rejected.add(identifier_text)
+                    rejected.add(_short_license_text(identifier_text))
 
         # Multiple license-choice objects are alternatives in CycloneDX.  Do
         # not reject a component when at least one declared choice is allowed.
@@ -250,19 +275,28 @@ def licenses_from_metadata(data: Any) -> list[dict[str, Any]]:
     return list(unique.values())
 
 
-_SPDX_EXPRESSION_RE = re.compile(r"(?:^|[\s(])(?:AND|OR|WITH)(?:[\s)]|$)")
-
-
 def is_spdx_expression(value: str) -> bool:
-    """Return whether *value* is an SPDX license expression, not a name."""
+    """Return whether *value* is a syntactically valid SPDX expression.
+
+    Free-text license fields frequently contain parentheses ("GNU General
+    Public License (GPL)", "MIT (see LICENSE)").  Treating those as SPDX
+    expressions hides disallowed licenses and dumps entire license bodies into
+    findings.  Parse the text instead of guessing from punctuation.
+    """
 
     text = value.strip()
     if not text:
         return False
-    return bool(_SPDX_EXPRESSION_RE.search(text)) or ("(" in text and ")" in text)
+    try:
+        _LicenseExpressionParser(text).parse()
+    except _LicenseExpressionError:
+        return False
+    return any(operator in text.split() for operator in ("AND", "OR", "WITH")) or (
+        "(" in text and ")" in text
+    )
 
 
-def license_entry(value: str) -> dict[str, dict[str, str]]:
+def license_entry(value: str) -> dict[str, Any]:
     raw = value.strip()
     aliased = _LICENSE_ALIASES.get(raw.casefold(), raw)
     if is_spdx_expression(aliased):
@@ -290,6 +324,11 @@ def license_entries_for_value(value: Any) -> tuple[list[dict[str, Any]], str | N
         if file_value:
             return [], str(file_value)
     return [], None
+
+
+def _short_license_text(value: str, limit: int = 240) -> str:
+    text = value.strip()
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _evaluate_license_expression(
@@ -332,13 +371,31 @@ _TROVE_LICENSES = {
 }
 
 _LICENSE_ALIASES = {
+    "0bsd": "0BSD",
     "apache 2": "Apache-2.0",
     "apache 2.0": "Apache-2.0",
+    "apache license": "Apache-2.0",
+    "apache 2.0 license": "Apache-2.0",
     "apache license 2.0": "Apache-2.0",
+    "apache license, version 2.0": "Apache-2.0",
+    "apache software license": "Apache-2.0",
+    "apache software license 2.0": "Apache-2.0",
     "bsd": "BSD-3-Clause",
     "bsd license": "BSD-3-Clause",
+    "bsd-2-clause": "BSD-2-Clause",
+    "bsd-3-clause": "BSD-3-Clause",
+    "2-clause bsd license": "BSD-2-Clause",
+    "3-clause bsd license": "BSD-3-Clause",
+    "gnu general public license (gpl)": "GPL-3.0-only",
+    "gnu general public license v2 (gplv2)": "GPL-2.0-only",
+    "gnu general public license v3 (gplv3)": "GPL-3.0-only",
+    "gnu lesser general public license v3 (lgplv3)": "LGPL-3.0-only",
+    "gplv2": "GPL-2.0-only",
+    "gplv3": "GPL-3.0-only",
     "isc license": "ISC",
+    "lgplv3": "LGPL-3.0-only",
     "mit license": "MIT",
+    "mit no attribution": "MIT-0",
     "mozilla public license 2.0": "MPL-2.0",
     "python software foundation license": "PSF-2.0",
 }

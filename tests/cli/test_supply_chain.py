@@ -28,6 +28,10 @@ def test_sbom_incomplete_inventory_explains_exit_code_without_corrupting_json(tm
     assert "--allow-incomplete" in captured.err
     assert "exit code 2" in captured.err
     args.allow_incomplete = True
+    assert run_supply_chain(args) == 2
+    assert "mutually exclusive" in capsys.readouterr().err
+
+    args.exit_code_policy = "report"
     assert run_supply_chain(args) == 0
     assert capsys.readouterr().err == ""
 
@@ -456,7 +460,7 @@ def test_vex_and_reachability_warn_without_osv_database(tmp_path, capsys):
     assert "--reachability has no effect without --osv-database" in capsys.readouterr().err
 
 
-def test_cli_resolves_markers_without_explicit_environment(tmp_path, capsys):
+def test_cli_keeps_declared_markers_unless_environment_is_explicit(tmp_path, capsys):
     (tmp_path / "requirements.txt").write_text(
         'old==1; python_version < "3.8"\nnew==1; python_version >= "3.8"\n',
         encoding="utf-8",
@@ -472,6 +476,12 @@ def test_cli_resolves_markers_without_explicit_environment(tmp_path, capsys):
         exit_code_policy="report",
     )
 
+    assert run_supply_chain(args) == 0
+    output = capsys.readouterr().out
+    assert "new==1" in output
+    assert "old==1" in output
+
+    args.python_version = "3.10"
     assert run_supply_chain(args) == 0
     output = capsys.readouterr().out
     assert "new==1" in output

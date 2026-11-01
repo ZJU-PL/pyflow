@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Iterable, Mapping
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from packaging.requirements import Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -92,7 +92,7 @@ def _purl_version_matches(reference: str, specifier: SpecifierSet) -> bool:
     _prefix, separator, version_text = reference.rpartition("@")
     if not separator:
         return False
-    version_text = version_text.split("?", 1)[0].split("#", 1)[0]
+    version_text = unquote(version_text.split("?", 1)[0].split("#", 1)[0])
     try:
         return Version(version_text) in specifier
     except InvalidVersion:
@@ -140,7 +140,7 @@ def dedupe_components(
         by_name.setdefault(cname, []).append(comp)
 
     final_components: list[dict[str, Any]] = []
-    for cname, group in by_name.items():
+    for group_name, group in by_name.items():
         unversioned = [item for item in group if not item.get("version")]
         versioned = [item for item in group if item.get("version")]
         if unversioned and versioned:
@@ -149,6 +149,13 @@ def dedupe_components(
                 app_versioned = [item for item in versioned if item.get("type") == "application"]
                 if app_versioned:
                     target = app_versioned[0]
+                else:
+                    # Multiple locked versions exist (monorepos, resolution
+                    # groups).  Do not guess which one an unversioned range
+                    # means; keep both rather than pinning to the lowest.
+                    final_components.extend(unversioned)
+                    final_components.extend(versioned)
+                    continue
             for unv in unversioned:
                 _merge_component(target, unv)
                 target_ref = str(target.get("purl") or target.get("name"))

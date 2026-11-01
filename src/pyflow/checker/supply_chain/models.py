@@ -62,16 +62,32 @@ def _fingerprint_location(location: str) -> str:
     """Make workspace-local finding IDs stable across CI checkout paths."""
 
     outer, separator, member = location.partition("!/")
+    suffix: str | None = None
     try:
         relative = Path(outer).resolve(strict=False).relative_to(Path.cwd().resolve(strict=False))
+        suffix = relative.as_posix()
     except (OSError, ValueError):
+        path = Path(outer)
+        if path.is_absolute():
+            # Absolute targets (for example a virtualenv path) are common in
+            # CI.  Keep a stable suffix instead of embedding the machine path.
+            suffix = "/".join(path.parts[-4:])
+    if suffix is None:
         return location
-    normalized = relative.as_posix()
-    return f"{normalized}!/{member}" if separator else normalized
+    return f"{suffix}!/{member}" if separator else suffix
 
 
 def _fingerprint_value(value: Any) -> Any:
-    volatile = {"error", "published", "modified", "references", "stale_files"}
+    volatile = {
+        "aliases",
+        "error",
+        "fixed_versions",
+        "line",
+        "modified",
+        "published",
+        "references",
+        "stale_files",
+    }
     if isinstance(value, dict):
         return {
             key: _fingerprint_value(item)

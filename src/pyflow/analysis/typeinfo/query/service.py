@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import sysconfig
 import tokenize
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Iterator, cast
 
@@ -166,9 +167,30 @@ class TypeInfoService:
         return fact.typ if fact is not None else None
 
     def fact_of(self, module_name: str, name: str) -> TypeFact | None:
-        """Return the best known type fact for ``module.name``."""
+        """Return the best known type fact for ``module.name``.
+
+        Dotted names (``module.Class.member``) are resolved through the class
+        member table when they are not top-level module facts.
+        """
         self._ensure_collected(module_name)
-        return self._module_facts.get(module_name, {}).get(name)
+        facts = self._module_facts.get(module_name, {})
+        fact = facts.get(name)
+        if fact is not None:
+            return fact
+        if "." not in name:
+            return None
+        typ = self._lookup_project_type(
+            f"{module_name}.{name}", allow_synthetic=False
+        )
+        if typ is None:
+            return None
+        return TypeFact(
+            name=name,
+            typ=typ,
+            raw_annotation=str(typ),
+            source="inference",
+            kind="member",
+        )
 
     def signature_of(
         self,
@@ -461,8 +483,6 @@ class TypeInfoService:
         if module_name in self._collecting_modules:
             fact = self._module_facts.get(module_name, {}).get(name)
             return None if fact is None else fact.typ
-        if not self._module_may_be_project(module_name):
-            return None
         return self._lookup_project_type(qualified_name, allow_synthetic=False)
 
     def _collect_stub_module(
@@ -605,12 +625,15 @@ class TypeInfoService:
                     kind="class_var",
                 )
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                method_info = self._function_info_from_source(
-                    stmt,
-                    module_name=module_name,
-                    imports=imports,
-                    source="annotation",
-                    symbol_name=f"{node.name}.{stmt.name}",
+                method_info = self._specialize_self_method(
+                    self._function_info_from_source(
+                        stmt,
+                        module_name=module_name,
+                        imports=imports,
+                        source="annotation",
+                        symbol_name=f"{node.name}.{stmt.name}",
+                    ),
+                    class_typ,
                 )
                 methods[stmt.name] = method_info
                 members[stmt.name] = TypeFact(
@@ -713,6 +736,9 @@ class TypeInfoService:
                     raw_returns = " | ".join(hints)
                     used_documentation = True
                     self._documented_returns.add(documentation_key)
+        decorators = {
+            ast.unparse(decorator).rsplit(".", 1)[-1] for decorator in node.decorator_list
+        }
         return FunctionTypeInfo(
             name=node.name,
             params=params,
@@ -720,6 +746,12 @@ class TypeInfoService:
             raw_params=raw_params,
             raw_returns=raw_returns,
             source="docstring" if used_documentation else source,
+            is_property=bool(decorators & {"property", "cached_property"}),
+            method_kind=(
+                "static"
+                if "staticmethod" in decorators
+                else "class" if "classmethod" in decorators else "instance"
+            ),
         )
 
     def _function_info_from_stub(
@@ -730,6 +762,9 @@ class TypeInfoService:
         imports: dict[str, str],
     ) -> FunctionTypeInfo:
         raw_params = {name: annotation for name, annotation in function.params}
+        decorators = {
+            decorator.rsplit(".", 1)[-1] for decorator in function.decorators
+        }
         return FunctionTypeInfo(
             name=function.name,
             params={
@@ -748,6 +783,12 @@ class TypeInfoService:
             raw_params=raw_params,
             raw_returns=function.returns,
             source="stub",
+            is_property=bool(decorators & {"property", "cached_property"}),
+            method_kind=(
+                "static"
+                if "staticmethod" in decorators
+                else "class" if "classmethod" in decorators else "instance"
+            ),
         )
 
     def _class_info_from_stub(
@@ -771,11 +812,15 @@ class TypeInfoService:
             )
             for name, annotation in cls.class_vars
         }
+        class_typ = self._synthetic_instance(qualified_name)
         methods = {
-            method.name: self._function_info_from_stub(
-                method,
-                module_name=module_name,
-                imports=imports,
+            method.name: self._specialize_self_method(
+                self._function_info_from_stub(
+                    method,
+                    module_name=module_name,
+                    imports=imports,
+                ),
+                class_typ,
             )
             for method in cls.methods
         }
@@ -790,7 +835,7 @@ class TypeInfoService:
             )
         return ClassTypeInfo(
             name=qualified_name,
-            typ=self._synthetic_instance(qualified_name),
+            typ=class_typ,
             bases=tuple(
                 resolved
                 for raw_base in cls.bases
@@ -901,6 +946,85 @@ class TypeInfoService:
             return None
         return f"{imported_prefix}.{rest}"
 
+    def _module_should_be_collected(self, module_name: str) -> bool:
+        """Whether a name can be cheaply and safely loaded as a type source."""
+        if self._module_may_be_project(module_name):
+            return True
+        return self.stub_resolver.resolve_path(module_name) is not None
+
+    def _summary_type(self, qualified_name: str) -> ProperType | None:
+        for result in self._inference_results.values():
+            summary = result.functions.get(qualified_name)
+            if summary is None:
+                continue
+            parameters = tuple(
+                value.public_type() or ANY for value in summary.parameters.values()
+            )
+            return CallableType(parameters, summary.return_type or ANY)
+        return None
+
+    def _specialize_self_method(
+        self, method: FunctionTypeInfo, class_type: Instance
+    ) -> FunctionTypeInfo:
+        aliases = {"Self", "typing.Self", "typing_extensions.Self"}
+        returns = method.returns
+        if method.raw_returns in aliases:
+            returns = class_type
+        params = dict(method.params)
+        raw_params = dict(method.raw_params)
+        changed = returns is not method.returns
+        for name, raw in raw_params.items():
+            if raw in aliases:
+                params[name] = class_type
+                changed = True
+        if not changed:
+            return method
+        return replace(method, params=params, returns=returns)
+
+    def _class_member_type(
+        self,
+        class_name: str,
+        member: str,
+        seen: set[str] | None = None,
+        *,
+        receiver_class: str | None = None,
+    ) -> ProperType | None:
+        seen = set() if seen is None else seen
+        if class_name in seen:
+            return None
+        seen.add(class_name)
+        receiver_class = receiver_class or class_name
+        info = self._classes.get(class_name)
+        if info is None:
+            return None
+        method = info.methods.get(member)
+        if method is not None:
+            returns = method.returns
+            if method.raw_returns in {"Self", "typing.Self", "typing_extensions.Self"}:
+                receiver = self._classes.get(receiver_class)
+                if receiver is not None:
+                    returns = receiver.typ
+            if method.is_property:
+                return returns
+            parameters = tuple(parameter or ANY for parameter in method.params.values())
+            if method.method_kind == "static":
+                return CallableType(None, returns or ANY)
+            return CallableType(parameters, returns or ANY)
+        fact = info.members.get(member)
+        if fact is not None:
+            return fact.typ
+        for base in info.bases:
+            if isinstance(base, Instance):
+                found = self._class_member_type(
+                    base.type.full_name,
+                    member,
+                    seen,
+                    receiver_class=receiver_class,
+                )
+                if found is not None:
+                    return found
+        return None
+
     def _lookup_project_type(
         self,
         qualified_name: str,
@@ -915,9 +1039,37 @@ class TypeInfoService:
         if not separator:
             return None
 
-        if module_name not in self._collected_modules:
-            if self.project_context.find_module(module_name) is not None:
-                self.collect_module(module_name)
+        # Ensure the defining module (or the module enclosing a dotted class
+        # member) has been collected.  Project modules and stub-backed modules
+        # are safe; arbitrary installed packages without stubs are not.
+        parts = qualified_name.split(".")
+        for index in range(len(parts) - 1, 0, -1):
+            candidate = ".".join(parts[:index])
+            if candidate in self._collected_modules:
+                break
+            if self._module_should_be_collected(candidate):
+                self.collect_module(candidate)
+                break
+
+        class_info = self._classes.get(qualified_name)
+        if class_info is not None:
+            return class_info.typ
+
+        # ``pkg.Class.method`` / ``pkg.Class.attr``: the last dot is not a
+        # module boundary.  Find the longest known class prefix.
+        for index in range(len(parts) - 1, 0, -1):
+            class_prefix = ".".join(parts[:index])
+            if class_prefix not in self._classes:
+                continue
+            member = ".".join(parts[index:])
+            found = self._class_member_type(class_prefix, member)
+            if found is not None:
+                return found
+            break
+
+        summary = self._summary_type(qualified_name)
+        if summary is not None:
+            return summary
 
         result = self._inference_results.get(module_name)
         partial = module_name in self._failed_modules or (
@@ -934,10 +1086,6 @@ class TypeInfoService:
                 )
                 if diagnostic not in self._collection_diagnostics:
                     self._collection_diagnostics.append(diagnostic)
-
-        class_info = self._classes.get(qualified_name)
-        if class_info is not None:
-            return class_info.typ
 
         fact = self._module_facts.get(module_name, {}).get(attr)
         if fact is not None:

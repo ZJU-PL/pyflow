@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import csv
+import lzma
 import stat
 import tarfile
 import unicodedata
 import zipfile
+import zlib
 from email.parser import Parser
 from pathlib import Path, PurePosixPath
 from typing import Any, IO, Iterable
@@ -193,7 +195,14 @@ def _extract_zip(
                 with archive.open(info, "r") as source, target.open("wb") as output:
                     _copy_limited(source, output, info.file_size)
         return True
-    except (OSError, RuntimeError, EOFError, zipfile.BadZipFile) as exc:
+    except (
+        OSError,
+        RuntimeError,
+        EOFError,
+        zipfile.BadZipFile,
+        zlib.error,
+        lzma.LZMAError,
+    ) as exc:
         findings.append(
             SupplyChainFinding(
                 kind="archive-read-error",
@@ -567,11 +576,24 @@ def audit_archive_payload(
     for entry in entries:
         if entry.is_symlink() or not entry.is_file():
             continue
-        if entry.suffix.lower() == ".pth":
+        entry_name = entry.name.lower()
+        if entry_name.endswith(".pth"):
             findings.append(
                 SupplyChainFinding(
                     kind="archive-pth-file",
                     message="Archive installs a .pth file that runs code at interpreter startup",
+                    location=_member_location(archive_path, destination, entry),
+                    severity="HIGH",
+                )
+            )
+        elif entry_name in {"sitecustomize.py", "usercustomize.py"}:
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-startup-hook",
+                    message=(
+                        "Archive installs a module that runs automatically at Python "
+                        "interpreter startup"
+                    ),
                     location=_member_location(archive_path, destination, entry),
                     severity="HIGH",
                 )
@@ -782,6 +804,11 @@ def audit_archive_identity(
         for component in candidates
         if canonicalize_name(str(component.get("name", ""))) == expected_name
     ]
+    for component in matching:
+        # The archive's own distribution is the subject package, not a
+        # dependency.  This also keeps requirements exports from installing
+        # the package into itself.
+        component["type"] = "application"
     if not matching and candidates:
         findings.append(
             SupplyChainFinding(
@@ -804,7 +831,7 @@ def audit_archive_identity(
         return
     for component in matching:
         actual_version = str(component.get("version", ""))
-        if actual_version and actual_version != expected_version:
+        if actual_version and not _same_version(actual_version, expected_version):
             findings.append(
                 SupplyChainFinding(
                     kind="archive-metadata-version-mismatch",

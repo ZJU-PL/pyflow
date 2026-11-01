@@ -354,8 +354,18 @@ def _matching_subject(
 
 def _builder_id(statement: dict[str, Any]) -> str:
     predicate = statement.get("predicate", {}) or {}
+    if not isinstance(predicate, dict):
+        return ""
     builder = predicate.get("builder", {}) or {}
-    return str(builder.get("id", ""))
+    if isinstance(builder, dict) and builder.get("id"):
+        return str(builder["id"])
+    # SLSA v1 moved builder identity under runDetails.
+    run_details = predicate.get("runDetails", {}) or {}
+    if isinstance(run_details, dict):
+        builder = run_details.get("builder", {}) or {}
+        if isinstance(builder, dict) and builder.get("id"):
+            return str(builder["id"])
+    return ""
 
 
 def _sha256_file(path: Path) -> str:

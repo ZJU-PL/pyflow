@@ -44,6 +44,11 @@ except ImportError:  # pragma: no cover - Python < 3.11
 
 
 _HASH_OPTION_RE = re.compile(r"(?:^|\s)--hash[=\s]+([A-Za-z0-9_-]+):([^\s]+)")
+_URL_RE = re.compile(r"(?:git\+|hg\+|svn\+|bzr\+)?(?:https?|ftp)://[^\s;]+", re.IGNORECASE)
+
+
+def _redact_requirement_text(value: str) -> str:
+    return _URL_RE.sub(lambda match: _redacted_url(match.group(0)), value)
 
 
 def _component_from_metadata(
@@ -83,6 +88,13 @@ def _component_from_metadata(
             {"type": "website", "url": _redacted_url(homepage.strip())}
         ]
     _add_property(component, "pyflow:metadata-source", "true")
+    license_files = list(data.get_all("License-File", []) or []) + list(
+        data.get_all("License-Files", []) or []
+    )
+    for license_file in license_files:
+        value = str(license_file).strip()
+        if value:
+            _add_property(component, "pyflow:license-file", value)
     top_level = metadata_path.parent / "top_level.txt"
     if top_level.is_file() and not top_level.is_symlink():
         import_text = _read_text(top_level, findings, limits, "top-level module metadata")
@@ -117,12 +129,36 @@ def _metadata_dependencies(
     return components, edges
 
 
+def _requirements_scope(path: Path) -> str:
+    lowered = path.stem.lower()
+    parts = set(re.split(r"[-_.]", lowered))
+    if "constraint" in parts or "constraints" in parts or path.parent.name.lower() == "constraints":
+        return "constraint"
+    if parts & {"test", "tests", "testing"}:
+        return "test"
+    if parts & {"dev", "develop", "development"}:
+        return "dev"
+    if parts & {"lint", "linting", "mypy", "flake8", "ruff"}:
+        return "lint"
+    if parts & {"doc", "docs"}:
+        return "docs"
+    if parts & {"build", "ci"}:
+        return "build"
+    if parts & {"benchmark", "benchmarks"}:
+        return "benchmark"
+    if parts & {"example", "examples"}:
+        return "examples"
+    return "runtime"
+
+
 def _components_from_requirements(
     path: Path,
     findings: list[SupplyChainFinding],
     limits: ScanLimits,
     _stack: frozenset[Path] = frozenset(),
+    scope: str | None = None,
 ) -> list[dict[str, Any]]:
+    effective_scope = scope or _requirements_scope(path)
     resolved = path.resolve(strict=False)
     if resolved in _stack:
         findings.append(
@@ -190,12 +226,14 @@ def _components_from_requirements(
                     )
                 )
             else:
+                included_scope = _requirements_scope(included_path)
                 components.extend(
                     _components_from_requirements(
                         included_path,
                         findings,
                         limits,
                         _stack | {resolved},
+                        scope=included_scope if included_scope != "runtime" else effective_scope,
                     )
                 )
             continue
@@ -226,6 +264,7 @@ def _components_from_requirements(
             findings,
             audit_pin=True,
             hashes=hashes,
+            scope=effective_scope,
         )
         if component is not None:
             components.append(component)
@@ -311,17 +350,22 @@ def _audit_pip_option(
     if "=" in line.split(maxsplit=1)[0]:
         value = line.split("=", 1)[1].strip()
     if option == "--extra-index-url":
-        findings.append(
-            SupplyChainFinding(
-                kind="multiple-package-indexes",
-                message="Extra package indexes can introduce dependency-confusion risk",
-                location=str(path),
-                severity="HIGH",
-                details={"line": line_no, "url": _redacted_url(value)},
+        if (urlparse(value).hostname or "").casefold() not in _DEFAULT_INDEX_HOSTS:
+            findings.append(
+                SupplyChainFinding(
+                    kind="multiple-package-indexes",
+                    message="Extra package indexes can introduce dependency-confusion risk",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"line": line_no, "url": _redacted_url(value)},
+                )
             )
-        )
-    if option in {"--index-url", "-i", "--extra-index-url", "--find-links", "-f"}:
+    if option in {"--index-url", "-i"}:
+        _audit_primary_index(path, value, findings)
+    elif option in {"--extra-index-url"}:
         _audit_index_url(path, value, findings, None)
+    elif option in {"--find-links", "-f"}:
+        _audit_index_url(path, value, findings, "additional")
     if option == "--trusted-host":
         findings.append(
             SupplyChainFinding(
@@ -416,7 +460,7 @@ def _parse_requirement(
     scope: str | None = None,
     marker: str | None = None,
 ) -> dict[str, Any] | None:
-    details: dict[str, Any] = {"requirement": requirement_text}
+    details: dict[str, Any] = {"requirement": _redact_requirement_text(requirement_text)}
     if line_no is not None:
         details["line"] = line_no
     try:
@@ -478,6 +522,8 @@ def _parse_requirement(
     )
     if effective_marker:
         _add_property(component, "pyflow:marker", effective_marker)
+        if not scope and "extra" in effective_marker:
+            _add_property(component, "pyflow:scope", "optional")
     if requirement.extras:
         _add_property(component, "pyflow:extras", ",".join(sorted(requirement.extras)))
     if scope:
@@ -485,6 +531,26 @@ def _parse_requirement(
     if hashes:
         component["hashes"] = hashes
     if requirement.url:
+        url_text = str(requirement.url)
+        if url_text.startswith(("file:", ".", "/", "~", "..")) or "://" not in url_text:
+            local_url = url_text
+            if not local_url.startswith("file:"):
+                local_path = Path(local_url)
+                if not local_path.is_absolute():
+                    local_path = path.parent / local_path
+                local_url = local_path.resolve(strict=False).as_uri()
+            _add_property(component, "pyflow:source-url", local_url)
+            findings.append(
+                SupplyChainFinding(
+                    kind="local-path-requirement",
+                    message="Dependency references mutable local path content",
+                    location=str(path),
+                    severity="MEDIUM",
+                    details={"requirement": _redacted_url(url_text)},
+                )
+            )
+            return component
+        _add_property(component, "pyflow:source-url", _redacted_url(requirement.url))
         component["externalReferences"] = [
             {"type": "distribution", "url": _redacted_url(requirement.url)}
         ]
@@ -552,6 +618,7 @@ def _component_from_legacy_reference(value: str) -> dict[str, Any] | None:
         component = _component(str(parsed_name), version=str(parsed_version))
     else:
         component = _component(names[0])
+    _add_property(component, "pyflow:source-url", _redacted_url(value))
     component["externalReferences"] = [{"type": "distribution", "url": _redacted_url(value)}]
     return component
 
@@ -567,7 +634,14 @@ def _looks_like_local_requirement(value: str) -> bool:
 def _source_revision(source: dict[str, Any], url: str) -> str:
     """Extract a full commit identifier from a lock source or VCS URL."""
 
-    for key in ("rev", "commit", "resolved_reference", "resolved-reference", "commit-id"):
+    for key in (
+        "rev",
+        "commit",
+        "reference",
+        "resolved_reference",
+        "resolved-reference",
+        "commit-id",
+    ):
         value = source.get(key)
         if value and re.fullmatch(r"[0-9a-fA-F]{40,64}", str(value)):
             return str(value)
@@ -738,11 +812,29 @@ def _components_from_pyproject(
                 details={"backend": backend},
             )
         )
+    tool = data.get("tool", {}) or {}
+    if not isinstance(tool, dict):
+        _manifest_type_finding(path, findings, "tool", "a table")
+        tool = {}
+    poetry = tool.get("poetry", {}) or {}
+    if not isinstance(poetry, dict):
+        _manifest_type_finding(path, findings, "tool.poetry", "a table")
+        poetry = {}
+
     root: dict[str, Any] | None = None
-    if project.get("name"):
-        root = _component(str(project["name"]), version=_string_or_none(project.get("version")))
+    project_name = project.get("name")
+    poetry_name = poetry.get("name") if isinstance(poetry.get("name"), str) else None
+    root_name = str(project_name) if project_name else poetry_name
+    if root_name:
+        if project_name:
+            root_version = project.get("version")
+            root_license = project.get("license")
+        else:
+            root_version = poetry.get("version")
+            root_license = poetry.get("license")
+        root = _component(root_name, version=_string_or_none(root_version))
         root["type"] = "application"
-        license_entries, license_file = _license_entries_for_value(project.get("license"))
+        license_entries, license_file = _license_entries_for_value(root_license)
         if license_entries:
             root["licenses"] = license_entries
         if license_file:
@@ -827,15 +919,6 @@ def _components_from_pyproject(
         else:
             _manifest_type_finding(path, findings, "build-system.requires entry", "a string")
 
-    tool = data.get("tool", {}) or {}
-    if not isinstance(tool, dict):
-        _manifest_type_finding(path, findings, "tool", "a table")
-        tool = {}
-    poetry = tool.get("poetry", {}) or {}
-    if not isinstance(poetry, dict):
-        _manifest_type_finding(path, findings, "tool.poetry", "a table")
-        poetry = {}
-
     poetry_groups: list[tuple[str, dict[str, Any], str | None]] = []
     poetry_runtime = poetry.get("dependencies", {}) or {}
     if not isinstance(poetry_runtime, dict):
@@ -863,12 +946,40 @@ def _components_from_pyproject(
             continue
         poetry_groups.append((f"group:{group}", dependencies, f'extra == "{group}"'))
 
+    poetry_extras = poetry.get("extras", {}) or {}
+    extra_members: dict[str, set[str]] = {}
+    if isinstance(poetry_extras, dict):
+        for extra_name, members in poetry_extras.items():
+            if not isinstance(members, (list, tuple)):
+                _manifest_type_finding(
+                    path, findings, f"tool.poetry.extras.{extra_name}", "an array"
+                )
+                continue
+            for member in members:
+                extra_members.setdefault(canonicalize_name(str(member)), set()).add(str(extra_name))
+
     for scope, dependency_map, marker in poetry_groups:
         for name, value in dependency_map.items():
             if canonicalize_name(str(name)) == "python":
                 continue
             requirement_text = _poetry_requirement(str(name), value)
-            if requirement_text:
+            if not requirement_text:
+                continue
+            optional = isinstance(value, dict) and bool(value.get("optional"))
+            if optional:
+                extras_for = sorted(extra_members.get(canonicalize_name(str(name)), ()))
+                if extras_for:
+                    for extra_name in extras_for:
+                        declared.append(
+                            (
+                                requirement_text,
+                                f"optional:{extra_name}",
+                                _combine_markers(marker, f'extra == "{extra_name}"'),
+                            )
+                        )
+                else:
+                    declared.append((requirement_text, "optional", marker))
+            else:
                 declared.append((requirement_text, scope, marker))
 
     for requirement_text, scope, marker in declared:
@@ -887,54 +998,186 @@ def _components_from_pyproject(
         if root is not None:
             edges.append((str(root["purl"]), str(component["purl"])))
 
+    _audit_build_hooks(path, tool, poetry, findings)
+
     poetry_sources = poetry.get("source", ()) or ()
     if not isinstance(poetry_sources, (list, tuple)):
         _manifest_type_finding(path, findings, "tool.poetry.source", "an array")
         poetry_sources = ()
     for source in poetry_sources:
         if isinstance(source, dict):
-            _audit_index_url(
-                path,
-                str(source.get("url", "")),
-                findings,
-                source.get("priority"),
-            )
+            source_url = str(source.get("url", ""))
+            priority = source.get("priority")
+            if priority in {None, "primary", "default"}:
+                _audit_primary_index(path, source_url, findings)
+            else:
+                _audit_index_url(path, source_url, findings, priority)
     uv = tool.get("uv", {}) or {}
     if not isinstance(uv, dict):
         _manifest_type_finding(path, findings, "tool.uv", "a table")
         uv = {}
+    uv_dev = uv.get("dev-dependencies", ()) or ()
+    if isinstance(uv_dev, (list, tuple)):
+        for value in uv_dev:
+            if not isinstance(value, str):
+                _manifest_type_finding(path, findings, "tool.uv.dev-dependencies entry", "a string")
+                continue
+            component = _parse_requirement(
+                value,
+                path,
+                None,
+                findings,
+                audit_pin=False,
+                scope="dev",
+                marker='extra == "dev"',
+            )
+            if component is not None:
+                components.append(component)
+                if root is not None:
+                    edges.append((str(root["purl"]), str(component["purl"])))
+    elif uv_dev:
+        _manifest_type_finding(path, findings, "tool.uv.dev-dependencies", "an array")
+
+    uv_indexes = uv.get("index", ()) or ()
+    if isinstance(uv_indexes, dict):
+        uv_indexes = [uv_indexes]
+    if not isinstance(uv_indexes, (list, tuple)):
+        _manifest_type_finding(path, findings, "tool.uv.index", "an array of tables")
+        uv_indexes = ()
+    index_by_name: dict[str, dict[str, Any]] = {}
+    for entry in uv_indexes:
+        if not isinstance(entry, dict):
+            _manifest_type_finding(path, findings, "tool.uv.index entry", "a table")
+            continue
+        name = str(entry.get("name", ""))
+        url = str(entry.get("url", "") or "")
+        if name:
+            index_by_name[name] = entry
+        if url:
+            # A non-explicit uv index participates in resolution just like
+            # --extra-index-url and is a dependency-confusion vector.
+            priority = "additional" if entry.get("explicit") is not True else None
+            _audit_index_url(path, url, findings, priority)
+
     uv_sources = uv.get("sources", {}) or {}
     if not isinstance(uv_sources, dict):
         _manifest_type_finding(path, findings, "tool.uv.sources", "a table")
         uv_sources = {}
     for name, source in uv_sources.items():
-        if not isinstance(source, dict):
+        entries = source if isinstance(source, list) else [source]
+        if not isinstance(source, (dict, list)):
             _manifest_type_finding(path, findings, f"tool.uv.sources.{name}", "a table")
             continue
-        source_url = source.get("git") or source.get("url")
-        if source_url:
-            _audit_embedded_credentials(path, str(source_url), findings, str(name))
-        if source.get("git") and not _source_revision(source, str(source_url or "")):
-            findings.append(
-                SupplyChainFinding(
-                    kind="unpinned-vcs-dependency",
-                    message="uv dependency source is not pinned to a revision",
-                    location=str(path),
-                    severity="HIGH",
-                    details={"component": name},
+        if isinstance(source, list) and not source:
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                _manifest_type_finding(path, findings, f"tool.uv.sources.{name} entry", "a table")
+                continue
+            source_url = entry.get("git") or entry.get("url")
+            index_name = entry.get("index")
+            if index_name:
+                index_entry = index_by_name.get(str(index_name))
+                if index_entry is None:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="unresolved-package-index",
+                            message="uv dependency source references an undeclared index",
+                            location=str(path),
+                            severity="MEDIUM",
+                            details={"component": name, "index": str(index_name)},
+                        )
+                    )
+                else:
+                    index_url = str(index_entry.get("url", "") or "")
+                    source_url = source_url or index_url
+                    if index_url:
+                        _audit_index_url(path, index_url, findings, None)
+            if source_url:
+                _audit_embedded_credentials(path, str(source_url), findings, str(name))
+            if entry.get("git"):
+                revision = entry.get("rev") or entry.get("tag") or entry.get("branch")
+                if revision and source_url and not str(source_url).endswith(f"@{revision}"):
+                    source_url = f"{source_url}@{revision}"
+            if entry.get("git") or entry.get("url"):
+                target_component = next(
+                    (
+                        component
+                        for component in components
+                        if canonicalize_name(str(component.get("name", "")))
+                        == canonicalize_name(str(name))
+                    ),
+                    None,
                 )
-            )
-        if source.get("path") or source.get("workspace"):
-            findings.append(
-                SupplyChainFinding(
-                    kind="local-path-requirement",
-                    message="uv dependency references mutable local workspace content",
-                    location=str(path),
-                    severity="MEDIUM",
-                    details={"component": name},
+                if target_component is not None and source_url:
+                    safe_url = _redacted_url(str(source_url))
+                    _add_property(target_component, "pyflow:source-url", safe_url)
+                    target_component["externalReferences"] = [
+                        {"type": "vcs" if entry.get("git") else "distribution", "url": safe_url}
+                    ]
+            if entry.get("git") and not _source_revision(entry, str(source_url or "")):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="unpinned-vcs-dependency",
+                        message="uv dependency source is not pinned to a revision",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"component": name},
+                    )
                 )
-            )
+            if entry.get("path") or entry.get("workspace"):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="local-path-requirement",
+                        message="uv dependency references mutable local workspace content",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details={"component": name},
+                    )
+                )
     return components, edges
+
+
+def _audit_build_hooks(
+    path: Path,
+    tool: dict[str, Any],
+    poetry: dict[str, Any],
+    findings: list[SupplyChainFinding],
+) -> None:
+    """Report PEP 517/518 hooks that execute project code at build time."""
+
+    executions: list[str] = []
+    hatch = tool.get("hatch", {}) or {}
+    if isinstance(hatch, dict):
+        build = hatch.get("build", {}) or {}
+        hooks = build.get("hooks", {}) if isinstance(build, dict) else {}
+        if isinstance(hooks, dict):
+            for name, config in hooks.items():
+                if name == "custom" or (
+                    isinstance(config, dict) and (config.get("path") or config.get("script"))
+                ):
+                    executions.append(f"tool.hatch.build.hooks.{name}")
+    poetry_build = poetry.get("build")
+    if isinstance(poetry_build, dict) and poetry_build.get("script"):
+        executions.append("tool.poetry.build.script")
+    setuptools = tool.get("setuptools", {}) or {}
+    cmdclass = setuptools.get("cmdclass") if isinstance(setuptools, dict) else None
+    if isinstance(cmdclass, dict) and cmdclass:
+        executions.append("tool.setuptools.cmdclass")
+    pdm = tool.get("pdm", {}) or {}
+    pdm_build = pdm.get("build") if isinstance(pdm, dict) else None
+    if isinstance(pdm_build, dict) and (pdm_build.get("script") or pdm_build.get("run-script")):
+        executions.append("tool.pdm.build.script")
+    if executions:
+        findings.append(
+            SupplyChainFinding(
+                kind="build-hook-code-execution",
+                message="Build configuration executes project code during package builds",
+                location=str(path),
+                severity="HIGH",
+                details={"hooks": executions},
+            )
+        )
 
 
 def _poetry_requirement(name: str, value: Any) -> str | None:
@@ -944,11 +1187,19 @@ def _poetry_requirement(name: str, value: Any) -> str | None:
     if not isinstance(value, dict):
         return None
     marker = value.get("markers")
-    extras = value.get("extras") or ()
+    raw_extras = value.get("extras") or ()
+    extras = raw_extras if isinstance(raw_extras, (list, tuple)) else ()
     display_name = f"{name}[{','.join(str(item) for item in extras)}]" if extras else name
     for key in ("git", "url", "path"):
         if value.get(key):
-            requirement = f"{display_name} @ {value[key]}"
+            target = str(value[key])
+            if key == "git":
+                if not target.startswith(("git+", "hg+", "svn+", "bzr+", "ssh://")):
+                    target = "git+" + target
+                revision = value.get("rev") or value.get("tag") or value.get("branch")
+                if revision:
+                    target += f"@{revision}"
+            requirement = f"{display_name} @ {target}"
             if marker:
                 requirement += f" ; {marker}"
             return requirement
@@ -1009,9 +1260,21 @@ def _components_from_toml_lock(
     if data is None:
         return [], []
     raw_packages = data.get("package", ()) or data.get("packages", ()) or ()
+    if not isinstance(raw_packages, (list, tuple)):
+        findings.append(
+            SupplyChainFinding(
+                kind="invalid-lockfile",
+                message="Lockfile package entries must be an array of tables",
+                location=str(path),
+                severity="HIGH",
+            )
+        )
+        return [], []
     components: list[dict[str, Any]] = []
     dependency_names: list[tuple[str, str, str | None]] = []
     refs_by_name: dict[str, list[str]] = {}
+    version_markers: dict[tuple[str, str], set[str]] = {}
+    group_scopes: dict[tuple[str, str | None], set[tuple[str, str]]] = {}
 
     for package in raw_packages:
         if not isinstance(package, dict) or not package.get("name"):
@@ -1040,10 +1303,61 @@ def _components_from_toml_lock(
         component = _component(name, version=version)
         if package.get("license"):
             component["licenses"] = [_license_entry(str(package["license"]))]
-        artifacts = list(package.get("files", ()) or ())
+        markers = package.get("markers")
+        if isinstance(markers, dict):
+            for marker_value in markers.values():
+                if marker_value:
+                    _add_property(component, "pyflow:marker", str(marker_value))
+        elif markers:
+            _add_property(component, "pyflow:marker", str(markers))
+        groups = package.get("groups")
+        category = package.get("category")
+        scopes: list[str] = []
+        if isinstance(groups, (list, tuple)):
+            scopes = [str(group) for group in groups if str(group)]
+        elif category:
+            scopes = [str(category)]
+        optional = bool(package.get("optional"))
+        if optional:
+            _add_property(component, "pyflow:scope", "optional")
+        elif scopes:
+            if "main" in scopes or "default" in scopes:
+                _add_property(component, "pyflow:scope", "runtime")
+            else:
+                for group in scopes:
+                    _add_property(
+                        component,
+                        "pyflow:scope",
+                        "dev" if group in {"dev", "development", "test"} else f"group:{group}",
+                    )
+        raw_files = package.get("files", ()) or ()
+        if not isinstance(raw_files, (list, tuple)):
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-lock-package",
+                    message="Lockfile files field must be an array",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
+            raw_files = ()
+        artifacts = list(raw_files)
         if isinstance(package.get("sdist"), dict):
             artifacts.append(package["sdist"])
-        artifacts.extend(package.get("wheels", ()) or ())
+        raw_wheels = package.get("wheels", ()) or ()
+        if isinstance(raw_wheels, (list, tuple)):
+            artifacts.extend(raw_wheels)
+        elif raw_wheels:
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-lock-package",
+                    message="Lockfile wheels field must be an array",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
         hashes = _hashes_from_lock_files(artifacts, path, findings)
         if hashes:
             component["hashes"] = hashes
@@ -1078,6 +1392,15 @@ def _components_from_toml_lock(
                 for value in raw_dependencies
             )
         else:
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-lock-package",
+                    message="Lockfile dependencies field must be a table or array",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
             names = ()
         for dependency_name, constraint in names:
             if dependency_name:
@@ -1089,12 +1412,146 @@ def _components_from_toml_lock(
                 dependency_names.append(
                     (str(component["purl"]), str(dependency_name), constraint_text)
                 )
+        if isinstance(raw_dependencies, list):
+            for dependency in raw_dependencies:
+                if not isinstance(dependency, dict):
+                    continue
+                dependency_name = dependency.get("name")
+                dependency_version = dependency.get("version")
+                dependency_marker = dependency.get("marker")
+                if dependency_name and dependency_version and dependency_marker:
+                    version_markers.setdefault(
+                        (
+                            canonicalize_name(str(dependency_name)),
+                            str(dependency_version),
+                        ),
+                        set(),
+                    ).add(str(dependency_marker))
+        for section, scope_kind in (
+            ("optional-dependencies", "optional"),
+            ("dev-dependencies", "dev"),
+        ):
+            groups = package.get(section, {}) or {}
+            if not isinstance(groups, dict):
+                continue
+            for group_name, members in groups.items():
+                if not isinstance(members, (list, tuple)):
+                    continue
+                for member in members:
+                    member_name = member.get("name") if isinstance(member, dict) else member
+                    if not member_name:
+                        continue
+                    member_version = member.get("version") if isinstance(member, dict) else None
+                    scope = f"optional:{group_name}" if scope_kind == "optional" else "dev"
+                    group_scopes.setdefault(
+                        (
+                            canonicalize_name(str(member_name)),
+                            str(member_version) if member_version else None,
+                        ),
+                        set(),
+                    ).add((scope, f'extra == "{group_name}"'))
+
+    for component in components:
+        component_name = canonicalize_name(str(component.get("name", "")))
+        component_version = str(component.get("version", ""))
+        for marker in version_markers.get((component_name, component_version), ()):
+            _add_property(component, "pyflow:marker", marker)
+        group_entries = set(group_scopes.get((component_name, component_version), ()))
+        group_entries.update(group_scopes.get((component_name, None), ()))
+        for scope, marker in group_entries:
+            _add_property(component, "pyflow:scope", scope)
+            _add_property(component, "pyflow:marker", marker)
 
     edges = [
         (source_ref, _best_dependency_ref(name, refs_by_name, constraint))
         for source_ref, name, constraint in dependency_names
     ]
     return components, edges
+
+
+def _pipfile_requirement(name: str, value: Any) -> str | None:
+    if isinstance(value, str):
+        constraint = value.strip()
+        if not constraint or constraint == "*":
+            return name
+        if constraint[0].isdigit():
+            return f"{name}=={constraint}"
+        return f"{name}{constraint}"
+    if not isinstance(value, dict):
+        return None
+    raw_extras = value.get("extras") or ()
+    extras = raw_extras if isinstance(raw_extras, (list, tuple)) else ()
+    display_name = f"{name}[{','.join(str(item) for item in extras)}]" if extras else name
+    marker = value.get("markers")
+    for key in ("git", "url", "path", "file"):
+        target = value.get(key)
+        if not target:
+            continue
+        target_text = str(target)
+        if key == "git" and not target_text.startswith(("git+", "ssh://")):
+            target_text = "git+" + target_text
+        revision = value.get("ref") or value.get("rev") or value.get("commit")
+        if revision and target_text.startswith(("git+", "hg+", "svn+", "bzr+")):
+            target_text += f"@{revision}"
+        requirement = f"{display_name} @ {target_text}"
+        if marker:
+            requirement += f" ; {marker}"
+        return requirement
+    version = value.get("version")
+    constraint = str(version).strip() if version else ""
+    if constraint == "*":
+        constraint = ""
+    elif constraint and constraint[0].isdigit():
+        constraint = f"=={constraint}"
+    requirement = display_name if not constraint else f"{display_name}{constraint}"
+    if marker:
+        requirement += f" ; {marker}"
+    return requirement
+
+
+def _components_from_pipfile(
+    path: Path,
+    findings: list[SupplyChainFinding],
+    limits: ScanLimits,
+) -> list[dict[str, Any]]:
+    data = _load_toml(path, findings, limits, "invalid-pipfile")
+    if data is None:
+        return []
+    components: list[dict[str, Any]] = []
+    groups: list[tuple[str, str, str | None]] = [
+        ("packages", "runtime", None),
+        ("dev-packages", "dev", 'extra == "dev"'),
+    ]
+    for section, scope, marker in groups:
+        mapping = data.get(section, {}) or {}
+        if not isinstance(mapping, dict):
+            _manifest_type_finding(path, findings, section, "a table")
+            continue
+        for name, value in mapping.items():
+            requirement_text = _pipfile_requirement(str(name), value)
+            if not requirement_text:
+                continue
+            component = _parse_requirement(
+                requirement_text,
+                path,
+                None,
+                findings,
+                audit_pin=False,
+                scope=scope,
+                marker=marker,
+            )
+            if component is not None:
+                components.append(component)
+    sources = data.get("source", ()) or ()
+    if isinstance(sources, dict):
+        sources = [sources]
+    if isinstance(sources, (list, tuple)):
+        for source in sources:
+            if isinstance(source, dict):
+                _audit_primary_index(path, str(source.get("url", "")), findings)
+    elif sources:
+        _manifest_type_finding(path, findings, "source", "an array of tables")
+    return components
 
 
 def _components_from_pipfile_lock(
@@ -1150,7 +1607,19 @@ def _components_from_pipfile_lock(
             version = version_text[2:] if version_text.startswith("==") else None
             component = _component(str(name), version=version)
             _add_property(component, "pyflow:scope", scope)
-            hashes = _hashes_from_strings(entry.get("hashes", ()) or (), path, findings)
+            raw_hashes = entry.get("hashes", ()) or ()
+            if not isinstance(raw_hashes, (list, tuple)):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="invalid-lockfile",
+                        message="Pipfile.lock hashes field must be an array",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"component": str(name)},
+                    )
+                )
+                raw_hashes = ()
+            hashes = _hashes_from_strings(raw_hashes, path, findings)
             if hashes:
                 component["hashes"] = hashes
             elif version:
@@ -1187,7 +1656,7 @@ def _components_from_pipfile_lock(
         meta_sources = ()
     for source in meta_sources:
         if isinstance(source, dict):
-            _audit_index_url(path, str(source.get("url", "")), findings, None)
+            _audit_primary_index(path, str(source.get("url", "")), findings)
     return components
 
 
@@ -1212,7 +1681,18 @@ def _components_from_pylock(
     components: list[dict[str, Any]] = []
     refs_by_name: dict[str, list[str]] = {}
     unresolved_edges: list[tuple[str, str, str | None]] = []
-    for package in data.get("packages", ()) or ():
+    raw_packages = data.get("packages", ()) or ()
+    if not isinstance(raw_packages, (list, tuple)):
+        findings.append(
+            SupplyChainFinding(
+                kind="invalid-pylock",
+                message="pylock.toml packages must be an array of tables",
+                location=str(path),
+                severity="HIGH",
+            )
+        )
+        return [], []
+    for package in raw_packages:
         if not isinstance(package, dict) or not package.get("name"):
             continue
         name = str(package["name"])
@@ -1262,7 +1742,19 @@ def _components_from_pylock(
                 )
         components.append(component)
         refs_by_name.setdefault(canonicalize_name(name), []).append(str(component["purl"]))
-        for dependency in package.get("dependencies", ()) or ():
+        raw_dependencies = package.get("dependencies", ()) or ()
+        if not isinstance(raw_dependencies, (list, tuple)):
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-pylock",
+                    message="pylock.toml dependencies must be an array",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
+            raw_dependencies = ()
+        for dependency in raw_dependencies:
             dependency_name = dependency.get("name") if isinstance(dependency, dict) else dependency
             if dependency_name:
                 constraint = None
@@ -1337,20 +1829,44 @@ def _components_from_setup_cfg(
     declared: list[tuple[str, str, str | None]] = []
     if parser.has_option("options", "install_requires"):
         for value in parser.get("options", "install_requires").splitlines():
-            if value.strip():
-                declared.append((value.strip(), "runtime", None))
+            cleaned = _strip_requirement_comment(value).strip()
+            if cleaned:
+                declared.append((cleaned, "runtime", None))
     if parser.has_option("options", "setup_requires"):
         for value in parser.get("options", "setup_requires").splitlines():
-            if value.strip():
-                declared.append((value.strip(), "build", None))
+            cleaned = _strip_requirement_comment(value).strip()
+            if cleaned:
+                declared.append((cleaned, "build", None))
     if parser.has_section("options.extras_require"):
         for group, raw in parser.items("options.extras_require"):
             marker = f'extra == "{group}"'
             for value in raw.splitlines():
-                if value.strip():
-                    declared.append((value.strip(), f"optional:{group}", marker))
+                cleaned = _strip_requirement_comment(value).strip()
+                if cleaned:
+                    declared.append((cleaned, f"optional:{group}", marker))
 
+    expanded: list[tuple[str, str, str | None]] = []
     for requirement_text, scope, marker in declared:
+        if requirement_text.startswith("file:"):
+            included_text = requirement_text[5:].strip()
+            included = path.parent / included_text
+            if included.is_file() and not included.is_symlink():
+                for value in _read_setup_requirement_file(included, limits, findings):
+                    expanded.append((value, scope, marker))
+            else:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="missing-requirement-include",
+                        message="setup.cfg file: include does not exist",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"include": included_text},
+                    )
+                )
+            continue
+        expanded.append((requirement_text, scope, marker))
+
+    for requirement_text, scope, marker in expanded:
         component = _parse_requirement(
             requirement_text,
             path,
@@ -1365,15 +1881,160 @@ def _components_from_setup_cfg(
     return components
 
 
+def _setup_requirement_file_candidates(base_dir: Path, value: str) -> list[Path]:
+    if not value.endswith((".txt", ".in")):
+        return []
+    candidates = [base_dir / value]
+    if not value.startswith(("requirements/", "req/", "constraints/")):
+        candidates.append(base_dir / "requirements" / value)
+    return [
+        candidate for candidate in candidates if candidate.is_file() and not candidate.is_symlink()
+    ]
+
+
+def _setup_requirement_file_like(path: Path) -> bool:
+    lowered = path.name.lower()
+    if lowered.startswith(("requirements", "constraints")):
+        return True
+    if lowered.endswith(("-requirements.txt", "_requirements.txt", "-constraints.txt")):
+        return True
+    return path.parent.name.lower() in {"requirements", "reqs", "constraints"}
+
+
+def _dedupe_strings(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _read_setup_requirement_file(
+    path: Path,
+    limits: ScanLimits | None,
+    findings: list[SupplyChainFinding],
+    stack: frozenset[Path] = frozenset(),
+) -> list[str]:
+    """Read a setup.py-referenced requirements file with normal pip semantics."""
+
+    resolved = path.resolve(strict=False)
+    if resolved in stack:
+        findings.append(
+            SupplyChainFinding(
+                kind="requirement-include-cycle",
+                message="Requirement files include each other cyclically",
+                location=str(path),
+                severity="HIGH",
+            )
+        )
+        return []
+    text = _read_text(path, findings, limits or ScanLimits(), "setup.py requirement file")
+    if text is None:
+        return []
+    requirements: list[str] = []
+    for line_no, raw_line in _logical_requirement_lines(text):
+        line = _strip_requirement_comment(raw_line).strip()
+        if not line:
+            continue
+        include = _requirement_include(line)
+        if include is not None:
+            if not include:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="invalid-requirement-include",
+                        message="Requirement include option has no path",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"line": line_no},
+                    )
+                )
+                continue
+            included = Path(include)
+            if included.is_absolute() or ".." in included.parts:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="external-requirement-include",
+                        message="Requirement include escapes the manifest directory",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details={"line": line_no, "include": include},
+                    )
+                )
+            if not included.is_absolute():
+                included = path.parent / included
+            if included.is_symlink():
+                findings.append(
+                    SupplyChainFinding(
+                        kind="requirement-include-symlink",
+                        message="Requirement include is a symbolic link and was not followed",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"line": line_no, "include": include},
+                    )
+                )
+            elif not included.is_file():
+                findings.append(
+                    SupplyChainFinding(
+                        kind="missing-requirement-include",
+                        message="Included requirement or constraint file does not exist",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"line": line_no, "include": include},
+                    )
+                )
+            else:
+                requirements.extend(
+                    _read_setup_requirement_file(
+                        included,
+                        limits,
+                        findings,
+                        stack | {resolved},
+                    )
+                )
+            continue
+        if line.startswith("-"):
+            # Index options, --require-hashes, editable installs, etc. are not
+            # dependency strings.  Their safety is audited by the dedicated
+            # requirements-file parser when the file is scanned directly.
+            continue
+        requirements.append(line)
+    return requirements
+
+
+def _referenced_requirement_strings(
+    node: ast.AST,
+    base_dir: Path,
+    limits: ScanLimits | None,
+    findings: list[SupplyChainFinding],
+    *,
+    only_requirement_like: bool = False,
+) -> list[str]:
+    values: list[str] = []
+    for sub in ast.walk(node):
+        if not (isinstance(sub, ast.Constant) and isinstance(sub.value, str)):
+            continue
+        for candidate in _setup_requirement_file_candidates(base_dir, sub.value):
+            if only_requirement_like and not _setup_requirement_file_like(candidate):
+                continue
+            values.extend(_read_setup_requirement_file(candidate, limits, findings))
+    return _dedupe_strings(values)
+
+
 def _resolve_setup_expr_to_strings(
     expr: ast.AST,
     env: dict[str, ast.AST],
     funcs: dict[str, ast.AST],
     base_dir: Path,
     depth: int = 0,
+    *,
+    limits: ScanLimits | None = None,
+    findings: list[SupplyChainFinding] | None = None,
 ) -> list[str]:
     if depth > 10:
         return []
+    audit_findings = findings if findings is not None else []
     try:
         val = ast.literal_eval(expr)
         if isinstance(val, str):
@@ -1384,7 +2045,15 @@ def _resolve_setup_expr_to_strings(
         pass
 
     if isinstance(expr, ast.Name) and expr.id in env:
-        return _resolve_setup_expr_to_strings(env[expr.id], env, funcs, base_dir, depth + 1)
+        return _resolve_setup_expr_to_strings(
+            env[expr.id],
+            env,
+            funcs,
+            base_dir,
+            depth + 1,
+            limits=limits,
+            findings=audit_findings,
+        )
 
     if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
         results: list[str] = []
@@ -1393,17 +2062,43 @@ def _resolve_setup_expr_to_strings(
                 results.append(elt.value)
             elif isinstance(elt, ast.Name) and elt.id in env:
                 results.extend(
-                    _resolve_setup_expr_to_strings(env[elt.id], env, funcs, base_dir, depth + 1)
+                    _resolve_setup_expr_to_strings(
+                        env[elt.id],
+                        env,
+                        funcs,
+                        base_dir,
+                        depth + 1,
+                        limits=limits,
+                        findings=audit_findings,
+                    )
                 )
             elif isinstance(elt, (ast.Subscript, ast.BinOp, ast.Call)):
-                results.extend(_resolve_setup_expr_to_strings(elt, env, funcs, base_dir, depth + 1))
-        return results
+                results.extend(
+                    _resolve_setup_expr_to_strings(
+                        elt,
+                        env,
+                        funcs,
+                        base_dir,
+                        depth + 1,
+                        limits=limits,
+                        findings=audit_findings,
+                    )
+                )
+        return _dedupe_strings(results)
 
     if isinstance(expr, ast.Subscript):
         slice_node = getattr(expr, "slice", None)
         slice_val = slice_node.value if isinstance(slice_node, ast.Constant) else None
         if isinstance(slice_val, int):
-            target_seq = _resolve_setup_expr_to_strings(expr.value, env, funcs, base_dir, depth + 1)
+            target_seq = _resolve_setup_expr_to_strings(
+                expr.value,
+                env,
+                funcs,
+                base_dir,
+                depth + 1,
+                limits=limits,
+                findings=audit_findings,
+            )
             if 0 <= slice_val < len(target_seq):
                 return [target_seq[slice_val]]
         elif slice_val and isinstance(slice_val, str):
@@ -1416,7 +2111,13 @@ def _resolve_setup_expr_to_strings(
             ):
                 if candidate_name in env:
                     cand_strings = _resolve_setup_expr_to_strings(
-                        env[candidate_name], env, funcs, base_dir, depth + 1
+                        env[candidate_name],
+                        env,
+                        funcs,
+                        base_dir,
+                        depth + 1,
+                        limits=limits,
+                        findings=audit_findings,
                     )
                     for s in cand_strings:
                         norm_s = canonicalize_name(
@@ -1429,61 +2130,101 @@ def _resolve_setup_expr_to_strings(
                         )
                         if norm_s == canonicalize_name(slice_val):
                             return [s]
-            return [slice_val]
+            base_name = getattr(expr.value, "id", "")
+            if base_name in {
+                "_deps",
+                "deps",
+                "DEPENDENCIES",
+                "requirements",
+                "install_requires",
+                "REQUIRES",
+            }:
+                return [slice_val]
+            return []
 
     if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
-        return _resolve_setup_expr_to_strings(
-            expr.left, env, funcs, base_dir, depth + 1
-        ) + _resolve_setup_expr_to_strings(expr.right, env, funcs, base_dir, depth + 1)
+        return _dedupe_strings(
+            _resolve_setup_expr_to_strings(
+                expr.left,
+                env,
+                funcs,
+                base_dir,
+                depth + 1,
+                limits=limits,
+                findings=audit_findings,
+            )
+            + _resolve_setup_expr_to_strings(
+                expr.right,
+                env,
+                funcs,
+                base_dir,
+                depth + 1,
+                limits=limits,
+                findings=audit_findings,
+            )
+        )
 
     if isinstance(expr, ast.Call):
         func_name = getattr(expr.func, "id", "") or getattr(expr.func, "attr", "")
         if func_name in ("list", "tuple", "set") and expr.args:
-            return _resolve_setup_expr_to_strings(expr.args[0], env, funcs, base_dir, depth + 1)
+            return _resolve_setup_expr_to_strings(
+                expr.args[0],
+                env,
+                funcs,
+                base_dir,
+                depth + 1,
+                limits=limits,
+                findings=audit_findings,
+            )
         if func_name in funcs:
             func_node = funcs[func_name]
+            collected: list[str] = []
             for ret in ast.walk(func_node):
                 if isinstance(ret, ast.Return) and ret.value:
-                    reqs = _resolve_setup_expr_to_strings(
-                        ret.value, env, funcs, base_dir, depth + 1
+                    collected.extend(
+                        _resolve_setup_expr_to_strings(
+                            ret.value,
+                            env,
+                            funcs,
+                            base_dir,
+                            depth + 1,
+                            limits=limits,
+                            findings=audit_findings,
+                        )
                     )
-                    if reqs:
-                        return reqs
-            for sub in ast.walk(func_node):
-                if (
-                    isinstance(sub, ast.Constant)
-                    and isinstance(sub.value, str)
-                    and (sub.value.endswith(".txt") or sub.value.endswith(".in"))
-                ):
-                    for candidate in (base_dir / sub.value, base_dir / "requirements" / sub.value):
-                        if candidate.is_file() and not candidate.is_symlink():
-                            reqs = [
-                                line.strip()
-                                for line in candidate.read_text(
-                                    encoding="utf-8", errors="replace"
-                                ).splitlines()
-                                if line.strip() and not line.strip().startswith(("#", "-"))
-                            ]
-                            if reqs:
-                                return reqs
+            # A setup.py helper may branch between platform-specific files.
+            # Union every referenced requirements file instead of selecting an
+            # arbitrary return or branch.
+            collected.extend(
+                _referenced_requirement_strings(func_node, base_dir, limits, audit_findings)
+            )
+            reqs = _dedupe_strings(collected)
+            if reqs:
+                return reqs
 
-    for sub in ast.walk(expr):
-        if (
-            isinstance(sub, ast.Constant)
-            and isinstance(sub.value, str)
-            and (sub.value.endswith(".txt") or sub.value.endswith(".in"))
-        ):
-            for candidate in (base_dir / sub.value, base_dir / "requirements" / sub.value):
-                if candidate.is_file() and not candidate.is_symlink():
-                    return [
-                        line.strip()
-                        for line in candidate.read_text(
-                            encoding="utf-8", errors="replace"
-                        ).splitlines()
-                        if line.strip() and not line.strip().startswith(("#", "-"))
-                    ]
+    reqs = _referenced_requirement_strings(expr, base_dir, limits, audit_findings)
+    return reqs
 
-    return []
+
+def _setup_module_requirement_fallback(
+    tree: ast.AST,
+    base_dir: Path,
+    limits: ScanLimits | None,
+    findings: list[SupplyChainFinding],
+) -> list[str]:
+    """Resolve ``with open("requirements.txt")``-style setup.py helpers.
+
+    These files are referenced outside the ``install_requires`` expression
+    itself, so the expression resolver cannot see them.
+    """
+
+    return _referenced_requirement_strings(
+        tree,
+        base_dir,
+        limits,
+        findings,
+        only_requirement_like=True,
+    )
 
 
 def _components_from_setup_py(
@@ -1529,12 +2270,35 @@ def _components_from_setup_py(
         keywords = {keyword.arg: keyword for keyword in node.keywords if keyword.arg}
 
         root: dict[str, Any] | None = None
-        name = _setup_first_string(keywords.get("name"), env, funcs, path.parent)
+        name = _setup_first_string(
+            keywords.get("name"), env, funcs, path.parent, limits=limits, findings=findings
+        )
+        if not name:
+            # Common setup.py shims derive metadata from JSON/modules.  Use a
+            # project-name constant when it is statically available.
+            for constant_name in ("PROJ_NAME", "PROJECT_NAME", "PACKAGE_NAME"):
+                if constant_name not in env:
+                    continue
+                candidates = _resolve_setup_expr_to_strings(
+                    env[constant_name],
+                    env,
+                    funcs,
+                    path.parent,
+                    limits=limits,
+                    findings=findings,
+                )
+                if candidates and candidates[0].strip():
+                    name = candidates[0].strip()
+                    break
         if name:
-            version = _setup_first_string(keywords.get("version"), env, funcs, path.parent)
+            version = _setup_first_string(
+                keywords.get("version"), env, funcs, path.parent, limits=limits, findings=findings
+            )
             root = _component(name, version=version)
             root["type"] = "application"
-            license_value = _setup_first_string(keywords.get("license"), env, funcs, path.parent)
+            license_value = _setup_first_string(
+                keywords.get("license"), env, funcs, path.parent, limits=limits, findings=findings
+            )
             if license_value:
                 root["licenses"] = [_license_entry(license_value)]
             components.append(root)
@@ -1548,20 +2312,47 @@ def _components_from_setup_py(
             keyword = keywords.get(keyword_name)
             if keyword is None:
                 continue
-            values = _resolve_setup_expr_to_strings(keyword.value, env, funcs, path.parent)
+            values = _resolve_setup_expr_to_strings(
+                keyword.value,
+                env,
+                funcs,
+                path.parent,
+                limits=limits,
+                findings=findings,
+            )
+            if not values and keyword_name == "install_requires":
+                values = _setup_module_requirement_fallback(tree, path.parent, limits, findings)
+            if not values and not _is_empty_sequence_literal(keyword.value):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="unresolved-setup-requirements",
+                        message=(
+                            "setup.py dependency list could not be resolved statically; "
+                            "the inventory may be incomplete"
+                        ),
+                        location=str(path),
+                        severity="HIGH",
+                        details={"keyword": keyword_name},
+                    )
+                )
             for value in values:
-                clean_val = value.strip()
+                clean_val = _strip_requirement_comment(value).strip()
                 if clean_val and not clean_val.startswith(("#", "-")):
                     declared.append((clean_val, scope, None))
 
         extras_keyword = keywords.get("extras_require")
         if extras_keyword is not None:
             for group, values in _resolve_setup_extras(
-                extras_keyword.value, env, funcs, path.parent
+                extras_keyword.value,
+                env,
+                funcs,
+                path.parent,
+                limits=limits,
+                findings=findings,
             ):
                 marker = f'extra == "{group}"'
                 for value in values:
-                    clean_val = value.strip()
+                    clean_val = _strip_requirement_comment(value).strip()
                     if clean_val and not clean_val.startswith(("#", "-")):
                         declared.append((clean_val, f"optional:{group}", marker))
 
@@ -1580,15 +2371,29 @@ def _components_from_setup_py(
     return components
 
 
+def _is_empty_sequence_literal(expr: ast.AST) -> bool:
+    return isinstance(expr, (ast.List, ast.Tuple, ast.Set)) and not getattr(expr, "elts", ())
+
+
 def _setup_first_string(
     keyword: ast.keyword | None,
     env: dict[str, ast.AST],
     funcs: dict[str, ast.AST],
     base_dir: Path,
+    *,
+    limits: ScanLimits | None = None,
+    findings: list[SupplyChainFinding] | None = None,
 ) -> str | None:
     if keyword is None:
         return None
-    values = _resolve_setup_expr_to_strings(keyword.value, env, funcs, base_dir)
+    values = _resolve_setup_expr_to_strings(
+        keyword.value,
+        env,
+        funcs,
+        base_dir,
+        limits=limits,
+        findings=findings,
+    )
     for value in values:
         cleaned = value.strip()
         if cleaned:
@@ -1601,11 +2406,16 @@ def _resolve_setup_extras(
     env: dict[str, ast.AST],
     funcs: dict[str, ast.AST],
     base_dir: Path,
+    *,
+    limits: ScanLimits | None = None,
+    findings: list[SupplyChainFinding] | None = None,
 ) -> list[tuple[str, list[str]]]:
     """Resolve ``extras_require`` mappings without executing setup.py."""
 
     if isinstance(expr, ast.Name) and expr.id in env:
-        return _resolve_setup_extras(env[expr.id], env, funcs, base_dir)
+        return _resolve_setup_extras(
+            env[expr.id], env, funcs, base_dir, limits=limits, findings=findings
+        )
     if not isinstance(expr, ast.Dict):
         return []
     groups: list[tuple[str, list[str]]] = []
@@ -1620,7 +2430,14 @@ def _resolve_setup_extras(
             groups.append(
                 (
                     group.strip(),
-                    _resolve_setup_expr_to_strings(value, env, funcs, base_dir),
+                    _resolve_setup_expr_to_strings(
+                        value,
+                        env,
+                        funcs,
+                        base_dir,
+                        limits=limits,
+                        findings=findings,
+                    ),
                 )
             )
     return groups
@@ -1751,6 +2568,18 @@ def _is_benign_subprocess(call: ast.Call) -> bool:
         executable = command
     if isinstance(executable, ast.Constant) and isinstance(executable.value, str):
         name = Path(executable.value).name
+        if name in {"python", "python3", "py"}:
+            # ``python -c ...`` and ``python some_script.py`` can execute
+            # arbitrary code or network payloads.  Only version probes are
+            # benign build-tool queries.
+            if not isinstance(command, (ast.List, ast.Tuple)):
+                return False
+            args = [
+                str(elt.value)
+                for elt in command.elts[1:]
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            ]
+            return args in (["--version"], ["-V"])
         return name in _BENIGN_BUILD_COMMANDS
     return False
 
@@ -1961,7 +2790,16 @@ def _is_registry_lock_source(source: Any) -> bool:
         return False
     source_type = str(source.get("type", "")).lower()
     return source_type in {"", "legacy", "index"} and not any(
-        key in source for key in ("git", "url", "path", "directory", "editable")
+        key in source
+        for key in (
+            "git",
+            "url",
+            "path",
+            "directory",
+            "editable",
+            "virtual",
+            "workspace",
+        )
     )
 
 
@@ -2045,6 +2883,36 @@ def _audit_locked_artifact(
         )
 
 
+_DEFAULT_INDEX_HOSTS = frozenset(
+    {
+        "pypi.org",
+        "pypi.python.org",
+        "files.pythonhosted.org",
+        "test.pypi.org",
+    }
+)
+
+
+def _audit_primary_index(
+    path: Path,
+    url: str,
+    findings: list[SupplyChainFinding],
+) -> None:
+    _audit_index_url(path, url, findings, "primary")
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").casefold()
+    if host and host not in _DEFAULT_INDEX_HOSTS:
+        findings.append(
+            SupplyChainFinding(
+                kind="non-default-package-index",
+                message="Primary package index is not PyPI",
+                location=str(path),
+                severity="MEDIUM",
+                details={"url": _redacted_url(url), "host": host},
+            )
+        )
+
+
 def _audit_index_url(
     path: Path,
     url: str,
@@ -2073,7 +2941,11 @@ def _audit_index_url(
                 details={"url": _redacted_url(url)},
             )
         )
-    if priority in {"supplemental", "secondary"}:
+    if priority in {"supplemental", "secondary", "additional"}:
+        if priority == "additional" and urlparse(url).scheme not in {"http", "https", "ftp"}:
+            return
+        if (urlparse(url).hostname or "").casefold() in _DEFAULT_INDEX_HOSTS:
+            return
         findings.append(
             SupplyChainFinding(
                 kind="multiple-package-indexes",
@@ -2112,6 +2984,7 @@ metadata_dependencies = _metadata_dependencies
 components_from_requirements = _components_from_requirements
 components_from_pyproject = _components_from_pyproject
 components_from_toml_lock = _components_from_toml_lock
+components_from_pipfile = _components_from_pipfile
 components_from_pipfile_lock = _components_from_pipfile_lock
 components_from_pylock = _components_from_pylock
 components_from_setup_cfg = _components_from_setup_cfg

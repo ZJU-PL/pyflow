@@ -91,6 +91,7 @@ def audit_vulnerabilities(
 
     matched: set[tuple[str, str]] = set()
     unresolved: set[str] = set()
+    unresolved_components: set[str] = set()
     for component in scan.components:
         name = canonicalize_name(str(component.get("name", "")))
         version_text = str(component.get("version", ""))
@@ -109,6 +110,7 @@ def audit_vulnerabilities(
                     )
                 )
                 unresolved.add(purl)
+                unresolved_components.add(name)
             continue
 
         for identifier, record, affected in records_by_package.get(name, ()):
@@ -174,6 +176,22 @@ def audit_vulnerabilities(
             )
             matched.add((identifier, purl))
 
+    if unresolved_components:
+        findings.append(
+            SupplyChainFinding(
+                kind="vulnerability-scan-incomplete",
+                message=(
+                    "Some components have no exact version, so they could not be "
+                    "matched against OSV records"
+                ),
+                location="command-line",
+                severity="MEDIUM",
+                details={
+                    "unversioned_components": sorted(unresolved_components),
+                    "count": len(unresolved_components),
+                },
+            )
+        )
     return tuple(
         sorted(
             findings,
@@ -587,6 +605,15 @@ def _vulnerability_finding(
         "version": component.get("version"),
         "aliases": sorted(str(alias) for alias in record.get("aliases", ()) or ()),
     }
+    scopes = sorted(
+        {
+            str(prop.get("value"))
+            for prop in component.get("properties", ())
+            if isinstance(prop, dict) and prop.get("name") == "pyflow:scope" and prop.get("value")
+        }
+    )
+    if scopes:
+        details["scopes"] = scopes
     if fixed_versions:
         details["fixed_versions"] = fixed_versions
     if reachability is not None:

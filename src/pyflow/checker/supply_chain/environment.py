@@ -23,11 +23,25 @@ def resolve_environment(
     if environment:
         target.update({key: str(value) for key, value in environment.items()})
     selected_extras = tuple(sorted({str(extra) for extra in extras if str(extra)}))
+    installed_tree = bool(scan.metadata.get("installed", False))
+    declared_only = environment is None and not installed_tree
     findings = list(scan.findings)
     components: list[dict[str, Any]] = []
     removed_refs: set[str] = set()
 
     for component in scan.components:
+        properties = [prop for prop in component.get("properties", ()) if isinstance(prop, dict)]
+        installed_root = any(
+            prop.get("name") == "pyflow:metadata-source"
+            and str(prop.get("value", "")).lower() == "true"
+            for prop in properties
+        )
+        if installed_root:
+            # An installed distribution is present regardless of which extras
+            # some other package's Requires-Dist mentions.  Its own metadata
+            # component must never be filtered by merged dependency markers.
+            components.append(component)
+            continue
         markers = _property_values(component, "pyflow:marker")
         if not markers:
             components.append(component)
@@ -48,9 +62,23 @@ def resolve_environment(
                 )
                 matched = True
                 break
-            candidate_extras = selected_extras or tuple(
-                dict.fromkeys(("", *_mentioned_extras(marker_text)))
-            )
+            if declared_only:
+                # A source SBOM describes declared dependencies across
+                # platforms and Python versions.  Do not silently drop
+                # Windows-only or older-Python dependencies just because the
+                # scanner is running on a different host.
+                mentioned = set(_mentioned_extras(marker_text))
+                if not mentioned or not selected_extras or mentioned & set(selected_extras):
+                    matched = True
+                    break
+                continue
+            candidate_extras: tuple[str, ...]
+            if installed_tree and not selected_extras:
+                candidate_extras = ("",)
+            else:
+                candidate_extras = selected_extras or tuple(
+                    dict.fromkeys(("", *_mentioned_extras(marker_text)))
+                )
             if any(marker.evaluate({**target, "extra": extra}) for extra in candidate_extras):
                 matched = True
                 break
@@ -74,6 +102,7 @@ def resolve_environment(
     metadata = dict(scan.metadata)
     metadata["environment"] = target
     metadata["extras"] = list(selected_extras)
+    metadata["declaredOnly"] = declared_only
     return replace(
         scan,
         components=tuple(components),

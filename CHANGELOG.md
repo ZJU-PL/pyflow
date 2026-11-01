@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Supply-chain scans now report empty inventories, follow explicitly targeted
+  virtualenvs and symlinked manifests, resolve setup.py requirements across
+  platform files with bounded reads, and model Poetry/uv/Pipfile metadata,
+  scopes, extras, markers, and indexes.
+- Installed-tree audits ignore optional bytecode caches, shared namespace
+  packages, data files, and metadata dependencies instead of emitting thousands
+  of false positives; editable/VCS installs and unlisted startup hooks are now
+  reported.
+- Supply-chain SBOM and policy output preserves direct URLs and multiple
+  markers, avoids conflicting requirement pins and wheel self-dependencies,
+  records environment/completeness metadata, emits valid SPDX license values,
+  and uses stable finding fingerprints and redacted requirement details.
 - Bind static-method calls without injecting a receiver, and bound recursive return
   structures so recursive collection analyses converge.
 - Accept wider annotated collection element types for fresh list, set, and dict

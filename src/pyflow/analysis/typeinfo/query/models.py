@@ -28,6 +28,8 @@ class FunctionTypeInfo:
     raw_params: dict[str, str | None]
     raw_returns: str | None
     source: str
+    is_property: bool = False
+    method_kind: str = "instance"
 
 
 @dataclass(frozen=True)

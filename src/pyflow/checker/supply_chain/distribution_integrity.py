@@ -5,10 +5,13 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import json
+import re
 from pathlib import Path
 from typing import Iterator
 
-from .input_safety import is_relative_to, read_error, read_text
+from .input_safety import is_relative_to, read_error, read_text, redacted_url
+from .inventory import add_property
 from .models import ScanLimits, SupplyChainFinding
 
 _RECORD_HASH_ALGORITHMS = frozenset(
@@ -30,6 +33,7 @@ _RECORD_HASH_ALGORITHMS = frozenset(
 def audit_distribution_record(
     dist_info: Path,
     limits: ScanLimits,
+    component: dict | None = None,
 ) -> Iterator[SupplyChainFinding]:
     """Verify a distribution RECORD without reading outside the scan root."""
 
@@ -75,6 +79,11 @@ def audit_distribution_record(
             )
             continue
         rel_path, expected_hash, expected_size = parts
+        if _is_compiled_artifact(Path(rel_path.replace("\\", "/"))):
+            # Bytecode caches are optional and are routinely removed, regenerated,
+            # or never created by installers.  They are not distribution integrity
+            # evidence.
+            continue
         if rel_path in seen_records:
             yield SupplyChainFinding(
                 kind="duplicate-record-entry",
@@ -86,13 +95,14 @@ def audit_distribution_record(
             continue
         seen_records.add(rel_path)
 
-        raw_target = Path(rel_path)
+        raw_target = Path(rel_path.replace("\\", "/"))
         if not raw_target.is_absolute():
             raw_target = root / raw_target
         target = raw_target.resolve(strict=False)
         if not is_relative_to(target, root):
-            if _is_console_script_target(target):
-                # Console scripts are installed next to site-packages by design.
+            if _is_installed_data_target(target, root):
+                # Console scripts and data files are installed outside
+                # site-packages by design.
                 continue
             yield SupplyChainFinding(
                 kind="record-external-path",
@@ -106,6 +116,8 @@ def audit_distribution_record(
         owned_name = _record_owned_name(raw_target, root, dist_info)
         if owned_name:
             record_roots.add(owned_name)
+            if component is not None:
+                add_property(component, "pyflow:owned-root", owned_name)
         if _contains_symlink(raw_target, root):
             yield SupplyChainFinding(
                 kind="record-symlink",
@@ -165,6 +177,9 @@ def audit_distribution_record(
                 if name.isidentifier():
                     owned_names.append(name)
     owned_names.extend(sorted(record_roots))
+    if component is not None:
+        for name in dict.fromkeys(owned_names):
+            add_property(component, "pyflow:owned-root", name)
 
     inspected = 0
     reported: set[Path] = set()
@@ -203,15 +218,89 @@ def audit_distribution_record(
                         )
             except OSError as exc:
                 yield read_error(owned_root, exc)
+    yield from _audit_direct_url(dist_info, limits, component)
+
+
+def _audit_direct_url(
+    dist_info: Path,
+    limits: ScanLimits,
+    component: dict | None = None,
+) -> Iterator[SupplyChainFinding]:
+    path = dist_info / "direct_url.json"
+    if not path.is_file() or path.is_symlink():
+        return
+    try:
+        if path.stat().st_size > limits.max_manifest_size:
+            return
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        yield SupplyChainFinding(
+            kind="invalid-direct-url-metadata",
+            message="Installed distribution has invalid direct_url.json",
+            location=str(path),
+            severity="MEDIUM",
+            details={"error": str(exc)},
+        )
+        return
+    if not isinstance(data, dict):
+        return
+    url = str(data.get("url", ""))
+    details = {"url": redacted_url(url)} if url else {}
+    if url and component is not None:
+        # Requirements/SBOM exports must not redirect an editable or VCS install
+        # to a same-named package on PyPI.
+        add_property(component, "pyflow:source-url", redacted_url(url))
+    dir_info = data.get("dir_info") or {}
+    if isinstance(dir_info, dict) and dir_info.get("editable"):
+        yield SupplyChainFinding(
+            kind="editable-install",
+            message="Installed distribution is an editable install of mutable source",
+            location=str(path),
+            severity="MEDIUM",
+            details=details,
+        )
+    if url.startswith("file:"):
+        yield SupplyChainFinding(
+            kind="local-path-requirement",
+            message="Installed distribution comes from a local path",
+            location=str(path),
+            severity="MEDIUM",
+            details=details,
+        )
+    vcs_info = data.get("vcs_info") or {}
+    if isinstance(vcs_info, dict) and vcs_info:
+        commit = str(vcs_info.get("commit_id", ""))
+        url_has_commit = bool(re.search(r"@[0-9a-fA-F]{40,64}(?:$|[#?])", url))
+        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", commit) and not url_has_commit:
+            yield SupplyChainFinding(
+                kind="unpinned-vcs-dependency",
+                message="Installed VCS distribution is not pinned to a full commit",
+                location=str(path),
+                severity="HIGH",
+                details={**details, "commit": commit},
+            )
 
 
 def _is_compiled_artifact(path: Path) -> bool:
     return path.suffix.casefold() in {".pyc", ".pyo"} or "__pycache__" in path.parts
 
 
-def _is_console_script_target(path: Path) -> bool:
-    if path.suffix.casefold() in {".py", ".pyc", ".pyo"}:
-        return False
+def _is_installed_data_target(path: Path, root: Path) -> bool:
+    """Return whether *path* is a normal interpreter-prefix install location.
+
+    Pip moves console scripts and ``data_files`` out of site-packages into the
+    environment prefix (``bin``, ``Scripts``, ``share``, ...).  Those paths are
+    expected and must not be reported as escaped RECORD entries.  Paths outside
+    the prefix (for example ``/etc/passwd``) remain findings.
+    """
+
+    if root.name.lower() in {"site-packages", "dist-packages"}:
+        try:
+            prefix = root.parents[2]
+        except IndexError:
+            prefix = None
+        if prefix is not None and is_relative_to(path, prefix):
+            return True
     return path.parent.name in {"bin", "Scripts"}
 
 

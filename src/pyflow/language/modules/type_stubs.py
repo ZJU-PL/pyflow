@@ -16,6 +16,7 @@ SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 from collections import namedtuple
+from collections.abc import Iterator
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -576,11 +577,15 @@ class _StubVisitor(ast.NodeVisitor):
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
         cls = StubClassInfo(name=node.name)
         cls.bases = [_expr_to_str(b) for b in node.bases]
-        for stmt in node.body:
+        for stmt in _iter_stub_class_statements(node.body):
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                cls.methods.append(self._extract_function(stmt))
+                if not any(method.name == stmt.name for method in cls.methods):
+                    cls.methods.append(self._extract_function(stmt))
             elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                cls.class_vars.append((stmt.target.id, _expr_to_str(stmt.annotation)))
+                if not any(name == stmt.target.id for name, _ in cls.class_vars):
+                    cls.class_vars.append(
+                        (stmt.target.id, _expr_to_str(stmt.annotation))
+                    )
         self._info.classes.append(cls)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
@@ -623,6 +628,24 @@ class _StubVisitor(ast.NodeVisitor):
             func.returns = _expr_to_str(node.returns)
 
         return func
+
+
+def _iter_stub_class_statements(
+    statements: list[ast.stmt],
+) -> Iterator[ast.stmt]:
+    """Flatten ``if sys.version_info``/``try`` blocks inside a stub class."""
+    for stmt in statements:
+        if isinstance(stmt, ast.If):
+            yield from _iter_stub_class_statements(stmt.body)
+            yield from _iter_stub_class_statements(stmt.orelse)
+        elif isinstance(stmt, ast.Try):
+            yield from _iter_stub_class_statements(stmt.body)
+            for handler in stmt.handlers:
+                yield from _iter_stub_class_statements(handler.body)
+            yield from _iter_stub_class_statements(stmt.orelse)
+            yield from _iter_stub_class_statements(stmt.finalbody)
+        else:
+            yield stmt
 
 
 def _expr_to_str(node: ast.expr | None) -> str:
