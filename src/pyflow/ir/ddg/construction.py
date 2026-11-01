@@ -338,9 +338,19 @@ class DDGConstructor(object):
         catalog = getattr(code, "ir_catalog", None)
         if catalog is None:
             return
+        # Copy propagation gives many LocalNodes the same merged ``names``
+        # set.  Resolving each name's symbol once per distinct set keeps this
+        # pass linear: a large module otherwise rewrites the same alias entries
+        # once for every node that shares the set.
+        symbol_cache: Dict[int, Tuple[Any, List[Any]]] = {}
         for ir_slot in self.ddg.slot_node_map:
             names = getattr(ir_slot, "names", None)
             if not names:
+                continue
+            cached = symbol_cache.get(id(names))
+            if cached is not None and cached[0] is names:
+                # The alias map and parameter set are already complete for
+                # this shared name set.
                 continue
             symbols = []
             for name in names:
@@ -348,6 +358,7 @@ class DDGConstructor(object):
                     symbols.append(catalog.symbol_id(name, code))
                 except (KeyError, ValueError):
                     continue
+            symbol_cache[id(names)] = (names, symbols)
             if not symbols:
                 continue
             canonical = symbols[0]
@@ -475,16 +486,35 @@ class DDGConstructor(object):
         """
         # Materialize slot nodes in the DDG instead of leaving them isolated.
         # Definitions flow into the slot node; each use flows out of it.
+        label_cache: Dict[int, Tuple[Any, str]] = {}
+
+        def slot_label(ir_slot: Any) -> str:
+            # Versions of a local share one ``names`` set, and repr() of a
+            # merged local lists every name.  Cache per shared set so label
+            # construction stays linear, and truncate the debug-only text so a
+            # large module does not embed a huge label in every edge.
+            names = getattr(ir_slot, "names", None)
+            anchor = names if names else ir_slot
+            cached = label_cache.get(id(anchor))
+            if cached is not None and cached[0] is anchor:
+                return cached[1]
+            label = repr(ir_slot)
+            if len(label) > 120:
+                label = label[:117] + "..."
+            label_cache[id(anchor)] = (anchor, label)
+            return label
+
         for ir_slot, slot_node in list(self.ddg.slot_node_map.items()):
+            label = slot_label(slot_node.ir_node)
             if hasattr(ir_slot, "defn") and ir_slot.defn is not None:
                 def_op = ir_slot.defn
                 def_ddg = self.ddg.get_or_create_op_node(def_op)
-                def_ddg.add_edge_to(slot_node, "def-use", label=repr(slot_node.ir_node))
+                def_ddg.add_edge_to(slot_node, "def-use", label=label)
 
             # dataflow IR slots expose forward() which returns operations that read from them.
             for user in ir_slot.forward():
                 use_ddg = self.ddg.get_or_create_op_node(user)
-                slot_node.add_edge_to(use_ddg, "def-use", label=repr(slot_node.ir_node))
+                slot_node.add_edge_to(use_ddg, "def-use", label=label)
 
     def _connect_memory_dependencies(self, dataflow: df.DataflowGraph) -> None:
         """

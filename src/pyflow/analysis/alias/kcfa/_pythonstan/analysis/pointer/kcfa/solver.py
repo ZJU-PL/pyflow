@@ -2664,10 +2664,7 @@ class PointerSolver:
             "__init__",
         }:
             receiver = getattr(builtin_obj, "receiver", None)
-            if (
-                isinstance(receiver, BuiltinFunctionObject)
-                and receiver.function_name == "object"
-            ):
+            if isinstance(receiver, BuiltinFunctionObject) and receiver.function_name == "object":
                 if builtin_obj.method_name == "__new__":
                     return self._handle_object_new_call(scope, context, call)
                 return True

@@ -1,5 +1,3 @@
-
-
 class Counter(dict):
     def __init__(self, iterable=None):
         dict.__init__(self)

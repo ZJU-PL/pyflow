@@ -148,7 +148,18 @@ class SemiNaiveConstraintSolver:
                         (value.name, parameter),
                     )
                 )
-            if constraint.destination is not None:
+            # Calling an async function creates a coroutine object and
+            # calling a generator function creates a generator; neither runs
+            # the callee body, so the body's return value does not flow to the
+            # call destination.  Linking it here would make a later call of the
+            # returned object resolve values from a body that never executed.
+            # The full interpreter models `await` explicitly; this pre-pass
+            # deliberately leaves that flow to it.
+            if (
+                constraint.destination is not None
+                and not callee.is_async
+                and not callee.is_generator
+            ):
                 self._register_copy(
                     CopyConstraint(
                         constraint.owner,

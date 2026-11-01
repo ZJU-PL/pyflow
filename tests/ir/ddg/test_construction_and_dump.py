@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 
 from pyflow.application.context import CompilerContext
@@ -352,15 +353,22 @@ class TestLoweredMemoryDependencies(unittest.TestCase):
         self.assertNotIn(("RAW", 2, 4), edges)
 
     def test_distinct_field_stores_do_not_scale_quadratically(self):
-        count = 400
-        source = "def f(o, x):\n" + "".join(f"    o.a{i} = x\n" for i in range(count))
-        import time
+        def build(count):
+            source = "def f(o, x):\n" + "".join(f"    o.a{i} = x\n" for i in range(count))
+            started = time.perf_counter()
+            ddg = _lower_ddg(source)
+            return time.perf_counter() - started, ddg
 
-        started = time.time()
-        ddg = _lower_ddg(source)
-        elapsed = time.time() - started
-        self.assertGreater(len(ddg.nodes), count)
-        self.assertLess(elapsed, 2.0)
+        # Warm interpreter/catalog caches so the comparison reflects scaling.
+        build(100)
+        small_time, _ = build(400)
+        large_time, ddg = build(1600)
+        self.assertGreater(len(ddg.nodes), 1600)
+        # Four times the statements should cost roughly four times as much.
+        # Quadratic alias/label construction on shared local-name sets used to
+        # make this ratio exceed 10x.
+        self.assertLess(large_time, 8 * max(small_time, 0.01))
+        self.assertLess(large_time, 10.0)
 
 
 class TestSplitOptimize(unittest.TestCase):

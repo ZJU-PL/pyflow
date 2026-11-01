@@ -94,9 +94,7 @@ class _SymbolAnalysisMixin:
         closure = {
             name
             for name in loaded_names
-            if name not in local_names
-            and name not in global_names
-            and name not in _BUILTIN_NAMES
+            if name not in local_names and name not in global_names and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
         return closure
@@ -121,9 +119,7 @@ class _SymbolAnalysisMixin:
                     stored_names.add(inner.id)
         local_names.update(stored_names)
         return {
-            name
-            for name in loaded_names
-            if name not in local_names and name not in _BUILTIN_NAMES
+            name for name in loaded_names if name not in local_names and name not in _BUILTIN_NAMES
         }
 
     def _infer_scope_directives(self, statements: Sequence[ast.stmt]) -> tuple[set[str], set[str]]:
@@ -221,9 +217,7 @@ class _SymbolAnalysisMixin:
         closure = {
             name
             for name in loaded_names
-            if name not in local_names
-            and name not in global_names
-            and name not in _BUILTIN_NAMES
+            if name not in local_names and name not in global_names and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
         return closure

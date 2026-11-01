@@ -451,9 +451,7 @@ def test_namedtuple_fields_carry_capabilities() -> None:
         "plugin_api.register(p)\n"
     )
 
-    assert "process.execute" in _capabilities(
-        result, report_kind=CapabilityReportKind.INDIRECT
-    )
+    assert "process.execute" in _capabilities(result, report_kind=CapabilityReportKind.INDIRECT)
     assert result.status == "complete"
 
 

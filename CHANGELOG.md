@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pseudo-read, and made memory-dependence propagation sparse and near-linear on
   large modules (for example, Rich's `examples/table_movie.py` dropped from
   roughly 12s to about 1s).
+- Constraint call-graph presolve no longer treats an async or generator call
+  as executing the callee body's `return`, so values like a coroutine's return
+  are not attributed to the caller before the coroutine is awaited.
+- DDG alias indexing and def-use edge labels now reuse per-shared-local-name
+  work, keeping construction linear when copy propagation merges many locals
+  into one node.
 - Fixed a DCE/DDG crash (`'NoneType' object has no attribute 'canonical'`) when
   `Split.optimize()` removed an output slot but left a dangling split definition.
 - CPG `defs` and `uses` indexes now expose source variables only, omit internal
