@@ -383,8 +383,8 @@ with cm() as value:
         outer = result.blocks[0]
         self.assertGreater(len(outer.body.blocks), 2)
         self.assertEqual(len(outer.handlers), 1)
-        self.assertTrue(outer.else_.blocks)
-        self.assertIsNone(outer.finally_)
+        self.assertFalse(outer.else_.blocks)
+        self.assertTrue(outer.finally_.blocks)
 
     def test_convert_async_with_awaits_aenter(self):
         """async with should await __aenter__ before binding the result."""
@@ -405,7 +405,7 @@ async with cm() as value:
         ]
         self.assertTrue(awaited_assigns)
         self.assertEqual(len(outer.handlers), 1)
-        self.assertTrue(outer.else_.blocks)
+        self.assertTrue(outer.finally_.blocks)
 
     def test_multi_with_lowers_as_nested_contexts(self):
         """Multiple context managers should lower as nested with blocks."""
@@ -434,7 +434,9 @@ with cm():
         handler = result.blocks[0].handlers[0]
         switch = handler.body.blocks[0]
         self.assertIsInstance(switch, pyflow_ast.Switch)
-        assign = switch.t.blocks[0]
+        # Disable normal cleanup before invoking the exceptional exit.
+        self.assertIs(switch.t.blocks[0].expr.object.pyobj, False)
+        assign = switch.t.blocks[1]
         self.assertIsInstance(assign, pyflow_ast.Assign)
         self.assertIsInstance(assign.expr, pyflow_ast.Call)
         self.assertEqual(assign.expr.expr.object.pyobj, "interpreter_exit")

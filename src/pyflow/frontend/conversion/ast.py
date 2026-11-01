@@ -1767,6 +1767,9 @@ class ASTConverter:
             condition=pyflow_ast.Condition(pyflow_ast.Suite([]), active_local),
             t=pyflow_ast.Suite(
                 [
+                    # Cleanup must not call __exit__ again if the exceptional
+                    # exit itself raises or suppresses the original exception.
+                    pyflow_ast.Assign(pyflow_ast.Existing(Object(False)), [active_local]),
                     pyflow_ast.Assign(exceptional_exit_value, [suppressed_local]),
                     pyflow_ast.Switch(
                         condition=pyflow_ast.Condition(
@@ -1809,8 +1812,16 @@ class ASTConverter:
             body=try_body,
             handlers=[handler],
             defaultHandler=None,
-            else_=pyflow_ast.Suite([normal_exit_stmt]),
-            finally_=None,
+            else_=pyflow_ast.Suite([]),
+            finally_=pyflow_ast.Suite(
+                [
+                    pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(pyflow_ast.Suite([]), active_local),
+                        t=pyflow_ast.Suite([normal_exit_stmt]),
+                        f=pyflow_ast.Suite([]),
+                    )
+                ]
+            ),
         )
         return pyflow_ast.Suite([wrapped])
 

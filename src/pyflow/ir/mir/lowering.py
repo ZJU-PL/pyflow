@@ -411,16 +411,50 @@ class PythonToMIR:
             result = rt.sequence(b, (), "dict")
             for key, value in zip(node.keys, node.values):
                 if key is None:
-                    self.fail(
-                        node,
-                        "dictionary unpacking in displays is not supported; "
-                        "use explicit item assignments",
+                    if not self.inspection_only:
+                        self.fail(
+                            node,
+                            "dictionary unpacking in displays is not supported; "
+                            "use explicit item assignments",
+                        )
+                    self.diagnostics.append(
+                        {
+                            "code": "mir-opaque-expression",
+                            "filename": self.module.filename,
+                            "line": getattr(node, "lineno", b.lineno),
+                            "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: dictionary unpacking in displays is not supported; use explicit item assignments",
+                            "affects_completeness": True,
+                        }
                     )
+                    self.expression(value)
+                    continue
                 self.special(result, "__setitem__", (self.expression(key), self.expression(value)))
             return result
         if isinstance(node, ast.Subscript):
             if isinstance(node.slice, ast.Slice):
-                self.fail(node, "slice objects are not part of the current Python-to-MIR runtime")
+                if not self.inspection_only:
+                    self.fail(
+                        node, "slice objects are not part of the current Python-to-MIR runtime"
+                    )
+                self.diagnostics.append(
+                    {
+                        "code": "mir-opaque-expression",
+                        "filename": self.module.filename,
+                        "line": getattr(node, "lineno", b.lineno),
+                        "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: slice objects are not part of the current Python-to-MIR runtime",
+                        "affects_completeness": True,
+                    }
+                )
+                self.expression(node.value)
+                if node.slice.lower:
+                    self.expression(node.slice.lower)
+                if node.slice.upper:
+                    self.expression(node.slice.upper)
+                if getattr(node.slice, "step", None):
+                    self.expression(node.slice.step)
+                value = rt.obj(b, "object")
+                b.assign(field(value, "$opaque_expression"), rt.raw(b, ast.unparse(node)))
+                return value
             return self.special(
                 self.expression(node.value), "__getitem__", (self.expression(node.slice),)
             )
@@ -522,8 +556,39 @@ class PythonToMIR:
             from .generators import emit_yield
 
             return emit_yield(self, node)
-        if isinstance(node, (ast.Await, ast.JoinedStr)):
-            self.fail(node, f"{type(node).__name__} is not supported by the MIR frontend")
+        if isinstance(node, ast.JoinedStr):
+            if not self.inspection_only:
+                self.fail(node, f"{type(node).__name__} is not supported by the MIR frontend")
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-expression",
+                    "filename": self.module.filename,
+                    "line": getattr(node, "lineno", self.b.lineno),
+                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: JoinedStr is not supported by the MIR frontend",
+                    "affects_completeness": True,
+                }
+            )
+            for part in node.values:
+                if isinstance(part, ast.FormattedValue):
+                    self.expression(part.value)
+            value = self.runtime.obj(self.b, "object")
+            self.b.assign(
+                field(value, "$opaque_expression"), self.runtime.raw(self.b, ast.unparse(node))
+            )
+            return value
+        if isinstance(node, ast.Await):
+            if not self.inspection_only:
+                self.fail(node, f"{type(node).__name__} is not supported by the MIR frontend")
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-expression",
+                    "filename": self.module.filename,
+                    "line": getattr(node, "lineno", self.b.lineno),
+                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: Await is not supported by the MIR frontend",
+                    "affects_completeness": True,
+                }
+            )
+            return self.expression(node.value)
         self.fail(node, f"unsupported expression {type(node).__name__}")
 
     def collect_iterable(self, value):
@@ -881,7 +946,7 @@ class PythonToMIR:
     def _statement(self, node):
         b, rt = self.b, self.runtime
         b.lineno = getattr(node, "lineno", b.lineno)
-        if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal)):
+        if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal, getattr(ast, "TypeAlias", ()))):
             return
         if isinstance(node, ast.Expr):
             # Literal expression statements (including docstrings) have no
@@ -974,7 +1039,19 @@ class PythonToMIR:
                     )
                 else:
                     self.fail(target, "unsupported deletion target")
-        elif isinstance(node, ast.FunctionDef):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.AsyncFunctionDef) and not self.inspection_only:
+                self.fail(node, f"unsupported statement {type(node).__name__}")
+            if isinstance(node, ast.AsyncFunctionDef):
+                self.diagnostics.append(
+                    {
+                        "code": "mir-opaque-statement",
+                        "filename": self.module.filename,
+                        "line": getattr(node, "lineno", self.b.lineno),
+                        "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: unsupported statement AsyncFunctionDef",
+                        "affects_completeness": True,
+                    }
+                )
             self.store(ast.Name(id=node.name, ctx=ast.Store()), self.function(node))
         elif isinstance(node, ast.ClassDef):
             self.class_definition(node)
@@ -1012,7 +1089,7 @@ class PythonToMIR:
             self.statements(node.orelse)
             b.jump(done)
             b.use({done})
-        elif isinstance(node, ast.For):
+        elif isinstance(node, (ast.For, getattr(ast, "AsyncFor", ast.For))):
             self.for_statement(node)
         elif isinstance(node, (ast.Break, ast.Continue)):
             if not self.loop_targets:
@@ -1051,20 +1128,47 @@ class PythonToMIR:
                 self.expression(node.cause)
             b.assign(rt.exception, exc)
             b.jump(self.exception_target)
-        elif isinstance(node, ast.Try):
+        elif isinstance(node, (ast.Try, getattr(ast, "TryStar", ast.Try))):
             self.try_statement(node)
-        elif isinstance(node, ast.With):
+        elif isinstance(node, (ast.With, getattr(ast, "AsyncWith", ast.With))):
             self.with_statement(node)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             self.import_statement(node)
+        elif isinstance(node, getattr(ast, "Match", ())):
+            if not self.inspection_only:
+                self.fail(node, f"unsupported statement {type(node).__name__}")
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-statement",
+                    "filename": self.module.filename,
+                    "line": getattr(node, "lineno", self.b.lineno),
+                    "message": f"{self.module.filename}:{getattr(node, "lineno", self.b.lineno)}: unsupported statement Match",
+                    "affects_completeness": True,
+                }
+            )
+            self.expression(node.subject)
+            for case in node.cases:
+                if getattr(case, "guard", None):
+                    self.expression(case.guard)
+                self.statements(case.body)
         else:
             self.fail(node, f"unsupported statement {type(node).__name__}")
 
     def class_definition(self, node):
         b, rt = self.b, self.runtime
         if node.keywords:
-            self.fail(
-                node, "custom metaclasses and class-definition keywords require a runtime model"
+            if not self.inspection_only:
+                self.fail(
+                    node, "custom metaclasses and class-definition keywords require a runtime model"
+                )
+            self.diagnostics.append(
+                {
+                    "code": "mir-opaque-statement",
+                    "filename": self.module.filename,
+                    "line": getattr(node, "lineno", b.lineno),
+                    "message": f"{self.module.filename}:{getattr(node, "lineno", b.lineno)}: custom metaclasses and class-definition keywords require a runtime model",
+                    "affects_completeness": True,
+                }
             )
         decorators = [self.expression(d) for d in node.decorator_list]
         bases = [self.expression(base) for base in node.bases] or [rt.builtin("object")]

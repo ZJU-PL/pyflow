@@ -340,7 +340,9 @@ class InterproceduralTaintProblem(
         self._active_node = None
 
     def local_is_constant(self, node, local):
-        return local.name in self._constant_locals.get(node, ())
+        from pyflow.analysis.ifds.frontend.constant_locals import local_key
+
+        return local_key(self.adapter, node.procedure, local) in self._constant_locals.get(node, ())
 
     def semantic_diagnostics(self) -> tuple[IFDSDiagnostic, ...]:
         return tuple(

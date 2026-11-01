@@ -103,7 +103,9 @@ class Runtime:
         b.assign(field(result, "$value"), raw)
         if cls == "str" and isinstance(value, str):
             chars = []
-            characters = {}
+            characters = getattr(b, "_characters_cache", None)
+            if characters is None:
+                characters = b._characters_cache = {}
             for character in value:
                 char = characters.get(character)
                 if char is None:

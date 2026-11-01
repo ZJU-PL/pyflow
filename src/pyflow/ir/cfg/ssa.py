@@ -121,6 +121,8 @@ class CollectModifies(TypeDispatcher):
         ast.YieldFrom,
         ast.Await,
         ast.AsyncYield,
+        ast.Break,
+        ast.Continue,
     )
     def visitDiscard(self, node):
         self._collect_named_exprs(node)
@@ -162,28 +164,6 @@ class CollectModifies(TypeDispatcher):
     def visitASTSuite(self, node):
         for block in node.blocks:
             self(block)
-
-    @dispatch(ast.ExceptionHandler)
-    def visitExceptionHandler(self, node):
-        if node.value is not None:
-            self.modified(node.value)
-
-        self(node.preamble)
-        if node.type is not None:
-            self(node.type)
-        self(node.body)
-
-    @dispatch(ast.TryExceptFinally)
-    def visitTryExceptFinally(self, node):
-        self(node.body)
-        for handler in node.handlers:
-            self(handler)
-        if node.defaultHandler is not None:
-            self(node.defaultHandler)
-        if node.else_ is not None:
-            self(node.else_)
-        if node.finally_ is not None:
-            self(node.finally_)
 
     @dispatch(ast.For)
     def visitStructuredFor(self, node):
@@ -290,35 +270,6 @@ class SSARename(TypeDispatcher):
         out = self.currentFrame
         self.currentFrame = previous
         return result, out
-
-    def mergeStructuredFrames(self, incoming, branches):
-        merged = {}
-
-        keys = set()
-        for _, frame in branches:
-            keys.update(frame.keys())
-
-        for name in keys:
-            values = [frame.get(name) for _, frame in branches]
-            first = values[0]
-
-            if all(value is first for value in values):
-                if first is not None:
-                    merged[name] = first
-                continue
-
-            fallback = incoming.get(name)
-            if any(value is None and fallback is None for value in values):
-                continue
-
-            target = self.clone(self.locals_by_key[name], merged)
-
-            for suite, frame in branches:
-                value = frame.get(name, fallback)
-                if value is not None and value is not target:
-                    suite.append(ast.Assign(value, [target]))
-
-        return merged
 
     @dispatch(cfg.Entry)
     def visitCFGEntry(self, node):
@@ -502,64 +453,6 @@ class SSARename(TypeDispatcher):
                 blocks.append(result)
         return ast.Suite(blocks)
 
-    @dispatch(ast.ExceptionHandler)
-    def visitExceptionHandler(self, node):
-        preamble = self(node.preamble)
-        type_ = self(node.type) if node.type is not None else None
-
-        if node.value is not None:
-            value = self.clone(node.value, self.currentFrame)
-        else:
-            value = None
-
-        body = self(node.body)
-        return ast.ExceptionHandler(preamble, type_, value, body)
-
-    @dispatch(ast.TryExceptFinally)
-    def visitTryExceptFinally(self, node):
-        incoming = dict(self.currentFrame)
-
-        body, body_frame = self.renameWithFrame(node.body, incoming)
-
-        handlers = []
-        handler_branches = []
-        for handler in node.handlers:
-            renamed, frame = self.renameWithFrame(handler, incoming)
-            handlers.append(renamed)
-            handler_branches.append((renamed.body, frame))
-
-        if node.defaultHandler is not None:
-            defaultHandler, default_frame = self.renameWithFrame(node.defaultHandler, incoming)
-            default_branch = (defaultHandler, default_frame)
-        else:
-            defaultHandler = None
-            default_branch = None
-
-        if node.else_ is not None:
-            else_, else_frame = self.renameWithFrame(node.else_, body_frame)
-            normal_branches = [(else_, else_frame)]
-        else:
-            else_ = None
-            normal_branches = [(body, body_frame)]
-
-        normal_branches.extend(handler_branches)
-        if default_branch is not None:
-            normal_branches.append(default_branch)
-
-        if normal_branches:
-            pre_finally = self.mergeStructuredFrames(incoming, normal_branches)
-        else:
-            pre_finally = dict(incoming)
-
-        if node.finally_ is not None:
-            finally_, final_frame = self.renameWithFrame(node.finally_, pre_finally)
-        else:
-            finally_ = None
-            final_frame = pre_finally
-
-        self.currentFrame = final_frame
-        return ast.TryExceptFinally(body, handlers, defaultHandler, else_, finally_)
-
     @dispatch(ast.For)
     def visitStructuredFor(self, node):
         """Preserve structured iteration during CFG-local SSA renaming."""
@@ -659,7 +552,16 @@ class SSARename(TypeDispatcher):
             return None
         return result
 
-    @dispatch(ast.leafTypes, ast.Existing, ast.GetCellDeref, ast.Code, ast.DoNotCare, ast.Cell)
+    @dispatch(
+        ast.leafTypes,
+        ast.Existing,
+        ast.GetCellDeref,
+        ast.Code,
+        ast.DoNotCare,
+        ast.Cell,
+        ast.Break,
+        ast.Continue,
+    )
     def visitASTLeaf(self, node):
         return node
 
@@ -831,9 +733,7 @@ def evaluate(compiler, g):
     """
     if _contains_try_except_finally(g.entryTerminal):
         raise UnsupportedSSAError(
-            f"SSA for '{g.code.codeName()}' does not yet support try/except/finally. "
-            "Use --dump-cfg or --dump-mir to inspect this function; "
-            "a non-SSA graph cannot be exported as SSA."
+            "SSA requires exception blocks to be lowered by cfg.transform first"
         )
     transaction = CFGTransformTransaction(g, "ssa")
     _lower_function_definitions(g, transaction.catalog)

@@ -1192,6 +1192,26 @@ def main():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["x"]
 
 
+def test_run_taint_analysis_carries_exception_value_through_finally(tmp_path):
+    target = tmp_path / "exception_value.py"
+    target.write_text(
+        "def source(): return ValueError()\n"
+        "def sink(x): return x\n"
+        "def main():\n"
+        "    error = source()\n"
+        "    try:\n"
+        "        try:\n            raise error\n"
+        "        finally:\n            marker = 1\n"
+        "    except ValueError as caught:\n        sink(caught)\n"
+    )
+    _session, result, _ = run_taint_analysis(
+        [target], function="main", **_taint_setup(["source"], ["sink"])
+    )
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["caught"]
+
+
 def test_run_taint_analysis_does_not_report_unreachable_except_calls(tmp_path):
     target = tmp_path / "unreachable_except.py"
     target.write_text("""

@@ -396,6 +396,18 @@ class TestGirEmitter(unittest.TestCase):
         _, rows_doc = emit('"""Docstring only"""')
         self.assertEqual(rows_doc, [])
 
+    def test_with_statement_preserves_optional_target_assignment(self):
+        tree = emit_tree("with open(name, \x27r\x27) as fp:\n    data = fp.read()\n")
+        with_row = next(row["with_stmt"] for row in tree if "with_stmt" in row)
+        self.assertIn("as fp", with_row["receiver"])
+        init_ops = [next(iter(item.keys())) for item in with_row["init_body"]]
+        self.assertIn("variable_decl", init_ops)
+        self.assertIn("assign_stmt", init_ops)
+        assign = next(
+            item["assign_stmt"] for item in with_row["init_body"] if "assign_stmt" in item
+        )
+        self.assertEqual(assign["target"], "fp")
+
     def test_ellipsis_function_gir(self):
         _, rows = emit("def f():\n    ...")
         self.assertTrue(

@@ -632,10 +632,8 @@ class Suite(SingleEntryBlock):
     """
 
     __slots__ = ("ops", "origin_ast")
-    # Structured statements such as ``try/finally`` remain embedded in a
-    # Suite until an exception-aware consumer lowers them.  Retain their
-    # non-local control-flow targets so those consumers do not have to infer
-    # the surrounding loop/function structure after CFG simplification.
+    # Retain named non-local exits for consumers that manipulate transfer
+    # targets, alongside ordinary normal and exceptional block exits.
     exitNames = ("normal", "fail", "error", "return", "break", "continue")
 
     def __init__(self, region, origin_ast=None):
@@ -695,6 +693,24 @@ class Switch(SingleEntryBlock):
         """
         SingleEntryBlock.__init__(self, region)
         self.condition = condition
+
+
+class ExceptionMatch(Switch):
+    """Ordered exception-type test, with match/non-match successors.
+
+    The condition carries the captured exception and handler type as its two
+    arguments. This is a runtime dispatch operation, not an application call.
+    """
+
+    __slots__ = ()
+
+    @property
+    def exception(self):
+        return self.condition.args[0]
+
+    @property
+    def handler_type(self):
+        return self.condition.args[1]
 
 
 class TypeSwitch(SingleEntryBlock):
@@ -889,6 +905,7 @@ class Code(object):
         "normalTerminal",
         "failTerminal",
         "errorTerminal",
+        "has_exception_regions",
     ]
 
     def __init__(self):
@@ -897,6 +914,7 @@ class Code(object):
         self.normalTerminal = Exit(None)
         self.failTerminal = Exit(None)
         self.errorTerminal = Exit(None)
+        self.has_exception_regions = False
 
     def __repr__(self):
         """Return a stable representation without object addresses."""

@@ -314,3 +314,44 @@ def test_discarded_docstrings_do_not_materialize_unused_characters():
         )
 
     assert source_nodes(documented) == source_nodes(plain)
+
+
+def test_mir_opaque_mode_compiles_async_functions():
+    source = "async def fetch(url):\n    return 42\n"
+    diagnostics = []
+    program = lower_source(source, import_policy="opaque", diagnostics=diagnostics)
+    assert any("AsyncFunctionDef" in d["message"] for d in diagnostics)
+    assert "__main__.fetch" in program.cfgs
+    cfg = program.cfgs["__main__.fetch"]
+    assert cfg.analysis_parameters == ("url",)
+
+
+def test_mir_opaque_mode_compiles_match_statements():
+    source = (
+        "def process(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            return 'one'\n"
+        "        case _:\n"
+        "            return 'other'\n"
+    )
+    diagnostics = []
+    program = lower_source(source, import_policy="opaque", diagnostics=diagnostics)
+    assert any("Match" in d["message"] for d in diagnostics)
+    assert "__main__.process" in program.cfgs
+
+
+def test_mir_opaque_mode_evaluates_fstring_expressions():
+    source = "def greet(name):\n    msg = f'hello {name}'\n    return msg\n"
+    diagnostics = []
+    program = lower_source(source, import_policy="opaque", diagnostics=diagnostics)
+    assert any("JoinedStr" in d["message"] for d in diagnostics)
+    cfg = program.cfgs["__main__.greet"]
+    assert any(
+        getattr(getattr(node.instruction, "source", None), "name", None) == "name"
+        or (
+            hasattr(node.instruction, "target")
+            and getattr(node.instruction.target, "name", None) == "name"
+        )
+        for node in cfg.nodes.values()
+    )

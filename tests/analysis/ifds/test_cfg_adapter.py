@@ -19,6 +19,17 @@ from pyflow.language.python.default_markers import MISSING_DEFAULT
 from tests.analysis.ifds._support import build_cfg, make_code
 
 
+def reachable(adapter, start):
+    pending, seen = [start], set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        pending.extend(adapter.supergraph.normal_successors(node))
+    return seen
+
+
 def test_call_name_falls_back_for_unindexed_cloned_expression():
     adapter = object.__new__(CFGSupergraphAdapter)
     procedure = type("Procedure", (), {"code": object()})()
@@ -226,12 +237,49 @@ def test_cfg_adapter_routes_try_body_raise_into_except_handler():
     adapter = build_supergraph_from_cfgs([cfg])
 
     raise_node = next(
-        node for node in adapter.supergraph.nodes_of(cfg) if node.scope == ("0", "try", "body", "0")
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Raise) and node.kind != "call"
     )
-    successor_scopes = {
-        successor.scope for successor in adapter.supergraph.normal_successors(raise_node)
+    assert any(
+        isinstance(adapter.operation_of(node), ast.Assign)
+        and handler_value in adapter.operation_of(node).lcls
+        for node in reachable(adapter, raise_node)
+    )
+
+
+def test_cfg_adapter_routes_lowered_exception_edges_from_calls():
+    import ast as python_ast
+
+    from pyflow.frontend.conversion.ast import ASTConverter
+    from pyflow.ir.cfg import transform
+
+    code = (
+        ASTConverter()
+        ._convert_function_def(
+            python_ast.parse(
+                "def f(risky, handler):\n"
+                "    try:\n        risky()\n"
+                "    except:\n        handler()\n"
+            ).body[0]
+        )
+        .code
+    )
+    cfg = transform.evaluate(None, code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    call_nodes = {
+        adapter.call_expression_of(node).expr.name: node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if node.kind == "call" and isinstance(adapter.call_expression_of(node).expr, ast.Local)
     }
-    assert ("0", "try", "handler", "0", "preamble", "empty") in successor_scopes
+    pending, seen = [call_nodes["risky"]], set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        pending.extend(adapter.supergraph.normal_successors(node))
+    assert call_nodes["handler"] in seen
 
 
 def test_cfg_adapter_routes_try_finally_normal_and_exceptional_paths_through_finally():
@@ -277,30 +325,31 @@ def test_cfg_adapter_routes_try_finally_normal_and_exceptional_paths_through_fin
     normal_body = next(
         node
         for node in normal_adapter.supergraph.nodes_of(normal_cfg)
-        if node.scope == ("0", "try", "body", "0")
+        if isinstance(normal_adapter.operation_of(node), ast.Assign)
+        and normal_adapter.operation_of(node).expr.object.pyobj == 1
     )
-    normal_successors = {
-        successor.scope for successor in normal_adapter.supergraph.normal_successors(normal_body)
-    }
-    assert ("0", "try", "finally", "normal", "0") in normal_successors
+    assert any(
+        isinstance(normal_adapter.operation_of(node), ast.Assign)
+        and normal_adapter.operation_of(node).expr.object.pyobj == 2
+        for node in reachable(normal_adapter, normal_body)
+    )
 
     exceptional_body = next(
         node
         for node in exceptional_adapter.supergraph.nodes_of(exceptional_cfg)
-        if node.scope == ("0", "try", "body", "0")
+        if isinstance(exceptional_adapter.operation_of(node), ast.Raise)
+        and isinstance(exceptional_adapter.operation_of(node).exception, ast.Existing)
     )
-    exceptional_successors = {
-        successor.scope
-        for successor in exceptional_adapter.supergraph.normal_successors(exceptional_body)
-    }
-    assert ("0", "try", "finally", "exceptional", "0") in exceptional_successors
-
     exceptional_finally = next(
         node
-        for node in exceptional_adapter.supergraph.nodes_of(exceptional_cfg)
-        if node.scope == ("0", "try", "finally", "exceptional", "0")
+        for node in reachable(exceptional_adapter, exceptional_body)
+        if isinstance(exceptional_adapter.operation_of(node), ast.Assign)
+        and exceptional_adapter.operation_of(node).expr.object.pyobj == 3
     )
-    assert exceptional_adapter.supergraph.normal_successors(exceptional_finally) == frozenset()
+    reached = reachable(exceptional_adapter, exceptional_finally)
+    assert not any(
+        isinstance(exceptional_adapter.operation_of(node), ast.Return) for node in reached
+    )
 
 
 def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally():
@@ -339,7 +388,19 @@ def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally
 
     call_node = next(node for node in adapter.supergraph.nodes_of(main_cfg) if node.kind == "call")
     return_sites = adapter.supergraph.return_sites_of_call_at(call_node)
-    assert {site.scope for site in return_sites} == {("0", "try", "body", "0")}
+    assert len(return_sites) == 1
+    assert all(
+        adapter.operation_of(site) is adapter.operation_of(call_node) for site in return_sites
+    )
+    exceptional = adapter.supergraph.normal_successors(call_node)
+    assert exceptional
+    assert all(adapter.is_exceptional_successor(call_node, target) for target in exceptional)
+    assert any(
+        isinstance(adapter.operation_of(node), ast.Assign)
+        and cleanup in adapter.operation_of(node).lcls
+        for target in exceptional
+        for node in reachable(adapter, target)
+    )
 
 
 def test_cfg_adapter_exposes_call_effect_bindings_and_result_route():

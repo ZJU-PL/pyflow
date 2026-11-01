@@ -37,7 +37,9 @@ from pyflow.checker.common.taint import (
 from pyflow.checker.common.taint.refinement import RefinementProvider
 from pyflow.ir.cpg.graph import CPGEdgeKind, CodePropertyGraph
 from pyflow.ir.pdg.graph import PDGNode
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
+from pyflow.language.python.exception_types import exception_type_names, handler_match
 
 from .model import CPGTaintResult, TaintFinding
 
@@ -172,6 +174,7 @@ class CPGAbstractState:
 
     taint: FormalTaintState = FormalTaintState()
     may_aliases: frozenset[tuple[TaintLocation, TaintLocation]] = frozenset()
+    exception_types: frozenset[str] | None = None
 
     @classmethod
     def bottom(cls) -> "CPGAbstractState":
@@ -182,7 +185,19 @@ class CPGAbstractState:
         return bool(self.taint.reachable)
 
     def leq(self, other: "CPGAbstractState") -> bool:
-        return self.taint.leq(other.taint) and self.may_aliases <= other.may_aliases
+        if not self.reachable:
+            return True
+        return (
+            self.taint.leq(other.taint)
+            and self.may_aliases <= other.may_aliases
+            and (
+                other.exception_types is None
+                or (
+                    self.exception_types is not None
+                    and self.exception_types <= other.exception_types
+                )
+            )
+        )
 
     def join(self, other: "CPGAbstractState") -> "CPGAbstractState":
         if not self.reachable:
@@ -195,7 +210,14 @@ class CPGAbstractState:
             return other
         if other.leq(self):
             return self
-        return CPGAbstractState(self.taint.join(other.taint), self.may_aliases | other.may_aliases)
+        types = (
+            None
+            if self.exception_types is None or other.exception_types is None
+            else self.exception_types | other.exception_types
+        )
+        return CPGAbstractState(
+            self.taint.join(other.taint), self.may_aliases | other.may_aliases, types
+        )
 
     def with_taint(self, taint: FormalTaintState) -> "CPGAbstractState":
         return replace(self, taint=taint)
@@ -229,11 +251,11 @@ class CPGAbstractState:
         )
         aliases = set(cleared.may_aliases)
         aliases.add(_ordered_alias(destination, source))
-        return CPGAbstractState(copied, frozenset(aliases))
+        return replace(self, taint=copied, may_aliases=frozenset(aliases))
 
     def clear_binding(self, location: TaintLocation) -> "CPGAbstractState":
         aliases = frozenset(pair for pair in self.may_aliases if location not in pair)
-        return CPGAbstractState(self.taint.write(location, (), strong=True), aliases)
+        return replace(self, taint=self.taint.write(location, (), strong=True), may_aliases=aliases)
 
     def write(
         self,
@@ -735,6 +757,13 @@ class FormalCPGTaintAnalysis:
             for edge in edges
         )
 
+    def _local_name(self, local: py_ast.Local, function: str) -> str:
+        if local.name:
+            return local.name
+        code = self.cpg._pdgs[function].cfg.code
+        symbol = code.ir_catalog.symbol_id(local, code)
+        return f"<temporary:{symbol.scope.ordinal}:{symbol.ordinal}>"
+
     def _local(self, function: str, name: str) -> TaintLocation:
         if name in self._global_declarations.get(function, frozenset()) or (
             function != self._module_function
@@ -772,14 +801,14 @@ class FormalCPGTaintAnalysis:
             ast_node = node.ast_node
             if isinstance(ast_node, py_ast.Assign):
                 names.update(
-                    target.name
+                    self._local_name(target, function)
                     for target in ast_node.lcls or ()
-                    if isinstance(target, py_ast.Local) and target.name
+                    if isinstance(target, py_ast.Local)
                 )
             elif isinstance(ast_node, py_ast.AnnAssign):
                 target = ast_node.target
-                if isinstance(target, py_ast.Local) and target.name:
-                    names.add(target.name)
+                if isinstance(target, py_ast.Local):
+                    names.add(self._local_name(target, function))
             elif isinstance(ast_node, py_ast.SetGlobal):
                 name = self._constant_value(ast_node.name)
                 if isinstance(name, str):
@@ -823,6 +852,20 @@ class FormalCPGTaintAnalysis:
         function = self.cpg.node_func_name(node)
         events: list[tuple[str, frozenset[TaintFact]]] = []
 
+        if isinstance(node.cfg_node, cfg_graph.ExceptionMatch):
+            value = self._evaluate(node.cfg_node.handler_type, state, node)
+            return value.state, ()
+
+        if isinstance(ast_node, py_ast.InputBlock):
+            current = state
+            for item in ast_node.inputs:
+                target = self._local(function, self._local_name(item.lcl, function))
+                if item.src.name == "exception":
+                    current = current.bind_alias(target, self._local(function, "<exception>"))
+                else:
+                    current = current.clear_binding(target)
+            return current, ()
+
         if isinstance(ast_node, py_ast.Suite):
             current = state
             for statement in ast_node.blocks or ():
@@ -857,9 +900,9 @@ class FormalCPGTaintAnalysis:
             value = self._evaluate(ast_node.expr, state, node)
             current = value.state
             for target in ast_node.lcls or ():
-                if not isinstance(target, py_ast.Local) or not target.name:
+                if not isinstance(target, py_ast.Local):
                     continue
-                destination = self._local(function, target.name)
+                destination = self._local(function, self._local_name(target, function))
                 if value.location is not None and isinstance(ast_node.expr, py_ast.Local):
                     current = current.bind_alias(destination, value.location)
                 else:
@@ -879,8 +922,8 @@ class FormalCPGTaintAnalysis:
             value = self._evaluate(ast_node.value, state, node)
             target = ast_node.target
             current = value.state
-            if isinstance(target, py_ast.Local) and target.name:
-                destination = self._local(function, target.name)
+            if isinstance(target, py_ast.Local):
+                destination = self._local(function, self._local_name(target, function))
                 current = current.clear_binding(destination).write(
                     destination,
                     value.facts,
@@ -1026,8 +1069,11 @@ class FormalCPGTaintAnalysis:
 
         if isinstance(ast_node, py_ast.Delete):
             target = ast_node.lcl
-            if isinstance(target, py_ast.Local) and target.name:
-                return state.clear_binding(self._local(function, target.name)), ()
+            if isinstance(target, py_ast.Local):
+                return (
+                    state.clear_binding(self._local(function, self._local_name(target, function))),
+                    (),
+                )
             return state, ()
 
         if isinstance(ast_node, py_ast.DeleteGlobal):
@@ -1049,9 +1095,6 @@ class FormalCPGTaintAnalysis:
             ),
         ):
             return state, ()
-
-        if isinstance(ast_node, py_ast.TryExceptFinally):
-            return self._transfer_structured_try(node, ast_node, state)
 
         if isinstance(
             ast_node,
@@ -1235,76 +1278,6 @@ class FormalCPGTaintAnalysis:
             )
         )
         return result, tuple(sorted(events, key=lambda item: item[0]))
-
-    def _transfer_structured_try(
-        self,
-        node: PDGNode,
-        statement: py_ast.TryExceptFinally,
-        state: CPGAbstractState,
-    ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
-        """Conservatively join normal and exceptional structured branches."""
-        events: set[tuple[str, frozenset[TaintFact]]] = set()
-        body_state, body_events = self._transfer_node(node, state, statement.body)
-        events.update(body_events)
-
-        else_state, else_events = self._transfer_node(node, body_state, statement.else_)
-        events.update(else_events)
-        branches = [else_state]
-
-        # An exception can arise after any prefix of the body.  Joining the
-        # entry and completed-body states safely over-approximates that prefix.
-        handler_entry = state.join(body_state)
-        for handler in statement.handlers or ():
-            handler_state, preamble_events = self._transfer_node(
-                node, handler_entry, handler.preamble
-            )
-            events.update(preamble_events)
-            if handler.type is not None:
-                handler_type = self._evaluate(handler.type, handler_state, node)
-                handler_state = handler_type.state
-                events.update(self._sink_events(handler.type, handler_type, node))
-            if isinstance(handler.value, py_ast.Local) and handler.value.name:
-                exception_location = self._local(self.cpg.node_func_name(node), handler.value.name)
-                handler_state = handler_state.clear_binding(exception_location).write(
-                    exception_location,
-                    handler_entry.taint.facts,
-                    strong=True,
-                    operation=ProvenanceOperation.ASSIGN,
-                    filename=self._filename(node),
-                    line=self.cpg.node_lineno(node),
-                    detail="caught-exception",
-                )
-            handler_state, handler_events = self._transfer_node(node, handler_state, handler.body)
-            events.update(handler_events)
-            branches.append(handler_state)
-
-        # The frontend represents a bare ``except:`` as a Suite rather than
-        # an ExceptionHandler.  It has no preamble, exception type, or bound
-        # exception value, so it must be transferred directly as a branch.
-        if statement.defaultHandler is not None:
-            default_state, default_events = self._transfer_node(
-                node, handler_entry, statement.defaultHandler
-            )
-            events.update(default_events)
-            branches.append(default_state)
-
-        joined = branches[0]
-        for branch in branches[1:]:
-            joined = joined.join(branch)
-        final_state, finally_events = self._transfer_node(node, joined, statement.finally_)
-        events.update(finally_events)
-        final_state = final_state.with_uncertainty(
-            AnalysisUncertainty(
-                "cpg-exception-overapproximation",
-                "Exception handler feasibility is conservatively joined",
-                PrecisionLevel.CONSERVATIVE,
-                self.cpg.node_func_name(node),
-                self._filename(node),
-                self.cpg.node_lineno(node),
-                "try",
-            )
-        )
-        return final_state, tuple(sorted(events, key=lambda item: item[0]))
 
     def _evaluate(self, expression: Any, state: CPGAbstractState, node: PDGNode) -> CPGValue:
         if expression is None:
@@ -1775,10 +1748,25 @@ class FormalCPGTaintAnalysis:
         transitions: list[_Transition] = []
         for edge in self.cpg._cpg_edges_out.get(node.node_id, ()):
             if edge.kind in CFG_KINDS:
+                outgoing = state
+                if isinstance(node.cfg_node, cfg_graph.ExceptionMatch) and state.exception_types:
+                    expected = edge.kind is CPGEdgeKind.CFG_BRANCH_TRUE
+                    if edge.kind in (CPGEdgeKind.CFG_BRANCH_TRUE, CPGEdgeKind.CFG_BRANCH_FALSE):
+                        types = frozenset(
+                            name
+                            for name in state.exception_types
+                            if handler_match((name,), node.cfg_node.handler_type)
+                            in (None, expected)
+                        )
+                        if not types:
+                            continue
+                        outgoing = replace(state, exception_types=types)
+                if edge.kind is CPGEdgeKind.CFG_EXCEPT:
+                    outgoing = self._capture_exception(node, outgoing, edge.label)
                 transitions.append(
                     _Transition(
                         CPGConfiguration(edge.target.node_id, config.call_context),
-                        state,
+                        outgoing,
                         edge.kind.value,
                     )
                 )
@@ -1794,6 +1782,31 @@ class FormalCPGTaintAnalysis:
                 # CALL edges are handled as a group before normal traversal.
                 continue
         return tuple(transitions)
+
+    def _capture_exception(self, node, state, exit_name):
+        function = self.cpg.node_func_name(node)
+        operation = node.ast_node
+        expression = getattr(operation, "exception", getattr(operation, "expr", None))
+        types = None
+        if isinstance(operation, py_ast.Raise) and exit_name == "fail":
+            if expression is None:
+                return state
+            names = exception_type_names(expression)
+            if isinstance(expression, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+                name = self.engine._extract_call_name(expression)
+                names = (name,) if name else ()
+            types = frozenset(names) if names else None
+        if isinstance(operation, py_ast.Assign) and operation.lcls:
+            location = self._location_of(operation.lcls[0], function)
+            facts = state.taint.facts_at(location) if location is not None else frozenset()
+        elif expression is not None:
+            facts = self._evaluate(expression, state, node).facts
+        else:
+            facts = frozenset()
+        location = self._local(function, "<exception>")
+        return replace(
+            state.clear_binding(location).write(location, facts, strong=True), exception_types=types
+        )
 
     def _enter_call(
         self,
@@ -1859,8 +1872,8 @@ class FormalCPGTaintAnalysis:
         current = state
         if isinstance(ast_node, py_ast.Assign):
             for target in ast_node.lcls or ():
-                if isinstance(target, py_ast.Local) and target.name:
-                    location = self._local(caller, target.name)
+                if isinstance(target, py_ast.Local):
+                    location = self._local(caller, self._local_name(target, caller))
                     current = current.clear_binding(location).write(
                         location,
                         returned,
@@ -1874,8 +1887,8 @@ class FormalCPGTaintAnalysis:
                     current = self._attach_aliases(current, location, escaped_aliases)
         elif isinstance(ast_node, py_ast.AnnAssign):
             target = ast_node.target
-            if isinstance(target, py_ast.Local) and target.name:
-                location = self._local(caller, target.name)
+            if isinstance(target, py_ast.Local):
+                location = self._local(caller, self._local_name(target, caller))
                 current = current.clear_binding(location).write(
                     location,
                     returned,
@@ -1964,8 +1977,8 @@ class FormalCPGTaintAnalysis:
         current = state
         if isinstance(ast_node, py_ast.Assign):
             for target in ast_node.lcls or ():
-                if isinstance(target, py_ast.Local) and target.name:
-                    location = self._local(function, target.name)
+                if isinstance(target, py_ast.Local):
+                    location = self._local(function, self._local_name(target, function))
                     current = current.clear_binding(location).write(
                         location, facts, strong=True, operation=ProvenanceOperation.CALL
                     )
@@ -2115,16 +2128,17 @@ class FormalCPGTaintAnalysis:
     ]:
         environment = dict(incoming)
         ast_node = node.ast_node
+        function = self.cpg.node_func_name(node)
         returned: frozenset[_SummaryToken] = frozenset()
         if isinstance(ast_node, py_ast.Assign):
             value = self._summary_expression(ast_node.expr, environment, node, summaries)
             for target in ast_node.lcls or ():
-                if isinstance(target, py_ast.Local) and target.name:
-                    environment[target.name] = value
+                if isinstance(target, py_ast.Local):
+                    environment[self._local_name(target, function)] = value
         elif isinstance(ast_node, py_ast.AnnAssign):
             value = self._summary_expression(ast_node.value, environment, node, summaries)
-            if isinstance(ast_node.target, py_ast.Local) and ast_node.target.name:
-                environment[ast_node.target.name] = value
+            if isinstance(ast_node.target, py_ast.Local):
+                environment[self._local_name(ast_node.target, function)] = value
         elif isinstance(ast_node, (py_ast.SetAttr, py_ast.SetSubscript)):
             base = self._first_local(ast_node.expr)
             if base:
@@ -2167,7 +2181,9 @@ class FormalCPGTaintAnalysis:
         if expression is None or isinstance(expression, py_ast.Existing):
             return frozenset()
         if isinstance(expression, py_ast.Local):
-            return environment.get(expression.name or "", frozenset())
+            return environment.get(
+                self._local_name(expression, self.cpg.node_func_name(node)), frozenset()
+            )
         if isinstance(expression, (py_ast.GetAttr, py_ast.GetSubscript)):
             base = self._first_local(expression)
             return environment.get(base or "", frozenset())
@@ -2583,8 +2599,8 @@ class FormalCPGTaintAnalysis:
 
     # --------------------------------------------------------------- helpers
     def _location_of(self, expression: Any, function: str) -> TaintLocation | None:
-        if isinstance(expression, py_ast.Local) and expression.name:
-            return self._local(function, expression.name)
+        if isinstance(expression, py_ast.Local):
+            return self._local(function, self._local_name(expression, function))
         if isinstance(expression, py_ast.GetAttr):
             base = self._location_of(expression.expr, function)
             name = self.engine._resolve_call_expr(expression.name)

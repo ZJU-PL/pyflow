@@ -145,7 +145,7 @@ class CFGClonerPre(TypeDispatcher):
 
     @dispatch(cfg.Switch)
     def visitSwitch(self, node):
-        return cfg.Switch(node.region, self.astcloner(node.condition))
+        return type(node)(node.region, self.astcloner(node.condition))
 
     @dispatch(cfg.TypeSwitch)
     def visitTypeSwitch(self, node):
@@ -190,8 +190,9 @@ class CFGClonerPost(TypeDispatcher):
 
 class CFGCloner(object):
     def __init__(self):
-        self.cloner = CFGDFS(CFGClonerPre(ASTCloner()), CFGClonerPost())
-        self.cloner.post.cache = self.cloner.pre.cache
+        self.cloner = CFGDFS(pre=CFGClonerPre(ASTCloner()))
+        self.reconnect = CFGClonerPost()
+        self.reconnect.cache = self.cloner.pre.cache
         self.cfgCache = self.cloner.pre.cache
 
         self.lcl = self.cloner.pre.astcloner
@@ -202,8 +203,13 @@ class CFGCloner(object):
 
     def process(self, g):
         self.cloner.process(g.entryTerminal)
+        # Exception joins may have predecessors in sibling DFS branches.
+        # Allocate every clone before rebuilding either direction of an edge.
+        for block in self.cfgCache:
+            self.reconnect(block)
 
         newG = cfg.Code()
+        newG.has_exception_regions = g.has_exception_regions
 
         original = g.code.codeparameters
         source_return = getattr(g, "returnParam", None)
@@ -377,6 +383,7 @@ class InlineTransform(TypeDispatcher):
                     current.ops.append(op)
                     continue
                 inlined = True
+                self.g.has_exception_regions |= cloned.has_exception_regions
                 for generated, sources in cloner.generated_from.items():
                     self.generated_from[generated] = (call, *sources)
 

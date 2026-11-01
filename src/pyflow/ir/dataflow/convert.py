@@ -26,7 +26,8 @@ from pyflow.ir.dataflow import graph
 from pyflow.ir.storegraph import storegraph
 
 from pyflow.ir.dataflow.transform import dce
-from pyflow.ir.core import AnalysisFacts, Capabilities
+from pyflow.ir.core import AnalysisFacts, Capabilities, ensure_code_indexed
+from pyflow.ir.cfg.killflow import OpFlow
 
 
 class UnsupportedDataflowConstructError(Exception):
@@ -356,6 +357,8 @@ class CodeToDataflow(TypeDispatcher):
         hyperblock = self.newHyperblock()
 
         self.code = code
+        self.catalog = ensure_code_indexed(code)
+        self.localSlots = {}
         self.dataflow = graph.DataflowGraph(hyperblock)
         self.dataflow.code = code
         catalog = getattr(code, "ir_catalog", None)
@@ -377,6 +380,8 @@ class CodeToDataflow(TypeDispatcher):
         # has eliminated loop control statements.  Keep their exits local to
         # the innermost loop while building a conservative loop summary.
         self.loopControls = []
+        self.exceptionStates = []
+        self.exceptionSlot = ast.Local(None)
 
         self.allModified = set()
 
@@ -423,9 +428,18 @@ class CodeToDataflow(TypeDispatcher):
         return state
 
     def get(self, slot):
-        return self.current.get(slot)
+        return self.current.get(self.canonicalSlot(slot))
+
+    def canonicalSlot(self, slot):
+        # Source ASTs contain distinct Local occurrences for the same lexical
+        # variable. States must join by symbol, rather than object identity.
+        if isinstance(slot, ast.Local) and slot is not self.exceptionSlot:
+            key = self.catalog.symbol_id(slot, self.code)
+            return self.localSlots.setdefault(key, slot)
+        return slot
 
     def set(self, slot, value):
+        slot = self.canonicalSlot(slot)
         value.addName(slot)
         self.allModified.add(slot)
         return self.current.set(slot, value)
@@ -480,6 +494,41 @@ class CodeToDataflow(TypeDispatcher):
             self.set(modify, slot)
             g.addModify(modify, slot)
 
+    def finishOp(self, node, g):
+        """Route a throwing operation before its local targets are committed.
+
+        Heap effects can occur before an operation raises. Retain both the
+        incoming and modified heap states on exceptional paths.
+        """
+        before = self.current
+        if self.exceptionStates:
+            self.current = State(before.hyperblock, before.predicate, before)
+        self.handleMemory(node, g)
+        if not self.exceptionStates or isinstance(node, ast.Raise):
+            return g
+        flow = OpFlow()
+        flow.process(node)
+        if not (flow.fails or flow.errors):
+            return g
+        after = self.popState()
+        predicates = []
+        for label in ("normal", "exception-before", "exception-after"):
+            predicate = graph.PredicateNode(after.hyperblock, label)
+            predicates.append(predicate.addDefn(g))
+        g.predicates.extend(predicates)
+        normal = State(after.hyperblock, predicates[0], after)
+        exceptional = [
+            State(before.hyperblock, predicates[1], before),
+            State(after.hyperblock, predicates[2], after),
+        ]
+        exception = graph.LocalNode(after.hyperblock, (self.exceptionSlot,))
+        g.addLocalModify(self.exceptionSlot, exception)
+        for state in exceptional:
+            state.set(self.exceptionSlot, exception)
+        self.exceptionStates[-1].extend(exceptional)
+        self.setState(normal)
+        return g
+
     def localRead(self, g, lcl):
         if isinstance(lcl, (ast.Local, ast.Existing)):
             g.addLocalRead(lcl, self.get(lcl))
@@ -496,8 +545,7 @@ class CodeToDataflow(TypeDispatcher):
                 continue
             seen.add(key)
             self.localRead(g, read)
-        self.handleMemory(node, g)
-        return g
+        return self.finishOp(node, g)
 
     @dispatch(ast.Allocate)
     def processAllocate(self, node):
@@ -506,8 +554,7 @@ class CodeToDataflow(TypeDispatcher):
 
         self.localRead(g, node.expr)
 
-        self.handleMemory(node, g)
-        return g
+        return self.finishOp(node, g)
 
     @dispatch(ast.Load)
     def processLoad(self, node):
@@ -517,8 +564,7 @@ class CodeToDataflow(TypeDispatcher):
         self.localRead(g, node.expr)
         self.localRead(g, node.name)
 
-        self.handleMemory(node, g)
-        return g
+        return self.finishOp(node, g)
 
     @dispatch(ast.DirectCall)
     def processDirectCall(self, node):
@@ -533,8 +579,7 @@ class CodeToDataflow(TypeDispatcher):
         self.localRead(g, node.vargs)
         self.localRead(g, node.kargs)
 
-        self.handleMemory(node, g)
-        return g
+        return self.finishOp(node, g)
 
     @dispatch(ast.Expression)
     def processExpression(self, node):
@@ -602,8 +647,7 @@ class CodeToDataflow(TypeDispatcher):
         self.localRead(g, node.name)
         self.localRead(g, node.value)
 
-        self.handleMemory(node, g)
-        return g
+        return self.finishOp(node, g)
 
     @dispatch(ast.Return)
     def processReturn(self, node):
@@ -618,11 +662,17 @@ class CodeToDataflow(TypeDispatcher):
 
     @dispatch(ast.Raise)
     def processRaise(self, node):
-        # Preserve the exception expression's reads, then terminate the normal
-        # path.  Exception routing remains the responsibility of the enclosing
-        # TryExceptFinally fallback until exception-aware lowering is added.
-        self.genericOp(node)
-        self.popState()
+        op = self.genericOp(node)
+        if node.exception is not None:
+            if isinstance(node.exception, (ast.Local, ast.Existing)):
+                exception = self.get(node.exception)
+            else:
+                exception = self.localTarget(self.exceptionSlot)
+                op.addLocalModify(self.exceptionSlot, exception)
+            self.set(self.exceptionSlot, exception)
+        state = self.popState()
+        if self.exceptionStates:
+            self.exceptionStates[-1].append(state)
 
     @dispatch(ast.Break)
     def processBreak(self, node):
@@ -643,11 +693,14 @@ class CodeToDataflow(TypeDispatcher):
         g.setPredicate(self.pred())
 
         self.localRead(g, node.conditional)
+        self.finishOp(node.conditional, g)
 
+        predicates = []
         for i in range(len(node.cases)):
             p = graph.PredicateNode(self.hyperblock(), i)
-            g.predicates.append(p.addDefn(g))
-        branches = self.branch(g.predicates)
+            predicates.append(p.addDefn(g))
+        g.predicates.extend(predicates)
+        branches = self.branch(predicates)
         exits = []
 
         for case, branch in zip(node.cases, branches):
@@ -667,11 +720,14 @@ class CodeToDataflow(TypeDispatcher):
     @dispatch(ast.Switch)
     def processSwitch(self, node):
         self(node.condition.preamble)
+        if self.current is None:
+            return
 
         g = graph.GenericOp(self.hyperblock(), node)
         g.setPredicate(self.pred())
         for read in _iter_slot_reads(node.condition.conditional):
             self.localRead(g, read)
+        self.finishOp(node.condition.conditional, g)
 
         predicates = []
         for label in ("true", "false"):
@@ -695,6 +751,8 @@ class CodeToDataflow(TypeDispatcher):
         g.setPredicate(self.pred())
         for read in _iter_slot_reads(expression):
             self.localRead(g, read)
+        if expression is not None:
+            self.finishOp(expression, g)
 
         predicates = []
         for label in labels:
@@ -771,11 +829,82 @@ class CodeToDataflow(TypeDispatcher):
         return None
 
     @dispatch(ast.TryExceptFinally)
-    def processUnsupportedStructuredControl(self, node):
-        raise UnsupportedDataflowConstructError(
-            "dataflow IR conversion does not yet lower "
-            f"{type(node).__qualname__} from source-loaded AST"
-        )
+    def processTryExceptFinally(self, node):
+        """Merge exceptional states and execute cleanup per completion kind."""
+        outer_exception = self.get(self.exceptionSlot)
+        return_start = len(self.returns)
+        loop_marks = [
+            (states, len(states)) for control in self.loopControls for states in control.values()
+        ]
+        escaping, caught = [], []
+        self.exceptionStates.extend((escaping, caught))
+        self(node.body)
+        body_exit = self.popState()
+        self.exceptionStates.pop()
+
+        normal = []
+        if body_exit is not None:
+            self.setState(body_exit)
+            if node.else_ is not None:
+                self(node.else_)
+            normal.append(self.popState())
+
+        self.mergeStates(caught)
+        for handler in node.handlers:
+            if self.current is None:
+                break
+            exception = self.get(self.exceptionSlot)
+            op, (matched, unmatched) = self._branch_on_expression(
+                handler, handler.type, ("match", "next")
+            )
+            op.addLocalRead(self.exceptionSlot, exception)
+            self.setState(matched)
+            if handler.value is not None:
+                self.set(handler.value, self.get(self.exceptionSlot))
+            self(handler.preamble)
+            if self.current is not None:
+                self(handler.body)
+            normal.append(self.popState())
+            self.setState(unmatched)
+        if self.current is not None:
+            if node.defaultHandler is not None:
+                self(node.defaultHandler)
+                normal.append(self.popState())
+            else:
+                escaping.append(self.popState())
+        self.exceptionStates.pop()
+
+        # Remove pending transfers while running finally. A transfer emitted
+        # by finally replaces the pending one, including an earlier return.
+        pending = [("normal", state, None) for state in normal if state is not None]
+        pending.extend(("return", state, self.returns) for state in self.returns[return_start:])
+        del self.returns[return_start:]
+        for states, mark in loop_marks:
+            pending.extend(("loop", state, states) for state in states[mark:])
+            del states[mark:]
+        pending.extend(("exception", state, None) for state in escaping)
+
+        normal = []
+        for kind, state, destination in pending:
+            self.setState(State(state.hyperblock, state.predicate, state))
+            if kind != "exception":
+                # Leaving a handled region restores the enclosing exception
+                # context. An inner handled exception must not replace the
+                # value re-raised by a later bare raise in an outer handler.
+                self.current.set(self.exceptionSlot, outer_exception)
+            if node.finally_ is not None:
+                self(node.finally_)
+            outgoing = self.popState()
+            if outgoing is None:
+                continue
+            if kind == "normal":
+                normal.append(outgoing)
+            elif kind == "exception":
+                if self.exceptionStates:
+                    self.exceptionStates[-1].append(outgoing)
+            else:
+                destination.append(outgoing)
+        self.mergeStates(normal)
 
     @dispatch(
         str,
@@ -832,12 +961,14 @@ class CodeToDataflow(TypeDispatcher):
     def setParameter(self, param):
         if isinstance(param, ast.Local):
             g = self.localTarget(param)
-            self.entryState.set(param, g)
+            self.entryState.set(self.canonicalSlot(param), g)
 
     def processCode(self):
         # Init the parameters
         params = self.code.codeparameters
         self.setParameter(params.selfparam)
+        for p in params.posonlyparams:
+            self.setParameter(p)
         for p in params.params:
             self.setParameter(p)
         assert not hasattr(params, "kwds")

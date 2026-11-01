@@ -142,7 +142,7 @@ class TestPDG(unittest.TestCase):
         self.assertIn(pdg.entry, slc)
         self.assertTrue(any(n.kind == "stmt" and isinstance(n.ast_node, ast.Assign) for n in slc))
 
-    def test_pdg_uses_shared_semantics_when_dataflow_lowering_is_unavailable(self):
+    def test_pdg_uses_dataflow_for_exception_functions(self):
         cfg = self.build_cfg(try_semantics)
 
         pdg = construct_pdg(
@@ -152,8 +152,7 @@ class TestPDG(unittest.TestCase):
             include_data=True,
         )
 
-        self.assertEqual(pdg.data_dependence_mode, "semantics")
-        self.assertIn("TryExceptFinally", pdg.data_dependence_reason)
+        self.assertEqual(pdg.data_dependence_mode, "hybrid")
         self.assertTrue(pdg.all_edges(kind="data"))
 
 

@@ -17,6 +17,10 @@ Key Features
 - **Optimization Support**: Identifies independent operations for
   parallelization and dead code elimination
 
+DDG generation supports source-level ``try/except/else/finally``, ``with``,
+and ``async with`` through the dataflow converter's exceptional state merges.
+See :doc:`dataflow` for the conservative exception and loop modeling limits.
+
 Graph Structure
 ---------------
 

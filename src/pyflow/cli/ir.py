@@ -88,9 +88,16 @@ def add_ir_parser(subparsers):
         ),
     )
     parser.add_argument(
+        "--list-functions",
+        action="store_true",
+        help="List available function names discovered in the input",
+    )
+    parser.add_argument(
         "--dump-ast",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump AST for the specified function name",
+        help="Dump AST for the specified function name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--mir-import-policy",
@@ -105,28 +112,38 @@ def add_ir_parser(subparsers):
     )
     parser.add_argument(
         "--dump-cfg",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump CFG for a qualified function or an unambiguous short name (e.g. Class.method)",
+        help="Dump CFG for a qualified function or an unambiguous short name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--dump-ssa",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump SSA form for the specified function name",
+        help="Dump SSA form for the specified function name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--dump-cdg",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump Control Dependence Graph for the specified function name",
+        help="Dump Control Dependence Graph for the specified function name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--dump-ddg",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump Data Dependence Graph for the specified function name",
+        help="Dump Data Dependence Graph for the specified function name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--dump-gir",
+        nargs="?",
+        const="*",
         metavar="FUNCTION",
-        help="Dump Lian-compatible GIR for the specified function name",
+        help="Dump Lian-compatible GIR for the specified function name, or all functions if omitted or \x27*\x27",
     )
     parser.add_argument(
         "--dump-format",
@@ -219,6 +236,80 @@ def _write_json_ir_file(output_file: str, label: str, payload) -> None:
     print(f"{label} dumped to: {output_file}")
 
 
+def _dump_ir_single(
+    compiler,
+    func,
+    function_name: str,
+    output_dir: str,
+    ir_type: str,
+    format: str = "text",
+):
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, f"{function_name}_{ir_type.lower()}.{format}")
+
+    if ir_type == "AST":
+        if format == "json":
+            ast_node = _get_ast_node(func)
+            if ast_node is None:
+                raise ValueError(f"No AST available for function '{function_name}'")
+            _write_json_ir_file(
+                output_file,
+                "AST",
+                {"function": function_name, "ast": _ast_node_to_json(ast_node)},
+            )
+        elif format == "text":
+            content = _get_ast_content(func, function_name)
+            write_ir_file(output_file, function_name, "AST", content)
+        else:
+            raise ValueError("AST dumps support only text and json formats")
+    elif ir_type == "CFG":
+        cfg = transform.evaluate(compiler, func)
+        if format == "dot":
+            try:
+                g = pydot.Dot(graph_type="digraph")
+                ctd = cfg_dump.CFGToDot(g)
+                ctd.process(cfg)
+                with open(output_file, "w") as f:
+                    f.write(f"// CFG for function: {function_name}\n")
+                    f.write(g.to_string())
+                print(f"CFG dumped to: {output_file}")
+            except Exception as e:
+                print(f"Warning: DOT generation failed, falling back to text format: {e}")
+                write_ir_file(output_file, function_name, "CFG", str(cfg))
+        elif format == "json":
+            _write_json_ir_file(
+                output_file,
+                "CFG",
+                {"function": function_name, "cfg": generate_json_cfg(cfg)},
+            )
+        elif format == "text":
+            content = generate_clang_style_cfg(cfg)
+            write_ir_file(output_file, function_name, "CFG", content)
+        else:
+            raise ValueError("CFG dumps support only text, dot, and json formats")
+    elif ir_type == "SSA":
+        cfg = transform.evaluate(compiler, func)
+        ssa.evaluate(compiler, cfg)
+        if format == "dot":
+            graph = pydot.Dot(graph_type="digraph")
+            cfg_dump.CFGToDot(graph).process(cfg)
+            with open(output_file, "w", encoding="utf-8") as output:
+                output.write(graph.to_string())
+            print(f"SSA form dumped to: {output_file}")
+        elif format == "json":
+            _write_json_ir_file(
+                output_file,
+                "SSA form",
+                {"function": function_name, "ssa": generate_json_cfg(cfg)},
+            )
+        elif format == "text":
+            content = generate_clang_style_cfg(cfg)
+            write_ir_file(output_file, function_name, "SSA form", content)
+        else:
+            raise ValueError("SSA dumps support only text, dot, and json formats")
+    return True
+
+
 def dump_ir(
     compiler,
     liveCode,
@@ -229,77 +320,31 @@ def dump_ir(
     program=None,
 ):
     """Generic IR dumping function for AST, CFG, and SSA."""
+    if function_name in ("*", "all", None):
+        if not liveCode:
+            print("No functions available to dump", file=sys.stderr)
+            return False
+        all_ok = True
+        for func in liveCode:
+            fname = getattr(func, "name", None) or (
+                func.codeName() if hasattr(func, "codeName") else str(func)
+            )
+            ok = _dump_with_error_handling(
+                ir_type,
+                lambda f=func, fn=fname: _dump_ir_single(
+                    compiler, f, fn, output_dir, ir_type, format
+                ),
+            )
+            if not ok:
+                all_ok = False
+        return all_ok
+
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
         return False
-
-    def _dump_impl():
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_{ir_type.lower()}.{format}")
-
-        if ir_type == "AST":
-            if format == "json":
-                ast_node = _get_ast_node(func)
-                if ast_node is None:
-                    raise ValueError(f"No AST available for function '{function_name}'")
-                _write_json_ir_file(
-                    output_file,
-                    "AST",
-                    {"function": function_name, "ast": _ast_node_to_json(ast_node)},
-                )
-            elif format == "text":
-                content = _get_ast_content(func, function_name)
-                write_ir_file(output_file, function_name, "AST", content)
-            else:
-                raise ValueError("AST dumps support only text and json formats")
-        elif ir_type == "CFG":
-            cfg = transform.evaluate(compiler, func)
-            if format == "dot":
-                try:
-                    g = pydot.Dot(graph_type="digraph")
-                    ctd = cfg_dump.CFGToDot(g)
-                    ctd.process(cfg)
-                    with open(output_file, "w") as f:
-                        f.write(f"// CFG for function: {function_name}\n")
-                        f.write(g.to_string())
-                    print(f"CFG dumped to: {output_file}")
-                except Exception as e:
-                    print(f"Warning: DOT generation failed, falling back to text format: {e}")
-                    write_ir_file(output_file, function_name, "CFG", str(cfg))
-            elif format == "json":
-                _write_json_ir_file(
-                    output_file,
-                    "CFG",
-                    {"function": function_name, "cfg": generate_json_cfg(cfg)},
-                )
-            elif format == "text":
-                content = generate_clang_style_cfg(cfg)
-                write_ir_file(output_file, function_name, "CFG", content)
-            else:
-                raise ValueError("CFG dumps support only text, dot, and json formats")
-        elif ir_type == "SSA":
-            cfg = transform.evaluate(compiler, func)
-            ssa.evaluate(compiler, cfg)
-            if format == "dot":
-                graph = pydot.Dot(graph_type="digraph")
-                cfg_dump.CFGToDot(graph).process(cfg)
-                with open(output_file, "w", encoding="utf-8") as output:
-                    output.write(graph.to_string())
-                print(f"SSA form dumped to: {output_file}")
-            elif format == "json":
-                _write_json_ir_file(
-                    output_file,
-                    "SSA form",
-                    {"function": function_name, "ssa": generate_json_cfg(cfg)},
-                )
-            elif format == "text":
-                content = generate_clang_style_cfg(cfg)
-                write_ir_file(output_file, function_name, "SSA form", content)
-            else:
-                raise ValueError("SSA dumps support only text, dot, and json formats")
-        return True
-
-    return _dump_with_error_handling(ir_type, _dump_impl)
+    return _dump_with_error_handling(
+        ir_type, lambda: _dump_ir_single(compiler, func, function_name, output_dir, ir_type, format)
+    )
 
 
 def _dump_with_error_handling(func_name: str, dump_func, *args, **kwargs):
@@ -349,6 +394,22 @@ def dump_ssa(
     return dump_ir(compiler, liveCode, function_name, output_dir, "SSA", format, program)
 
 
+def _dump_gir_single(func, function_name: str, output_dir: str, format: str = "text"):
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, f"{function_name}_gir.{format}")
+    rows = build_function_gir(func, function_name)
+    if format == "json":
+        with open(output_file, "w") as output:
+            json.dump(rows, output, indent=2)
+        print(f"GIR dumped to: {output_file}")
+    elif format == "text":
+        content = dump_gir_content(rows)
+        write_ir_file(output_file, function_name, "GIR", content)
+    else:
+        raise ValueError("GIR dumps support only text and json formats")
+    return True
+
+
 def dump_gir(
     compiler,
     liveCode,
@@ -357,27 +418,56 @@ def dump_gir(
     format: str = "text",
     program=None,
 ):
-    """Dump the Lian-compatible GIR for a specific function."""
+    """Dump the Lian-compatible GIR for a specific function, or all functions if '*'."""
+    if function_name in ("*", "all", None):
+        if not liveCode:
+            print("No functions available to dump", file=sys.stderr)
+            return False
+        all_ok = True
+        for func in liveCode:
+            fname = getattr(func, "name", None) or (
+                func.codeName() if hasattr(func, "codeName") else str(func)
+            )
+            ok = _dump_with_error_handling(
+                "GIR", lambda f=func, fn=fname: _dump_gir_single(f, fn, output_dir, format)
+            )
+            if not ok:
+                all_ok = False
+        return all_ok
+
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
         return False
+    return _dump_with_error_handling(
+        "GIR", lambda: _dump_gir_single(func, function_name, output_dir, format)
+    )
 
-    def _dump_impl():
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_gir.{format}")
-        rows = build_function_gir(func, function_name)
-        if format == "json":
-            with open(output_file, "w") as output:
-                json.dump(rows, output, indent=2)
-            print(f"GIR dumped to: {output_file}")
-        elif format == "text":
-            content = dump_gir_content(rows)
-            write_ir_file(output_file, function_name, "GIR", content)
-        else:
-            raise ValueError("GIR dumps support only text and json formats")
-        return True
 
-    return _dump_with_error_handling("GIR", _dump_impl)
+def _dump_graph_single(
+    compiler,
+    func,
+    function_name: str,
+    output_dir: str,
+    format: str,
+    builder_func,
+    dump_func,
+    ir_name: str,
+):
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, f"{function_name}_{ir_name.lower()}.{format}")
+
+    # Build base structure (CFG for CDG, Dataflow for DDG)
+    base_structure = builder_func(compiler, func)
+
+    # Construct and dump the graph IR
+    graph_ir = (
+        construct_cdg(base_structure)
+        if ir_name == "CDG"
+        else construction.construct_ddg(base_structure)
+    )
+    dump_func(graph_ir, output_file, format, function_name)
+    print(f"{ir_name} dumped to: {output_file}")
+    return True
 
 
 def _dump_graph_ir(
@@ -392,27 +482,34 @@ def _dump_graph_ir(
     program=None,
 ):
     """Generic function to dump graph-based IRs (CDG, DDG)."""
+    if function_name in ("*", "all", None):
+        if not liveCode:
+            print("No functions available to dump", file=sys.stderr)
+            return False
+        all_ok = True
+        for func in liveCode:
+            fname = getattr(func, "name", None) or (
+                func.codeName() if hasattr(func, "codeName") else str(func)
+            )
+            try:
+                _dump_graph_single(
+                    compiler, func, fname, output_dir, format, builder_func, dump_func, ir_name
+                )
+            except BrokenPipeError:
+                raise
+            except Exception as e:
+                print(f"Error dumping {ir_name} for '{fname}': {e}", file=sys.stderr)
+                all_ok = False
+        return all_ok
+
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
         return False
 
     try:
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_{ir_name.lower()}.{format}")
-
-        # Build base structure (CFG for CDG, Dataflow for DDG)
-        base_structure = builder_func(compiler, func)
-
-        # Construct and dump the graph IR
-        graph_ir = (
-            construct_cdg(base_structure)
-            if ir_name == "CDG"
-            else construction.construct_ddg(base_structure)
+        return _dump_graph_single(
+            compiler, func, function_name, output_dir, format, builder_func, dump_func, ir_name
         )
-        dump_func(graph_ir, output_file, format, function_name)
-        print(f"{ir_name} dumped to: {output_file}")
-        return True
-
     except BrokenPipeError:
         raise
     except Exception as e:
@@ -531,11 +628,17 @@ def _format_mir_view(program, args, scope, diagnostics=()):
 
     view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
     if scope is not None or view == "full":
+        if args.dump_format == "json":
+            data = program.to_dict()
+            if scope is not None:
+                if scope not in program.cfgs:
+                    raise ValueError(f"MIR scope '{scope}' was not found in the compiled program")
+                data["cfgs"] = {scope: program.cfgs[scope].to_dict()}
+                data["entry"] = scope
+            if diagnostics:
+                data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
+            return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
         content = format_program(program, format=args.dump_format, scope=scope)
-        if diagnostics and args.dump_format == "json":
-            data = json.loads(content)
-            data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
-            return json.dumps(data, indent=2) + "\n"
         if diagnostics and args.dump_format == "text":
             return "MIR partial inspection (opaque imports/literals; see diagnostics)\n" + content
         return content
@@ -544,8 +647,6 @@ def _format_mir_view(program, args, scope, diagnostics=()):
     }
     source_program = replace(program, cfgs=cfgs)
     if args.dump_format == "json":
-        # Explicit source views are inspection artifacts; only the full JSON
-        # export is a standalone, executable MIR program.
         data = source_program.to_dict()
         data.update(view="source", omitted_runtime_cfgs=len(program.cfgs) - len(cfgs))
         if diagnostics:
@@ -629,6 +730,7 @@ def run_ir_dump(input_path: Path, args):
             "dump_cdg",
             "dump_ddg",
             "dump_gir",
+            "list_functions",
         )
     ):
         print(
@@ -656,8 +758,11 @@ def run_ir_dump(input_path: Path, args):
                 contents[str(path.relative_to(directory))] = content
             print(json.dumps(contents, indent=2))
         else:
-            for path in artifacts:
-                print(path.read_text(encoding="utf-8"), end="")
+            for idx, path in enumerate(artifacts):
+                content = path.read_text(encoding="utf-8")
+                if idx > 0 and not content.startswith("\n"):
+                    print()
+                print(content, end="")
 
 
 def _run_ir_dump(input_path: Path, args):
@@ -729,6 +834,30 @@ def _run_ir_dump(input_path: Path, args):
             print(
                 f"Created {len(program.interface.entryPoint)} entry points from {len(program.interface.func)} functions"
             )
+
+        output_dir = args.dump_output or "."
+        if getattr(args, "list_functions", False):
+            liveCode = program.liveCode if program.liveCode else findLiveCode(program)[0]
+            candidates = sorted(
+                {
+                    getattr(f, "name", None) or (f.codeName() if hasattr(f, "codeName") else str(f))
+                    for f in liveCode
+                }
+            )
+            os.makedirs(output_dir, exist_ok=True)
+            if args.dump_format == "json":
+                out_file = os.path.join(output_dir, "functions.json")
+                with open(out_file, "w", encoding="utf-8") as f:
+                    json.dump({"functions": candidates}, f, indent=2)
+                    f.write("\n")
+            else:
+                out_file = os.path.join(output_dir, "functions.text")
+                with open(out_file, "w", encoding="utf-8") as f:
+                    f.write(f"Available functions ({len(candidates)}):\n")
+                    for name in candidates:
+                        f.write(f"  {name}\n")
+            print(f"Functions list dumped to: {out_file}")
+            return
 
         # Skip analysis pipeline for AST/CFG/CDG/DDG dumping since it clears AST blocks
         if not (

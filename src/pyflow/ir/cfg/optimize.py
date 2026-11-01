@@ -133,7 +133,14 @@ class CFGOptPost(TypeDispatcher):
 
         normal = node.getExit("normal")
         if normal is not None and isinstance(normal, cfg.Suite):
-            if self.nonlocalFlowMatches(node, normal):
+            # Keep the state at a throwing operation's exceptional exits.
+            # Appending later definitions would incorrectly expose them to
+            # handlers (and to SSA phi arguments on those edges).
+            if (
+                not node.getExit("fail")
+                and not node.getExit("error")
+                and self.nonlocalFlowMatches(node, normal)
+            ):
                 # Contact the next suite into this one
                 node.ops.extend(normal.ops)
 

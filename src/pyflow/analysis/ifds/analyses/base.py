@@ -515,7 +515,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> set[FactT]:
         facts: set[FactT] = set()
         for local in locals_:
-            if not isinstance(local, py_ast.Local) or local.name is None:
+            if not isinstance(local, py_ast.Local):
                 continue
             locations = self._locations_for_local(procedure, local)
             facts.update(
@@ -532,7 +532,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> set[FactT]:
         facts: set[FactT] = set()
         for local in locals_:
-            if not isinstance(local, py_ast.Local) or local.name is None:
+            if not isinstance(local, py_ast.Local):
                 continue
             locations = self._locations_for_local(procedure, local)
             facts.update(

@@ -1235,8 +1235,14 @@ class GirEmitter:
             return True
         if isinstance(node, (python_ast.With, python_ast.AsyncWith)):
             init_body: List[Dict[str, Any]] = []
+            receiver_parts: List[str] = []
             for item in node.items:
-                self._emit_python_expression(item.context_expr, init_body)
+                ctx_val = self._emit_python_expression(item.context_expr, init_body)
+                part = python_ast.unparse(item.context_expr)
+                if getattr(item, "optional_vars", None) is not None:
+                    self._emit_python_store(item.optional_vars, ctx_val, init_body, item)
+                    part += f" as {python_ast.unparse(item.optional_vars)}"
+                receiver_parts.append(part)
             update_body: List[Dict[str, Any]] = []
             self._emit_python_body(node.body, update_body)
             self._append_python_stmt(
@@ -1245,6 +1251,7 @@ class GirEmitter:
                 {
                     "with_stmt": {
                         "attrs": ["async"] if isinstance(node, python_ast.AsyncWith) else [],
+                        "receiver": ", ".join(receiver_parts),
                         "init_body": init_body,
                         "update_body": update_body,
                     }

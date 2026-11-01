@@ -12,6 +12,10 @@ from pyflow.language.python import ast as py_ast
 from pyflow.language.python.ir_metadata import assigned_locals, actual_argument_expressions
 
 
+def local_key(adapter, procedure, local):
+    return adapter.catalog_by_procedure[procedure].symbol_id(local, procedure.code)
+
+
 def constant_locals_before(adapter):
     incoming = {}
     pending = deque()
@@ -35,10 +39,13 @@ def constant_locals_before(adapter):
                 values.append(call.expr)
             for value in values:
                 if isinstance(value, py_ast.Local):
-                    after.discard(value.name)
+                    after.discard(local_key(adapter, node.procedure, value))
         if node.kind == "op":
             if isinstance(operation, (py_ast.Assign, py_ast.AnnAssign, py_ast.UnpackSequence)):
-                targets = {local.name for local in assigned_locals(operation)}
+                targets = {
+                    local_key(adapter, node.procedure, local)
+                    for local in assigned_locals(operation)
+                }
                 value = (
                     operation.value if isinstance(operation, py_ast.AnnAssign) else operation.expr
                 )
@@ -48,7 +55,7 @@ def constant_locals_before(adapter):
                 ):
                     after.update(targets)
             elif isinstance(operation, py_ast.Delete):
-                after.discard(operation.lcl.name)
+                after.discard(local_key(adapter, node.procedure, operation.lcl))
         successors = adapter.supergraph.normal_successors(
             node
         ) | adapter.supergraph.call_to_return_successors(node)
@@ -68,7 +75,7 @@ def _constant(value, names, adapter, procedure):
     if isinstance(value, py_ast.Existing):
         return _scalar(getattr(value.object, "pyobj", object()))
     if isinstance(value, py_ast.Local):
-        return value.name in names
+        return local_key(adapter, procedure, value) in names
     if isinstance(value, (py_ast.BinaryOp, py_ast.UnaryPrefixOp)):
         operands = (
             (value.left, value.right) if isinstance(value, py_ast.BinaryOp) else (value.expr,)

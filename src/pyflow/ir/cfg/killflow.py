@@ -42,6 +42,7 @@ class OpFlow(TypeDispatcher):
         ast.DoNotCare,
         ast.OutputBlock,
         ast.InputBlock,
+        ast.Phi,
     )
     def visitLeaf(self, node):
         """Visit leaf nodes (no flow effects).

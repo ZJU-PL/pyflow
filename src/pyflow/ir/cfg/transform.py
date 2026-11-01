@@ -17,7 +17,7 @@ and connects them with appropriate control flow edges (normal, fail, error).
 """
 
 from pyflow.util.typedispatch import *
-from pyflow.ir.cfg import simplify
+from pyflow.ir.cfg import simplify, killflow
 
 from pyflow.language.python import ast
 from pyflow.ir.cfg import graph as cfg
@@ -45,12 +45,20 @@ class CFGTransformer(TypeDispatcher):
         code: CFG Code object being built
     """
 
+    def __init__(self):
+        self.exception_depth = 0
+        self.exception_context = None
+
     def emit(self, stmt):
         """Emit a statement to the current CFG node.
 
         Args:
             stmt: AST statement to emit.
         """
+        if self.exception_depth and self.current.ops:
+            previous = self.current
+            following = self.makeNewSuite(origin_ast=previous.origin_ast)
+            previous.setExit("normal", following)
         self.current.ops.append(stmt)
 
     def attachCurrent(self, child):
@@ -91,6 +99,10 @@ class CFGTransformer(TypeDispatcher):
         an unconditional raise and prevents following statements from becoming
         reachable.
         """
+        if node.exception is None and self.exception_context is not None:
+            replacement = ast.Raise(self.exception_context, node.parameter, node.traceback)
+            replacement.annotation = node.annotation
+            node = replacement
         self.emit(node)
         self.current = None
         raise NoNormalFlow
@@ -114,6 +126,8 @@ class CFGTransformer(TypeDispatcher):
             # fallthrough is safer than aborting CFG construction for the
             # entire analysis target.
             return
+        if self.exception_depth:
+            self.emit(node)
         self.attachCurrent(self.handler("continue"))
         raise NoNormalFlow
 
@@ -129,6 +143,8 @@ class CFGTransformer(TypeDispatcher):
             # See ``visitContinue``: preserve analyzable fallthrough for an
             # orphaned legacy control-transfer marker.
             return
+        if self.exception_depth:
+            self.emit(node)
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 
@@ -147,8 +163,6 @@ class CFGTransformer(TypeDispatcher):
         y.setExit("normal", self.makeNewSuite())
 
     @dispatch(
-        ast.Assign,
-        ast.AnnAssign,
         ast.Discard,
         ast.SetAttr,
         ast.SetSubscript,
@@ -172,6 +186,37 @@ class CFGTransformer(TypeDispatcher):
     )
     def visitStatement(self, node):
         self.emit(node)
+
+    @dispatch(ast.Assign)
+    def visitAssign(self, node):
+        # A failing RHS must not publish the assignment's new local versions
+        # on the exceptional edge. Evaluate first, then commit on normal flow.
+        if not self.exception_depth:
+            self.emit(node)
+            return
+        flow = killflow.OpFlow()
+        flow.process(node.expr)
+        if flow.fails or flow.errors:
+            temporary = ast.Local(None)
+            evaluation = ast.Assign(node.expr, [temporary])
+            evaluation.annotation = node.annotation
+            self.emit(evaluation)
+            assignment = ast.Assign(temporary, node.lcls)
+            assignment.annotation = node.annotation
+            self.emit(assignment)
+        else:
+            self.emit(node)
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        if node.value is not None and self.exception_depth:
+            temporary = ast.Local(None)
+            self(ast.Assign(node.value, [temporary]))
+            replacement = ast.AnnAssign(node.target, node.annotation_expr, temporary)
+            replacement.annotation = node.annotation
+            self.emit(replacement)
+        else:
+            self.emit(node)
 
     @dispatch(ast.ClassDef)
     def visitClassDef(self, node):
@@ -336,68 +381,137 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.TryExceptFinally)
     def visitTryExceptFinally(self, node):
-        """Preserve try blocks as structured AST until exception-aware CFG exists.
+        """Lower protected suites, ordered handlers and every finally exit.
 
-        Linearizing the clauses into the ambient CFG is incorrect because it
-        makes handlers/else/finally execute sequentially on the normal path.
-        Keep the compound statement intact so later reconstruction preserves
-        Python semantics instead of emitting a miscompiled flat sequence.
+        Finally is copied per completion kind. This preserves the destination
+        of a pending return/break/continue/exception, while abrupt completion
+        inside the cleanup overrides it using the enclosing handler stacks.
         """
-        self._preserve_structured_statement(node)
+        self.code.has_exception_regions = True
+        join = self.createMerge()
+        cleanup = {}
+        if node.finally_:
+            for name, handlers in self.handlers.items():
+                if handlers:
+                    cleanup[name] = (self.createMerge(), handlers[-1])
+            cleanup["normal"] = (self.createMerge(), join)
+            for name, (entry, _target) in cleanup.items():
+                if name != "normal":
+                    self.pushHandler(name, entry)
+        normal_target = cleanup["normal"][0] if cleanup else join
 
-    def _preserve_structured_statement(self, node):
-        """Keep a compound statement semantically intact in one CFG suite.
+        self.exception_depth += 1
+        catches = self.createMerge() if node.handlers or node.defaultHandler is not None else None
+        if catches is not None:
+            self.pushHandler("fail", catches)
+            self.pushHandler("error", catches)
 
-        Until a construct has a faithful block-level lowering, preserving the
-        source AST is safer than manufacturing an incorrect CFG. Escaping
-        return/break/continue edges are still recorded for consumers that need
-        the surrounding procedure/loop targets.
-        """
-        self.emit(node)
-        if self.current.origin_ast is None:
-            self.current.origin_ast = node
-        for exit_name in self._structured_abrupt_exits(node):
-            handlers = self.handlers.get(exit_name, ())
-            if handlers and exit_name not in self.current.next:
-                self.current.setExit(exit_name, handlers[-1])
+        previous = self.current
+        origin = previous.origin_ast if isinstance(previous.origin_ast, str) else node
+        body = self.makeNewSuite(origin_ast=origin)
+        self.current = previous
+        self.attachCurrent(body)
+        self.current = body
+        try:
+            self(node.body)
+        except NoNormalFlow:
+            pass
 
-    def _structured_abrupt_exits(self, node):
-        """Return abrupt exits escaping a preserved structured statement.
+        if catches is not None:
+            self.popHandler("fail")
+            self.popHandler("error")
 
-        Break and continue inside a nested loop are consumed by that loop;
-        returns always escape to the current procedure.  Definitions carry a
-        separate execution context and are therefore not traversed.
-        """
-        exits = set()
+        if self.current is not None:
+            # Else errors bypass this try's handlers.
+            previous = self.current
+            else_entry = self.makeNewSuite(origin_ast=node.else_)
+            previous.setExit("normal", else_entry)
+            try:
+                if node.else_ is not None:
+                    self(node.else_)
+            except NoNormalFlow:
+                pass
+            else:
+                self.attachCurrent(normal_target)
 
-        def visit(current, loop_depth=0):
-            if current is None or isinstance(current, ast.leafTypes):
-                return
-            if isinstance(current, (ast.Code, ast.FunctionDef, ast.ClassDef)):
-                return
-            if isinstance(current, ast.Return):
-                exits.add("return")
-                return
-            if isinstance(current, ast.Break):
-                if loop_depth == 0:
-                    exits.add("break")
-                return
-            if isinstance(current, ast.Continue):
-                if loop_depth == 0:
-                    exits.add("continue")
-                return
-            if isinstance(current, (ast.While, ast.For)):
-                current.visitChildren(lambda child: visit(child, loop_depth + 1))
-                return
-            if isinstance(current, (list, tuple)):
-                for child in current:
-                    visit(child, loop_depth)
-                return
-            if hasattr(current, "visitChildren"):
-                current.visitChildren(lambda child: visit(child, loop_depth))
+        if catches is not None:
+            catches.setExit("normal", self.makeNewSuite(origin_ast=node))
+            exception = ast.Local(None)
+            self.emit(ast.InputBlock([ast.Input(ast.IOName("exception"), exception)]))
+            outer_exception = self.exception_context
+            for handler in node.handlers:
+                # Matching is an opaque runtime operation: both outcomes stay
+                # feasible unless an analysis supplies exception type facts.
+                match = ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_exception_matches")),
+                    [exception, handler.type],
+                    [],
+                    None,
+                    None,
+                )
+                switch = cfg.ExceptionMatch(self.region, match)
+                self.attachStandardHandlers(switch)
+                self.attachCurrent(switch)
+                switch.setExit("true", self.makeNewSuite(origin_ast=handler))
+                self.exception_context = exception
+                try:
+                    if handler.value is not None:
+                        self.emit(ast.Assign(exception, [handler.value]))
+                    self(handler.preamble)
+                    self(handler.body)
+                except NoNormalFlow:
+                    pass
+                else:
+                    self.attachCurrent(normal_target)
+                self.exception_context = outer_exception
+                switch.setExit("false", self.makeNewSuite(origin_ast=handler))
+            if node.defaultHandler is not None:
+                self.exception_context = exception
+                try:
+                    self(node.defaultHandler)
+                except NoNormalFlow:
+                    pass
+                else:
+                    self.attachCurrent(normal_target)
+                self.exception_context = outer_exception
+            else:
+                self.attachCurrent(self.handler("fail"))
 
-        visit(node)
-        return tuple(sorted(exits))
+        self.exception_depth -= 1
+        if cleanup:
+            for name in cleanup:
+                if name != "normal":
+                    self.popHandler(name)
+            for name, (entry, target) in cleanup.items():
+                if not entry.numPrev():
+                    continue
+                entry.setExit("normal", self.makeNewSuite(origin_ast=node.finally_))
+                outer_exception = self.exception_context
+                if name in ("fail", "error"):
+                    exception = ast.Local(None)
+                    self.emit(ast.InputBlock([ast.Input(ast.IOName("exception"), exception)]))
+                    self.exception_context = exception
+                try:
+                    self(node.finally_)
+                except NoNormalFlow:
+                    pass
+                else:
+                    if name in ("fail", "error"):
+                        # Resume the pending exception explicitly. Consumers
+                        # can carry its captured value through cleanup rather
+                        # than treating the transfer as ordinary fallthrough.
+                        self.emit(ast.Raise(exception, None, None))
+                        self.current.killExit("fail")
+                        self.current.setExit("fail", target)
+                        self.current = None
+                    else:
+                        self.attachCurrent(target)
+                self.exception_context = outer_exception
+
+        self.current = None
+        if not join.numPrev():
+            raise NoNormalFlow
+        join.setExit("normal", self.makeNewSuite())
 
     @dispatch(ast.ExceptionHandler)
     def visitExceptionHandler(self, node):
@@ -508,6 +622,8 @@ class CFGTransformer(TypeDispatcher):
         """
         self.regionStack = []
         self.region = None
+        self.exception_depth = 0
+        self.exception_context = None
 
         self.handlers = {
             "return": [],

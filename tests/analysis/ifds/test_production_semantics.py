@@ -89,12 +89,14 @@ def test_typed_exception_routes_only_to_first_matching_handler():
         for node in adapter.supergraph.ordered_nodes_of(cfg)
         if isinstance(adapter.operation_of(node), ast.Raise) and node.kind != "call"
     )
-    successor_scopes = {
-        node.scope for node in adapter.supergraph.ordered_normal_successors(raise_node)
-    }
-
-    assert any("1" in scope for scope in successor_scopes)
-    assert not any(scope[:4] == ("0", "try", "handler", "0") for scope in successor_scopes)
+    reached = _reachable_nodes(adapter, raise_node)
+    assignments = [
+        adapter.operation_of(node)
+        for node in reached
+        if isinstance(adapter.operation_of(node), ast.Assign)
+    ]
+    assert any(handled_value in operation.lcls for operation in assignments)
+    assert not any(handled_type in operation.lcls for operation in assignments)
 
 
 def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
@@ -143,9 +145,14 @@ def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
         for node in adapter.supergraph.ordered_nodes_of(cfg)
         if isinstance(adapter.operation_of(node), ast.Raise) and node.kind != "call"
     )
-    successors = adapter.supergraph.ordered_normal_successors(raise_node)
-
-    assert {node.scope[:4] for node in successors} == {("0", "try", "handler", "0")}
+    reached = _reachable_nodes(adapter, raise_node)
+    assignments = [
+        adapter.operation_of(node)
+        for node in reached
+        if isinstance(adapter.operation_of(node), ast.Assign)
+    ]
+    assert any(broad in operation.lcls for operation in assignments)
+    assert not any(narrow in operation.lcls for operation in assignments)
 
 
 def test_context_manager_calls_are_classified_semantically(tmp_path):

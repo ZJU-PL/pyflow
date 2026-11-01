@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast as source_ast
-import builtins
 from functools import cached_property
 from pyflow.frontend.source import read_python_source
 from collections import defaultdict
@@ -26,6 +25,7 @@ from pyflow.language.python.ir_metadata import (
     assigned_locals,
 )
 from pyflow.language.python import ast as py_ast
+from pyflow.language.python.exception_types import exception_type_names, handler_match
 
 from ..core.supergraph import Supergraph
 from ..core.transfers import bind_call_arguments
@@ -147,17 +147,6 @@ class _OperationFragment:
     entry: CFGNode | None = None
     normal_exits: set[CFGNode] = field(default_factory=set)
     exceptional_exits: set[CFGNode] = field(default_factory=set)
-    abrupt_exits: dict[str, set[CFGNode]] = field(default_factory=dict)
-
-
-def _merge_abrupt_exits(
-    *mappings: Mapping[str, set[CFGNode]],
-) -> dict[str, set[CFGNode]]:
-    merged: dict[str, set[CFGNode]] = defaultdict(set)
-    for mapping in mappings:
-        for kind, nodes in mapping.items():
-            merged[kind].update(nodes)
-    return dict(merged)
 
 
 def extract_call_expression(operation: py_ast.PythonASTNode | None):
@@ -384,11 +373,17 @@ class CFGSupergraphAdapter:
             cfg: self._infer_procedure_semantics(cfg) for cfg in self.cfgs
         }
         self._suite_exit_nodes: Dict[cfg_graph.CFGBlock, _OperationFragment] = {}
+        self._generated_catalogs = {}
 
         for cfg in self.cfgs:
             self._register_procedure(cfg)
         for cfg in self.cfgs:
             self._connect_procedure(cfg)
+        if self._generated_catalogs:
+            from pyflow.ir.core.build_semantics import build_semantics
+
+            for catalog in self._generated_catalogs.values():
+                build_semantics(catalog)
 
     def call_name(
         self,
@@ -899,7 +894,7 @@ class CFGSupergraphAdapter:
         exceptional_successors: list[CFGNode] = []
         for successor in self.supergraph.normal_successors(node):
             exit_name = node.block.findExit(successor.block)
-            if exit_name in ("error", "fail"):
+            if exit_name in ("error", "fail") or (node, successor) in self._exceptional_local_edges:
                 exceptional_successors.append(successor)
             else:
                 normal_successors.append(successor)
@@ -1072,7 +1067,6 @@ class CFGSupergraphAdapter:
                 entry=marker,
                 normal_exits={marker},
                 exceptional_exits=set(),
-                abrupt_exits={},
             )
 
         fragments = [
@@ -1099,7 +1093,6 @@ class CFGSupergraphAdapter:
                     *composed.exceptional_exits,
                     *fragment.exceptional_exits,
                 },
-                abrupt_exits=_merge_abrupt_exits(composed.abrupt_exits, fragment.abrupt_exits),
             )
         return composed
 
@@ -1113,11 +1106,13 @@ class CFGSupergraphAdapter:
         scope: tuple[str, ...],
     ) -> _OperationFragment:
         if isinstance(operation, py_ast.TryExceptFinally):
-            return self._lower_try_fragment(cfg, block, kind, operation, index, scope)
+            raise ValueError("IFDS requires try statements lowered by cfg.transform")
 
         nodes: list[CFGNode] = []
         previous: CFGNode | None = None
         call_expressions = iter_call_expressions_in_eval_order(operation)
+        if isinstance(block, cfg_graph.ExceptionMatch) and operation is block.condition:
+            call_expressions = iter_call_expressions_in_eval_order(block.handler_type)
         for call_index, call_expression in enumerate(call_expressions):
             node = self._new_node(
                 cfg,
@@ -1148,16 +1143,16 @@ class CFGSupergraphAdapter:
 
         normal_exits = set()
         # Every call may raise unless a future call model proves otherwise.
-        exceptional_exits = set(nodes[:-1]) if "try" in scope else set()
-        abrupt_exits: dict[str, set[CFGNode]] = {}
+        exceptional_exits = set(nodes[:-1])
+        if operation is not None:
+            from pyflow.ir.cfg.killflow import OpFlow
+
+            flow = OpFlow()
+            flow.process(operation)
+            if flow.fails or flow.errors:
+                exceptional_exits.add(terminal)
         if isinstance(operation, py_ast.Raise):
             exceptional_exits.add(terminal)
-        elif isinstance(operation, py_ast.Return) and "try" in scope:
-            abrupt_exits["return"] = {terminal}
-        elif isinstance(operation, py_ast.Break) and "try" in scope:
-            abrupt_exits["break"] = {terminal}
-        elif isinstance(operation, py_ast.Continue) and "try" in scope:
-            abrupt_exits["continue"] = {terminal}
         else:
             normal_exits.add(terminal)
 
@@ -1166,271 +1161,7 @@ class CFGSupergraphAdapter:
             entry=nodes[0],
             normal_exits=normal_exits,
             exceptional_exits=exceptional_exits,
-            abrupt_exits=abrupt_exits,
         )
-
-    def _lower_try_fragment(
-        self,
-        cfg: cfg_graph.Code,
-        block: cfg_graph.CFGBlock,
-        kind: str,
-        operation: py_ast.TryExceptFinally,
-        index: int | None,
-        scope: tuple[str, ...],
-    ) -> _OperationFragment:
-        body = self._lower_suite_fragment(
-            cfg,
-            block,
-            tuple(operation.body.blocks),
-            kind=kind,
-            parent_scope=scope + ("try", "body"),
-            index=index,
-        )
-
-        handler_fragments: list[_OperationFragment] = []
-        handler_types: list[tuple[str, ...]] = []
-        for handler_index, handler in enumerate(operation.handlers):
-            handler_parts: list[_OperationFragment] = []
-            preamble = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(handler.preamble.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "handler", str(handler_index), "preamble"),
-                index=index,
-            )
-            handler_parts.append(preamble)
-            if handler.value is not None:
-                handler_parts.append(
-                    self._lower_operation_fragment(
-                        cfg,
-                        block,
-                        kind,
-                        handler.value,
-                        index,
-                        scope + ("try", "handler", str(handler_index), "value"),
-                    )
-                )
-            handler_body = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(handler.body.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "handler", str(handler_index), "body"),
-                index=index,
-            )
-            handler_parts.append(handler_body)
-
-            fragment = handler_parts[0]
-            for next_part in handler_parts[1:]:
-                for exit_node in fragment.normal_exits:
-                    self._record_local_edge(exit_node, next_part.entry)
-                fragment = _OperationFragment(
-                    nodes=[*fragment.nodes, *next_part.nodes],
-                    entry=fragment.entry,
-                    normal_exits=set(next_part.normal_exits),
-                    exceptional_exits={
-                        *fragment.exceptional_exits,
-                        *next_part.exceptional_exits,
-                    },
-                    abrupt_exits=_merge_abrupt_exits(fragment.abrupt_exits, next_part.abrupt_exits),
-                )
-            handler_fragments.append(fragment)
-            handler_types.append(self._exception_type_names(handler.type))
-
-        default_fragment = None
-        if operation.defaultHandler is not None:
-            default_fragment = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(operation.defaultHandler.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "default"),
-                index=index,
-            )
-
-        else_fragment = None
-        if operation.else_ is not None:
-            else_fragment = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(operation.else_.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "else"),
-                index=index,
-            )
-
-        finally_normal = None
-        finally_exceptional = None
-        if operation.finally_ is not None:
-            finally_normal = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(operation.finally_.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "finally", "normal"),
-                index=index,
-            )
-            finally_exceptional = self._lower_suite_fragment(
-                cfg,
-                block,
-                tuple(operation.finally_.blocks),
-                kind=kind,
-                parent_scope=scope + ("try", "finally", "exceptional"),
-                index=index,
-            )
-
-        abrupt_inputs = _merge_abrupt_exits(
-            body.abrupt_exits,
-            *(fragment.abrupt_exits for fragment in handler_fragments),
-            default_fragment.abrupt_exits if default_fragment is not None else {},
-            else_fragment.abrupt_exits if else_fragment is not None else {},
-        )
-        finally_abrupt: dict[str, _OperationFragment] = {}
-        if operation.finally_ is not None:
-            for abrupt_kind in sorted(abrupt_inputs):
-                finally_abrupt[abrupt_kind] = self._lower_suite_fragment(
-                    cfg,
-                    block,
-                    tuple(operation.finally_.blocks),
-                    kind=kind,
-                    parent_scope=scope + ("try", "finally", "abrupt", abrupt_kind),
-                    index=index,
-                )
-
-        normal_out = self._new_node(
-            cfg,
-            block,
-            "try_normal_out",
-            index,
-            scope=scope + ("try", "normal_out"),
-            operation=operation,
-        )
-
-        nodes = [*body.nodes]
-        for fragment in handler_fragments:
-            nodes.extend(fragment.nodes)
-        if default_fragment is not None:
-            nodes.extend(default_fragment.nodes)
-        if else_fragment is not None:
-            nodes.extend(else_fragment.nodes)
-        if finally_normal is not None:
-            nodes.extend(finally_normal.nodes)
-        if finally_exceptional is not None:
-            nodes.extend(finally_exceptional.nodes)
-        for abrupt_kind in sorted(finally_abrupt):
-            nodes.extend(finally_abrupt[abrupt_kind].nodes)
-        nodes.append(normal_out)
-
-        normal_target = finally_normal.entry if finally_normal is not None else normal_out
-
-        for exit_node in body.normal_exits:
-            self._record_local_edge(
-                exit_node,
-                else_fragment.entry if else_fragment is not None else normal_target,
-            )
-
-        unhandled_body_exits: set[CFGNode] = set()
-        for exit_node in body.exceptional_exits:
-            raised_types = self._raised_exception_type_names(self._operation_by_node.get(exit_node))
-            matching_handlers = self._matching_handler_entries(
-                tuple(zip(handler_fragments, handler_types)), raised_types
-            )
-            if matching_handlers:
-                for target in matching_handlers:
-                    self._record_exceptional_local_edge(exit_node, target)
-                continue
-            if default_fragment is not None:
-                self._record_exceptional_local_edge(exit_node, default_fragment.entry)
-            elif finally_exceptional is not None:
-                self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
-            else:
-                unhandled_body_exits.add(exit_node)
-
-        abrupt_outputs: dict[str, set[CFGNode]] = defaultdict(set)
-        abrupt_finally_exceptions: set[CFGNode] = set()
-        for abrupt_kind, exit_nodes in abrupt_inputs.items():
-            finally_fragment = finally_abrupt.get(abrupt_kind)
-            if finally_fragment is None:
-                abrupt_outputs[abrupt_kind].update(exit_nodes)
-                continue
-            for exit_node in exit_nodes:
-                self._record_local_edge(exit_node, finally_fragment.entry)
-            abrupt_outputs[abrupt_kind].update(finally_fragment.normal_exits)
-            for override_kind, override_nodes in finally_fragment.abrupt_exits.items():
-                abrupt_outputs[override_kind].update(override_nodes)
-            abrupt_finally_exceptions.update(finally_fragment.exceptional_exits)
-
-        if else_fragment is not None:
-            for exit_node in else_fragment.normal_exits:
-                self._record_local_edge(exit_node, normal_target)
-
-        for fragment in handler_fragments:
-            for exit_node in fragment.normal_exits:
-                self._record_local_edge(exit_node, normal_target)
-            if finally_exceptional is not None:
-                for exit_node in fragment.exceptional_exits:
-                    self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
-
-        if default_fragment is not None:
-            for exit_node in default_fragment.normal_exits:
-                self._record_local_edge(exit_node, normal_target)
-            if finally_exceptional is not None:
-                for exit_node in default_fragment.exceptional_exits:
-                    self._record_exceptional_local_edge(exit_node, finally_exceptional.entry)
-
-        if finally_normal is not None:
-            for exit_node in finally_normal.normal_exits:
-                self._record_local_edge(exit_node, normal_out)
-            for abrupt_kind, exit_nodes in finally_normal.abrupt_exits.items():
-                abrupt_outputs[abrupt_kind].update(exit_nodes)
-        exceptional_exits: set[CFGNode] = set()
-        if finally_exceptional is not None:
-            exceptional_exits.update(finally_exceptional.normal_exits)
-            exceptional_exits.update(finally_exceptional.exceptional_exits)
-            for abrupt_kind, exit_nodes in finally_exceptional.abrupt_exits.items():
-                abrupt_outputs[abrupt_kind].update(exit_nodes)
-        else:
-            for fragment in handler_fragments:
-                exceptional_exits.update(fragment.exceptional_exits)
-            if default_fragment is not None:
-                exceptional_exits.update(default_fragment.exceptional_exits)
-            if not handler_fragments and default_fragment is None:
-                exceptional_exits.update(body.exceptional_exits)
-            exceptional_exits.update(unhandled_body_exits)
-        exceptional_exits.update(abrupt_finally_exceptions)
-
-        return _OperationFragment(
-            nodes=nodes,
-            entry=body.entry,
-            normal_exits={normal_out},
-            exceptional_exits=exceptional_exits,
-            abrupt_exits=dict(abrupt_outputs),
-        )
-
-    @staticmethod
-    def _exception_type_names(expr: object) -> tuple[str, ...]:
-        if expr is None:
-            return ()
-        if isinstance(expr, py_ast.Local) and expr.name:
-            return (expr.name,)
-        if isinstance(expr, py_ast.Existing):
-            value = getattr(expr.object, "pyobj", None)
-            if isinstance(value, tuple):
-                names: list[str] = []
-                for item in value:
-                    name = getattr(item, "__qualname__", None) or getattr(item, "__name__", None)
-                    if name:
-                        names.append(str(name))
-                return tuple(names)
-            name = getattr(value, "__qualname__", None) or getattr(value, "__name__", None)
-            return (str(name),) if name else ()
-        if isinstance(expr, (list, tuple)):
-            names: list[str] = []
-            for item in expr:
-                names.extend(CFGSupergraphAdapter._exception_type_names(item))
-            return tuple(dict.fromkeys(names))
-        return ()
 
     def _raised_exception_type_names(self, operation: object) -> tuple[str, ...]:
         if not isinstance(operation, py_ast.Raise):
@@ -1439,51 +1170,7 @@ class CFGSupergraphAdapter:
         if isinstance(exception, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
             name = self.call_name(exception)
             return (name,) if name else ()
-        return self._exception_type_names(exception)
-
-    @staticmethod
-    def _exception_name_matches(raised: str, handled: str) -> bool:
-        raised_leaf = raised.rsplit(".", 1)[-1]
-        handled_leaf = handled.rsplit(".", 1)[-1]
-        if raised == handled or raised_leaf == handled_leaf:
-            return True
-        raised_type = getattr(builtins, raised_leaf, None)
-        handled_type = getattr(builtins, handled_leaf, None)
-        return (
-            isinstance(raised_type, type)
-            and isinstance(handled_type, type)
-            and issubclass(raised_type, BaseException)
-            and issubclass(handled_type, BaseException)
-            and issubclass(raised_type, handled_type)
-        )
-
-    @classmethod
-    def _matching_handler_entries(
-        cls,
-        handlers: tuple[tuple[_OperationFragment, tuple[str, ...]], ...],
-        raised_types: tuple[str, ...],
-    ) -> tuple[CFGNode, ...]:
-        if not handlers:
-            return ()
-        if not raised_types:
-            # Unknown exceptions conservatively reach typed handlers up to and
-            # including the first bare handler.
-            entries: list[CFGNode] = []
-            for fragment, handled_types in handlers:
-                entries.append(fragment.entry)
-                if not handled_types:
-                    break
-            return tuple(entries)
-        for fragment, handled_types in handlers:
-            if not handled_types:
-                return (fragment.entry,)
-            if any(
-                cls._exception_name_matches(raised, handled)
-                for raised in raised_types
-                for handled in handled_types
-            ):
-                return (fragment.entry,)
-        return ()
+        return exception_type_names(exception)
 
     def _connect_procedure(self, cfg: cfg_graph.Code) -> None:
         blocks = self._reachable_blocks(cfg)
@@ -1509,8 +1196,77 @@ class CFGSupergraphAdapter:
                 # flow to a procedure exit.
                 if exit_name in ("fail", "error") and isinstance(successor, cfg_graph.Exit):
                     continue
-                for source in exit_sources(exit_name):
-                    self._connect_local_successor(source, self.first_node_of_block(successor))
+                for source in sorted(
+                    exit_sources(exit_name), key=lambda node: (node.scope, node.kind)
+                ):
+                    target = self.first_node_of_block(successor)
+                    if exit_name in ("fail", "error"):
+                        target = self._lower_exception_edge(cfg, source, successor, exit_name)
+                        self._record_exceptional_local_edge(source, target)
+                    self._connect_local_successor(source, target)
+
+    def _lower_exception_edge(self, cfg, source, successor, exit_name):
+        """Bind a captured value and specialize ordered handler dispatch.
+
+        A capture is shared by exceptional CFG predecessors. The supergraph
+        binds each incoming value on its own edge, retaining explicit raise
+        values and known types without re-lowering the source statement.
+        """
+        block = successor
+        seen = set()
+        while isinstance(block, cfg_graph.Merge) and block not in seen:
+            seen.add(block)
+            block = block.getExit("normal")
+        if not isinstance(block, cfg_graph.Suite) or not block.ops:
+            return self.first_node_of_block(successor)
+        capture = block.ops[0]
+        if not isinstance(capture, py_ast.InputBlock) or not all(
+            item.src.name == "exception" for item in capture.inputs
+        ):
+            return self.first_node_of_block(successor)
+        capture_node = next(
+            node for node in self._nodes_by_block[block] if self.operation_of(node) is capture
+        )
+        following = tuple(self._local_successors.get(capture_node, ()))
+        target = following[0] if following else self.first_node_of_block(block.getExit("normal"))
+        operation = self.operation_of(source)
+        raised_types = (
+            self._raised_exception_type_names(operation)
+            if exit_name == "fail" and source.kind != "call"
+            else ()
+        )
+        while isinstance(target.block, cfg_graph.ExceptionMatch) and raised_types:
+            matched = handler_match(raised_types, target.block.handler_type)
+            if matched is None:
+                break
+            target = self.first_node_of_block(target.block.getExit("true" if matched else "false"))
+        expression = self.call_expression_of(source)
+        if expression is None:
+            expression = (
+                operation.exception
+                if isinstance(operation, py_ast.Raise)
+                else getattr(operation, "expr", None)
+            )
+        binding = py_ast.Assign(
+            expression or py_ast.DoNotCare(), [item.lcl for item in capture.inputs]
+        )
+        if operation is not None:
+            binding.annotation = operation.annotation
+        catalog = self.catalog_by_procedure[cfg]
+        catalog.register_node(catalog.procedure(cfg.code).code_id, binding)
+        self._generated_catalogs[id(catalog)] = catalog
+        node = self._new_node(
+            cfg,
+            source.block,
+            "exception_bind",
+            source.index,
+            scope=source.scope + ("exception", str(len(self._operation_by_node))),
+            operation=binding,
+        )
+        self.supergraph.add_node(cfg, node)
+        self._record_local_edge(node, target)
+        self._connect_local_successor(node, target)
+        return node
 
     def _exit_sources_for_block(
         self,
@@ -1524,9 +1280,26 @@ class CFGSupergraphAdapter:
                 if exit_name == "normal":
                     return set(fragment.normal_exits)
                 if exit_name in ("error", "fail"):
-                    return set(fragment.exceptional_exits)
-                if isinstance(exit_name, str) and exit_name in fragment.abrupt_exits:
-                    return set(fragment.abrupt_exits[exit_name])
+                    result = set()
+                    from pyflow.ir.cfg.killflow import OpFlow
+
+                    for source in fragment.exceptional_exits:
+                        if source.kind == "call":
+                            if exit_name == "error":
+                                result.add(source)
+                            continue
+                        operation = self.operation_of(source)
+                        flow = OpFlow()
+                        flow.process(operation)
+                        if exit_name == "fail" and flow.fails:
+                            result.add(source)
+                        elif (
+                            exit_name == "error"
+                            and flow.errors
+                            and not isinstance(operation, py_ast.Raise)
+                        ):
+                            result.add(source)
+                    return result
                 return set(fragment.normal_exits)
 
             return resolve

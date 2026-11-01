@@ -60,12 +60,13 @@ Key options:
 - `--dump-mir [SCOPE]`: Dump the seven-instruction MIR program, optionally selecting a scope
 - `--mir-view {source,full}`: Text/DOT default to compact source inspection; JSON defaults to a complete export
 - `--mir-import-policy {strict,opaque}`: Source inspection defaults to opaque boundaries; complete exports require modeled imports and syntax
-- `--dump-ast FUNCTION`
-- `--dump-cfg FUNCTION`
-- `--dump-ssa FUNCTION`
-- `--dump-cdg FUNCTION`
-- `--dump-ddg FUNCTION`
-- `--dump-gir FUNCTION`
+- `--list-functions`: List available function names discovered in the input
+- `--dump-ast [FUNCTION]`: Dump AST for the specified function, or all functions if omitted or '*'
+- `--dump-cfg [FUNCTION]`: Dump CFG for a qualified function or unambiguous short name, or all functions if omitted or '*'
+- `--dump-ssa [FUNCTION]`: Dump SSA form for the specified function, or all functions if omitted or '*'
+- `--dump-cdg [FUNCTION]`: Dump Control Dependence Graph for the specified function, or all functions if omitted or '*'
+- `--dump-ddg [FUNCTION]`: Dump Data Dependence Graph for the specified function, or all functions if omitted or '*'
+- `--dump-gir [FUNCTION]`: Dump Lian-compatible GIR for the specified function, or all functions if omitted or '*'
 - `--dump-format`, choices: `text`, `dot`, `json`
 - `--dump-output DIRECTORY`: Persist artifacts here; omitted dumps go to stdout and leave the working directory untouched
 - `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`

@@ -819,11 +819,12 @@ def test_conditional_expression_in_loop_does_not_drop_the_procedure() -> None:
     assert len(result.findings) == 1
 
 
-def test_structured_try_joins_handler_effects() -> None:
+def test_lowered_try_joins_handler_effects() -> None:
     engine = _engine(
         "def target():\n"
         "    value = 'safe'\n"
         "    try:\n"
+        "        risky()\n"
         "        value = 'still safe'\n"
         "    except Exception:\n"
         "        value = input()\n"
@@ -833,14 +834,15 @@ def test_structured_try_joins_handler_effects() -> None:
     result = engine.analyze()
 
     assert len(result.findings) == 1
-    assert "cpg-exception-overapproximation" in {item.code for item in result.diagnostics}
+    assert "cpg-exception-overapproximation" not in {item.code for item in result.diagnostics}
 
 
-def test_structured_try_handles_bare_except_suite() -> None:
+def test_lowered_try_handles_bare_except_suite() -> None:
     engine = _engine(
         "def target():\n"
         "    value = 'safe'\n"
         "    try:\n"
+        "        risky()\n"
         "        value = 'still safe'\n"
         "    except:\n"
         "        value = input()\n"
@@ -850,7 +852,81 @@ def test_structured_try_handles_bare_except_suite() -> None:
     result = engine.analyze()
 
     assert len(result.findings) == 1
-    assert "cpg-exception-overapproximation" in {item.code for item in result.diagnostics}
+    assert "cpg-exception-overapproximation" not in {item.code for item in result.diagnostics}
+
+
+def test_lowered_try_does_not_execute_unreachable_handler() -> None:
+    result = _engine(
+        "def target():\n"
+        "    value = 'safe'\n"
+        "    try:\n        value = 'still safe'\n"
+        "    except:\n        value = input()\n"
+        "    eval(value)\n"
+    ).analyze()
+    assert result.findings == ()
+
+
+def test_lowered_try_temporaries_carry_taint_to_handler() -> None:
+    result = _engine(
+        "def target():\n"
+        "    try:\n        value = input()\n        risky()\n"
+        "    except:\n        eval(value)\n"
+    ).analyze()
+    assert len(result.findings) == 1
+
+
+def test_lowered_try_failed_rhs_does_not_overwrite_old_value() -> None:
+    result = _engine(
+        "def target():\n"
+        "    value = 'safe'\n"
+        "    try:\n        value = input()\n"
+        "    except:\n        eval(value)\n"
+    ).analyze()
+    assert result.findings == ()
+
+
+def test_lowered_try_bound_exception_carries_taint() -> None:
+    result = _engine(
+        "def target():\n"
+        "    try:\n        raise ValueError(input())\n"
+        "    except ValueError as error:\n        eval(error)\n"
+    ).analyze()
+    assert len(result.findings) == 1
+
+
+def test_lowered_try_dispatch_skips_known_nonmatching_handler() -> None:
+    result = _engine(
+        "def target():\n"
+        "    value = 'safe'\n"
+        "    try:\n        raise ValueError\n"
+        "    except TypeError:\n        value = input()\n"
+        "    except (ValueError, RuntimeError):\n        pass\n"
+        "    eval(value)\n"
+    ).analyze()
+    assert result.findings == ()
+
+
+def test_lowered_try_rethrows_exception_value_after_cleanup() -> None:
+    result = _engine(
+        "def target():\n"
+        "    try:\n"
+        "        try:\n            raise ValueError(input())\n"
+        "        finally:\n            marker = 1\n"
+        "    except ValueError as error:\n        eval(error)\n"
+    ).analyze()
+    assert len(result.findings) == 1
+
+
+@pytest.mark.parametrize("max_call_depth", [0, 3])
+def test_lowered_try_interprocedural_result_reaches_handler(max_call_depth) -> None:
+    result = _engine(
+        "def helper():\n    return input()\n"
+        "def target():\n"
+        "    try:\n        value = helper()\n        risky()\n"
+        "    except:\n        eval(value)\n",
+        max_call_depth=max_call_depth,
+    ).analyze()
+    assert len(result.findings) == 1
 
 
 def test_structured_try_finally_strong_overwrite_kills_taint() -> None:

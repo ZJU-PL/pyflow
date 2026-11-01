@@ -214,12 +214,12 @@ def test_ssa_match_uses_fresh_source_symbols(tmp_path):
     assert successful("ir", path, "--dump-ssa", "f").stdout.strip()
 
 
-def test_ssa_try_has_actionable_error(tmp_path):
+def test_ssa_try_exports_successfully(tmp_path):
     path = tmp_path / "sample.py"
     path.write_text("def f(x):\n    try: return x()\n    except Exception: return None\n")
     result = cli("ir", path, "--dump-ssa", "f")
-    assert result.returncode == 1
-    assert "--dump-cfg" in result.stderr and "try/except/finally" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip()
     assert "Traceback" not in result.stderr
 
 

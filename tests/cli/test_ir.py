@@ -143,6 +143,28 @@ def test_cfg_json_defaults_to_stdout_without_text_header(tmp_path, monkeypatch, 
     assert payload["cfg"]["entry"] == "B0"
 
 
+@pytest.mark.parametrize("flag", ["--dump-cfg", "--dump-ssa", "--dump-ddg"])
+@pytest.mark.parametrize("context_manager", [False, True])
+def test_exception_functions_export_json(tmp_path, flag, context_manager):
+    source = tmp_path / "sample.py"
+    body = (
+        "    with cm as value:\n        return value\n"
+        if context_manager
+        else "    try:\n        return cm()\n"
+        "    except ValueError:\n        return 0\n"
+        "    finally:\n        cleanup()\n"
+    )
+    source.write_text("def f(cm):\n" + body)
+    destination = tmp_path / "out"
+    ir_cli.run_ir_dump(
+        source,
+        parse_ir_args(source, flag, "f", "--dump-format", "json", "--dump-output", destination),
+    )
+    suffix = flag.removeprefix("--dump-")
+    payload = json.loads((destination / f"f_{suffix}.json").read_text())
+    assert payload
+
+
 def test_mir_default_output_is_json_stdout_without_working_directory_artifacts(
     tmp_path, monkeypatch, capsys
 ):
@@ -379,3 +401,52 @@ def test_ir_mixed_directory_still_dumps_good_files(tmp_path, capsys):
     captured = capsys.readouterr()
     assert any(output.glob("f_ast.*"))
     assert "Could not parse" in captured.out + captured.err
+
+
+def test_list_functions_text_and_json(tmp_path, capsys):
+    source = tmp_path / "mod.py"
+    source.write_text("def alpha(): return 1\ndef beta(): return 2\n")
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+
+    # Text format
+    args = parser.parse_args(["ir", str(source), "--list-functions"])
+    ir_cli.run_ir_dump(source, args)
+    out = capsys.readouterr().out
+    assert "Available functions" in out
+    assert "alpha" in out and "beta" in out
+
+    # JSON format
+    args_json = parser.parse_args(["ir", str(source), "--list-functions", "--dump-format", "json"])
+    ir_cli.run_ir_dump(source, args_json)
+    data = json.loads(capsys.readouterr().out)
+    assert "functions" in data
+    assert "alpha" in data["functions"] and "beta" in data["functions"]
+
+
+def test_dump_cfg_wildcard_dumps_all_functions(tmp_path):
+    source = tmp_path / "mod.py"
+    source.write_text("def f1(): return 1\ndef f2(): return 2\n")
+    output = tmp_path / "out"
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    args = parser.parse_args(["ir", str(source), "--dump-cfg", "*", "--dump-output", str(output)])
+    ir_cli.run_ir_dump(source, args)
+
+    dumps = {p.name for p in output.glob("*_cfg.*")}
+    assert any("f1" in name for name in dumps)
+    assert any("f2" in name for name in dumps)
+
+
+def test_dump_gir_wildcard_dumps_all_functions(tmp_path):
+    source = tmp_path / "mod.py"
+    source.write_text("def f1(): return 1\ndef f2(): return 2\n")
+    output = tmp_path / "out"
+    parser = argparse.ArgumentParser()
+    ir_cli.add_ir_parser(parser.add_subparsers())
+    args = parser.parse_args(["ir", str(source), "--dump-gir", "--dump-output", str(output)])
+    ir_cli.run_ir_dump(source, args)
+
+    dumps = {p.name for p in output.glob("*_gir.*")}
+    assert any("f1" in name for name in dumps)
+    assert any("f2" in name for name in dumps)

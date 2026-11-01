@@ -65,22 +65,29 @@ class TestCFGRegressions(unittest.TestCase):
     def decompile(self, func):
         return self.compiler.extractor.convertFunction(func, ssa=False)
 
-    def test_try_except_finally_is_preserved_as_structured_ast(self):
+    def test_try_except_finally_is_lowered_into_blocks(self):
         code = self.decompile(try_semantics)
 
         g = transform.evaluate(self.compiler, code)
-        structuralanalysis.evaluate(self.compiler, g)
+        nodes = []
+        dfs.CFGDFS(pre=nodes.append).process(g.entryTerminal)
+        self.assertFalse(
+            any(
+                isinstance(op, pyflow_ast.TryExceptFinally)
+                for block in nodes
+                for op in getattr(block, "ops", ())
+            )
+        )
+        verify_cfg(g)
+        with self.assertRaisesRegex(structuralanalysis.StructuralAnalysisError, "exception-aware"):
+            structuralanalysis.evaluate(self.compiler, g)
 
-        self.assertEqual(len(g.code.ast.blocks), 2)
-        self.assertIsInstance(g.code.ast.blocks[0], pyflow_ast.TryExceptFinally)
-        self.assertIsInstance(g.code.ast.blocks[1], pyflow_ast.Return)
-
-    def test_ssa_rejects_try_except_finally_explicitly(self):
+    def test_ssa_supports_try_except_finally(self):
         code = self.decompile(try_semantics)
         g = transform.evaluate(self.compiler, code)
 
-        with self.assertRaises(ssa.UnsupportedSSAError):
-            ssa.evaluate(self.compiler, g)
+        ssa.evaluate(self.compiler, g)
+        verify_cfg(g, code.ir_catalog)
 
     def test_typeswitch_flow_killer_recomputes_condition_flow(self):
         conditional = pyflow_ast.Local("value")

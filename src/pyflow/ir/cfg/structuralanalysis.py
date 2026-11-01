@@ -426,6 +426,12 @@ def findLoops(dj):
 
 
 def evaluate(compiler, g):
+    if g.has_exception_regions:
+        raise StructuralAnalysisError(
+            "exception-aware CFGs cannot yet be reconstructed as structured AST; "
+            "inspect the CFG or SSA directly"
+        )
+
     def forward(node):
         return node.normalForward()
 
