@@ -113,6 +113,7 @@ class _FunctionInfo:
     global_names: set[str] = field(default_factory=set)
     is_generator_source: bool = False
     effective_return: AbstractTypeValue | None = None
+    type_guard_target: tuple[str, AbstractTypeValue, bool] | None = None
 
 
 @dataclass
@@ -520,6 +521,20 @@ class StaticTypeInferenceEngine:
                     for name in statement.names
                 }
                 info.is_generator_source = self._contains_yield(node)
+                if node.returns is not None and isinstance(node.returns, ast.Subscript):
+                    guard_callee = self._qualified_callee_name(node.returns.value) or (
+                        node.returns.value.id if isinstance(node.returns.value, ast.Name) else ""
+                    )
+                    guard_short = guard_callee.rsplit(".", 1)[-1]
+                    if guard_short in {"TypeGuard", "TypeIs"}:
+                        guard_target = self._evaluate_type_expression(node.returns.slice)
+                        first_param = info.parameter_names[0] if info.parameter_names else None
+                        if first_param and not guard_target.unknown:
+                            info.type_guard_target = (
+                                first_param,
+                                guard_target,
+                                guard_short == "TypeIs",
+                            )
                 self._functions[qualified] = info
                 info.effective_return = self._decorator_effective_return(node, parent)
                 self._function_names.add(node.name)
@@ -2727,6 +2742,8 @@ class StaticTypeInferenceEngine:
                 max_union_size=self.options.max_union_size,
             )
         if name == "next" and arguments:
+            if len(arguments) > 1:
+                return self._join(self._iterable_element(arguments[0]), arguments[1])
             return self._iterable_element(arguments[0])
         if name == "sum":
             if not arguments:
@@ -2911,7 +2928,12 @@ class StaticTypeInferenceEngine:
                         )
                         return result
                     if node.attr == "pop":
-                        return AbstractTypeValue.from_type(item)
+                        result = AbstractTypeValue.from_type(item)
+                        if len(arguments) > 1:
+                            return self._join(result, arguments[1])
+                        return result
+                    if node.attr == "popitem":
+                        return AbstractTypeValue.from_type(TupleType((key, item)))
                     if node.attr == "keys":
                         return self._instance(cabc.KeysView, key)
                     if node.attr == "values":
@@ -2986,7 +3008,12 @@ class StaticTypeInferenceEngine:
                         )
                         return result
                     if node.attr == "pop":
-                        return AbstractTypeValue.from_type(item)
+                        result = AbstractTypeValue.from_type(item)
+                        if len(arguments) > 1:
+                            return self._join(result, arguments[1])
+                        return result
+                    if node.attr == "popitem":
+                        return AbstractTypeValue.from_type(TupleType((key, item)))
                     if node.attr == "keys":
                         return self._instance(cabc.KeysView, key)
                     if node.attr == "values":
@@ -3632,11 +3659,42 @@ class StaticTypeInferenceEngine:
             )
         if (
             isinstance(condition, ast.Call)
+            and condition.args
+            and key(condition.args[0]) is not None
+        ):
+            callee_name = self._qualified_callee_name(condition.func)
+            function_info = self._functions.get(callee_name) if callee_name else None
+            if function_info is None and isinstance(condition.func, ast.Name):
+                function_info = self._functions.get(f"{self._module_name}.{condition.func.id}")
+            if function_info is not None and function_info.type_guard_target is not None:
+                guard_param, guard_type, is_type_is = function_info.type_guard_target
+                expression = condition.args[0]
+                if truthy:
+                    result[key(expression)] = guard_type
+                elif is_type_is:
+                    old = current(expression)
+                    alternatives = [
+                        part
+                        for typ in old.types
+                        for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+                    ]
+                    result[key(expression)] = replace(
+                        old,
+                        types=frozenset(
+                            part
+                            for part in alternatives
+                            if not any(
+                                self.type_system.is_subtype(part, accepted)
+                                for accepted in guard_type.types
+                            )
+                        ),
+                    )
+        if (
+            isinstance(condition, ast.Call)
             and isinstance(condition.func, ast.Name)
             and condition.func.id == "callable"
             and condition.args
             and key(condition.args[0]) is not None
-            and truthy
         ):
             expression = condition.args[0]
             old = current(expression)
@@ -3645,24 +3703,42 @@ class StaticTypeInferenceEngine:
                 for typ in old.types
                 for part in (typ.items if isinstance(typ, UnionType) else (typ,))
             ]
-            callable_parts: set[ProperType] = set()
-            for part in alternatives:
-                if isinstance(part, (CallableType, TypeType, AnyType)):
-                    callable_parts.add(part)
-                elif isinstance(part, Instance):
-                    class_info = self._classes.get(part.type.full_name)
-                    has_call = part.type.raw_type is type or "__call__" in part.type.members
-                    if class_info is not None:
-                        has_call = has_call or (
-                            self._class_method(class_info.qualified_name, "__call__") is not None
-                        )
-                    if has_call:
+            if truthy:
+                callable_parts: set[ProperType] = set()
+                for part in alternatives:
+                    if isinstance(part, (CallableType, TypeType, AnyType)):
                         callable_parts.add(part)
-            if old.unknown and not callable_parts:
-                callable_parts.add(CallableType(None, ANY))
-            result[key(expression)] = AbstractTypeValue(
-                types=frozenset(callable_parts), unknown=old.unknown
-            )
+                    elif isinstance(part, Instance):
+                        class_info = self._classes.get(part.type.full_name)
+                        has_call = part.type.raw_type is type or "__call__" in part.type.members
+                        if class_info is not None:
+                            has_call = has_call or (
+                                self._class_method(class_info.qualified_name, "__call__")
+                                is not None
+                            )
+                        if has_call:
+                            callable_parts.add(part)
+                if old.unknown and not callable_parts:
+                    callable_parts.add(CallableType(None, ANY))
+                result[key(expression)] = AbstractTypeValue(
+                    types=frozenset(callable_parts), unknown=old.unknown
+                )
+            else:
+                non_callable_parts: set[ProperType] = set()
+                for part in alternatives:
+                    is_call = isinstance(part, (CallableType, TypeType))
+                    if isinstance(part, Instance):
+                        class_info = self._classes.get(part.type.full_name)
+                        has_call = part.type.raw_type is type or "__call__" in part.type.members
+                        if class_info is not None:
+                            has_call = has_call or (
+                                self._class_method(class_info.qualified_name, "__call__")
+                                is not None
+                            )
+                        is_call = is_call or has_call
+                    if not is_call:
+                        non_callable_parts.add(part)
+                result[key(expression)] = replace(old, types=frozenset(non_callable_parts))
         if (
             isinstance(condition, ast.Compare)
             and len(condition.ops) == 1
@@ -3842,7 +3918,24 @@ class StaticTypeInferenceEngine:
                     result,
                     current_function,
                 )
+        elif isinstance(pattern, ast.MatchValue):
+            scope = (
+                current_function.qualified_name
+                if current_function is not None
+                else self._module_name
+            )
+            val = self._evaluate_expression(
+                pattern.value, result, scope=scope, current_function=current_function
+            )
+            if isinstance(subject_node, ast.Name) and not val.unknown:
+                result[subject_node.id] = val
         elif isinstance(pattern, ast.MatchAs):
+            scope = (
+                current_function.qualified_name
+                if current_function is not None
+                else self._module_name
+            )
+            bound_value = subject
             if pattern.pattern is not None:
                 result = self._narrow_pattern(
                     pattern.pattern,
@@ -3851,8 +3944,28 @@ class StaticTypeInferenceEngine:
                     result,
                     current_function,
                 )
+                if isinstance(subject_node, ast.Name) and subject_node.id in result:
+                    bound_value = result[subject_node.id]
+                elif isinstance(pattern.pattern, ast.MatchClass):
+                    narrowed = self._evaluate_type_expression(pattern.pattern.cls)
+                    if not narrowed.unknown:
+                        bound_value = narrowed
+                elif isinstance(pattern.pattern, ast.MatchValue):
+                    val = self._evaluate_expression(
+                        pattern.pattern.value,
+                        result,
+                        scope=scope,
+                        current_function=current_function,
+                    )
+                    if not val.unknown:
+                        bound_value = val
+                elif isinstance(pattern.pattern, ast.MatchSingleton):
+                    if pattern.pattern.value is None:
+                        bound_value = AbstractTypeValue.from_type(NONE_TYPE)
+                    elif isinstance(pattern.pattern.value, bool):
+                        bound_value = self._instance(bool)
             if pattern.name is not None:
-                result[pattern.name] = subject
+                result[pattern.name] = bound_value
         elif isinstance(pattern, ast.MatchStar):
             if pattern.name is not None:
                 element = self._iterable_element(subject)
@@ -4038,8 +4151,8 @@ class StaticTypeInferenceEngine:
                 isinstance(candidate, Instance)
                 and inferred.class_targets
                 and any(
-                    isinstance(part, TypeType)
-                    or (isinstance(part, Instance) and part.type.raw_type is type)
+                    isinstance(part, (TypeType, CallableType))
+                    or (isinstance(part, Instance) and part.type.raw_type in {type, cabc.Callable})
                     for part in expected_parts
                 )
             ):

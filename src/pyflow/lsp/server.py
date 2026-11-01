@@ -18,6 +18,7 @@ from pyflow.frontend.interface_builder import (
 )
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.language.modules.project_resolution import ProjectContext
+from pyflow.language.modules.imports import infer_analysis_root
 from pyflow.util.application.console import Console
 from pyflow.frontend.source import read_python_source
 from .workspace import SourceIndex, WorkspaceDocuments, uri_to_path
@@ -271,9 +272,11 @@ class AnalysisManager:
         normalized_files = [Path(path).absolute() for path in python_files]
         if not normalized_files:
             raise ValueError("At least one Python file is required")
+        inferred_root = infer_analysis_root([str(p) for p in normalized_files])
         effective_root = os.path.abspath(
             root_path
             or self._root_path
+            or inferred_root
             or os.path.commonpath([str(p.parent) for p in normalized_files])
         )
         if _generation is None:

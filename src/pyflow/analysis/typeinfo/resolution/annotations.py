@@ -152,6 +152,21 @@ class BuiltinTypeLookup:
             "typing_extensions.Tuple",
         }:
             return TupleType((ANY,), unknown_size=True)
+        if qualified_name in {
+            "LiteralString",
+            "typing.LiteralString",
+            "typing_extensions.LiteralString",
+        }:
+            return Instance(ClassDescriptor(str))
+        if qualified_name in {
+            "TypeGuard",
+            "TypeIs",
+            "typing.TypeGuard",
+            "typing.TypeIs",
+            "typing_extensions.TypeGuard",
+            "typing_extensions.TypeIs",
+        }:
+            return Instance(ClassDescriptor(bool))
         if qualified_name.startswith(("typing.", "typing_extensions.", "collections.abc.")):
             import typing
             import collections.abc
@@ -332,6 +347,15 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         return ANY
     if name in {"Never", "NoReturn"}:
         return NEVER
+
+    if name in {"TypeGuard", "TypeIs"}:
+        from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
+
+        return Instance(ClassDescriptor(bool))
+    if name == "LiteralString":
+        from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
+
+        return Instance(ClassDescriptor(str))
     if qualified in {"typing.Callable", "typing_extensions.Callable", "collections.abc.Callable"}:
         return CallableType(None, ANY)
     if qualified in {"typing.Tuple", "typing_extensions.Tuple"}:
@@ -423,6 +447,16 @@ def _resolve_special_form(
 
     if name in {"Never", "NoReturn"}:
         return NEVER
+
+    if name in {"TypeGuard", "TypeIs"}:
+        from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
+
+        return Instance(ClassDescriptor(bool))
+
+    if name == "LiteralString":
+        from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
+
+        return Instance(ClassDescriptor(str))
 
     if name in {"Type", "type", "builtins.type"} and args:
         return TypeType(_resolve_expr(args[0], lookup) or ANY)

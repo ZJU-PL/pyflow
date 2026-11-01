@@ -43,7 +43,14 @@ PROXY_CLASS_TYPES: set[str] = {"Tuple", "Generic", "Protocol", "Callable", "Type
 
 PROXY_TYPES: set[str] = {"Optional", "Union", "ClassVar", "Annotated", "Final"}
 
-IGNORE_ANNOTATION_PARTS: set[str] = {"ClassVar", "Annotated", "Final", "Required", "NotRequired"}
+IGNORE_ANNOTATION_PARTS: set[str] = {
+    "ClassVar",
+    "Annotated",
+    "Final",
+    "Required",
+    "NotRequired",
+    "ReadOnly",
+}
 
 # ---------------------------------------------------------------------------
 # Type alias resolution

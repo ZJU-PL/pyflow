@@ -723,3 +723,98 @@ def bad() -> list[Message]:
     mismatches = [d for d in result.diagnostics if d.code == "annotation-mismatch"]
     assert len(mismatches) == 1
     assert "missing keys ['content']" in mismatches[0].message
+
+
+def test_readonly_typeddict_fields_and_literal_string() -> None:
+    source = """
+from typing import TypedDict, LiteralString
+from typing_extensions import ReadOnly
+
+class Movie(TypedDict):
+    title: ReadOnly[str]
+    year: int
+
+def query(sql: LiteralString) -> Movie:
+    return {"title": "Inception", "year": 2010}
+"""
+    result = infer(source, strict=True)
+    assert not [
+        d for d in result.diagnostics if d.code in {"unresolved-annotation", "annotation-mismatch"}
+    ]
+
+
+def test_typeguard_and_typeis_return_types_and_narrowing() -> None:
+    source = """
+from typing import TypeGuard
+
+def is_str(val: object) -> TypeGuard[str]:
+    return isinstance(val, str)
+
+def run(x: int | str):
+    if is_str(x):
+        y = x
+        return y
+    return "non-string"
+"""
+    result = infer(source, strict=True)
+    summary = result.functions["m.is_str"]
+    assert summary.return_type is not None and str(summary.return_type) == "bool"
+    for span, val in result.expressions.items():
+        if span.lineno == 9 and span.col_offset == 12:
+            assert str(val.public_type()) == "str"
+
+
+def test_class_object_constructor_is_compatible_with_callable_annotation() -> None:
+    source = """
+from typing import Callable
+
+class Point:
+    def __init__(self, x: int):
+        self.x = x
+
+def factory(fn: Callable[[int], Point]) -> Point:
+    return fn(42)
+
+p = factory(Point)
+"""
+    result = infer(source, strict=True)
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert str(result.type_of("p")) == "m.Point"
+
+
+def test_match_as_and_match_value_narrow_bindings() -> None:
+    source = """
+def match_as(x: int | str):
+    match x:
+        case int() as val:
+            y = val
+        case str() as val:
+            z = val
+
+def match_val(x: int | str):
+    match x:
+        case 42:
+            y = x
+        case "hello":
+            z = x
+"""
+    result = infer(source, strict=True)
+    for span, val in result.expressions.items():
+        if span.lineno in (5, 12) and span.col_offset == 16:
+            assert str(val.public_type()) == "int"
+        if span.lineno in (7, 14) and span.col_offset == 16:
+            assert str(val.public_type()) == "str"
+
+
+def test_next_and_pop_default_and_popitem() -> None:
+    source = """
+it = iter([1, 2, 3])
+v1 = next(it, None)
+d = {"a": 1}
+v2 = d.pop("missing", "default")
+item = d.popitem()
+"""
+    result = infer(source, strict=True)
+    assert str(result.type_of("v1")) == "None | int"
+    assert str(result.type_of("v2")) == "int | str"
+    assert str(result.type_of("item")) == "tuple[str, int]"

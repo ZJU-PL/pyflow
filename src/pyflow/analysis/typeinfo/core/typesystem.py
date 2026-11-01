@@ -1157,8 +1157,29 @@ class _SubtypeVisitor(TypeVisitor[bool]):
     def visit_type_type(self, left: TypeType) -> bool:
         if isinstance(self.right, TypeType):
             return self.sub_type_check(left.item, self.right.item)
-        # ``type[T]`` is a subtype of the builtin ``type`` (and ``object``).
-        return isinstance(self.right, Instance) and self.right.type.raw_type in {type, object}
+        if isinstance(self.right, CallableType):
+            if isinstance(left.item, Instance):
+                if not self.sub_type_check(left.item, self.right.return_type):
+                    return False
+                if self.right.arg_types is None:
+                    return True
+                init = self.graph.get_members(left.item.type).get("__init__")
+                if isinstance(init, CallableType) and init.arg_types is not None:
+                    ctor_args = init.arg_types
+                    if len(ctor_args) != len(self.right.arg_types):
+                        return False
+                    return all(
+                        self.sub_type_check(expected, actual)
+                        for expected, actual in zip(self.right.arg_types, ctor_args)
+                    )
+                return not self.right.arg_types
+            return self.sub_type_check(left.item, self.right.return_type)
+        # type[T] is a subtype of the builtin type (and object, Callable).
+        return isinstance(self.right, Instance) and self.right.type.raw_type in {
+            type,
+            object,
+            cabc.Callable,
+        }
 
     def visit_string_subtype(self, left: StringSubtype) -> bool:
         if isinstance(self.right, StringSubtype):
