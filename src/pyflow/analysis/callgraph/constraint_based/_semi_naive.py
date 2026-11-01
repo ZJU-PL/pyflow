@@ -158,7 +158,28 @@ class SemiNaiveConstraintSolver:
                 )
 
     def _scope_local_names(self, scope) -> set[str]:
-        names = set(scope.params) | set(scope.closure_vars)
+        module_bindings = self.builder.module_bindings.get(scope.module, {})
+        enclosing_locals: set[str] = set()
+        current = getattr(scope, "parent_scope", None)
+        while current is not None and current in self.builder.scopes:
+            parent = self.builder.scopes[current]
+            enclosing_locals.update(parent.params)
+            for stmt in parent.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    enclosing_locals.add(stmt.name)
+                elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                    targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                    for t in targets:
+                        if isinstance(t, ast.Name):
+                            enclosing_locals.add(t.id)
+            current = getattr(parent, "parent_scope", None)
+
+        actual_closure_vars = {
+            name
+            for name in scope.closure_vars
+            if name in enclosing_locals or name not in module_bindings
+        }
+        names = set(scope.params) | actual_closure_vars
 
         class StoreVisitor(ast.NodeVisitor):
             def visit_Name(self, node: ast.Name) -> None:

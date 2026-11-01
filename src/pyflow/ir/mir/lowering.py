@@ -339,6 +339,9 @@ class PythonToMIR:
                     f"literal {type(node.value).__name__} is not in MIR's "
                     "bool/int/string primitive model",
                 )
+            if isinstance(node.value, bool):
+                # True/False are singletons in Python; ``x is True`` must hold.
+                return rt.builtin("True" if node.value else "False")
             return rt.box(b, node.value)
         if isinstance(node, ast.Name):
             return self.load_name(node)
@@ -398,14 +401,15 @@ class PythonToMIR:
                 else:
                     more = b.alloc(ListExpr((self.expression(item),)), "element")
                 b.emit(Alloc(values.name, Binary("+", values, more)))
+            if isinstance(node, ast.Set):
+                # A set display inserts elements one by one, so duplicates
+                # collapse.  Tagging the raw element list as "set" skipped that
+                # step and produced e.g. len({1, 1, 2}) == 3.
+                return self.call(rt.builtin("set"), (rt.box(b, values, "list"),))
             return rt.box(
                 b,
                 values,
-                (
-                    "list"
-                    if isinstance(node, ast.List)
-                    else "tuple" if isinstance(node, ast.Tuple) else "set"
-                ),
+                "list" if isinstance(node, ast.List) else "tuple",
             )
         if isinstance(node, ast.Dict):
             result = rt.sequence(b, (), "dict")
@@ -794,7 +798,15 @@ class PythonToMIR:
         self.statements(body)
         b.finish()
         self._restore(state)
-        value = rt.function(outer, name)
+        declared_defaults = bool(node.args.defaults) or any(
+            default is not None for default in node.args.kw_defaults
+        )
+        value = rt.function(
+            outer,
+            name,
+            defaults_ref if declared_defaults else None,
+            kw_defaults_ref if declared_defaults else None,
+        )
         for decorator in reversed(decorators):
             value = self.call(decorator, (value,))
         return value
@@ -817,6 +829,24 @@ class PythonToMIR:
         b.join(nested_tails, b.tails)
         positional = (*arguments.posonlyargs, *arguments.args)
         default_start = len(positional) - len(arguments.defaults)
+        has_defaults = bool(arguments.defaults) or any(
+            default is not None for default in arguments.kw_defaults
+        )
+        if has_defaults:
+            defaults_source = self._defaults_source(
+                b, original, defaults_env, defaults_name, "$defaults"
+            )
+            kwdefaults_source = self._defaults_source(
+                b, original, defaults_env, kw_defaults_name, "$kwdefaults"
+            )
+            # The dispatcher forwards the callee under a reserved keyword so
+            # defaults can be read from the function object.  Remove it before
+            # any other binding so it cannot reach ``**kwargs`` or the
+            # "unexpected keyword" check.
+        present, absent = b.branch(Binary("in", Literal("$callee"), named))
+        b.use(present)
+        b.emit(Delete(field(named, "$callee")))
+        b.join(b.tails, absent)
         for offset, argument in enumerate(positional):
             haspos, nopos = b.branch(Not(Binary("<", Length(Var("$args")), Literal(offset + 1))))
             b.use(haspos)
@@ -838,7 +868,7 @@ class PythonToMIR:
             else:
                 kwtails = set()
             if offset >= default_start:
-                default = field(field(defaults_env, defaults_name), offset - default_start + 1)
+                default = field(defaults_source, offset - default_start + 1)
                 b.assign(argument.arg, default)
             else:
                 self.error("TypeError")
@@ -851,7 +881,7 @@ class PythonToMIR:
             kwtails = set(b.tails)
             b.use(nokw)
             if default is not None:
-                b.assign(arg.arg, field(field(defaults_env, kw_defaults_name), arg.arg))
+                b.assign(arg.arg, field(kwdefaults_source, arg.arg))
             else:
                 self.error("TypeError")
             b.join(kwtails, b.tails)
@@ -904,6 +934,27 @@ class PythonToMIR:
             self.error("TypeError")
             b.use(empty)
 
+    def _defaults_source(self, b, original, env, legacy_name, field_name):
+        """Container holding this function's default values.
+
+        The dispatcher forwards the callee (reserved ``$callee`` keyword) so a
+        ``def`` that runs repeatedly keeps the defaults that were evaluated for
+        each resulting function object.  Programs built by hand, or closures
+        invoked without the dispatcher, fall back to the enclosing environment
+        slot used before this handoff existed.
+        """
+        source = Var(b.temp("defaults"))
+        b.assign(source, field(env, legacy_name))
+        callee = Var(b.temp("callee"))
+        has_callee, no_callee = b.branch(Binary("in", Literal("$callee"), original))
+        b.use(has_callee)
+        b.assign(callee, field(original, "$callee"))
+        has_field, no_field = b.branch(Binary("in", Literal(field_name), callee))
+        b.use(has_field)
+        b.assign(source, field(callee, field_name))
+        b.join(b.tails, no_field, no_callee)
+        return source
+
     def defining_environment(self):
         """Environment containing a method's lexically created class object."""
         env = Var("$parent")
@@ -946,7 +997,7 @@ class PythonToMIR:
     def _statement(self, node):
         b, rt = self.b, self.runtime
         b.lineno = getattr(node, "lineno", b.lineno)
-        if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal, getattr(ast, "TypeAlias", ()))):
+        if isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal)):
             return
         if isinstance(node, ast.Expr):
             # Literal expression statements (including docstrings) have no
@@ -1542,10 +1593,33 @@ def _module_name(path, root):
     return ".".join(parts) or root.name
 
 
+_PROJECT_MARKERS = (
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "tox.ini",
+    "requirements.txt",
+    ".git",
+)
+
+
 def _default_root(path):
+    """Best-effort import root for a file or an ``__init__.py`` path.
+
+    Regular packages are delimited by ``__init__.py``.  PEP 420 namespace
+    packages have none, so walking upwards would stop inside the package and
+    turn ``from .x import y`` into a bogus "relative import escapes the
+    package" error.  In that case prefer the nearest project marker.
+    """
     root = path.parent
     while (root / "__init__.py").is_file():
         root = root.parent
+    if root == path.parent and not (root / "__init__.py").is_file():
+        candidate = path.parent
+        while candidate != candidate.parent:
+            if any((candidate / marker).exists() for marker in _PROJECT_MARKERS):
+                return candidate
+            candidate = candidate.parent
     return root
 
 

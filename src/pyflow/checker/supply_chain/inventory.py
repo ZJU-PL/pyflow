@@ -105,7 +105,12 @@ def dedupe_components(
     ref_map: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     components = list(components)
-    applications = {item["name"]: item for item in components if item.get("type") == "application"}
+    applications: dict[str, dict[str, Any]] = {}
+    for item in components:
+        if item.get("type") == "application":
+            name = item.get("name")
+            if name and (name not in applications or item.get("licenses")):
+                applications[name] = item
     # A lockfile can supply a dynamic root version absent from pyproject.toml.
     # Carry the root's license/type into that local project entry before merge.
     for item in components:

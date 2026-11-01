@@ -106,13 +106,19 @@ class Runtime:
             characters = getattr(b, "_characters_cache", None)
             if characters is None:
                 characters = b._characters_cache = {}
+            # A cached character object is only reusable within the control-flow
+            # region that emitted it.  Reusing one across a branch, loop, or
+            # join would reference a definition that does not dominate the new
+            # use (``if flag: s = "z"`` followed by another ``"z"``).
+            epoch = getattr(b, "flow_epoch", 0)
             for character in value:
-                char = characters.get(character)
+                key = (character, epoch)
+                char = characters.get(key)
                 if char is None:
                     char = self.obj(b, "str")
                     b.assign(field(char, "$value"), self.raw(b, character))
                     b.assign(field(char, "$chars"), b.alloc(ListExpr((char,)), "char"))
-                    characters[character] = char
+                    characters[key] = char
                 chars.append(char)
             b.assign(field(result, "$chars"), b.alloc(ListExpr(tuple(chars)), "chars"))
         return result
@@ -120,11 +126,19 @@ class Runtime:
     def sequence(self, b, items, cls="list"):
         return self.box(b, ListExpr(tuple(items)), cls)
 
-    def function(self, b, body):
+    def function(self, b, body, defaults=None, kwdefaults=None):
         result = self.obj(b, "function")
         closure = b.alloc(Lambda("$args", "$kwargs", "$parent", body, "$return"), "code")
         b.assign(field(result, "$function"), self.raw(b, True))
         b.assign(field(result, "__call__"), closure)
+        # Python evaluates defaults when the ``def`` statement runs, and each
+        # resulting function object keeps its own values.  Storing them on the
+        # object (rather than in the enclosing environment slot) keeps repeated
+        # executions of one ``def`` -- a loop, for instance -- independent.
+        if defaults is not None:
+            b.assign(field(result, "$defaults"), defaults)
+        if kwdefaults is not None:
+            b.assign(field(result, "$kwdefaults"), kwdefaults)
         return result
 
     def prologue(self, b):
@@ -260,6 +274,17 @@ class Runtime:
         b.use({loop})
         function, notfunction = b.branch(Binary("in", Literal("$function"), callee))
         b.use(function)
+        # The callee's own parameter prologue resolves default arguments, and
+        # those live on the function object.  Forward it through the keyword
+        # container under a reserved name; ``parameters`` removes the entry
+        # again before binding user parameters, so it never leaks into
+        # ``**kwargs`` or into builtin arity checks.
+        hasdefaults, nodefaults = b.branch(Binary("in", Literal("$defaults"), callee))
+        b.use(hasdefaults)
+        b.assign(field(kwargs, "$callee"), callee)
+        withdefaults = set(b.tails)
+        b.use(nodefaults)
+        b.join(withdefaults, b.tails)
         result = b.call(field(callee, "__call__"), args, kwargs)
         b.ret(result)
         b.use(notfunction)

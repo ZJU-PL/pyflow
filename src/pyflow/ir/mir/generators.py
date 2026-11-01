@@ -394,7 +394,15 @@ def lower_generator(compiler, node, lambda_body=None, _body_emitter=None):
     b.finish()
     _lift_frame(b.cfg)
     compiler._restore(saved)
-    function = rt.function(outer, factory_name)
+    declared_defaults = bool(node.args.defaults) or any(
+        default is not None for default in node.args.kw_defaults
+    )
+    function = rt.function(
+        outer,
+        factory_name,
+        defaults_ref if declared_defaults else None,
+        kwdefaults_ref if declared_defaults else None,
+    )
     for decorator in reversed(decorators):
         function = compiler.call(decorator, (function,))
     return function

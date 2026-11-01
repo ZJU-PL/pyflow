@@ -618,7 +618,11 @@ def run_supply_chain(args: Any) -> int:
         if out_file:
             if commit_output:
                 out_file.flush()
-                os.fsync(out_file.fileno())
+                if not (output_path and _is_device_path(output_path)):
+                    try:
+                        os.fsync(out_file.fileno())
+                    except OSError:
+                        pass
             out_file.close()
         if temporary_output is not None:
             if commit_output and output_path is not None:

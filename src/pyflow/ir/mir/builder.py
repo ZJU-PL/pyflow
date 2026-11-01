@@ -45,6 +45,11 @@ class Builder:
         self.tails = {0}
         self.counter = 0
         self.lineno = None
+        # Monotonic control-flow epoch.  Values cached by the frontend (string
+        # characters, for instance) may only be reused while the epoch is
+        # unchanged: after a branch, jump, or join a definition emitted earlier
+        # no longer dominates the new program point.
+        self.flow_epoch = 0
 
     @property
     def name(self):
@@ -83,7 +88,12 @@ class Builder:
     def assign(self, target, value):
         self.emit(Bind(target if not isinstance(target, str) else Var(target), value))
 
+    def new_flow_epoch(self):
+        """Start a region in which cached definitions may not be reused."""
+        self.flow_epoch += 1
+
     def branch(self, condition):
+        self.new_flow_epoch()
         yes = self.node(Assume(condition))
         no = self.node(Assume(Not(condition)))
         self.connect(self.tails, yes)
@@ -92,13 +102,16 @@ class Builder:
         return {yes}, {no}
 
     def use(self, tails):
+        self.new_flow_epoch()
         self.tails = set(tails)
 
     def jump(self, target):
+        self.new_flow_epoch()
         self.connect(self.tails, target)
         self.tails = set()
 
     def join(self, *tails):
+        self.new_flow_epoch()
         self.tails = set().union(*tails)
 
     def call(self, function, args, kwargs):
@@ -117,6 +130,7 @@ class Builder:
         self.jump(self.cfg.exit)
 
     def finish(self):
+        self.new_flow_epoch()
         self.connect(self.tails, self.cfg.exit)
         self.tails = set()
         return self.cfg
