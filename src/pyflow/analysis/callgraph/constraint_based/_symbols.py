@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 from collections import defaultdict, deque
 from typing import DefaultDict, Dict, Optional, Sequence, Set, List
 
@@ -20,6 +21,9 @@ from .model import (
     make_string,
     copy_env,
 )
+
+# Builtins resolve through the global/builtin fallback, not as closure vars.
+_BUILTIN_NAMES = frozenset(dir(builtins))
 
 
 class _SymbolAnalysisMixin:
@@ -88,7 +92,11 @@ class _SymbolAnalysisMixin:
             visitor.visit(stmt)
 
         closure = {
-            name for name in loaded_names if name not in local_names and name not in global_names
+            name
+            for name in loaded_names
+            if name not in local_names
+            and name not in global_names
+            and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
         return closure
@@ -112,7 +120,11 @@ class _SymbolAnalysisMixin:
                 elif isinstance(inner.ctx, (ast.Store, ast.Del)):
                     stored_names.add(inner.id)
         local_names.update(stored_names)
-        return {name for name in loaded_names if name not in local_names}
+        return {
+            name
+            for name in loaded_names
+            if name not in local_names and name not in _BUILTIN_NAMES
+        }
 
     def _infer_scope_directives(self, statements: Sequence[ast.stmt]) -> tuple[set[str], set[str]]:
         """Collect direct-scope `global` and `nonlocal` declarations."""
@@ -207,7 +219,11 @@ class _SymbolAnalysisMixin:
             visitor.visit(stmt)
 
         closure = {
-            name for name in loaded_names if name not in local_names and name not in global_names
+            name
+            for name in loaded_names
+            if name not in local_names
+            and name not in global_names
+            and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
         return closure
