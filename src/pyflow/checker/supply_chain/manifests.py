@@ -867,6 +867,21 @@ def _expand_dependency_groups(
     return resolved
 
 
+def _resolve_dynamic_file_paths(base_dir: Path, file_spec: Any) -> list[Path] | None:
+    if isinstance(file_spec, str):
+        candidates = [file_spec]
+    elif isinstance(file_spec, (list, tuple)):
+        candidates = [str(f) for f in file_spec if isinstance(f, str)]
+    else:
+        return None
+    if not candidates:
+        return None
+    paths = [base_dir / f for f in candidates]
+    if all(p.is_file() for p in paths):
+        return paths
+    return None
+
+
 def _components_from_pyproject(
     path: Path,
     findings: list[SupplyChainFinding],
@@ -884,16 +899,6 @@ def _components_from_pyproject(
         _manifest_type_finding(path, findings, "project.dynamic", "an array")
         dynamic_values = ()
     dynamic_fields = {str(value) for value in dynamic_values if isinstance(value, str)}
-    if "dependencies" in dynamic_fields or "optional-dependencies" in dynamic_fields:
-        findings.append(
-            SupplyChainFinding(
-                kind="dynamic-dependency-metadata",
-                message="Project dependencies are computed dynamically and cannot be inventoried statically",
-                location=str(path),
-                severity="HIGH",
-                details={"fields": sorted(dynamic_fields)},
-            )
-        )
     build_system = _mapping_field(data, "build-system", path, findings)
     backend_path = build_system.get("backend-path", ()) or ()
     if not isinstance(backend_path, (list, tuple)):
@@ -916,9 +921,13 @@ def _components_from_pyproject(
         "flit_core.buildapi",
         "hatchling.build",
         "poetry.core.masonry.api",
+        "poetry.masonry.api",
         "pdm.backend",
         "maturin",
         "mesonpy",
+        "scikit_build_core.build",
+        "trampolim",
+        "whey",
     }
     if backend and backend not in trusted_backends:
         findings.append(
@@ -965,6 +974,118 @@ def _components_from_pyproject(
                 ",".join(str(value) for value in license_files),
             )
         components.append(root)
+
+    resolved_dynamic_fields: set[str] = set()
+    setuptools_table = (
+        tool.get("setuptools", {}) if isinstance(tool.get("setuptools"), dict) else {}
+    )
+    setuptools_dynamic = (
+        setuptools_table.get("dynamic", {}) if isinstance(setuptools_table, dict) else {}
+    )
+    if not isinstance(setuptools_dynamic, dict):
+        setuptools_dynamic = {}
+
+    if "dependencies" in dynamic_fields:
+        dep_cfg = setuptools_dynamic.get("dependencies")
+        file_spec = dep_cfg.get("file") if isinstance(dep_cfg, dict) else None
+        paths = _resolve_dynamic_file_paths(path.parent, file_spec) if file_spec else None
+        if paths is not None:
+            resolved_dynamic_fields.add("dependencies")
+            for req_path in paths:
+                req_components = _components_from_requirements(
+                    req_path, findings, limits, root=path.parent, scope="runtime"
+                )
+                components.extend(req_components)
+                if root is not None:
+                    for comp in req_components:
+                        edges.append((str(root["purl"]), str(comp["purl"])))
+
+    if "optional-dependencies" in dynamic_fields:
+        opt_cfg = setuptools_dynamic.get("optional-dependencies")
+        if isinstance(opt_cfg, dict) and opt_cfg:
+            all_resolved = True
+            for group, group_cfg in opt_cfg.items():
+                file_spec = group_cfg.get("file") if isinstance(group_cfg, dict) else None
+                paths = _resolve_dynamic_file_paths(path.parent, file_spec) if file_spec else None
+                if paths is not None:
+                    for req_path in paths:
+                        req_components = _components_from_requirements(
+                            req_path,
+                            findings,
+                            limits,
+                            root=path.parent,
+                            scope=f"optional:{group}",
+                        )
+                        components.extend(req_components)
+                        if root is not None:
+                            for comp in req_components:
+                                edges.append((str(root["purl"]), str(comp["purl"])))
+                else:
+                    all_resolved = False
+            if all_resolved:
+                resolved_dynamic_fields.add("optional-dependencies")
+
+    hatch_hooks = (
+        tool.get("hatch", {}).get("metadata", {}).get("hooks", {})
+        if isinstance(tool.get("hatch"), dict)
+        and isinstance(tool.get("hatch", {}).get("metadata"), dict)
+        else {}
+    )
+    hatch_reqs = hatch_hooks.get("requirements_txt", {}) if isinstance(hatch_hooks, dict) else {}
+    if isinstance(hatch_reqs, dict):
+        if "dependencies" in dynamic_fields and "dependencies" not in resolved_dynamic_fields:
+            paths = _resolve_dynamic_file_paths(path.parent, hatch_reqs.get("files"))
+            if paths is not None:
+                resolved_dynamic_fields.add("dependencies")
+                for req_path in paths:
+                    req_components = _components_from_requirements(
+                        req_path, findings, limits, root=path.parent, scope="runtime"
+                    )
+                    components.extend(req_components)
+                    if root is not None:
+                        for comp in req_components:
+                            edges.append((str(root["purl"]), str(comp["purl"])))
+        if (
+            "optional-dependencies" in dynamic_fields
+            and "optional-dependencies" not in resolved_dynamic_fields
+        ):
+            opt_groups = hatch_reqs.get("optional-dependencies")
+            if isinstance(opt_groups, dict) and opt_groups:
+                all_resolved = True
+                for group, files in opt_groups.items():
+                    paths = _resolve_dynamic_file_paths(path.parent, files)
+                    if paths is not None:
+                        for req_path in paths:
+                            req_components = _components_from_requirements(
+                                req_path,
+                                findings,
+                                limits,
+                                root=path.parent,
+                                scope=f"optional:{group}",
+                            )
+                            components.extend(req_components)
+                            if root is not None:
+                                for comp in req_components:
+                                    edges.append((str(root["purl"]), str(comp["purl"])))
+                    else:
+                        all_resolved = False
+                if all_resolved:
+                    resolved_dynamic_fields.add("optional-dependencies")
+
+    unresolved_dynamic = (dynamic_fields - resolved_dynamic_fields) & {
+        "dependencies",
+        "optional-dependencies",
+    }
+    if unresolved_dynamic:
+        findings.append(
+            SupplyChainFinding(
+                kind="dynamic-dependency-metadata",
+                message="Project dependencies are computed dynamically and cannot be inventoried statically",
+                location=str(path),
+                severity="HIGH",
+                details={"fields": sorted(unresolved_dynamic)},
+            )
+        )
 
     declared: list[tuple[str, str, str | None]] = []
 
@@ -1642,11 +1763,11 @@ def _components_from_toml_lock(
                 dependency_name = dependency.get("name")
                 dependency_version = dependency.get("version")
                 dependency_marker = dependency.get("marker")
-                if dependency_name and dependency_version and dependency_marker:
+                if dependency_name and dependency_marker:
                     version_markers.setdefault(
                         (
                             canonicalize_name(str(dependency_name)),
-                            str(dependency_version),
+                            str(dependency_version) if dependency_version else None,
                         ),
                         set(),
                     ).add(str(dependency_marker))
@@ -1677,7 +1798,9 @@ def _components_from_toml_lock(
     for component in components:
         component_name = canonicalize_name(str(component.get("name", "")))
         component_version = str(component.get("version", ""))
-        for marker in version_markers.get((component_name, component_version), ()):
+        markers = set(version_markers.get((component_name, component_version), ()))
+        markers.update(version_markers.get((component_name, None), ()))
+        for marker in sorted(markers):
             _add_property(component, "pyflow:marker", marker)
         group_entries = set(group_scopes.get((component_name, component_version), ()))
         group_entries.update(group_scopes.get((component_name, None), ()))
@@ -1854,6 +1977,12 @@ def _components_from_pipfile_lock(
             version = version_text[2:] if version_text.startswith("==") else None
             component = _component(str(name), version=version)
             _add_property(component, "pyflow:scope", scope)
+            marker = entry.get("markers") or entry.get("marker")
+            if marker:
+                _add_property(component, "pyflow:marker", str(marker).strip())
+            raw_extras = entry.get("extras") or ()
+            if isinstance(raw_extras, (list, tuple)) and raw_extras:
+                _add_property(component, "pyflow:extras", ",".join(str(e) for e in raw_extras))
             raw_hashes = entry.get("hashes", ()) or ()
             if not isinstance(raw_hashes, (list, tuple)):
                 findings.append(

@@ -30,6 +30,7 @@ from .inventory import (
     dedupe_components,
     dedupe_dependencies,
     dedupe_findings,
+    propagate_dependency_scopes,
 )
 from .licenses import audit_license_policy as audit_license_policy
 from .manifests import (
@@ -242,6 +243,7 @@ def scan_targets(
     ref_map: dict[str, str] = {}
     deduped_components = dedupe_components(components, ref_map=ref_map)
     deduped_dependencies = dedupe_dependencies(dependencies, ref_map=ref_map)
+    propagate_dependency_scopes(deduped_components, deduped_dependencies)
     return SupplyChainScan(
         components=tuple(deduped_components),
         findings=final_findings,

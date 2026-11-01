@@ -1052,7 +1052,7 @@ class StaticTypeInferenceEngine:
         widened: bool = False,
         collect_specializations: bool,
     ) -> FunctionSpecialization:
-        environment = self._declaration_environment()
+        environment: dict[str, AbstractTypeValue] = {}
         environment.update(function.closure_evidence)
         substitutions = self._generic_substitutions(function, parameters)
         input_parameters: dict[str, AbstractTypeValue] = {}
@@ -2837,21 +2837,17 @@ class StaticTypeInferenceEngine:
                 if node.attr in {"append", "add", "insert"}:
                     if arguments:
                         widened = self._join(collection_element, arguments[-1])
-                        self._update_environment_receiver(
-                            environment,
-                            node.value,
-                            self._instance(cast(type, raw), widened.public_type() or ANY),
-                        )
+                        updated = self._instance(cast(type, raw), widened.public_type() or ANY)
+                        updated = self._augment_element_shapes(updated, arguments[-1])
+                        self._update_environment_receiver(environment, node.value, updated)
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr in {"extend", "update"}:
                     if arguments:
                         added = self._iterable_element(arguments[0])
                         widened = self._join(collection_element, added)
-                        self._update_environment_receiver(
-                            environment,
-                            node.value,
-                            self._instance(cast(type, raw), widened.public_type() or ANY),
-                        )
+                        updated = self._instance(cast(type, raw), widened.public_type() or ANY)
+                        updated = self._augment_element_shapes(updated, arguments[0])
+                        self._update_environment_receiver(environment, node.value, updated)
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr in {"pop"}:
                     return collection_element
@@ -5167,6 +5163,16 @@ class StaticTypeInferenceEngine:
             if returns
             else AbstractTypeValue.unresolved()
         )
+
+    @staticmethod
+    def _augment_element_shapes(
+        value: AbstractTypeValue, *sources: AbstractTypeValue
+    ) -> AbstractTypeValue:
+        shapes = set(value.element_dict_shapes)
+        for source in sources:
+            shapes.update(source.dict_shapes or ())
+            shapes.update(source.element_dict_shapes)
+        return replace(value, element_dict_shapes=frozenset(shapes)) if shapes else value
 
     def _update_environment_receiver(
         self,

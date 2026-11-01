@@ -2237,7 +2237,17 @@ class TypeSystem:  # noqa: PLR0904
             super_class: superclass
             sub_class: subclass
         """
+        if self._graph.has_edge(super_class, sub_class):
+            return
         self._graph.add_edge(super_class, sub_class)
+        # New edges invalidate negative answers cached before a lazily
+        # discovered class hierarchy was registered.
+        type(self).is_subclass.cache_clear()
+        type(self).get_subclasses.cache_clear()
+        type(self).get_superclasses.cache_clear()
+        type(self).subtype_distance.cache_clear()
+        type(self).is_subtype.cache_clear()
+        type(self).is_maybe_subtype.cache_clear()
 
     @functools.lru_cache(maxsize=1024)
     def get_subclasses(self, klass: ClassDescriptor) -> OrderedSet[ClassDescriptor]:

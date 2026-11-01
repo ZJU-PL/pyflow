@@ -1161,3 +1161,15 @@ def test_subtype_distance(subtyping_cluster, left_hint, right_hint, subtype_dist
     left = type_system.convert_type_hint(left_hint)
     right = type_system.convert_type_hint(right_hint)
     assert type_system.subtype_distance(left, right) == subtype_distance
+
+
+def test_late_subclass_edge_invalidates_cached_negative_subclass_answer() -> None:
+    system = TypeSystem()
+    raw_base = type("LateBase", (), {})
+    raw_child = type("LateChild", (), {})
+    base = system.to_class_descriptor(raw_base)
+    child = system.to_class_descriptor(raw_child)
+
+    assert system.is_subclass(child, base) is False
+    system.add_subclass_edge(super_class=base, sub_class=child)
+    assert system.is_subclass(child, base) is True

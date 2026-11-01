@@ -702,3 +702,24 @@ class Meta(type):
 """
     result = infer(source, strict=True)
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_list_append_propagates_typeddict_element_shapes() -> None:
+    source = """
+from typing import TypedDict
+class Message(TypedDict):
+    role: str
+    content: str
+def good() -> list[Message]:
+    out = []
+    out.append({"role": "user", "content": "x"})
+    return out
+def bad() -> list[Message]:
+    out = []
+    out.append({"role": "user"})
+    return out
+"""
+    result = infer(source, strict=True)
+    mismatches = [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert len(mismatches) == 1
+    assert "missing keys ['content']" in mismatches[0].message

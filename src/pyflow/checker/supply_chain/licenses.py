@@ -21,9 +21,11 @@ DEFAULT_ALLOWED_LICENSES: frozenset[str] = frozenset(
         "LGPL-2.1",
         "LGPL-2.1-only",
         "LGPL-2.1-or-later",
+        "LGPL-2.1+",
         "LGPL-3.0",
         "LGPL-3.0-only",
         "LGPL-3.0-or-later",
+        "LGPL-3.0+",
         "MPL-2.0",
         "Unlicense",
         "CC0-1.0",
@@ -123,11 +125,26 @@ class _LicenseExpressionParser:
         return matches
 
 
+def _is_license_allowed(identifier: str, allowed: frozenset[str]) -> bool:
+    if identifier in allowed:
+        return True
+    if identifier.endswith("+"):
+        base = identifier[:-1]
+        if base in allowed or f"{base}-or-later" in allowed:
+            return True
+    elif identifier.endswith("-or-later"):
+        base = identifier[: -len("-or-later")]
+        if base in allowed or f"{base}+" in allowed:
+            return True
+    return False
+
+
 def audit_license_policy(
     scan: SupplyChainScan,
     *,
     allowed_licenses: Iterable[str] | None = None,
     allowed_exceptions: Iterable[str] | None = None,
+    include_application: bool = False,
 ) -> tuple[SupplyChainFinding, ...]:
     """Check components against an SPDX-aware license allowlist.
 
@@ -145,6 +162,8 @@ def audit_license_policy(
     findings: list[SupplyChainFinding] = []
 
     for component in scan.components:
+        if not include_application and component.get("type") == "application":
+            continue
         name = component.get("name", "")
         purl = component.get("purl", name)
         licenses = component.get("licenses", [])
@@ -234,7 +253,7 @@ def audit_license_policy(
             identifier = inner.get("id") or inner.get("name")
             if identifier:
                 identifier_text = str(identifier)
-                accepted = identifier_text in allowed
+                accepted = _is_license_allowed(identifier_text, allowed)
                 choices_allowed.append(accepted)
                 if not accepted:
                     rejected.add(_short_license_text(identifier_text))
@@ -342,7 +361,8 @@ def _evaluate_license_expression(
     operation = node[0]
     if operation == "LICENSE":
         identifier = str(node[1])
-        return identifier in allowed, set() if identifier in allowed else {identifier}
+        is_allowed = _is_license_allowed(identifier, allowed)
+        return is_allowed, set() if is_allowed else {identifier}
     if operation == "WITH":
         base_allowed, rejected = _evaluate_license_expression(node[1], allowed, allowed_exceptions)
         exception = str(node[2])

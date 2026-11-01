@@ -237,3 +237,110 @@ def dedupe_dependencies(
     return [
         {"ref": source, "dependsOn": sorted(targets)} for source, targets in sorted(grouped.items())
     ]
+
+
+def propagate_dependency_scopes(
+    components: list[dict[str, Any]],
+    dependencies: list[dict[str, Any]],
+) -> None:
+    """Propagate non-runtime scopes to transitive dependencies not needed at runtime."""
+
+    comp_by_ref: dict[str, dict[str, Any]] = {}
+    for comp in components:
+        purl = comp.get("purl")
+        if purl:
+            comp_by_ref[str(purl)] = comp
+            prefix, separator, _version = str(purl).rpartition("@")
+            if separator:
+                comp_by_ref.setdefault(prefix, comp)
+        name = comp.get("name")
+        if name:
+            cname = canonicalize_name(str(name))
+            comp_by_ref.setdefault(f"pkg:pypi/{cname}", comp)
+            comp_by_ref.setdefault(str(name), comp)
+
+    adj: dict[str, set[str]] = {}
+    for dep in dependencies:
+        source = str(dep.get("ref", ""))
+        targets = [str(t) for t in dep.get("dependsOn", ()) or ()]
+        if source:
+            adj.setdefault(source, set()).update(targets)
+
+    def _comp_for_ref(ref: str) -> dict[str, Any] | None:
+        comp = comp_by_ref.get(ref)
+        if comp is not None:
+            return comp
+        prefix, separator, _version = ref.rpartition("@")
+        if separator:
+            return comp_by_ref.get(prefix)
+        return None
+
+    runtime_roots: set[str] = set()
+    for comp in components:
+        props = [p for p in comp.get("properties", ()) if isinstance(p, dict)]
+        scopes = {str(p.get("value", "")) for p in props if p.get("name") == "pyflow:scope"}
+        ref = str(comp.get("purl") or comp.get("name") or "")
+        if not ref:
+            continue
+        is_runtime = bool(scopes & {"runtime", "default", "main"})
+        if is_runtime:
+            runtime_roots.add(ref)
+
+    runtime_reachable: set[str] = set()
+    queue = list(runtime_roots)
+    while queue:
+        curr = queue.pop(0)
+        if curr in runtime_reachable:
+            continue
+        runtime_reachable.add(curr)
+        prefix, separator, _version = curr.rpartition("@")
+        if separator:
+            runtime_reachable.add(prefix)
+        for nxt in adj.get(curr, ()):
+            if nxt not in runtime_reachable:
+                queue.append(nxt)
+
+    # For any component reachable from runtime roots, ensure it has runtime scope
+    # if it had no scope before
+    for ref in runtime_reachable:
+        comp = _comp_for_ref(ref)
+        if comp is not None:
+            props = [p for p in comp.get("properties", ()) if isinstance(p, dict)]
+            scopes = {str(p.get("value", "")) for p in props if p.get("name") == "pyflow:scope"}
+            if not scopes:
+                add_property(comp, "pyflow:scope", "runtime")
+
+    # Propagate non-runtime scopes to components not reachable from runtime roots
+    for comp in components:
+        ref = str(comp.get("purl") or comp.get("name") or "")
+        if not ref:
+            continue
+        props = [p for p in comp.get("properties", ()) if isinstance(p, dict)]
+        comp_scopes = {
+            str(p.get("value", ""))
+            for p in props
+            if p.get("name") == "pyflow:scope"
+            and str(p.get("value", "")) not in {"", "runtime", "default", "main"}
+        }
+        if not comp_scopes:
+            continue
+
+        non_runtime_queue = list(adj.get(ref, ()))
+        seen: set[str] = set()
+        while non_runtime_queue:
+            target_ref = non_runtime_queue.pop(0)
+            if target_ref in seen or target_ref in runtime_reachable:
+                continue
+            seen.add(target_ref)
+            target_comp = _comp_for_ref(target_ref)
+            if target_comp is not None:
+                target_props = [p for p in target_comp.get("properties", ()) if isinstance(p, dict)]
+                target_scopes = {
+                    str(p.get("value", "")) for p in target_props if p.get("name") == "pyflow:scope"
+                }
+                if not (target_scopes & {"runtime", "default", "main"}):
+                    for scope in sorted(comp_scopes):
+                        add_property(target_comp, "pyflow:scope", scope)
+            for nxt in adj.get(target_ref, ()):
+                if nxt not in seen and nxt not in runtime_reachable:
+                    non_runtime_queue.append(nxt)
