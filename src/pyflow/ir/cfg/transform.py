@@ -148,6 +148,11 @@ class CFGTransformer(TypeDispatcher):
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 
+    def _emitYieldBlock(self):
+        y = cfg.Yield(self.region)
+        self.attachCurrent(y)
+        y.setExit("normal", self.makeNewSuite())
+
     @dispatch(ast.Yield, ast.YieldFrom, ast.AsyncYield)
     def visitYield(self, node):
         """Visit yield statements.
@@ -158,12 +163,15 @@ class CFGTransformer(TypeDispatcher):
         # Preserve the yielded expression as an operation so downstream analyses
         # (e.g. IFDS clients) can observe reads/calls inside `yield <expr>`.
         self.emit(node)
-        y = cfg.Yield(self.region)
-        self.attachCurrent(y)
-        y.setExit("normal", self.makeNewSuite())
+        self._emitYieldBlock()
+
+    @dispatch(ast.Discard)
+    def visitDiscard(self, node):
+        self.emit(node)
+        if isinstance(node.expr, (ast.Yield, ast.YieldFrom, ast.AsyncYield)):
+            self._emitYieldBlock()
 
     @dispatch(
-        ast.Discard,
         ast.SetAttr,
         ast.SetSubscript,
         ast.SetSlice,
@@ -220,6 +228,18 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.ClassDef)
     def visitClassDef(self, node):
+        # Emit a definition marker so the class name is bound even though the
+        # body is inlined below for definition-time effect analyses.
+        self.emit(
+            ast.ClassDef(
+                node.name,
+                node.bases,
+                node.keywords,
+                ast.Suite([]),
+                node.decorators,
+                node.type_params,
+            )
+        )
         # Class bodies execute at definition time. Inline their statements into
         # the surrounding CFG so downstream analyses can observe definition-time
         # effects (e.g. attribute initializers, registry calls, sinks).
@@ -462,6 +482,10 @@ class CFGTransformer(TypeDispatcher):
                 except NoNormalFlow:
                     pass
                 else:
+                    if handler.value is not None and isinstance(handler.value, ast.Local):
+                        # Python deletes the handler target at handler exit; a
+                        # later read is an UnboundLocalError, not the exception.
+                        self.emit(ast.Delete(handler.value))
                     self.attachCurrent(normal_target)
                 self.exception_context = outer_exception
                 switch.setExit("false", self.makeNewSuite(origin_ast=handler))

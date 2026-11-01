@@ -41,11 +41,13 @@ The constructor takes a dataflow IR.DataflowGraph which contains:
 from collections import deque
 from typing import Any, Dict, List, Set, Tuple
 
+from pyflow.ir.core import ensure_code_indexed
 from pyflow.ir.core.source import syntax_source_span
 from pyflow.ir.core.storage import UnknownStorage
 from pyflow.ir.dataflow import graph as df
-from pyflow.ir.core.storage import AttributeStorage, LocalStorage, SubscriptStorage
+from pyflow.ir.core.storage import AttributeStorage, GlobalStorage, LocalStorage, SubscriptStorage
 from pyflow.ir.core.symbols import SymbolKind
+from pyflow.language.python import ast as py_ast
 from .graph import DataDependenceGraph, DDGNode
 
 
@@ -93,18 +95,41 @@ def _memory_slot_key(slot: Any, aliases=None, parameter_symbols=()) -> Any:
     aliases = aliases or {}
     parameter_symbols = parameter_symbols or ()
 
-    def canonical_storage(storage):
+    def canonical_storage(storage, seen=None):
+        # Alias maps can be cyclic (a = b.x; b = a.y).  Track the concrete
+        # storage objects on the current resolution path and collapse cycles
+        # to one conservative location instead of recursing forever.
+        seen = set() if seen is None else seen
+        marker = id(storage)
+        if marker in seen:
+            return ("alias-cycle",)
+        seen.add(marker)
+        if isinstance(storage, GlobalStorage):
+            return ("global", storage.name)
         if isinstance(storage, LocalStorage):
             symbol = aliases.get(storage.symbol, storage.symbol)
+            seen_symbols = set()
+            while hasattr(symbol, "scope") and symbol in aliases:
+                if symbol in seen_symbols:
+                    return ("alias-cycle",)
+                seen_symbols.add(symbol)
+                replacement = aliases[symbol]
+                if replacement == symbol:
+                    break
+                symbol = replacement
+            if isinstance(symbol, tuple):
+                return symbol
+            if isinstance(symbol, (AttributeStorage, LocalStorage, SubscriptStorage)):
+                return canonical_storage(symbol, seen)
             if symbol in parameter_symbols:
                 # Parameters may alias at the call site.  Treat their field
                 # bases as a single conservative parameter location.
                 return ("parameter-base",)
             return LocalStorage(symbol)
         if isinstance(storage, AttributeStorage):
-            return AttributeStorage(canonical_storage(storage.base), storage.field)
+            return AttributeStorage(canonical_storage(storage.base, seen), storage.field)
         if isinstance(storage, SubscriptStorage):
-            return SubscriptStorage(canonical_storage(storage.base), storage.key)
+            return SubscriptStorage(canonical_storage(storage.base, seen), storage.key)
         return storage
 
     slot_name = canonicalize(getattr(canonical, "name", None))
@@ -179,8 +204,16 @@ class DDGConstructor(object):
             The constructed Data Dependence Graph
         """
         # Constructors are reusable, but each construction represents exactly
-        # one input graph.
-        self.ddg = DataDependenceGraph(getattr(dataflow, "code", None))
+        # one input graph.  Index the procedure before creating DDG nodes so
+        # their stable semantic identities are available; otherwise nodes are
+        # created with a fallback ``ddg.N`` id and later rebuilds disagree.
+        code = getattr(dataflow, "code", None)
+        if code is not None:
+            try:
+                ensure_code_indexed(code)
+            except (KeyError, ValueError, AttributeError):
+                pass
+        self.ddg = DataDependenceGraph(code)
         self._memory_aliases = {}
         self._parameter_symbols = set()
 
@@ -194,7 +227,34 @@ class DDGConstructor(object):
         # Memory dependencies: connect writes to subsequent reads conservatively
         self._connect_memory_dependencies(dataflow)
 
+        self._prune_unconnected_nodes()
         return self.ddg
+
+    def _prune_unconnected_nodes(self) -> None:
+        """Drop nodes that only carried control/order information.
+
+        Predicate slots are not indexed as DDG data nodes.  A purely
+        predicate-driven Split/Gate/Merge, or an unused null/existing slot,
+        therefore has no data edge and would otherwise appear as graph noise.
+        Entry and Exit anchors are retained for empty or partially modelled
+        procedures.
+        """
+        kept = []
+        removed = set()
+        for node in self.ddg.nodes:
+            if node.edges_in or node.edges_out or isinstance(node.ir_node, (df.Entry, df.Exit)):
+                kept.append(node)
+            else:
+                removed.add(node)
+        if not removed:
+            return
+        self.ddg.nodes = kept
+        self.ddg.op_node_map = {
+            ir: node for ir, node in self.ddg.op_node_map.items() if node not in removed
+        }
+        self.ddg.slot_node_map = {
+            ir: node for ir, node in self.ddg.slot_node_map.items() if node not in removed
+        }
 
     # Indexing helpers
     def _index_op(self, op: df.OpNode) -> DDGNode:
@@ -256,7 +316,10 @@ class DDGConstructor(object):
             # Index the node based on its type
             if isinstance(node, df.OpNode):
                 self._index_op(node)
-            elif isinstance(node, df.SlotNode):
+            elif isinstance(node, df.SlotNode) and not isinstance(node, df.PredicateNode):
+                # Predicates encode control/order, not data.  CPG control
+                # edges carry that information; keeping predicate slots here
+                # turned every sequential statement into a fake data edge.
                 self._index_slot(node)
 
             # Continue traversal to discover more nodes
@@ -294,6 +357,104 @@ class DDGConstructor(object):
                 info = catalog.symbols.get(symbol)
                 if info is not None and info.kind is SymbolKind.PARAMETER:
                     self._parameter_symbols.add(symbol)
+
+        self._index_ast_aliases(code, catalog)
+
+    def _index_ast_aliases(self, code, catalog) -> None:
+        """Recover must-aliases lost by tuple lowerings.
+
+        The dataflow graph keeps ``b = a`` as one LocalNode, but tuple
+        unpacking lowers to ``tmp = (a,); b = tmp[0]``.  The DDG memory pass
+        still needs to know that ``b`` denotes the same object as ``a``.
+        """
+        root = getattr(code, "ast", None)
+        if not isinstance(root, py_ast.Suite):
+            return
+
+        def symbol(local):
+            if not isinstance(local, py_ast.Local):
+                return None
+            try:
+                return catalog.symbol_id(local, code)
+            except (KeyError, ValueError):
+                return None
+
+        tuple_values = {}
+
+        def source_symbol(expr):
+            if isinstance(expr, py_ast.Local):
+                return symbol(expr)
+            if isinstance(expr, py_ast.GetGlobal):
+                name = getattr(getattr(expr, "name", None), "object", None)
+                name = getattr(name, "pyobj", None)
+                return ("global", name) if isinstance(name, str) else None
+            if isinstance(expr, py_ast.GetAttr):
+                base = source_symbol(getattr(expr, "expr", None))
+                field = getattr(getattr(expr, "name", None), "object", None)
+                field = getattr(field, "pyobj", None)
+                if base is None or not isinstance(field, str):
+                    return None
+                base_storage = (
+                    LocalStorage(base)
+                    if isinstance(base, object)
+                    and not isinstance(base, (AttributeStorage, SubscriptStorage, tuple))
+                    else base
+                )
+                return AttributeStorage(base_storage, field)
+            if isinstance(expr, py_ast.Call):
+                callee = getattr(expr, "expr", None)
+                obj = getattr(getattr(callee, "object", None), "pyobj", None)
+                args = list(getattr(expr, "args", ()) or ())
+                if obj == "interpreter_getitem" and len(args) == 2:
+                    base = args[0]
+                    index = args[1]
+                    if isinstance(base, py_ast.Local) and isinstance(index, py_ast.Existing):
+                        index_value = getattr(index.object, "pyobj", None)
+                        values = tuple_values.get(symbol(base))
+                        if (
+                            isinstance(index_value, int)
+                            and values
+                            and 0 <= index_value < len(values)
+                        ):
+                            return values[index_value]
+            return None
+
+        def source_tuple(expr):
+            if isinstance(expr, py_ast.BuildTuple):
+                values = tuple(source_symbol(arg) for arg in (expr.args or ()))
+                if values and all(value is not None for value in values):
+                    return values
+            return None
+
+        def targets_for(target):
+            if isinstance(target, py_ast.Local):
+                return [target]
+            if isinstance(target, py_ast.UnpackSequence):
+                return list(target.targets)
+            return []
+
+        def visit(suite):
+            if not isinstance(suite, py_ast.Suite):
+                return
+            for op in suite.blocks:
+                if isinstance(op, py_ast.Assign):
+                    values = source_tuple(op.expr)
+                    if len(op.lcls) == 1 and values is not None:
+                        target_symbol = symbol(op.lcls[0])
+                        if target_symbol is not None:
+                            tuple_values[target_symbol] = values
+                        continue
+                    source = source_symbol(op.expr)
+                    if source is not None:
+                        for target in op.lcls:
+                            for local in targets_for(target):
+                                target_symbol = symbol(local)
+                                if target_symbol is not None and target_symbol != source:
+                                    self._memory_aliases[target_symbol] = source
+                elif isinstance(op, py_ast.Suite):
+                    visit(op)
+
+        visit(root)
 
     def _connect_def_use(self) -> None:
         """
@@ -521,6 +682,45 @@ class DDGConstructor(object):
                     for reader in reads_reaching(ir):
                         if reader is not ir:
                             self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
+
+        # The predicate-chain above keeps operations from different branches
+        # unordered.  A write inside a conditional branch still must reach a
+        # later read after the join; add a source-order fallback for that case.
+        def source_line(ir):
+            span = syntax_source_span(getattr(ir, "op", None))
+            return span.start_line if span is not None else 0
+
+        for key in relevant_locations:
+            access_ops = ops_by_location[key]
+            write_ops = [ir for ir in access_ops if key in accesses[ir][2]]
+            true_reads = [ir for ir in access_ops if key in accesses[ir][0]]
+            pseudo_reads = [ir for ir in access_ops if key in accesses[ir][1]]
+            for reader in true_reads:
+                reader_line = source_line(reader)
+                if not reader_line:
+                    continue
+                for writer in write_ops:
+                    writer_line = source_line(writer)
+                    if writer is not reader and writer_line and writer_line <= reader_line:
+                        self.ddg.add_mem_dep(
+                            op_nodes[writer], op_nodes[reader], label="RAW", location=key
+                        )
+            for later in write_ops:
+                later_line = source_line(later)
+                if not later_line:
+                    continue
+                for earlier in write_ops:
+                    earlier_line = source_line(earlier)
+                    if earlier is not later and earlier_line and earlier_line <= later_line:
+                        self.ddg.add_mem_dep(
+                            op_nodes[earlier], op_nodes[later], label="WAW", location=key
+                        )
+                for reader in (*true_reads, *pseudo_reads):
+                    reader_line = source_line(reader)
+                    if reader is not later and reader_line and reader_line <= later_line:
+                        self.ddg.add_mem_dep(
+                            op_nodes[reader], op_nodes[later], label="WAR", location=key
+                        )
 
 
 def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:

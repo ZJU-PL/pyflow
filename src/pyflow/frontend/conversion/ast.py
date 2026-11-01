@@ -235,6 +235,8 @@ class ASTConverter:
         cell_names: Optional[Set[str]] = None,
         global_hints: Optional[Set[str]] = None,
         bound_names: Optional[Set[str]] = None,
+        class_name: Optional[str] = None,
+        class_collisions: Optional[Set[str]] = None,
     ) -> None:
         self._scope_stack.append(
             {
@@ -244,6 +246,9 @@ class ASTConverter:
                 "cell_names": set(cell_names or ()),
                 "global_hints": set(global_hints or ()),
                 "bound_names": set(bound_names or ()),
+                "class_name": class_name,
+                "class_collisions": set(class_collisions or ()),
+                "class_assigned": set(),
                 "cells": {},
             }
         )
@@ -319,6 +324,33 @@ class ASTConverter:
     def _name_constant(self, name: str) -> pyflow_ast.Existing:
         return pyflow_ast.Existing(Object(name))
 
+    @staticmethod
+    def _class_local_name(scope: Dict[str, Any], name: str) -> str:
+        class_name = scope.get("class_name") or "<class>"
+        return f"__class_{class_name}_{name}"
+
+    def _class_read_local(self, name: str) -> Optional[pyflow_ast.Local]:
+        scope = self._current_scope()
+        if (
+            scope is not None
+            and scope.get("kind") == "class"
+            and name in scope.get("class_collisions", ())
+            and name in scope.get("class_assigned", ())
+        ):
+            return pyflow_ast.Local(self._class_local_name(scope, name))
+        return None
+
+    def _class_store_local(self, name: str) -> Optional[pyflow_ast.Local]:
+        scope = self._current_scope()
+        if (
+            scope is not None
+            and scope.get("kind") == "class"
+            and name in scope.get("class_collisions", ())
+        ):
+            scope.setdefault("class_assigned", set()).add(name)
+            return pyflow_ast.Local(self._class_local_name(scope, name))
+        return None
+
     def _get_local_cell(self, name: str) -> pyflow_ast.Cell:
         scope = self._current_scope()
         if scope is None:
@@ -351,6 +383,9 @@ class ASTConverter:
             return pyflow_ast.GetCellDeref(self._resolve_nonlocal_cell(name))
         if name in scope["cell_names"]:
             return pyflow_ast.GetCellDeref(self._get_local_cell(name))
+        class_local = self._class_read_local(name)
+        if class_local is not None:
+            return class_local
         if scope["kind"] in ("function", "class") and name not in scope["bound_names"]:
             # Module-level functions/classes/imports are still resolved by
             # name by the legacy IPA/IFDS consumers, so preserve their Local
@@ -372,6 +407,9 @@ class ASTConverter:
         scope = self._current_scope()
         if scope is None:
             return pyflow_ast.Assign(value, [pyflow_ast.Local(name)])
+        class_local = self._class_store_local(name)
+        if class_local is not None:
+            return pyflow_ast.Assign(value, [class_local])
         if scope["kind"] == "module" and name in scope["global_hints"]:
             return pyflow_ast.SetGlobal(self._name_constant(name), value)
         if name in scope["global_names"]:
@@ -386,6 +424,9 @@ class ASTConverter:
         scope = self._current_scope()
         if scope is None:
             return pyflow_ast.Delete(pyflow_ast.Local(name))
+        class_local = self._class_store_local(name)
+        if class_local is not None:
+            return pyflow_ast.Delete(class_local)
         if scope["kind"] == "module" and name in scope["global_hints"]:
             return pyflow_ast.DeleteGlobal(self._name_constant(name))
         if name in scope["global_names"]:
@@ -1124,6 +1165,30 @@ class ASTConverter:
             type_params,
         )
 
+    def _namespace_class_members(
+        self, body: PythonASTNode, class_name: str, names: Set[str]
+    ) -> None:
+        """Prefix member-definition names inside a function-local class body."""
+
+        def visit(node):
+            if isinstance(node, (pyflow_ast.FunctionDef, pyflow_ast.ClassDef)):
+                if node.name in names:
+                    node.name = f"__class_{class_name}_{node.name}"
+                return
+            if isinstance(node, pyflow_ast.Code) or not hasattr(node, "fields"):
+                return
+            for _, child in node.fields():
+                if child is None:
+                    continue
+                if isinstance(child, (list, tuple)):
+                    for item in child:
+                        if item is not None:
+                            visit(item)
+                else:
+                    visit(child)
+
+        visit(body)
+
     def _convert_class_def(self, node: python_ast.ClassDef) -> Optional[PythonASTNode]:
         """Convert Python AST ClassDef to pyflow AST.
 
@@ -1140,11 +1205,28 @@ class ASTConverter:
 
         class_bound, _class_loaded = self._collect_scope_names(list(node.body))
         class_bound.add("__class__")
-        self._push_scope("class", bound_names=class_bound)
+        enclosing = self._current_scope()
+        enclosing_bound = set(enclosing.get("bound_names", ())) if enclosing else set()
+        # A class nested in a function has its own namespace; namespace all of
+        # its locals so they cannot become function locals.  At module scope,
+        # keep non-colliding class attributes under their source names for
+        # compatibility with class-member queries.
+        if enclosing is not None and enclosing.get("kind") == "function":
+            collisions = set(class_bound)
+        else:
+            collisions = class_bound & enclosing_bound
+        self._push_scope(
+            "class",
+            bound_names=class_bound,
+            class_name=node.name,
+            class_collisions=collisions,
+        )
         class_scope = self._current_scope()
         class_scope["cells"]["__class__"] = pyflow_ast.Cell("__class__")
         try:
             body = self.convert_python_ast_to_pyflow(node.body)
+            if enclosing is not None and enclosing.get("kind") == "function":
+                self._namespace_class_members(body, node.name, class_bound)
             class_cell = class_scope["cells"].get("__class__")
         finally:
             self._pop_scope()
@@ -1589,7 +1671,9 @@ class ASTConverter:
             isinstance(t, python_ast.Name) and self._name_uses_plain_local(t.id)
             for t in node.targets
         ):
-            locals_ = [pyflow_ast.Local(t.id) for t in node.targets]  # type: ignore[attr-defined]
+            locals_ = [
+                self._class_store_local(t.id) or pyflow_ast.Local(t.id) for t in node.targets
+            ]  # type: ignore[attr-defined]
             return pyflow_ast.Assign(rhs, locals_)
 
         # General path: evaluate RHS once then store into each target.
@@ -2185,7 +2269,7 @@ class ASTConverter:
         if isinstance(node.target, python_ast.Name):
             if annotation is not None:
                 return pyflow_ast.AnnAssign(
-                    pyflow_ast.Local(node.target.id),
+                    self._class_store_local(node.target.id) or pyflow_ast.Local(node.target.id),
                     annotation,
                     value,
                 )

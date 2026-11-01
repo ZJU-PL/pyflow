@@ -682,3 +682,296 @@ def g(a):
     ddg_g = construction.construct_ddg(df_g)
     mem_edges_g = [e for e in ddg_g.all_edges() if e.kind == "memory"]
     assert any(e.label == "RAW" for e in mem_edges_g)
+
+
+def test_ddg_tuple_unpacking_alias_memory_dependency():
+    """DDG must recover must-alias through tuple unpacking lowerings."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def f(a):
+    (b,) = (a,)
+    b.x = 1
+    return a.x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    dataflow = convert.evaluateCode(CompilerContext(Console(verbose=False)), code)
+    ddg = construction.construct_ddg(dataflow)
+    memory = [e for e in ddg.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" for e in memory)
+
+
+def test_assert_truth_test_keeps_error_exit():
+    """assert x must keep the error exit from bool(x), not just the assert fail exit."""
+    from pyflow.ir.cfg import graph as G
+
+    source = """
+def f(x):
+    try:
+        assert x
+    except ValueError:
+        return 1
+    return 0
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    asserts = [op for b in blocks for op in getattr(b, "ops", ()) if type(op).__name__ == "Assert"]
+    assert len(asserts) == 1
+    suite = next(b for b in blocks if asserts[0] in getattr(b, "ops", ()))
+    assert suite.getExit("error") is not None
+
+
+def test_return_cleanup_is_not_merged_into_return_block():
+    """A finally cleanup must not be appended to a block containing Return."""
+    source = """
+def f():
+    try:
+        return 1
+    finally:
+        x = 2
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    for block in _reachable_blocks(cfg.entryTerminal):
+        ops = list(getattr(block, "ops", ()))
+        if any(type(op).__name__ == "Return" for op in ops):
+            assert not any(type(op).__name__ == "Assign" for op in ops)
+
+
+def test_except_as_target_is_deleted_after_handler():
+    """The implicit deletion of an except-as target must appear in the CFG."""
+    source = """
+def f():
+    try:
+        raise ValueError()
+    except ValueError as e:
+        pass
+    return 1
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ops = [op for b in _reachable_blocks(cfg.entryTerminal) for op in getattr(b, "ops", ())]
+    assert any(type(op).__name__ == "Delete" and getattr(op.lcl, "name", None) == "e" for op in ops)
+
+
+def test_ddg_conditional_write_reaches_join_read():
+    """A branch-local heap write must reach a read after the join."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def f(a, flag):
+    if flag:
+        a.x = 1
+    return a.x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    dataflow = convert.evaluateCode(CompilerContext(Console(verbose=False)), code)
+    ddg = construction.construct_ddg(dataflow)
+    memory = [e for e in ddg.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" for e in memory)
+
+
+def test_class_body_assignment_does_not_shadow_enclosing_local():
+    """Colliding class-body locals must be namespaced and the class name bound."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f(x):
+    class C:
+        x = 99
+    return x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ops = [op for b in _reachable_blocks(cfg.entryTerminal) for op in getattr(b, "ops", ())]
+
+    assert any(type(op).__name__ == "ClassDef" and op.name == "C" for op in ops)
+    class_assigns = [
+        op
+        for op in ops
+        if isinstance(op, pyflow_ast.Assign)
+        and op.lcls
+        and getattr(op.lcls[0], "name", "") == "__class_C_x"
+    ]
+    assert len(class_assigns) == 1
+    returns = [op for op in ops if isinstance(op, pyflow_ast.Return)]
+    assert returns and getattr(returns[0].exprs[0], "name", None) == "x"
+
+
+def test_class_definition_binds_class_name_in_ssa():
+    """A class definition must define its name for later reads."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f():
+    class C:
+        pass
+    return C
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ssa.evaluate(None, cfg)
+    cat = code.ir_catalog
+    ops = [op for b in _reachable_blocks(cfg.entryTerminal) for op in getattr(b, "ops", ())]
+    ret = next(op for op in ops if isinstance(op, pyflow_ast.Return))
+    local = ret.exprs[0]
+    assert isinstance(local, pyflow_ast.Local)
+    value = cat.value_for(local, code)
+    class_op = next(op for op in ops if isinstance(op, pyflow_ast.ClassDef))
+    assert value.definition == cat.node_id(class_op, code)
+
+
+def test_class_body_rhs_reads_enclosing_value_before_namespaced_store():
+    """`x = x + 1` in a class body reads the enclosing x before storing class x."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f(x):
+    class C:
+        x = x + 1
+    return x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ops = [op for b in _reachable_blocks(cfg.entryTerminal) for op in getattr(b, "ops", ())]
+    add = next(
+        op
+        for op in ops
+        if isinstance(op, pyflow_ast.Assign)
+        and isinstance(op.expr, pyflow_ast.Call)
+        and getattr(op.expr.expr, "object", None) is not None
+    )
+    assert getattr(add.lcls[0], "name", "") == "__class_C_x"
+    assert any(isinstance(arg, pyflow_ast.Local) and arg.name == "x" for arg in add.expr.args)
+
+
+def test_ddg_global_copy_alias_memory_dependency():
+    """A local copied from a global must alias that global's attributes."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+g = None
+
+def f(obj):
+    global g
+    g = obj
+    b = g
+    b.x = 1
+    return g.x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[1]).code
+    dataflow = convert.evaluateCode(CompilerContext(Console(verbose=False)), code)
+    ddg = construction.construct_ddg(dataflow)
+    memory = [e for e in ddg.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" and "x" in str(e.location) for e in memory)
+
+
+def test_function_local_class_members_are_namespaced():
+    """Class-body attributes/methods inside a function must not become function locals."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f():
+    class C:
+        x = 1
+        def m(self):
+            return self.x
+    return C
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    ops = [op for b in _reachable_blocks(cfg.entryTerminal) for op in getattr(b, "ops", ())]
+    assert any(type(op).__name__ == "ClassDef" and op.name == "C" for op in ops)
+    assert any(
+        isinstance(op, pyflow_ast.Assign) and getattr(op.lcls[0], "name", "") == "__class_C_x"
+        for op in ops
+    )
+    assert any(type(op).__name__ == "FunctionDef" and op.name == "__class_C_m" for op in ops)
+
+
+def test_ddg_nested_attribute_copy_alias():
+    """A local copied from an attribute must alias that nested attribute storage."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+
+    source = """
+def f(a):
+    b = a.x
+    c = b
+    c.y = 1
+    return a.x.y
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    dataflow = convert.evaluateCode(CompilerContext(Console(verbose=False)), code)
+    ddg = construction.construct_ddg(dataflow)
+    memory = [e for e in ddg.all_edges() if e.kind == "memory"]
+    assert any(e.label == "RAW" and "y" in str(e.location) for e in memory)
+
+
+def test_ddg_function_definition_decorator_is_visible():
+    """Decorator/default expressions execute at definition time and belong in the DDG."""
+    from pyflow.application.context import CompilerContext
+    from pyflow.util.application.console import Console
+    from pyflow.ir.dataflow import convert
+    from pyflow.ir.ddg import construction
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def deco(f):
+    return f
+
+@deco(side_effect())
+def target():
+    return 1
+"""
+    tree = python_ast.parse(source)
+    conv = ASTConverter()
+    suite = conv.convert_python_ast_to_pyflow(tree.body)
+    module = pyflow_ast.Code(
+        "<module>",
+        pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+        suite,
+    )
+    dataflow = convert.evaluateCode(CompilerContext(Console(verbose=False)), module)
+    ddg = construction.construct_ddg(dataflow)
+    ops = [repr(op) for op in ddg.op_node_map]
+    assert any("deco" in text and "side_effect" in text for text in ops)
+
+
+def test_statement_yield_has_control_flow_block():
+    """A `yield` statement must lower to a dedicated Yield control block."""
+    from pyflow.ir.cfg import graph as G
+
+    source = """
+def g(xs):
+    for x in xs:
+        yield x
+"""
+    tree = python_ast.parse(source)
+    code = ASTConverter()._convert_function_def(tree.body[0]).code
+    cfg = transform.evaluate(None, code)
+    blocks = _reachable_blocks(cfg.entryTerminal)
+    assert any(isinstance(b, G.Yield) for b in blocks)

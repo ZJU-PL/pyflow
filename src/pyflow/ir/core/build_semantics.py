@@ -95,10 +95,24 @@ def _definition_references(node) -> tuple[object, ...]:
 
 def _literal_name(node) -> object:
     if isinstance(node, ast.Existing):
-        return getattr(node.object, "pyobj", repr(node.object))
+        value = getattr(node.object, "pyobj", repr(node.object))
+        try:
+            hash(value)
+        except TypeError:
+            # Dict/list/set literals are valid (if usually erroneous) keys in
+            # source.  Storage identities must be hashable for semantics and
+            # memory-dependence sets.
+            return repr(value)
+        return value
     if isinstance(node, ast.Local):
         return node.name or "*"
     return "*"
+
+
+def _subscript_key(node) -> object:
+    # A dynamic index may equal any constant index.  Collapse it to one
+    # wildcard location so DDG/IFDS memory dependences remain conservative.
+    return _literal_name(node) if isinstance(node, ast.Existing) else "*"
 
 
 def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocation, ...]:
@@ -116,13 +130,45 @@ def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocatio
         return tuple(AttributeStorage(base, _literal_name(node.name)) for base in bases)
     if isinstance(node, ast.GetSubscript):
         bases = _storage_for_expr(catalog, code_id, node.expr)
-        return tuple(SubscriptStorage(base, _literal_name(node.subscript)) for base in bases)
+        return tuple(SubscriptStorage(base, _subscript_key(node.subscript)) for base in bases)
     return ()
 
 
 def _explicit_storage(catalog: IRCatalog, code_id, node):
     reads: list[StorageLocation] = []
     writes: list[StorageLocation] = []
+    if isinstance(node, ast.Call):
+        callee = getattr(node, "expr", None)
+        intrinsic = _literal_name(callee) if isinstance(callee, ast.Existing) else None
+        arguments = tuple(getattr(node, "args", ()) or ())
+        if (
+            intrinsic in ("interpreter_getitem", "interpreter_setitem", "interpreter_delitem")
+            and len(arguments) >= 2
+        ):
+            base_storage = _storage_for_expr(catalog, code_id, arguments[0])
+            key = _subscript_key(arguments[1])
+            location = tuple(SubscriptStorage(base, key) for base in base_storage)
+            if intrinsic == "interpreter_getitem":
+                reads.extend(location)
+            else:
+                writes.extend(location)
+        elif (
+            intrinsic
+            in (
+                "interpreter_getattr",
+                "interpreter_getattribute",
+                "interpreter_setattr",
+                "interpreter_delattr",
+            )
+            and len(arguments) >= 2
+        ):
+            base_storage = _storage_for_expr(catalog, code_id, arguments[0])
+            field = _literal_name(arguments[1]) if isinstance(arguments[1], ast.Existing) else "*"
+            location = tuple(AttributeStorage(base, field) for base in base_storage)
+            if intrinsic in ("interpreter_getattr", "interpreter_getattribute"):
+                reads.extend(location)
+            else:
+                writes.extend(location)
     if isinstance(node, ast.GetGlobal):
         reads.extend(_storage_for_expr(catalog, code_id, node))
     elif isinstance(node, (ast.SetGlobal, ast.DeleteGlobal)):

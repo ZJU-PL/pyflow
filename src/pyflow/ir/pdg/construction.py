@@ -297,11 +297,18 @@ class PDGConstructor:
                 op_to_pdg[ddg_node] = pdg_node
                 backed_nodes.add(pdg_node)
 
+        def is_control_slot(node: Any) -> bool:
+            return getattr(node, "category", None) == "slot" and isinstance(
+                getattr(node, "ir_node", None), df_graph.PredicateNode
+            )
+
         for start_ddg, start_pdg in op_to_pdg.items():
             worklist: List[Tuple[Any, str]] = []
             seen: Set[Tuple[Any, str]] = set()
 
             for edge in start_ddg.edges_out:
+                if is_control_slot(edge.target):
+                    continue
                 state = (edge.target, self._ddg_edge_label(edge))
                 worklist.append(state)
                 seen.add(state)
@@ -315,7 +322,11 @@ class PDGConstructor:
                         start_pdg.add_edge_to(current_pdg, "data", label)
                     continue
 
+                if is_control_slot(current):
+                    continue
                 for edge in current.edges_out:
+                    if is_control_slot(edge.target):
+                        continue
                     next_label = label or self._ddg_edge_label(edge)
                     state = (edge.target, next_label)
                     if state in seen:

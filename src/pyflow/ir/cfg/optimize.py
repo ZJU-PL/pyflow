@@ -133,6 +133,14 @@ class CFGOptPost(TypeDispatcher):
 
         normal = node.getExit("normal")
         if normal is not None and isinstance(normal, cfg.Suite):
+            # A Return/Raise/Break/Continue is a control-transfer operation.
+            # Merging its cleanup successor into the same block produces
+            # blocks such as ``[Return(1), Assign(x, 2)]``, which consumers
+            # that treat Return as a terminator interpret incorrectly.
+            if any(
+                isinstance(op, (ast.Return, ast.Raise, ast.Break, ast.Continue)) for op in node.ops
+            ):
+                return
             # Keep the state at a throwing operation's exceptional exits.
             # Appending later definitions would incorrectly expose them to
             # handlers (and to SSA phi arguments on those edges).

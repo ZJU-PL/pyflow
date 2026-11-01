@@ -14,6 +14,7 @@ from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.pythonbase import PythonASTNode
+from pyflow.ir.core.source import syntax_source_span
 from pyflow.application.program import Program
 
 from .ast import ASTConverter
@@ -405,6 +406,105 @@ class FunctionExtractor:
                     collect(block.body, (*class_path, block.name))
 
         collect(code.ast)
+
+        # The module collector above only registers module-level functions and
+        # class methods.  Nested functions, lambdas, and comprehension code
+        # objects live inside those function bodies.  They are needed by IR
+        # dumps and CPG construction, which do not run the call-graph analysis
+        # that would otherwise discover reachable nested code.
+        used_names = {nested.codeName() for nested in program.liveCode}
+        seen_nodes: set[int] = set()
+        seen_codes: set[int] = set()
+
+        def qualified_name(full_name: str) -> str:
+            prefix = f"{module_name}."
+            return full_name[len(prefix) :] if full_name.startswith(prefix) else full_name
+
+        def add_nested_code(nested: pyflow_ast.Code, full_name: str) -> None:
+            if id(nested) in seen_codes:
+                return
+            seen_codes.add(id(nested))
+            if nested in program.liveCode:
+                return
+            candidate = full_name
+            suffix = 1
+            while candidate in used_names:
+                candidate = f"{full_name}#{suffix}"
+                suffix += 1
+            used_names.add(candidate)
+            nested.setCodeName(candidate)
+            self._add_code_to_program(program, nested)
+            definitions.append((nested, qualified_name(candidate), source_line(nested)))
+
+        def walk_values(values, skip_codes: tuple[pyflow_ast.Code, ...], prefix: str) -> None:
+            for value in values:
+                if value is None:
+                    continue
+                if isinstance(value, (list, tuple)):
+                    walk_values(value, skip_codes, prefix)
+                    continue
+                if isinstance(value, pyflow_ast.Code) and any(
+                    value is skipped for skipped in skip_codes
+                ):
+                    continue
+                walk(value, prefix)
+
+        def walk_fields(
+            node: PythonASTNode, skip_codes: tuple[pyflow_ast.Code, ...], prefix: str
+        ) -> None:
+            for child in node.children():
+                walk_values(
+                    child if isinstance(child, (list, tuple)) else (child,), skip_codes, prefix
+                )
+
+        def walk(node: PythonASTNode, prefix: str) -> None:
+            if node is None or isinstance(node, pyflow_ast.leafTypes):
+                return
+            if isinstance(node, (list, tuple)):
+                walk_values(node, (), prefix)
+                return
+            nid = id(node)
+            if nid in seen_nodes:
+                return
+            seen_nodes.add(nid)
+
+            if isinstance(node, pyflow_ast.Code):
+                if node not in program.liveCode:
+                    name = node.codeName() or "<code>"
+                    base = (
+                        name[1 : name.index(">")] if name.startswith("<") and ">" in name else name
+                    )
+                    span = syntax_source_span(node)
+                    location = f"@{span.start_line}:{span.start_column}" if span else ""
+                    add_nested_code(node, f"{prefix}.<{base}>{location}")
+                walk(node.ast, f"{node.codeName()}.<locals>")
+                return
+
+            if isinstance(node, pyflow_ast.FunctionDef):
+                nested = node.code
+                if nested not in program.liveCode:
+                    add_nested_code(nested, f"{prefix}.{node.name}")
+                walk(nested.ast, f"{nested.codeName()}.<locals>")
+                # Default arguments and annotations are stored on the code
+                # parameters, not in the function body or the FunctionDef
+                # fields.  They can contain lambdas and comprehensions.
+                walk(nested.codeparameters, f"{nested.codeName()}.<locals>")
+                # Decorators and annotations can also contain lambdas or
+                # comprehensions outside the function code object.  Skip only
+                # the function's own code; other Code children are real nested
+                # expressions.
+                walk_fields(node, (nested,), prefix)
+                return
+
+            if isinstance(node, pyflow_ast.ClassDef):
+                class_name = f"{prefix}.{node.name}"
+                walk(node.body, class_name)
+                walk_fields(node, (), prefix)
+                return
+
+            walk_fields(node, (), prefix)
+
+        walk(code.ast, module_name)
         return code, definitions
 
     def _convert_function_args(

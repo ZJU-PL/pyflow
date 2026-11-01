@@ -207,7 +207,15 @@ class DataDependenceGraph(object):
         slot_node_map: Mapping from dataflow IR SlotNode to DDGNode
     """
 
-    __slots__ = ("nodes", "_id", "op_node_map", "slot_node_map", "code", "catalog")
+    __slots__ = (
+        "nodes",
+        "_id",
+        "op_node_map",
+        "slot_node_map",
+        "code",
+        "catalog",
+        "_semantic_counts",
+    )
 
     def __init__(self, code=None):
         """Initialize an empty Data Dependence Graph."""
@@ -217,6 +225,7 @@ class DataDependenceGraph(object):
         self.slot_node_map: Dict[Any, DDGNode] = {}
         self.code = code
         self.catalog = getattr(code, "ir_catalog", None)
+        self._semantic_counts: Dict[str, int] = {}
 
     def _semantic_id(self, ir_node: Any, category: str):
         if self.catalog is None or self.code is None:
@@ -231,6 +240,22 @@ class DataDependenceGraph(object):
                 if self.catalog.has_symbol(reference, self.code):
                     return self.catalog.symbol_id(reference, self.code)
         return None
+
+    def _unique_semantic_id(self, identity: Any):
+        """Disambiguate semantic identities shared by several IR versions.
+
+        Catalog node/value identities are not unique for every DDG node:
+        several value versions of one local can share a symbol id, and one AST
+        operation may lower to multiple dataflow operations.  ``stable_id`` is
+        used as the node identifier in text/JSON dumps, so duplicate identities
+        must receive a deterministic ordinal suffix.
+        """
+        if identity is None:
+            return None
+        key = str(identity)
+        count = self._semantic_counts.get(key, 0)
+        self._semantic_counts[key] = count + 1
+        return identity if count == 0 else f"{key}#{count}"
 
     def _new_id(self) -> int:
         """
@@ -262,7 +287,7 @@ class DataDependenceGraph(object):
                 self._new_id(),
                 ir_op,
                 "op",
-                self._semantic_id(ir_op, "op"),
+                self._unique_semantic_id(self._semantic_id(ir_op, "op")),
             )
             self.nodes.append(node)
             self.op_node_map[ir_op] = node
@@ -287,7 +312,7 @@ class DataDependenceGraph(object):
                 self._new_id(),
                 ir_slot,
                 "slot",
-                self._semantic_id(ir_slot, "slot"),
+                self._unique_semantic_id(self._semantic_id(ir_slot, "slot")),
             )
             self.nodes.append(node)
             self.slot_node_map[ir_slot] = node

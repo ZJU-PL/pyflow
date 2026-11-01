@@ -282,6 +282,10 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.Assert)
     def visitAssert(self, node):
         node.visitChildren(self)
+        if _truth_test_may_raise(node.test):
+            # ``assert x`` evaluates bool(x) before raising AssertionError;
+            # a user __bool__ can raise a different exception.
+            self.errors = True
         self.fails = True
 
     @dispatch(ast.FunctionDef, ast.ClassDef)

@@ -51,7 +51,10 @@ class _GraphMetadataMixin:
 
     @staticmethod
     def _resolve_call_name(call_node: Any) -> Optional[str]:
-        if not isinstance(call_node, py_ast.Call):
+        if isinstance(call_node, py_ast.DirectCall):
+            code = getattr(call_node, "code", None)
+            return code.codeName() if code is not None else None
+        if not isinstance(call_node, (py_ast.Call, py_ast.MethodCall)):
             return None
 
         def expression_name(expr: Any) -> Optional[str]:
@@ -81,6 +84,14 @@ class _GraphMetadataMixin:
                 return f"{base}.{name}" if base and isinstance(name, str) else base
             return None
 
+        if isinstance(call_node, py_ast.MethodCall):
+            base = expression_name(getattr(call_node, "expr", None))
+            name = getattr(call_node, "name", None)
+            if isinstance(name, py_ast.Local):
+                name = getattr(name, "name", None)
+            elif isinstance(name, py_ast.Existing):
+                name = getattr(getattr(name, "object", None), "pyobj", None)
+            return f"{base}.{name}" if base and isinstance(name, str) else base
         return expression_name(getattr(call_node, "expr", None))
 
     def _build_phi_metadata(self, pdg: ProgramDependenceGraph) -> None:

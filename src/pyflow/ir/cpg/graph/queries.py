@@ -104,8 +104,21 @@ class _GraphQueryMixin:
         edges = self._cpg_edges_in.get(tgt.node_id, ())
         return {e.source for e in edges if e.kind == CPGEdgeKind.CALL}
 
-    def callees(self, node: PDGNode) -> Set[PDGNode]:
-        """Return PDG nodes (in other functions) called from *node*."""
+    def callees(self, node: PDGNode | str) -> Set[PDGNode]:
+        """Return PDG nodes (in other functions) called from *node*.
+
+        *node* may be a PDG node (one call site) or a function name, in which
+        case all call sites in that function are considered.  Accepting a name
+        mirrors :meth:`callers` and avoids an easy string/PDGNode mismatch.
+        """
+        if isinstance(node, str):
+            pdg = self._pdgs.get(node)
+            if pdg is None:
+                return set()
+            result: Set[PDGNode] = set()
+            for call_site in pdg.nodes:
+                result.update(self.successors(call_site, kinds=_CALL_KINDS))
+            return result
         return self.successors(node, kinds=_CALL_KINDS)
 
     def node_meta(self, node: PDGNode) -> Dict[str, Any]:
@@ -448,24 +461,18 @@ class _GraphQueryMixin:
 
     @staticmethod
     def _is_source_variable_label(label: str) -> bool:
-        """Whether a DATA edge label names a source-level variable."""
-        if not label or label.startswith("__pyflow_tmp_"):
+        """Whether a DATA edge label names a source-level variable.
+
+        Source variables are Python identifiers.  Dataflow slot spellings such
+        as ``field(...)``/``RAW@...``, generated temporaries (``%tmp12``,
+        ``%__pyflow_tmp_...``), and declaration markers (``nonlocal:b``,
+        ``__exc_group__``) are internal and do not belong in the public index.
+        """
+        if not label or not label.isidentifier():
             return False
-        if label.startswith("%__pyflow_tmp_"):
+        if label.startswith("__pyflow_tmp_") or label.startswith("__exc_group__"):
             return False
-        return not label.startswith(
-            (
-                "field(",
-                "pred(",
-                "lcl(",
-                "hyperblock(",
-                "null(",
-                "exist(",
-                "RAW@",
-                "WAR@",
-                "WAW@",
-            )
-        )
+        return True
 
     @property
     def defs(self) -> Dict[str, List[PDGNode]]:

@@ -247,33 +247,78 @@ class _GraphAssemblyMixin:
             entry["value_id"] = str(identity)
         return entry
 
-    def _build_ast_edges(self, pdg: ProgramDependenceGraph, pdg_ast_ids: Set[int]) -> None:
-        """Derive AST_CHILD edges from ``PDGNode.ast_node`` references.
+    def _build_ast_edges(
+        self, fname: str, pdg: ProgramDependenceGraph, pdg_ast_ids: Set[int]
+    ) -> None:
+        """Derive AST_CHILD edges from the function's source AST.
 
-        For every PDG node with an ``ast_node``, walks the AST from the
-        function root to find parent→child relationships where **both**
-        parent and child are represented as PDG nodes.  Only AST links
-        that have PDG representations get edges.
+        PDG-backed statement/condition nodes already represent part of the
+        AST.  Source expressions nested inside them (attribute loads, calls in
+        arguments, operator expressions, and so on) had no node at all, which
+        left the advertised AST layer nearly empty.  Materialize non-leaf AST
+        nodes as synthetic ``ast`` PDG nodes and connect the full parent/child
+        relation.  Leaves are represented through their owning expression and
+        are not duplicated.
         """
         root = getattr(pdg.cfg, "code", None)
         if root is None:
             return
 
-        parent_map = _build_ast_parent_map(root, pdg_ast_set=pdg_ast_ids)
-
-        # Build a reverse index: id(ast_node) → PDGNode
         ast_to_pdg: Dict[int, PDGNode] = {}
         for node in pdg.nodes:
             if node.ast_node is not None:
                 ast_to_pdg[id(node.ast_node)] = node
 
-        for child_ast_id, parent_ast in parent_map.items():
-            parent_ast_id = id(parent_ast)
-            child_pdg = ast_to_pdg.get(child_ast_id)
-            parent_pdg = ast_to_pdg.get(parent_ast_id)
-            if child_pdg is None or parent_pdg is None:
+        parent_map: Dict[int, Any] = {}
+        ast_objects: Dict[int, Any] = {}
+
+        def collect(ast_node: Any, parent: Any) -> None:
+            if ast_node is None or isinstance(ast_node, (py_ast.Code, py_ast.leafTypes)):
+                return
+            ast_objects[id(ast_node)] = ast_node
+            if parent is not None:
+                parent_map[id(ast_node)] = parent
+            for child in _iter_ast_children(ast_node):
+                collect(child, ast_node)
+
+        collect(root.ast if isinstance(root, py_ast.Code) else root, None)
+
+        for ast_id, ast_node in ast_objects.items():
+            if ast_id in ast_to_pdg:
                 continue
-            if child_pdg is parent_pdg:
+            node = pdg.add_node("ast", ast_node=ast_node, label=_safe_type_name(ast_node))
+            self._promote_new_node_id(node, pdg)
+            ast_to_pdg[ast_id] = node
+            meta = self._meta_for(node)
+            meta.setdefault("node_type", _safe_type_name(ast_node))
+            span = syntax_source_span(ast_node)
+            meta.setdefault("lineno", span.start_line if span else 0)
+            meta.setdefault("col", span.start_column if span else 0)
+            meta.setdefault("filename", span.path if span else "")
+            meta.setdefault("value", self._ast_value(ast_node))
+            meta.setdefault("func_name", fname)
+            meta.setdefault("kind", node.kind)
+            code = getattr(pdg.cfg, "code", None)
+            catalog = ensure_code_indexed(code) if isinstance(code, py_ast.Code) else None
+            if catalog is not None:
+                try:
+                    semantics = catalog.semantics.operation(catalog.node_id(ast_node, code))
+                except KeyError:
+                    semantics = None
+                if semantics is not None:
+                    for key, identities in (
+                        ("ssa_defs", semantics.definitions),
+                        ("ssa_uses", semantics.uses),
+                    ):
+                        for identity in identities:
+                            self._append_meta_entry(
+                                node, key, self._semantic_name_entry(catalog, identity)
+                            )
+
+        for child_ast_id, parent_ast in parent_map.items():
+            child_pdg = ast_to_pdg.get(child_ast_id)
+            parent_pdg = ast_to_pdg.get(id(parent_ast))
+            if child_pdg is None or parent_pdg is None or child_pdg is parent_pdg:
                 continue
             self._add_edge(
                 parent_pdg,
@@ -416,12 +461,44 @@ class _GraphAssemblyMixin:
                 ast_node = call_site.ast_node
                 if ast_node is None:
                     continue
+                # Synthetic AST-only nodes are structural children, not
+                # executable statements; the owning statement already yields
+                # the same call site and has a valid function attribution.
+                if call_site.kind == "ast":
+                    continue
                 for raw_name in self._statement_call_names(ast_node):
                     candidates: List[str]
                     if raw_name in self._pdgs:
                         candidates = [raw_name]
                     else:
-                        candidates = by_short.get(raw_name.rsplit(".", 1)[-1], [])
+                        short = raw_name.rsplit(".", 1)[-1]
+                        candidates = by_short.get(short, [])
+                        if "." in raw_name:
+                            # A basename alone is not evidence of a target:
+                            # ``self.m()`` in B.n must not resolve to A.m just
+                            # because ``m`` is unique in the file.
+                            qualified = [
+                                name
+                                for name in candidates
+                                if name == raw_name or name.endswith("." + raw_name)
+                            ]
+                            if qualified:
+                                candidates = qualified
+                            elif raw_name.split(".", 1)[0] in ("self", "cls"):
+                                caller_prefix = caller_name.split(".<locals>")[0]
+                                caller_class = (
+                                    caller_prefix.rsplit(".", 1)[0] if "." in caller_prefix else ""
+                                )
+                                if caller_class:
+                                    candidates = [
+                                        name
+                                        for name in candidates
+                                        if name.startswith(caller_class + ".")
+                                    ]
+                                else:
+                                    candidates = []
+                            else:
+                                candidates = []
                     if len(candidates) > 1:
                         filename = self._meta_for(call_site).get("filename")
                         local = [
@@ -470,9 +547,9 @@ class _GraphAssemblyMixin:
     def _statement_call_names(cls, ast_node: Any) -> Iterator[str]:
         """Yield all calls owned by one PDG statement, excluding nested code."""
 
-        if isinstance(ast_node, (py_ast.FunctionDef, py_ast.ClassDef)):
+        if isinstance(ast_node, (py_ast.FunctionDef, py_ast.ClassDef, py_ast.Code)):
             return
-        if isinstance(ast_node, py_ast.Call):
+        if isinstance(ast_node, (py_ast.Call, py_ast.MethodCall, py_ast.DirectCall)):
             call_name = cls._resolve_call_name(ast_node)
             if call_name:
                 yield call_name

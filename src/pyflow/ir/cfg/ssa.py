@@ -591,8 +591,11 @@ class SSARename(TypeDispatcher):
     def visitDelete(self, node):
         if isinstance(node.lcl, ast.Local):
             key = local_key(self.catalog, self.code, node.lcl)
+            # Bind the operand so catalog.value_for(Delete.lcl) remains valid;
+            # the frame is then cleared to model the deleted binding.
+            target = self.clone(node.lcl, self.currentFrame, definition=node)
             self.currentFrame[key] = None
-            return ast.Delete(node.lcl)
+            return ast.Delete(target)
         return node.rewriteChildren(self)
 
     @dispatch(ast.NamedExpr)
@@ -662,8 +665,7 @@ class SSARename(TypeDispatcher):
             else:
                 keywords.append(keyword)
         target = _definition_local(self.catalog, self.code, node.name)
-        self.clone(target, self.currentFrame, definition=node)
-        return ast.ClassDef(
+        result = ast.ClassDef(
             node.name,
             bases,
             keywords,
@@ -671,6 +673,10 @@ class SSARename(TypeDispatcher):
             decorators,
             node.type_params,
         )
+        # Register the node that actually replaces this operation, so
+        # catalog.value_for(class_local).definition matches node_id(op).
+        self.clone(target, self.currentFrame, definition=result)
+        return result
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):

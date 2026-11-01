@@ -26,7 +26,16 @@ from pyflow.ir.dataflow import graph
 from pyflow.ir.storegraph import storegraph
 
 from pyflow.ir.dataflow.transform import dce
-from pyflow.ir.core import AnalysisFacts, Capabilities, ensure_code_indexed
+from pyflow.ir.core import (
+    AnalysisFacts,
+    AttributeStorage,
+    Capabilities,
+    CellStorage,
+    GlobalStorage,
+    SubscriptStorage,
+    UnknownStorage,
+    ensure_code_indexed,
+)
 from pyflow.ir.cfg.killflow import OpFlow
 
 
@@ -512,6 +521,65 @@ class CodeToDataflow(TypeDispatcher):
             g.addLocalModify(lcl, target)
         self._apply_named_exprs(node, g)
 
+    _NONLOCAL_STORAGE = (
+        AttributeStorage,
+        SubscriptStorage,
+        CellStorage,
+        GlobalStorage,
+        UnknownStorage,
+    )
+
+    def _nested_storage_effects(self, node):
+        """Storage effects of expressions nested inside *node*.
+
+        Dataflow lowering creates one GenericOp for a compound expression
+        such as ``f(obj.attr, cell)``.  ``catalog.semantics_of`` only describes
+        the root node, so without this walk the attribute/subscript/cell reads
+        inside the call never reach the def-use graph.  Nested code objects are
+        separate procedures and are deliberately not traversed here.
+        """
+        catalog = getattr(self.code, "ir_catalog", None)
+        if catalog is None:
+            return (), ()
+        reads = []
+        writes = []
+        seen_reads = set()
+        seen_writes = set()
+
+        def collect(current):
+            if current is None or isinstance(current, (ast.Code, ast.leafTypes)):
+                return
+            try:
+                semantics = catalog.semantics_of(current, code=self.code)
+            except (KeyError, AttributeError):
+                semantics = None
+            if semantics is not None:
+                for read in semantics.reads:
+                    if isinstance(read, self._NONLOCAL_STORAGE) and read not in seen_reads:
+                        seen_reads.add(read)
+                        reads.append(read)
+                for write in semantics.writes:
+                    if isinstance(write, self._NONLOCAL_STORAGE) and write not in seen_writes:
+                        seen_writes.add(write)
+                        writes.append(write)
+            children = getattr(current, "children", None)
+            if children is None:
+                return
+            for child in children():
+                if isinstance(child, (list, tuple)):
+                    for item in child:
+                        collect(item)
+                else:
+                    collect(child)
+
+        for child in node.children():
+            if isinstance(child, (list, tuple)):
+                for item in child:
+                    collect(item)
+            else:
+                collect(child)
+        return reads, writes
+
     def handleMemory(self, node, g):
         catalog = getattr(self.code, "ir_catalog", None)
         if catalog is None or not catalog.has_node(node, self.code):
@@ -519,20 +587,33 @@ class CodeToDataflow(TypeDispatcher):
         semantics = catalog.semantics_of(node, code=self.code)
 
         # Structural reads and writes use the same canonical StorageLocation
-        # identities consumed by IFDS and PDG.
-        reads = semantics.reads
+        # identities consumed by IFDS and PDG.  Include non-local storage read
+        # or written by nested expressions in the same compound operation.
+        nested_reads, nested_writes = self._nested_storage_effects(node)
+        reads = list(semantics.reads)
+        writes = list(semantics.writes)
+        seen_reads = set(reads)
+        seen_writes = set(writes)
+        for read in nested_reads:
+            if read not in seen_reads:
+                seen_reads.add(read)
+                reads.append(read)
+        for write in nested_writes:
+            if write not in seen_writes:
+                seen_writes.add(write)
+                writes.append(write)
+
         for read in reads:
             slot = self.get(read)
             g.addRead(read, slot)
 
         # A write depends on the prior value for conservative WAR ordering.
-        modifies = semantics.writes
-        for modify in modifies:
+        for modify in writes:
             slot = self.get(modify)
             g.addPsedoRead(modify, slot)
 
         # Modifies
-        for modify in modifies:
+        for modify in writes:
             slot = graph.FieldNode(self.hyperblock(), modify)
             self.set(modify, slot)
             g.addModify(modify, slot)
@@ -867,12 +948,38 @@ class CodeToDataflow(TypeDispatcher):
         normal_states = [zero_state, body_exit, *controls["continue"]]
         self._finish_loop(normal_states, controls["break"], node.else_)
 
-    @dispatch(ast.FunctionDef, ast.ClassDef)
-    def processNestedDefinition(self, node):
-        # Nested code objects are converted independently by the CPG builder.
-        # Do not traverse their bodies as part of the enclosing code object's
-        # intraprocedural dataflow graph.
-        return None
+    def _process_definition_header(self, expressions):
+        for expression in expressions:
+            if expression is None or isinstance(expression, (ast.Local, ast.Existing)):
+                continue
+            try:
+                self.genericOp(expression)
+            except (KeyError, ValueError):
+                # Default/decorator expressions are not part of the enclosing
+                # CFG body catalog until the definition is lowered.  Keep the
+                # DDG construction best-effort instead of aborting a module.
+                continue
+
+    @dispatch(ast.FunctionDef)
+    def processFunctionDefinition(self, node):
+        # Nested bodies are separate procedures, but decorators and default
+        # expressions execute in the enclosing scope at definition time.
+        parameters = getattr(getattr(node, "code", None), "codeparameters", None)
+        self._process_definition_header(getattr(node, "decorators", ()))
+        if parameters is not None:
+            self._process_definition_header(getattr(parameters, "defaults", ()))
+
+    @dispatch(ast.ClassDef)
+    def processClassDefinition(self, node):
+        # Bases, keywords and decorators execute at class-definition time.
+        self._process_definition_header(getattr(node, "bases", ()))
+        self._process_definition_header(
+            value
+            for keyword in getattr(node, "keywords", ())
+            if isinstance(keyword, tuple) and len(keyword) == 2
+            for value in (keyword[1],)
+        )
+        self._process_definition_header(getattr(node, "decorators", ()))
 
     @dispatch(ast.TryExceptFinally)
     def processTryExceptFinally(self, node):

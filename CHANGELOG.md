@@ -14,6 +14,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CPG construction now materializes non-leaf AST nodes and connects the full
+  source parent/child relation, so `ast_children()` is usable for expressions
+  instead of being limited to the few AST nodes that happened to have PDGs.
+- Nested functions, lambdas, comprehensions, and lambdas/comprehensions in
+  default arguments are now registered as IR code objects, so `pyflow ir` and
+  CPG construction no longer silently omit nested code.
+- DDG memory dependences now include attribute, subscript, and closure-cell
+  reads/writes nested inside compound expressions (for example `y = obj.attr + 1`),
+  reflect lowered `getattr`/`setattr`/`getitem`/`setitem`/`delitem` intrinsics,
+  and use a wildcard location for dynamic subscript keys.  Unhashable literal
+  keys no longer abort semantic construction.
+- Fixed cyclic AST alias resolution in DDG memory keys (`a = b.x` followed by
+  `b = a.y`) that previously raised `RecursionError` on real projects such as
+  Hugging Face Transformers.
+- DDG stable IDs/JSON node identities are now unique when several value versions
+  share one catalog symbol or AST operation.
+- CPG call edges now resolve method calls and direct calls to comprehensions,
+  and no longer map `self.method()` in one class to a same-named method of an
+  unrelated class.  `callees()` also accepts a function name, mirroring
+  `callers()`.
+- Predicate/control slots are no longer projected as CPG data dependences, and
+  predicate-only control operations are pruned from the DDG.
 - Reconciled documentation across Sphinx sources, CLI references, and tutorials with actual CLI options, default parameters, query APIs, and output schemas.
 - Fixed DDG memory dependencies for lowered IR: slot keys now identify storage
   locations rather than individual value versions, so field reads/writes produce

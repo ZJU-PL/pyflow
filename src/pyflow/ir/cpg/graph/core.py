@@ -156,7 +156,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
             self._build_node_metadata(fname, pdg)
             self._build_source_statement_nodes(fname, pdg, pdg_ast_ids[fname])
             self._build_pdg_edges(pdg)
-            self._build_ast_edges(pdg, pdg_ast_ids[fname])
+            self._build_ast_edges(fname, pdg, pdg_ast_ids[fname])
             self._build_cfg_edges(fname, pdg)
             self._build_guard_metadata(pdg)
             self._build_phi_metadata(pdg)
