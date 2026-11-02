@@ -86,6 +86,7 @@ class TypeInfoService:
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
         self._module_sources: dict[str, tuple[str, str | None]] = {}
+        self._module_all: dict[str, frozenset[str] | None] = {}
         self._refreshing_inference = False
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
@@ -380,6 +381,24 @@ class TypeInfoService:
         path: str | None,
     ) -> None:
         tree = ast.parse(source)
+        exported_names: frozenset[str] | None = None
+        for statement in tree.body:
+            if not (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and statement.targets[0].id == "__all__"
+            ):
+                continue
+            try:
+                names = ast.literal_eval(statement.value)
+            except (ValueError, TypeError, SyntaxError):
+                names = None
+            if isinstance(names, (list, tuple, set)) and all(
+                isinstance(name, str) for name in names
+            ):
+                exported_names = frozenset(names)
+        self._module_all[module_name] = exported_names
 
         facts = self._module_facts.setdefault(module_name, {})
         functions = self._functions.setdefault(module_name, {})
@@ -710,9 +729,15 @@ class TypeInfoService:
                 for alias in node.names:
                     if alias.name == "*":
                         self.collect_module(source_module)
-                        for exported_name in self._module_facts.get(source_module, {}):
-                            if not exported_name.startswith("_"):
-                                imports[exported_name] = f"{source_module}.{exported_name}"
+                        exported_names = self._module_all.get(source_module)
+                        if exported_names is None:
+                            exported_names = frozenset(
+                                name
+                                for name in self._module_facts.get(source_module, {})
+                                if not name.startswith("_")
+                            )
+                        for exported_name in exported_names:
+                            imports[exported_name] = f"{source_module}.{exported_name}"
                         continue
                     local = alias.asname or alias.name
                     imports[local] = f"{source_module}.{alias.name}"

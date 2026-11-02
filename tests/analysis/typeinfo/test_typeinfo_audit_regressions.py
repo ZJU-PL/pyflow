@@ -640,7 +640,7 @@ def test_module_getattr_and_star_imports_resolve_exports(tmp_path: Path) -> None
         encoding="utf-8",
     )
     (package / "impl.py").write_text(
-        "__all__ = ['Client']\nclass Client:\n    value: int = 1\n",
+        "__all__ = ['Client']\nclass Client:\n    value: int = 1\nclass Hidden:\n    pass\n",
         encoding="utf-8",
     )
     (package / "use.py").write_text(
@@ -648,6 +648,7 @@ def test_module_getattr_and_star_imports_resolve_exports(tmp_path: Path) -> None
         "from pkg import Client\n"
         "client = Client()\n"
         "client_value = client.value\n"
+        "hidden = Hidden()\n"
         "dynamic = pkg.anything\n",
         encoding="utf-8",
     )
@@ -657,6 +658,7 @@ def test_module_getattr_and_star_imports_resolve_exports(tmp_path: Path) -> None
 
     assert _instance_name(service.type_of("pkg.use", "client")) == "pkg.impl.Client"
     assert _raw_types(service.type_of("pkg.use", "client_value")) == {int}
+    assert service.type_of("pkg.use", "hidden") is None
     assert _raw_types(service.type_of("pkg.use", "dynamic")) == {int}
 
 
@@ -741,3 +743,15 @@ def test_singledispatch_registered_overloads_are_used_for_calls() -> None:
 
     assert _raw_types(result.type_of("sample.integer")) == {int}
     assert _raw_types(result.type_of("sample.text")) == {str}
+
+
+def test_functional_namedtuple_creates_a_nominal_class() -> None:
+    result = _infer(
+        "from collections import namedtuple\n"
+        "Point = namedtuple('Point', ('x', 'y'))\n"
+        "point = Point(1, 2)\n"
+        "fields = Point._fields\n"
+    )
+
+    assert _instance_name(result.type_of("sample.point")) == "sample.Point"
+    assert str(result.type_of("sample.fields")) == "tuple[str, ...]"

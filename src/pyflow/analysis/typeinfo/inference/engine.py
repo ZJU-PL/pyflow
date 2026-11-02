@@ -2718,7 +2718,7 @@ class StaticTypeInferenceEngine:
                 continue
             if result is not None:
                 return result
-        modelled = self._model_stdlib_call(qualified_name, arguments, keywords)
+        modelled = self._model_stdlib_call(qualified_name, arguments, keywords, node=node)
         if modelled is not None:
             return modelled
         return None
@@ -2728,6 +2728,8 @@ class StaticTypeInferenceEngine:
         qualified_name: str,
         arguments: list[AbstractTypeValue],
         keywords: dict[str, AbstractTypeValue],
+        *,
+        node: ast.Call | None = None,
     ) -> AbstractTypeValue | None:
         """Model common stdlib calls when no stub or call provider is available."""
 
@@ -2738,6 +2740,48 @@ class StaticTypeInferenceEngine:
             return self._instance(collections.deque, element(arguments[0]) if arguments else ANY)
         if qualified_name == "collections.Counter":
             return self._instance(collections.Counter, element(arguments[0]) if arguments else ANY)
+        if qualified_name == "collections.namedtuple" and node is not None:
+            if len(node.args) < 2 or not isinstance(node.args[0], ast.Constant):
+                return AbstractTypeValue.unresolved()
+            name = node.args[0].value
+            try:
+                fields_node = ast.literal_eval(node.args[1])
+            except (ValueError, TypeError, SyntaxError):
+                return AbstractTypeValue.unresolved()
+            if not isinstance(name, str):
+                return AbstractTypeValue.unresolved()
+            if isinstance(fields_node, str):
+                fields = tuple(part for part in fields_node.replace(",", " ").split() if part)
+            elif isinstance(fields_node, (list, tuple)) and all(
+                isinstance(part, str) for part in fields_node
+            ):
+                fields = tuple(fields_node)
+            else:
+                return AbstractTypeValue.unresolved()
+            qualified = f"{self._module_name}.{name}"
+            raw = type(
+                name,
+                (tuple,),
+                {"__module__": self._module_name, "_fields": fields},
+            )
+            instance = self._proper_instance(raw)
+            descriptor = instance.type
+            descriptor.tuple_fields = fields
+            for field in fields:
+                descriptor.members[field] = ANY
+            fields_type = AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(str),), unknown_size=True)
+            )
+            self._classes[qualified] = _ClassInfo(
+                qualified,
+                instance,
+                attributes={
+                    **{field: AbstractTypeValue.from_type(ANY) for field in fields},
+                    "_fields": fields_type,
+                },
+            )
+            self._class_aliases[name] = qualified
+            return AbstractTypeValue.from_type(instance, class_target=qualified)
         if qualified_name == "collections.defaultdict":
             value_type: ProperType = ANY
             if arguments:
