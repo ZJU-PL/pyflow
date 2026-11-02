@@ -3261,6 +3261,8 @@ class StaticTypeInferenceEngine:
             if isinstance(typ, TupleType):
                 if node.attr in {"count", "index"}:
                     return self._instance(int)
+                if node.attr in {"sort", "reverse"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
                 continue
             if not isinstance(typ, Instance):
                 continue

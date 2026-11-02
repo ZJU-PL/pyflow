@@ -864,11 +864,13 @@ def test_set_methods_and_tuple_concatenation_preserve_types() -> None:
         "combined = left.union(right)\n"
         "subset = left.issubset(right)\n"
         "tuple_value = (1, 'a') + (2,)\n"
+        "sorted_result = left.sort()\n"
     )
 
     assert str(result.type_of("sample.combined")) == "set[int]"
     assert _raw_types(result.type_of("sample.subset")) == {bool}
     assert str(result.type_of("sample.tuple_value")) == "tuple[int, str, int]"
+    assert str(result.type_of("sample.sorted_result")) == "None"
 
 
 def test_range_and_memoryview_slices_preserve_their_container_type() -> None:
