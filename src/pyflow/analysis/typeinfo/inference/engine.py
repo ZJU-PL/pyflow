@@ -4509,6 +4509,25 @@ class StaticTypeInferenceEngine:
             )
         if (
             isinstance(condition, ast.Call)
+            and isinstance(condition.func, ast.Name)
+            and condition.func.id == "callable"
+            and len(condition.args) == 1
+            and key(condition.args[0]) is not None
+        ):
+            expression = condition.args[0]
+            old = current(expression)
+            alternatives = [
+                part
+                for typ in old.types
+                for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+            ]
+            filtered = [part for part in alternatives if self._type_is_callable(part) == truthy]
+            result[key(expression)] = AbstractTypeValue(
+                types=frozenset(filtered), unknown=old.unknown
+            )
+            return result
+        if (
+            isinstance(condition, ast.Call)
             and condition.args
             and key(condition.args[0]) is not None
         ):
@@ -4631,6 +4650,20 @@ class StaticTypeInferenceEngine:
         info = self._classes.get(typ.type.full_name)
         return bool(
             info is not None and self._class_method(info.qualified_name, "__iter__") is not None
+        )
+
+    def _type_is_callable(self, typ: ProperType) -> bool:
+        if isinstance(typ, (AnyType, CallableType, TypeType)):
+            return True
+        if not isinstance(typ, Instance):
+            return False
+        if typ.type.raw_type is type:
+            return True
+        if "__call__" in typ.type.members:
+            return True
+        info = self._classes.get(typ.type.full_name)
+        return bool(
+            info is not None and self._class_method(info.qualified_name, "__call__") is not None
         )
 
     def _membership_element_types(

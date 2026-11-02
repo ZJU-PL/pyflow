@@ -1024,3 +1024,15 @@ def test_bare_type_annotation_is_type_any() -> None:
     )
 
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_callable_guard_narrows_union_alternatives() -> None:
+    result = _infer(
+        "from typing import Callable\n"
+        "def apply(value: str | Callable[[int], bool]):\n"
+        "    if callable(value):\n"
+        "        return value(1)\n"
+        "    return value.upper()\n"
+    )
+
+    assert _raw_types(result.functions["sample.apply"].return_type) == {bool, str}
