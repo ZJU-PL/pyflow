@@ -40,6 +40,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TupleType,
     TypeType,
     TypeSystem,
+    UnionType,
 )
 from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
@@ -78,9 +79,13 @@ class TypeInfoService:
         self._synthetic_types: dict[str, type] = {}
         self._collected_modules: set[str] = set()
         self._collecting_modules: set[str] = set()
+        self._collection_stack: list[str] = []
         self.enable_static_inference = enable_static_inference
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
+        self._module_sources: dict[str, tuple[str, str | None]] = {}
+        self._refreshing_inference = False
+        self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._failed_modules: set[str] = set()
         self._known_class_cache: dict[str, bool] = {}
@@ -98,6 +103,7 @@ class TypeInfoService:
         if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
         self._collecting_modules.add(module_name)
+        self._collection_stack.append(module_name)
         try:
             try:
                 if source is None:
@@ -126,6 +132,12 @@ class TypeInfoService:
             self._collected_modules.add(module_name)
         finally:
             self._collecting_modules.discard(module_name)
+            if self._collection_stack and self._collection_stack[-1] == module_name:
+                self._collection_stack.pop()
+            else:
+                self._collection_stack = [
+                    name for name in self._collection_stack if name != module_name
+                ]
             if not self._collecting_modules:
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
@@ -173,6 +185,7 @@ class TypeInfoService:
         member table when they are not top-level module facts.
         """
         self._ensure_collected(module_name)
+        self._ensure_refreshed()
         facts = self._module_facts.get(module_name, {})
         fact = facts.get(name)
         if fact is not None:
@@ -197,12 +210,27 @@ class TypeInfoService:
     ) -> FunctionTypeInfo | None:
         """Return function signature information for ``module.name``."""
         self._ensure_collected(module_name)
-        return self._functions.get(module_name, {}).get(name)
+        self._ensure_refreshed()
+        function = self._functions.get(module_name, {}).get(name)
+        if function is not None:
+            return function
+        if "." not in name:
+            return None
+        class_name, _, method_name = name.rpartition(".")
+        qualified_class = (
+            class_name
+            if class_name.startswith(f"{module_name}.")
+            else f"{module_name}.{class_name}"
+        )
+        if qualified_class not in self._classes:
+            self._lookup_project_type(qualified_class, allow_synthetic=False)
+        return self._class_method_info(qualified_class, method_name)
 
     def members_of(self, qualified_name: str) -> dict[str, TypeFact]:
         """Return known members for a module or class."""
+        self._ensure_refreshed()
         if qualified_name in self._classes:
-            return dict(self._classes[qualified_name].members)
+            return self._class_members_with_inheritance(qualified_name)
         if qualified_name not in self._module_facts:
             # ``pkg.models.Client`` names a class, not a module.  Load the
             # longest importable module prefix first so the class can be found.
@@ -213,12 +241,50 @@ class TypeInfoService:
                     self.collect_module(prefix)
                     break
         if qualified_name in self._classes:
-            return dict(self._classes[qualified_name].members)
+            return self._class_members_with_inheritance(qualified_name)
         self._ensure_collected(qualified_name)
         return dict(self._module_facts.get(qualified_name, {}))
 
+    def _class_members_with_inheritance(
+        self, class_name: str, seen: set[str] | None = None
+    ) -> dict[str, TypeFact]:
+        seen = set() if seen is None else seen
+        if class_name in seen:
+            return {}
+        seen.add(class_name)
+        info = self._classes.get(class_name)
+        if info is None:
+            return {}
+        members: dict[str, TypeFact] = {}
+        for base in info.bases:
+            if isinstance(base, Instance):
+                members.update(self._class_members_with_inheritance(base.type.full_name, seen))
+        members.update(info.members)
+        return members
+
+    def _class_method_info(
+        self, class_name: str, method_name: str, seen: set[str] | None = None
+    ) -> FunctionTypeInfo | None:
+        seen = set() if seen is None else seen
+        if class_name in seen:
+            return None
+        seen.add(class_name)
+        info = self._classes.get(class_name)
+        if info is None:
+            return None
+        method = info.methods.get(method_name)
+        if method is not None:
+            return method
+        for base in info.bases:
+            if isinstance(base, Instance):
+                found = self._class_method_info(base.type.full_name, method_name, seen)
+                if found is not None:
+                    return found
+        return None
+
     def diagnostics(self) -> list[StubDiagnostic]:
         """Return source, inference, and stub-resolution diagnostics."""
+        self._ensure_refreshed()
         diagnostics = [*self.stub_resolver.get_diagnostics(), *self._collection_diagnostics]
         for module_name, result in self._inference_results.items():
             for item in result.diagnostics:
@@ -236,6 +302,8 @@ class TypeInfoService:
                         module_name=module_name,
                         message=item.message,
                         severity=item.severity,
+                        lineno=item.span.lineno if item.span is not None else None,
+                        col_offset=(item.span.col_offset if item.span is not None else None),
                     )
                 )
         return diagnostics
@@ -246,6 +314,7 @@ class TypeInfoService:
     ) -> ModuleInferenceResult | None:
         """Return the standalone static-inference result for a module."""
         self._ensure_collected(module_name)
+        self._ensure_refreshed()
         return self._inference_results.get(module_name)
 
     def _ensure_collected(self, module_name: str) -> None:
@@ -393,6 +462,7 @@ class TypeInfoService:
         source: str,
         path: str | None,
     ) -> None:
+        self._module_sources[module_name] = (source, path)
         engine = StaticTypeInferenceEngine(
             self.project_context,
             type_system=self.type_system,
@@ -401,6 +471,8 @@ class TypeInfoService:
         )
         result = engine.infer_source(module_name, source, filename=path)
         self._inference_results[module_name] = result
+        if not self._refreshing_inference:
+            self._needs_refresh = True
         facts = self._module_facts.setdefault(module_name, {})
         prefix = f"{module_name}."
         for qualified_name, symbol in result.symbols.items():
@@ -471,6 +543,40 @@ class TypeInfoService:
                 kind="function" if old_fact is None else old_fact.kind,
             )
 
+    def _refresh_stale_annotation_checks(self) -> None:
+        """Re-run modules whose annotation checks may predate their dependencies.
+
+        ``collect_module`` discovers the project import graph lazily.  A module
+        can therefore be inferred before a class hierarchy or alias in a
+        dependency is registered, which leaves a stale ``annotation-mismatch``
+        that is no longer true once the whole closure has been collected.
+        Re-infer only those modules after the closure is stable; this is
+        bounded and avoids changing the normal single-module collection cost.
+        """
+        if self._refreshing_inference or not self._needs_refresh:
+            return
+        self._needs_refresh = False
+        stale = [
+            name
+            for name, result in self._inference_results.items()
+            if name in self._module_sources
+            and any(item.code == "annotation-mismatch" for item in result.diagnostics)
+        ]
+        if not stale:
+            return
+        self._refreshing_inference = True
+        try:
+            for module_name in stale:
+                source, path = self._module_sources[module_name]
+                self._collect_inferred_source_facts(module_name, source, path)
+        finally:
+            self._refreshing_inference = False
+
+    def _ensure_refreshed(self) -> None:
+        if self._collecting_modules or self._refreshing_inference:
+            return
+        self._refresh_stale_annotation_checks()
+
     def _resolve_inference_external_symbol(
         self,
         qualified_name: str,
@@ -502,17 +608,38 @@ class TypeInfoService:
             self._class_aliases[cls.name] = qualified_name
             module_aliases[cls.name] = qualified_name
 
+        functions_by_name: dict[str, list[StubFunctionInfo]] = {}
         for function in functions:
-            function_info = self._function_info_from_stub(
-                function,
-                module_name=module_name,
-                imports=imports,
-            )
-            module_functions[function.name] = function_info
-            facts[function.name] = TypeFact(
-                name=function.name,
-                typ=self._callable_type(function_info),
-                raw_annotation=function.returns,
+            functions_by_name.setdefault(function.name, []).append(function)
+        for name, declarations in functions_by_name.items():
+            infos = [
+                self._function_info_from_stub(
+                    function,
+                    module_name=module_name,
+                    imports=imports,
+                )
+                for function in declarations
+            ]
+            module_functions[name] = infos[0]
+            returns: list[ProperType] = []
+            for info in infos:
+                if info.returns is None or info.returns in returns:
+                    continue
+                returns.append(info.returns)
+            if len(returns) > 1:
+                # Stub overloads are declarations of one callable.  Keep a
+                # union of their result types instead of silently keeping only
+                # the first/last declaration, which can produce a definitely
+                # wrong type for calls that select a different overload.
+                callable_type: ProperType = CallableType(None, UnionType(tuple(returns)))
+                raw_annotation = "overload"
+            else:
+                callable_type = self._callable_type(infos[0])
+                raw_annotation = declarations[0].returns
+            facts[name] = TypeFact(
+                name=name,
+                typ=callable_type,
+                raw_annotation=raw_annotation,
                 source="stub",
                 kind="function",
             )
@@ -1061,6 +1188,13 @@ class TypeInfoService:
                 return found
             break
 
+        stub_fact = self._module_facts.get(module_name, {}).get(attr)
+        if stub_fact is not None and stub_fact.source == "stub":
+            # Stub declarations are authoritative.  Source inference may still
+            # have a summary for the same implementation, but it cannot model
+            # overload dispatch and would shadow the combined stub signature.
+            return stub_fact.typ
+
         summary = self._summary_type(qualified_name)
         if summary is not None:
             return summary
@@ -1070,7 +1204,8 @@ class TypeInfoService:
             result is not None and result.status == "partial"
         )
         if partial:
-            for dependent in sorted(self._collecting_modules - {module_name}):
+            dependents = [name for name in self._collection_stack[-1:] if name != module_name]
+            for dependent in dependents:
                 diagnostic = StubDiagnostic(
                     code="type_dependency_partial",
                     category="type_inference",
@@ -1195,6 +1330,14 @@ class TypeInfoService:
         for root in roots:
             root_path = Path(root)
             if (root_path / first).is_dir() or (root_path / f"{first}.py").is_file():
+                return True
+            # ``ProjectContext.get_sys_path`` inserts a top-level ``src``
+            # directory for the common src layout.  Keep this guard in sync
+            # with import resolution; otherwise project modules are never
+            # collected lazily and their annotations degrade to synthetic or
+            # unknown types.
+            src_path = root_path / "src"
+            if (src_path / first).is_dir() or (src_path / f"{first}.py").is_file():
                 return True
         return False
 

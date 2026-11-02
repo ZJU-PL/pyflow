@@ -17,6 +17,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
     Instance,
+    NeverType,
     ProperType,
     TypeType,
     TypeSystem,
@@ -246,10 +247,28 @@ def _normalize_types(
         except (AssertionError, KeyError, TypeError):
             return False
 
+    def is_empty_container(typ: ProperType) -> bool:
+        return (
+            isinstance(typ, Instance)
+            and bool(typ.args)
+            and all(isinstance(argument, NeverType) for argument in typ.args)
+        )
+
     # Any consistency is symmetric but not an equivalence relation. Compare
     # only surviving representatives, preferring concrete nested arguments.
     result = []
     for candidate in sorted(flattened, key=rank):
+        # ``list[Never]`` is the type of an empty list literal.  It is
+        # assignment-compatible with ``list[T]``, but it must not erase a
+        # concrete alternative during a branch/loop join: ``[] if flag else
+        # [1]`` is a ``list[int]``, not ``list[Never]``.
+        if is_empty_container(candidate) and any(
+            isinstance(other, Instance)
+            and other.type == candidate.type
+            and not is_empty_container(other)
+            for other in flattened
+        ):
+            continue
         if any(subtype(candidate, other) for other in result):
             continue
         result = [other for other in result if not subtype(other, candidate)]

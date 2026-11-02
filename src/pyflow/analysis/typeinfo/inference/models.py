@@ -183,6 +183,9 @@ class ModuleInferenceResult:
             )[1]
         # A call and its callee commonly start at the same position.  Prefer
         # the widest expression, which is the user-visible outer expression.
+        with_type = [item for item in matches if item[1].runtime_type() is not None]
+        if with_type:
+            matches = with_type
         _, value = max(
             matches,
             key=lambda item: (
@@ -201,6 +204,15 @@ class ProjectInferenceResult:
     diagnostics: list[InferenceDiagnostic] = field(default_factory=list)
     iterations: int = 0
     converged: bool = True
+
+    @property
+    def status(self) -> str:
+        """Aggregate completeness across the project's modules."""
+        if not self.converged or any(
+            module.status == "partial" for module in self.modules.values()
+        ):
+            return "partial"
+        return "complete"
 
     def module(self, module_name: str) -> ModuleInferenceResult | None:
         """Return one module result, if it was resolved and analysed."""

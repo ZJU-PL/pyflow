@@ -1075,7 +1075,6 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     return False
                 return all(
                     isinstance(left_elem, NeverType)
-                    or isinstance(right_elem, NeverType)
                     or (
                         self.sub_type_check(left_elem, right_elem)
                         and self.sub_type_check(right_elem, left_elem)

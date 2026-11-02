@@ -319,6 +319,8 @@ class StubDiagnostic:
     message: str
     path: str | None = None
     severity: str = "warning"
+    lineno: int | None = None
+    col_offset: int | None = None
 
 
 @dataclass(frozen=True)

@@ -346,3 +346,221 @@ called = a(1)
     assert _raw_types(result.type_of("sample.called")) == {str}
     assert _raw_types(result.type_of("sample.quotient")) == {int}
     assert _raw_types(result.type_of("sample.remainder")) == {int}
+
+
+def test_service_collects_project_modules_from_src_layout(tmp_path: Path) -> None:
+    package = tmp_path / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "impl.py").write_text("class Client:\n    value: int = 1\n", encoding="utf-8")
+    (package / "use.py").write_text(
+        "from .impl import Client\nclient = Client()\nvalue = client.value\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert _instance_name(service.type_of("pkg.use", "client")) == "pkg.impl.Client"
+    assert _raw_types(service.type_of("pkg.use", "value")) == {int}
+    assert service.inference_result("pkg.use").status == "complete"
+
+
+def test_empty_accumulator_mutations_survive_branches_and_loops() -> None:
+    branch = _infer(
+        "def f(flag: bool):\n"
+        "    xs = []\n"
+        "    if flag:\n"
+        "        xs.append(1)\n"
+        "    return xs\n"
+    )
+    loop = _infer(
+        "def f():\n"
+        "    xs = []\n"
+        "    for item in [1, 2]:\n"
+        "        xs.append(item)\n"
+        "    return xs\n"
+    )
+    ternary = _infer("def f(flag: bool):\n    return [] if flag else [1]\n")
+
+    assert _raw_types(branch.functions["sample.f"].return_type) == {list}
+    assert _raw_types(loop.functions["sample.f"].return_type) == {list}
+    assert _raw_types(ternary.functions["sample.f"].return_type) == {list}
+    assert str(branch.functions["sample.f"].return_type) == "list[int]"
+    assert str(loop.functions["sample.f"].return_type) == "list[int]"
+    assert str(ternary.functions["sample.f"].return_type) == "list[int]"
+
+
+def test_union_members_and_subscripts_are_projected_per_alternative() -> None:
+    result = _infer(
+        "class A:\n"
+        "    value: int = 1\n"
+        "class B:\n"
+        "    value: int = 2\n"
+        "def attr(item: A | B) -> int:\n"
+        "    return item.value\n"
+        "def index(item: list[int] | dict[str, int]) -> int:\n"
+        "    return item[0]\n"
+        "def iterate(item: list[str] | set[str]) -> str:\n"
+        "    for value in item:\n"
+        "        result = value\n"
+        "    return result\n"
+    )
+
+    assert _raw_types(result.functions["sample.attr"].return_type) == {int}
+    assert _raw_types(result.functions["sample.index"].return_type) == {int}
+    assert _raw_types(result.functions["sample.iterate"].return_type) == {str}
+
+
+def test_typevar_projection_through_abstract_containers_and_callables() -> None:
+    result = _infer(
+        "from typing import Callable, Iterable, Mapping, Sequence, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "K = TypeVar('K')\n"
+        "V = TypeVar('V')\n"
+        "def first(values: Sequence[T]) -> T: ...\n"
+        "def flatten(values: Iterable[T]) -> T: ...\n"
+        "def lookup(mapping: Mapping[K, V], key: K) -> V: ...\n"
+        "def apply(func: Callable[[T], V], value: T) -> V: ...\n"
+        "a = first([1])\n"
+        "b = flatten([1])\n"
+        "c = lookup({'a': 1}, 'a')\n"
+        "d = apply(lambda value: str(value), 1)\n"
+    )
+
+    assert _raw_types(result.type_of("sample.a")) == {int}
+    assert _raw_types(result.type_of("sample.b")) == {int}
+    assert _raw_types(result.type_of("sample.c")) == {int}
+    assert _raw_types(result.type_of("sample.d")) == {str}
+
+
+def test_generic_base_arguments_are_available_without_constructor_evidence() -> None:
+    result = _infer(
+        "from typing import Generic, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "class Box(Generic[T]):\n"
+        "    def get(self) -> T: ...\n"
+        "    def put(self, value: T) -> None: ...\n"
+        "class IntBox(Box[int]):\n"
+        "    pass\n"
+        "box = IntBox()\n"
+        "value = box.get()\n"
+        "box.put('bad')\n"
+    )
+
+    assert _raw_types(result.type_of("sample.value")) == {int}
+    assert any(diagnostic.code == "annotation-mismatch" for diagnostic in result.diagnostics)
+
+
+def test_default_parameter_values_seed_body_inference() -> None:
+    result = _infer(
+        "def number(value=1):\n"
+        "    return value\n"
+        "def words(value='text'):\n"
+        "    return value\n"
+        "def values(items=[]):\n"
+        "    items.append(1)\n"
+        "    return items\n"
+    )
+
+    assert _raw_types(result.functions["sample.number"].return_type) == {int}
+    assert _raw_types(result.functions["sample.words"].return_type) == {str}
+    assert _raw_types(result.functions["sample.values"].return_type) == {list}
+    assert str(result.functions["sample.values"].return_type) == "list[int]"
+
+
+def test_generator_call_preserves_send_and_return_parameters() -> None:
+    result = _infer(
+        "from typing import Generator\n"
+        "def gen() -> Generator[int, str, bool]:\n"
+        "    yield 1\n"
+        "    return True\n"
+        "generator = gen()\n"
+        "sent = generator.send('value')\n"
+    )
+
+    assert str(result.type_of("sample.generator")).startswith("collections.abc.Generator")
+    assert _raw_types(result.type_of("sample.sent")) == {bool}
+
+
+def test_signature_and_members_follow_dotted_and_inherited_classes() -> None:
+    service = TypeInfoService()
+    service.collect_module(
+        "m",
+        source=(
+            "class Base:\n"
+            "    x: int = 1\n"
+            "    def ping(self, value: str) -> int: return 1\n"
+            "class Child(Base):\n"
+            "    y: float = 1.0\n"
+        ),
+    )
+
+    signature = service.signature_of("m", "Child.ping")
+    assert signature is not None
+    assert _instance_name(signature.returns) == "builtins.int"
+    members = service.members_of("m.Child")
+    assert {"x", "ping", "y"} <= members.keys()
+
+
+def test_source_overloads_select_return_types_by_argument() -> None:
+    result = _infer(
+        "from typing import overload\n"
+        "@overload\n"
+        "def convert(value: int) -> str: ...\n"
+        "@overload\n"
+        "def convert(value: str) -> int: ...\n"
+        "def convert(value):\n"
+        "    return 1.0\n"
+        "text = convert(1)\n"
+        "number = convert('value')\n"
+    )
+
+    assert _raw_types(result.type_of("sample.text")) == {str}
+    assert _raw_types(result.type_of("sample.number")) == {int}
+
+
+def test_stub_overloads_do_not_collapse_to_the_last_declaration(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "stubmod.pyi").write_text(
+        "from typing import overload\n"
+        "@overload\n"
+        "def convert(value: str) -> int: ...\n"
+        "@overload\n"
+        "def convert(value: bytes) -> bytes: ...\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from .stubmod import convert\nresult = convert('value')\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert _raw_types(service.type_of("pkg.use", "result")) == {int, bytes}
+
+
+def test_builtin_generic_subclasses_keep_container_element_types() -> None:
+    result = _infer(
+        "class IntList(list[int]):\n"
+        "    pass\n"
+        "class StringDict(dict[str, int]):\n"
+        "    pass\n"
+        "items = IntList()\n"
+        "items.append(1)\n"
+        "first = items[0]\n"
+        "for item in items:\n"
+        "    looped = item\n"
+        "mapping = StringDict()\n"
+        "mapping['key'] = 1\n"
+        "value = mapping['key']\n"
+        "keys = mapping.keys()\n"
+    )
+
+    assert _raw_types(result.type_of("sample.first")) == {int}
+    assert _raw_types(result.type_of("sample.looped")) == {int}
+    assert _raw_types(result.type_of("sample.value")) == {int}
+    assert "KeysView" in str(result.type_of("sample.keys"))
