@@ -24,6 +24,7 @@ import io
 import itertools
 import operator
 import os
+import datetime
 import tokenize
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable, cast
@@ -2769,6 +2770,21 @@ class StaticTypeInferenceEngine:
 
         if qualified_name == "collections.deque":
             return self._instance(collections.deque, element(arguments[0]) if arguments else ANY)
+        if qualified_name in {"datetime.datetime", "datetime.date", "datetime.timedelta"}:
+            raw = {
+                "datetime.datetime": datetime.datetime,
+                "datetime.date": datetime.date,
+                "datetime.timedelta": datetime.timedelta,
+            }[qualified_name]
+            return self._instance(raw)
+        if qualified_name in {
+            "datetime.datetime.now",
+            "datetime.datetime.utcnow",
+            "datetime.datetime.fromtimestamp",
+        }:
+            return self._instance(datetime.datetime)
+        if qualified_name == "datetime.date.today":
+            return self._instance(datetime.date)
         if qualified_name == "collections.Counter":
             return self._instance(collections.Counter, element(arguments[0]) if arguments else ANY)
         if qualified_name == "collections.namedtuple" and node is not None:
@@ -3413,6 +3429,32 @@ class StaticTypeInferenceEngine:
                     "write_text",
                 }:
                     return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is datetime.datetime:
+                if node.attr == "date":
+                    return self._instance(datetime.date)
+                if node.attr == "timestamp":
+                    return self._instance(float)
+                if node.attr in {"isoformat", "strftime", "ctime"}:
+                    return self._instance(str)
+                if node.attr == "utcoffset":
+                    return self._join(
+                        self._instance(datetime.timedelta),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr in {"weekday", "isoweekday"}:
+                    return self._instance(int)
+                if node.attr in {"replace", "astimezone", "fromisoformat"}:
+                    return AbstractTypeValue.from_type(typ)
+            if raw is datetime.date:
+                if node.attr in {"isoformat", "strftime", "ctime"}:
+                    return self._instance(str)
+                if node.attr in {"weekday", "isoweekday"}:
+                    return self._instance(int)
+                if node.attr == "replace":
+                    return AbstractTypeValue.from_type(typ)
+            if raw is datetime.timedelta:
+                if node.attr == "total_seconds":
+                    return self._instance(float)
             if raw is collections.deque:
                 collection_element = AbstractTypeValue.from_type(args[0] if args else ANY)
                 if node.attr in {"append", "appendleft", "extend", "extendleft"}:
@@ -3894,6 +3936,20 @@ class StaticTypeInferenceEngine:
         if isinstance(operator, ast.MatMult):
             return AbstractTypeValue.unresolved()
         if isinstance(operator, ast.Add):
+            raw_pairs = {
+                (datetime.datetime, datetime.timedelta): datetime.datetime,
+                (datetime.timedelta, datetime.datetime): datetime.datetime,
+                (datetime.date, datetime.timedelta): datetime.date,
+                (datetime.timedelta, datetime.date): datetime.date,
+                (datetime.timedelta, datetime.timedelta): datetime.timedelta,
+            }
+            if len(left.types) == 1 and len(right.types) == 1:
+                left_part = next(iter(left.types))
+                right_part = next(iter(right.types))
+                if isinstance(left_part, Instance) and isinstance(right_part, Instance):
+                    result = raw_pairs.get((left_part.type.raw_type, right_part.type.raw_type))
+                    if result is not None:
+                        return self._instance(result)
             if len(left.types) == 1 and len(right.types) == 1:
                 left_tuple = next(iter(left.types))
                 right_tuple = next(iter(right.types))
@@ -3928,6 +3984,21 @@ class StaticTypeInferenceEngine:
                         )
                         return self._instance(list, element.public_type() or ANY)
                     return self._instance(raw)
+        if isinstance(operator, ast.Sub):
+            raw_pairs = {
+                (datetime.datetime, datetime.datetime): datetime.timedelta,
+                (datetime.date, datetime.date): datetime.timedelta,
+                (datetime.timedelta, datetime.timedelta): datetime.timedelta,
+                (datetime.datetime, datetime.timedelta): datetime.datetime,
+                (datetime.date, datetime.timedelta): datetime.date,
+            }
+            if len(left.types) == 1 and len(right.types) == 1:
+                left_part = next(iter(left.types))
+                right_part = next(iter(right.types))
+                if isinstance(left_part, Instance) and isinstance(right_part, Instance):
+                    result = raw_pairs.get((left_part.type.raw_type, right_part.type.raw_type))
+                    if result is not None:
+                        return self._instance(result)
         if isinstance(operator, ast.Mult):
             for tuple_side, count_side in ((left, right), (right, left)):
                 tuple_args = [
@@ -5848,6 +5919,24 @@ class StaticTypeInferenceEngine:
                         finally:
                             self._resolving_attributes.remove(key)
             else:
+                if typ.type.raw_type is datetime.timedelta and attribute in {
+                    "days",
+                    "seconds",
+                    "microseconds",
+                }:
+                    values.append(self._instance(int))
+                    continue
+                if typ.type.raw_type in {datetime.datetime, datetime.date} and attribute in {
+                    "year",
+                    "month",
+                    "day",
+                    "hour",
+                    "minute",
+                    "second",
+                    "microsecond",
+                }:
+                    values.append(self._instance(int))
+                    continue
                 if self._is_pathlib_type(typ):
                     if attribute in {"name", "stem", "suffix", "drive", "root", "anchor"}:
                         values.append(self._instance(str))

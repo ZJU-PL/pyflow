@@ -598,6 +598,10 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
         "path_exists = path.exists()\n"
         "path_entries = list(path.iterdir())\n"
         "path_binary = path.open('wb')\n"
+        "from datetime import datetime, timedelta\n"
+        "now = datetime.now()\n"
+        "year = now.year\n"
+        "tomorrow = now + timedelta(days=1)\n"
     )
 
     assert _raw_types(result.type_of("sample.popped")) == {int}
@@ -617,6 +621,8 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
     assert _raw_types(result.type_of("sample.path_exists")) == {bool}
     assert "pathlib" in str(result.type_of("sample.path_entries"))
     assert "BufferedIOBase" in str(result.type_of("sample.path_binary"))
+    assert _raw_types(result.type_of("sample.year")) == {int}
+    assert str(result.type_of("sample.tomorrow")) == "datetime.datetime"
 
 
 def test_class_getattr_and_custom_descriptors_are_resolved() -> None:
