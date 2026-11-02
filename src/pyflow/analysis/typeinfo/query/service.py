@@ -812,10 +812,17 @@ class TypeInfoService:
                     class_typ,
                 )
                 methods[stmt.name] = method_info
+                member_type = (
+                    method_info.returns
+                    if method_info.is_property
+                    else self._callable_type(method_info)
+                )
                 members[stmt.name] = TypeFact(
                     name=stmt.name,
-                    typ=method_info.returns,
-                    raw_annotation=method_info.raw_returns,
+                    typ=member_type,
+                    raw_annotation=(
+                        method_info.raw_returns if method_info.is_property else str(member_type)
+                    ),
                     source=method_info.source,
                     kind="method",
                 )
@@ -1001,13 +1008,6 @@ class TypeInfoService:
         methods = {name: infos[0] for name, infos in grouped_methods.items()}
         for method_name, infos in grouped_methods.items():
             method_info = infos[0]
-            members[method_name] = TypeFact(
-                name=method_name,
-                typ=method_info.returns,
-                raw_annotation=method_info.raw_returns,
-                source="stub",
-                kind="method",
-            )
             callables: list[CallableType] = []
             for method_signature in infos:
                 signature = self._callable_type(method_signature)
@@ -1029,6 +1029,16 @@ class TypeInfoService:
                 )
             else:
                 class_typ.type.members[method_name] = callables[0]
+            member_type = class_typ.type.members[method_name]
+            members[method_name] = TypeFact(
+                name=method_name,
+                typ=member_type,
+                raw_annotation=(
+                    method_info.raw_returns if method_info.is_property else str(member_type)
+                ),
+                source="stub",
+                kind="method",
+            )
         return ClassTypeInfo(
             name=qualified_name,
             typ=class_typ,

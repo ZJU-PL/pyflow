@@ -124,14 +124,10 @@ class Client:
 
     members = service.members_of("pkg.mod.Client")
     assert _builtin_instance(members["value"].typ, str)
-    assert members["ping"] == TypeFact(
-        name="ping",
-        typ=members["ping"].typ,
-        raw_annotation="bool",
-        source="annotation",
-        kind="method",
-    )
-    assert _builtin_instance(members["ping"].typ, bool)
+    assert members["ping"].source == "annotation"
+    assert members["ping"].kind == "method"
+    assert isinstance(members["ping"].typ, CallableType)
+    assert _builtin_instance(members["ping"].typ.return_type, bool)
 
 
 def test_service_resolves_composite_types() -> None:
