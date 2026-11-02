@@ -832,3 +832,17 @@ def test_paramspec_decorator_preserves_the_wrapped_return_type() -> None:
     )
 
     assert _raw_types(result.type_of("sample.result")) == {str}
+
+
+def test_functional_enum_creates_nominal_members() -> None:
+    result = _infer(
+        "import enum\n"
+        "Color = enum.Enum('Color', 'RED BLUE')\n"
+        "member = Color.RED\n"
+        "name = member.name\n"
+        "value = member.value\n"
+    )
+
+    assert _instance_name(result.type_of("sample.member")) == "sample.Color"
+    assert _raw_types(result.type_of("sample.name")) == {str}
+    assert _raw_types(result.type_of("sample.value")) == {int}

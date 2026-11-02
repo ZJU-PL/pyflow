@@ -18,6 +18,7 @@ import builtins
 import collections
 import collections.abc as cabc
 import contextlib
+import enum
 import functools
 import io
 import itertools
@@ -2801,6 +2802,41 @@ class StaticTypeInferenceEngine:
                     **{field: AbstractTypeValue.from_type(ANY) for field in fields},
                     "_fields": fields_type,
                 },
+            )
+            self._class_aliases[name] = qualified
+            return AbstractTypeValue.from_type(instance, class_target=qualified)
+        if qualified_name in {"enum.Enum", "enum.IntEnum"} and node is not None:
+            if not node.args or not isinstance(node.args[0], ast.Constant):
+                return AbstractTypeValue.unresolved()
+            name = node.args[0].value
+            if not isinstance(name, str):
+                return AbstractTypeValue.unresolved()
+            names: tuple[str, ...] = ()
+            if len(node.args) > 1:
+                try:
+                    raw_names = ast.literal_eval(node.args[1])
+                except (ValueError, TypeError, SyntaxError):
+                    raw_names = None
+                if isinstance(raw_names, str):
+                    names = tuple(part for part in raw_names.replace(",", " ").split() if part)
+                elif isinstance(raw_names, (list, tuple)) and all(
+                    isinstance(part, str) for part in raw_names
+                ):
+                    names = tuple(raw_names)
+            qualified = f"{self._module_name}.{name}"
+            raw = type(name, (), {"__module__": self._module_name})
+            instance = self._proper_instance(raw)
+            attributes: dict[str, AbstractTypeValue] = {}
+            enum_values: dict[str, AbstractTypeValue] = {}
+            for index, member in enumerate(names, start=1):
+                attributes[member] = AbstractTypeValue.from_type(instance)
+                enum_values[member] = self._instance(int)
+            self._classes[qualified] = _ClassInfo(
+                qualified,
+                instance,
+                bases=(qualified_name,),
+                attributes=attributes,
+                enum_values=enum_values,
             )
             self._class_aliases[name] = qualified
             return AbstractTypeValue.from_type(instance, class_target=qualified)
