@@ -479,7 +479,9 @@ class TypeInfoService:
         for local_name, qualified_name in imports.items():
             if local_name in facts:
                 continue
-            imported_type = self._lookup_project_type(qualified_name, allow_synthetic=False)
+            imported_type = BuiltinTypeLookup()(qualified_name)
+            if imported_type is None:
+                imported_type = self._lookup_project_type(qualified_name, allow_synthetic=False)
             if imported_type is None:
                 continue
             facts[local_name] = TypeFact(

@@ -999,3 +999,17 @@ def test_functional_typing_namedtuple_uses_field_types() -> None:
     assert _raw_types(result.type_of("sample.x")) == {int}
     assert _raw_types(result.type_of("sample.y")) == {str}
     assert _raw_types(result.type_of("sample.first")) == {int}
+
+
+def test_reexported_typing_aliases_keep_their_builtin_meaning(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "types.py").write_text("from typing import Dict\n", encoding="utf-8")
+    (package / "use.py").write_text("from .types import Dict\nvalue: Dict = {}\n", encoding="utf-8")
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert str(service.type_of("pkg.types", "Dict")) == "dict[Any, Any]"
+    assert str(service.type_of("pkg.use", "value")) == "dict[Any, Any]"
