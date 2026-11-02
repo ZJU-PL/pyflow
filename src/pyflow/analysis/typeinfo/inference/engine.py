@@ -3377,7 +3377,21 @@ class StaticTypeInferenceEngine:
                 }:
                     return AbstractTypeValue.from_type(typ)
                 if node.attr == "open":
-                    return self._instance(io.TextIOWrapper)
+                    mode = "r"
+                    if call_node is not None:
+                        mode_node = call_node.args[0] if call_node.args else None
+                        if mode_node is None:
+                            mode_node = next(
+                                (
+                                    keyword.value
+                                    for keyword in call_node.keywords
+                                    if keyword.arg == "mode"
+                                ),
+                                None,
+                            )
+                        if isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+                            mode = mode_node.value
+                    return self._instance(io.BufferedIOBase if "b" in mode else io.TextIOWrapper)
                 if node.attr in {
                     "mkdir",
                     "touch",
