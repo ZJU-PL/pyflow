@@ -3177,6 +3177,62 @@ class StaticTypeInferenceEngine:
                     return self._instance(list, self._proper_instance(bytes if binary else str))
                 if node.attr in {"readinto", "write"}:
                     return self._instance(int if node.attr == "write" else int)
+            if self._is_pathlib_type(typ):
+                if node.attr == "read_text":
+                    return self._instance(str)
+                if node.attr == "read_bytes":
+                    return self._instance(bytes)
+                if node.attr in {"write_text", "write_bytes"}:
+                    return self._instance(int)
+                if node.attr in {
+                    "exists",
+                    "is_file",
+                    "is_dir",
+                    "is_symlink",
+                    "is_absolute",
+                    "is_relative_to",
+                    "match",
+                }:
+                    return self._instance(bool)
+                if node.attr in {"iterdir", "glob", "rglob"}:
+                    return self._instance(cabc.Iterator, typ)
+                if node.attr == "walk":
+                    return self._instance(
+                        cabc.Iterator,
+                        TupleType(
+                            (
+                                typ,
+                                self._instance(list, self._proper_instance(str)),
+                                self._instance(list, self._proper_instance(str)),
+                            )
+                        ),
+                    )
+                if node.attr in {
+                    "resolve",
+                    "absolute",
+                    "expanduser",
+                    "with_name",
+                    "with_suffix",
+                    "with_stem",
+                    "joinpath",
+                    "relative_to",
+                    "rename",
+                    "replace",
+                }:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr == "open":
+                    return self._instance(io.TextIOWrapper)
+                if node.attr in {
+                    "mkdir",
+                    "touch",
+                    "unlink",
+                    "rmdir",
+                    "chmod",
+                    "symlink_to",
+                    "hardlink_to",
+                    "write_text",
+                }:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is collections.deque:
                 collection_element = AbstractTypeValue.from_type(args[0] if args else ANY)
                 if node.attr in {"append", "appendleft", "extend", "extendleft"}:
@@ -5522,6 +5578,23 @@ class StaticTypeInferenceEngine:
                         finally:
                             self._resolving_attributes.remove(key)
             else:
+                if self._is_pathlib_type(typ):
+                    if attribute in {"name", "stem", "suffix", "drive", "root", "anchor"}:
+                        values.append(self._instance(str))
+                        continue
+                    if attribute in {"suffixes", "parts"}:
+                        if attribute == "parts":
+                            values.append(
+                                AbstractTypeValue.from_type(
+                                    TupleType((self._proper_instance(str),), unknown_size=True)
+                                )
+                            )
+                        else:
+                            values.append(self._instance(list, self._proper_instance(str)))
+                        continue
+                    if attribute in {"parent", "parents"}:
+                        values.append(AbstractTypeValue.from_type(typ))
+                        continue
                 member_type = typ.type.members.get(attribute)
                 if member_type is not None:
                     substitutions = {
@@ -5943,6 +6016,18 @@ class StaticTypeInferenceEngine:
             return None
         raw, args = info.builtin_base
         return Instance(self.type_system.to_class_descriptor(raw), args)
+
+    @staticmethod
+    def _is_pathlib_type(typ: Instance) -> bool:
+        full_name = typ.type.full_name
+        return full_name.startswith("pathlib.") and full_name.rsplit(".", 1)[-1] in {
+            "Path",
+            "PosixPath",
+            "WindowsPath",
+            "PurePath",
+            "PurePosixPath",
+            "PureWindowsPath",
+        }
 
     def _callable_return_type(self, value: AbstractTypeValue) -> AbstractTypeValue:
         returns = [
