@@ -564,3 +564,157 @@ def test_builtin_generic_subclasses_keep_container_element_types() -> None:
     assert _raw_types(result.type_of("sample.looped")) == {int}
     assert _raw_types(result.type_of("sample.value")) == {int}
     assert "KeysView" in str(result.type_of("sample.keys"))
+
+
+def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
+    result = _infer(
+        "from collections import ChainMap, Counter, OrderedDict, defaultdict, deque\n"
+        "from functools import partial, reduce\n"
+        "import itertools as it\n"
+        "queue = deque([1])\n"
+        "popped = queue.popleft()\n"
+        "mapping = defaultdict(int)\n"
+        "defaulted = mapping['missing']\n"
+        "counter = Counter('aab')\n"
+        "common = counter.most_common(1)\n"
+        "ordered = OrderedDict(a=1)\n"
+        "item = ordered.popitem()\n"
+        "chain = ChainMap({'a': 1})\n"
+        "chained = chain['a']\n"
+        "def add(x: int, y: str) -> float: return 1.0\n"
+        "partial_add = partial(add, 1)\n"
+        "partial_result = partial_add('value')\n"
+        "reduced = reduce(lambda x, y: x + y, [1, 2], 0)\n"
+        "chained_iter = list(it.chain([1], [2]))\n"
+        "product_iter = list(it.product([1], ['a']))\n"
+        "texts = list(map(str, [1]))\n"
+        "incremented = list(map(lambda x: x + 1, [1]))\n"
+        "filtered = list(filter(None, [1, None]))\n"
+        "mapping_literal = dict(a=1)\n"
+    )
+
+    assert _raw_types(result.type_of("sample.popped")) == {int}
+    assert _raw_types(result.type_of("sample.defaulted")) == {int}
+    assert str(result.type_of("sample.common")) == "list[tuple[str, int]]"
+    assert str(result.type_of("sample.item")) == "tuple[str, int]"
+    assert _raw_types(result.type_of("sample.chained")) == {int}
+    assert _raw_types(result.type_of("sample.partial_result")) == {float}
+    assert _raw_types(result.type_of("sample.reduced")) == {int}
+    assert str(result.type_of("sample.chained_iter")) == "list[int]"
+    assert str(result.type_of("sample.product_iter")) == "list[tuple[int, str]]"
+    assert str(result.type_of("sample.texts")) == "list[str]"
+    assert str(result.type_of("sample.incremented")) == "list[int]"
+    assert str(result.type_of("sample.filtered")) == "list[int]"
+    assert str(result.type_of("sample.mapping_literal")) == "dict[str, int]"
+
+
+def test_class_getattr_and_custom_descriptors_are_resolved() -> None:
+    result = _infer(
+        "class Descriptor:\n"
+        "    def __get__(self, instance, owner=None) -> int: return 1\n"
+        "class Model:\n"
+        "    value = Descriptor()\n"
+        "    def __getattr__(self, name: str) -> str: return name\n"
+        "model = Model()\n"
+        "descriptor_value = model.value\n"
+        "dynamic_value = model.missing\n"
+    )
+
+    assert _raw_types(result.type_of("sample.descriptor_value")) == {int}
+    assert _raw_types(result.type_of("sample.dynamic_value")) == {str}
+
+
+def test_module_getattr_and_star_imports_resolve_exports(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from .impl import *\n" "def __getattr__(name: str) -> int:\n" "    return 1\n",
+        encoding="utf-8",
+    )
+    (package / "impl.py").write_text(
+        "__all__ = ['Client']\nclass Client:\n    value: int = 1\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "import pkg\n"
+        "from pkg import Client\n"
+        "client = Client()\n"
+        "client_value = client.value\n"
+        "dynamic = pkg.anything\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert _instance_name(service.type_of("pkg.use", "client")) == "pkg.impl.Client"
+    assert _raw_types(service.type_of("pkg.use", "client_value")) == {int}
+    assert _raw_types(service.type_of("pkg.use", "dynamic")) == {int}
+
+
+def test_generic_protocol_members_are_checked_with_concrete_arguments() -> None:
+    result = _infer(
+        "from typing import Protocol, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "class Provider(Protocol[T]):\n"
+        "    def get(self) -> T: ...\n"
+        "class IntegerProvider:\n"
+        "    def get(self) -> int: return 1\n"
+        "def consume(provider: Provider[int]) -> None: ...\n"
+        "consume(IntegerProvider())\n"
+    )
+
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_conditional_attribute_write_does_not_replace_the_other_branch() -> None:
+    result = _infer(
+        "class Config:\n"
+        "    value = 0\n"
+        "config = Config()\n"
+        "def read(flag: bool):\n"
+        "    if flag:\n"
+        "        config.value = 'changed'\n"
+        "    return config.value\n"
+    )
+
+    assert _raw_types(result.functions["sample.read"].return_type) == {int, str}
+
+
+def test_hasattr_and_type_guards_narrow_union_alternatives() -> None:
+    result = _infer(
+        "class HasValue:\n"
+        "    value: int = 1\n"
+        "class MissingValue:\n"
+        "    pass\n"
+        "def by_hasattr(item: HasValue | MissingValue):\n"
+        "    if hasattr(item, 'value'):\n"
+        "        return item.value\n"
+        "    return 0\n"
+        "def by_type(item: int | str):\n"
+        "    if type(item) is int:\n"
+        "        return item + 1\n"
+        "    return item.upper()\n"
+    )
+
+    assert _raw_types(result.functions["sample.by_hasattr"].return_type) == {int}
+    assert _raw_types(result.functions["sample.by_type"].return_type) == {int, str}
+
+
+def test_lazy_collection_depth_limit_stops_runaway_recursion(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    for index in range(5):
+        next_import = f"from .m{index + 1} import value{index + 1}\n" if index < 4 else ""
+        (package / f"m{index}.py").write_text(
+            next_import + f"value{index} = {index}\n", encoding="utf-8"
+        )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service._max_collection_depth = 2
+    service.collect_module("pkg.m0")
+
+    assert any(
+        diagnostic.code == "type_collection_depth_exceeded" for diagnostic in service.diagnostics()
+    )

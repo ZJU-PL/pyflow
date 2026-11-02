@@ -80,6 +80,8 @@ class TypeInfoService:
         self._collected_modules: set[str] = set()
         self._collecting_modules: set[str] = set()
         self._collection_stack: list[str] = []
+        self._max_collection_depth = 32
+        self._depth_limit_warning_emitted = False
         self.enable_static_inference = enable_static_inference
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
@@ -102,6 +104,8 @@ class TypeInfoService:
         """Collect source and stub facts for a module."""
         if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
+        if not self._collecting_modules:
+            self._depth_limit_warning_emitted = False
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
         try:
@@ -453,6 +457,20 @@ class TypeInfoService:
                             kind="variable",
                         )
 
+        for local_name, qualified_name in imports.items():
+            if local_name in facts:
+                continue
+            imported_type = self._lookup_project_type(qualified_name, allow_synthetic=False)
+            if imported_type is None:
+                continue
+            facts[local_name] = TypeFact(
+                name=local_name,
+                typ=imported_type,
+                raw_annotation=qualified_name,
+                source="import",
+                kind="import",
+            )
+
         if self.enable_static_inference:
             self._collect_inferred_source_facts(module_name, source, path)
 
@@ -691,6 +709,10 @@ class TypeInfoService:
                     continue
                 for alias in node.names:
                     if alias.name == "*":
+                        self.collect_module(source_module)
+                        for exported_name in self._module_facts.get(source_module, {}):
+                            if not exported_name.startswith("_"):
+                                imports[exported_name] = f"{source_module}.{exported_name}"
                         continue
                     local = alias.asname or alias.name
                     imports[local] = f"{source_module}.{alias.name}"
@@ -1168,6 +1190,22 @@ class TypeInfoService:
             candidate = ".".join(parts[:index])
             if candidate in self._collected_modules:
                 break
+            if len(self._collection_stack) >= self._max_collection_depth:
+                if not self._depth_limit_warning_emitted:
+                    self._depth_limit_warning_emitted = True
+                    self._collection_diagnostics.append(
+                        StubDiagnostic(
+                            code="type_collection_depth_exceeded",
+                            category="type_inference",
+                            module_name=self._collection_stack[-1],
+                            message=(
+                                "Stopped lazy project collection at the depth limit; "
+                                "the inferred type closure is partial"
+                            ),
+                            severity="warning",
+                        )
+                    )
+                return ANY
             if self._module_should_be_collected(candidate):
                 self.collect_module(candidate)
                 break
@@ -1219,6 +1257,10 @@ class TypeInfoService:
         fact = self._module_facts.get(module_name, {}).get(attr)
         if fact is not None:
             return fact.typ
+
+        dynamic_getattr = self._functions.get(module_name, {}).get("__getattr__")
+        if dynamic_getattr is not None and dynamic_getattr.returns is not None:
+            return dynamic_getattr.returns
 
         if partial:
             # A failed import supplies no nominal-class evidence. Any also
