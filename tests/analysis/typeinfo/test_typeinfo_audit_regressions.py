@@ -969,3 +969,17 @@ def test_type_ignore_comments_suppress_assignment_mismatches() -> None:
     messages = [item.message for item in result.diagnostics if item.code == "annotation-mismatch"]
     assert len(messages) == 1
     assert "other" not in messages[0]
+
+
+def test_nonlocal_assignment_updates_enclosing_function_flow() -> None:
+    result = _infer(
+        "def outer():\n"
+        "    value = 1\n"
+        "    def inner():\n"
+        "        nonlocal value\n"
+        "        value = 'changed'\n"
+        "    inner()\n"
+        "    return value\n"
+    )
+
+    assert _raw_types(result.functions["sample.outer"].return_type) == {str}

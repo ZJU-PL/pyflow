@@ -118,6 +118,7 @@ class _FunctionInfo:
     type_variables: dict[str, TypeVarType] = field(default_factory=dict)
     method_kind: str = "instance"
     global_names: set[str] = field(default_factory=set)
+    nonlocal_names: set[str] = field(default_factory=set)
     is_generator_source: bool = False
     effective_return: AbstractTypeValue | None = None
     type_guard_target: tuple[str, AbstractTypeValue, bool] | None = None
@@ -583,6 +584,12 @@ class StaticTypeInferenceEngine:
                     name
                     for statement in node.body
                     if isinstance(statement, ast.Global)
+                    for name in statement.names
+                }
+                info.nonlocal_names = {
+                    name
+                    for statement in node.body
+                    if isinstance(statement, ast.Nonlocal)
                     for name in statement.names
                 }
                 info.is_generator_source = self._contains_yield(node)
@@ -2687,6 +2694,13 @@ class StaticTypeInferenceEngine:
             results.append(self._apply_function(target, arguments, keywords, node=node))
             called = self._functions.get(target)
             if called is not None:
+                if called.nonlocal_names:
+                    parent = self._enclosing_function(called)
+                    if parent is current_function:
+                        for name in called.nonlocal_names:
+                            closure_value = parent.closure_evidence.get(name)
+                            if closure_value is not None:
+                                environment[name] = closure_value
                 for name in called.global_names:
                     global_value = self._module_environment.get(name)
                     if global_value is not None and (
@@ -6465,6 +6479,15 @@ class StaticTypeInferenceEngine:
             if name != key and value == old:
                 environment[name] = new_value
 
+    def _enclosing_function(self, function: _FunctionInfo) -> _FunctionInfo | None:
+        current = function.qualified_name
+        while "." in current:
+            current = current.rpartition(".")[0]
+            parent = self._functions.get(current)
+            if parent is not None and parent is not function:
+                return parent
+        return None
+
     def _update_nested_closure_evidence(
         self,
         name: str,
@@ -6494,6 +6517,11 @@ class StaticTypeInferenceEngine:
             if current_function is not None:
                 if target.id in current_function.global_names:
                     self._module_environment[target.id] = value
+                if target.id in current_function.nonlocal_names:
+                    parent = self._enclosing_function(current_function)
+                    if parent is not None:
+                        old = parent.closure_evidence.get(target.id, AbstractTypeValue.bottom())
+                        parent.closure_evidence[target.id] = self._join(old, value)
                 self._update_nested_closure_evidence(target.id, value, current_function)
             return
         if isinstance(target, (ast.Tuple, ast.List)):
