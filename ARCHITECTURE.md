@@ -243,3 +243,22 @@ SARIF severity labels now use one mapping across exporters: low/note is `note`,
 medium/warning is `warning`, and high/critical/error is `error`. In particular,
 CPG CLI low-severity results now use `note` rather than `warning`. Unknown source
 lines in native CPG SARIF exports use line 1 instead of an invalid line 0.
+
+### CPG scope and graph-budget contracts
+
+The project-wide `CodePropertyGraph.defs` and `.uses` mappings are retained for
+backwards compatibility.  Consumers that need lexical isolation should use
+`defs_by_function` and `uses_by_function`, which partition the same source
+variable edges by their owning function.
+
+Directory CPG construction treats its deadline as a budget for extraction,
+per-function CFG/PDG construction, and cross-function graph assembly.  A
+budget expiration is recorded as a construction diagnostic and the returned
+graph is explicitly marked incomplete rather than deferring expensive graph
+materialization until a later query.
+
+Opaque-call memory effects share one conservative external-memory abstraction.
+The DDG represents its source-ordered accesses as a transitive summary chain
+instead of expanding every pair of opaque operations into a dense edge set.
+Precise, typed storage locations continue to use the existing RAW/WAR/WAW
+fixed-point analysis.

@@ -129,3 +129,162 @@ def verify_cfg(cfg, catalog=None) -> None:
 
 
 __all__ = ["CFGVerificationError", "verify_cfg"]
+
+
+class SSAVerificationError(CFGVerificationError):
+    """Raised when SSA values violate dominance or phi invariants."""
+
+
+def _defined_references(block):
+    """Yield the references a block binds to fresh SSA values."""
+    if isinstance(block, graph.Merge):
+        for phi in block.phi:
+            yield phi.target
+    elif isinstance(block, graph.ForIter):
+        yield block.index
+    elif isinstance(block, graph.Suite):
+        for operation in block.ops:
+            for field in ("lcls", "targets"):
+                references = getattr(operation, field, None)
+                if references:
+                    yield from references
+
+
+def verify_ssa(cfg, catalog=None) -> None:
+    """Verify SSA value availability, dominance, and phi uniqueness.
+
+    Undefined reads are legal IR values and are explicitly marked on their
+    :class:`Value`; they are not confused with entry values (whose definition
+    is also ``None``).  A phi argument is checked on its corresponding incoming
+    edge, rather than at the merge block.
+    """
+    from pyflow.ir.core import ensure_code_indexed
+    from pyflow.ir.core.ids import ValueId
+
+    catalog = catalog or ensure_code_indexed(cfg.code)
+    blocks = _all_blocks(cfg)
+    reachable = set()
+    pending = [cfg.entryTerminal]
+    while pending:
+        block = pending.pop()
+        if block in reachable:
+            continue
+        reachable.add(block)
+        pending.extend(block.next.values())
+
+    # Classic iterative dominators.  The graph is small compared with the
+    # analysis itself and this avoids depending on mutable DJ annotations.
+    dominators = {block: set(reachable) for block in reachable}
+    dominators[cfg.entryTerminal] = {cfg.entryTerminal}
+    changed = True
+    while changed:
+        changed = False
+        for block in reachable:
+            if block is cfg.entryTerminal:
+                continue
+            predecessors = [p for p, _ in block.iterprev() if p in reachable]
+            common = (
+                set.intersection(*(dominators[p] for p in predecessors)) if predecessors else set()
+            )
+            updated = {block} | common
+            if updated != dominators[block]:
+                dominators[block] = updated
+                changed = True
+
+    operation_blocks = {}
+    operation_objects = []
+    block_nodes = {}
+    phi_blocks = {}
+    for block in blocks:
+        if catalog.has_node(block, cfg.code):
+            block_nodes[catalog.node_id(block, cfg.code)] = block
+        if isinstance(block, graph.Suite):
+            for operation in block.ops:
+                operation_objects.append((operation, block))
+                if catalog.has_node(operation, cfg.code):
+                    operation_blocks[catalog.node_id(operation, cfg.code)] = block
+        if isinstance(block, graph.Merge):
+            for phi in block.phi:
+                if not catalog.has_value(phi.target, cfg.code):
+                    raise SSAVerificationError("phi target has no SSA value")
+                value_id = catalog.value_id(phi.target, cfg.code)
+                if value_id in phi_blocks:
+                    raise SSAVerificationError(f"duplicate phi target {value_id}")
+                phi_blocks[value_id] = block
+
+    # Definitions are located through the SSA bindings on defining locals,
+    # not only through node ids.  Rewrites (for example lowering a ``with``
+    # statement) may replace an operation with an equivalent one, leaving the
+    # recorded definition NodeId stale while the value stays correctly bound.
+    definition_blocks = dict(phi_blocks)
+    for block in blocks:
+        for reference in _defined_references(block):
+            if catalog.has_value(reference, cfg.code):
+                definition_blocks.setdefault(catalog.value_id(reference, cfg.code), block)
+
+    def check_available(value_id, use_block, *, edge_predecessor=None):
+        if not isinstance(value_id, ValueId):
+            return
+        value = catalog.values.get(value_id)
+        if value is None:
+            raise SSAVerificationError(f"SSA use references missing value {value_id}")
+        if value.undefined:
+            return
+        definition_block = definition_blocks.get(value_id)
+        if definition_block is None and value.definition is not None:
+            definition_block = operation_blocks.get(value.definition) or block_nodes.get(
+                value.definition
+            )
+            if definition_block is None:
+                try:
+                    definition_object = catalog.node(value.definition)
+                except KeyError:
+                    definition_object = None
+                matching_blocks = [
+                    owner
+                    for operation, owner in operation_objects
+                    if operation is definition_object
+                    or operation == definition_object
+                    or (
+                        definition_object is not None and repr(operation) == repr(definition_object)
+                    )
+                ]
+                definition_block = matching_blocks[0] if matching_blocks else None
+            if definition_block is None:
+                # A stale source NodeId can survive a CFG rewrite.  It is
+                # still a definition only if its source operation has a
+                # structurally identical live operation in this CFG.
+                raise SSAVerificationError(f"definition of {value_id} is not present in the CFG")
+        if definition_block is None:  # entry parameter or synthetic input
+            return
+        target = edge_predecessor or use_block
+        if definition_block not in dominators.get(target, set()):
+            raise SSAVerificationError(
+                f"definition of {value_id} does not dominate its use in {type(target).__name__}"
+            )
+
+    for block in reachable:
+        if isinstance(block, graph.Merge):
+            predecessors = list(block.iterprev())
+            for phi in block.phi:
+                if len(phi.arguments) != len(predecessors):
+                    raise SSAVerificationError("phi arity does not match predecessor count")
+                for argument, (predecessor, _label) in zip(phi.arguments, predecessors):
+                    if argument is None:
+                        continue
+                    if not catalog.has_value(argument, cfg.code):
+                        raise SSAVerificationError("phi argument has no SSA value")
+                    check_available(
+                        catalog.value_id(argument, cfg.code),
+                        block,
+                        edge_predecessor=predecessor,
+                    )
+        if isinstance(block, graph.Suite):
+            for operation in block.ops:
+                if not catalog.has_node(operation, cfg.code):
+                    continue
+                semantics = catalog.semantics.get_operation(catalog.node_id(operation, cfg.code))
+                if semantics is None:
+                    continue
+                for value_id in semantics.uses:
+                    check_available(value_id, block)

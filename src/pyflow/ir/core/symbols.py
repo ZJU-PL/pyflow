@@ -40,6 +40,9 @@ class Symbol:
 class Value:
     id: ValueId
     definition: NodeId | None = None
+    # ``definition is None`` also describes entry values.  Keep undefined
+    # reads (e.g. after ``del`` or exception-target cleanup) distinct.
+    undefined: bool = False
 
 
 class SymbolTable:
@@ -139,10 +142,12 @@ class ValueTable:
         self._next_version: dict[SymbolId, int] = {}
         self._values: dict[ValueId, Value] = {}
 
-    def define(self, symbol: SymbolId, definition: NodeId | None = None) -> Value:
+    def define(
+        self, symbol: SymbolId, definition: NodeId | None = None, *, undefined: bool = False
+    ) -> Value:
         version = self._next_version.get(symbol, 0)
         self._next_version[symbol] = version + 1
-        value = Value(ValueId(symbol, version), definition)
+        value = Value(ValueId(symbol, version), definition, undefined)
         self._values[value.id] = value
         return value
 

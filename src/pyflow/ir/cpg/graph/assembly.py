@@ -216,7 +216,7 @@ class _GraphAssemblyMixin:
                 initial_values = {
                     value.id.symbol: value.id
                     for value in catalog.values
-                    if value.definition is None
+                    if value.definition is None and not value.undefined
                 }
                 for symbol in catalog.symbols:
                     if symbol.id.scope == scope and symbol.kind is SymbolKind.PARAMETER:
@@ -454,9 +454,126 @@ class _GraphAssemblyMixin:
         for name in self._pdgs:
             by_short.setdefault(name.rsplit(".", 1)[-1], []).append(name)
 
+        # Resolve imports and class bases from source once all participating
+        # modules are registered. A same-name function in another file is not
+        # a valid target unless the caller actually imports it.
+        import_cache: Dict[str, tuple[set[str], set[str]]] = {}
+        class_bases: Dict[str, tuple[str, ...]] = {}
+        path_by_function: Dict[str, str] = {}
+        for function_name, function_pdg in self._pdgs.items():
+            span = syntax_source_span(function_pdg.cfg.code)
+            path = str(span.path) if span is not None and span.path else ""
+            path_by_function[function_name] = path
+            if not path or path in import_cache:
+                continue
+            try:
+                import ast as _ast
+
+                with open(path, "r", encoding="utf-8", errors="replace") as source_file:
+                    module_ast = _ast.parse(source_file.read(), filename=path)
+            except (OSError, SyntaxError, ValueError):
+                import_cache[path] = (set(), set())
+                continue
+            imported_modules: set[str] = set()
+            imported_names: set[str] = set()
+            for statement in module_ast.body:
+                if isinstance(statement, _ast.Import):
+                    for alias in statement.names:
+                        imported_modules.add(alias.asname or alias.name.split(".")[0])
+                elif isinstance(statement, _ast.ImportFrom):
+                    if statement.module:
+                        imported_modules.add(statement.module)
+                    imported_names.update(
+                        alias.asname or alias.name for alias in statement.names if alias.name != "*"
+                    )
+            import_cache[path] = (imported_modules, imported_names)
+            for class_node in (n for n in _ast.walk(module_ast) if isinstance(n, _ast.ClassDef)):
+                class_bases[class_node.name] = tuple(
+                    (
+                        base.id
+                        if isinstance(base, _ast.Name)
+                        else base.attr if isinstance(base, _ast.Attribute) else ""
+                    )
+                    for base in class_node.bases
+                )
+
+        # In-memory/source-string CPGs have no readable source path. Recover
+        # class inheritance from the module PDG's already-converted AST too.
+        def collect_class_bases(node: Any) -> None:
+            if isinstance(node, py_ast.ClassDef):
+                class_name = getattr(node, "name", None)
+                if isinstance(class_name, str):
+                    bases = []
+                    for base in getattr(node, "bases", ()) or ():
+                        base_name = getattr(base, "name", None)
+                        if isinstance(base_name, str):
+                            bases.append(base_name.lstrip("%"))
+                        elif isinstance(base, py_ast.Existing):
+                            obj = getattr(base, "object", None)
+                            value = getattr(obj, "pyobj", None)
+                            if isinstance(value, str):
+                                bases.append(value)
+                    class_bases[class_name] = tuple(bases)
+            for child in _iter_ast_children(node):
+                if isinstance(child, (list, tuple)):
+                    for item in child:
+                        collect_class_bases(item)
+                elif child is not None:
+                    collect_class_bases(child)
+
+        for module_pdg in self._pdgs.values():
+            for module_node in module_pdg.nodes:
+                if module_node.ast_node is not None:
+                    collect_class_bases(module_node.ast_node)
+
+        def inherited_classes(class_name: str) -> set[str]:
+            result: set[str] = set()
+            pending = list(class_bases.get(class_name, ()))
+            while pending:
+                base = pending.pop()
+                if not base or base in result or base == class_name:
+                    continue
+                result.add(base)
+                pending.extend(class_bases.get(base, ()))
+            return result
+
+        def imported_cross_file_target(caller: str, raw_call: str, candidate: str) -> bool:
+            caller_path = path_by_function.get(caller, "")
+            candidate_path = path_by_function.get(candidate, "")
+            if not candidate_path or candidate_path == caller_path:
+                return True
+            imported_modules, imported_names = import_cache.get(caller_path, (set(), set()))
+            if "." not in raw_call:
+                return raw_call in imported_names
+            root = raw_call.split(".", 1)[0]
+            if root in imported_modules:
+                return True
+            candidate_stem = candidate_path.rsplit("/", 1)[-1].removesuffix(".py")
+            return candidate_stem in imported_modules and raw_call.startswith(root + ".")
+
         for caller_name, caller_pdg in self._pdgs.items():
             if deadline is not None and monotonic() >= deadline:
                 return False
+            # Local aliases created by ``fn = lambda ...`` (and equivalent
+            # MakeFunction assignments) are explicit in the lowered AST. Keep
+            # the mapping per enclosing function so identical local names in
+            # different scopes never collide.
+            local_functions: Dict[str, str] = {}
+            for owner_node in caller_pdg.nodes:
+                statement = owner_node.ast_node
+                if not isinstance(statement, py_ast.Assign):
+                    continue
+                expression = getattr(statement, "expr", None)
+                code = getattr(expression, "code", None)
+                if code is None:
+                    continue
+                target_name = getattr(code, "codeName", lambda: "")()
+                if target_name not in self._pdgs:
+                    continue
+                for local in getattr(statement, "lcls", ()) or ():
+                    local_name = getattr(local, "name", None)
+                    if isinstance(local_name, str):
+                        local_functions[local_name.lstrip("%")] = target_name
             for call_site in caller_pdg.nodes:
                 ast_node = call_site.ast_node
                 if ast_node is None:
@@ -468,7 +585,9 @@ class _GraphAssemblyMixin:
                     continue
                 for raw_name in self._statement_call_names(ast_node):
                     candidates: List[str]
-                    if raw_name in self._pdgs:
+                    if raw_name in local_functions:
+                        candidates = [local_functions[raw_name]]
+                    elif raw_name in self._pdgs:
                         candidates = [raw_name]
                     else:
                         short = raw_name.rsplit(".", 1)[-1]
@@ -490,15 +609,25 @@ class _GraphAssemblyMixin:
                                     caller_prefix.rsplit(".", 1)[0] if "." in caller_prefix else ""
                                 )
                                 if caller_class:
+                                    class_tail = caller_class.rsplit(".", 1)[-1]
+                                    valid_classes = {class_tail} | inherited_classes(class_tail)
                                     candidates = [
                                         name
                                         for name in candidates
-                                        if name.startswith(caller_class + ".")
+                                        if any(
+                                            name.startswith(class_name + ".")
+                                            for class_name in valid_classes
+                                        )
                                     ]
                                 else:
                                     candidates = []
                             else:
                                 candidates = []
+                    candidates = [
+                        candidate
+                        for candidate in candidates
+                        if imported_cross_file_target(caller_name, raw_name, candidate)
+                    ]
                     if len(candidates) > 1:
                         filename = self._meta_for(call_site).get("filename")
                         local = [

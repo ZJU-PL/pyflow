@@ -13,6 +13,7 @@ from pyflow.ir.cfg import (
 from pyflow.language.python.simplecodegen import SimpleCodeGen
 from pyflow.language.python import ast
 from pyflow.ir.core import IRRemap, ValueId, verify_catalog
+from pyflow.ir.cfg.verifier import verify_ssa
 
 
 def split(a, b):
@@ -79,6 +80,20 @@ def psimp(a):
     return a
 
 
+def read_after_delete():
+    value = 1
+    del value
+    return value
+
+
+def read_after_exception_target():
+    try:
+        raise ValueError()
+    except ValueError as error:
+        pass
+    return error
+
+
 class TestSSA(unittest.TestCase):
     def setUp(self):
         self.compiler = context.CompilerContext(None)
@@ -128,6 +143,24 @@ class TestSSA(unittest.TestCase):
 
     def testPSimp(self):
         self.runFunction(psimp)
+
+    def test_undefined_reads_are_explicit_and_ssa_is_verified(self):
+        for function in (read_after_delete, read_after_exception_target, split, loop):
+            code = self.decompile(function)
+            graph = transform.evaluate(self.compiler, code)
+            ssa.evaluate(self.compiler, graph)
+            verify_ssa(graph, code.ir_catalog)
+
+        catalog = code.ir_catalog
+        # ``loop`` is the last function in the loop above; exercise the
+        # undefined cases separately so the assertion is tied to their code.
+        for function in (read_after_delete, read_after_exception_target):
+            code = self.decompile(function)
+            graph = transform.evaluate(self.compiler, code)
+            ssa.evaluate(self.compiler, graph)
+            values = tuple(code.ir_catalog.values)
+            self.assertTrue(any(value.undefined for value in values))
+            verify_ssa(graph, code.ir_catalog)
 
     def test_ssa_registers_typed_values_and_value_semantics(self):
         code = self.decompile(split)

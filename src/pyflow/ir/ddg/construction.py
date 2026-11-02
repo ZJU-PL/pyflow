@@ -628,7 +628,17 @@ class DDGConstructor(object):
                 predecessors[target].add(source)
 
         relevant_locations: List[Any] = []
+        external_locations: List[Any] = []
         for key, accessing_ops in ops_by_location.items():
+            # Opaque calls all conservatively touch the same external heap.
+            # Expanding that single summary location into every pair of
+            # accesses is quadratic (and can dominate the entire DDG).  Keep
+            # one source-ordered summary chain instead: reachability through
+            # the chain preserves an ordering summary without materializing
+            # a dense clique of indistinguishable dependencies.
+            if isinstance(key, UnknownStorage):
+                external_locations.append(key)
+                continue
             writes_count = sum(1 for ir in accessing_ops if key in accesses[ir][2])
             has_true_read = any(key in accesses[ir][0] for ir in accessing_ops)
             # Read-only locations and single-write locations whose only reads
@@ -638,6 +648,30 @@ class DDGConstructor(object):
             # downstream graph, which is quadratic for large modules.
             if writes_count > 0 and (has_true_read or writes_count > 1):
                 relevant_locations.append(key)
+
+        for key in external_locations:
+            accessing_ops = ops_by_location[key]
+            ordered_ops = sorted(
+                accessing_ops,
+                key=lambda ir: (
+                    (
+                        (span.path, span.start_line, span.start_column)
+                        if (span := syntax_source_span(getattr(ir, "op", None))) is not None
+                        else ("", 0, 0)
+                    ),
+                ),
+            )
+            # A chain is a compact transitive summary.  Include all opaque
+            # accesses, not only writes, because unknown calls may both read
+            # and mutate external state.
+            for earlier, later in zip(ordered_ops, ordered_ops[1:]):
+                if earlier is not later:
+                    self.ddg.add_mem_dep(
+                        op_nodes[earlier],
+                        op_nodes[later],
+                        label="EXTERNAL",
+                        location=key,
+                    )
 
         # Solve one abstract location at a time.  The forward state tracks
         # only reaching writes: a write kills all earlier writes, so this set

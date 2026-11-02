@@ -343,9 +343,15 @@ def _dump_ir_single(
     elif ir_type == "SSA":
         cfg = transform.evaluate(compiler, func)
         ssa.evaluate(compiler, cfg)
+        from pyflow.ir.core import ensure_code_indexed
+
+        catalog = ensure_code_indexed(func)
+        from pyflow.ir.cfg.verifier import verify_ssa
+
+        verify_ssa(cfg, catalog)
         if format == "dot":
             graph = pydot.Dot(graph_type="digraph")
-            cfg_dump.CFGToDot(graph).process(cfg)
+            cfg_dump.CFGToDot(graph, catalog, func).process(cfg)
             with open(output_file, "w", encoding="utf-8") as output:
                 output.write(graph.to_string())
             print(f"SSA form dumped to: {output_file}")
@@ -353,10 +359,10 @@ def _dump_ir_single(
             _write_json_ir_file(
                 output_file,
                 "SSA form",
-                {"function": function_name, "ssa": generate_json_cfg(cfg)},
+                {"function": function_name, "ssa": generate_json_cfg(cfg, catalog)},
             )
         elif format == "text":
-            content = generate_clang_style_cfg(cfg)
+            content = generate_clang_style_cfg(cfg, catalog)
             write_ir_file(output_file, function_name, "SSA form", content)
         else:
             raise ValueError("SSA dumps support only text, dot, and json formats")

@@ -4,12 +4,40 @@ This module provides functionality to dump and visualize control flow graphs
 in various formats including DOT graphs for visualization.
 """
 
+import copy
+
 import pyflow.util.pydot as pydot
 from pyflow.util.typedispatch import *
 from pyflow.util.io import filesystem
 from pyflow.ir.cfg import graph as cfg_graph
 
 cfg = cfg_graph
+
+
+def _ssa_repr(node, catalog=None, code=None):
+    """Render an AST node with stable SSA versions without mutating the IR."""
+    if catalog is None or code is None or node is None:
+        return str(node)
+    cloned = copy.deepcopy(node)
+
+    def visit(original, duplicate):
+        from pyflow.language.python import ast
+
+        if isinstance(original, ast.Local):
+            if catalog.has_value(original, code):
+                value = catalog.value_for(original, code)
+                duplicate.name = f"{original.name}.v{value.id.version}"
+            return
+        if isinstance(original, (list, tuple)) and isinstance(duplicate, (list, tuple)):
+            for left, right in zip(original, duplicate):
+                visit(left, right)
+            return
+        if isinstance(original, ast.PythonASTNode) and isinstance(duplicate, ast.PythonASTNode):
+            for (name, left), (_, right) in zip(original.fields(), duplicate.fields()):
+                visit(left, right)
+
+    visit(node, cloned)
+    return str(cloned)
 
 
 def makeStr(s):
@@ -47,6 +75,10 @@ class NodeStyle(TypeDispatcher):
 
     stateColor = "green"
 
+    def __init__(self, catalog=None, code=None):
+        self.catalog = catalog
+        self.code = code
+
     @dispatch(cfg.Entry, cfg.Exit)
     def handleTerminal(self, node):
         """Handle terminal nodes (entry/exit).
@@ -69,7 +101,7 @@ class NodeStyle(TypeDispatcher):
         Returns:
             dict: Styling information for suite nodes.
         """
-        label = makeStr("\n".join([repr(op) for op in node.ops]))
+        label = makeStr("\n".join([_ssa_repr(op, self.catalog, self.code) for op in node.ops]))
         return dict(
             label=label,
             shape="box",
@@ -88,7 +120,7 @@ class NodeStyle(TypeDispatcher):
         Returns:
             dict: Styling information for switch nodes.
         """
-        label = makeStr(repr(node.condition))
+        label = makeStr(_ssa_repr(node.condition, self.catalog, self.code))
         return dict(
             label=label,
             shape="trapezium",
@@ -99,7 +131,13 @@ class NodeStyle(TypeDispatcher):
 
     @dispatch(cfg.ForIter)
     def handleForIter(self, node):
-        label = makeStr("%r <- next(%r)" % (node.index, node.iterator))
+        label = makeStr(
+            "%s <- iter(%s)"
+            % (
+                _ssa_repr(node.index, self.catalog, self.code),
+                _ssa_repr(node.iterator, self.catalog, self.code),
+            )
+        )
         return dict(
             label=label,
             shape="trapezium",
@@ -110,7 +148,7 @@ class NodeStyle(TypeDispatcher):
 
     @dispatch(cfg.TypeSwitch)
     def handleTypeSwitch(self, node):
-        label = makeStr(repr(node.original.conditional))
+        label = makeStr(_ssa_repr(node.original.conditional, self.catalog, self.code))
         return dict(
             label=label,
             shape="trapezium",
@@ -129,7 +167,7 @@ class NodeStyle(TypeDispatcher):
         Returns:
             dict: Styling information for merge nodes.
         """
-        label = makeStr("\n".join([repr(phi) for phi in node.phi]))
+        label = makeStr("\n".join([_ssa_repr(phi, self.catalog, self.code) for phi in node.phi]))
         return dict(
             label=label,
             shape="invtrapezium",
@@ -161,14 +199,16 @@ class NodeStyle(TypeDispatcher):
 
 
 class CFGToDot(TypeDispatcher):
-    def __init__(self, g):
+    def __init__(self, g, catalog=None, code=None):
         self.g = g
+        self.catalog = catalog
+        self.code = code
         self.nodes = {}
         self.regions = {}
         self.processed = set()
         self.queue = []
 
-        self.style = NodeStyle()
+        self.style = NodeStyle(catalog, code)
 
     def node(self, node):
         key = node
@@ -272,7 +312,7 @@ def evaluate(compiler, cfg):
     dumpGraph(directory, name, "svg", g)
 
 
-def generate_clang_style_cfg(cfg):
+def generate_clang_style_cfg(cfg, catalog=None):
     """Generate clang-style CFG representation.
 
     Args:
@@ -321,16 +361,19 @@ def generate_clang_style_cfg(cfg):
                 # Node content
                 if hasattr(node, "ops") and node.ops:
                     for op in node.ops:
-                        content += f"    {op}\n"
+                        content += f"    {_ssa_repr(op, catalog, cfg.code)}\n"
                 elif hasattr(node, "condition") and node.condition:
-                    content += f"    Condition: {node.condition}\n"
+                    content += f"    Condition: {_ssa_repr(node.condition, catalog, cfg.code)}\n"
                 elif hasattr(node, "phi") and node.phi:
                     for phi in node.phi:
-                        content += f"    Phi: {phi}\n"
+                        content += f"    Phi: {_ssa_repr(phi, catalog, cfg.code)}\n"
                 elif isinstance(node, cfg_graph.ForIter):
-                    content += f"    Iterator: {node.index} <- iter({node.iterator})\n"
+                    index = _ssa_repr(node.index, catalog, cfg.code)
+                    iterator = _ssa_repr(node.iterator, catalog, cfg.code)
+                    content += f"    Iterator: {index} <- iter({iterator})\n"
                 elif isinstance(node, cfg_graph.TypeSwitch):
-                    content += f"    TypeSwitch: {node.original.conditional}\n"
+                    condition = _ssa_repr(node.original.conditional, catalog, cfg.code)
+                    content += f"    TypeSwitch: {condition}\n"
                 elif isinstance(node, cfg_graph.State) and getattr(node, "name", None):
                     content += f"    State: {node.name}\n"
 
@@ -352,7 +395,7 @@ def generate_clang_style_cfg(cfg):
         return f"Error generating CFG: {e}"
 
 
-def generate_json_cfg(cfg):
+def generate_json_cfg(cfg, catalog=None):
     """Generate a JSON-serializable CFG representation.
 
     Mirrors :func:`generate_clang_style_cfg` so text and JSON dumps describe
@@ -399,9 +442,9 @@ def generate_json_cfg(cfg):
         block_data = {
             "id": f"B{i}",
             "kind": kind,
-            "ops": [str(op) for op in getattr(node, "ops", ()) or ()],
-            "condition": str(condition) if condition else None,
-            "phi": [str(phi) for phi in getattr(node, "phi", ()) or ()],
+            "ops": [_ssa_repr(op, catalog, cfg.code) for op in getattr(node, "ops", ()) or ()],
+            "condition": _ssa_repr(condition, catalog, cfg.code) if condition else None,
+            "phi": [_ssa_repr(phi, catalog, cfg.code) for phi in getattr(node, "phi", ()) or ()],
             "successors": [
                 {"exit": name, "target": node_to_block[target]}
                 for name, target in (getattr(node, "next", {}) or {}).items()

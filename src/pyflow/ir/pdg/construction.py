@@ -357,7 +357,11 @@ class PDGConstructor:
                 if symbol.id.scope == procedure.root_scope and symbol.kind is SymbolKind.PARAMETER:
                     var_to_defs.setdefault(symbol.id, []).append(pdg.entry)
                     for value in catalog.values:
-                        if value.id.symbol == symbol.id and value.definition is None:
+                        if (
+                            value.id.symbol == symbol.id
+                            and value.definition is None
+                            and not value.undefined
+                        ):
                             var_to_defs.setdefault(value.id, []).append(pdg.entry)
 
         node_uses: Dict[PDGNode, tuple[object, ...]] = {}

@@ -493,6 +493,40 @@ class _GraphQueryMixin:
         return result
 
     @property
+    def defs_by_function(self) -> Dict[str, Dict[str, List[PDGNode]]]:
+        """Per-function view of :attr:`defs`, avoiding project-wide name collisions.
+
+        The legacy :attr:`defs` index intentionally remains project-wide for
+        compatibility.  This view partitions the same source-level DATA
+        edges by the owning PDG, so identical local names in different
+        functions are not conflated.
+        """
+        self._ensure_built()
+        result: Dict[str, Dict[str, List[PDGNode]]] = {}
+        for edge in self.all_edges(kinds={CPGEdgeKind.DATA}):
+            if not self._is_source_variable_label(edge.label):
+                continue
+            function = str(self._meta_for(edge.source).get("func_name", ""))
+            bucket = result.setdefault(function, {}).setdefault(edge.label, [])
+            if edge.source not in bucket:
+                bucket.append(edge.source)
+        return result
+
+    @property
+    def uses_by_function(self) -> Dict[str, Dict[str, List[PDGNode]]]:
+        """Per-function view of :attr:`uses`; see :attr:`defs_by_function`."""
+        self._ensure_built()
+        result: Dict[str, Dict[str, List[PDGNode]]] = {}
+        for edge in self.all_edges(kinds={CPGEdgeKind.DATA}):
+            if not self._is_source_variable_label(edge.label):
+                continue
+            function = str(self._meta_for(edge.target).get("func_name", ""))
+            bucket = result.setdefault(function, {}).setdefault(edge.label, [])
+            if edge.target not in bucket:
+                bucket.append(edge.target)
+        return result
+
+    @property
     def uses(self) -> Dict[str, List[PDGNode]]:
         """Map source variable names to their using PDG nodes.
 

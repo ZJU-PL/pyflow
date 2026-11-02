@@ -482,3 +482,93 @@ def f(a, b):
         codes = [d.get("code") for d in cpg.construction_diagnostics]
         assert "cpg-pdg-data-dependence-fallback" in codes
         assert any(d.get("affects_completeness") for d in cpg.construction_diagnostics)
+
+
+def test_cpg_exposes_per_function_defs_and_uses_views():
+    """Per-function views disambiguate equal local names across functions."""
+    cpg = build_cpg("""\
+def first(value):
+    result = value
+    return result
+
+def second(value):
+    result = value + 1
+    return result
+""")
+    defs = cpg.defs_by_function
+    uses = cpg.uses_by_function
+    assert set(defs) >= {"first", "second"}
+    assert set(uses) >= {"first", "second"}
+    assert "result" in defs["first"]
+    assert "result" in defs["second"]
+
+
+def test_inherited_self_method_call_resolves_to_base_method():
+    source = """
+class A:
+    def m(self):
+        return 1
+
+class B(A):
+    def n(self):
+        return self.m()
+"""
+    cpg = build_cpg(source)
+    cpg.build()
+    assert any(
+        edge.kind == CPGEdgeKind.CALL
+        and edge.target in cpg.nodes("A.m")
+        and edge.source in cpg.nodes("B.n")
+        for edge in cpg.all_edges(kinds={CPGEdgeKind.CALL})
+    )
+
+
+def test_unqualified_cross_file_call_requires_import():
+    from pyflow.application.cpg import build_cpg_from_directory
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "a.py").write_text("def helper():\n    return 1\n")
+        (root / "b.py").write_text("def caller():\n    return helper()\n")
+        cpg = build_cpg_from_directory(directory)
+        cpg.build()
+        assert not any(
+            edge.kind == CPGEdgeKind.CALL
+            and edge.target in cpg.nodes("helper")
+            and edge.source in cpg.nodes("caller")
+            for edge in cpg.all_edges(kinds={CPGEdgeKind.CALL})
+        )
+
+
+def test_imported_unqualified_cross_file_call_resolves():
+    from pyflow.application.cpg import build_cpg_from_directory
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "a.py").write_text("def helper():\n    return 1\n")
+        (root / "b.py").write_text("from a import helper\ndef caller():\n    return helper()\n")
+        cpg = build_cpg_from_directory(directory)
+        cpg.build()
+        assert any(
+            edge.kind == CPGEdgeKind.CALL
+            and edge.target in cpg.nodes("helper")
+            and edge.source in cpg.nodes("caller")
+            for edge in cpg.all_edges(kinds={CPGEdgeKind.CALL})
+        )
+
+
+def test_local_lambda_invocation_resolves_to_lambda_code():
+    cpg = build_cpg("""
+def caller():
+    fn = lambda value: value + 1
+    return fn(2)
+""")
+    cpg.build()
+    lambda_functions = [name for name in cpg.functions if "<lambda" in name]
+    assert len(lambda_functions) == 1
+    assert any(
+        edge.kind == CPGEdgeKind.CALL
+        and edge.target in cpg.nodes(lambda_functions[0])
+        and edge.source in cpg.nodes("caller")
+        for edge in cpg.all_edges(kinds={CPGEdgeKind.CALL})
+    )

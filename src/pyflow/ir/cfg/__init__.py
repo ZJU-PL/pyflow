@@ -38,6 +38,6 @@ from . import (
     verifier,
 )
 
-from .verifier import CFGVerificationError, verify_cfg
+from .verifier import CFGVerificationError, SSAVerificationError, verify_cfg, verify_ssa
 
-__all__ = ["CFGVerificationError", "verify_cfg"]
+__all__ = ["CFGVerificationError", "SSAVerificationError", "verify_cfg", "verify_ssa"]

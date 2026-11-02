@@ -270,7 +270,7 @@ class SSARename(TypeDispatcher):
 
         self.fixup = []
 
-    def clone(self, lcl, frame, definition=None, *, allocate_value=True):
+    def clone(self, lcl, frame, definition=None, *, allocate_value=True, undefined=False):
         """Clone a local variable and add it to the frame.
 
         Creates a new SSA version of a local variable and records it
@@ -297,7 +297,7 @@ class SSARename(TypeDispatcher):
                             definition,
                         )
                     definition_id = self.catalog.node_id(definition, self.code)
-                value = self.catalog.values.define(key, definition_id)
+                value = self.catalog.values.define(key, definition_id, undefined=undefined)
                 self.catalog.bind_value(self.code, result, value.id)
             return result
         else:
@@ -499,7 +499,7 @@ class SSARename(TypeDispatcher):
             result = self.currentFrame[key]
         else:
             # Handle missing local variables by cloning them
-            result = self.clone(node, self.currentFrame)
+            result = self.clone(node, self.currentFrame, undefined=True)
         self.read.add(result)
         return result
 

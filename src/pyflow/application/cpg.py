@@ -212,11 +212,29 @@ def _build_cpg_from_program(
                 module = compiler.extractor._get_module_name(span.path)
                 func_name = f"{module}.{func_name}"
         try:
+            if deadline is not None and monotonic() >= deadline:
+                cpg.add_construction_diagnostic(
+                    code="cpg-function-time-budget",
+                    message=f"CPG construction budget expired before {func_name!r}",
+                    function=func_name,
+                    stage="cfg",
+                    affects_completeness=True,
+                )
+                break
             # CPG construction consumes the simplified CFG directly and does
             # not use transformation remaps.  Skipping revision bookkeeping
             # avoids repeatedly indexing and rebuilding full IR semantics for
             # every function in a directory scan.
             cfg = cfg_transform.evaluate(compiler, code_obj, commit_revision=False)
+            if deadline is not None and monotonic() >= deadline:
+                cpg.add_construction_diagnostic(
+                    code="cpg-function-time-budget",
+                    message=f"CFG construction for {func_name!r} exhausted the time budget",
+                    function=func_name,
+                    stage="cfg",
+                    affects_completeness=True,
+                )
+                break
         except Exception as error:
             cpg.add_construction_diagnostic(
                 code="cpg-cfg-build-failed",
@@ -236,6 +254,15 @@ def _build_cpg_from_program(
                 include_control=include_control,
                 include_data=include_data,
             )
+            if deadline is not None and monotonic() >= deadline:
+                cpg.add_construction_diagnostic(
+                    code="cpg-function-time-budget",
+                    message=f"PDG construction for {func_name!r} exhausted the time budget",
+                    function=func_name,
+                    stage="pdg",
+                    affects_completeness=True,
+                )
+                break
         except Exception as primary_error:
             try:
                 pdg = construct_pdg(
@@ -281,6 +308,18 @@ def _build_cpg_from_program(
                 affects_completeness=True,
             )
         cpg.add_function(func_name, pdg)
+
+    # Assemble cross-function indices while the caller's deadline is still
+    # active.  Previously this work was deferred until the first query, where
+    # stats()/all_edges() could unexpectedly perform an unbounded graph build.
+    if not cpg.build(deadline=deadline):
+        cpg.add_construction_diagnostic(
+            code="cpg-assembly-time-budget",
+            message="CPG graph assembly exceeded its time budget; the graph is incomplete",
+            function=None,
+            stage="assembly",
+            affects_completeness=True,
+        )
     return cpg
 
 

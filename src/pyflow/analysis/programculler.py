@@ -98,12 +98,67 @@ class CallGraphFinder(Finder):
         children = []
 
         ops, _lcls = getOps(code)
+        resolved_targets = set()
         for op in ops:
             for dstf, dstc in self.facts.call_targets(code, op, context):
                 child = (dstf, dstc)
+                resolved_targets.add(dstf)
                 self.invokes[code].add(dstf)
                 self.invokesContext[node].add(child)
                 children.append(child)
+
+        # Some frontends publish a nested function's MakeFunction value but
+        # omit the local-variable invocation from CALL_TARGETS. Recover the
+        # unambiguous lexical case (``inner = MakeFunction(code); inner()``)
+        # directly from this code object's AST. The mapping is local to this
+        # enclosing code, so same-named callbacks in other functions cannot
+        # be conflated.
+        local_functions = {}
+
+        def collect_local_functions(current):
+            if current is None or isinstance(current, ast.Code):
+                return
+            if isinstance(current, ast.Assign) and isinstance(current.expr, ast.MakeFunction):
+                nested_code = getattr(current.expr, "code", None)
+                if nested_code is not None:
+                    for target in getattr(current, "lcls", ()) or ():
+                        local_name = getattr(target, "name", None)
+                        if isinstance(local_name, str):
+                            local_functions[local_name.lstrip("%")] = nested_code
+            if isinstance(current, (list, tuple)):
+                for item in current:
+                    collect_local_functions(item)
+            elif isinstance(current, ast.PythonASTNode):
+                for child in current.children():
+                    collect_local_functions(child)
+
+        collect_local_functions(getattr(code, "ast", None))
+        for operation in ops:
+            if not isinstance(operation, (ast.Call, ast.MethodCall)):
+                continue
+            callee = getattr(operation, "expr", None)
+            local_name = getattr(callee, "name", None) if isinstance(callee, ast.Local) else None
+            nested_code = local_functions.get(str(local_name).lstrip("%")) if local_name else None
+            if nested_code is None or nested_code in resolved_targets:
+                continue
+            try:
+                contexts = self.facts.contexts(nested_code)
+            except Exception:
+                contexts = ()
+            nested_context = (
+                context if context in contexts else (next(iter(contexts)) if contexts else None)
+            )
+            self.invokes[code].add(nested_code)
+            if nested_context is None:
+                # No analysis context was published for this nested body. It
+                # is still live; do not enqueue it for context-sensitive
+                # traversal because that would query facts under a fabricated
+                # context and can turn a conservative recovery into a crash.
+                self.liveFunc.add(nested_code)
+                continue
+            child = (nested_code, nested_context)
+            self.invokesContext[node].add(child)
+            children.append(child)
         return children
 
 
