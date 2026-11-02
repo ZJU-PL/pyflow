@@ -818,3 +818,17 @@ def test_project_engine_resolves_super_calls_across_modules(tmp_path: Path) -> N
     module = result.module("pkg.use")
     assert module is not None
     assert _raw_types(module.type_of("result")) == {int}
+
+
+def test_paramspec_decorator_preserves_the_wrapped_return_type() -> None:
+    result = _infer(
+        "from typing import Callable, ParamSpec, TypeVar\n"
+        "P = ParamSpec('P')\n"
+        "R = TypeVar('R')\n"
+        "def deco(func: Callable[P, R]) -> Callable[P, R]: return func\n"
+        "@deco\n"
+        "def identity(value: int) -> str: return str(value)\n"
+        "result = identity(1)\n"
+    )
+
+    assert _raw_types(result.type_of("sample.result")) == {str}

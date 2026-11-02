@@ -5040,7 +5040,7 @@ class StaticTypeInferenceEngine:
                     value = None  # type: ignore[assignment]
                     break
                 value = value.return_type
-            if value is not None:
+            if value is not None and not self._contains_type_var(value):
                 return AbstractTypeValue.from_type(value)
         return None
 
