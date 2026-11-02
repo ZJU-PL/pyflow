@@ -363,6 +363,10 @@ def _resolve_name(name: str, lookup: TypeLookup) -> ProperType | None:
         return Instance(ClassDescriptor(bool))
     if name in {"Final", "ClassVar"}:
         return ANY
+    if qualified in {"type", "builtins.type", "typing.Type"}:
+        from pyflow.analysis.typeinfo.core.typesystem import TypeType
+
+        return TypeType(ANY)
     if name == "LiteralString":
         from pyflow.analysis.typeinfo.core.typesystem import ClassDescriptor, Instance
 
@@ -469,8 +473,10 @@ def _resolve_special_form(
 
         return Instance(ClassDescriptor(str))
 
-    if name in {"Type", "type", "builtins.type"} and args:
-        return TypeType(_resolve_expr(args[0], lookup) or ANY)
+    if name in {"Type", "type", "builtins.type"}:
+        if args:
+            return TypeType(_resolve_expr(args[0], lookup) or ANY)
+        return TypeType(ANY)
 
     if name in {"Tuple", "tuple", "builtins.tuple"}:
         return _resolve_tuple(args, lookup)

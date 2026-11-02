@@ -1013,3 +1013,14 @@ def test_reexported_typing_aliases_keep_their_builtin_meaning(tmp_path: Path) ->
 
     assert str(service.type_of("pkg.types", "Dict")) == "dict[Any, Any]"
     assert str(service.type_of("pkg.use", "value")) == "dict[Any, Any]"
+
+
+def test_bare_type_annotation_is_type_any() -> None:
+    result = _infer(
+        "from typing import Any\n"
+        "def make() -> tuple[type[Any], tuple[Any, ...]]:\n"
+        "    class_value: type = str\n"
+        "    return class_value, ('value',)\n"
+    )
+
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
