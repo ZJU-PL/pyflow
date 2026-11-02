@@ -1079,3 +1079,84 @@ def f():
     assert type_block in _blocks_reachable_from(
         value_block
     ), "the second except* handler is not reachable after the first one ran"
+
+
+def _comprehension_codes(cfg):
+    """Collect the ``Code`` objects of comprehension direct calls in *cfg*."""
+    from pyflow.language.python import ast as pyflow_ast
+
+    found = []
+
+    def walk(node):
+        if node is None or isinstance(node, (str, int, float, bool)):
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+            return
+        if isinstance(node, pyflow_ast.DirectCall) and node.code is not None:
+            found.append(node.code)
+        if isinstance(node, pyflow_ast.Code):
+            return
+        fields = getattr(node, "fields", None)
+        if fields is not None:
+            for _name, child in fields():
+                walk(child)
+
+    for operation in _cfg_operations(cfg):
+        walk(operation)
+    return found
+
+
+def test_comprehension_walrus_binds_in_enclosing_function():
+    """PEP 572: a walrus inside a comprehension binds in the containing scope.
+
+    ``[y for x in xs if (y := x * 2) > 2]`` leaves ``y`` bound after the
+    comprehension, so the enclosing function must observe the value written by
+    the comprehension.
+    """
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f(xs):
+    r = [y for x in xs if (y := x * 2) > 2]
+    return y
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    operations = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert "GetCellDeref(Cell('y'))" in operations
+
+    comp_codes = _comprehension_codes(cfg)
+    assert len(comp_codes) == 1
+    comp_cfg = transform.evaluate(None, comp_codes[0])
+    assert any(
+        isinstance(operation, pyflow_ast.SetCellDeref)
+        and getattr(operation.cell, "name", None) == "y"
+        for operation in _cfg_operations(comp_cfg)
+    )
+
+
+def test_generator_expression_walrus_binds_in_enclosing_function():
+    from pyflow.language.python import ast as pyflow_ast
+
+    source = """
+def f(xs):
+    r = list(z for x in xs if (y := x + 1) > 2)
+    return y
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    operations = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert "GetCellDeref(Cell('y'))" in operations
+
+    comp_codes = _comprehension_codes(cfg)
+    assert comp_codes
+    gen_cfg = transform.evaluate(None, comp_codes[0])
+    assert any(
+        isinstance(operation, pyflow_ast.SetCellDeref)
+        and getattr(operation.cell, "name", None) == "y"
+        for operation in _cfg_operations(gen_cfg)
+    )

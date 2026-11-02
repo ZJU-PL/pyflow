@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Walrus bindings inside comprehensions and generator expressions now bind in
+  the containing function (PEP 572): the comprehension writes a closure cell and
+  the enclosing statement refreshes its local from it, so a later read no longer
+  observes an undefined value.  The class-pollution analysis follows the same
+  cell, keeping its comprehension getter summary intact.
 - Whole-program IR dumps (`pyflow ir --dump-* '*' --dump-output DIR`) no longer
   overwrite artifacts when distinct procedures share a function name (for
   example `__getattr__` in several modules); colliding labels get a stable

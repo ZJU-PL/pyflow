@@ -38,6 +38,13 @@ from .scope import (
     collect_scope_names,
 )
 
+_COMPREHENSION_TYPES = (
+    python_ast.ListComp,
+    python_ast.SetComp,
+    python_ast.DictComp,
+    python_ast.GeneratorExp,
+)
+
 HAS_MATCH = sys.version_info >= (3, 10)
 HAS_NAMED_EXPR = sys.version_info >= (3, 8)
 HAS_EXCEPTION_GROUP = sys.version_info >= (3, 11)
@@ -52,6 +59,9 @@ class ASTConverter:
         self.retain_source_syntax = retain_source_syntax
         # Collected approximation notes for debugging and tests.
         self.approximation_warnings: List[str] = []
+        # Statements that must follow the current statement (comprehension
+        # walrus results copied back into the enclosing locals).
+        self._pending_stores: List[PythonASTNode] = []
         self._telemetry: Dict[str, int] = {
             "unsupported_expr": 0,
             "unsupported_stmt": 0,
@@ -237,10 +247,12 @@ class ASTConverter:
         bound_names: Optional[Set[str]] = None,
         class_name: Optional[str] = None,
         class_collisions: Optional[Set[str]] = None,
+        is_comprehension: bool = False,
     ) -> None:
         self._scope_stack.append(
             {
                 "kind": kind,
+                "is_comprehension": is_comprehension,
                 "global_names": set(global_names or ()),
                 "nonlocal_names": set(nonlocal_names or ()),
                 "cell_names": set(cell_names or ()),
@@ -513,6 +525,10 @@ class ASTConverter:
         try:
             blocks = []
             for node in python_nodes:
+                # Only flush stores queued for *this* statement: a nested
+                # ``convert_python_ast_to_pyflow`` (for an if/loop body) must
+                # not steal the enclosing statement's refresh.
+                before = len(self._pending_stores)
                 converted = self._convert_node(node)
                 if converted is not None:
                     if isinstance(node, python_ast.AugAssign):
@@ -520,6 +536,9 @@ class ASTConverter:
                         suite._origin_tag = "AugAssign"
                         converted = suite
                     blocks.append(converted)
+                if len(self._pending_stores) > before:
+                    blocks.extend(self._pending_stores[before:])
+                    del self._pending_stores[before:]
             return pyflow_ast.Suite(blocks)
         finally:
             if pushed_module_scope:
@@ -2429,19 +2448,138 @@ class ASTConverter:
         value = self._convert_expression_safe(node.value)
         return pyflow_ast.Await(value)
 
+    @staticmethod
+    def _walrus_target_names(node) -> Set[str]:
+        """Walrus targets owned by *node*'s own scope.
+
+        PEP 572 binds a walrus inside a comprehension in the containing
+        function (or module), not in the implicit comprehension scope.  A
+        nested comprehension owns its own targets, so recursion stops there.
+        """
+        names: Set[str] = set()
+
+        def walk(current) -> None:
+            if isinstance(current, (python_ast.Lambda, *_COMPREHENSION_TYPES)):
+                return
+            if isinstance(current, python_ast.NamedExpr):
+                names.update(ASTConverter._pattern_names(current.target))
+            for child in python_ast.iter_child_nodes(current):
+                walk(child)
+
+        if isinstance(node, _COMPREHENSION_TYPES):
+            for child in python_ast.iter_child_nodes(node):
+                walk(child)
+        else:
+            walk(node)
+        return names
+
+    @staticmethod
+    def _pattern_names(node) -> Set[str]:
+        """Collect the names bound by an assignment/for target pattern."""
+        if isinstance(node, python_ast.Name):
+            return {node.id}
+        if isinstance(node, python_ast.Starred):
+            return ASTConverter._pattern_names(node.value)
+        if isinstance(node, (python_ast.Tuple, python_ast.List)):
+            names: Set[str] = set()
+            for element in node.elts:
+                names.update(ASTConverter._pattern_names(element))
+            return names
+        return set()
+
     def _convert_comprehension(self, node, result_type: str) -> PythonASTNode:
         """Convert list/set/dict comprehensions and generator expressions.
 
         Comprehensions are modeled as nested loops with append operations,
         preserving iteration semantics and handling if-conditions.
+
+        The body gets its own lexical scope: its ``for`` targets are locals of
+        the comprehension, while walrus targets bind in the enclosing function
+        (PEP 572) through a closure cell, so ``y`` remains bound after
+        ``[y for x in xs if (y := f(x))]``.
         """
         generators = node.generators
         kind = result_type.lower()
         capture_names = self._comprehension_capture_names(node)
         capture_formals = [pyflow_ast.Local(name) for name in capture_names]
+        # Capture actuals are evaluated in the enclosing scope.
         capture_actuals = [self._name_expr(name) for name in capture_names]
 
-        if kind == "dict":
+        walrus_names = self._walrus_target_names(node)
+        comprehension_locals: Set[str] = set(capture_names)
+        for gen in generators:
+            comprehension_locals.update(self._pattern_names(gen.target))
+
+        enclosing = self._enclosing_function_scope()
+        closure_cells: tuple = ()
+        cell_targets: dict = {}
+        if walrus_names and enclosing is not None:
+            cells = enclosing["cells"]
+            for name in sorted(walrus_names):
+                cells.setdefault(name, pyflow_ast.Cell(name))
+                cell_targets[name] = cells[name]
+                # The enclosing variable stays a plain local; its value is
+                # refreshed from the cell right after the comprehension.
+                enclosing["bound_names"].add(name)
+                self._pending_stores.append(
+                    pyflow_ast.Assign(
+                        pyflow_ast.GetCellDeref(cell_targets[name]),
+                        [pyflow_ast.Local(name)],
+                    )
+                )
+            closure_cells = tuple(cell_targets[name] for name in sorted(cell_targets))
+
+        # The comprehension body is its own scope.  Walrus targets stay local
+        # here (a NamedExpr target must be a Local) and are copied into the
+        # enclosing closure cell right after they are evaluated.
+        self._push_scope(
+            "function",
+            bound_names=set(comprehension_locals) | set(walrus_names),
+            is_comprehension=True,
+        )
+        try:
+            return self._build_comprehension(
+                node,
+                kind,
+                capture_formals,
+                capture_names,
+                capture_actuals,
+                closure_cells,
+                cell_targets,
+            )
+        finally:
+            self._pop_scope()
+
+    def _build_comprehension(
+        self,
+        node,
+        kind: str,
+        capture_formals,
+        capture_names,
+        capture_actuals,
+        closure_cells,
+        cell_targets,
+    ) -> PythonASTNode:
+        generators = node.generators
+
+        def cell_stores(test) -> list:
+            """Write walrus results into the enclosing function's cells."""
+            if not cell_targets or test is None:
+                return []
+            names = sorted(self._walrus_target_names(test) & set(cell_targets))
+            return [
+                pyflow_ast.SetCellDeref(pyflow_ast.Local(name), cell_targets[name])
+                for name in names
+            ]
+
+        if kind == "gen":
+            element = self._convert_expression_safe(node.elt)
+            result_init = None
+
+            def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
+                return pyflow_ast.Discard(pyflow_ast.Yield(element))
+
+        elif kind == "dict":
             result_init = pyflow_ast.BuildMap([])
 
             def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
@@ -2470,6 +2608,8 @@ class ASTConverter:
                 )
 
         if not generators:
+            if kind == "gen":
+                return self._call_named("interpreter_make_generator", [element])
             if kind == "list":
                 return pyflow_ast.BuildList([element])
             if kind == "dict":
@@ -2484,13 +2624,25 @@ class ASTConverter:
             return result_init
 
         result_local = self._tmp_local("comp_result", node)
-        inner_body: PythonASTNode = pyflow_ast.Suite([make_add_stmt(result_local)])
+        if kind == "dict":
+            element_stores = [*cell_stores(node.key), *cell_stores(node.value)]
+        else:
+            element_stores = cell_stores(node.elt)
+        seen_cells: set = set()
+        unique_stores = []
+        for store in element_stores:
+            marker = id(store.cell)
+            if marker in seen_cells:
+                continue
+            seen_cells.add(marker)
+            unique_stores.append(store)
+        inner_body: PythonASTNode = pyflow_ast.Suite([make_add_stmt(result_local), *unique_stores])
 
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
             if getattr(gen, "is_async", 0):
                 iter_expr = self._call_named("interpreter_aiter", [iter_expr])
-            body_preamble = pyflow_ast.Suite([])
+            body_preamble = pyflow_ast.Suite([*cell_stores(gen.iter)])
 
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)
@@ -2502,12 +2654,16 @@ class ASTConverter:
             if gen.ifs:
                 for if_cond in reversed(gen.ifs):
                     cond = self._convert_expression_safe(if_cond)
+                    stores = cell_stores(if_cond)
+                    body = self._ensure_suite(inner_body)
+                    # The walrus ran whichever way the condition decides, so
+                    # publish it into the enclosing cell on both edges.
                     inner_body = pyflow_ast.Suite(
                         [
                             pyflow_ast.Switch(
                                 condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
-                                t=self._ensure_suite(inner_body),
-                                f=pyflow_ast.Suite([]),
+                                t=pyflow_ast.Suite([*stores, *body.blocks]),
+                                f=pyflow_ast.Suite(list(stores)),
                             )
                         ]
                     )
@@ -2521,13 +2677,16 @@ class ASTConverter:
                 else_=pyflow_ast.Suite([]),
             )
 
-        comp_body = pyflow_ast.Suite(
-            [
-                pyflow_ast.Assign(result_init, [result_local]),
-                inner_body,
-                pyflow_ast.Return([result_local]),
-            ]
-        )
+        if kind == "gen":
+            comp_body = pyflow_ast.Suite([inner_body])
+        else:
+            comp_body = pyflow_ast.Suite(
+                [
+                    pyflow_ast.Assign(result_init, [result_local]),
+                    inner_body,
+                    pyflow_ast.Return([result_local]),
+                ]
+            )
         comp_params = pyflow_ast.CodeParameters(
             selfparam=None,
             posonlyparams=[],
@@ -2540,17 +2699,21 @@ class ASTConverter:
             returnparams=[pyflow_ast.Local("ret0")],
             type_params=None,
         )
-        comp_code = pyflow_ast.Code(f"<{kind}comp>", comp_params, comp_body)
+        code_name = "<genexpr>" if kind == "gen" else f"<{kind}comp>"
+        origin_tag = "converted_genexpr" if kind == "gen" else f"converted_{kind}comp"
+        comp_code = pyflow_ast.Code(code_name, comp_params, comp_body)
         comp_code.annotation = CodeAnnotation(
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[f"converted_{kind}comp"],
+            origin=[origin_tag],
             lowered=False,
             runtime=False,
             interpreter=False,
         )
+        if closure_cells:
+            register_code_definition_metadata(comp_code, closure_cells=closure_cells)
         return pyflow_ast.DirectCall(
             comp_code,
             None,
@@ -2573,90 +2736,28 @@ class ASTConverter:
         return self._convert_comprehension(node, "dict")
 
     def _convert_gen_exp(self, node) -> PythonASTNode:
-        """Convert generator expression.
+        """Convert a generator expression.
 
-        Generator expressions are lazy. We model them by creating a
-        generator function that yields values.
+        Generator expressions are lazy, so the body is emitted as a generator
+        ``Code`` that yields each element.  Sharing the comprehension lowering
+        keeps scope handling (loop targets vs. walrus cells) identical.
         """
-        generators = node.generators
-        element = self._convert_expression_safe(node.elt)
-        capture_names = self._comprehension_capture_names(node)
-        capture_formals = [pyflow_ast.Local(name) for name in capture_names]
-        capture_actuals = [self._name_expr(name) for name in capture_names]
+        return self._convert_comprehension(node, "gen")
 
-        if not generators:
-            return self._call_named("interpreter_make_generator", [element])
+    def _enclosing_function_scope(self):
+        """Nearest function scope that owns walrus bindings.
 
-        gen_func_codeparams = pyflow_ast.CodeParameters(
-            selfparam=None,
-            posonlyparams=[],
-            posonlynames=[],
-            params=capture_formals,
-            paramnames=capture_names,
-            defaults=[],
-            vparam=None,
-            kparam=None,
-            returnparams=[pyflow_ast.Local("ret0")],
-            type_params=None,
-        )
-
-        inner_body = pyflow_ast.Suite([pyflow_ast.Discard(pyflow_ast.Yield(element))])
-
-        for gen in reversed(generators):
-            iter_expr = self._convert_expression_safe(gen.iter)
-            if getattr(gen, "is_async", 0):
-                iter_expr = self._call_named("interpreter_aiter", [iter_expr])
-            body_preamble = pyflow_ast.Suite([])
-
-            if isinstance(gen.target, python_ast.Name):
-                index = pyflow_ast.Local(gen.target.id)
-            else:
-                index = self._tmp_local("gen_idx", gen)
-                store = self._convert_store(gen.target, index)
-                body_preamble.append(store)
-
-            if gen.ifs:
-                for if_cond in reversed(gen.ifs):
-                    cond = self._convert_expression_safe(if_cond)
-                    inner_body = pyflow_ast.Suite(
-                        [
-                            pyflow_ast.Switch(
-                                condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
-                                t=self._ensure_suite(inner_body),
-                                f=pyflow_ast.Suite([]),
-                            )
-                        ]
-                    )
-
-            inner_body = pyflow_ast.For(
-                iterator=iter_expr,
-                index=index,
-                loopPreamble=pyflow_ast.Suite([]),
-                bodyPreamble=body_preamble,
-                body=self._ensure_suite(inner_body),
-                else_=pyflow_ast.Suite([]),
-            )
-
-        code = pyflow_ast.Code("<genexpr>", gen_func_codeparams, pyflow_ast.Suite([inner_body]))
-        code.annotation = CodeAnnotation(
-            descriptive=False,
-            primitive=False,
-            staticFold=False,
-            dynamicFold=False,
-            origin=["converted_genexpr"],
-            lowered=False,
-            runtime=False,
-            interpreter=False,
-        )
-
-        return pyflow_ast.DirectCall(
-            code,
-            None,
-            capture_actuals,
-            [],
-            None,
-            None,
-        )
+        Comprehension scopes are transparent for ``:=`` (PEP 572); class and
+        module namespaces are not modeled as closure cells here, so the search
+        stops there.
+        """
+        for scope in reversed(self._scope_stack):
+            kind = scope.get("kind")
+            if kind in ("module", "class"):
+                return None
+            if kind == "function" and not scope.get("is_comprehension"):
+                return scope
+        return None
 
     @staticmethod
     def _comprehension_capture_names(node: python_ast.AST) -> List[str]:

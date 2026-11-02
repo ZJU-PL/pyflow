@@ -24,6 +24,7 @@ from pyflow.analysis.ifds.frontend.cfg_adapter import (
     assigned_locals,
 )
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.core import CellStorage, SymbolKind, ensure_code_indexed
 from pyflow.language.python import ast as py_ast
 from pyflow.language.python.ir_metadata import actual_argument_expressions
 
@@ -1041,7 +1042,26 @@ class ClassPollutionProblem(
                 access_path=(),
             )
             outputs.update(self._facts_for_locals(node.procedure, (target,), target_fact))
+            outputs.update(self._facts_on_enclosing_cell(node.procedure, target, target_fact))
         return outputs
+
+    def _facts_on_enclosing_cell(self, procedure, target, template_fact):
+        """Mirror a comprehension-walrus update onto the enclosing cell.
+
+        The walrus binds in the enclosing function, which the IR models as a
+        closure-cell write followed by a local refresh.  Attaching the fact to
+        the cell as well lets the refresh edge carry it to later uses.
+        """
+        name = getattr(target, "name", None)
+        code = getattr(procedure, "code", None)
+        if not name or code is None:
+            return set()
+        catalog = ensure_code_indexed(code)
+        symbol = catalog.symbols.find(catalog.procedure(code).root_scope, name, (SymbolKind.CELL,))
+        if symbol is None:
+            return set()
+        location = self._heap().location_for_raw(CellStorage(symbol.id))
+        return {self._make_location_fact(location, template_fact)}
 
     def _guard_refined_fact(self, node, successor, fact):
         if not isinstance(fact, (PollutionFact, ExpressionPollutionFact)):
