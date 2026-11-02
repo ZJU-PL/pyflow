@@ -3453,6 +3453,22 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(typ)
                 if node.attr in {"count", "index"}:
                     return self._instance(int)
+                if node.attr in {
+                    "union",
+                    "intersection",
+                    "difference",
+                    "symmetric_difference",
+                }:
+                    element = collection_element
+                    if node.attr == "union" and arguments:
+                        element = self._join(element, self._iterable_element(arguments[0]))
+                    return AbstractTypeValue.from_type(
+                        Instance(original_type, (element.public_type() or ANY,))
+                    )
+                if node.attr in {"issubset", "issuperset", "isdisjoint"}:
+                    return self._instance(bool)
+                if node.attr in {"clear", "discard", "remove"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is collections.Counter:
                 counter_element = AbstractTypeValue.from_type(args[0] if args else ANY)
                 if node.attr == "most_common":
@@ -3868,9 +3884,33 @@ class StaticTypeInferenceEngine:
         if isinstance(operator, ast.MatMult):
             return AbstractTypeValue.unresolved()
         if isinstance(operator, ast.Add):
+            if len(left.types) == 1 and len(right.types) == 1:
+                left_tuple = next(iter(left.types))
+                right_tuple = next(iter(right.types))
+                if isinstance(left_tuple, TupleType) and isinstance(right_tuple, TupleType):
+                    return AbstractTypeValue.from_type(
+                        TupleType(
+                            (*left_tuple.args, *right_tuple.args),
+                            unknown_size=left_tuple.unknown_size or right_tuple.unknown_size,
+                        )
+                    )
             for raw in (str, bytes, list, tuple):
                 if self._contains_raw(left, raw) and self._contains_raw(right, raw):
                     if raw is tuple:
+                        if len(left.types) == 1 and len(right.types) == 1:
+                            left_tuple = next(iter(left.types))
+                            right_tuple = next(iter(right.types))
+                            if isinstance(left_tuple, TupleType) and isinstance(
+                                right_tuple, TupleType
+                            ):
+                                return AbstractTypeValue.from_type(
+                                    TupleType(
+                                        (*left_tuple.args, *right_tuple.args),
+                                        unknown_size=(
+                                            left_tuple.unknown_size or right_tuple.unknown_size
+                                        ),
+                                    )
+                                )
                         return self._join(left, right)
                     if raw is list:
                         element = self._join(

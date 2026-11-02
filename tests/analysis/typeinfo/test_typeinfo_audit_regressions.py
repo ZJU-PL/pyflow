@@ -854,3 +854,17 @@ def test_synthetic_builtin_tuple_does_not_hit_the_nominal_tuple_assertion() -> N
     engine = StaticTypeInferenceEngine()
     value = engine._synthetic_instance("builtins.tuple", unresolved=True)
     assert isinstance(value, TupleType)
+
+
+def test_set_methods_and_tuple_concatenation_preserve_types() -> None:
+    result = _infer(
+        "left = {1}\n"
+        "right = {2}\n"
+        "combined = left.union(right)\n"
+        "subset = left.issubset(right)\n"
+        "tuple_value = (1, 'a') + (2,)\n"
+    )
+
+    assert str(result.type_of("sample.combined")) == "set[int]"
+    assert _raw_types(result.type_of("sample.subset")) == {bool}
+    assert str(result.type_of("sample.tuple_value")) == "tuple[int, str, int]"
