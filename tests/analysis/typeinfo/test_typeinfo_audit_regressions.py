@@ -846,3 +846,9 @@ def test_functional_enum_creates_nominal_members() -> None:
     assert _instance_name(result.type_of("sample.member")) == "sample.Color"
     assert _raw_types(result.type_of("sample.name")) == {str}
     assert _raw_types(result.type_of("sample.value")) == {int}
+
+
+def test_synthetic_builtin_tuple_does_not_hit_the_nominal_tuple_assertion() -> None:
+    engine = StaticTypeInferenceEngine()
+    value = engine._synthetic_instance("builtins.tuple", unresolved=True)
+    assert isinstance(value, TupleType)

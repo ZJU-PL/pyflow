@@ -6593,7 +6593,9 @@ class StaticTypeInferenceEngine:
                 sub_class=descriptor,
             )
 
-    def _synthetic_instance(self, full_name: str, *, unresolved=False) -> Instance:
+    def _synthetic_instance(self, full_name: str, *, unresolved=False) -> Instance | TupleType:
+        if full_name == "builtins.tuple":
+            return TupleType(())
         raw = self._synthetic_types.get(full_name)
         if raw is None:
             module, _, name = full_name.rpartition(".")
