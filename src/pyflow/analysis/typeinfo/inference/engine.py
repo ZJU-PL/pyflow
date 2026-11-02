@@ -195,6 +195,7 @@ class StaticTypeInferenceEngine:
                 ],
                 converged=False,
             )
+        self._source_lines = source.splitlines()
 
         self._collect_imports(self._tree)
         self._precollect_classes(self._tree.body, parent=module_name)
@@ -313,6 +314,7 @@ class StaticTypeInferenceEngine:
         self._module_name = ""
         self._filename = ""
         self._tree = ast.Module(body=[], type_ignores=[])
+        self._source_lines: list[str] = []
         self._imports: dict[str, str] = {}
         self._star_imports: list[str] = []
         self._functions: dict[str, _FunctionInfo] = {}
@@ -7037,6 +7039,16 @@ class StaticTypeInferenceEngine:
         affects_completeness: bool = False,
     ) -> None:
         span = None if node is None else _span(node)
+        if (
+            code == "annotation-mismatch"
+            and span is not None
+            and 0 < span.lineno <= len(self._source_lines)
+            and (
+                "# type: ignore" in self._source_lines[span.lineno - 1]
+                or "# pyright: ignore" in self._source_lines[span.lineno - 1]
+            )
+        ):
+            return
         key = (code, message, span)
         if key in self._diagnostic_keys:
             return

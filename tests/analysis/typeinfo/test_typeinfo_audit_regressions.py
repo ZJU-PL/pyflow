@@ -958,3 +958,14 @@ def test_overload_selection_respects_required_keyword_parameters() -> None:
     )
 
     assert _raw_types(result.functions["sample.Handler.first"].return_type) == {str}
+
+
+def test_type_ignore_comments_suppress_assignment_mismatches() -> None:
+    result = _infer(
+        "value: int = 'not-an-int'  # type: ignore[assignment]\n"
+        "other: int = 'still-not-an-int'\n"
+    )
+
+    messages = [item.message for item in result.diagnostics if item.code == "annotation-mismatch"]
+    assert len(messages) == 1
+    assert "other" not in messages[0]
