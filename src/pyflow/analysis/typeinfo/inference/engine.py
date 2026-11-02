@@ -2927,6 +2927,44 @@ class StaticTypeInferenceEngine:
             )
             self._class_aliases[name] = qualified
             return AbstractTypeValue.from_type(instance, class_target=qualified)
+        if (
+            qualified_name in {"typing.NamedTuple", "typing_extensions.NamedTuple"}
+            and node is not None
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and isinstance(node.args[1], (ast.List, ast.Tuple))
+        ):
+            name = node.args[0].value
+            fields: dict[str, ProperType] = {}
+            for item in node.args[1].elts:
+                if not (
+                    isinstance(item, ast.Tuple)
+                    and len(item.elts) >= 2
+                    and isinstance(item.elts[0], ast.Constant)
+                    and isinstance(item.elts[0].value, str)
+                ):
+                    continue
+                fields[item.elts[0].value] = (
+                    self._annotation_value(item.elts[1]).public_type() or ANY
+                )
+            qualified = f"{self._module_name}.{name}"
+            raw = type(name, (tuple,), {"__module__": self._module_name})
+            instance = self._proper_instance(raw)
+            descriptor = instance.type
+            descriptor.tuple_fields = tuple(fields)
+            for field, field_type in fields.items():
+                descriptor.members[field] = field_type
+            self._classes[qualified] = _ClassInfo(
+                qualified,
+                instance,
+                attributes={
+                    field: AbstractTypeValue.from_type(field_type)
+                    for field, field_type in fields.items()
+                },
+            )
+            self._class_aliases[name] = qualified
+            return AbstractTypeValue.from_type(instance, class_target=qualified)
         if qualified_name == "collections.defaultdict":
             value_type: ProperType = ANY
             if arguments:

@@ -983,3 +983,19 @@ def test_nonlocal_assignment_updates_enclosing_function_flow() -> None:
     )
 
     assert _raw_types(result.functions["sample.outer"].return_type) == {str}
+
+
+def test_functional_typing_namedtuple_uses_field_types() -> None:
+    result = _infer(
+        "from typing import NamedTuple\n"
+        "Point = NamedTuple('Point', [('x', int), ('y', str)])\n"
+        "point = Point(1, 'a')\n"
+        "x = point.x\n"
+        "y = point.y\n"
+        "first = point[0]\n"
+    )
+
+    assert _instance_name(result.type_of("sample.point")) == "sample.Point"
+    assert _raw_types(result.type_of("sample.x")) == {int}
+    assert _raw_types(result.type_of("sample.y")) == {str}
+    assert _raw_types(result.type_of("sample.first")) == {int}
