@@ -173,6 +173,30 @@ def find_function_in_live_code(liveCode, function_name: str, program=None):
         return None
 
 
+def _iter_function_labels(functions):
+    """Yield ``(function, label)`` pairs with labels unique per dump run.
+
+    Whole-program dumps previously used the bare function name as the artifact
+    file name.  Distinct procedures can share a short (or even qualified) name
+    across modules, so later dumps silently overwrote earlier artifacts.
+    """
+    used: set[str] = set()
+    for func in functions:
+        short = getattr(func, "name", None) or (
+            func.codeName() if hasattr(func, "codeName") else str(func)
+        )
+        label = short
+        if label in used:
+            qualified = func.codeName() if hasattr(func, "codeName") else short
+            label = qualified
+            suffix = 2
+            while label in used:
+                label = f"{qualified}__{suffix}"
+                suffix += 1
+        used.add(label)
+        yield func, label
+
+
 def write_ir_file(output_file: str, function_name: str, ir_type: str, content: str):
     """Write IR content to file with standard header."""
     with open(output_file, "w") as f:
@@ -384,10 +408,7 @@ def dump_ir(
             print("No functions available to dump", file=sys.stderr)
             return False
         all_ok = True
-        for func in liveCode:
-            fname = getattr(func, "name", None) or (
-                func.codeName() if hasattr(func, "codeName") else str(func)
-            )
+        for func, fname in _iter_function_labels(liveCode):
             ok = _dump_with_error_handling(
                 ir_type,
                 lambda f=func, fn=fname: _dump_ir_single(
@@ -483,10 +504,7 @@ def dump_gir(
             print("No functions available to dump", file=sys.stderr)
             return False
         all_ok = True
-        for func in liveCode:
-            fname = getattr(func, "name", None) or (
-                func.codeName() if hasattr(func, "codeName") else str(func)
-            )
+        for func, fname in _iter_function_labels(liveCode):
             ok = _dump_with_error_handling(
                 "GIR", lambda f=func, fn=fname: _dump_gir_single(f, fn, output_dir, format)
             )
@@ -546,10 +564,7 @@ def _dump_graph_ir(
             print("No functions available to dump", file=sys.stderr)
             return False
         all_ok = True
-        for func in liveCode:
-            fname = getattr(func, "name", None) or (
-                func.codeName() if hasattr(func, "codeName") else str(func)
-            )
+        for func, fname in _iter_function_labels(liveCode):
             try:
                 _dump_graph_single(
                     compiler, func, fname, output_dir, format, builder_func, dump_func, ir_name

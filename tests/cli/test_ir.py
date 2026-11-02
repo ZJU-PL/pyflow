@@ -482,3 +482,27 @@ def test_dump_mir_rejects_strict_policy_without_following_imports(tmp_path, caps
         ir_cli.run_ir_dump(source, args)
     assert error.value.code == 1
     assert "requires resolving imports" in capsys.readouterr().err
+
+
+class TestWholeProgramDumpLabels(unittest.TestCase):
+    def test_same_named_functions_get_distinct_artifacts(self):
+        first = module_code("def f():\n    return 1\n")
+        second = module_code("def g():\n    return 2\n")
+        # Same artifact stem as repeated ``__getattr__`` definitions in
+        # different modules; the later dump used to overwrite the earlier one.
+        first.name = "pkg.mod.__getattr__"
+        second.name = "pkg.mod.__getattr__"
+        with tempfile.TemporaryDirectory() as out_dir:
+            ok = ir_cli.dump_ir(None, [first, second], "*", out_dir, "CFG", "text")
+            self.assertTrue(ok)
+            self.assertEqual(len(os.listdir(out_dir)), 2)
+
+    def test_labels_stay_unique_across_collisions(self):
+        first = module_code("")
+        second = module_code("")
+        third = module_code("")
+        for code in (first, second, third):
+            code.name = "same"
+        labels = [label for _code, label in ir_cli._iter_function_labels([first, second, third])]
+        self.assertEqual(len(labels), 3)
+        self.assertEqual(len(set(labels)), 3)

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Whole-program IR dumps (`pyflow ir --dump-* '*' --dump-output DIR`) no longer
+  overwrite artifacts when distinct procedures share a function name (for
+  example `__getattr__` in several modules); colliding labels get a stable
+  numeric suffix.
 - SSA construction now records walrus targets embedded in `switch` conditions,
   `for` iterables, and type-switch cases, so a definition can no longer leak
   past the join where it should have a phi (for example `if (x := g()): break`
