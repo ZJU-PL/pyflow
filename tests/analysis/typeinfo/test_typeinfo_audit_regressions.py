@@ -1081,3 +1081,18 @@ def test_literal_equality_narrows_flow_bindings() -> None:
 
     mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
     assert len(mismatches) == 1
+
+
+def test_literal_match_patterns_narrow_flow_bindings() -> None:
+    result = _infer(
+        "from typing import Literal\n"
+        "def choose(value: Literal['a', 'b']):\n"
+        "    match value:\n"
+        "        case 'a':\n"
+        "            wrong: Literal['b'] = value\n"
+        "            return 1\n"
+        "    return 0\n"
+    )
+
+    mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+    assert len(mismatches) == 1
