@@ -102,6 +102,18 @@ pyflow ir input.py --dump-mir input.worker --dump-format json --dump-output out/
 pyflow ir project/ --dump-mir --recursive --dump-format dot --dump-output out/
 ```
 
+`--dump-cfg`, `--dump-ssa`, and `--dump-ddg` dump the lowered CFG IR for each
+function.  SSA names locals, phi targets, and expression-level bindings
+(walrus targets, including the temporary introduced by a chained comparison).
+Values are versioned per procedure.
+
+The DDG is built from the acyclic dataflow IR, not from the CFG: compound
+statements (including loops) become operation nodes, and loops are summarized
+as zero or one representative iteration.  As a result the DDG does **not**
+contain loop-carried dependence edges; a backward slice of an accumulator read
+inside a loop stops at the pre-loop value.  A partially unparseable input
+directory is still dumped, but the command reports how many files were skipped.
+
 ## Callgraph
 
 ```bash

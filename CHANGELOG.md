@@ -14,6 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SSA construction now records walrus targets embedded in `switch` conditions,
+  `for` iterables, and type-switch cases, so a definition can no longer leak
+  past the join where it should have a phi (for example `if (x := g()): break`
+  inside a loop).  `verify_ssa` also recognizes expression-level definitions,
+  including the synthetic walrus introduced by chained comparisons, so
+  `pyflow ir --dump-ssa` no longer rejects valid functions.
+- Per-function CFG/SSA work is now scoped to the procedure being rewritten:
+  catalog semantics, symbol/value indexes, block/edge indexes, and catalog
+  verification are no longer recomputed over the whole program.  Dumping SSA
+  for 100 trivial functions dropped from ~20 s to ~0.5 s and now scales
+  linearly.  The CFG/SSA dumper also stops deep-copying the program catalog
+  through nested `Code.ir_catalog` references.
+- Augmented assignment evaluates its receiver and subscript once: `f().attr += 1`
+  and `a[i()] += 1` no longer duplicate the call in the read and write halves.
+- The dataflow IR (and therefore the DDG) binds the names of local `def` and
+  `class` statements, so a factory returning a nested class/function no longer
+  models the result as undefined.
+- Class bodies resolve names from enclosing-function cells (CPython
+  `LOAD_CLASSDEREF`) instead of lowering them to global reads.
+- `try`/`except*` lowers each clause independently, so every matching handler is
+  reachable from one exception group instead of only the first match.
 - CPG construction now materializes non-leaf AST nodes and connects the full
   source parent/child relation, so `ast_children()` is usable for expressions
   instead of being limited to the few AST nodes that happened to have PDGs.

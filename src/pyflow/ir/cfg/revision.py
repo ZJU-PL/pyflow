@@ -95,29 +95,32 @@ class CFGTransformTransaction:
         self.transform = transform
         self.catalog: IRCatalog = ensure_code_indexed(cfg.code)
         index_cfg(self.catalog, cfg)
+        self.code_id = self.catalog.procedure(cfg.code).code_id
         self.before_revision: IRRevision = self.catalog.revision
         self.before_nodes = {node: self.catalog.node_id(node, cfg.code) for node in _ast_nodes(cfg)}
         self.before_blocks = {
             block: self.catalog.block_id(block, cfg.code) for block in _blocks(cfg)
         }
+        # A transaction rewrites one procedure.  Tracking program-wide
+        # identities here made every per-function transform O(program).
         self.before_edges = {
-            edge_id
-            for edge_id, _edge in self.catalog.edges()
-            if edge_id.source.code == self.catalog.procedure(cfg.code).code_id
+            edge_id for edge_id, _edge in self.catalog.edges_for_code(self.code_id)
         }
-        self.before_symbols = {symbol.id for symbol in self.catalog.symbols}
-        self.before_values = {value.id for value in self.catalog.values}
-        self.before_call_sites = {
-            call_id
-            for _node_id, semantics in self.catalog.semantics.items()
-            for call_id in semantics.calls
-        }
-        self.before_allocation_sites = {
-            allocation_id
-            for _node_id, semantics in self.catalog.semantics.items()
-            for allocation_id in semantics.allocations
-        }
+        self.before_symbols = {symbol.id for symbol in self.catalog.symbols.for_code(self.code_id)}
+        self.before_values = {value.id for value in self.catalog.values.for_code(self.code_id)}
+        self.before_call_sites, self.before_allocation_sites = self._site_identities(self.code_id)
         self.before_fingerprint = self._fingerprint()
+
+    def _site_identities(self, code_id) -> tuple[set, set]:
+        calls: set = set()
+        allocations: set = set()
+        for node_id, _node in self.catalog.iter_nodes_for_code(code_id):
+            semantics = self.catalog.semantics.get_operation(node_id)
+            if semantics is None:
+                continue
+            calls.update(semantics.calls)
+            allocations.update(semantics.allocations)
+        return calls, allocations
 
     def _fingerprint(self):
         blocks = _blocks(self.cfg)
@@ -148,11 +151,7 @@ class CFGTransformTransaction:
         after_blocks = {
             block: self.catalog.block_id(block, self.cfg.code) for block in _blocks(self.cfg)
         }
-        after_edges = {
-            edge_id
-            for edge_id, _edge in self.catalog.edges()
-            if edge_id.source.code == self.catalog.procedure(self.cfg.code).code_id
-        }
+        after_edges = {edge_id for edge_id, _edge in self.catalog.edges_for_code(self.code_id)}
         changed = self.before_fingerprint != self._fingerprint()
         after_revision = self.catalog.commit_revision() if changed else self.before_revision
 
@@ -175,7 +174,7 @@ class CFGTransformTransaction:
                     TransformationFrame(self.transform, inputs=source_ids),
                 )
         verify_cfg(self.cfg, self.catalog)
-        verify_catalog(self.catalog)
+        verify_catalog(self.catalog, code_id=self.code_id)
 
         node_targets = {
             identity: ((after_nodes[node],) if node in after_nodes else ())
@@ -193,26 +192,17 @@ class CFGTransformTransaction:
         created_nodes = after_node_ids - frozenset(self.before_nodes.values())
         created_blocks = frozenset(after_blocks.values()) - frozenset(self.before_blocks.values())
         created_edges = after_edges - self.before_edges
-        after_symbols = {symbol.id for symbol in self.catalog.symbols}
+        after_symbols = {symbol.id for symbol in self.catalog.symbols.for_code(self.code_id)}
         symbol_targets = {
             identity: ((identity,) if identity in after_symbols else ())
             for identity in self.before_symbols
         }
-        after_values = {value.id for value in self.catalog.values}
+        after_values = {value.id for value in self.catalog.values.for_code(self.code_id)}
         value_targets = {
             identity: ((identity,) if identity in after_values else ())
             for identity in self.before_values
         }
-        after_call_sites = {
-            call_id
-            for _node_id, semantics in self.catalog.semantics.items()
-            for call_id in semantics.calls
-        }
-        after_allocation_sites = {
-            allocation_id
-            for _node_id, semantics in self.catalog.semantics.items()
-            for allocation_id in semantics.allocations
-        }
+        after_call_sites, after_allocation_sites = self._site_identities(self.code_id)
         call_sites = {
             source: tuple(
                 target

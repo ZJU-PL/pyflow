@@ -10,6 +10,7 @@ from pyflow.ir.cfg import (
     simplify,
     structuralanalysis,
 )
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python.simplecodegen import SimpleCodeGen
 from pyflow.language.python import ast
 from pyflow.ir.core import IRRemap, ValueId, verify_catalog
@@ -50,6 +51,24 @@ def loop(a, b):
         reduceC += 1
 
     return reduceC
+
+
+def walrus_condition(xs):
+    if (n := len(xs)) > 3:
+        return n
+    return 0
+
+
+def chained_comparison(a, b, c):
+    return a < b < c
+
+
+def walrus_loop_break(items, g):
+    x = 0
+    for i in items:
+        if (x := g(i)) is None:
+            break
+    return x
 
 
 def dloop():
@@ -143,6 +162,48 @@ class TestSSA(unittest.TestCase):
 
     def testPSimp(self):
         self.runFunction(psimp)
+
+    def _cfg_blocks(self, graph):
+        seen = set()
+        pending = [graph.entryTerminal]
+        while pending:
+            block = pending.pop(0)
+            if block in seen:
+                continue
+            seen.add(block)
+            yield block
+            pending.extend(block.next.values())
+
+    def test_walrus_in_switch_condition_is_valid_ssa(self):
+        code = self.decompile(walrus_condition)
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        verify_ssa(graph, code.ir_catalog)
+
+    def test_chained_comparison_lowering_is_valid_ssa(self):
+        code = self.decompile(chained_comparison)
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        verify_ssa(graph, code.ir_catalog)
+
+    def test_walrus_in_loop_condition_gets_exit_phi(self):
+        code = self.decompile(walrus_loop_break)
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        verify_ssa(graph, code.ir_catalog)
+
+        # The loop-exit merge must join the pre-loop ``x = 0`` with the value
+        # bound by the walrus.  Without the definition recorded in the switch
+        # condition no phi is emitted and the return reads a non-dominating
+        # value instead.
+        x_measures = [
+            phi
+            for block in self._cfg_blocks(graph)
+            if isinstance(block, cfg_graph.Merge)
+            for phi in block.phi
+            if getattr(phi.target, "name", None) == "x" and len(phi.arguments) == 2
+        ]
+        self.assertTrue(x_measures)
 
     def test_undefined_reads_are_explicit_and_ssa_is_verified(self):
         for function in (read_after_delete, read_after_exception_target, split, loop):

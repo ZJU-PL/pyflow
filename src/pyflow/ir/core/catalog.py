@@ -72,24 +72,28 @@ class IRCatalog:
         self._codes: dict[CodeId, object] = {}
         self._code_keys: dict[tuple[str, str, SourceAnchor], int] = {}
         self._nodes: dict[NodeId, object] = {}
+        self._nodes_by_code: dict[CodeId, dict[NodeId, object]] = {}
         self._node_ids: dict[tuple[CodeId, _IdentityKey], NodeId] = {}
         self._node_occurrences: dict[_IdentityKey, NodeId | list[NodeId]] = {}
         self._reference_symbols: dict[tuple[ScopeId, _IdentityKey], SymbolId] = {}
         self._reference_occurrences: dict[_IdentityKey, SymbolId | list[SymbolId]] = {}
         self._reference_values: dict[tuple[CodeId, _IdentityKey], object] = {}
         self._contexts: dict[ContextId, object] = {}
+        self._contexts_by_code: dict[CodeId, dict[ContextId, object]] = {}
         self._context_ids: dict[tuple[CodeId, _IdentityKey], ContextId] = {}
         self._next_node: dict[CodeId, int] = {}
         self._next_scope: dict[CodeId, int] = {}
         self._blocks: dict[BlockId, object] = {}
+        self._blocks_by_code: dict[CodeId, dict[BlockId, object]] = {}
         self._block_ids: dict[tuple[CodeId, _IdentityKey], BlockId] = {}
         self._edges: dict[EdgeId, tuple[BlockId, BlockId]] = {}
+        self._edges_by_code: dict[CodeId, dict[EdgeId, tuple[BlockId, BlockId]]] = {}
         self._next_block: dict[CodeId, int] = {}
 
-    def _build_semantics(self) -> None:
+    def _build_semantics(self, codes=None) -> None:
         from .build_semantics import build_semantics
 
-        build_semantics(self)
+        build_semantics(self, codes=codes)
 
     def commit_revision(
         self,
@@ -230,6 +234,7 @@ class IRCatalog:
         self._next_node[code] = ordinal + 1
         node_id = NodeId(code, ordinal)
         self._nodes[node_id] = node
+        self._nodes_by_code.setdefault(code, {})[node_id] = node
         self._node_ids[key] = node_id
         occurrences = self._node_occurrences.get(node_key)
         if occurrences is None:
@@ -240,7 +245,7 @@ class IRCatalog:
             self._node_occurrences[node_key] = [occurrences, node_id]
         self.source_map.set_origin(node_id, origin)
         if invalidate_semantics:
-            self.semantics.invalidate()
+            self.semantics.invalidate(code)
         return node_id
 
     def node_id(self, node: object, code: object | CodeId | None = None) -> NodeId:
@@ -305,7 +310,8 @@ class IRCatalog:
         del self._node_ids[original_key]
         self._node_ids[replacement_key] = node_id
         self._nodes[node_id] = replacement
-        self.semantics.invalidate()
+        self._nodes_by_code.setdefault(code_id, {})[node_id] = replacement
+        self.semantics.invalidate(code_id)
 
         occurrences = self._node_occurrences.get(original_identity)
         if occurrences is not None:
@@ -344,6 +350,7 @@ class IRCatalog:
         self._next_block[code_id] = block_id.ordinal + 1
         self._block_ids[key] = block_id
         self._blocks[block_id] = block
+        self._blocks_by_code.setdefault(code_id, {})[block_id] = block
         return block_id
 
     def block_id(self, block: object, code: object | CodeId) -> BlockId:
@@ -366,6 +373,7 @@ class IRCatalog:
         if existing is not None and existing != edge:
             raise ValueError(f"edge id already occupied: {edge_id}")
         self._edges[edge_id] = edge
+        self._edges_by_code.setdefault(source.code, {})[edge_id] = edge
         return edge_id
 
     def synchronize_cfg(
@@ -382,9 +390,11 @@ class IRCatalog:
                 continue
             del self._block_ids[(owner, block_key)]
             self._blocks.pop(block_id, None)
+            self._blocks_by_code.get(owner, {}).pop(block_id, None)
         for edge_id in tuple(self._edges):
             if edge_id.source.code == code_id:
                 del self._edges[edge_id]
+        self._edges_by_code.pop(code_id, None)
         for block in blocks:
             self.register_block(code_id, block)
         for source_block, label, target_block, occurrence in edges:
@@ -395,8 +405,20 @@ class IRCatalog:
     def blocks(self):
         return tuple((identity, self._blocks[identity]) for identity in sorted(self._blocks))
 
+    def blocks_for_code(self, code: object | CodeId):
+        code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
+        return sorted(self._blocks_by_code.get(code_id, {}).items())
+
     def edges(self):
         return tuple((identity, self._edges[identity]) for identity in sorted(self._edges))
+
+    def edges_for_code(self, code: object | CodeId):
+        code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
+        return sorted(self._edges_by_code.get(code_id, {}).items())
+
+    def contexts_for_code(self, code: object | CodeId):
+        code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
+        return sorted(self._contexts_by_code.get(code_id, {}).items())
 
     def source_of(
         self, node_or_id: object | NodeId, *, code: object | CodeId | None = None
@@ -437,7 +459,7 @@ class IRCatalog:
         elif occurrences != symbol_id:
             self._reference_occurrences[reference_key] = [occurrences, symbol_id]
         if invalidate_semantics:
-            self.semantics.invalidate()
+            self.semantics.invalidate(symbol_id.scope.code)
 
     def has_symbol(self, reference: object, code: object | CodeId | None = None) -> bool:
         if code is None:
@@ -469,7 +491,7 @@ class IRCatalog:
         if value_id.symbol != self.symbol_id(reference, code_id):
             raise ValueError("SSA value must belong to the reference's symbol")
         self._reference_values[(code_id, _identity(reference))] = value_id
-        self.semantics.invalidate()
+        self.semantics.invalidate(code_id)
 
     def value_id(self, reference: object, code: object | CodeId):
         code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
@@ -508,6 +530,7 @@ class IRCatalog:
         # the client-facing representative.
         self._context_ids[key] = context_id
         self._contexts[context_id] = context
+        self._contexts_by_code.setdefault(code_id, {})[context_id] = context
         return context_id
 
     def context_id(self, code: object | CodeId, context: object) -> ContextId:
@@ -522,6 +545,16 @@ class IRCatalog:
 
     def nodes(self) -> tuple[tuple[NodeId, object], ...]:
         return tuple((key, self._nodes[key]) for key in sorted(self._nodes))
+
+    def nodes_for_code(self, code: object | CodeId) -> tuple[tuple[NodeId, object], ...]:
+        """Return the nodes owned by one procedure, in registration order."""
+        code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
+        return tuple(self._nodes_by_code.get(code_id, {}).items())
+
+    def iter_nodes_for_code(self, code: object | CodeId):
+        """Iterate one procedure's nodes without copying or sorting."""
+        code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
+        return self._nodes_by_code.get(code_id, {}).items()
 
     def iter_nodes(self):
         """Iterate nodes in deterministic catalog insertion order.

@@ -913,9 +913,10 @@ def _run_ir_dump(input_path: Path, args):
             if getattr(diagnostic, "stage", None) == "parse"
         ]
         failed_paths = {os.path.realpath(str(diagnostic.filename)) for diagnostic in parse_failures}
-        if parse_failures and all(
+        all_failed = bool(parse_failures) and all(
             os.path.realpath(str(path)) in failed_paths for path in python_files
-        ):
+        )
+        if parse_failures and all_failed:
             for diagnostic in parse_failures:
                 print(
                     f"Error: Could not parse {diagnostic.filename}: "
@@ -923,6 +924,14 @@ def _run_ir_dump(input_path: Path, args):
                     file=sys.stderr,
                 )
             sys.exit(1)
+        if parse_failures:
+            # A partial dump is still useful, but silently dropping files makes
+            # coverage gaps easy to miss (e.g. a tree using newer syntax).
+            print(
+                f"Warning: skipped {len(failed_paths)} of {len(python_files)} "
+                f"unparseable source file(s); the dump covers the remaining files.",
+                file=sys.stderr,
+            )
 
         if program.liveCode:
             print(

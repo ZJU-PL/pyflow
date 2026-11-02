@@ -528,8 +528,8 @@ match x:
         self.assertEqual(rest_binds[0].expr.expr.object.pyobj, "interpreter_match_mapping_rest")
 
     @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
-    def test_try_star_handlers_keep_original_group_for_residual_raise(self):
-        """except* handlers should keep residual exceptional flow explicit."""
+    def test_try_star_handlers_keep_residual_raise_explicit(self):
+        """except* keeps an explicit re-raise when no clause matched."""
         source = """
 try:
     body()
@@ -539,23 +539,40 @@ except* ValueError as err:
         tree = python_ast.parse(source)
         result = self.converter._convert_node(tree.body[0])
 
-        self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
-        handler = result.handlers[0]
-        self.assertEqual(handler.value.name, "__exc_group__")
-        self.assertNotIsInstance(handler.body.blocks[-1], pyflow_ast.Raise)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        wrapper = next(
+            block for block in result.blocks if isinstance(block, pyflow_ast.TryExceptFinally)
+        )
+        handler = wrapper.handlers[0]
+        self.assertTrue(handler.value.name.startswith("__pyflow_tmp_exc_group_"))
+        residual = handler.body.blocks[-1]
+        self.assertIsInstance(residual, pyflow_ast.Switch)
+        self.assertIsInstance(residual.condition.conditional, pyflow_ast.Not)
+        self.assertTrue(any(isinstance(block, pyflow_ast.Raise) for block in residual.t.blocks))
 
     @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
-    def test_try_star_is_marked_as_exception_group(self):
-        """except* converts to a TryStar node; plain except does not."""
+    def test_try_star_handlers_are_independent(self):
+        """Every except* clause is tested; plain except stays first-match."""
         star_source = """
 try:
     body()
 except* ValueError as err:
     handle(err)
+except* TypeError as err:
+    handle(err)
 """
         star = self.converter._convert_node(python_ast.parse(star_source).body[0])
-        self.assertIsInstance(star, pyflow_ast.TryStar)
-        self.assertIsInstance(star, pyflow_ast.TryExceptFinally)
+        wrapper = next(
+            block for block in star.blocks if isinstance(block, pyflow_ast.TryExceptFinally)
+        )
+        self.assertNotIsInstance(wrapper, pyflow_ast.TryStar)
+        clauses = [
+            block
+            for block in wrapper.handlers[0].body.blocks
+            if isinstance(block, pyflow_ast.Switch)
+            and "interpreter_exception_group_matches" in str(block.condition.conditional)
+        ]
+        self.assertEqual(len(clauses), 2)
 
         plain_source = """
 try:

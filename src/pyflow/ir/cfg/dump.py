@@ -18,7 +18,11 @@ def _ssa_repr(node, catalog=None, code=None):
     """Render an AST node with stable SSA versions without mutating the IR."""
     if catalog is None or code is None or node is None:
         return str(node)
-    cloned = copy.deepcopy(node)
+    # A nested ``Code`` carries ``ir_catalog``; deep-copying it would clone the
+    # entire program catalog (and its semantics table) for every rendered
+    # operation.  Share the catalog instead: only the cloned AST is annotated.
+    memo = {id(catalog): catalog}
+    cloned = copy.deepcopy(node, memo)
 
     def visit(original, duplicate):
         from pyflow.language.python import ast

@@ -371,6 +371,30 @@ class ASTConverter:
                 return cells[name]
         return self._get_local_cell(name)
 
+    def _class_scope_capture(self, name: str) -> Optional[PythonASTNode]:
+        """Resolve a class-body name from an enclosing function.
+
+        Class bodies have their own namespace, but a name that is not bound in
+        the class body is resolved through the enclosing function's cells
+        (``LOAD_CLASSDEREF``) before globals and builtins.  Lowering that read
+        to ``GetGlobal`` lost the def-use edge and could silently refer to an
+        unrelated module global of the same name.
+        """
+        for scope in reversed(self._scope_stack[:-1]):
+            kind = scope.get("kind")
+            if kind == "module":
+                break
+            if kind != "function":
+                # Nested class namespaces are not visible to each other; only
+                # function scopes participate in class-body closure lookup.
+                continue
+            if name in scope.get("bound_names", ()) or name in scope.get("cell_names", ()):
+                scope["cell_names"].add(name)
+                cells = scope["cells"]
+                cell = cells.setdefault(name, pyflow_ast.Cell(name))
+                return pyflow_ast.GetCellDeref(cell)
+        return None
+
     def _name_expr(self, name: str) -> PythonASTNode:
         scope = self._current_scope()
         if scope is None:
@@ -386,6 +410,12 @@ class ASTConverter:
         class_local = self._class_read_local(name)
         if class_local is not None:
             return class_local
+        if scope["kind"] == "class" and name not in scope["bound_names"]:
+            # A name bound anywhere in the class body stays class-local for
+            # the whole body (CPython emits LOAD_NAME, not LOAD_CLASSDEREF).
+            captured = self._class_scope_capture(name)
+            if captured is not None:
+                return captured
         if scope["kind"] in ("function", "class") and name not in scope["bound_names"]:
             # Module-level functions/classes/imports are still resolved by
             # name by the legacy IPA/IFDS consumers, so preserve their Local
@@ -1693,51 +1723,66 @@ class ASTConverter:
                 "interpreter_unknown_augassign",
                 [pyflow_ast.Existing(Object(type(node.op).__name__)), rhs],
             )
-            result = self._convert_store(node.target, tagged_rhs)
-        else:
-            op = pyflow_ast.Existing(Object(op_name))
+            return self._convert_store(node.target, tagged_rhs)
 
-            # Load current value from target.
-            if isinstance(node.target, python_ast.Name):
-                cur = self._name_expr(node.target.id)
-                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-                result = self._name_store(node.target.id, new_val)
+        op = pyflow_ast.Existing(Object(op_name))
 
-            elif isinstance(node.target, python_ast.Attribute):
-                obj = self._convert_expression_safe(node.target.value)
-                name = pyflow_ast.Existing(Object(node.target.attr))
-                cur = pyflow_ast.GetAttr(obj, name)
-                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-                result = pyflow_ast.SetAttr(new_val, obj, name)
+        # Load current value from target.
+        if isinstance(node.target, python_ast.Name):
+            cur = self._name_expr(node.target.id)
+            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+            return self._name_store(node.target.id, new_val)
 
-            elif isinstance(node.target, python_ast.Subscript):
-                obj = self._convert_expression_safe(node.target.value)
-                sub = self._convert_subscript_index(node.target.slice)
-                cur = pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter_getitem")),
-                    [obj, sub],
+        preamble: List[PythonASTNode] = []
+
+        def stable(expr: PythonASTNode, hint: str) -> PythonASTNode:
+            """Evaluate *expr* exactly once, before the read-modify-write."""
+            if isinstance(expr, (pyflow_ast.Local, pyflow_ast.Existing)):
+                return expr
+            temp = self._tmp_local(hint, node)
+            preamble.append(pyflow_ast.Assign(expr, [temp]))
+            return pyflow_ast.Local(temp.name)
+
+        if isinstance(node.target, python_ast.Attribute):
+            obj = stable(self._convert_expression_safe(node.target.value), "aug_obj")
+            name = pyflow_ast.Existing(Object(node.target.attr))
+            cur = pyflow_ast.GetAttr(obj, name)
+            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+            result = pyflow_ast.SetAttr(new_val, obj, name)
+
+        elif isinstance(node.target, python_ast.Subscript):
+            obj = stable(self._convert_expression_safe(node.target.value), "aug_obj")
+            sub = stable(self._convert_subscript_index(node.target.slice), "aug_key")
+            cur = pyflow_ast.Call(
+                pyflow_ast.Existing(Object("interpreter_getitem")),
+                [obj, sub],
+                [],
+                None,
+                None,
+            )
+            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+            result = pyflow_ast.Discard(
+                pyflow_ast.Call(
+                    pyflow_ast.Existing(Object("interpreter_setitem")),
+                    [obj, sub, new_val],
                     [],
                     None,
                     None,
                 )
-                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-                result = pyflow_ast.Discard(
-                    pyflow_ast.Call(
-                        pyflow_ast.Existing(Object("interpreter_setitem")),
-                        [obj, sub, new_val],
-                        [],
-                        None,
-                        None,
-                    )
-                )
-            else:
-                result = self._unsupported_stmt(
-                    node, f"unsupported AugAssign target {type(node.target).__name__}"
-                )
-        return result
+            )
+        else:
+            return self._unsupported_stmt(
+                node, f"unsupported AugAssign target {type(node.target).__name__}"
+            )
 
-        # Fallback for other targets.
-        return self._convert_store(node.target, rhs)
+        if not preamble:
+            return result
+        # ``obj``/``index`` expressions with side effects must be evaluated
+        # once; reusing the converted node in both the read and the write half
+        # duplicated calls (``maker().counter += 1`` called ``maker`` twice).
+        suite = pyflow_ast.Suite([*preamble, result])
+        suite._origin_tag = "AugAssign"
+        return suite
 
     def _convert_async_for(self, node) -> Optional[PythonASTNode]:
         """Convert Python AST AsyncFor to pyflow AST.
@@ -2189,55 +2234,83 @@ class ASTConverter:
         return pyflow_ast.Existing(Object(True))
 
     def _convert_try_star(self, node) -> Optional[PythonASTNode]:
-        """Convert Python AST TryStar (exception groups, Python 3.11+) to pyflow AST.
+        """Convert ``try``/``except*`` (exception groups) to pyflow AST.
 
-        Exception groups use except* syntax which can:
-        - Match multiple exception types from a single exception group
-        - Handle partial matches (some exceptions handled, others re-raised)
-        - Use exception group specific matching
+        Unlike ``except``, ``except*`` handlers are not an if/elif cascade: a
+        single exception group can run *every* matching handler.  The lowering
+        therefore wraps the handlers in one ``except BaseException`` block and
+        tests each ``except*`` clause independently.  If no clause matched, the
+        exception is re-raised.
+
+        A partially handled group is consumed rather than re-raised; residual
+        subgroup reconstruction is left to a later, data-flow-aware lowering.
         """
         try_body = self.convert_python_ast_to_pyflow(node.body)
+        else_body = self.convert_python_ast_to_pyflow(node.orelse)
+        finally_body = self.convert_python_ast_to_pyflow(node.finalbody)
 
-        handlers = []
+        exc_local = self._tmp_local("exc_group", node)
+        matched_local = self._tmp_local("exc_group_matched", node)
+
+        handler_statements: List[PythonASTNode] = []
         for handler in node.handlers:
             if handler.type:
                 exc_type = self._convert_expression(handler.type)
             else:
-                exc_type = None
-
-            original_group = pyflow_ast.Local("__exc_group__")
-            handler_body = self.convert_python_ast_to_pyflow(handler.body)
-            handler_body = self._ensure_suite(handler_body)
-            # The transfer engine already preserves an unmatched exceptional
-            # edge for typed handlers.  Unconditionally re-raising the original
-            # group here incorrectly removed the fully-handled normal path.
-
-            preamble = pyflow_ast.Suite([])
-            if handler.name and exc_type:
-                extracted_group = self._call_named(
-                    "interpreter_exception_group_extract",
-                    [original_group, exc_type],
-                )
-                preamble.append(self._name_store(handler.name, extracted_group))
-
-            exc_handler = pyflow_ast.ExceptionHandler(
-                preamble=preamble,
-                type=exc_type,
-                value=original_group,
-                body=handler_body,
+                exc_type = pyflow_ast.Existing(Object(BaseException))
+            condition = self._call_named(
+                "interpreter_exception_group_matches",
+                [pyflow_ast.Local(exc_local.name), exc_type],
             )
-            handlers.append(exc_handler)
+            body = self._ensure_suite(self.convert_python_ast_to_pyflow(handler.body))
+            inner: List[PythonASTNode] = [
+                pyflow_ast.Assign(pyflow_ast.Existing(Object(True)), [matched_local])
+            ]
+            if handler.name:
+                subgroup = self._call_named(
+                    "interpreter_exception_group_extract",
+                    [pyflow_ast.Local(exc_local.name), exc_type],
+                )
+                inner.append(self._name_store(handler.name, subgroup))
+            inner.extend(body.blocks)
+            if handler.name:
+                # Python clears the handler alias when the clause finishes.
+                inner.append(self._name_delete(handler.name))
+            handler_statements.append(
+                pyflow_ast.Switch(
+                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
+                    t=pyflow_ast.Suite(inner),
+                    f=pyflow_ast.Suite([]),
+                )
+            )
 
-        else_body = self.convert_python_ast_to_pyflow(node.orelse)
-        finally_body = self.convert_python_ast_to_pyflow(node.finalbody)
+        residual = pyflow_ast.Switch(
+            condition=pyflow_ast.Condition(
+                pyflow_ast.Suite([]),
+                pyflow_ast.Not(pyflow_ast.Local(matched_local.name)),
+            ),
+            t=pyflow_ast.Suite([pyflow_ast.Raise(pyflow_ast.Local(exc_local.name), None, None)]),
+            f=pyflow_ast.Suite([]),
+        )
 
-        return pyflow_ast.TryStar(
+        wrapper = pyflow_ast.TryExceptFinally(
             body=try_body,
-            handlers=handlers,
+            handlers=[
+                pyflow_ast.ExceptionHandler(
+                    preamble=pyflow_ast.Suite([]),
+                    type=pyflow_ast.Existing(Object(BaseException)),
+                    value=exc_local,
+                    body=pyflow_ast.Suite([*handler_statements, residual]),
+                )
+            ],
             defaultHandler=None,
             else_=else_body,
             finally_=finally_body,
         )
+        init = pyflow_ast.Assign(pyflow_ast.Existing(Object(False)), [matched_local])
+        suite = pyflow_ast.Suite([init, wrapper])
+        suite._origin_tag = "TryStar"
+        return suite
 
     def _convert_global(self, node: python_ast.Global) -> Optional[PythonASTNode]:
         """Convert Python AST Global to pyflow AST with proper scope tracking."""

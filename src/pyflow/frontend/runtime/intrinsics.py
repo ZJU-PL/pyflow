@@ -307,6 +307,14 @@ class IntrinsicManager:
             "interpreter_exception_group_extract": lambda exc_group, exc_type: (
                 exc_group.split(exc_type)[0] if hasattr(exc_group, "split") else exc_group
             ),
+            # ``except*`` handlers are independent: every matching clause runs
+            # for a single exception group.  A non-group exception matches by
+            # ``isinstance`` just like it does for a plain ``except``.
+            "interpreter_exception_group_matches": lambda exc, exc_type: (
+                any(isinstance(item, exc_type) for item in exc.exceptions)
+                if getattr(exc, "exceptions", None) is not None
+                else isinstance(exc, exc_type)
+            ),
             "interpreter_exception_type": type,
             "interpreter_make_generator": lambda value: iter((value,)),
             "interpreter_getattr": getattr,
@@ -431,6 +439,9 @@ class IntrinsicManager:
                     "interpreter_match_rest": create_stub_code("interpreter_match_rest"),
                     "interpreter_exception_group_extract": create_stub_code(
                         "interpreter_exception_group_extract"
+                    ),
+                    "interpreter_exception_group_matches": create_stub_code(
+                        "interpreter_exception_group_matches"
                     ),
                     "interpreter_exception_type": create_stub_code("interpreter_exception_type"),
                     "interpreter_make_generator": create_stub_code("interpreter_make_generator"),

@@ -839,10 +839,16 @@ class TestClass:
             "        consume(child)\n"
         )
         outer = self.converter._convert_node(tree.body[0])
-        handler = outer.code.ast.blocks[0].handlers[0]
+        suite = outer.code.ast.blocks[0]
+        wrapper = next(
+            block for block in suite.blocks if isinstance(block, pyflow_ast.TryExceptFinally)
+        )
+        handler = wrapper.handlers[0]
+        clauses = [block for block in handler.body.blocks if isinstance(block, pyflow_ast.Switch)]
+        body_blocks = [inner for clause in clauses for inner in clause.t.blocks]
 
-        self.assertIsInstance(handler.preamble.blocks[0], pyflow_ast.SetCellDeref)
-        child = handler.body.blocks[0]
+        self.assertTrue(any(isinstance(block, pyflow_ast.SetCellDeref) for block in body_blocks))
+        child = next(block for block in body_blocks if isinstance(block, pyflow_ast.FunctionDef))
         self.assertIsInstance(
             child.code.ast.blocks[0].exprs[0],
             pyflow_ast.GetCellDeref,

@@ -106,15 +106,12 @@ def verify_cfg(cfg, catalog=None) -> None:
 
     if catalog is not None:
         code_id = catalog.procedure(cfg.code).code_id
-        catalog_blocks = {
-            block_id: block for block_id, block in catalog.blocks() if block_id.code == code_id
-        }
+        catalog_blocks = dict(catalog.blocks_for_code(code_id))
         if set(catalog_blocks.values()) != block_set:
             raise CFGVerificationError("catalog block set does not match CFG")
         catalog_edges = {
             (source, edge_id.label, target)
-            for edge_id, (source, target) in catalog.edges()
-            if edge_id.source.code == code_id
+            for edge_id, (source, target) in catalog.edges_for_code(code_id)
         }
         expected_edges = {
             (
@@ -135,6 +132,29 @@ class SSAVerificationError(CFGVerificationError):
     """Raised when SSA values violate dominance or phi invariants."""
 
 
+def _expression_definitions(node):
+    """Yield SSA targets defined inside an expression tree.
+
+    The CFG keeps ``NamedExpr`` (walrus) bindings inside the containing
+    expression instead of emitting a separate statement.  Those targets are
+    still SSA definitions, so they have to participate in the definition map.
+    Chained comparisons are lowered through a synthetic ``NamedExpr`` by the
+    frontend, which makes this the common case rather than a corner case.
+    """
+    if node is None or isinstance(node, (str, int, float, bool)):
+        return
+    if isinstance(node, (tuple, list)):
+        for item in node:
+            yield from _expression_definitions(item)
+        return
+    if not isinstance(node, ast.PythonASTNode) or isinstance(node, ast.Code):
+        return
+    if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Local):
+        yield node.target
+    for _name, value in node.fields():
+        yield from _expression_definitions(value)
+
+
 def _defined_references(block):
     """Yield the references a block binds to fresh SSA values."""
     if isinstance(block, graph.Merge):
@@ -142,12 +162,27 @@ def _defined_references(block):
             yield phi.target
     elif isinstance(block, graph.ForIter):
         yield block.index
+        yield from _expression_definitions(block.iterator)
+    elif isinstance(block, graph.Switch):
+        yield from _expression_definitions(block.condition)
+    elif isinstance(block, graph.TypeSwitch):
+        for case in getattr(block.original, "cases", ()):
+            if getattr(case, "expr", None) is not None:
+                yield case.expr
+        yield from _expression_definitions(block.original.conditional)
     elif isinstance(block, graph.Suite):
         for operation in block.ops:
             for field in ("lcls", "targets"):
                 references = getattr(operation, field, None)
                 if references:
                     yield from references
+            # ``Delete.lcl`` and ``InputBlock.inputs`` also bind fresh values.
+            local = getattr(operation, "lcl", None)
+            if local is not None:
+                yield local
+            for item in getattr(operation, "inputs", ()) or ():
+                yield item.lcl
+            yield from _expression_definitions(operation)
 
 
 def verify_ssa(cfg, catalog=None) -> None:

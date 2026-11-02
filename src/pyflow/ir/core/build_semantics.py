@@ -317,8 +317,31 @@ def _register_call(catalog: IRCatalog, node, node_id):
     return (call_id,)
 
 
-def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) -> None:
-    """Populate structural semantics for every indexed Python IR node."""
+def build_semantics(
+    catalog: IRCatalog,
+    *,
+    register_missing_nodes: bool = True,
+    codes=None,
+) -> None:
+    """Populate structural semantics for indexed Python IR nodes.
+
+    ``codes`` limits the rebuild to the listed procedures.  Semantics for the
+    remaining procedures are kept, which turns per-function CFG/SSA transforms
+    from an O(program) rebuild into an O(function) one.  A scoped request on an
+    unpopulated table falls back to a full build so no procedure is left
+    without semantics.
+    """
+    scope = None if codes is None else frozenset(codes)
+    if scope is not None and not catalog.semantics.ready:
+        scope = None
+
+    def in_scope_nodes():
+        if scope is None:
+            return catalog.iter_nodes()
+        # Snapshot so node registration during the rebuild cannot mutate the
+        # mapping we are iterating.
+        return tuple(item for code_id in scope for item in catalog.iter_nodes_for_code(code_id))
+
     children_by_identity: dict[int, tuple[object, ...]] = {}
 
     def children(node) -> tuple[object, ...]:
@@ -333,7 +356,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
         # Transformations may replace a parent container in place while creating
         # fresh child objects.  Close the catalog over the current child relation
         # before building records so semantics never contain dangling NodeIds.
-        pending = list(catalog.iter_nodes())
+        pending = list(in_scope_nodes())
         cursor = 0
         while cursor < len(pending):
             parent_id, parent = pending[cursor]
@@ -414,8 +437,11 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
         reference_bindings[key] = result
         return result
 
-    catalog.semantics.clear()
-    for node_id, node in catalog.iter_nodes():
+    if scope is None:
+        catalog.semantics.clear()
+    else:
+        catalog.semantics.discard_codes(scope)
+    for node_id, node in in_scope_nodes():
         definition_references = _definition_references(node)
         definition_symbols: list[SymbolId] = []
         definitions: list[SymbolId | ValueId] = []
@@ -480,7 +506,7 @@ def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) 
                 diagnostics=diagnostics,
             ),
         )
-    catalog.semantics.mark_ready()
+    catalog.semantics.mark_ready(scope)
 
 
 def build_program_semantics(program, *, register_missing_nodes: bool = True) -> None:

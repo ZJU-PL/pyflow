@@ -50,6 +50,7 @@ class SymbolTable:
 
     def __init__(self) -> None:
         self._symbols: dict[SymbolId, Symbol] = {}
+        self._by_code: dict[object, dict[SymbolId, Symbol]] = {}
         self._bindings: dict[tuple[ScopeId, str, SymbolKind], SymbolId] = {}
         self._next_ordinal: dict[ScopeId, int] = {}
 
@@ -105,6 +106,7 @@ class SymbolTable:
             source_symbol,
         )
         self._symbols[symbol.id] = symbol
+        self._by_code.setdefault(scope.code, {})[symbol.id] = symbol
         if bind:
             self._bindings[(scope, name, kind)] = symbol.id
         return symbol
@@ -131,6 +133,13 @@ class SymbolTable:
     def __iter__(self) -> Iterator[Symbol]:
         return iter(sorted(self._symbols.values(), key=lambda symbol: symbol.id))
 
+    def for_code(self, code_id) -> tuple[Symbol, ...]:
+        """Return the symbols declared in one procedure, in ordinal order."""
+        return tuple(sorted(self._by_code.get(code_id, {}).values(), key=lambda symbol: symbol.id))
+
+    def contains(self, symbol_id: SymbolId) -> bool:
+        return symbol_id in self._symbols
+
     def __len__(self) -> int:
         return len(self._symbols)
 
@@ -141,6 +150,7 @@ class ValueTable:
     def __init__(self) -> None:
         self._next_version: dict[SymbolId, int] = {}
         self._values: dict[ValueId, Value] = {}
+        self._by_code: dict[object, dict[ValueId, Value]] = {}
 
     def define(
         self, symbol: SymbolId, definition: NodeId | None = None, *, undefined: bool = False
@@ -159,6 +169,13 @@ class ValueTable:
 
     def __iter__(self) -> Iterator[Value]:
         return iter(sorted(self._values.values(), key=lambda value: value.id))
+
+    def for_code(self, code_id) -> tuple[Value, ...]:
+        """Return the SSA values allocated in one procedure."""
+        return tuple(sorted(self._by_code.get(code_id, {}).values(), key=lambda value: value.id))
+
+    def contains(self, value_id: ValueId) -> bool:
+        return value_id in self._values
 
     def __len__(self) -> int:
         return len(self._values)

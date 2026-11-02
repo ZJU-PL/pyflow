@@ -33,6 +33,7 @@ from pyflow.ir.core import (
     CellStorage,
     GlobalStorage,
     SubscriptStorage,
+    SymbolKind,
     UnknownStorage,
     ensure_code_indexed,
 )
@@ -960,6 +961,36 @@ class CodeToDataflow(TypeDispatcher):
                 # DDG construction best-effort instead of aborting a module.
                 continue
 
+    def _definition_target(self, name):
+        """Return a Local occurrence bound to a definition's name.
+
+        ``FunctionDef``/``ClassDef`` carry their bound name as a string.  The
+        dataflow IR still has to model the value they produce, otherwise
+        ``return C`` for a locally defined class reads an undefined slot.
+        """
+        if not name:
+            return None
+        procedure = self.catalog.procedure(self.code)
+        symbol = self.catalog.symbols.find(procedure.root_scope, name)
+        if symbol is None:
+            symbol = self.catalog.symbols.intern(
+                procedure.root_scope,
+                name,
+                SymbolKind.LOCAL,
+            )
+        local = ast.Local(name)
+        self.catalog.bind_symbol(local, symbol.id)
+        return local
+
+    def _bind_definition(self, node):
+        """Bind a function/class definition name to a value-producing op."""
+        target = self._definition_target(getattr(node, "name", None))
+        op = self.genericOp(node)
+        if target is not None and isinstance(op, graph.GenericOp):
+            local = self.localTarget(target)
+            self.set(target, local)
+            op.addLocalModify(target, local)
+
     @dispatch(ast.FunctionDef)
     def processFunctionDefinition(self, node):
         # Nested bodies are separate procedures, but decorators and default
@@ -968,6 +999,7 @@ class CodeToDataflow(TypeDispatcher):
         self._process_definition_header(getattr(node, "decorators", ()))
         if parameters is not None:
             self._process_definition_header(getattr(parameters, "defaults", ()))
+        self._bind_definition(node)
 
     @dispatch(ast.ClassDef)
     def processClassDefinition(self, node):
@@ -980,6 +1012,7 @@ class CodeToDataflow(TypeDispatcher):
             for value in (keyword[1],)
         )
         self._process_definition_header(getattr(node, "decorators", ()))
+        self._bind_definition(node)
 
     @dispatch(ast.TryExceptFinally)
     def processTryExceptFinally(self, node):

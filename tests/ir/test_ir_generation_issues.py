@@ -975,3 +975,107 @@ def g(xs):
     cfg = transform.evaluate(None, code)
     blocks = _reachable_blocks(cfg.entryTerminal)
     assert any(isinstance(b, G.Yield) for b in blocks)
+
+
+def _cfg_operations(cfg):
+    """Collect every operation from every reachable CFG suite."""
+    seen = set()
+    pending = [cfg.entryTerminal]
+    operations = []
+    while pending:
+        block = pending.pop()
+        if block in seen:
+            continue
+        seen.add(block)
+        operations.extend(getattr(block, "ops", ()))
+        pending.extend(block.next.values())
+    return operations
+
+
+def test_augassign_evaluates_receiver_expression_once():
+    """``maker().counter += 1`` must call ``maker`` exactly once.
+
+    The lowering used to reuse the converted receiver node for both the
+    ``getattr`` read and the ``setattr`` write, duplicating side effects.
+    """
+    source = """
+def f(maker):
+    maker().counter += 1
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    text = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert text.count("Call(Local(%maker)") == 1, text
+
+
+def test_augassign_evaluates_subscript_expression_once():
+    source = """
+def f(get_list, get_idx):
+    get_list()[get_idx()] += 1
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    text = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert text.count("Call(Local(%get_list)") == 1, text
+    assert text.count("Call(Local(%get_idx)") == 1, text
+
+
+def _blocks_reachable_from(block):
+    seen = set()
+    pending = [block]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(current.next.values())
+    return seen
+
+
+def test_except_star_runs_every_matching_handler():
+    """``except*`` clauses are independent, not an if/elif cascade.
+
+    A single exception group can match several ``except*`` clauses, so the
+    first handler's normal completion must flow into the next clause instead of
+    jumping past it to the code after the ``try``.
+    """
+    source = """
+def f():
+    try:
+        raise ExceptionGroup("g", [ValueError(), TypeError()])
+    except* ValueError as e:
+        handle_v(e)
+    except* TypeError as e:
+        handle_t(e)
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    blocks = [cfg.entryTerminal]
+    seen = set()
+    all_blocks = []
+    while blocks:
+        block = blocks.pop()
+        if block in seen:
+            continue
+        seen.add(block)
+        all_blocks.append(block)
+        blocks.extend(block.next.values())
+
+    def body_block(name):
+        for block in all_blocks:
+            for operation in getattr(block, "ops", ()):
+                if name in str(operation):
+                    return block
+        return None
+
+    value_block = body_block("handle_v")
+    type_block = body_block("handle_t")
+    assert value_block is not None, "ValueError handler is missing"
+    assert type_block is not None, "TypeError handler is missing"
+    assert type_block in _blocks_reachable_from(
+        value_block
+    ), "the second except* handler is not reachable after the first one ran"

@@ -83,14 +83,35 @@ class CollectModifies(TypeDispatcher):
         # .data is the djnode
         self.mod[key].add(block.data)
 
-    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.Yield, cfg.Switch, cfg.State)
+    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.Yield, cfg.State)
     def visitLeaf(self, node):
         self.order.append(node)
+
+    @dispatch(cfg.Switch)
+    def visitSwitch(self, node):
+        """Record walrus definitions embedded in the condition.
+
+        ``NamedExpr`` targets are real definitions even though the CFG keeps
+        them inside the condition expression.  Without this, no phi is placed
+        where the walrus value meets other definitions at a join, producing a
+        use that is not dominated by its definition.
+        """
+        self.order.append(node)
+        self.current = node
+        try:
+            self._collect_named_exprs(node.condition)
+        finally:
+            self.current = None
 
     @dispatch(cfg.TypeSwitch)
     def visitTypeSwitch(self, node):
         self.order.append(node)
 
+        self.current = node
+        try:
+            self._collect_named_exprs(node.original.conditional)
+        finally:
+            self.current = None
         for i, case in enumerate(node.original.cases):
             if case.expr:
                 self._modified(case.expr, node.getExit(i))
@@ -101,6 +122,13 @@ class CollectModifies(TypeDispatcher):
         body = node.getExit("body")
         if body is not None:
             self._modified(node.index, body)
+        # The iterator is evaluated once in the preheader, but bindings created
+        # by a walrus inside it are live for the body and after the loop.
+        self.current = node
+        try:
+            self._collect_named_exprs(node.iterator)
+        finally:
+            self.current = None
 
     def _collect_named_exprs(self, node):
         if node is None or isinstance(node, (ast.Code, ast.leafTypes)):
@@ -431,8 +459,13 @@ class SSARename(TypeDispatcher):
                 if predecessor.region is not header and predecessor in self.frames:
                     preheader_frame = self.frames[predecessor]
                     break
-        iterator, _ = self.renameWithFrame(node.iterator, preheader_frame)
+        iterator, iterator_frame = self.renameWithFrame(node.iterator, preheader_frame)
         node.iterator = iterator
+        # Walrus bindings inside the iterable are evaluated once, in the
+        # preheader, and remain visible in the body and after the loop.
+        for key, value in iterator_frame.items():
+            if preheader_frame.get(key) is not value:
+                incoming[key] = value
 
         body_frame = dict(incoming)
         # The loop index is defined by this ForIter block on every iteration.

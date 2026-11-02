@@ -151,7 +151,7 @@ def index_code(
     )
     code.ir_catalog = catalog
     scope = procedure.root_scope
-    catalog.semantics.invalidate()
+    catalog.semantics.invalidate(procedure.code_id)
 
     parameter_ids: dict[str, SymbolId] = {}
     bound_references: set[int] = set()
@@ -495,7 +495,7 @@ def ensure_code_indexed(code: ast.Code, *, rebuild_semantics: bool = True) -> IR
         if rebuild_semantics:
             from .build_semantics import build_semantics
 
-            build_semantics(catalog)
+            build_semantics(catalog, codes=(procedure.code_id,))
         return catalog
     catalog = IRCatalog()
     index_code(
@@ -690,4 +690,6 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
     if rebuild_semantics:
         from .build_semantics import build_semantics
 
-        build_semantics(catalog)
+        # Only this procedure's CFG changed; rebuilding the whole program's
+        # semantics here made every per-function transform O(program).
+        build_semantics(catalog, codes=(procedure.code_id,))
