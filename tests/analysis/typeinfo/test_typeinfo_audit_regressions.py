@@ -869,3 +869,15 @@ def test_set_methods_and_tuple_concatenation_preserve_types() -> None:
     assert str(result.type_of("sample.combined")) == "set[int]"
     assert _raw_types(result.type_of("sample.subset")) == {bool}
     assert str(result.type_of("sample.tuple_value")) == "tuple[int, str, int]"
+
+
+def test_range_and_memoryview_slices_preserve_their_container_type() -> None:
+    result = _infer(
+        "range_value = range(3)\n"
+        "range_slice = range_value[0:2]\n"
+        "view = memoryview(b'abc')\n"
+        "view_slice = view[0:2]\n"
+    )
+
+    assert str(result.type_of("sample.range_slice")) == "range"
+    assert str(result.type_of("sample.view_slice")) == "memoryview"

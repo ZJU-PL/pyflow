@@ -5984,6 +5984,8 @@ class StaticTypeInferenceEngine:
                     str,
                     bytes,
                     bytearray,
+                    range,
+                    memoryview,
                     cabc.Sequence,
                     cabc.MutableSequence,
                 }:
