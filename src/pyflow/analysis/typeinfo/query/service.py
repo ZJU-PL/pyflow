@@ -668,7 +668,11 @@ class TypeInfoService:
                 # union of their result types instead of silently keeping only
                 # the first/last declaration, which can produce a definitely
                 # wrong type for calls that select a different overload.
-                callable_type: ProperType = CallableType(None, UnionType(tuple(returns)))
+                callable_type: ProperType = CallableType(
+                    None,
+                    UnionType(tuple(returns)),
+                    overloads=tuple(self._callable_type(info) for info in infos),
+                )
                 raw_annotation = "overload"
             else:
                 callable_type = self._callable_type(infos[0])

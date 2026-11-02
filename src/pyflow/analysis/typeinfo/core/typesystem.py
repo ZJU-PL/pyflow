@@ -279,9 +279,11 @@ class CallableType(ProperType):
         self,
         arg_types: tuple[ProperType, ...] | None,
         return_type: ProperType,
+        overloads: tuple["CallableType", ...] = (),
     ) -> None:
         self.arg_types: Final[tuple[ProperType, ...] | None] = arg_types
         self.return_type: Final[ProperType] = return_type
+        self.overloads: Final[tuple[CallableType, ...]] = overloads
         self._hash: int | None = None
 
     def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
@@ -289,7 +291,7 @@ class CallableType(ProperType):
 
     def __hash__(self):
         if self._hash is None:
-            self._hash = hash((self.arg_types, self.return_type))
+            self._hash = hash((self.arg_types, self.return_type, self.overloads))
         return self._hash
 
     def __eq__(self, other):
@@ -297,6 +299,7 @@ class CallableType(ProperType):
             isinstance(other, CallableType)
             and self.arg_types == other.arg_types
             and self.return_type == other.return_type
+            and self.overloads == other.overloads
         )
 
 

@@ -533,14 +533,15 @@ def test_stub_overloads_do_not_collapse_to_the_last_declaration(tmp_path: Path) 
         encoding="utf-8",
     )
     (package / "use.py").write_text(
-        "from .stubmod import convert\nresult = convert('value')\n",
+        "from .stubmod import convert\ntext_result = convert('value')\nbytes_result = convert(b'value')\n",
         encoding="utf-8",
     )
 
     service = TypeInfoService(ProjectContext(tmp_path))
     service.collect_module("pkg.use")
 
-    assert _raw_types(service.type_of("pkg.use", "result")) == {int, bytes}
+    assert _raw_types(service.type_of("pkg.use", "text_result")) == {int}
+    assert _raw_types(service.type_of("pkg.use", "bytes_result")) == {bytes}
 
 
 def test_builtin_generic_subclasses_keep_container_element_types() -> None:

@@ -2574,7 +2574,10 @@ class StaticTypeInferenceEngine:
             if isinstance(external_class, Instance):
                 return AbstractTypeValue.from_type(external_class)
             if isinstance(external_class, CallableType):
-                return AbstractTypeValue.from_type(external_class.return_type)
+                selected = self._select_callable_overload(external_class, arguments)
+                return AbstractTypeValue.from_type(
+                    selected.return_type if selected is not None else external_class.return_type
+                )
         if isinstance(node.func, ast.Name) and not self._name_is_shadowed(
             node.func.id, environment, scope
         ):
@@ -2710,7 +2713,12 @@ class StaticTypeInferenceEngine:
         if not callee.callable_targets and not callee.class_targets:
             for typ in callee.types:
                 if isinstance(typ, CallableType):
-                    results.append(AbstractTypeValue.from_type(typ.return_type))
+                    selected = self._select_callable_overload(typ, arguments)
+                    results.append(
+                        AbstractTypeValue.from_type(
+                            selected.return_type if selected is not None else typ.return_type
+                        )
+                    )
         return (
             join_all(
                 results,
@@ -5297,6 +5305,52 @@ class StaticTypeInferenceEngine:
             if accepted:
                 return overload
         return None
+
+    def _select_callable_overload(
+        self,
+        callable_type: CallableType,
+        arguments: list[AbstractTypeValue],
+    ) -> CallableType | None:
+        if not callable_type.overloads:
+            return None
+        for overload in callable_type.overloads:
+            if overload.arg_types is None:
+                return overload
+            if len(arguments) > len(overload.arg_types):
+                continue
+            accepted = True
+            for actual, expected in zip(arguments, overload.arg_types):
+                actual_type = actual.public_type()
+                if actual_type is None or actual.unknown:
+                    continue
+                if self._is_unresolved_external_type(expected):
+                    continue
+                if not (
+                    self.type_system.is_subtype(actual_type, expected)
+                    or self.type_system.is_maybe_subtype(actual_type, expected)
+                ):
+                    accepted = False
+                    break
+            if accepted:
+                return overload
+        return None
+
+    @staticmethod
+    def _is_unresolved_external_type(typ: ProperType) -> bool:
+        if isinstance(typ, Instance):
+            if getattr(typ.type.raw_type, "__pyflow_unresolved_external__", False):
+                return True
+            if typ.type.full_name.startswith(("_typeshed.", "typing._SpecialForm")):
+                return True
+            return any(
+                StaticTypeInferenceEngine._is_unresolved_external_type(item) for item in typ.args
+            )
+        if isinstance(typ, (UnionType, TupleType)):
+            return any(
+                StaticTypeInferenceEngine._is_unresolved_external_type(item)
+                for item in (typ.items if isinstance(typ, UnionType) else typ.args)
+            )
+        return False
 
     def _apply_overload(
         self,
