@@ -2797,6 +2797,12 @@ class StaticTypeInferenceEngine:
             key_type = element(arguments[0])
             value_type = arguments[1].public_type() or ANY if len(arguments) > 1 else NONE_TYPE
             return self._instance(dict, key_type, value_type)
+        if qualified_name == "dataclasses.replace" and arguments:
+            return AbstractTypeValue.from_type(arguments[0].public_type() or ANY)
+        if qualified_name == "dataclasses.asdict":
+            return self._instance(dict, self._proper_instance(str), ANY)
+        if qualified_name == "dataclasses.astuple":
+            return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
         if qualified_name in {"bytes.fromhex", "bytearray.fromhex"}:
             return self._instance(bytearray if qualified_name.startswith("bytearray") else bytes)
         if qualified_name == "int.from_bytes":

@@ -1050,3 +1050,20 @@ def test_literal_annotations_check_exact_constant_values() -> None:
 
     mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
     assert len(mismatches) == 2
+
+
+def test_dataclass_helper_functions_preserve_meaningful_types() -> None:
+    result = _infer(
+        "from dataclasses import asdict, astuple, dataclass, replace\n"
+        "@dataclass\n"
+        "class Point:\n"
+        "    x: int\n"
+        "point = Point(1)\n"
+        "copy = replace(point, x=2)\n"
+        "mapping = asdict(point)\n"
+        "values = astuple(point)\n"
+    )
+
+    assert _instance_name(result.type_of("sample.copy")) == "sample.Point"
+    assert str(result.type_of("sample.mapping")) == "dict[str, Any]"
+    assert str(result.type_of("sample.values")) == "tuple[Any, ...]"
