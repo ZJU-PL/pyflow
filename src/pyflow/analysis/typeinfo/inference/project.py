@@ -6,7 +6,14 @@ import ast
 from pathlib import Path
 from typing import Iterable
 
-from pyflow.analysis.typeinfo.core.typesystem import ANY, CallableType, ProperType, TypeSystem
+from pyflow.analysis.typeinfo.core.typesystem import (
+    ANY,
+    CallableType,
+    Instance,
+    ProperType,
+    TypeSystem,
+    TypeType,
+)
 from pyflow.analysis.typeinfo.inference.engine import (
     InferenceOptions,
     StaticTypeInferenceEngine,
@@ -203,8 +210,8 @@ class ProjectTypeInferenceEngine:
                 discovered.append(name)
         return discovered
 
-    @staticmethod
     def _external_type(
+        self,
         qualified_name: str,
         results: dict[str, ModuleInferenceResult],
     ) -> ProperType | None:
@@ -222,6 +229,16 @@ class ProjectTypeInferenceEngine:
                         value.public_type() or ANY for value in summary.parameters.values()
                     )
                     return CallableType(parameters, summary.return_type or ANY)
+                if "." in remainder:
+                    class_name, _, attribute = remainder.partition(".")
+                    class_type = result.type_of(class_name)
+                    if isinstance(class_type, TypeType):
+                        class_type = class_type.item
+                    if isinstance(class_type, Instance):
+                        for superclass in self.type_system.get_superclasses(class_type.type):
+                            member = superclass.members.get(attribute)
+                            if member is not None:
+                                return member
         return None
 
     @staticmethod

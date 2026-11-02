@@ -769,3 +769,29 @@ def test_functional_typeddict_creates_field_information() -> None:
     assert _instance_name(result.type_of("sample.record")) == "sample.Record"
     assert _raw_types(result.type_of("sample.name")) == {str}
     assert _raw_types(result.type_of("sample.count")) == {int}
+
+
+def test_project_engine_resolves_inherited_members_across_modules(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "base.py").write_text(
+        "class Base:\n    value: int = 1\n    def get(self) -> str: return 'x'\n",
+        encoding="utf-8",
+    )
+    (package / "derived.py").write_text(
+        "from .base import Base\nclass Derived(Base): pass\n", encoding="utf-8"
+    )
+    (package / "use.py").write_text(
+        "from .derived import Derived\n"
+        "obj = Derived()\n"
+        "value = obj.value\n"
+        "text = obj.get()\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["pkg.use"])
+    module = result.module("pkg.use")
+    assert module is not None
+    assert _raw_types(module.type_of("value")) == {int}
+    assert _raw_types(module.type_of("text")) == {str}
