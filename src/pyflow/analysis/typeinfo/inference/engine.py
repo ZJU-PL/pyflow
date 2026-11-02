@@ -2782,6 +2782,43 @@ class StaticTypeInferenceEngine:
             )
             self._class_aliases[name] = qualified
             return AbstractTypeValue.from_type(instance, class_target=qualified)
+        if (
+            qualified_name in {"typing.TypedDict", "typing_extensions.TypedDict"}
+            and node is not None
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and isinstance(node.args[1], ast.Dict)
+        ):
+            name = node.args[0].value
+            fields: dict[str, ProperType] = {}
+            for key_node, value_node in zip(node.args[1].keys, node.args[1].values):
+                if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
+                    continue
+                fields[key_node.value] = self._annotation_value(value_node).public_type() or ANY
+            total = not any(
+                isinstance(keyword, ast.keyword)
+                and keyword.arg == "total"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is False
+                for keyword in node.keywords
+            )
+            qualified = f"{self._module_name}.{name}"
+            raw = type(name, (dict,), {"__module__": self._module_name})
+            instance = self._proper_instance(raw)
+            descriptor = instance.type
+            descriptor.typed_dict_fields = fields
+            descriptor.required_keys = frozenset(fields) if total else frozenset()
+            self._classes[qualified] = _ClassInfo(
+                qualified,
+                instance,
+                attributes={
+                    field: AbstractTypeValue.from_type(field_type)
+                    for field, field_type in fields.items()
+                },
+            )
+            self._class_aliases[name] = qualified
+            return AbstractTypeValue.from_type(instance, class_target=qualified)
         if qualified_name == "collections.defaultdict":
             value_type: ProperType = ANY
             if arguments:

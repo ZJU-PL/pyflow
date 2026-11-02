@@ -755,3 +755,17 @@ def test_functional_namedtuple_creates_a_nominal_class() -> None:
 
     assert _instance_name(result.type_of("sample.point")) == "sample.Point"
     assert str(result.type_of("sample.fields")) == "tuple[str, ...]"
+
+
+def test_functional_typeddict_creates_field_information() -> None:
+    result = _infer(
+        "from typing import TypedDict\n"
+        "Record = TypedDict('Record', {'name': str, 'count': int})\n"
+        "record: Record = {'name': 'value', 'count': 1}\n"
+        "name = record['name']\n"
+        "count = record['count']\n"
+    )
+
+    assert _instance_name(result.type_of("sample.record")) == "sample.Record"
+    assert _raw_types(result.type_of("sample.name")) == {str}
+    assert _raw_types(result.type_of("sample.count")) == {int}
