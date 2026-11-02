@@ -987,8 +987,9 @@ class TypeInfoService:
             for name, annotation in cls.class_vars
         }
         class_typ = self._synthetic_instance(qualified_name)
-        methods = {
-            method.name: self._specialize_self_method(
+        grouped_methods: dict[str, list[FunctionTypeInfo]] = {}
+        for method in cls.methods:
+            method_info = self._specialize_self_method(
                 self._function_info_from_stub(
                     method,
                     module_name=module_name,
@@ -996,17 +997,38 @@ class TypeInfoService:
                 ),
                 class_typ,
             )
-            for method in cls.methods
-        }
-        for method in cls.methods:
-            method_info = methods[method.name]
-            members[method.name] = TypeFact(
-                name=method.name,
+            grouped_methods.setdefault(method.name, []).append(method_info)
+        methods = {name: infos[0] for name, infos in grouped_methods.items()}
+        for method_name, infos in grouped_methods.items():
+            method_info = infos[0]
+            members[method_name] = TypeFact(
+                name=method_name,
                 typ=method_info.returns,
                 raw_annotation=method_info.raw_returns,
                 source="stub",
                 kind="method",
             )
+            callables: list[CallableType] = []
+            for method_signature in infos:
+                signature = self._callable_type(method_signature)
+                arguments = signature.arg_types
+                if arguments and method_signature.method_kind != "static":
+                    arguments = arguments[1:]
+                callables.append(CallableType(arguments, signature.return_type))
+            if method_info.is_property:
+                class_typ.type.members[method_name] = method_info.returns or ANY
+            elif len(callables) > 1:
+                class_typ.type.members[method_name] = CallableType(
+                    None,
+                    UnionType(
+                        tuple(
+                            dict.fromkeys(callable_type.return_type for callable_type in callables)
+                        )
+                    ),
+                    overloads=tuple(callables),
+                )
+            else:
+                class_typ.type.members[method_name] = callables[0]
         return ClassTypeInfo(
             name=qualified_name,
             typ=class_typ,

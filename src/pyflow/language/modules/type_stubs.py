@@ -579,8 +579,7 @@ class _StubVisitor(ast.NodeVisitor):
         cls.bases = [_expr_to_str(b) for b in node.bases]
         for stmt in _iter_stub_class_statements(node.body):
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if not any(method.name == stmt.name for method in cls.methods):
-                    cls.methods.append(self._extract_function(stmt))
+                cls.methods.append(self._extract_function(stmt))
             elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                 if not any(name == stmt.target.id for name, _ in cls.class_vars):
                     cls.class_vars.append((stmt.target.id, _expr_to_str(stmt.annotation)))

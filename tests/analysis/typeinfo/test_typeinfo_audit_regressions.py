@@ -889,3 +889,31 @@ def test_range_and_memoryview_slices_preserve_their_container_type() -> None:
 
     assert str(result.type_of("sample.range_slice")) == "range"
     assert str(result.type_of("sample.view_slice")) == "memoryview"
+
+
+def test_stub_class_overloads_dispatch_by_argument_type(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "stubmod.pyi").write_text(
+        "from typing import overload\n"
+        "class Converter:\n"
+        "    @overload\n"
+        "    def convert(self, value: str) -> int: ...\n"
+        "    @overload\n"
+        "    def convert(self, value: bytes) -> bytes: ...\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from .stubmod import Converter\n"
+        "converter = Converter()\n"
+        "text = converter.convert('value')\n"
+        "data = converter.convert(b'value')\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert _raw_types(service.type_of("pkg.use", "text")) == {int}
+    assert _raw_types(service.type_of("pkg.use", "data")) == {bytes}

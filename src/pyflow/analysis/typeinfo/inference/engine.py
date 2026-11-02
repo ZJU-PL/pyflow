@@ -3290,7 +3290,10 @@ class StaticTypeInferenceEngine:
             else:
                 member = typ.type.members.get(node.attr)
                 if isinstance(member, CallableType):
-                    return AbstractTypeValue.from_type(member.return_type)
+                    selected = self._select_callable_overload(member, arguments)
+                    return AbstractTypeValue.from_type(
+                        selected.return_type if selected is not None else member.return_type
+                    )
         if method_targets:
             return join_all(
                 [
