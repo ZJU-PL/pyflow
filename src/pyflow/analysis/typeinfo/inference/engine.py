@@ -2781,6 +2781,12 @@ class StaticTypeInferenceEngine:
             key_type = element(arguments[0])
             value_type = arguments[1].public_type() or ANY if len(arguments) > 1 else NONE_TYPE
             return self._instance(dict, key_type, value_type)
+        if qualified_name in {"bytes.fromhex", "bytearray.fromhex"}:
+            return self._instance(bytearray if qualified_name.startswith("bytearray") else bytes)
+        if qualified_name == "int.from_bytes":
+            return self._instance(int)
+        if qualified_name == "float.fromhex":
+            return self._instance(float)
         if qualified_name in {
             "datetime.datetime.now",
             "datetime.datetime.utcnow",

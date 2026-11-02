@@ -593,6 +593,8 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
         "filtered = list(filter(None, [1, None]))\n"
         "mapping_literal = dict(a=1)\n"
         "fromkeys = dict.fromkeys(['a'], 1)\n"
+        "hex_value = bytes.fromhex('ff')\n"
+        "number = int.from_bytes(b'a', 'big')\n"
         "from pathlib import Path\n"
         "path = Path('x')\n"
         "path_text = path.read_text()\n"
@@ -619,6 +621,8 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
     assert str(result.type_of("sample.filtered")) == "list[int]"
     assert str(result.type_of("sample.mapping_literal")) == "dict[str, int]"
     assert str(result.type_of("sample.fromkeys")) == "dict[str, int]"
+    assert str(result.type_of("sample.hex_value")) == "bytes"
+    assert _raw_types(result.type_of("sample.number")) == {int}
     assert _raw_types(result.type_of("sample.path_text")) == {str}
     assert _raw_types(result.type_of("sample.path_exists")) == {bool}
     assert "pathlib" in str(result.type_of("sample.path_entries"))
