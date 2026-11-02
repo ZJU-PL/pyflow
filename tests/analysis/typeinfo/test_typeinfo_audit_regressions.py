@@ -795,3 +795,26 @@ def test_project_engine_resolves_inherited_members_across_modules(tmp_path: Path
     assert module is not None
     assert _raw_types(module.type_of("value")) == {int}
     assert _raw_types(module.type_of("text")) == {str}
+
+
+def test_project_engine_resolves_super_calls_across_modules(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "base.py").write_text(
+        "class Base:\n    def value(self): return 1\n", encoding="utf-8"
+    )
+    (package / "derived.py").write_text(
+        "from .base import Base\n"
+        "class Derived(Base):\n"
+        "    def value(self): return super().value() + 1\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from .derived import Derived\nresult = Derived().value()\n", encoding="utf-8"
+    )
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["pkg.use"])
+    module = result.module("pkg.use")
+    assert module is not None
+    assert _raw_types(module.type_of("result")) == {int}

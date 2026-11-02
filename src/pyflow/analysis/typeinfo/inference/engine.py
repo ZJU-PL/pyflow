@@ -244,6 +244,8 @@ class StaticTypeInferenceEngine:
                 severity="warning",
             )
 
+        self._refresh_class_member_signatures()
+
         symbols = self._build_symbols(module_environment)
         return ModuleInferenceResult(
             module_name=module_name,
@@ -995,6 +997,26 @@ class StaticTypeInferenceEngine:
             if "." not in remainder:
                 environment[remainder] = self._function_value(function)
         return environment
+
+    def _refresh_class_member_signatures(self) -> None:
+        """Refresh descriptor members after unannotated methods are summarized."""
+        for class_info in self._classes.values():
+            for name, target in class_info.methods.items():
+                function = self._functions.get(target)
+                if function is None:
+                    continue
+                signature = self._function_value(function).public_type()
+                if not isinstance(signature, CallableType):
+                    continue
+                if name in class_info.properties:
+                    class_info.instance.type.members[name] = signature.return_type
+                elif function.method_kind == "static":
+                    class_info.instance.type.members[name] = signature
+                else:
+                    class_info.instance.type.members[name] = CallableType(
+                        signature.arg_types[1:] if signature.arg_types else (),
+                        signature.return_type,
+                    )
 
     def _analyse_function(self, function: _FunctionInfo) -> None:
         for key in sorted(
@@ -3203,6 +3225,10 @@ class StaticTypeInferenceEngine:
                 method = self._class_method(class_info.qualified_name, node.attr)
                 if method is not None:
                     method_targets.append(method)
+            else:
+                member = typ.type.members.get(node.attr)
+                if isinstance(member, CallableType):
+                    return AbstractTypeValue.from_type(member.return_type)
         if method_targets:
             return join_all(
                 [
@@ -4943,6 +4969,10 @@ class StaticTypeInferenceEngine:
                 base_info = self._classes.get(base)
                 if base_info is not None:
                     return AbstractTypeValue.from_type(base_info.instance)
+            for superclass in self.type_system.get_superclasses(info.instance.type):
+                if superclass.full_name in {info.instance.type.full_name, "builtins.object"}:
+                    continue
+                return AbstractTypeValue.from_type(Instance(superclass))
         return None
 
     def _external_class_target(
