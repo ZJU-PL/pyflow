@@ -592,6 +592,7 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
         "incremented = list(map(lambda x: x + 1, [1]))\n"
         "filtered = list(filter(None, [1, None]))\n"
         "mapping_literal = dict(a=1)\n"
+        "fromkeys = dict.fromkeys(['a'], 1)\n"
         "from pathlib import Path\n"
         "path = Path('x')\n"
         "path_text = path.read_text()\n"
@@ -617,6 +618,7 @@ def test_common_stdlib_containers_and_functional_helpers_are_modelled() -> None:
     assert str(result.type_of("sample.incremented")) == "list[int]"
     assert str(result.type_of("sample.filtered")) == "list[int]"
     assert str(result.type_of("sample.mapping_literal")) == "dict[str, int]"
+    assert str(result.type_of("sample.fromkeys")) == "dict[str, int]"
     assert _raw_types(result.type_of("sample.path_text")) == {str}
     assert _raw_types(result.type_of("sample.path_exists")) == {bool}
     assert "pathlib" in str(result.type_of("sample.path_entries"))

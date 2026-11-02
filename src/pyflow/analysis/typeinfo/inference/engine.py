@@ -2777,6 +2777,10 @@ class StaticTypeInferenceEngine:
                 "datetime.timedelta": datetime.timedelta,
             }[qualified_name]
             return self._instance(raw)
+        if qualified_name in {"dict.fromkeys", "collections.OrderedDict.fromkeys"} and arguments:
+            key_type = element(arguments[0])
+            value_type = arguments[1].public_type() or ANY if len(arguments) > 1 else NONE_TYPE
+            return self._instance(dict, key_type, value_type)
         if qualified_name in {
             "datetime.datetime.now",
             "datetime.datetime.utcnow",
