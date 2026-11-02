@@ -1067,3 +1067,17 @@ def test_dataclass_helper_functions_preserve_meaningful_types() -> None:
     assert _instance_name(result.type_of("sample.copy")) == "sample.Point"
     assert str(result.type_of("sample.mapping")) == "dict[str, Any]"
     assert str(result.type_of("sample.values")) == "tuple[Any, ...]"
+
+
+def test_literal_equality_narrows_flow_bindings() -> None:
+    result = _infer(
+        "from typing import Literal\n"
+        "def choose(value: Literal['a', 'b']):\n"
+        "    if value == 'a':\n"
+        "        wrong: Literal['b'] = value\n"
+        "        return 1\n"
+        "    return 0\n"
+    )
+
+    mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+    assert len(mismatches) == 1

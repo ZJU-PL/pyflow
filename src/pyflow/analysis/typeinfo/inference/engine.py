@@ -4480,6 +4480,60 @@ class StaticTypeInferenceEngine:
                 else:
                     result[key(expression)] = self._remove_none(old)
         if (
+            isinstance(condition, ast.Compare)
+            and len(condition.ops) == 1
+            and isinstance(condition.ops[0], (ast.Eq, ast.NotEq))
+        ):
+            left, right = condition.left, condition.comparators[0]
+            expression = (
+                left
+                if key(left) is not None
+                and isinstance(right, ast.Constant)
+                and right.value is not None
+                else (
+                    right
+                    if key(right) is not None
+                    and isinstance(left, ast.Constant)
+                    and left.value is not None
+                    else None
+                )
+            )
+            value_node = right if expression is left else left
+            if expression is not None and isinstance(value_node, ast.Constant):
+                value = value_node.value
+                base = self._proper_instance(type(value))
+                if isinstance(base, Instance):
+                    old = current(expression)
+                    literal = AbstractTypeValue.from_type(base, literal_values=frozenset((value,)))
+                    old_literals = old.literal_values or frozenset(
+                        part.value
+                        for typ in old.types
+                        for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+                        if isinstance(part, LiteralType)
+                    )
+                    equal_branch = truthy == isinstance(condition.ops[0], ast.Eq)
+                    if equal_branch:
+                        if old_literals:
+                            possible = value in old_literals
+                        else:
+                            possible = old.unknown or any(
+                                isinstance(part, AnyType)
+                                or self.type_system.is_subtype(
+                                    base,
+                                    part.base if isinstance(part, LiteralType) else part,
+                                )
+                                for part in old.types
+                            )
+                        result[key(expression)] = (
+                            literal if possible else AbstractTypeValue.bottom()
+                        )
+                    elif value in old_literals:
+                        remaining = old_literals - {value}
+                        if remaining:
+                            result[key(expression)] = replace(
+                                old, literal_values=frozenset(remaining)
+                            )
+        if (
             isinstance(condition, ast.Call)
             and isinstance(condition.func, ast.Name)
             and condition.func.id == "hasattr"
