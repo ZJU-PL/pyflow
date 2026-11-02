@@ -2803,6 +2803,10 @@ class StaticTypeInferenceEngine:
             return self._instance(dict, self._proper_instance(str), ANY)
         if qualified_name == "dataclasses.astuple":
             return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
+        if qualified_name == "dataclasses.fields":
+            return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
+        if qualified_name == "dataclasses.is_dataclass":
+            return self._instance(bool)
         if qualified_name in {"bytes.fromhex", "bytearray.fromhex"}:
             return self._instance(bytearray if qualified_name.startswith("bytearray") else bytes)
         if qualified_name == "int.from_bytes":

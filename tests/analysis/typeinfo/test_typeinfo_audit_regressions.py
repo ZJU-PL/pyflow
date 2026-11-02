@@ -1054,7 +1054,7 @@ def test_literal_annotations_check_exact_constant_values() -> None:
 
 def test_dataclass_helper_functions_preserve_meaningful_types() -> None:
     result = _infer(
-        "from dataclasses import asdict, astuple, dataclass, replace\n"
+        "from dataclasses import asdict, astuple, dataclass, fields, is_dataclass, replace\n"
         "@dataclass\n"
         "class Point:\n"
         "    x: int\n"
@@ -1062,11 +1062,15 @@ def test_dataclass_helper_functions_preserve_meaningful_types() -> None:
         "copy = replace(point, x=2)\n"
         "mapping = asdict(point)\n"
         "values = astuple(point)\n"
+        "field_list = fields(point)\n"
+        "is_struct = is_dataclass(point)\n"
     )
 
     assert _instance_name(result.type_of("sample.copy")) == "sample.Point"
     assert str(result.type_of("sample.mapping")) == "dict[str, Any]"
     assert str(result.type_of("sample.values")) == "tuple[Any, ...]"
+    assert str(result.type_of("sample.field_list")) == "tuple[Any, ...]"
+    assert _raw_types(result.type_of("sample.is_struct")) == {bool}
 
 
 def test_literal_equality_narrows_flow_bindings() -> None:
