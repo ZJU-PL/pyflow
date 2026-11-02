@@ -726,3 +726,18 @@ def test_lazy_collection_depth_limit_stops_runaway_recursion(tmp_path: Path) -> 
     assert any(
         diagnostic.code == "type_collection_depth_exceeded" for diagnostic in service.diagnostics()
     )
+
+
+def test_singledispatch_registered_overloads_are_used_for_calls() -> None:
+    result = _infer(
+        "from functools import singledispatch\n"
+        "@singledispatch\n"
+        "def convert(value) -> str: return 'default'\n"
+        "@convert.register\n"
+        "def _(value: int) -> int: return 1\n"
+        "integer = convert(1)\n"
+        "text = convert('value')\n"
+    )
+
+    assert _raw_types(result.type_of("sample.integer")) == {int}
+    assert _raw_types(result.type_of("sample.text")) == {str}

@@ -604,6 +604,19 @@ class StaticTypeInferenceEngine:
                 else:
                     info.overloads = list(self._overloads.get(qualified, ()))
                     self._functions[qualified] = info
+                for decorator in node.decorator_list:
+                    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+                    if not (
+                        isinstance(target, ast.Attribute)
+                        and target.attr in {"register", "dispatch"}
+                    ):
+                        continue
+                    base_name = _expression_name(target.value)
+                    if base_name is None:
+                        continue
+                    base = self._resolve_lexical_function(base_name, parent)
+                    if base is not None and base != qualified:
+                        self._functions[base].overloads.append(info)
                 info.effective_return = self._decorator_effective_return(node, parent)
                 self._function_names.add(node.name)
                 self._function_nodes[id(node)] = qualified
