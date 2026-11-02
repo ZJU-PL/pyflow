@@ -584,7 +584,7 @@ def _resolve_literal(
     lookup: TypeLookup,
 ) -> ProperType | None:
     """Resolve ``Literal[...]`` to the union of literal value runtime types."""
-    from pyflow.analysis.typeinfo.core.typesystem import NONE_TYPE
+    from pyflow.analysis.typeinfo.core.typesystem import Instance, LiteralType, NONE_TYPE
 
     resolved: list[ProperType] = []
     for arg in args:
@@ -593,7 +593,9 @@ def _resolve_literal(
                 resolved.append(NONE_TYPE)
             else:
                 literal_type = lookup(type(arg.value).__name__)
-                if literal_type is not None:
+                if isinstance(literal_type, Instance):
+                    resolved.append(LiteralType(arg.value, literal_type))
+                elif literal_type is not None:
                     resolved.append(literal_type)
             continue
         nested = _resolve_expr(arg, lookup)

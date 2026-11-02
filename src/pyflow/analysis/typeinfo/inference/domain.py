@@ -49,6 +49,8 @@ class AbstractTypeValue:
     element_dict_shapes: frozenset[tuple[tuple[str, ProperType], ...]] = field(
         default_factory=frozenset, compare=False, repr=False
     )
+    # Exact constant values carried alongside their runtime base type.
+    literal_values: frozenset[object] = field(default_factory=frozenset, compare=False)
 
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
@@ -68,6 +70,7 @@ class AbstractTypeValue:
         unknown: bool = False,
         callable_target: str | None = None,
         class_target: str | None = None,
+        literal_values: frozenset[object] = frozenset(),
     ) -> AbstractTypeValue:
         """Construct a value from a public type and optional semantic target."""
         return cls(
@@ -75,6 +78,7 @@ class AbstractTypeValue:
             unknown=unknown or typ is None,
             callable_targets=frozenset(() if callable_target is None else (callable_target,)),
             class_targets=frozenset(() if class_target is None else (class_target,)),
+            literal_values=literal_values,
         )
 
     @property
@@ -127,6 +131,7 @@ class AbstractTypeValue:
             class_targets=self.class_targets | other.class_targets,
             dict_shapes=shapes,
             element_dict_shapes=self.element_dict_shapes | other.element_dict_shapes,
+            literal_values=self.literal_values | other.literal_values,
         )
 
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:
@@ -141,6 +146,7 @@ class AbstractTypeValue:
             unknown=self.unknown,
             callable_targets=self.callable_targets,
             class_targets=self.class_targets,
+            literal_values=self.literal_values,
         )
 
     def retain(self, accepted: Iterable[ProperType]) -> AbstractTypeValue:
@@ -150,6 +156,7 @@ class AbstractTypeValue:
             unknown=False,
             callable_targets=self.callable_targets,
             class_targets=self.class_targets,
+            literal_values=self.literal_values,
         )
 
     def public_type(self) -> ProperType | None:

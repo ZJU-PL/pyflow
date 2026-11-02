@@ -213,6 +213,21 @@ class Instance(ProperType):
         return isinstance(other, Instance) and self.type == other.type and self.args == other.args
 
 
+class LiteralType(Instance):
+    """An instance type carrying an exact literal value for annotation checks."""
+
+    def __init__(self, value: object, base: Instance) -> None:
+        super().__init__(base.type, base.args)
+        self.value = value
+        self.base = base
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.value))
+
+    def __eq__(self, other):
+        return isinstance(other, LiteralType) and self.value == other.value
+
+
 class TupleType(ProperType):
     """Tuple type Tuple[T1, ..., Tn].
 
@@ -2376,6 +2391,12 @@ class TypeSystem:  # noqa: PLR0904
         if isinstance(right, AnyType):
             # trivial case
             return True
+        if isinstance(left, LiteralType):
+            if isinstance(right, LiteralType):
+                return left.value == right.value
+            return self.is_subtype(left.base, right)
+        if isinstance(right, LiteralType):
+            return False
         if isinstance(right, UnionType) and not isinstance(left, UnionType):
             # Case that would be duplicated for each type, so we put it here.
             return any(self.is_subtype(left, right_elem) for right_elem in right.items)
@@ -2404,6 +2425,12 @@ class TypeSystem:  # noqa: PLR0904
         if isinstance(right, AnyType):
             # trivial case
             return True
+        if isinstance(left, LiteralType):
+            if isinstance(right, LiteralType):
+                return left.value == right.value
+            return self.is_maybe_subtype(left.base, right)
+        if isinstance(right, LiteralType):
+            return False
         if isinstance(right, UnionType) and not isinstance(left, UnionType):
             # Case that would be duplicated for each type, so we put it here.
             return any(self.is_maybe_subtype(left, right_elem) for right_elem in right.items)

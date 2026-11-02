@@ -1036,3 +1036,17 @@ def test_callable_guard_narrows_union_alternatives() -> None:
     )
 
     assert _raw_types(result.functions["sample.apply"].return_type) == {bool, str}
+
+
+def test_literal_annotations_check_exact_constant_values() -> None:
+    result = _infer(
+        "from typing import Literal\n"
+        "def accept(value: Literal['a']) -> str: return value\n"
+        "ok = accept('a')\n"
+        "bad = accept('b')\n"
+        "good: Literal['a'] = 'a'\n"
+        "wrong: Literal['a'] = 'b'\n"
+    )
+
+    mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+    assert len(mismatches) == 2

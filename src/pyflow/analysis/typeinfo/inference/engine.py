@@ -36,6 +36,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     NONE_TYPE,
     CallableType,
     Instance,
+    LiteralType,
     NoneType,
     ProperType,
     TupleType,
@@ -2117,9 +2118,8 @@ class StaticTypeInferenceEngine:
     ) -> AbstractTypeValue:
         value: AbstractTypeValue
         if isinstance(node, ast.Constant):
-            value = AbstractTypeValue.from_type(
-                NONE_TYPE if node.value is None else self._proper_instance(type(node.value))
-            )
+            base = NONE_TYPE if node.value is None else self._proper_instance(type(node.value))
+            value = AbstractTypeValue.from_type(base, literal_values=frozenset((node.value,)))
         elif isinstance(node, ast.Name):
             value = self._name_value(node.id, environment, scope)
         elif isinstance(node, ast.List):
@@ -4906,6 +4906,18 @@ class StaticTypeInferenceEngine:
             or self._contains_type_var(expected)
         ):
             return
+        expected_literals = self._literal_expected_values(expected)
+        if expected_literals is not None and inferred.literal_values:
+            if inferred.literal_values.issubset(expected_literals):
+                return
+            self._add_diagnostic(
+                "annotation-mismatch",
+                f"Inferred {sorted(map(repr, inferred.literal_values))} is incompatible "
+                f"with annotated {expected} for {context}",
+                node=node,
+                severity="error" if self.options.strict_annotations else "warning",
+            )
+            return
         if isinstance(expected, Instance) and expected.type.typed_dict_fields is not None:
             if inferred.dict_shapes and all(
                 isinstance(candidate, Instance) and candidate.type.raw_type is dict
@@ -5071,6 +5083,16 @@ class StaticTypeInferenceEngine:
                 node=node,
                 severity="error" if self.options.strict_annotations else "warning",
             )
+
+    @staticmethod
+    def _literal_expected_values(expected: ProperType) -> frozenset[object] | None:
+        if isinstance(expected, LiteralType):
+            return frozenset((expected.value,))
+        if isinstance(expected, UnionType) and all(
+            isinstance(item, LiteralType) for item in expected.items
+        ):
+            return frozenset(item.value for item in expected.items)
+        return None
 
     @staticmethod
     def _fresh_collection_context(node):
