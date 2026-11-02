@@ -5363,6 +5363,8 @@ class StaticTypeInferenceEngine:
     ) -> _FunctionInfo | None:
         for overload in function.overloads:
             bound = self._bind_call_arguments(overload, arguments, keywords)
+            if any(name not in bound for name in self._required_parameter_names(overload)):
+                continue
             accepted = True
             for name, annotated in overload.explicit_parameters.items():
                 actual = bound.get(name)
@@ -5381,6 +5383,19 @@ class StaticTypeInferenceEngine:
             if accepted:
                 return overload
         return None
+
+    @staticmethod
+    def _required_parameter_names(function: _FunctionInfo) -> set[str]:
+        arguments = function.node.args
+        positional = [*arguments.posonlyargs, *arguments.args]
+        required = positional[: -len(arguments.defaults)] if arguments.defaults else positional
+        names = {argument.arg for argument in required}
+        names.update(
+            argument.arg
+            for argument, default in zip(arguments.kwonlyargs, arguments.kw_defaults)
+            if default is None
+        )
+        return names
 
     def _select_callable_overload(
         self,

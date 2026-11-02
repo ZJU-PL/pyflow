@@ -936,3 +936,19 @@ def test_imported_type_alias_uses_the_alias_target_not_types_alias(tmp_path: Pat
 
     assert str(service.type_of("pkg.aliases", "Column")) == "int | str"
     assert str(service.type_of("pkg.use", "value")) == "int | str"
+
+
+def test_overload_selection_respects_required_keyword_parameters() -> None:
+    result = _infer(
+        "from typing import Literal, overload\n"
+        "class Handler:\n"
+        "    @overload\n"
+        "    def parse(self, value: str, *, check: Literal[True]) -> bool: ...\n"
+        "    @overload\n"
+        "    def parse(self, value: str, *, check: Literal[False] = False) -> str: ...\n"
+        "    def parse(self, value, *, check=False): return value\n"
+        "    def first(self) -> str:\n"
+        "        return self.parse('value')\n"
+    )
+
+    assert _raw_types(result.functions["sample.Handler.first"].return_type) == {str}
