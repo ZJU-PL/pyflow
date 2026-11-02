@@ -521,6 +521,11 @@ class TypeInfoService:
                 existing is not None
                 and existing.source in {"annotation", "stub"}
                 and existing.typ is not None
+                and not (
+                    isinstance(existing.typ, Instance)
+                    and existing.typ.type.full_name
+                    in {"typing.TypeAlias", "typing_extensions.TypeAlias"}
+                )
             ):
                 continue
             facts[local_name] = TypeFact(

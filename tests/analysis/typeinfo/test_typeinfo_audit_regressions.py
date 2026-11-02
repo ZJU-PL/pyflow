@@ -917,3 +917,22 @@ def test_stub_class_overloads_dispatch_by_argument_type(tmp_path: Path) -> None:
 
     assert _raw_types(service.type_of("pkg.use", "text")) == {int}
     assert _raw_types(service.type_of("pkg.use", "data")) == {bytes}
+
+
+def test_imported_type_alias_uses_the_alias_target_not_types_alias(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "aliases.py").write_text(
+        "from typing import TypeAlias\n" "Column: TypeAlias = str | int\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from .aliases import Column\nvalue: Column = 1\n", encoding="utf-8"
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("pkg.use")
+
+    assert str(service.type_of("pkg.aliases", "Column")) == "int | str"
+    assert str(service.type_of("pkg.use", "value")) == "int | str"
