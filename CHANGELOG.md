@@ -112,7 +112,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containers, enables the numeric tower on `TypeInfoService`, and
   validates nested `TypedDict` literal shapes against inner `TypedDict` annotations,
   suppresses `unmodeled-context-manager` diagnostics when no `as` target variable is
-  bound, and recognizes Click CLI entrypoint functions invoked without arguments.
+  bound, recognizes Click CLI entrypoint functions invoked without arguments,
+  inspects routine and method descriptor members on builtin class descriptors,
+  permits empty dictionary literals in union yields to satisfy optional Mapping
+  annotations, and admits empty dictionary literals for mapping protocols.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values

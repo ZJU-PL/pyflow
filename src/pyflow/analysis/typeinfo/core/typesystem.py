@@ -1100,11 +1100,14 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                 if len(arguments) != len(self.right.args):
                     return False
                 return all(
-                    self.sub_type_check(actual, expected)
-                    and (
-                        target is cabc.Mapping
-                        and index == 1
-                        or self.sub_type_check(expected, actual)
+                    isinstance(actual, NeverType)
+                    or (
+                        self.sub_type_check(actual, expected)
+                        and (
+                            target is cabc.Mapping
+                            and index == 1
+                            or self.sub_type_check(expected, actual)
+                        )
                     )
                     for index, (actual, expected) in enumerate(zip(arguments, self.right.args))
                 )
@@ -2565,13 +2568,16 @@ class TypeSystem:  # noqa: PLR0904
                 if isinstance(member, property) and member.fget is not None:
                     annotation = member.fget.__annotations__.get("return")
                     members[name] = convert(annotation)
-                elif inspect.isfunction(member):
-                    signature = inspect.signature(member)
-                    arguments = tuple(signature.parameters.values())[1:]
-                    members[name] = CallableType(
-                        tuple(convert(arg.annotation) for arg in arguments),
-                        convert(signature.return_annotation),
-                    )
+                elif inspect.isroutine(member) or callable(member):
+                    try:
+                        signature = inspect.signature(member)
+                        arguments = tuple(signature.parameters.values())[1:]
+                        members[name] = CallableType(
+                            tuple(convert(arg.annotation) for arg in arguments),
+                            convert(signature.return_annotation),
+                        )
+                    except (ValueError, TypeError):
+                        members[name] = CallableType(None, ANY)
         for parent in self.get_superclasses(descriptor):
             members.update(parent.members)
         members.update(descriptor.members)

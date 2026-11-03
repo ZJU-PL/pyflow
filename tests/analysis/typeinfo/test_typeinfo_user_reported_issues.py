@@ -802,3 +802,30 @@ def test_click_command_without_arguments_does_not_warn_call_arity() -> None:
         "main()\n"
     )
     assert not any(d.code == "call-arity-mismatch" for d in result.diagnostics)
+
+
+def test_empty_dict_in_union_yield_compatible_with_optional_mapping() -> None:
+    result = _infer(
+        "from typing import Mapping, Any, AsyncIterator\n"
+        "from contextlib import asynccontextmanager\n"
+        "@asynccontextmanager\n"
+        "async def merged_lifespan(flag: bool) -> AsyncIterator[Mapping[str, Any] | None]:\n"
+        "    if flag:\n"
+        "        yield None\n"
+        "    else:\n"
+        "        yield {}\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_empty_dict_compatible_with_mapping_protocol() -> None:
+    result = _infer(
+        "from typing import Protocol, Any\n"
+        "class CacheProto(Protocol):\n"
+        "    def get(self, k: Any) -> Any: ...\n"
+        "    def __setitem__(self, k: Any, v: Any) -> None: ...\n"
+        "def use_cache(cache: CacheProto) -> None:\n"
+        "    pass\n"
+        "use_cache({})\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)

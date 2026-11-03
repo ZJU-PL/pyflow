@@ -6886,13 +6886,34 @@ class StaticTypeInferenceEngine:
             else node
         )
         expected_parts = expected.items if isinstance(expected, UnionType) else (expected,)
-        if self._is_empty_dict_value(inferred):
-            if any(
-                isinstance(part, Instance)
-                and part.type.raw_type in {dict, cabc.Mapping, cabc.MutableMapping}
-                for part in expected_parts
-            ):
-                return
+        has_mapping_expectation = any(
+            isinstance(part, Instance)
+            and (
+                part.type.raw_type in {dict, cabc.Mapping, cabc.MutableMapping}
+                or (
+                    part.type.is_protocol
+                    and bool(self.type_system.get_members(part.type))
+                    and all(hasattr(dict, m) for m in self.type_system.get_members(part.type))
+                )
+            )
+            for part in expected_parts
+        )
+        if has_mapping_expectation:
+            filtered_types = frozenset(
+                t
+                for t in inferred.types
+                if not (
+                    isinstance(t, Instance)
+                    and t.type.raw_type is dict
+                    and len(t.args) >= 2
+                    and isinstance(t.args[0], NeverType)
+                    and isinstance(t.args[1], NeverType)
+                )
+            )
+            if len(filtered_types) < len(inferred.types):
+                if not filtered_types:
+                    return
+                inferred = replace(inferred, types=filtered_types)
         constructor = (
             _expression_name(inspected_node.func)
             if isinstance(inspected_node, ast.Call) and isinstance(inspected_node.func, ast.Name)
