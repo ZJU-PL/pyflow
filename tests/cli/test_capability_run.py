@@ -87,3 +87,28 @@ def test_audit_log_records_allow_and_deny_decisions(tmp_path):
     assert any(
         event["capability"] == "file.write" and event["decision"] == "deny" for event in events
     )
+
+
+def test_importing_fresh_module_requires_only_module_capability(tmp_path):
+    (tmp_path / "helper.py").write_text("value = 42\n", encoding="utf-8")
+    script = tmp_path / "importer.py"
+    script.write_text("import helper\nassert helper.value == 42\n", encoding="utf-8")
+    audit_log = tmp_path / "events.json"
+
+    completed = _run_guard(script, "--allow", "module.*", "--audit-log", str(audit_log))
+
+    assert completed.returncode == 0, completed.stderr
+    events = json.loads(audit_log.read_text())
+    assert events
+    assert {event["capability"] for event in events} == {"module.dynamic_import"}
+
+
+def test_import_time_user_write_is_not_hidden_as_import_internals(tmp_path):
+    (tmp_path / "writer.py").write_text("open('created.txt', 'w').write('x')\n", encoding="utf-8")
+    script = tmp_path / "importer.py"
+    script.write_text("import writer\n", encoding="utf-8")
+
+    completed = _run_guard(script, "--allow", "module.*")
+
+    assert completed.returncode == 126
+    assert "denied capability 'file.write'" in completed.stderr

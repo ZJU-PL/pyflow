@@ -63,6 +63,11 @@ def run_capability_guard(args) -> int:
     install_runtime_guard(policy)
     old_argv = sys.argv
     old_path = list(sys.path)
+    old_bytecode = sys.dont_write_bytecode
+    # Avoid import machinery writing __pycache__ as an unrequested side effect
+    # of the guarded run; the script can still write caches explicitly if it
+    # asks for file.write.
+    sys.dont_write_bytecode = True
     sys.argv = [str(script), *args.args]
     sys.path.insert(0, str(script.parent))
     namespace = {
@@ -80,6 +85,7 @@ def run_capability_guard(args) -> int:
     finally:
         sys.argv = old_argv
         sys.path[:] = old_path
+        sys.dont_write_bytecode = old_bytecode
         if audit_stream is not None:
             payload = [
                 {

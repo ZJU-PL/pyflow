@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bodies for every synthesized solver identity; stable tokens use source spans
   when available.  Incomplete-variable reasons are also deduplicated with a
   set, avoiding quadratic list scans in native-call-heavy analyses.
+- Runtime auditing no longer classifies importlib's own source/pyc reads,
+  compilation, or bytecode unmarshalling as user `file.read`, `code.execute`,
+  or `deserialization.unsafe` operations; only user code executed during an
+  import is attributed to the importer.  `capability-run` disables bytecode
+  cache writes for the guarded run.
 - Runtime allow-lists treat static `network.io` as covering the underlying
   `network.socket`/`network.dns` audit events, so policies derived from static
   findings can permit HTTP requests without separately allowing socket events.

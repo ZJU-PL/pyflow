@@ -123,8 +123,49 @@ _PREFIX_CAPABILITIES = (
 )
 
 
+_IMPORT_EVENTS = frozenset({"open", "compile", "exec", "marshal.loads", "os.listdir", "os.scandir"})
+_IMPORT_FRAME_ROOTS = (
+    "importlib._bootstrap",
+    "importlib._bootstrap_external",
+    "importlib.machinery",
+    "zipimport",
+)
+
+
+def _is_import_machinery_frame(frame: Any) -> bool:
+    """Return True for a frame belonging to CPython's import machinery."""
+    name = ""
+    getter = getattr(getattr(frame, "f_globals", None), "get", None)
+    if callable(getter):
+        name = str(getter("__name__", "") or "")
+    return any(name == root or name.startswith(root + ".") for root in _IMPORT_FRAME_ROOTS)
+
+
+def _in_import_machinery() -> bool:
+    """Detect whether the current audit event came from module loading.
+
+    The import system reads source/pyc files, compiles source, and unmarshals
+    bytecode.  Those are implementation details of the already-classified
+    ``import`` event, not separate user choices to read a file, execute code,
+    or deserialize untrusted data.
+    """
+    try:
+        frame = sys._getframe(1)
+    except (AttributeError, ValueError):
+        return False
+    # Skip the guard/classification frames.  Only the nearest external frame
+    # determines ownership: user code executed at import time must not be
+    # mistaken for importlib's own file/compile activity merely because an
+    # importlib frame exists further down the stack.
+    while frame is not None and frame.f_globals.get("__name__") == __name__:
+        frame = frame.f_back
+    return _is_import_machinery_frame(frame) if frame is not None else False
+
+
 def capability_for_audit_event(event: str, args: tuple[Any, ...]) -> str | None:
     """Map a CPython audit event to the capability vocabulary."""
+    if event in _IMPORT_EVENTS and _in_import_machinery():
+        return None
     if event == "compile":
         return "code.execute"
     if event == "exec" and args:
@@ -153,6 +194,8 @@ def capabilities_for_audit_event(event: str, args: tuple[Any, ...]) -> frozenset
     Most events require exactly one capability.  Read/write file modes such as
     ``r+`` and ``os.O_RDWR`` require both, and a policy must allow both.
     """
+    if event in _IMPORT_EVENTS and _in_import_machinery():
+        return frozenset()
     if event == "open":
         mode = args[1] if len(args) > 1 else "r"
         flags = args[2] if len(args) > 2 else 0
