@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asdict`/`astuple`), `a.__class__`/`type(a)`, and `typing.NewType`; boolean
   and integer constants no longer collide in the constant pool, and unresolved
   native call chains are bounded while preserving capability access paths.
+  `functools.singledispatch` registered implementations now contribute return
+  values instead of silently falling back to the base function alone.
 - k-CFA pointer analysis no longer diverges on same-name imports
   (`from datetime import datetime`), grows unbounded native access paths, or
   loses positional-only/default argument flow.  It now models dataclass and

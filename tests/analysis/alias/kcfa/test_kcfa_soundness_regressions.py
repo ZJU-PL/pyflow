@@ -494,3 +494,25 @@ mapping_one = mapping[1]
     assert _points(result, "one") == _points(result, "b")
     assert _points(result, "mapping_zero") == _points(result, "a")
     assert _points(result, "mapping_one") == _points(result, "b")
+
+
+def test_singledispatch_registered_implementation_flows():
+    result = PointerAnalysis("""
+import functools
+class A: pass
+class B: pass
+
+@functools.singledispatch
+def convert(value):
+    return A()
+
+@convert.register
+def _(value: int):
+    return B()
+
+value = convert(1)
+""").run()
+
+    assert result.complete
+    assert any("A()" in obj for obj in _points(result, "value"))
+    assert any("B()" in obj for obj in _points(result, "value"))

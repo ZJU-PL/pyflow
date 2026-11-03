@@ -68,11 +68,27 @@ def cached_property(func):
 
 
 def singledispatch(func):
+    registered = []
+
     def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
+        result = func(*args, **kwargs)
+        for implementation in registered:
+            result = implementation(*args, **kwargs)
+        return result
+
+    def register(arg):
+        if callable(arg):
+            registered.append(arg)
+            return arg
+
+        def decorator(implementation):
+            registered.append(implementation)
+            return implementation
+
+        return decorator
 
     wrapper.__wrapped__ = func
-    wrapper.register = lambda typ: lambda f: f
+    wrapper.register = register
     return wrapper
 
 
