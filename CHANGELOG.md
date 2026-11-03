@@ -115,7 +115,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bound, recognizes Click CLI entrypoint functions invoked without arguments,
   inspects routine and method descriptor members on builtin class descriptors,
   permits empty dictionary literals in union yields to satisfy optional Mapping
-  annotations, and admits empty dictionary literals for mapping protocols.
+  annotations, admits empty dictionary literals for mapping protocols,
+  and tracks local variables initialized from fresh collections across returns
+  while preserving the invariance of parameter aliases.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values

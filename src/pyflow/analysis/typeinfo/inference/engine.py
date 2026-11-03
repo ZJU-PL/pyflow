@@ -1612,7 +1612,10 @@ class StaticTypeInferenceEngine:
                         walk((child,))
 
         walk(getattr(node, "body", ()))
-        return returns[0] if len(returns) == 1 else node
+        if len(returns) == 1:
+            returns[0]._function_node = node
+            return returns[0]
+        return node
 
     def _check_generator_annotation(self, function, annotation, yields, returned):
         expected = annotation.public_type()
@@ -7322,20 +7325,57 @@ class StaticTypeInferenceEngine:
 
     @staticmethod
     def _fresh_collection_context(node):
+        func_node = getattr(
+            node,
+            "_function_node",
+            node if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else None,
+        )
+        params = set()
+        assigned_fresh = set()
+        if func_node is not None:
+            params = {
+                arg.arg
+                for arg in getattr(func_node.args, "args", [])
+                + getattr(func_node.args, "posonlyargs", [])
+                + getattr(func_node.args, "kwonlyargs", [])
+            }
+
         def fresh(expression):
             if isinstance(
                 expression, (ast.List, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp)
             ):
                 return True
-            return (
+            if (
+                isinstance(expression, ast.Call)
+                and isinstance(expression.func, ast.Name)
+                and expression.func.id in {"list", "set", "dict", "frozenset", "tuple"}
+            ):
+                return True
+            if (
                 isinstance(expression, ast.BinOp)
                 and isinstance(expression.op, (ast.Add, ast.Mult))
                 and (fresh(expression.left) or fresh(expression.right))
-            ) or (
+            ):
+                return True
+            if (
                 isinstance(expression, ast.IfExp)
                 and fresh(expression.body)
                 and fresh(expression.orelse)
-            )
+            ):
+                return True
+            if isinstance(expression, ast.Name) and func_node is not None:
+                return expression.id in assigned_fresh and expression.id not in params
+            return False
+
+        if func_node is not None:
+            for stmt in getattr(func_node, "body", ()):
+                if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                    val = stmt.value
+                    if val is not None and fresh(val):
+                        targets = [stmt.target] if isinstance(stmt, ast.AnnAssign) else stmt.targets
+                        for t in targets:
+                            if isinstance(t, ast.Name) and t.id not in params:
+                                assigned_fresh.add(t.id)
 
         # Call arguments and other bare expressions are checked against the
         # argument node itself rather than an enclosing statement.
@@ -7343,7 +7383,7 @@ class StaticTypeInferenceEngine:
             return True
         if isinstance(node, (ast.Return, ast.AnnAssign, ast.Assign)):
             return fresh(node.value)
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if func_node is None:
             return False
         returns = []
 
@@ -7357,10 +7397,12 @@ class StaticTypeInferenceEngine:
             for child in ast.iter_child_nodes(statement):
                 collect(child)
 
-        for statement in node.body:
+        for statement in func_node.body:
             collect(statement)
         return bool(returns) and all(
-            fresh(value) or value is None or isinstance(value, ast.Constant) and value.value is None
+            fresh(value)
+            or value is None
+            or (isinstance(value, ast.Constant) and value.value is None)
             for value in returns
         )
 

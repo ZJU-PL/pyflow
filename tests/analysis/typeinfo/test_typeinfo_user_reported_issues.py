@@ -829,3 +829,19 @@ def test_empty_dict_compatible_with_mapping_protocol() -> None:
         "use_cache({})\n"
     )
     assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_return_local_collection_widens_to_annotated_return() -> None:
+    result = _infer(
+        "def create_weights(length: int) -> list[float]:\n"
+        "    weights = list(range(1, length + 1))\n"
+        "    return weights\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_call_constructed_collection_is_fresh_context() -> None:
+    result = _infer(
+        "def take_floats(xs: list[float]) -> None: pass\n" "take_floats(list([1, 2, 3]))\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
