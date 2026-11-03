@@ -3121,6 +3121,16 @@ class _IndexVisitor(ast.NodeVisitor):
                     SourceReference(keyword.arg, location, self._current_function())
                 )
                 self.index._keyword_targets[location] = (self._target(node.func), keyword.arg)
+        if (
+            node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and self._qualified_expression_name(node.func)
+            in {"typing.cast", "typing_extensions.cast"}
+        ):
+            # ``cast("Widget", value)`` uses the same forward-reference syntax
+            # as an annotation string.
+            self._record_string_annotation(node.args[0])
         self.generic_visit(node)
 
     def _current_function(self) -> Optional[str]:

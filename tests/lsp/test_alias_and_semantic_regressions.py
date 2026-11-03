@@ -582,3 +582,29 @@ def test_attrs_decorated_fields_follow_constructor_keywords(tmp_path: Path):
         (4, 4),
         (7, 12),
     }
+
+
+def test_cast_string_type_is_a_reference(tmp_path: Path):
+    source = (
+        "from typing import cast\n"
+        "\n"
+        "class Widget:\n"
+        "    pass\n"
+        "\n"
+        "def f(value: object) -> Widget:\n"
+        '    return cast("Widget", value)\n'
+    )
+    path = tmp_path / "cast.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    line = source.splitlines()[6]
+    key = (6, line.index("Widget"))
+    assert key in {
+        (item.location.start_line, item.location.start_character)
+        for item in index.references
+        if item.name == "Widget" and item.location.uri == uri
+    }
+    assert key in {
+        (item.start_line, item.start_character) for item in index.rename_ranges_at(uri, 2, 6)
+    }
