@@ -31,6 +31,10 @@ class AnalysisArena:
     def __init__(self) -> None:
         self._obj_to_id: Dict["AbstractObject", int] = {}
         self._id_to_obj: List["AbstractObject"] = []
+        # Bitset of interned function/method objects.  Method rebinding checks
+        # this before scanning a points-to set, which keeps class lookups cheap
+        # on large programs where most objects are not callables.
+        self.callable_mask = 0
 
     def intern(self, obj: "AbstractObject") -> int:
         existing = self._obj_to_id.get(obj)
@@ -39,6 +43,10 @@ class AnalysisArena:
         object_id = len(self._id_to_obj)
         self._obj_to_id[obj] = object_id
         self._id_to_obj.append(obj)
+        from .object import FunctionObject
+
+        if isinstance(obj, FunctionObject):
+            self.callable_mask |= 1 << object_id
         return object_id
 
     def object_at(self, object_id: int) -> "AbstractObject":
@@ -137,8 +145,69 @@ class PointsToSet:
             return self.arena
         return other.arena
 
+    def _bind_plain_functions(
+        self,
+        class_obj: "ClassObject",
+        instance_obj: Optional["InstanceObject"],
+    ) -> int:
+        """Bind plain functions stored through attribute assignment.
+
+        ``A.m = f`` / ``a.m = f`` store a bare ``FunctionObject`` in the class
+        (or instance) namespace rather than the ``MethodObject`` produced by a
+        ``def`` in a class body.  Python still binds such functions on
+        attribute access, so they must be rebound here; otherwise the call is
+        dropped (arity check) or resolves to a stale method.
+        """
+        from .object import FunctionObject, MethodObject
+
+        if self.objs_mask == 0 or self.arena is None:
+            return self.objs_mask
+        if not (self.objs_mask & self.arena.callable_mask):
+            return self.objs_mask
+        rebound = 0
+        changed = False
+        for object_id in _iter_bits(self.objs_mask):
+            obj = self.arena.object_at(object_id)
+            bound = obj
+            if isinstance(obj, MethodObject):
+                # Method objects can reach the plain-object mask through raw
+                # pointer-flow joins.  Bind an unbound instance method to the
+                # current receiver; never re-bind an already-bound method.
+                if (
+                    obj.instance_obj is None
+                    and not getattr(obj.ir, "is_static_method", False)
+                    and not getattr(obj.ir, "is_class_method", False)
+                ):
+                    if instance_obj is not None:
+                        bound = obj.deliver_into(instance_obj)
+                    elif obj.class_obj is not class_obj:
+                        bound = obj.inherit_into(class_obj)
+            elif isinstance(obj, FunctionObject):
+                ir = getattr(obj, "ir", None)
+                if not getattr(ir, "is_static_method", False):
+                    holder = None if getattr(ir, "is_class_method", False) else instance_obj
+                    bound = MethodObject(
+                        obj.context,
+                        obj.alloc_site,
+                        obj.container_scope,
+                        obj.ir,
+                        class_obj,
+                        holder,
+                    )
+            if bound is obj:
+                rebound |= 1 << object_id
+            else:
+                rebound |= 1 << self.arena.intern(bound)
+                changed = True
+        return rebound if changed else self.objs_mask
+
     def inherit_to(self, new_cls: "ClassObject") -> "PointsToSet":
-        if self.classmethods_mask == 0 and self.instancemethods_mask == 0:
+        new_objs = self._bind_plain_functions(new_cls, None)
+        if (
+            self.classmethods_mask == 0
+            and self.instancemethods_mask == 0
+            and new_objs == self.objs_mask
+        ):
             return self
         assert self.arena is not None
         new_classmethods = 0
@@ -150,22 +219,38 @@ class PointsToSet:
             method = self.arena.object_at(object_id)
             new_instancemethods |= 1 << self.arena.intern(method.inherit_into(new_cls))
         return PointsToSet(
-            self.objs_mask,
+            new_objs,
             new_classmethods,
             new_instancemethods,
             self.arena,
         )
 
     def deliver_into(self, new_inst: "InstanceObject") -> "PointsToSet":
-        if self.instancemethods_mask == 0:
+        from .object import InstanceObject
+
+        if isinstance(new_inst, InstanceObject):
+            bind_class = new_inst.class_obj
+            holder = new_inst
+        else:
+            # Some callers pass a class object where an instance is expected
+            # (for example a pending ``super()`` variant).  Binding to the
+            # class that owns the attribute is the sound approximation.
+            bind_class = new_inst
+            holder = None
+        new_objs = self._bind_plain_functions(bind_class, holder)
+        if self.instancemethods_mask == 0 and new_objs == self.objs_mask:
             return self
         assert self.arena is not None
         new_instancemethods = 0
         for object_id in _iter_bits(self.instancemethods_mask):
             method = self.arena.object_at(object_id)
-            new_instancemethods |= 1 << self.arena.intern(method.deliver_into(new_inst))
+            if holder is None:
+                rebound = method.inherit_into(bind_class)
+            else:
+                rebound = method.deliver_into(holder)
+            new_instancemethods |= 1 << self.arena.intern(rebound)
         return PointsToSet(
-            self.objs_mask,
+            new_objs,
             self.classmethods_mask,
             new_instancemethods,
             self.arena,

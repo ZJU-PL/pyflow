@@ -23,6 +23,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import (
 
 from .state import PointerAnalysisState, PointsToSet
 from .constraints import *
+from .constraints import LoadSubscrConstraint
 from .variable import Variable, VariableKind, VariableFactory, FieldAccess
 from .config import Config
 from .heap_model import (
@@ -47,6 +48,7 @@ from .class_hierarchy import ClassHierarchyManager
 from .builtin_api_handler import BuiltinSummaryManager
 from .unknown_tracker import UnknownTracker, UnknownKind
 from .object import *
+from .object import AbstractObject, AllocKind, ConstantObject
 from .solver_interface import ISolverQuery
 from .pointer_flow_graph import (
     PointerFlowGraph,
@@ -162,7 +164,7 @@ class PointerSolver:
 
         # Initialize builtin handler with state
         if self.builtin_manager:
-            self.builtin_manager.set_state(state)
+            self.builtin_manager.set_state(state, self)
         self._reset()
 
     BUILTIN_FUNCTIONS = [
@@ -488,6 +490,7 @@ class PointerSolver:
                 f"fixpoint not reached after {self.config.max_iterations} iterations",
             )
         self._record_empty_callees()
+        self._record_unresolved_subscripts()
         self._complete = (
             self._fixpoint_complete and self._frontend_complete and self._semantic_complete
         )
@@ -616,6 +619,30 @@ class PointerSolver:
                 scopes=() if affected else (scope,),
                 kind=UnknownKind.CALLEE_EMPTY.value,
                 message=f"call target is unresolved: {constraint.callee}",
+            )
+
+    def _record_unresolved_subscripts(self) -> None:
+        """Make subscripts with no resolvable index fail-visible.
+
+        ``LoadSubscrConstraint`` is only applied once the index has a
+        points-to set.  When the index stays empty (typically because an
+        unmodelled operation produced it) the read silently returned nothing;
+        report the affected target as incomplete instead.
+        """
+        for scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, LoadSubscrConstraint):
+                continue
+            index = self.state.get_variable(scope, scope.context, constraint.index)
+            if not self.state.get_points_to(index).is_empty():
+                continue
+            affected = ()
+            if constraint.target is not None:
+                affected = (self.state.get_variable(scope, scope.context, constraint.target),)
+            self.mark_semantic_incomplete(
+                variables=affected,
+                scopes=() if affected else (scope,),
+                kind=UnknownKind.CALLEE_EMPTY.value,
+                message=f"subscript index is unresolved: {constraint.index}",
             )
 
     def __iter__(self):
@@ -2177,6 +2204,27 @@ class PointerSolver:
                         (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
                     )
                     continue
+                elif isinstance(base_obj, AbstractObject) and (
+                    getattr(getattr(base_obj, "alloc_site", None), "kind", None)
+                    in (AllocKind.INTEGER, AllocKind.FLOAT, AllocKind.BOOLEAN)
+                ):
+                    # Numeric results (``len(x)``, ``3``, ``2.5``, ``True``)
+                    # must expose their arithmetic dunders; otherwise
+                    # ``n - 1`` produced an empty points-to set.
+                    builtin_type = {
+                        AllocKind.INTEGER: "int",
+                        AllocKind.FLOAT: "float",
+                        AllocKind.BOOLEAN: "bool",
+                    }[base_obj.alloc_site.kind]
+                elif isinstance(base_obj, ConstantObject) and isinstance(
+                    base_obj.value, (int, float)
+                ):
+                    if isinstance(base_obj.value, bool):
+                        builtin_type = "bool"
+                    elif isinstance(base_obj.value, int):
+                        builtin_type = "int"
+                    else:
+                        builtin_type = "float"
                 elif isinstance(base_obj, ConstantObject) and isinstance(base_obj.value, str):
                     # String literals and ``str(...)`` results must expose the
                     # string method table; otherwise ``s.split(",")`` was an

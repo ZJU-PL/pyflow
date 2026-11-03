@@ -74,6 +74,14 @@ def add_alias_parser(subparsers):
         help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
     )
     parser.add_argument(
+        "--all-scopes",
+        action="store_true",
+        help=(
+            "kcfa engine only: analyze every function/method body, not just code "
+            "reachable from the entry module (slower, needed for library modules)"
+        ),
+    )
+    parser.add_argument(
         "--recursive",
         "-r",
         action="store_true",
@@ -319,6 +327,22 @@ def _analyze_file_flow_sensitive_json(filepath: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_project_root(project_root: Path | None) -> Path | None:
+    """Return the import root for ``project_root``.
+
+    Passing a package directory (one containing ``__init__.py``) makes
+    ``from pkg.mod import name`` unresolvable and silently degrades every
+    project import to an opaque native object, so walk out to the real import
+    root the same way ``pyflow capabilities`` does.
+    """
+    if project_root is None:
+        return None
+    root = project_root.resolve()
+    while (root / "__init__.py").is_file() and root.parent != root:
+        root = root.parent
+    return root
+
+
 def _analyze_file_kcfa(
     filepath: Path,
     k: int,
@@ -326,6 +350,7 @@ def _analyze_file_kcfa(
     *,
     project_root: Path | None = None,
     import_depth: int | None = None,
+    analyze_all_scopes: bool = False,
 ) -> None:
     source = filepath.read_text()
 
@@ -338,6 +363,7 @@ def _analyze_file_kcfa(
             project_path=project_root,
             k=k,
             max_import_depth=import_depth if import_depth is not None else -1,
+            analyze_all_scopes=analyze_all_scopes,
         )
         result = analysis.run()
     except Exception as exc:
@@ -346,6 +372,16 @@ def _analyze_file_kcfa(
 
     call_edges = result.call_edges()
     print(f"  call edges: {len(call_edges)}")
+    print(
+        "  solver: "
+        f"complete={'yes' if result.complete else 'no'} "
+        f"stop_reason={result.stop_reason}"
+    )
+    if not result.complete and verbose:
+        for reason in result.incomplete_reasons()[:10]:
+            kind = reason.get("kind", "unknown")
+            message = str(reason.get("message", ""))[:160]
+            print(f"    incomplete[{kind}]: {message}")
     if verbose:
         for caller, callee in call_edges:
             print(f"    {caller} → {callee}")
@@ -370,11 +406,31 @@ def _analyze_file_kcfa(
 
 
 def _collect_variable_names(source: str) -> set[str]:
-    """Collect variable names from a Python source for kcfa display."""
+    """Collect every name the source can bind.
+
+    Only ``ast.Name`` nodes used to be collected, which silently omitted
+    imported names (``from x import y``), functions, classes, parameters and
+    exception variables from the report even though their bindings exist.
+    """
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Load)):
+        if isinstance(node, ast.Name):
             names.add(node.id)
+        elif isinstance(node, ast.alias):
+            # ``import a.b`` binds ``a``; ``import a.b as c`` binds ``c``.
+            names.add(node.asname or node.name.split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            names.update(node.names)
+        elif isinstance(node, ast.MatchAs) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.MatchStar) and node.name:
+            names.add(node.name)
     return names
 
 
@@ -384,9 +440,15 @@ def _analyze_file_kcfa_json(
     *,
     project_root: Path | None = None,
     import_depth: int | None = None,
+    analyze_all_scopes: bool = False,
 ) -> dict:
     source = filepath.read_text()
-    result_data: dict = {"file": str(filepath), "engine": "kcfa", "k": k}
+    result_data: dict = {
+        "file": str(filepath),
+        "engine": "kcfa",
+        "k": k,
+        "all_scopes": analyze_all_scopes,
+    }
 
     try:
         analysis = PointerAnalysis.from_project(
@@ -394,11 +456,21 @@ def _analyze_file_kcfa_json(
             project_path=project_root,
             k=k,
             max_import_depth=import_depth if import_depth is not None else -1,
+            analyze_all_scopes=analyze_all_scopes,
         )
         result = analysis.run()
     except Exception as exc:
         result_data["error"] = str(exc)
         return result_data
+
+    # Partial analyses must be distinguishable from complete ones; without
+    # these fields a consumer cannot tell "no targets" from "gave up".
+    result_data["complete"] = result.complete
+    result_data["stop_reason"] = result.stop_reason
+    result_data["statistics"] = result.statistics()
+    reasons = result.incomplete_reasons()
+    result_data["incomplete_reasons"] = reasons[: int(50)]
+    result_data["incomplete_reason_count"] = len(reasons)
 
     call_edges = result.call_edges()
     result_data["call_edges"] = [{"caller": c, "callee": t} for c, t in call_edges]
@@ -440,17 +512,19 @@ def run_alias_analysis(input_path: str, args) -> int:
 
     verbose = getattr(args, "verbose", False)
     json_mode = getattr(args, "json", False)
-    project_root = getattr(args, "project_root", None)
+    project_root = _resolve_project_root(getattr(args, "project_root", None))
     import_depth = getattr(args, "import_depth", None)
+    analyze_all_scopes = bool(getattr(args, "all_scopes", False))
 
     all_results = []
     text_results = []
     filepath = files[0]
     analyzed = 0
     failed = 0
+    current_index = 0
     try:
         with analysis_time_budget(getattr(args, "max_seconds", 30.0)):
-            for filepath in files:
+            for current_index, filepath in enumerate(files):
                 try:
                     if json_mode:
                         with redirect_stdout(sys.stderr):
@@ -460,6 +534,7 @@ def run_alias_analysis(input_path: str, args) -> int:
                                     k,
                                     project_root=project_root,
                                     import_depth=import_depth,
+                                    analyze_all_scopes=analyze_all_scopes,
                                 )
                                 if engine == "kcfa"
                                 else _analyze_file_flow_sensitive_json(filepath)
@@ -475,6 +550,7 @@ def run_alias_analysis(input_path: str, args) -> int:
                                     verbose,
                                     project_root=project_root,
                                     import_depth=import_depth,
+                                    analyze_all_scopes=analyze_all_scopes,
                                 )
                             else:
                                 _analyze_file_flow_sensitive(filepath, verbose)
@@ -497,8 +573,25 @@ def run_alias_analysis(input_path: str, args) -> int:
                 "diagnostics": [{"code": "analysis-time-budget", "message": str(exc)}],
             }
         )
+        # Record every file the budget prevented us from analyzing, otherwise a
+        # machine consumer cannot distinguish "clean" from "never looked at".
+        for skipped in files[current_index + 1 :]:
+            all_results.append(
+                {
+                    "file": str(skipped),
+                    "engine": engine,
+                    "status": "skipped",
+                    "diagnostics": [
+                        {
+                            "code": "analysis-time-budget",
+                            "message": str(exc),
+                        }
+                    ],
+                }
+            )
         print(
-            f"Alias analysis is partial: {exc}; remaining files were not analyzed", file=sys.stderr
+            f"Alias analysis is partial: {exc}; remaining files were not analyzed",
+            file=sys.stderr,
         )
         text_results.append(f"Alias analysis: partial ({exc})\n")
     if json_mode:

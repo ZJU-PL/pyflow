@@ -28,6 +28,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints im
     SuperResolveConstraint,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import (
+    Field,
     FieldKind,
     attr,
     dict_keys,
@@ -72,6 +73,7 @@ if TYPE_CHECKING:
     from .context import AbstractContext, Ctx, Scope
     from .config import Config
     from .state import PointerAnalysisState
+    from .solver import PointerSolver
     from .object import (
         AbstractObject,
         BuiltinInstanceObject,
@@ -155,8 +157,84 @@ class BuiltinAPIHandler:
         """
         self.state = state
         self.config = config
+        self._solver: Optional["PointerSolver"] = None
+        self._installed_iteration_helpers: Set = set()
         self._method_handlers: Dict[str, callable] = self._init_method_handlers()
         self._function_handlers: Dict[str, callable] = self._init_function_handlers()
+
+    def bind_solver(self, solver: "PointerSolver") -> None:
+        """Attach the active solver so handlers can install deferred flows.
+
+        Some builtins (``iter``, ``list``, ``dict``) must inspect the argument's
+        points-to set to decide which heap field carries the iteration values.
+        The set may still be empty when the call is first processed, so the
+        handler installs a dependency and re-emits the loads when it grows.
+        """
+        self._solver = solver
+
+    @staticmethod
+    def _iteration_fields(points: "PointsToSet") -> Set["Field"]:
+        """Return the fields that carry an object's iteration values.
+
+        Python iterates a mapping over its *keys*; every other modelled
+        container (and every generator) iterates ``elem()``.
+        """
+        fields: Set["Field"] = set()
+        for obj in points:
+            if isinstance(obj, DictObject):
+                fields.add(dict_keys())
+            else:
+                fields.add(elem())
+        return fields
+
+    def _note_unmodelled_string_iteration(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        points: "PointsToSet",
+        target_var: Optional["Variable"],
+    ) -> None:
+        """Report string iteration as incomplete instead of silently empty.
+
+        Characters are not modelled, so ``for c in text`` used to produce an
+        empty loop body while the result claimed to be complete.
+        """
+        solver = self._solver
+        if solver is None or target_var is None:
+            return
+        if not any(
+            (isinstance(obj, ConstantObject) and isinstance(obj.value, (str, bytes)))
+            or (
+                not isinstance(obj, ConstantObject)
+                and getattr(getattr(obj, "alloc_site", None), "kind", None) is AllocKind.STRING
+            )
+            or (isinstance(obj, BuiltinInstanceObject) and obj.builtin_type in {"str", "bytes"})
+            for obj in points
+        ):
+            return
+        target_ctx = self.state.get_variable(scope, context, target_var)
+        solver.mark_semantic_incomplete(
+            variables=(target_ctx,),
+            kind="unknown_builtin",
+            message="iteration over a string/bytes value yields characters, which are not modelled",
+        )
+
+    def _defer_on_source(
+        self,
+        dependency_key,
+        scope: "Scope",
+        context: "AbstractContext",
+        source_var: "Variable",
+        emit,
+    ) -> bool:
+        """Run ``emit`` now and again whenever ``source_var`` grows."""
+        solver = self._solver
+        if solver is None:
+            return False
+        source_ctx = self.state.get_variable(scope, context, source_var)
+        self.state.dependencies.subscribe(dependency_key, (source_ctx,), emit)
+        emit()
+        return True
 
     def _make_temp_var(self, prefix: str, call: "CallConstraint") -> "Variable":
         """Create a temporary variable unique to the call site."""
@@ -164,6 +242,15 @@ class BuiltinAPIHandler:
             name=f"${prefix}@{call.call_site.short_id()}",
             kind=VariableKind.TEMPORARY,
         )
+
+    @staticmethod
+    def _is_string_like(obj: "AbstractObject") -> bool:
+        """Whether ``obj`` is a string literal or a modelled string value."""
+        if isinstance(obj, ConstantObject):
+            return isinstance(obj.value, (str, bytes))
+        if isinstance(obj, BuiltinInstanceObject):
+            return obj.builtin_type in {"str", "bytes"}
+        return getattr(getattr(obj, "alloc_site", None), "kind", None) is AllocKind.STRING
 
     @staticmethod
     def _infer_container_type(receiver: "AbstractObject") -> Optional[str]:
@@ -230,6 +317,11 @@ class BuiltinAPIHandler:
             "__iter__": self._handle_container_iter,
             "__add__": self._handle_container_binop,
             "__mul__": self._handle_container_binop,
+            "__sub__": self._handle_container_binop,
+            "__truediv__": self._handle_container_binop,
+            "__floordiv__": self._handle_container_binop,
+            "__mod__": self._handle_container_binop,
+            "__pow__": self._handle_container_binop,
             "__or__": self._handle_container_binop,
             "__iadd__": self._handle_container_inplace_binop,
             "__imul__": self._handle_container_inplace_binop,
@@ -468,38 +560,65 @@ class BuiltinAPIHandler:
     ) -> List["Constraint"]:
         """Handle list() constructor call.
 
-        Creates a new list instance. If an iterable is provided, adds
-        constraints to copy elements from the iterable to the list.
+        ``list(mapping)`` yields the mapping's **keys**; every other iterable
+        contributes its ``elem()`` values.
         """
         constraints = []
 
         if not call.target:
             return constraints
 
-        # Create allocation constraint for new list
         alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.LIST)
         constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
-        # If iterable argument provided, copy elements
         if len(call.args) > 0:
-            iterable_var = call.args[0]
-            elem_var = self._make_temp_var("list_ctor_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=iterable_var,
-                    field=elem(),
-                    target=elem_var,
-                )
-            )
-            constraints.append(
-                StoreConstraint(
-                    base=call.target,
-                    field=elem(),
-                    source=elem_var,
-                )
+            constraints.extend(
+                self._copy_iteration_values(scope, context, call, call.args[0], "list_ctor")
             )
 
         return constraints
+
+    def _copy_iteration_values(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source_var: "Variable",
+        prefix: str,
+    ) -> List["Constraint"]:
+        """Copy a source iterable's iteration values onto ``call.target``."""
+        solver = self._solver
+        if solver is None:
+            # No solver binding: fall back to the previous conservative model.
+            elem_var = self._make_temp_var(f"{prefix}_elem", call)
+            return [
+                LoadConstraint(base=source_var, field=elem(), target=elem_var),
+                StoreConstraint(base=call.target, field=elem(), source=elem_var),
+            ]
+
+        def emit() -> None:
+            source_ctx = self.state.get_variable(scope, context, source_var)
+            points = self.state.get_points_to(source_ctx)
+            self._note_unmodelled_string_iteration(scope, context, points, call.target)
+            for field, suffix in ((elem(), "elem"), (dict_keys(), "key")):
+                if field not in self._iteration_fields(points):
+                    continue
+                tmp_var = self._make_temp_var(f"{prefix}_{suffix}", call)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    LoadConstraint(base=source_var, field=field, target=tmp_var),
+                )
+                solver.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(base=call.target, field=elem(), source=tmp_var),
+                )
+
+        self._defer_on_source(
+            (f"{prefix}-source", scope, context, call), scope, context, source_var, emit
+        )
+        return []
 
     def _handle_dict_constructor(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
@@ -514,21 +633,8 @@ class BuiltinAPIHandler:
         constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
         if len(call.args) > 0:
-            iterable_var = call.args[0]
-            elem_var = self._make_temp_var("dict_ctor_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=iterable_var,
-                    field=elem(),
-                    target=elem_var,
-                )
-            )
-            constraints.append(
-                StoreConstraint(
-                    base=call.target,
-                    field=elem(),
-                    source=elem_var,
-                )
+            constraints.extend(
+                self._populate_dict_from_iterable(scope, context, call, call.args[0])
             )
 
         for kw_name, kw_var in call.kwargs:
@@ -567,6 +673,110 @@ class BuiltinAPIHandler:
 
         return constraints
 
+    def _populate_dict_from_iterable(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source_var: "Variable",
+    ) -> List["Constraint"]:
+        """Populate ``dict(target)`` from a mapping or an iterable of pairs.
+
+        ``dict(mapping)`` copies keys and values; ``dict(pairs)`` (for example
+        ``dict(zip(keys, values))``) unpacks each pair.  Both forms used to be
+        modelled as "the iterable's elements are the values", which silently
+        returned the pair tuple for ``d[key]``.
+        """
+        solver = self._solver
+        if solver is None:
+            elem_var = self._make_temp_var("dict_ctor_elem", call)
+            return [
+                LoadConstraint(base=source_var, field=elem(), target=elem_var),
+                StoreConstraint(base=call.target, field=elem(), source=elem_var),
+            ]
+
+        def emit() -> None:
+            source_ctx = self.state.get_variable(scope, context, source_var)
+            points = self.state.get_points_to(source_ctx)
+            if not points:
+                return
+            if any(isinstance(obj, DictObject) for obj in points):
+                for field, suffix in ((dict_keys(), "key"), (elem(), "value")):
+                    tmp_var = self._make_temp_var(f"dict_ctor_{suffix}", call)
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(base=source_var, field=field, target=tmp_var),
+                    )
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        StoreConstraint(base=call.target, field=field, source=tmp_var),
+                    )
+            if any(not isinstance(obj, DictObject) for obj in points):
+                self._install_pair_unpacking(scope, context, call, source_var)
+
+        self._defer_on_source(
+            ("dict-ctor-source", scope, context, call), scope, context, source_var, emit
+        )
+        return []
+
+    def _install_pair_unpacking(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source_var: "Variable",
+    ) -> None:
+        """Unpack ``(key, value)`` pairs flowing from ``source_var``."""
+        solver = self._solver
+        assert solver is not None
+        install_key = ("dict-pair-unpack", scope, context, call)
+        if install_key in self._installed_iteration_helpers:
+            return
+        self._installed_iteration_helpers.add(install_key)
+
+        # ``dict(xs)`` iterates ``xs`` and unpacks each element, so unwrap one
+        # level (the pair objects) before reading positions 0 and 1.
+        pair_var = self._make_temp_var("dict_pair", call)
+        key_var = self._make_temp_var("dict_pair_key", call)
+        val_var = self._make_temp_var("dict_pair_value", call)
+        solver.add_constraint(
+            scope, context, LoadConstraint(base=source_var, field=elem(), target=pair_var)
+        )
+        solver.add_constraint(
+            scope, context, LoadConstraint(base=pair_var, field=key(0), target=key_var)
+        )
+        solver.add_constraint(
+            scope, context, LoadConstraint(base=pair_var, field=key(1), target=val_var)
+        )
+        solver.add_constraint(
+            scope, context, StoreConstraint(base=call.target, field=elem(), source=val_var)
+        )
+        solver.add_constraint(
+            scope, context, StoreConstraint(base=call.target, field=dict_keys(), source=key_var)
+        )
+
+        key_ctx = self.state.get_variable(scope, context, key_var)
+
+        def emit_keyed() -> None:
+            for key_obj in self.state.get_points_to(key_ctx):
+                if not isinstance(key_obj, ConstantObject):
+                    continue
+                value = key_obj.value
+                if isinstance(value, bool) or not isinstance(value, (str, int)):
+                    continue
+                solver.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(base=call.target, field=key(value), source=val_var),
+                )
+
+        self.state.dependencies.subscribe(
+            ("dict-pair-key", scope, context, call), (key_ctx,), emit_keyed
+        )
+        emit_keyed()
+
     def _handle_tuple_constructor(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
     ) -> List["Constraint"]:
@@ -579,23 +789,9 @@ class BuiltinAPIHandler:
         alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.TUPLE)
         constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
-        # If iterable provided, copy elements
         if len(call.args) > 0:
-            iterable_var = call.args[0]
-            elem_var = self._make_temp_var("tuple_ctor_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=iterable_var,
-                    field=elem(),
-                    target=elem_var,
-                )
-            )
-            constraints.append(
-                StoreConstraint(
-                    base=call.target,
-                    field=elem(),
-                    source=elem_var,
-                )
+            constraints.extend(
+                self._copy_iteration_values(scope, context, call, call.args[0], "tuple_ctor")
             )
 
         return constraints
@@ -612,23 +808,9 @@ class BuiltinAPIHandler:
         alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.SET)
         constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
-        # If iterable provided, copy elements
         if len(call.args) > 0:
-            iterable_var = call.args[0]
-            elem_var = self._make_temp_var("set_ctor_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=iterable_var,
-                    field=elem(),
-                    target=elem_var,
-                )
-            )
-            constraints.append(
-                StoreConstraint(
-                    base=call.target,
-                    field=elem(),
-                    source=elem_var,
-                )
+            constraints.extend(
+                self._copy_iteration_values(scope, context, call, call.args[0], "set_ctor")
             )
 
         return constraints
@@ -987,6 +1169,46 @@ class BuiltinAPIHandler:
             "set": AllocKind.SET,
             "dict": AllocKind.DICT,
         }.get(container_type)
+        if kind is None:
+            # Numeric arithmetic produces a fresh scalar of the same kind.
+            # Without this, ``n - 1`` (and every derived index/value) was an
+            # empty points-to set while the result claimed to be complete.
+            numeric_kind = getattr(getattr(method_obj.receiver, "alloc_site", None), "kind", None)
+            if isinstance(method_obj.receiver, ConstantObject):
+                value = method_obj.receiver.value
+                if isinstance(value, bool):
+                    numeric_kind = AllocKind.BOOLEAN
+                elif isinstance(value, int):
+                    numeric_kind = AllocKind.INTEGER
+                elif isinstance(value, float):
+                    numeric_kind = AllocKind.FLOAT
+            if numeric_kind in (AllocKind.INTEGER, AllocKind.BOOLEAN):
+                if call.target:
+                    return [
+                        AllocConstraint(
+                            target=call.target,
+                            alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.INTEGER),
+                        )
+                    ]
+                return []
+            if numeric_kind is AllocKind.FLOAT:
+                if call.target:
+                    return [
+                        AllocConstraint(
+                            target=call.target,
+                            alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.FLOAT),
+                        )
+                    ]
+                return []
+            if self._is_string_like(method_obj.receiver):
+                if call.target:
+                    return [
+                        AllocConstraint(
+                            target=call.target,
+                            alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.STRING),
+                        )
+                    ]
+                return []
         if kind is None or not call.target or not method_obj.receiver_var:
             return []
 
@@ -1412,35 +1634,89 @@ class BuiltinAPIHandler:
     def _handle_iter(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
     ) -> List["Constraint"]:
-        """Handle iter(iterable).
+        """Handle ``iter(iterable)``.
 
-        Creates an iterator whose elem() flows from iterable.elem().
+        Python iterates mappings over their keys and every other container over
+        its elements, so the source type decides which heap field to read.  The
+        source's points-to set may not be known yet; the loads are therefore
+        re-emitted whenever it grows.  User-defined iterables are dispatched
+        through ``__iter__`` so their protocol implementation is honoured.
         """
         constraints = []
 
-        if call.target and len(call.args) > 0:
-            iterable_var = call.args[0]
+        if not call.target or len(call.args) == 0:
+            return constraints
 
-            alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
-            constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
+        iterable_var = call.args[0]
+        alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
+        constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
+        solver = self._solver
+        if solver is None:
             elem_var = self._make_temp_var("iter_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=iterable_var,
-                    field=elem(),
-                    target=elem_var,
-                )
-            )
-            constraints.append(
-                StoreConstraint(
-                    base=call.target,
-                    field=elem(),
-                    source=elem_var,
-                )
-            )
+            constraints.append(LoadConstraint(base=iterable_var, field=elem(), target=elem_var))
+            constraints.append(StoreConstraint(base=call.target, field=elem(), source=elem_var))
+            return constraints
 
+        def emit() -> None:
+            source_ctx = self.state.get_variable(scope, context, iterable_var)
+            points = self.state.get_points_to(source_ctx)
+            if not points:
+                return
+            self._note_unmodelled_string_iteration(scope, context, points, call.target)
+            for field, suffix in ((elem(), "elem"), (dict_keys(), "key")):
+                if field not in self._iteration_fields(points):
+                    continue
+                tmp_var = self._make_temp_var(f"iter_{suffix}", call)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    LoadConstraint(base=iterable_var, field=field, target=tmp_var),
+                )
+                solver.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(base=call.target, field=elem(), source=tmp_var),
+                )
+            if any(isinstance(obj, InstanceObject) for obj in points):
+                self._install_dunder_iter_call(scope, context, call, iterable_var)
+
+        self._defer_on_source(
+            ("iter-source", scope, context, call), scope, context, iterable_var, emit
+        )
         return constraints
+
+    def _install_dunder_iter_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source_var: "Variable",
+    ) -> None:
+        """Dispatch ``iter(x)`` for user objects to ``x.__iter__()``."""
+        solver = self._solver
+        assert solver is not None
+        install_key = ("iter-dunder", scope, context, call)
+        if install_key in self._installed_iteration_helpers:
+            return
+        self._installed_iteration_helpers.add(install_key)
+        method_var = self._make_temp_var("iter_dunder", call)
+        solver.add_constraint(
+            scope,
+            context,
+            LoadConstraint(base=source_var, field=attr("__iter__"), target=method_var),
+        )
+        solver.add_constraint(
+            scope,
+            context,
+            CallConstraint(
+                callee=method_var,
+                args=(),
+                kwargs=(),
+                target=call.target,
+                call_site=call.call_site,
+            ),
+        )
 
     def _handle_next(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
@@ -2464,9 +2740,11 @@ class BuiltinSummaryManager:
         self.config = config
         self._handler: Optional[BuiltinAPIHandler] = None
 
-    def set_state(self, state: "PointerAnalysisState"):
+    def set_state(self, state: "PointerAnalysisState", solver=None):
         """Set the analysis state (called by solver)."""
         self._handler = BuiltinAPIHandler(state, self.config)
+        if solver is not None:
+            self._handler.bind_solver(solver)
 
     def get_handler(self) -> Optional[BuiltinAPIHandler]:
         """Get the builtin API handler."""

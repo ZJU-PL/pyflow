@@ -201,13 +201,26 @@ Key options:
   `flow-sensitive` runs heap alias/escape analysis; `kcfa` runs k-CFA pointer analysis.
 - `--k N`: k-CFA context sensitivity depth (kcfa engine only, default: 1)
 - `--project-root PATH`: Project source root for kcfa import resolution
-  (default: inferred from the entry file's enclosing packages)
+  (default: inferred from the entry file's enclosing packages). A package
+  directory is accepted and normalised to its enclosing import root.
 - `--import-depth N`: Maximum transitive import depth for kcfa
   (default: unlimited; `0` analyzes only the entry module)
+- `--all-scopes`: kcfa engine only. Analyze every function and method body,
+  not just code reachable from the entry module. Required to see anything in
+  a library module that has no module-level execution.
 - `--max-seconds N`: Time budget across all input files (default: 30). Exhaustion reports partial analysis and preserves completed files
 - `--recursive`, `-r`: Recursively analyze Python files in a directory
 - `--json`: Output machine-readable JSON instead of human-friendly text
 - `--verbose`, `-v`: Include per-entry details
+
+The kcfa engine reports solver coverage. Text output includes
+`solver: complete=yes|no stop_reason=<reason>`, and each JSON entry carries
+`complete`, `stop_reason`, `statistics`, `incomplete_reasons`, and
+`incomplete_reason_count`. Treat `complete=false` results as partial: the
+engine reports unmodelled behaviour (native calls, string iteration, custom
+metaclass `__call__`, unresolved subscript indexes) instead of silently
+returning empty sets. When the wall-clock budget expires, remaining files are
+emitted with `"status": "skipped"`.
 
 ## Concolic
 

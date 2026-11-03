@@ -2,7 +2,7 @@
 
 import ast
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from .processor import Processor
 from ..object import ListObject, TupleObject, DictObject, SetObject, ConstantObject, AllocKind
 from ..heap_model import dict_keys, elem, elem_only, key
@@ -123,6 +123,44 @@ class ContainerProcessor(Processor):
             return self._apply_store_subscr(solver, scope, target, constraint, pts)
         return False
 
+    @staticmethod
+    def _literal_sequence_length(obj: Any) -> Optional[int]:
+        """Return the statically known length of a literal sequence object.
+
+        ``None`` means the length cannot be determined (non-literal container,
+        starred element, or an unsupported literal form).
+        """
+        stmt = getattr(getattr(obj, "alloc_site", None), "stmt", None)
+        rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
+        if not isinstance(rval, (ast.List, ast.Tuple)):
+            return None
+        if any(isinstance(element, ast.Starred) for element in rval.elts):
+            return None
+        return len(rval.elts)
+
+    def _add_negative_index_loads(
+        self,
+        solver: "PointerSolver",
+        scope: "Scope",
+        c: "LoadSubscrConstraint",
+        index_value: Any,
+        base_objects: PointsToSet,
+    ) -> None:
+        """Resolve ``seq[-n]`` against a literal sequence's known length."""
+        if not isinstance(index_value, int) or isinstance(index_value, bool) or index_value >= 0:
+            return
+        for base_obj in base_objects:
+            if not isinstance(base_obj, (ListObject, TupleObject)):
+                continue
+            length = self._literal_sequence_length(base_obj)
+            if length is None or index_value < -length:
+                continue
+            solver.add_constraint(
+                scope,
+                scope.context,
+                LoadConstraint(c.base, key(length + index_value), c.target),
+            )
+
     def _apply_load_subscr(
         self,
         solver: "PointerSolver",
@@ -133,14 +171,18 @@ class ContainerProcessor(Processor):
     ):
         """Apply load constraint: target = base[index].
 
-        For any index (constant or not), we add LoadConstraint with elem() to ensure
-        all container values are visible through the generic element field (soundness).
-        We also add key-specific constraints for constant indices (precision).
+        Soundness rules:
+
+        * A statically known index yields a precise ``key(...)`` load.  For
+          sequences, negative indices are normalised against the literal
+          length (``seq[-1]`` becomes the last element).
+        * ``elem_only()`` may only replace the generic fallback when *every*
+          index value is a known constant addressing a precise literal
+          container.  Otherwise an unknown index (for example a loop counter)
+          must fall back to ``elem()``; ``elem_only()`` holds only positions
+          that could not be determined statically and therefore cannot stand
+          in for an arbitrary index.
         """
-        for index_obj in pts:
-            if isinstance(index_obj, ConstantObject):
-                field = key(index_obj.value)
-                solver.add_constraint(scope, scope.context, LoadConstraint(c.base, field, c.target))
         state = solver.state
         base_ctx = state.get_variable(scope, scope.context, c.base)
         base_objects = state.get_points_to(base_ctx)
@@ -156,7 +198,18 @@ class ContainerProcessor(Processor):
                 ),
             )
             return True
-        precise = all(obj in state._precise_container_objects for obj in base_objects)
+
+        constant_indices = [obj for obj in pts if isinstance(obj, ConstantObject)]
+        for index_obj in constant_indices:
+            field = key(index_obj.value)
+            solver.add_constraint(scope, scope.context, LoadConstraint(c.base, field, c.target))
+            self._add_negative_index_loads(solver, scope, c, index_obj.value, base_objects)
+
+        precise = (
+            bool(pts)
+            and len(constant_indices) == len(pts)
+            and all(obj in state._precise_container_objects for obj in base_objects)
+        )
         if precise:
             # Literal containers mirror key(i) and elem(); only values added
             # through an unknown position need the generic fallback.
@@ -167,7 +220,8 @@ class ContainerProcessor(Processor):
             )
         else:
             # Always include elem() for containers whose key cells may not be
-            # complete (append/update/starred unpacking, custom containers).
+            # complete (append/update/starred unpacking, custom containers) and
+            # for any index that is not a known constant.
             solver.add_constraint(
                 scope,
                 scope.context,
@@ -186,7 +240,9 @@ class ContainerProcessor(Processor):
         """Apply store constraint: base[index] = source."""
 
         state = solver.state
-        unknown_index = False
+        # An empty index set means "the index is not known", not "no store
+        # happens": keep the write visible through the generic element cell.
+        unknown_index = len(pts) == 0
         stored_elem = False
         for index_obj in pts:
             if isinstance(index_obj, ConstantObject):

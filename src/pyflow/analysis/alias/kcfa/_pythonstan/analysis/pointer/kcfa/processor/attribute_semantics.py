@@ -95,7 +95,16 @@ class AttributeResolver(Processor):
         )
         if isinstance(base_obj, InstanceObject):
             raw_instance = state.raw_field(scope, context, base_obj, field)
-            state._add_var_points_flow(raw_instance, target_ctx)
+            # Plain functions stored on the instance (``obj.m = f``) are bound
+            # methods at runtime; deliver them through ``deliver_into`` so the
+            # call receives its receiver instead of failing the arity check.
+            bind_guard = GuardNode(lambda _edge, pts: pts.deliver_into(base_obj))
+            state._add_points_flow_edge(
+                PointerFlowEdge(NormalNode(raw_instance), bind_guard, PointerFlowKind.NORMAL)
+            )
+            state._add_points_flow_edge(
+                PointerFlowEdge(bind_guard, NormalNode(target_ctx), PointerFlowKind.NORMAL)
+            )
             self._install_class_lookup(
                 solver,
                 scope,
@@ -579,6 +588,8 @@ class AttributeResolver(Processor):
             # field is a data descriptor on every abstract execution.  Until
             # descriptor-kind facts carry their own may/must lattice, retain
             # the instance value whenever an instance-dict cell is possible.
+            # Instance ``__dict__`` entries are plain values: unlike class
+            # attributes they do not get descriptor binding.
             instance_edge = PointerFlowEdge(
                 NormalNode(instance_field), selector, PointerFlowKind.NORMAL
             )

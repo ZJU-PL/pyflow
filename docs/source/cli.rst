@@ -394,8 +394,14 @@ Options:
 
 - ``--engine {flow-sensitive,kcfa}``: Analysis engine (default: flow-sensitive)
 - ``--k N``: k-CFA context sensitivity depth (kcfa engine only, default: 1)
+- ``--all-scopes``: kcfa only; analyze every function/method body instead of
+  only code reachable from the entry module
 - ``--max-seconds N``: Time budget across all files (default: 30); exhaustion
   reports partial coverage and retains completed files
+
+The kcfa report includes solver coverage (``complete``/``stop_reason``), both
+in text and JSON form. Files skipped after a budget expiry appear in JSON with
+``"status": "skipped"``.
 - ``--recursive, -r``: Recursively analyze Python files in a directory
 - ``--json``: Output machine-readable JSON instead of human-friendly text
 - ``--verbose, -v``: Include per-entry details

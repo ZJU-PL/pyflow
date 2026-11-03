@@ -360,6 +360,23 @@ class PythonCallService(Processor):
         default_possible = self._metaclass_default_call_possible(solver, meta_obj)
         if default_possible is True:
             self._apply_default_metaclass_call(solver, scope, call, class_obj)
+        elif default_possible is False:
+            # A custom ``__call__`` controls the result, but its body is not
+            # interpreted and ``super().__call__`` (``type.__call__``) is not
+            # modelled.  A class whose metaclass delegates therefore yields no
+            # instance; report that instead of claiming a complete empty set.
+            solver.mark_semantic_incomplete(
+                variables=(
+                    (solver.state.get_variable(scope, scope.context, call.target),)
+                    if call.target is not None
+                    else ()
+                ),
+                kind=UnknownKind.UNKNOWN_BUILTIN.value,
+                message=(
+                    "custom metaclass __call__ is not interpreted; "
+                    "type.__call__ delegation is not modelled"
+                ),
+            )
 
     def _metaclass_default_call_possible(
         self,
