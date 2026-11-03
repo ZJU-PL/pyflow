@@ -530,3 +530,45 @@ def test_user_defined_async_iterables_yield_element_types() -> None:
         "        return value\n"
     )
     assert str(result.functions["sample.first"].return_type) == "None | int"
+
+
+def test_explicit_staticmethod_assignment_is_callable() -> None:
+    result = _infer(
+        "from typing import Any, Callable\n"
+        "def _default(value): return value\n"
+        "class Provider:\n"
+        "    default: Callable[[Any], Any] = staticmethod(_default)\n"
+    )
+    assert _mismatches(result) == []
+
+
+def test_overload_selection_respects_keyword_parameters() -> None:
+    result = _infer(
+        "from typing import Literal, overload\n"
+        "@overload\n"
+        "def convert(value: int) -> int: ...\n"
+        "@overload\n"
+        "def convert(value: int, *, unicode: Literal[True]) -> str: ...\n"
+        "def convert(value, unicode=True): return value\n"
+        "text = convert(1, unicode=True)\n"
+    )
+    assert str(result.type_of("text")) == "str"
+    assert [
+        diagnostic.message
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "call-arity-mismatch"
+    ] == []
+
+
+def test_empty_dict_is_compatible_with_total_false_typeddict() -> None:
+    result = _infer(
+        "from typing import TypedDict\n"
+        "class Options(TypedDict, total=False):\n"
+        "    enabled: bool\n"
+        "options: Options = {}\n"
+        "class Required(TypedDict):\n"
+        "    value: int\n"
+        "missing: Required = {}\n"
+    )
+    assert str(result.type_of("options")) == "sample.Options"
+    assert any("missing keys ['value']" in diagnostic.message for diagnostic in result.diagnostics)

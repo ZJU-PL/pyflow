@@ -3952,6 +3952,10 @@ class StaticTypeInferenceEngine:
                     mode = mode_node.value
             return self._instance(io.BufferedIOBase if "b" in mode else io.TextIOWrapper)
 
+        if name in {"staticmethod", "classmethod"} and arguments:
+            # An explicit ``x = staticmethod(f)`` class attribute is exposed
+            # as the wrapped callable when accessed through the class.
+            return arguments[0]
         constructors: dict[str, type] = {
             "bool": bool,
             "bytes": bytes,
@@ -6719,6 +6723,28 @@ class StaticTypeInferenceEngine:
             # that it violates the literal constraint.
             return
         if isinstance(expected, Instance) and expected.type.typed_dict_fields is not None:
+            if (
+                inferred.types
+                and not inferred.dict_shapes
+                and all(
+                    isinstance(candidate, Instance)
+                    and candidate.type.raw_type is dict
+                    and len(candidate.args) >= 2
+                    and isinstance(candidate.args[0], NeverType)
+                    and isinstance(candidate.args[1], NeverType)
+                    for candidate in inferred.types
+                )
+            ):
+                missing = expected.type.required_keys
+                if missing:
+                    self._add_diagnostic(
+                        "annotation-mismatch",
+                        f"TypedDict {expected} has missing keys {sorted(missing)} "
+                        "and unexpected keys []",
+                        node=node,
+                        severity="error" if self.options.strict_annotations else "warning",
+                    )
+                return
             if inferred.dict_shapes and all(
                 isinstance(candidate, Instance) and candidate.type.raw_type is dict
                 for candidate in inferred.types
@@ -7603,6 +7629,25 @@ class StaticTypeInferenceEngine:
         keywords: dict[str, AbstractTypeValue],
     ) -> _FunctionInfo | None:
         for overload in function.overloads:
+            arguments_node = overload.node.args
+            positional = [*arguments_node.posonlyargs, *arguments_node.args]
+            positional_only = {argument.arg for argument in arguments_node.posonlyargs}
+            accepted_keywords = {
+                argument.arg
+                for argument in (
+                    *arguments_node.posonlyargs,
+                    *arguments_node.args,
+                    *arguments_node.kwonlyargs,
+                )
+            }
+            if arguments_node.kwarg is None and any(
+                name not in accepted_keywords for name in keywords
+            ):
+                continue
+            if any(name in positional_only for name in keywords):
+                continue
+            if arguments_node.vararg is None and len(arguments) > len(positional):
+                continue
             bound = self._bind_call_arguments(overload, arguments, keywords)
             if any(name not in bound for name in self._required_parameter_names(overload)):
                 continue
