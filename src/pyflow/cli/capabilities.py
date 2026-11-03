@@ -162,6 +162,31 @@ def _has_registry_call(path: Path, registry) -> bool:
     return False
 
 
+def _is_safe_reexport_only(path: Path, registry) -> bool:
+    """True for modules with no calls and no capability-module imports."""
+    try:
+        with tokenize.open(path) as handle:
+            tree = ast.parse(handle.read(), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError):
+        return False
+    capability_roots = {pattern.access_path.split(".", 1)[0] for pattern in registry.patterns}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            return False
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                return False
+            names = [node.module] if node.module else []
+        else:
+            continue
+        for name in names:
+            if name and name.split(".", 1)[0] in capability_roots:
+                return False
+    return True
+
+
 def _has_local_absolute_import(path: Path, root: Path) -> bool:
     """Return True when a file imports a module living under ``root``."""
     return any(
@@ -401,8 +426,13 @@ def run_capabilities(args) -> int:
                     fast_unmarked = (
                         target.is_file()
                         and not getattr(args, "include_imports", False)
-                        and entry.stat().st_size > 64 * 1024
-                        and not _has_registry_call(entry, registry)
+                        and (
+                            (
+                                entry.stat().st_size > 64 * 1024
+                                and not _has_registry_call(entry, registry)
+                            )
+                            or _is_safe_reexport_only(entry, registry)
+                        )
                     )
                     if fast_unmarked:
                         # Large class-heavy modules with no registry-relevant

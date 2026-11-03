@@ -446,3 +446,21 @@ def test_chained_client_method_keeps_network_capability() -> None:
         finding.access_path for finding in result.findings if finding.capability == "network.io"
     }
     assert "httpx.AsyncClient.<return>.with_options.<return>.get" in paths
+
+
+def test_reexport_only_fast_path_detection(tmp_path) -> None:
+    from pyflow.checker.capability.defaults import default_capability_registry
+    from pyflow.cli.capabilities import _is_safe_reexport_only
+
+    registry = default_capability_registry()
+    safe = tmp_path / "safe.py"
+    safe.write_text("from json import dumps\n", encoding="utf-8")
+    assert _is_safe_reexport_only(safe, registry)
+
+    capability_import = tmp_path / "cap.py"
+    capability_import.write_text("from subprocess import run\n", encoding="utf-8")
+    assert not _is_safe_reexport_only(capability_import, registry)
+
+    call = tmp_path / "call.py"
+    call.write_text("from json import dumps\ndumps({})\n", encoding="utf-8")
+    assert not _is_safe_reexport_only(call, registry)
