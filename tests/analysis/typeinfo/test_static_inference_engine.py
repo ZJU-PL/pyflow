@@ -972,3 +972,69 @@ def test_project_engine_discovers_imports_and_solves_cross_module_types() -> Non
     client = result.type_of("pkg.service.client")
     assert isinstance(client, Instance)
     assert client.type.full_name == "pkg.models.Client"
+
+
+def test_isinstance_with_tuple_of_types_narrows_to_element_types():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any\n"
+        "def f(obj: Any) -> str | bytes:\n"
+        "    expected = (str, bytes)\n"
+        "    if not isinstance(obj, expected):\n"
+        "        raise TypeError('bad')\n"
+        "    return obj\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_property_value_is_called_instead_of_the_getter_function():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from abc import ABC, abstractmethod\n"
+        "from typing import Any, Callable\n"
+        "class M(ABC):\n"
+        "    @property\n"
+        "    @abstractmethod\n"
+        "    def item_class(self) -> Any: ...\n"
+        "    @property\n"
+        "    def factory(self) -> Callable[..., object]: ...\n"
+        "    def run(self):\n"
+        "        self.item_class(name='x')\n"
+        "        return self.factory(name='x')\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_property_call_fix_preserves_method_arity_checks():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "class M:\n"
+        "    def item_class(self, required): return required\n"
+        "    def run(self):\n"
+        "        return self.item_class(unexpected=1)\n",
+    )
+
+    assert result.converged
+    assert [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_generic_base_method_is_not_checked_against_one_subclass_argument():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Generic, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "class Base(Generic[T]):\n"
+        "    response_type: type = str\n"
+        "    def process(self, value: str) -> T:\n"
+        "        result: T = self.response_type(value)\n"
+        "        return result\n"
+        "class IntPrompt(Base[int]):\n"
+        "    response_type = int\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

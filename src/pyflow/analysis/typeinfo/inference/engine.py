@@ -1515,12 +1515,18 @@ class StaticTypeInferenceEngine:
                 # annotation; the element type lives in ``yield_value``.
                 return_value = explicit_return
             else:
-                self._check_annotation_compatibility(
-                    return_value,
-                    explicit_return,
-                    self._return_check_node(function.node),
-                    context=f"return of {function.qualified_name}",
-                )
+                if not self._is_substituted_type_variable_annotation(
+                    function.node.returns, explicit_return, function.type_variables
+                ):
+                    # A bare type variable is a placeholder.  Checking it
+                    # against one concrete specialization reports spurious
+                    # mismatches in generic base-class methods.
+                    self._check_annotation_compatibility(
+                        return_value,
+                        explicit_return,
+                        self._return_check_node(function.node),
+                        context=f"return of {function.qualified_name}",
+                    )
                 return_value = explicit_return
         elif (
             return_value.unknown
@@ -1834,9 +1840,10 @@ class StaticTypeInferenceEngine:
                 )
                 if self._is_never_value(inferred):
                     return _Outcome(result, terminated=True)
-                self._check_annotation_compatibility(
-                    inferred, annotated, node, context="annotated assignment"
-                )
+                if not self._is_substituted_type_variable_annotation(node.annotation, annotated):
+                    self._check_annotation_compatibility(
+                        inferred, annotated, node, context="annotated assignment"
+                    )
             is_bare_qualifier = (
                 isinstance(node.annotation, ast.Name)
                 and node.annotation.id in {"Final", "ClassVar"}
@@ -4283,6 +4290,17 @@ class StaticTypeInferenceEngine:
                 continue
             class_info = self._classes.get(typ.type.full_name)
             if class_info is not None:
+                getter = self._class_property(class_info.qualified_name, node.attr)
+                if getter is not None:
+                    # ``obj.prop(...)`` calls the property's value, not the
+                    # getter function itself.
+                    function = self._functions[getter]
+                    value = function.explicit_return or (
+                        function.summary.return_value
+                        if function.summary
+                        else AbstractTypeValue.unresolved()
+                    )
+                    return self._call_property_value(value, arguments, keywords, call_node or node)
                 method = self._class_method(class_info.qualified_name, node.attr)
                 if method is not None:
                     method_targets.append(method)
@@ -6041,10 +6059,13 @@ class StaticTypeInferenceEngine:
             narrowed = self._evaluate_type_expression(condition.args[1])
             if narrowed.unknown and isinstance(condition.args[1], ast.Name):
                 # Local aliases such as ``_Segment = Segment`` are runtime
-                # class objects, not annotation aliases.
+                # class objects, not annotation aliases.  A tuple of classes
+                # (``expected = (str, bytes)``) narrows to the union of its
+                # elements rather than to the tuple itself.
                 runtime_alias = current(condition.args[1])
-                if runtime_alias.types and not runtime_alias.unknown:
-                    narrowed = runtime_alias
+                runtime_types = self._runtime_isinstance_types(runtime_alias)
+                if runtime_types is not None:
+                    narrowed = runtime_types
             if not narrowed.unknown:
                 if truthy:
                     old = current(expression)
@@ -6464,6 +6485,37 @@ class StaticTypeInferenceEngine:
                     return True
         return old.unknown or expected.unknown
 
+    def _runtime_isinstance_types(self, value: AbstractTypeValue) -> AbstractTypeValue | None:
+        """Convert runtime class objects supplied to ``isinstance`` into types."""
+        normalized: list[AbstractTypeValue] = []
+
+        def add(typ: ProperType) -> bool:
+            if isinstance(typ, TypeType):
+                normalized.append(AbstractTypeValue.from_type(typ.item))
+                return True
+            if isinstance(typ, TupleType):
+                return all(add(item) for item in typ.args)
+            if isinstance(typ, UnionType):
+                return all(add(item) for item in typ.items)
+            if isinstance(typ, Instance):
+                if typ.type.raw_type in {tuple, list, set, frozenset} and typ.args:
+                    return all(add(item) for item in typ.args)
+                # Class objects are also represented as instances in some
+                # specialized call environments (``cls`` in classmethods).
+                normalized.append(AbstractTypeValue.from_type(typ))
+                return True
+            return False
+
+        if value.unknown or not value.types:
+            return None
+        if not all(add(typ) for typ in value.types):
+            return None
+        return join_all(
+            normalized,
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+
     def _narrow_to_allowed(
         self,
         old: AbstractTypeValue,
@@ -6694,6 +6746,27 @@ class StaticTypeInferenceEngine:
             and isinstance(candidate.args[1], NeverType)
             for candidate in value.types
         )
+
+    def _is_type_variable_annotation(self, node, type_variables=None) -> bool:
+        """Whether *node* is a bare type-variable reference."""
+        if not isinstance(node, ast.Name):
+            return False
+        variables = self._type_vars if type_variables is None else type_variables
+        return node.id in variables
+
+    def _is_substituted_type_variable_annotation(
+        self, node, value: AbstractTypeValue, type_variables=None
+    ) -> bool:
+        """A bare type-variable annotation analyzed under a concrete substitution.
+
+        Base-class methods are analyzed for each subclass specialization.  A
+        body that is not genuinely parameterized (for example one reading a
+        concrete class attribute) must not be checked against an arbitrary
+        subclass type argument.
+        """
+        if not self._is_type_variable_annotation(node, type_variables):
+            return False
+        return not isinstance(value.public_type(), TypeVarType)
 
     def _check_annotation_compatibility(
         self,
@@ -9862,6 +9935,47 @@ class StaticTypeInferenceEngine:
         if hasattr(builtins, name) and isinstance(getattr(builtins, name), type):
             return f"builtins.{name}"
         return name
+
+    def _call_property_value(
+        self,
+        value: AbstractTypeValue,
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+        node: ast.Call | ast.Attribute,
+    ) -> AbstractTypeValue:
+        """Apply a call to the value produced by a property getter."""
+        if self._contains_any(value) or value.unknown:
+            return AbstractTypeValue.from_type(ANY)
+        results: list[AbstractTypeValue] = []
+        for typ in value.types:
+            if isinstance(typ, CallableType):
+                selected = self._select_callable_overload(typ, arguments)
+                results.append(
+                    AbstractTypeValue.from_type(
+                        selected.return_type if selected is not None else typ.return_type
+                    )
+                )
+            elif isinstance(typ, Instance):
+                class_info = self._classes.get(typ.type.full_name)
+                if class_info is None:
+                    continue
+                call_method = self._class_method(class_info.qualified_name, "__call__")
+                if call_method is not None:
+                    results.append(
+                        self._apply_function(
+                            call_method,
+                            [AbstractTypeValue.from_type(typ), *arguments],
+                            keywords,
+                            node=node,
+                        )
+                    )
+        if results:
+            return join_all(
+                results,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
+        return AbstractTypeValue.unresolved()
 
     def _class_method(
         self,
