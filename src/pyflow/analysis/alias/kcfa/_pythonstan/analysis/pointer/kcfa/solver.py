@@ -16,6 +16,8 @@ from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import (
     IRModule,
     IRClass,
     IRAssign,
+    IRCopy,
+    IRCall,
     IRStoreSubscr,
 )
 
@@ -197,6 +199,8 @@ class PointerSolver:
         "setattr",
         "delattr",
         "vars",
+        "globals",
+        "locals",
         "callable",
         "super",
         "print",
@@ -327,6 +331,10 @@ class PointerSolver:
         self._installed_slot_descriptors = set()
         self._expanded_dynamic_code = set()
         self._widened_points_to_nodes = set()
+        self._enum_members_installed = set()
+        self._enum_bound_classes = set()
+        self._enum_member_names = defaultdict(set)
+        self._dataclass_field_names = defaultdict(set)
 
     def mark_frontend_incomplete(self) -> None:
         self._frontend_complete = False
@@ -414,6 +422,34 @@ class PointerSolver:
             elif isinstance(constraint, InheritanceConstraint):
                 base = self.state.get_variable(scope, context, constraint.base)
                 self.state.constraints.add(scope, base, constraint)
+            elif isinstance(constraint, SemanticGapConstraint):
+                if constraint.target is not None:
+                    target = self.state.get_variable(scope, context, constraint.target)
+                    self.mark_semantic_incomplete(
+                        variables=(target,),
+                        kind=constraint.kind,
+                        message=constraint.message,
+                    )
+                else:
+                    self.mark_semantic_incomplete(
+                        scopes=(scope,),
+                        kind=constraint.kind,
+                        message=constraint.message,
+                    )
+            elif isinstance(constraint, ContainerPreciseConstraint):
+                target = self.state.get_variable(scope, context, constraint.target)
+
+                def mark_precise(target=target) -> None:
+                    for obj in self.state.get_points_to(target):
+                        if isinstance(obj, (ListObject, TupleObject, DictObject)):
+                            self.state._precise_container_objects.add(obj)
+
+                self.state.dependencies.subscribe(
+                    ("precise-container", scope, context, constraint),
+                    (target,),
+                    mark_precise,
+                    run_initial=True,
+                )
 
     def solve_to_fixpoint(self) -> None:
         logger.info("Starting constraint solving")
@@ -822,7 +858,13 @@ class PointerSolver:
                     target_var=str(c.target),
                 )
             self.state.obj_scope[obj] = scope
-            if isinstance(obj, ClassObject) and (obj.base_variables or obj.metaclass_variables):
+            if isinstance(obj, ClassObject) and self._is_enum_class(obj):
+                # ``Enum``/``Flag`` members are installed from the class body
+                # below.  The stub metaclass is not modeled well enough to make
+                # the class binding feasible, so bind the raw class object.
+                self._bind_enum_class(obj, scope, target, pts)
+            elif isinstance(obj, ClassObject) and (obj.base_variables or obj.metaclass_variables):
+                self._watch_enum_bases(obj, scope, target, pts)
                 self.state.defer_class_binding(obj, scope, target)
                 self.state.release_class_binding_if_feasible(obj)
             else:
@@ -1118,6 +1160,7 @@ class PointerSolver:
         self._install_class_base_resolution(scope, context, obj)
         self._install_class_namespace(scope, context, obj, ctx_scope, cls_context)
         self._install_class_slots(scope, context, obj)
+        self._install_enum_members(obj, ctx_scope, cls_context)
         self.state.refresh_class_variants(obj)
 
         meta_sources = tuple(
@@ -1145,6 +1188,163 @@ class PointerSolver:
         self._refresh_class_construction(scope, context, obj, c.target)
 
         return obj
+
+    def _is_enum_class(self, class_obj: ClassObject) -> bool:
+        """Whether ``class_obj`` directly inherits from an enum base."""
+        stmt = class_obj.alloc_site.stmt
+        if not isinstance(stmt, IRClass):
+            return False
+        enum_bases = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
+        for base in stmt.get_bases():
+            name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", None)
+            if name in enum_bases:
+                return True
+        for base_var in class_obj.base_variables:
+            scope = class_obj.container_scope
+            base_ctx = self.state.get_variable(scope, scope.context, base_var)
+            for base_obj in self.state.get_points_to(base_ctx):
+                if isinstance(base_obj, ClassObject):
+                    name = base_obj.ir.get_qualname().rsplit(".", 1)[-1]
+                    if name in enum_bases:
+                        return True
+        return False
+
+    def _bind_enum_class(
+        self,
+        class_obj: ClassObject,
+        scope: Scope,
+        target: "Ctx[Any]",
+        pts: PointsToSet,
+    ) -> None:
+        """Bind an enum class and install its member objects once."""
+        if class_obj in self._enum_bound_classes:
+            return
+        self._enum_bound_classes.add(class_obj)
+        class_scope = self.state.get_internal_scope(class_obj)
+        if class_scope is not None:
+            self._install_enum_members(class_obj, class_scope, class_scope.context)
+        self.handle_new_points_to(target, scope, pts)
+
+    def _watch_enum_bases(
+        self,
+        class_obj: ClassObject,
+        scope: Scope,
+        target: "Ctx[Any]",
+        pts: PointsToSet,
+    ) -> None:
+        """Re-check enum status when a class base is resolved later."""
+        if not class_obj.base_variables:
+            return
+        container = class_obj.container_scope
+        sources = tuple(
+            self.state.get_variable(container, container.context, base_var)
+            for base_var in class_obj.base_variables
+        )
+        self.state.dependencies.subscribe(
+            ("enum-class-bases", class_obj),
+            sources,
+            lambda: (
+                self._bind_enum_class(class_obj, scope, target, pts)
+                if self._is_enum_class(class_obj)
+                else None
+            ),
+            run_initial=True,
+        )
+
+    def _install_enum_members(
+        self,
+        class_obj: ClassObject,
+        class_scope: Scope,
+        class_context: AbstractContext,
+    ) -> None:
+        """Create abstract enum member objects for simple class-body names."""
+        if class_obj in self._enum_members_installed:
+            return
+        if not self._is_enum_class(class_obj):
+            return
+        self._enum_members_installed.add(class_obj)
+        state = self.state
+        body = getattr(class_obj.ir.get_ast(), "body", ()) or ()
+        class_ir = self.state.scope_manager.get_ir(class_obj.ir, "ir") or ()
+        copies = {
+            statement.get_lval().id: statement.get_rval().id
+            for statement in class_ir
+            if isinstance(statement, IRCopy)
+        }
+        for node in body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if not isinstance(target, ast.Name) or target.id.startswith("_"):
+                    continue
+                name = target.id
+                class_field = state.raw_field(class_scope, class_context, class_obj, attr(name))
+                values = list(state.get_points_to(class_field))
+                if not values:
+                    source = copies.get(name)
+                    if source is not None:
+                        source_var = self.variable_factory.make_variable(
+                            source, VariableKind.TEMPORARY
+                        )
+                        source_ctx = state.get_variable(class_scope, class_context, source_var)
+                        values = list(state.get_points_to(source_ctx))
+                if not values:
+                    value_node = getattr(node, "value", None)
+                    if isinstance(value_node, ast.Constant):
+                        values = [
+                            ConstantObject(
+                                class_context,
+                                AllocSite(
+                                    f"<enum-value:{class_obj.ir.get_qualname()}:{name}>",
+                                    AllocKind.CONSTANT,
+                                ),
+                                value_node.value,
+                            )
+                        ]
+                if not values:
+                    values = [
+                        AbstractObject(
+                            class_context,
+                            AllocSite(
+                                f"<enum-value:{class_obj.ir.get_qualname()}:{name}>",
+                                AllocKind.UNKNOWN,
+                            ),
+                        )
+                    ]
+                member = InstanceObject(
+                    class_context,
+                    AllocSite(
+                        f"<enum-member:{class_obj.ir.get_qualname()}:{name}>",
+                        AllocKind.INSTANCE,
+                    ),
+                    class_obj,
+                )
+                value_field = state.get_field(class_scope, class_context, member, attr("_value_"))
+                self.handle_new_points_to(
+                    value_field,
+                    class_scope,
+                    PointsToSet.from_objects(values, arena=state.arena),
+                )
+                name_field = state.get_field(class_scope, class_context, member, attr("_name_"))
+                name_obj = ConstantObject(
+                    class_context,
+                    AllocSite(
+                        f"<enum-name:{class_obj.ir.get_qualname()}:{name}>",
+                        AllocKind.CONSTANT,
+                    ),
+                    name,
+                )
+                self.handle_new_points_to(
+                    name_field,
+                    class_scope,
+                    PointsToSet.singleton(name_obj, state.arena),
+                )
+                self._enum_member_names[class_obj].add(name)
+                self.handle_new_points_to(
+                    class_field,
+                    class_scope,
+                    PointsToSet.singleton(member, state.arena),
+                )
 
     def _install_class_slots(
         self,
@@ -2155,6 +2355,7 @@ class PointerSolver:
         cycle = f".{method}.<return>"
         while result_path.endswith(cycle + cycle):
             result_path = result_path[: -len(cycle)]
+        result_path = canonicalize_native_access_path(result_path)
         result = NativeObject(
             context=context,
             alloc_site=AllocSite(f"<native:{result_path}>", AllocKind.NATIVE),
@@ -2210,6 +2411,34 @@ class PointerSolver:
                     alloc_site=AllocSite(call.call_site.statement, fresh_kind),
                 )
                 self.state._worklist.add((scope, NormalNode(target), PointsToSet.singleton(fresh)))
+            elif kind == "return_sequence" and call.target is not None:
+                self.add_constraint(
+                    scope,
+                    context,
+                    AllocConstraint(
+                        target=call.target,
+                        alloc_site=AllocSite(call.call_site.statement, AllocKind.LIST),
+                    ),
+                )
+                for index, argument in enumerate(self._native_effect_variables(call, effect)):
+                    elem_var = self.variable_factory.make_variable(
+                        f"$effect_elem@{call.call_site.short_id()}@{index}",
+                        VariableKind.TEMPORARY,
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(base=argument, field=elem(), target=elem_var),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        StoreConstraint(
+                            base=call.target,
+                            field=elem(),
+                            source=elem_var,
+                        ),
+                    )
 
         for effect in self.config.native_effects or ():
             if not fnmatchcase(access_path, effect.get("access_path", "")):
@@ -2288,6 +2517,386 @@ class PointerSolver:
             elif isinstance(selector, str) and selector in keyword_map:
                 selected.append(keyword_map[selector])
         return tuple(selected)
+
+    @staticmethod
+    def _is_dataclass_class(class_obj: AbstractObject) -> bool:
+        """Return whether ``class_obj`` was declared with ``@dataclass``."""
+        if not isinstance(class_obj, ClassObject):
+            return False
+        stmt = class_obj.alloc_site.stmt
+        if not isinstance(stmt, IRClass):
+            return False
+        for decorator in getattr(stmt, "decorator_list", ()) or ():
+            expr = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(expr, ast.Name) and expr.id == "dataclass":
+                return True
+            if isinstance(expr, ast.Attribute) and expr.attr == "dataclass":
+                return True
+        return False
+
+    @staticmethod
+    def _is_namedtuple_class(class_obj: AbstractObject) -> bool:
+        """Whether the class uses the ``typing.NamedTuple`` class syntax."""
+        if not isinstance(class_obj, ClassObject):
+            return False
+        stmt = class_obj.alloc_site.stmt
+        if not isinstance(stmt, IRClass):
+            return False
+        ast_node = stmt.get_ast()
+        if getattr(ast_node, "_pyflow_namedtuple", False):
+            return True
+        for base in getattr(ast_node, "bases", ()) or ():
+            if isinstance(base, ast.Name) and base.id == "NamedTuple":
+                return True
+            if isinstance(base, ast.Attribute) and base.attr == "NamedTuple":
+                return True
+        return False
+
+    def _class_defines_init(self, class_obj: ClassObject) -> bool:
+        """Whether the class or a base declares a Python-level ``__init__``."""
+        owners = [class_obj]
+        if self.class_hierarchy is not None:
+            try:
+                owners = [
+                    obj
+                    for obj in self.class_hierarchy.get_mro(class_obj)
+                    if isinstance(obj, ClassObject)
+                ]
+            except Exception:
+                pass
+        for owner in owners:
+            body = getattr(owner.ir.get_ast(), "body", ()) or ()
+            if any(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"
+                for node in body
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _dataclass_field_defaults(value: Optional[ast.expr]):
+        """Return ``(default, default_factory, init, kw_only)`` for a field."""
+        default = None
+        default_factory = None
+        init = True
+        kw_only = False
+        if isinstance(value, ast.Call):
+            func = value.func
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute) else ""
+            )
+            if name == "field":
+                for keyword in value.keywords:
+                    if keyword.arg == "default":
+                        default = keyword.value
+                    elif keyword.arg == "default_factory":
+                        default_factory = keyword.value
+                    elif keyword.arg == "init" and isinstance(keyword.value, ast.Constant):
+                        init = bool(keyword.value.value)
+                    elif keyword.arg == "kw_only" and isinstance(keyword.value, ast.Constant):
+                        kw_only = bool(keyword.value.value)
+                return default, default_factory, init, kw_only
+        return value, None, init, kw_only
+
+    def _dataclass_field_specs(self, class_obj: ClassObject):
+        """Collect dataclass fields in MRO order, including inherited fields."""
+        owners = [class_obj]
+        if self.class_hierarchy is not None:
+            try:
+                owners = [
+                    obj
+                    for obj in self.class_hierarchy.get_mro(class_obj)
+                    if isinstance(obj, ClassObject)
+                ]
+            except Exception:
+                pass
+        specs = []
+        seen = set()
+        for owner in reversed(owners):
+            body = getattr(owner.ir.get_ast(), "body", ()) or ()
+            assigned_values = {}
+            for statement in body:
+                if isinstance(statement, ast.Assign):
+                    for target in statement.targets:
+                        if isinstance(target, ast.Name):
+                            assigned_values[target.id] = statement.value
+            field_calls = {}
+            class_ir = self.state.scope_manager.get_ir(owner.ir, "ir") or ()
+            calls = {
+                statement.get_target(): statement
+                for statement in class_ir
+                if isinstance(statement, IRCall) and statement.get_target()
+            }
+            copies = {
+                statement.get_lval().id: statement.get_rval().id
+                for statement in class_ir
+                if isinstance(statement, IRCopy)
+            }
+            for field_name, temp_name in copies.items():
+                call = calls.get(temp_name)
+                if call is None or call.get_func_name().rsplit(".", 1)[-1] != "field":
+                    continue
+                ir_spec = {"factory_name": None, "init": True, "kw_only": False}
+                for keyword, argument in call.get_keywords():
+                    if keyword == "default_factory":
+                        ir_spec["factory_name"] = argument
+                field_calls[field_name] = ir_spec
+            for node in body:
+                if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+                    continue
+                name = node.target.id
+                if name in seen:
+                    continue
+                annotation = ast.unparse(node.annotation) if node.annotation is not None else ""
+                if annotation.startswith(("ClassVar", "typing.ClassVar", "InitVar")):
+                    continue
+                seen.add(name)
+                value = node.value if node.value is not None else assigned_values.get(name)
+                default, factory, init, kw_only = self._dataclass_field_defaults(value)
+                ir_spec = field_calls.get(name, {})
+                if ir_spec.get("factory_name"):
+                    factory = ast.Name(id=ir_spec["factory_name"], ctx=ast.Load())
+                specs.append(
+                    {
+                        "name": name,
+                        "default": default,
+                        "factory": factory,
+                        "factory_name": ir_spec.get("factory_name"),
+                        "init": ir_spec.get("init", init),
+                        "kw_only": ir_spec.get("kw_only", kw_only),
+                        "node": node,
+                    }
+                )
+        return specs
+
+    def _dataclass_default_points(
+        self,
+        spec: dict,
+        class_obj: ClassObject,
+        instance_obj: InstanceObject,
+        instance_scope: Scope,
+        instance_ctx: AbstractContext,
+    ) -> Optional[PointsToSet]:
+        """Materialize a dataclass field default for the abstract heap."""
+        expr = spec.get("factory") or spec.get("default")
+        if expr is None:
+            return None
+        token = stable_token(class_obj) + ":" + spec["name"]
+        if isinstance(expr, ast.Constant):
+            obj = ConstantObject(
+                instance_ctx,
+                AllocSite(f"<dataclass-default:{token}>", AllocKind.CONSTANT),
+                expr.value,
+            )
+            return PointsToSet.singleton(obj, self.state.arena)
+        factory_name = None
+        if isinstance(expr, ast.Name):
+            factory_name = expr.id
+        elif isinstance(expr, ast.Call):
+            func = expr.func
+            if isinstance(func, ast.Name):
+                factory_name = func.id
+            elif isinstance(func, ast.Attribute):
+                factory_name = func.attr
+        kind = {
+            "list": (ListObject, AllocKind.LIST),
+            "dict": (DictObject, AllocKind.DICT),
+            "set": (SetObject, AllocKind.SET),
+            "tuple": (TupleObject, AllocKind.TUPLE),
+            "frozenset": (SetObject, AllocKind.SET),
+        }.get(factory_name or "")
+        if kind is not None:
+            object_type, alloc_kind = kind
+            obj = object_type(
+                instance_ctx,
+                AllocSite(f"<dataclass-default:{token}>", alloc_kind),
+            )
+            return PointsToSet.singleton(obj, self.state.arena)
+        # A user-provided default expression or factory is not evaluated here.
+        # Keep a conservative object and mark the field incomplete.
+        field_ctx = self.state.get_field(
+            instance_scope, instance_ctx, instance_obj, attr(spec["name"])
+        )
+        self.mark_semantic_incomplete(
+            variables=(field_ctx,),
+            kind="dataclass_default",
+            message=f"dataclass field {spec['name']} default was not modeled",
+        )
+        return None
+
+    def _dataclass_state_defaults(
+        self,
+        class_obj: ClassObject,
+        name: str,
+        spec: dict,
+        instance_ctx: AbstractContext,
+    ) -> Optional[PointsToSet]:
+        """Read a dataclass field default from the analyzed class namespace.
+
+        Class-body defaults have already been lowered to temporaries (for
+        example ``items = $tmp_2`` where ``$tmp_2 = field(default_factory=list)``).
+        Reading the class field's abstract value is more reliable than trying to
+        recover the original AST expression again.
+        """
+        state = self.state
+        factory_name = spec.get("factory_name")
+        object_type = {
+            "list": (ListObject, AllocKind.LIST),
+            "dict": (DictObject, AllocKind.DICT),
+            "set": (SetObject, AllocKind.SET),
+            "tuple": (TupleObject, AllocKind.TUPLE),
+            "frozenset": (SetObject, AllocKind.SET),
+        }.get(factory_name or "")
+        if object_type is not None:
+            obj_type, alloc_kind = object_type
+            return PointsToSet.singleton(
+                obj_type(
+                    instance_ctx,
+                    AllocSite(
+                        f"<dataclass-factory:{stable_token(class_obj)}:{name}>",
+                        alloc_kind,
+                    ),
+                ),
+                state.arena,
+            )
+        class_scope = state.get_internal_scope(class_obj)
+        if class_scope is None:
+            return None
+        class_field = state.raw_field(class_scope, class_obj.context, class_obj, attr(name))
+        class_values = state.get_points_to(class_field)
+        if class_values.is_empty():
+            return None
+
+        defaults = []
+        for obj in class_values:
+            if isinstance(obj, InstanceObject):
+                owner_name = getattr(obj.class_obj.ir, "get_qualname", lambda: "")()
+                short_name = owner_name.rsplit(".", 1)[-1]
+                if short_name == "_DataclassSentinel":
+                    continue
+                if short_name == "Field":
+                    field_scope = state.get_internal_scope(obj) or class_scope
+                    default_field = state.raw_field(field_scope, obj.context, obj, attr("default"))
+                    factory_field = state.raw_field(
+                        field_scope, obj.context, obj, attr("default_factory")
+                    )
+                    factory_values = [
+                        value
+                        for value in state.get_points_to(factory_field)
+                        if not (
+                            isinstance(value, InstanceObject)
+                            and getattr(value.class_obj.ir, "get_qualname", lambda: "")().rsplit(
+                                ".", 1
+                            )[-1]
+                            == "_DataclassSentinel"
+                        )
+                    ]
+                    if factory_values:
+                        for factory in factory_values:
+                            factory_name = getattr(factory, "builtin_name", None)
+                            factory_name = factory_name or getattr(factory, "function_name", None)
+                            object_type = {
+                                "list": (ListObject, AllocKind.LIST),
+                                "dict": (DictObject, AllocKind.DICT),
+                                "set": (SetObject, AllocKind.SET),
+                                "tuple": (TupleObject, AllocKind.TUPLE),
+                                "frozenset": (SetObject, AllocKind.SET),
+                            }.get(factory_name or "")
+                            if object_type is not None:
+                                obj_type, alloc_kind = object_type
+                                defaults.append(
+                                    obj_type(
+                                        instance_ctx,
+                                        AllocSite(
+                                            f"<dataclass-factory:{stable_token(class_obj)}:{name}>",
+                                            alloc_kind,
+                                        ),
+                                    )
+                                )
+                            else:
+                                self.mark_semantic_incomplete(
+                                    kind="dataclass_default",
+                                    message=(
+                                        f"dataclass field {name} default_factory " "was not modeled"
+                                    ),
+                                )
+                        continue
+                    for default in state.get_points_to(default_field):
+                        if (
+                            isinstance(default, InstanceObject)
+                            and getattr(default.class_obj.ir, "get_qualname", lambda: "")().rsplit(
+                                ".", 1
+                            )[-1]
+                            == "_DataclassSentinel"
+                        ):
+                            continue
+                        defaults.append(default)
+                    continue
+            defaults.append(obj)
+
+        if not defaults:
+            return None
+        return PointsToSet.from_objects(defaults, arena=state.arena)
+
+    def _install_dataclass_fields(
+        self,
+        scope: Scope,
+        context: AbstractContext,
+        call: CallConstraint,
+        class_obj: ClassObject,
+        instance_obj: InstanceObject,
+        instance_scope: Scope,
+        instance_ctx: AbstractContext,
+    ) -> None:
+        """Bind constructor arguments and defaults to dataclass instance fields."""
+        specs = self._dataclass_field_specs(class_obj)
+        self._dataclass_field_names[class_obj].update(spec["name"] for spec in specs)
+        positional = [
+            (self.state.get_variable(scope, context, arg), starred)
+            for arg, starred in call.iter_args()
+        ]
+        keywords = {
+            name: self.state.get_variable(scope, context, arg)
+            for name, arg in call.kwargs
+            if name is not None
+        }
+        arg_index = 0
+        if True:
+            for spec in specs:
+                name = spec["name"]
+                source = None
+                if spec["init"] and not spec["kw_only"] and arg_index < len(positional):
+                    candidate, starred = positional[arg_index]
+                    arg_index += 1
+                    if not starred:
+                        source = candidate
+                if source is None and name in keywords:
+                    source = keywords[name]
+                field_ctx = self.state.get_field(
+                    instance_scope, instance_ctx, instance_obj, attr(name)
+                )
+                if source is not None:
+                    self.state._add_var_points_flow(source, field_ctx)
+                    continue
+                defaults = self._dataclass_state_defaults(class_obj, name, spec, instance_ctx)
+                if defaults is not None:
+                    temp = Variable(
+                        name=f"$dataclass_default@{stable_token(class_obj)}:{name}",
+                        kind=VariableKind.TEMPORARY,
+                    )
+                    temp_ctx = self.state.get_variable(instance_scope, instance_ctx, temp)
+                    self.handle_new_points_to(temp_ctx, instance_scope, defaults)
+                    self.state._add_var_points_flow(temp_ctx, field_ctx)
+                else:
+                    self._unknown_tracker.record(
+                        UnknownKind.MISSING_ARGUMENT,
+                        str(call.call_site),
+                        f"dataclass field {name} was not provided and has no modeled default",
+                        context=class_obj.ir.get_qualname(),
+                    )
 
     def _handle_class_instantiation(
         self,
@@ -2465,6 +3074,29 @@ class PointerSolver:
             instance_parent,
         )
         self.state.set_internal_scope(instance_obj, instance_scope)
+
+        if (
+            not has_custom_new
+            and (self._is_dataclass_class(class_obj) or self._is_namedtuple_class(class_obj))
+            and not self._class_defines_init(class_obj)
+        ):
+            self._install_dataclass_fields(
+                scope,
+                context,
+                call,
+                class_obj,
+                instance_obj,
+                instance_scope,
+                instance_ctx,
+            )
+            if call.target:
+                target_var = self.state.get_variable(scope, context, call.target)
+                self.handle_new_points_to(
+                    target_var,
+                    scope,
+                    PointsToSet.singleton(instance_obj),
+                )
+            return True
 
         new_result_var = self.variable_factory.make_variable(
             f"$new_result@{call.call_site.short_id()}"

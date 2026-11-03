@@ -53,6 +53,21 @@ def add_alias_parser(subparsers):
         help="k-CFA context sensitivity depth (kcfa engine only, default: 1)",
     )
     parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=None,
+        help="Project source root for kcfa imports (default: inferred from the entry file)",
+    )
+    parser.add_argument(
+        "--import-depth",
+        type=_non_negative_int,
+        default=None,
+        help=(
+            "Maximum transitive import depth for kcfa "
+            "(default: unlimited; 0 analyzes only the entry module)"
+        ),
+    )
+    parser.add_argument(
         "--max-seconds",
         type=positive_seconds,
         default=30.0,
@@ -304,14 +319,26 @@ def _analyze_file_flow_sensitive_json(filepath: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _analyze_file_kcfa(filepath: Path, k: int, verbose: bool) -> None:
+def _analyze_file_kcfa(
+    filepath: Path,
+    k: int,
+    verbose: bool,
+    *,
+    project_root: Path | None = None,
+    import_depth: int | None = None,
+) -> None:
     source = filepath.read_text()
 
     print(f"# {filepath}  [engine: kcfa, k={k}]")
     print()
 
     try:
-        analysis = PointerAnalysis(source, k=k)
+        analysis = PointerAnalysis.from_project(
+            filepath,
+            project_path=project_root,
+            k=k,
+            max_import_depth=import_depth if import_depth is not None else -1,
+        )
         result = analysis.run()
     except Exception as exc:
         print(f"  ERROR — {exc}", file=sys.stderr)
@@ -351,12 +378,23 @@ def _collect_variable_names(source: str) -> set[str]:
     return names
 
 
-def _analyze_file_kcfa_json(filepath: Path, k: int) -> dict:
+def _analyze_file_kcfa_json(
+    filepath: Path,
+    k: int,
+    *,
+    project_root: Path | None = None,
+    import_depth: int | None = None,
+) -> dict:
     source = filepath.read_text()
     result_data: dict = {"file": str(filepath), "engine": "kcfa", "k": k}
 
     try:
-        analysis = PointerAnalysis(source, k=k)
+        analysis = PointerAnalysis.from_project(
+            filepath,
+            project_path=project_root,
+            k=k,
+            max_import_depth=import_depth if import_depth is not None else -1,
+        )
         result = analysis.run()
     except Exception as exc:
         result_data["error"] = str(exc)
@@ -402,6 +440,8 @@ def run_alias_analysis(input_path: str, args) -> int:
 
     verbose = getattr(args, "verbose", False)
     json_mode = getattr(args, "json", False)
+    project_root = getattr(args, "project_root", None)
+    import_depth = getattr(args, "import_depth", None)
 
     all_results = []
     text_results = []
@@ -415,7 +455,12 @@ def run_alias_analysis(input_path: str, args) -> int:
                     if json_mode:
                         with redirect_stdout(sys.stderr):
                             result = (
-                                _analyze_file_kcfa_json(filepath, k)
+                                _analyze_file_kcfa_json(
+                                    filepath,
+                                    k,
+                                    project_root=project_root,
+                                    import_depth=import_depth,
+                                )
                                 if engine == "kcfa"
                                 else _analyze_file_flow_sensitive_json(filepath)
                             )
@@ -424,7 +469,13 @@ def run_alias_analysis(input_path: str, args) -> int:
                         buffer = StringIO()
                         with redirect_stdout(buffer):
                             if engine == "kcfa":
-                                _analyze_file_kcfa(filepath, k, verbose)
+                                _analyze_file_kcfa(
+                                    filepath,
+                                    k,
+                                    verbose,
+                                    project_root=project_root,
+                                    import_depth=import_depth,
+                                )
                             else:
                                 _analyze_file_flow_sensitive(filepath, verbose)
                         text_results.append(buffer.getvalue())

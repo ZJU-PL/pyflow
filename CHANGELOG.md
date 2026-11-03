@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- k-CFA pointer analysis no longer diverges on same-name imports
+  (`from datetime import datetime`), grows unbounded native access paths, or
+  loses positional-only/default argument flow.  It now models dataclass and
+  NamedTuple fields, enum members, property getters, starred/sliced/mutated
+  containers, in-place operators, star imports, `typing.cast`, `copy.*`,
+  `itertools.chain`, and `globals()`/`locals()` more precisely.  Constant
+  container indices remain precise for literals, and `pyflow alias --engine
+  kcfa` now resolves project imports with `--project-root` / `--import-depth`.
 - Capability analysis no longer treats `pathlib.Path` values as resource
   handles, no longer reports method-chain aliases such as
   `sys.argv.__getitem__.<return>` as environment reads, and no longer reports

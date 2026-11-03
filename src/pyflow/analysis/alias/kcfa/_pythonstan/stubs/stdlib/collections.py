@@ -183,8 +183,9 @@ class UserString:
 
 def namedtuple(typename, field_names, *, rename=False, defaults=None, module=None):
     """Minimal model: a class whose instances carry the declared fields."""
-    if isinstance(field_names, str):
-        field_names = field_names.replace(",", " ").split()
+    # The pointer analysis does not evaluate ``isinstance`` branches.  Keep a
+    # single tuple conversion so a list/tuple of field names does not also
+    # invoke ``str.replace``/``split`` on the same abstract value.
     fields = tuple(field_names)
 
     class _NamedTuple:

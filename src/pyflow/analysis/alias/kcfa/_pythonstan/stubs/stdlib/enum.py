@@ -28,7 +28,9 @@ class _EnumMeta(type):
         return member in cls._member_map_.values()
 
 
-class Enum(metaclass=_EnumMeta):
+# Member creation is modeled by the pointer solver for enum subclasses; a
+# custom metaclass here only made ``enum.Enum`` itself impossible to bind.
+class Enum:
     @property
     def name(self):
         return self._name_

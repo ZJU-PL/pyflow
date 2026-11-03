@@ -39,6 +39,8 @@ __all__ = [
     "CoroutineObject",
     "NativeObject",
     "NativeModuleObject",
+    "MAX_NATIVE_ACCESS_PATH_DEPTH",
+    "canonicalize_native_access_path",
     "SlotDescriptorObject",
     "ObjectFactory",
     "truncate_context",
@@ -251,6 +253,24 @@ class ModuleObject(AbstractObject):
     ir: "IRModule"
 
 
+#: Maximum access-path depth retained for an unresolved native object.
+#: External method chains such as ``x = x.update(y)`` inside a loop otherwise
+#: create a fresh ``NativeObject`` on every join (``a.update.<return>.update...``)
+#: and the solver never reaches a fixed point.  Collapsing beyond this depth is
+#: conservative: all deeper native values are represented by one object.
+MAX_NATIVE_ACCESS_PATH_DEPTH = 24
+
+_DEEP_NATIVE_SEGMENT = "<deep>"
+
+
+def canonicalize_native_access_path(path: str) -> str:
+    """Bound unresolved-native access paths so the solver can converge."""
+    segments = path.split(".")
+    if len(segments) <= MAX_NATIVE_ACCESS_PATH_DEPTH:
+        return path
+    return ".".join(segments[:MAX_NATIVE_ACCESS_PATH_DEPTH] + [_DEEP_NATIVE_SEGMENT])
+
+
 @dataclass(frozen=True)
 class NativeObject(AbstractObject):
     """Canonical object supplied by an external or native Python module."""
@@ -259,6 +279,7 @@ class NativeObject(AbstractObject):
 
     def child(self, field: str) -> "NativeObject":
         path = f"{self.access_path}.{field}" if field else self.access_path
+        path = canonicalize_native_access_path(path)
         return NativeObject(
             context=self.context,
             alloc_site=AllocSite(f"<native:{path}>", AllocKind.NATIVE),

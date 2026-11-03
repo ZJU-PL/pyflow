@@ -180,6 +180,10 @@ class PointerAnalysisState:
         self._pointer_flow_graph: PointerFlowGraph = PointerFlowGraph()
         self._field_accesses: Dict[Tuple["AbstractObject", "Field"], FieldAccess] = {}
         self._field_presence: Dict[Tuple["AbstractObject", "Field"], Tuple[bool, bool]] = {}
+        #: Literal containers whose key(i) cells mirror their generic elem()
+        #: cells.  Constant-index loads can then skip the imprecise elem()
+        #: fallback until a mutation introduces an elem-only value.
+        self._precise_container_objects: Set["AbstractObject"] = set()
         self._effective_base_sequences = defaultdict(set)
         self._class_variants = defaultdict(set)
         self._invalid_class_variants = defaultdict(set)
@@ -746,6 +750,10 @@ class PointerAnalysisState:
                 "__delitem__",
                 "__iter__",
                 "__len__",
+                "__add__",
+                "__mul__",
+                "__iadd__",
+                "__imul__",
             },
             "dict": {
                 "get",
@@ -764,6 +772,8 @@ class PointerAnalysisState:
                 "__iter__",
                 "__len__",
                 "__contains__",
+                "__or__",
+                "__ior__",
             },
             "set": {
                 "add",
@@ -782,8 +792,18 @@ class PointerAnalysisState:
                 "__iter__",
                 "__len__",
                 "__contains__",
+                "__or__",
+                "__ior__",
             },
-            "tuple": {"count", "index", "__getitem__", "__iter__", "__len__"},
+            "tuple": {
+                "count",
+                "index",
+                "__getitem__",
+                "__iter__",
+                "__len__",
+                "__add__",
+                "__mul__",
+            },
             "file": {
                 "read",
                 "readline",

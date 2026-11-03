@@ -9,6 +9,7 @@ Design:
 - Lazy constraints are added when new objects might be created later
 """
 
+import ast
 from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
 import logging
 
@@ -23,6 +24,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints im
     LoadSubscrConstraint,
     StoreConstraint,
     StoreSubscrConstraint,
+    ContainerPreciseConstraint,
     SuperResolveConstraint,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model import (
@@ -30,8 +32,13 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.heap_model imp
     attr,
     dict_keys,
     elem,
+    elem_only,
     key,
     unknown,
+)
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
+    Variable,
+    VariableKind,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     AllocKind,
@@ -52,6 +59,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
     NormalNode,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
     Variable,
@@ -220,6 +228,14 @@ class BuiltinAPIHandler:
             "__setitem__": self._handle_container_setitem,
             "__delitem__": self._handle_generic_method,
             "__iter__": self._handle_container_iter,
+            "__add__": self._handle_container_binop,
+            "__mul__": self._handle_container_binop,
+            "__or__": self._handle_container_binop,
+            "__iadd__": self._handle_container_inplace_binop,
+            "__imul__": self._handle_container_inplace_binop,
+            "__ior__": self._handle_container_inplace_binop,
+            "copy": self._handle_container_binop,
+            "union": self._handle_container_binop,
             "pop": self._handle_container_pop,
             "send": self._handle_generic_method,
             "throw": self._handle_generic_method,
@@ -314,6 +330,7 @@ class BuiltinAPIHandler:
             "dict": self._handle_dict_constructor,
             "tuple": self._handle_tuple_constructor,
             "set": self._handle_set_constructor,
+            "frozenset": self._handle_set_constructor,
             # Iterator functions
             "iter": self._handle_iter,
             "next": self._handle_next,
@@ -340,10 +357,9 @@ class BuiltinAPIHandler:
             "print": self._handle_print,
             # Scalar helpers whose results never carry a capability
             "sum": self._handle_generic_precise,
-            "min": self._handle_generic_precise,
-            "max": self._handle_generic_precise,
+            "min": self._handle_min_max,
+            "max": self._handle_min_max,
             "bytes": self._handle_generic_precise,
-            "frozenset": self._handle_generic_precise,
             "round": self._handle_generic_precise,
             "abs": self._handle_generic_precise,
             "repr": self._handle_generic_precise,
@@ -369,6 +385,8 @@ class BuiltinAPIHandler:
             "hasattr": self._handle_hasattr,
             "delattr": self._handle_delattr,
             "vars": self._handle_vars,
+            "globals": self._handle_globals,
+            "locals": self._handle_locals,
             # Object-oriented functions
             "super": self._handle_super,
         }
@@ -646,11 +664,16 @@ class BuiltinAPIHandler:
             for base_obj in base_pts:
                 field_access = self.state.get_field(scope, context, base_obj, elem())
                 self.state._add_var_points_flow(item_ctx_var, field_access)
+                positional_only = self.state.get_field(scope, context, base_obj, elem_only())
+                self.state._add_var_points_flow(item_ctx_var, positional_only)
 
             # ALSO add a StoreConstraint as fallback for lazy resolution
             # This ensures the store is captured even if the list object is created later
             constraints.append(
                 StoreConstraint(base=method_obj.receiver_var, field=elem(), source=item_var)
+            )
+            constraints.append(
+                StoreConstraint(base=method_obj.receiver_var, field=elem_only(), source=item_var)
             )
 
         return constraints
@@ -686,6 +709,13 @@ class BuiltinAPIHandler:
                     source=elem_var,
                 )
             )
+            constraints.append(
+                StoreConstraint(
+                    base=method_obj.receiver_var,
+                    field=elem_only(),
+                    source=elem_var,
+                )
+            )
 
         return constraints
 
@@ -709,6 +739,13 @@ class BuiltinAPIHandler:
                 StoreConstraint(
                     base=method_obj.receiver_var,
                     field=elem(),
+                    source=item_var,
+                )
+            )
+            constraints.append(
+                StoreConstraint(
+                    base=method_obj.receiver_var,
+                    field=elem_only(),
                     source=item_var,
                 )
             )
@@ -862,6 +899,114 @@ class BuiltinAPIHandler:
 
         return constraints
 
+    def _handle_container_inplace_binop(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Handle ``list.__iadd__``, ``list.__imul__`` and ``X.__ior__``.
+
+        In-place container operators mutate the receiver and return it.  The
+        additional ``elem_only`` stores preserve soundness for later
+        constant-index reads, which no longer fall back to ``elem()`` for
+        literal containers.
+        """
+        container_type = self._infer_container_type(method_obj.receiver)
+        if not method_obj.receiver_var or not call.target:
+            return []
+        constraints: List["Constraint"] = []
+        if container_type == "list" and call.args:
+            for argument in call.args:
+                elem_var = self._make_temp_var("inplace_list_elem", call)
+                constraints.append(LoadConstraint(base=argument, field=elem(), target=elem_var))
+                constraints.append(
+                    StoreConstraint(base=method_obj.receiver_var, field=elem(), source=elem_var)
+                )
+                constraints.append(
+                    StoreConstraint(
+                        base=method_obj.receiver_var,
+                        field=elem_only(),
+                        source=elem_var,
+                    )
+                )
+        elif container_type == "dict" and call.args:
+            for argument in call.args:
+                elem_var = self._make_temp_var("inplace_dict_elem", call)
+                keys_var = self._make_temp_var("inplace_dict_keys", call)
+                constraints.append(LoadConstraint(base=argument, field=elem(), target=elem_var))
+                constraints.append(
+                    StoreConstraint(base=method_obj.receiver_var, field=elem(), source=elem_var)
+                )
+                constraints.append(
+                    StoreConstraint(
+                        base=method_obj.receiver_var,
+                        field=elem_only(),
+                        source=elem_var,
+                    )
+                )
+                constraints.append(
+                    LoadConstraint(base=argument, field=dict_keys(), target=keys_var)
+                )
+                constraints.append(
+                    StoreConstraint(
+                        base=method_obj.receiver_var,
+                        field=dict_keys(),
+                        source=keys_var,
+                    )
+                )
+        elif container_type == "set" and call.args:
+            for argument in call.args:
+                elem_var = self._make_temp_var("inplace_set_elem", call)
+                constraints.append(LoadConstraint(base=argument, field=elem(), target=elem_var))
+                constraints.append(
+                    StoreConstraint(base=method_obj.receiver_var, field=elem(), source=elem_var)
+                )
+        constraints.append(CopyConstraint(source=method_obj.receiver_var, target=call.target))
+        return constraints
+
+    def _handle_container_binop(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Handle ``seq + seq``, ``seq * n``, and ``dict | dict``.
+
+        The result is a fresh container of the receiver's kind whose generic
+        element field receives the element flow of every container operand.
+        Without this, ``l = l + [x]`` and ``d = d | other`` produced empty
+        points-to sets while still reporting the analysis as complete.
+        """
+        container_type = self._infer_container_type(method_obj.receiver)
+        kind = {
+            "list": AllocKind.LIST,
+            "tuple": AllocKind.TUPLE,
+            "set": AllocKind.SET,
+            "dict": AllocKind.DICT,
+        }.get(container_type)
+        if kind is None or not call.target or not method_obj.receiver_var:
+            return []
+
+        constraints: List["Constraint"] = [
+            AllocConstraint(target=call.target, alloc_site=AllocSite(stmt=call.stmt, kind=kind))
+        ]
+        sources = [(method_obj.receiver_var, "recv")]
+        sources.extend((argument, f"arg{index}") for index, argument in enumerate(call.args))
+        for source, label in sources:
+            elem_var = self._make_temp_var(f"container_binop_elem_{label}", call)
+            constraints.append(LoadConstraint(base=source, field=elem(), target=elem_var))
+            constraints.append(StoreConstraint(base=call.target, field=elem(), source=elem_var))
+            if container_type == "dict":
+                keys_var = self._make_temp_var(f"container_binop_keys_{label}", call)
+                constraints.append(LoadConstraint(base=source, field=dict_keys(), target=keys_var))
+                constraints.append(
+                    StoreConstraint(base=call.target, field=dict_keys(), source=keys_var)
+                )
+        return constraints
+
     def _handle_container_pop(
         self,
         scope: "Scope",
@@ -989,6 +1134,13 @@ class BuiltinAPIHandler:
                 StoreConstraint(
                     base=method_obj.receiver_var,
                     field=elem(),
+                    source=elem_var,
+                )
+            )
+            constraints.append(
+                StoreConstraint(
+                    base=method_obj.receiver_var,
+                    field=elem_only(),
                     source=elem_var,
                 )
             )
@@ -1585,6 +1737,26 @@ class BuiltinAPIHandler:
 
         return constraints
 
+    def _handle_min_max(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Handle ``min``/``max``: the result is one of the compared values.
+
+        ``min(values)`` yields an element of ``values``; the multi-argument
+        form ``min(a, b)`` yields one of the arguments.  Returning a fresh
+        opaque OBJECT made element flow disappear while the analysis still
+        reported itself complete.
+        """
+        constraints: List["Constraint"] = []
+        if not call.target or not call.args:
+            return constraints
+        if len(call.args) > 1:
+            for argument in call.args:
+                constraints.append(CopyConstraint(source=argument, target=call.target))
+        else:
+            constraints.append(LoadConstraint(base=call.args[0], field=elem(), target=call.target))
+        return constraints
+
     def _handle_range(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
     ) -> List["Constraint"]:
@@ -1987,6 +2159,72 @@ class BuiltinAPIHandler:
             )
 
         return constraints
+
+    def _scope_dict(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        *,
+        globals_only: bool,
+    ) -> List["Constraint"]:
+        if not call.target:
+            return []
+        constraints: List["Constraint"] = [
+            AllocConstraint(
+                target=call.target,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.DICT),
+            )
+        ]
+        target_scope = scope.module if globals_only else scope
+        ast_node = getattr(target_scope, "stmt", None)
+        ast_node = getattr(ast_node, "stmt", ast_node)
+        names = set()
+        if isinstance(ast_node, ast.AST):
+            for node in ast.walk(ast_node):
+                if isinstance(node, ast.Name):
+                    names.add(node.id)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    names.add(node.name)
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for alias in node.names:
+                        names.add(alias.asname or alias.name.split(".", 1)[0])
+        names = {name for name in names if name.isidentifier() and not name.startswith("$")}
+        for name in sorted(names):
+            source_globals = globals_only or target_scope is scope.module
+            source = Variable(
+                name,
+                VariableKind.GLOBAL if source_globals else VariableKind.LOCAL,
+            )
+            key_name = f"$scope_key@{call.call_site.short_id()}@{name}"
+            key_var = Variable(key_name, VariableKind.TEMPORARY)
+            key_assign = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                    value=ast.Constant(value=name),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=key_var,
+                    alloc_site=AllocSite.from_ir_node(key_assign, AllocKind.CONSTANT),
+                )
+            )
+            constraints.append(StoreConstraint(base=call.target, field=key(name), source=source))
+            constraints.append(StoreConstraint(base=call.target, field=elem(), source=source))
+            constraints.append(StoreConstraint(base=call.target, field=dict_keys(), source=key_var))
+        constraints.append(ContainerPreciseConstraint(target=call.target))
+        return constraints
+
+    def _handle_globals(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        return self._scope_dict(scope, context, call, globals_only=True)
+
+    def _handle_locals(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        return self._scope_dict(scope, context, call, globals_only=False)
 
     def _handle_vars(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"

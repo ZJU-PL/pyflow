@@ -15,7 +15,17 @@ if TYPE_CHECKING:
     from .variable import Variable, FieldAccess
     from .context import AbstractContext, Ctx, Scope, AllocSite
 
-__all__ = ["FieldKind", "Field", "attr", "elem", "key", "value", "unknown", "HeapModel"]
+__all__ = [
+    "FieldKind",
+    "Field",
+    "attr",
+    "elem",
+    "elem_only",
+    "key",
+    "value",
+    "unknown",
+    "HeapModel",
+]
 
 
 class FieldKind(Enum):
@@ -23,6 +33,10 @@ class FieldKind(Enum):
 
     ATTRIBUTE = "attr"
     ELEMENT = "elem"
+    #: Values that were added without a statically known key/position
+    #: (append, extend, update, starred unpacking, ...).  Literal containers
+    #: keep this cell empty so constant-index reads can stay precise.
+    ELEMENT_ONLY = "elem_only"
     VALUE = "value"
     UNKNOWN = "unknown"
     POSITION = "position"
@@ -56,7 +70,12 @@ class Field:
             raise ValueError("KEY field must have name")
         if self.kind == FieldKind.POSITION and self.index is None:
             raise ValueError("POSITION field must have index")
-        if self.kind in [FieldKind.ELEMENT, FieldKind.VALUE, FieldKind.UNKNOWN]:
+        if self.kind in [
+            FieldKind.ELEMENT,
+            FieldKind.ELEMENT_ONLY,
+            FieldKind.VALUE,
+            FieldKind.UNKNOWN,
+        ]:
             if self.name is not None or self.index is not None:
                 raise ValueError(f"{self.kind.value} field should not have name or index")
 
@@ -116,6 +135,11 @@ def elem() -> Field:
         Field(kind=FieldKind.ELEMENT, name=None, index=None)
     """
     return Field(FieldKind.ELEMENT, None, None)
+
+
+def elem_only() -> Field:
+    """Return the cell for elements whose position is not statically known."""
+    return Field(FieldKind.ELEMENT_ONLY, None, None)
 
 
 def value() -> Field:

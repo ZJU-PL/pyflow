@@ -124,6 +124,24 @@ class IRTranslator:
 
         return constraints
 
+    _ENUM_BASE_NAMES = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
+
+    def _class_has_enum_base(self, cls_stmt: IRClass) -> bool:
+        """Recognize ``class C(Enum)`` even when the base is a temporary."""
+        module = self._enclosing_module()
+        module_ir = self.scope_manager.get_ir(module, "ir") if module is not None else ()
+        loads = {}
+        for statement in module_ir or ():
+            if isinstance(statement, IRLoadAttr):
+                loads[statement.get_lval().id] = statement.get_attr()
+        for base in cls_stmt.get_bases():
+            name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", None)
+            if name in self._ENUM_BASE_NAMES:
+                return True
+            if name in loads and loads[name] in self._ENUM_BASE_NAMES:
+                return True
+        return False
+
     def translate_class(self, cls_stmt: IRClass) -> Tuple[Variable, List["Constraint"]]:
         """Translate class definition: allocate class object and bind methods."""
         assert isinstance(cls_stmt, IRClass), f"Class is not an IRClass: {type(cls_stmt)}"
@@ -139,7 +157,20 @@ class IRTranslator:
         if irs is not None:
             old_scope = self._current_scope
             self._current_scope = cls_stmt
+            is_enum = self._class_has_enum_base(cls_stmt)
             for stmt in irs:
+                if is_enum and isinstance(stmt, (IRCopy, IRAssign)):
+                    lval = stmt.get_lval()
+                    member_name = getattr(lval, "id", None)
+                    if (
+                        member_name
+                        and member_name.isidentifier()
+                        and not member_name.startswith("_")
+                    ):
+                        # Enum members are created by the solver's enum
+                        # model; keeping the raw class-body value in the class
+                        # namespace makes ``E.A`` also point to ``1``.
+                        continue
                 constraints.extend(self._process_stmt(stmt))
             self._current_scope = old_scope
 
@@ -466,6 +497,7 @@ class IRTranslator:
         if isinstance(rval, ast.List):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.LIST)
             constraints.append(AllocConstraint(target=target_var, alloc_site=alloc_site))
+            precise_positions = self.config.index_sensitive
             if hasattr(rval, "elts"):
                 for i, elt_expr in enumerate(rval.elts):
                     if isinstance(elt_expr, ast.Name):
@@ -479,7 +511,20 @@ class IRTranslator:
                         constraints.append(
                             StoreConstraint(base=target_var, field=elem(), source=elem_var)
                         )
-
+                    elif isinstance(elt_expr, ast.Starred) and isinstance(elt_expr.value, ast.Name):
+                        # ``[*source]`` contributes every element of ``source``
+                        # at a statically unknown position.
+                        precise_positions = False
+                        source_var = self._make_variable(elt_expr.value.id)
+                        elem_var = self._make_variable(f"$star_elem@{stable_token(stmt)}_{i}")
+                        constraints.append(
+                            LoadConstraint(base=source_var, field=elem(), target=elem_var)
+                        )
+                        constraints.append(
+                            StoreConstraint(base=target_var, field=elem(), source=elem_var)
+                        )
+                    else:
+                        precise_positions = False
         elif isinstance(rval, ast.Name):
             source_var = self._make_variable(rval.id)
             constraints.append(CopyConstraint(source=source_var, target=target_var))
@@ -498,8 +543,34 @@ class IRTranslator:
         elif isinstance(rval, ast.Dict):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.DICT)
             constraints.append(AllocConstraint(target=target_var, alloc_site=alloc_site))
+            precise_keys = self.config.index_sensitive
             if hasattr(rval, "keys") and hasattr(rval, "values"):
                 for i, (key_expr, val_expr) in enumerate(zip(rval.keys, rval.values)):
+                    if key_expr is None:
+                        precise_keys = False
+                        # ``{**mapping}``: copy the source mapping's values (and
+                        # keys), never the mapping object itself.
+                        if isinstance(val_expr, ast.Name):
+                            source_var = self._make_variable(val_expr.id)
+                            elem_var = self._make_variable(
+                                f"$dict_merge_elem@{stable_token(stmt)}_{i}"
+                            )
+                            constraints.append(
+                                LoadConstraint(base=source_var, field=elem(), target=elem_var)
+                            )
+                            constraints.append(
+                                StoreConstraint(base=target_var, field=elem(), source=elem_var)
+                            )
+                            keys_var = self._make_variable(
+                                f"$dict_merge_keys@{stable_token(stmt)}_{i}"
+                            )
+                            constraints.append(
+                                LoadConstraint(base=source_var, field=dict_keys(), target=keys_var)
+                            )
+                            constraints.append(
+                                StoreConstraint(base=target_var, field=dict_keys(), source=keys_var)
+                            )
+                        continue
                     if isinstance(val_expr, ast.Name):
                         val_var = self._make_variable(val_expr.id)
                         # Handle both constant keys and name keys (from TAC transformation)
@@ -542,11 +613,13 @@ class IRTranslator:
                         constraints.append(
                             StoreConstraint(base=target_var, field=elem(), source=val_var)
                         )
-
+                    else:
+                        precise_keys = False
         # Tuple uses position-based fields for precise tracking
         elif isinstance(rval, ast.Tuple):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.TUPLE)
             constraints.append(AllocConstraint(target=target_var, alloc_site=alloc_site))
+            precise_positions = self.config.index_sensitive
             if hasattr(rval, "elts"):
                 for i, elt_expr in enumerate(rval.elts):
                     if isinstance(elt_expr, ast.Name):
@@ -560,14 +633,34 @@ class IRTranslator:
                         constraints.append(
                             StoreConstraint(base=target_var, field=elem(), source=elem_var)
                         )
-
+                    elif isinstance(elt_expr, ast.Starred) and isinstance(elt_expr.value, ast.Name):
+                        precise_positions = False
+                        source_var = self._make_variable(elt_expr.value.id)
+                        elem_var = self._make_variable(f"$star_elem@{stable_token(stmt)}_{i}")
+                        constraints.append(
+                            LoadConstraint(base=source_var, field=elem(), target=elem_var)
+                        )
+                        constraints.append(
+                            StoreConstraint(base=target_var, field=elem(), source=elem_var)
+                        )
+                    else:
+                        precise_positions = False
         elif isinstance(rval, ast.Set):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.SET)
             constraints.append(AllocConstraint(target=target_var, alloc_site=alloc_site))
             if hasattr(rval, "elts"):
-                for elt_expr in rval.elts:
+                for i, elt_expr in enumerate(rval.elts):
                     if isinstance(elt_expr, ast.Name):
                         elem_var = self._make_variable(elt_expr.id)
+                        constraints.append(
+                            StoreConstraint(base=target_var, field=elem(), source=elem_var)
+                        )
+                    elif isinstance(elt_expr, ast.Starred) and isinstance(elt_expr.value, ast.Name):
+                        source_var = self._make_variable(elt_expr.value.id)
+                        elem_var = self._make_variable(f"$star_elem@{stable_token(stmt)}_{i}")
+                        constraints.append(
+                            LoadConstraint(base=source_var, field=elem(), target=elem_var)
+                        )
                         constraints.append(
                             StoreConstraint(base=target_var, field=elem(), source=elem_var)
                         )
@@ -799,6 +892,23 @@ class IRTranslator:
         target_var = self._make_variable(lval)
 
         constraints = []
+
+        if isinstance(subslice, ast.Slice):
+            # A slice is a new sequence, not an element of the source.  Give
+            # the target a container and copy the source's generic element
+            # flow into it.  Previously the synthetic index variable stayed
+            # empty, so ``x = xs[1:]`` produced an empty (but "complete")
+            # points-to set.
+            constraints.append(
+                AllocConstraint(
+                    target=target_var,
+                    alloc_site=AllocSite.from_ir_node(stmt, AllocKind.LIST),
+                )
+            )
+            elem_var = self._make_variable(f"$slice_elem@{stable_token(stmt)}")
+            constraints.append(LoadConstraint(base=container_var, field=elem(), target=elem_var))
+            constraints.append(StoreConstraint(base=target_var, field=elem(), source=elem_var))
+            return constraints
 
         # Extract index variable for dynamic field resolution
         if hasattr(subslice, "id"):
@@ -1046,6 +1156,16 @@ class IRTranslator:
         factory with no arguments.
         """
         for index, decorator_expr in enumerate(reversed(list(decorators))):
+            if isinstance(decorator_expr, ast.Attribute) and decorator_expr.attr in {
+                "setter",
+                "getter",
+                "deleter",
+            }:
+                # The property object is not a first-class abstract object in
+                # the heap model.  The class namespace already joins the getter
+                # and setter functions under the same name; treating
+                # ``@v.setter`` as a call only produced an unresolved callee.
+                continue
             if (
                 skip_descriptors
                 and isinstance(decorator_expr, ast.Name)
@@ -1130,6 +1250,17 @@ class IRTranslator:
             constraints.append(AllocConstraint(target=var, alloc_site=const_alloc))
         return var
 
+    @staticmethod
+    def _is_dataclass_decorator(expr: ast.expr) -> bool:
+        """Recognize the class-preserving ``dataclasses.dataclass`` decorator."""
+        if isinstance(expr, ast.Call):
+            expr = expr.func
+        if isinstance(expr, ast.Name):
+            return expr.id == "dataclass"
+        if isinstance(expr, ast.Attribute):
+            return expr.attr == "dataclass"
+        return False
+
     def _translate_class_def(self, ir_cls: IRClass) -> Tuple[Variable, List["Constraint"]]:
         """Translate class definition: allocate class object and bind methods."""
         constraints = []
@@ -1163,9 +1294,29 @@ class IRTranslator:
         raw_class_var = self._make_variable(f"$class_result@{stable_token(ir_cls)}")
         constraints.append(AllocConstraint(target=raw_class_var, alloc_site=class_alloc))
 
+        # ``@dataclass`` is a class-preserving decorator.  The stub models it
+        # with a conditional return (``wrap(cls) if cls is not None else wrap``),
+        # and the flow-insensitive IR merges both branches.  The class binding
+        # therefore also acquired the ``wrap`` function, so ``D(a)`` could call
+        # ``wrap`` and leak constructor arguments into the class-call result.
+        # Run the decorator for its side effects on the class object, but keep
+        # the original class as the bound value.
+        decorators = list(ir_cls.decorator_list)
+        dataclass_decorators = [d for d in decorators if self._is_dataclass_decorator(d)]
+        other_decorators = [d for d in decorators if d not in dataclass_decorators]
+        current_var = raw_class_var
+        for decorator in dataclass_decorators:
+            self._apply_decorators(
+                [decorator],
+                current_var,
+                ir_cls.name,
+                ir_cls,
+                constraints,
+                skip_descriptors=False,
+            )
         current_var = self._apply_decorators(
-            ir_cls.decorator_list,
-            raw_class_var,
+            other_decorators,
+            current_var,
             ir_cls.name,
             ir_cls,
             constraints,
@@ -1224,6 +1375,40 @@ class IRTranslator:
         else:
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.MODULE)
 
+        if isinstance(stmt.stmt, ast.ImportFrom) and stmt.name == "*":
+            module_var = self._make_variable(f"$import_module@{stable_token(stmt)}")
+            constraints.append(AllocConstraint(target=module_var, alloc_site=alloc_site))
+            if module_ir is None:
+                constraints.append(
+                    SemanticGapConstraint(
+                        kind="import_star",
+                        message=(
+                            "star import from an unresolved module was not expanded: "
+                            f"{stmt.module or ''}"
+                        ),
+                    )
+                )
+            else:
+                exported = set()
+                for statement in self.scope_manager.get_ir(module_ir, "ir") or ():
+                    if isinstance(statement, (IRClass, IRFunc)):
+                        exported.add(statement.name)
+                    else:
+                        exported.update(statement.get_stores())
+                exported = {
+                    name for name in exported if name.isidentifier() and not name.startswith("_")
+                }
+                for exported_name in sorted(exported):
+                    local_var = self._make_variable(exported_name)
+                    constraints.append(
+                        LoadConstraint(
+                            base=module_var,
+                            field=attr(exported_name),
+                            target=local_var,
+                        )
+                    )
+            return constraints
+
         # ``from pkg import submodule`` and ``from . import views`` resolve to
         # the submodule itself.  Binding that module directly avoids looking
         # up an attribute that only exists as a file on disk.
@@ -1250,7 +1435,17 @@ class IRTranslator:
                 local_var = self._make_variable(stmt.asname)
             constraints.append(AllocConstraint(target=local_var, alloc_site=alloc_site))
         elif stmt.asname is None:
-            module_var = self._make_variable(stmt.module)
+            module_name = stmt.module or ""
+            # ``from pkg import pkg`` (and relative forms such as
+            # ``from ._impl import _impl``) otherwise bind the module object to
+            # the very variable used as the attribute-load base.  Every load
+            # then feeds its own result back into the base, and unresolved
+            # native access paths grow without bound.  Use a synthetic base so
+            # the imported name cannot alias the module binding.
+            if not module_name or module_name == stmt.name:
+                module_var = self._make_variable(f"$import_module@{stable_token(stmt)}")
+            else:
+                module_var = self._make_variable(module_name)
             constraints.append(AllocConstraint(target=module_var, alloc_site=alloc_site))
             local_var = self._make_variable(stmt.name)
             constraints.append(

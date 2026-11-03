@@ -200,6 +200,10 @@ Key options:
 - `--engine {flow-sensitive,kcfa}`: Analysis engine (default: flow-sensitive).
   `flow-sensitive` runs heap alias/escape analysis; `kcfa` runs k-CFA pointer analysis.
 - `--k N`: k-CFA context sensitivity depth (kcfa engine only, default: 1)
+- `--project-root PATH`: Project source root for kcfa import resolution
+  (default: inferred from the entry file's enclosing packages)
+- `--import-depth N`: Maximum transitive import depth for kcfa
+  (default: unlimited; `0` analyzes only the entry module)
 - `--max-seconds N`: Time budget across all input files (default: 30). Exhaustion reports partial analysis and preserves completed files
 - `--recursive`, `-r`: Recursively analyze Python files in a directory
 - `--json`: Output machine-readable JSON instead of human-friendly text

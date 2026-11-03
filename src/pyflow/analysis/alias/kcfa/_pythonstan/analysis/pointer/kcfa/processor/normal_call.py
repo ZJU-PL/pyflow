@@ -529,14 +529,22 @@ class PythonCallService(Processor):
             )
             return default_ctx_var
 
+        # A default such as ``def f(x=module_value): ...`` is evaluated in the
+        # scope containing the definition.  ``variable_factory.make_variable``
+        # defaults to LOCAL, which silently pointed at ``[local]name`` in a
+        # module scope while the module binding was ``[global]name``.
         if isinstance(default_expr, ast.Name):
-            source_var = solver.variable_factory.make_variable(default_expr.id)
+            source_var = solver.variable_factory.make_variable(
+                default_expr.id,
+                self._default_variable_kind(def_scope, default_expr.id),
+            )
             source_ctx = solver.state.get_variable(def_scope, def_context, source_var)
             solver.state._add_var_points_flow(source_ctx, default_ctx_var)
             return default_ctx_var
 
         if isinstance(default_expr, ast.Attribute) and isinstance(default_expr.value, ast.Name):
-            base_var = solver.variable_factory.make_variable(default_expr.value.id)
+            base_kind = self._default_variable_kind(def_scope, default_expr.value.id)
+            base_var = solver.variable_factory.make_variable(default_expr.value.id, base_kind)
             solver.add_constraint(
                 def_scope,
                 def_context,
@@ -561,6 +569,19 @@ class PythonCallService(Processor):
             AllocConstraint(target=default_var, alloc_site=alloc_site),
         )
         return default_ctx_var
+
+    @staticmethod
+    def _default_variable_kind(def_scope: "Scope", name: str) -> VariableKind:
+        """Return the variable kind used by a name in a definition scope."""
+        from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRModule
+
+        if name.startswith("$"):
+            return VariableKind.TEMPORARY
+        return (
+            VariableKind.GLOBAL
+            if isinstance(getattr(def_scope, "stmt", None), IRModule)
+            else VariableKind.LOCAL
+        )
 
     def _handle_method_call(
         self,

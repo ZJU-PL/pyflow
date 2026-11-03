@@ -1424,6 +1424,11 @@ class IRFunc(IRScope, IRStatement):
         self.name = fn.name
         self.args = fn.args
         self.arg_names = set()
+        # Positional-only parameters are ordinary locals in the function body.
+        # Omitting them here made ``return x`` resolve to a module global named
+        # ``x`` whenever the signature used ``def f(x, /): ...``.
+        for arg in fn.args.posonlyargs:
+            self.arg_names.add(arg.arg)
         for arg in fn.args.args:
             self.arg_names.add(arg.arg)
         for arg in fn.args.kwonlyargs:

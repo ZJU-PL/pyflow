@@ -142,7 +142,22 @@ class AttributeResolver(Processor):
             class_obj,
             field,
         )
-        own_edge = PointerFlowEdge(NormalNode(own_field), selector, PointerFlowKind.NORMAL)
+        enum_members = getattr(solver, "_enum_member_names", {}).get(class_obj, set())
+        if field.kind.value == "attribute" and field.name in enum_members:
+            # Enum member names also carry their raw class-body value in the
+            # class namespace.  ``E.A`` is the member object, not that value.
+            member_guard = GuardNode(
+                lambda _edge, pts: PointsToSet.from_objects(
+                    (obj for obj in pts if isinstance(obj, InstanceObject)),
+                    arena=state.arena,
+                )
+            )
+            state._add_points_flow_edge(
+                PointerFlowEdge(NormalNode(own_field), member_guard, PointerFlowKind.NORMAL)
+            )
+            own_edge = PointerFlowEdge(member_guard, selector, PointerFlowKind.NORMAL)
+        else:
+            own_edge = PointerFlowEdge(NormalNode(own_field), selector, PointerFlowKind.NORMAL)
         selector.add_edge(own_edge, 0)
         state._add_points_flow_edge(own_edge)
 
@@ -618,9 +633,32 @@ class AttributeResolver(Processor):
         # A later-discovered __get__ must not invalidate an earlier classification
         # as a plain value.  Passing the class value as well is a sound, monotone
         # over-approximation of the descriptor/plain split.
+        owner_is_dataclass = self._is_dataclass_class(class_obj)
+
+        dataclass_fields = getattr(solver, "_dataclass_field_names", {}).get(class_obj, set())
+
+        def plain_class_objects(pts):
+            for obj in pts:
+                if isinstance(obj, SlotDescriptorObject):
+                    continue
+                if attr_name in dataclass_fields:
+                    # Dataclass field defaults live in the class namespace but
+                    # every constructed instance has its own field cell (set
+                    # by the solver's dataclass model).
+                    continue
+                if owner_is_dataclass and isinstance(obj, InstanceObject):
+                    owner_name = getattr(obj.class_obj.ir, "get_qualname", lambda: "")()
+                    if owner_name.rsplit(".", 1)[-1] == "Field":
+                        # ``field(...)`` is dataclass metadata, not the value
+                        # of the annotated instance attribute.  Keeping it in
+                        # the class-field flow made ``d.items`` resolve to a
+                        # ``Field`` object instead of the default list.
+                        continue
+                yield obj
+
         plain_class_values = GuardNode(
             lambda _edge, pts: PointsToSet.from_objects(
-                (obj for obj in pts if not isinstance(obj, SlotDescriptorObject)),
+                plain_class_objects(pts),
                 arena=state.arena,
             )
         )
@@ -826,6 +864,20 @@ class AttributeResolver(Processor):
                 call_site=call_site,
             ),
         )
+
+    @staticmethod
+    def _is_dataclass_class(class_obj: ClassObject) -> bool:
+        """Whether ``class_obj`` has a ``@dataclass`` style decorator."""
+        stmt = getattr(getattr(class_obj, "alloc_site", None), "stmt", None)
+        if stmt is None:
+            return False
+        for decorator in getattr(stmt, "decorator_list", ()) or ():
+            expr = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(expr, ast.Name) and expr.id == "dataclass":
+                return True
+            if isinstance(expr, ast.Attribute) and expr.attr == "dataclass":
+                return True
+        return False
 
     @staticmethod
     def _resolve_attr(attr_value: Any) -> Tuple[Field, str]:

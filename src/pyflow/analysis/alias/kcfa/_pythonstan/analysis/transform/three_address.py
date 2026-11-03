@@ -209,7 +209,7 @@ class ThreeAddressTransformer(NodeTransformer):
                         upper_idx = ast.UnaryOp(
                             op=ast.USub(), operand=self.const_colle.load(r_idx - 1)
                         )
-                    slc = ast.Slice(lower=lower_idx, upper=upper_idx, ctx=Load())
+                    slc = ast.Slice(lower=lower_idx, upper=upper_idx)
                     ins = ast.Assign(
                         targets=[t_star.value],
                         value=ast.Subscript(value=tmp_l, slice=slc, ctx=Load()),
@@ -713,13 +713,53 @@ class ThreeAddressTransformer(NodeTransformer):
             blk.append(stmt)
         return blk
 
+    _INPLACE_OPS = {
+        ast.Add: "__iadd__",
+        ast.Sub: "__isub__",
+        ast.Mult: "__imul__",
+        ast.Div: "__itruediv__",
+        ast.FloorDiv: "__ifloordiv__",
+        ast.Mod: "__imod__",
+        ast.Pow: "__ipow__",
+        ast.LShift: "__ilshift__",
+        ast.RShift: "__irshift__",
+        ast.BitOr: "__ior__",
+        ast.BitXor: "__ixor__",
+        ast.BitAnd: "__iand__",
+        ast.MatMult: "__imatmul__",
+    }
+
     def visit_AugAssign(self, node):
         expand_stmt = ast.Assign(
             targets=[node.target],
             value=ast.BinOp(left=update_ctx(node.target, Load()), op=node.op, right=node.value),
         )
         ast.copy_location(expand_stmt, node)
-        return self.visit(expand_stmt)
+        normal = self.visit(expand_stmt)
+        inplace_name = self._INPLACE_OPS.get(type(node.op))
+        if inplace_name is None or not isinstance(node.target, ast.Name):
+            return normal
+        token = f"{getattr(node, 'lineno', 0)}_{getattr(node, 'col_offset', 0)}"
+        callee_name = f"$optional_callee@inplace_{inplace_name}@{token}"
+        load = ast.Assign(
+            targets=[ast.Name(id=callee_name, ctx=Store())],
+            value=ast.Attribute(
+                value=update_ctx(node.target, Load()),
+                attr=inplace_name,
+                ctx=Load(),
+            ),
+        )
+        call = ast.Assign(
+            targets=[node.target],
+            value=ast.Call(
+                func=ast.Name(id=callee_name, ctx=Load()),
+                args=[node.value],
+                keywords=[],
+            ),
+        )
+        ast.copy_location(load, node)
+        ast.copy_location(call, node)
+        return normal + self.visit(load) + self.visit(call)
 
     def visit_Assign(self, node):
         tgts = node.targets
@@ -1122,8 +1162,20 @@ class ThreeAddressTransformer(NodeTransformer):
             return None
         return base
 
+    @staticmethod
+    def _is_namedtuple_base(base) -> bool:
+        if isinstance(base, ast.Subscript):
+            base = base.value
+        return (
+            isinstance(base, ast.Name)
+            and base.id == "NamedTuple"
+            or isinstance(base, ast.Attribute)
+            and base.attr == "NamedTuple"
+        )
+
     def visit_ClassDef(self, node):
         blk, bases, keywords = [], [], []
+        is_namedtuple = any(self._is_namedtuple_base(base) for base in node.bases)
         for base in node.bases:
             base = self._normalize_class_base(base)
             if base is None:
@@ -1146,6 +1198,10 @@ class ThreeAddressTransformer(NodeTransformer):
             decorator_list=node.decorator_list,
         )
         ast.copy_location(ins, node)
+        if is_namedtuple:
+            # ``NamedTuple`` is erased as a runtime base.  Preserve its
+            # semantic role for field installation during class construction.
+            ins._pyflow_namedtuple = True
         blk.append(ins)
         return blk
 

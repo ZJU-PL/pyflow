@@ -29,6 +29,66 @@ from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 
 _LOGGER = logging.getLogger(__name__)
 
+#: Statically transparent members of :mod:`typing`.  They have no runtime
+#: effect on object identity, but when the typing module is treated as native
+#: the generic fallback used to replace their result with a fresh native value.
+#: The largest practical losses were ``cast(T, value)`` (returned a native
+#: object instead of ``value``) and decorators such as ``@overload`` (dropped
+#: the decorated function).
+_DEFAULT_NATIVE_EFFECTS = (
+    {
+        "access_path": "typing.cast",
+        "kind": "return_argument",
+        "arguments": [1],
+        "exhaustive": True,
+    },
+    {
+        "access_path": "typing.overload",
+        "kind": "return_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
+    {
+        "access_path": "typing.no_type_check",
+        "kind": "return_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
+    {
+        "access_path": "typing.final",
+        "kind": "return_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
+    {
+        "access_path": "typing.runtime_checkable",
+        "kind": "return_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
+    {
+        # ``copy.copy`` preserves the value's reachable objects for a
+        # may-analysis.  ``deepcopy`` is coarser, so it is deliberately not
+        # marked exhaustive.
+        "access_path": "copy.copy",
+        "kind": "return_argument",
+        "arguments": [0],
+    },
+    {
+        "access_path": "copy.deepcopy",
+        "kind": "return_argument",
+        "arguments": [0],
+    },
+    {
+        # ``itertools.chain(*iterables)`` yields the elements of every
+        # iterable; represent it as a fresh sequence.
+        "access_path": "itertools.chain",
+        "kind": "return_sequence",
+        "arguments": ["*"],
+        "exhaustive": True,
+    },
+)
+
 __all__ = [
     "AliasStatus",
     "BindingId",
@@ -225,6 +285,20 @@ class PointerAnalysisResult:
                 and (context is None or binding_id.context == context)
             )
         ]
+        if not matched:
+            # Absence of a binding is not evidence that the queried value has
+            # no targets.  Calling it "complete" made typos and out-of-scope
+            # names indistinguishable from a proven empty points-to set.
+            return PointsToQueryResult(
+                objects=frozenset(),
+                complete=False,
+                reasons=(
+                    {
+                        "kind": "unbound_name",
+                        "message": "query did not match an analyzed binding",
+                    },
+                ),
+            )
         complete, reasons = self._query.completeness_for(matched)
         return PointsToQueryResult(
             objects=frozenset(self.points_to(binding, scope=scope, context=context)),
@@ -232,12 +306,27 @@ class PointerAnalysisResult:
             reasons=reasons,
         )
 
+    def _binding_exists(self, binding: str | BindingId) -> bool:
+        """Whether a query names an analyzed binding at all."""
+        if isinstance(binding, BindingId):
+            return any(
+                candidate == binding for candidate in self.binding_ids_for_name(binding.name)
+            )
+        return bool(self.binding_ids_for_name(binding))
+
     def alias_status(
         self,
         left: str | BindingId,
         right: str | BindingId,
     ) -> AliasStatus:
-        """Return a sound three-valued alias relation for two queries."""
+        """Return a sound three-valued alias relation for two queries.
+
+        A name that was never bound is not evidence of non-aliasing.  Typoed
+        or out-of-scope names previously produced ``DOES_NOT_ALIAS`` with an
+        empty, "complete" points-to set.
+        """
+        if not self._binding_exists(left) or not self._binding_exists(right):
+            return AliasStatus.UNKNOWN
         if self.points_to(left).intersection(self.points_to(right)):
             return AliasStatus.ALIASES
         left_query = self.points_to_query(left)
@@ -380,7 +469,9 @@ class PointerAnalysis:
             k = int(policy_match.group(1)) if policy_match is not None else 1
         self._k = k
         self._context_policy = context_policy or f"{k}-cfa"
-        self._native_effects = tuple(dict(effect) for effect in native_effects)
+        self._native_effects = tuple(
+            dict(effect) for effect in (*_DEFAULT_NATIVE_EFFECTS, *native_effects)
+        )
         self._max_iterations = max_iterations
         self._max_points_to_size = max_points_to_size
         self._analyze_all_scopes = bool(analyze_all_scopes)
@@ -448,10 +539,25 @@ class PointerAnalysis:
             worklist_seed=worklist_seed,
         )
         analysis._entry_file = entry
-        analysis._project_path = Path(project_path).resolve() if project_path else entry.parent
+        analysis._project_path = (
+            Path(project_path).resolve() if project_path else cls._infer_project_path(entry)
+        )
         analysis._library_paths = tuple(Path(path).resolve() for path in library_paths)
         analysis._import_level = import_level
         return analysis
+
+    @staticmethod
+    def _infer_project_path(entry: Path) -> Path:
+        """Return the nearest enclosing source root for a module path.
+
+        Using only ``entry.parent`` made ``from ..sibling import name`` fail
+        whenever the entry was inside a package.  Walking out of contiguous
+        packages matches how the module would be imported by Python.
+        """
+        root = entry.parent
+        while (root / "__init__.py").is_file() and root.parent != root:
+            root = root.parent
+        return root
 
     def run(self) -> PointerAnalysisResult:
         """Execute the pointer analysis and return results.

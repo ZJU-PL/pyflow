@@ -105,6 +105,18 @@ class IRTransformer(NodeVisitor):
 
     def visit_FunctionDef(self, func_def: Union[FunctionDef, AsyncFunctionDef]):
         qualname = f"{self.scope.get_qualname()}.{func_def.name}"
+        # Property accessors share the Python name (``v``), but their bodies
+        # are distinct scopes.  Without a suffix the second definition
+        # overwrote the first one in ``scope_ir``/``names2scope`` and the
+        # getter ended up executing the setter body.
+        for decorator in func_def.decorator_list:
+            if isinstance(decorator, ast.Attribute) and decorator.attr in {
+                "setter",
+                "getter",
+                "deleter",
+            }:
+                qualname = f"{qualname}.{decorator.attr}"
+                break
         func = IRFunc(qualname, func_def, is_method=isinstance(self.scope, IRClass))
         trans = IRTransformer(func)
         trans.process_stmts(func_def.body)

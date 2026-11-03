@@ -1,5 +1,9 @@
-MISSING = object()
-KW_ONLY = object()
+class _DataclassSentinel:
+    """Distinct sentinel type so pointer analysis can recognize omitted values."""
+
+
+MISSING = _DataclassSentinel()
+KW_ONLY = _DataclassSentinel()
 
 
 class Field:

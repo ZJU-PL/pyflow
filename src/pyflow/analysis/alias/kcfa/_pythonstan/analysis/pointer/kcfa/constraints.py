@@ -30,6 +30,8 @@ __all__ = [
     "AttrDeleteConstraint",
     "StoreConstraint",
     "AllocConstraint",
+    "ContainerPreciseConstraint",
+    "SemanticGapConstraint",
     "LoadSubscrConstraint",
     "StoreSubscrConstraint",
     "CallConstraint",
@@ -297,6 +299,34 @@ class SuperResolveConstraint(Constraint):
         return (
             f"SuperResolveConstraint: {self.target} = super({self.class_var}, {self.instance_var})"
         )
+
+
+@dataclass(frozen=True)
+class SemanticGapConstraint(Constraint):
+    """Record a modeled construct that is intentionally incomplete."""
+
+    kind: str
+    message: str
+    target: Optional["Variable"] = None
+
+    def variables(self) -> Set["Variable"]:
+        return {self.target} if self.target is not None else set()
+
+    def __str__(self) -> str:
+        return f"SemanticGapConstraint: {self.kind}: {self.message}"
+
+
+@dataclass(frozen=True)
+class ContainerPreciseConstraint(Constraint):
+    """Mark literal containers whose key-indexed element cells are complete."""
+
+    target: "Variable"
+
+    def variables(self) -> Set["Variable"]:
+        return {self.target}
+
+    def __str__(self) -> str:
+        return f"ContainerPreciseConstraint: {self.target}"
 
 
 @dataclass(frozen=True)
