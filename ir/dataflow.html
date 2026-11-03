@@ -171,6 +171,12 @@ this supports dependence analysis rather than exact execution simulation.
 </section>
 <section id="core-components">
 <h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading"></a></h2>
+<p>The legacy value graph summarizes zero iterations and one body execution and
+remains acyclic for its existing transformation passes. It is not a complete
+loop dependence graph. Source conversion also saves a cyclic CFG in
+<code class="docutils literal notranslate"><span class="pre">dataflow_graph.control_flow</span></code>; DDG construction uses that snapshot to recover
+loop-carried local and memory dependences. CLI and PDG construction build DDGs
+directly from CFGs. See <a class="reference internal" href="ddg.html"><span class="doc">Data Dependence Graph (DDG)</span></a> for the dependence model and alias limits.</p>
 <section id="graph-model">
 <h3>Graph Model<a class="headerlink" href="#graph-model" title="Link to this heading"></a></h3>
 <p>The data flow graph represents a function as a sequence of operations connected

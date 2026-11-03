@@ -219,12 +219,24 @@ verify before returning results or expanding phis. Invalid SSA raises
 <code class="docutils literal notranslate"><span class="pre">SSAVerificationError</span></code>; query results are cached only after verification.</p>
 <p>SSA versions describe local values. Globals, closure cells, attributes, and
 subscripts remain storage operations handled by the memory model. Local copy
-assignments can disappear through reach-through optimization, so SSA does not
-preserve a value for every source binding. Walrus definitions remain inside
+assignments between different symbols retain a definition for the named target;
+only self-copies can disappear. Phi arguments and targets refer to the same
+lexical symbol, and anonymous values use distinct catalog names in dumps.
+Walrus definitions remain inside
 <code class="docutils literal notranslate"><span class="pre">NamedExpr</span></code> expressions, including switch conditions; consumers must inspect
 those expressions rather than only scanning <code class="docutils literal notranslate"><span class="pre">Suite.ops</span></code> for assignments.
 Unbound reads are legal values marked <code class="docutils literal notranslate"><span class="pre">Value.undefined=True</span></code>. Verification
 accepts these values; consumers must check that flag explicitly.</p>
+<p>Expression-level yields are lifted into explicit <code class="docutils literal notranslate"><span class="pre">Yield</span></code> blocks and resume
+inputs before the received value is bound. <code class="docutils literal notranslate"><span class="pre">Await</span></code> blocks expose async
+suspension, normal resumption, and exceptional exits; <code class="docutils literal notranslate"><span class="pre">AsyncForIter</span></code> marks
+asynchronous iterator advancement. These boundaries do not model event-loop
+scheduling or prove race freedom. Short-circuit and conditional expressions
+retain branch-local suspension paths.</p>
+<p>A return through <code class="docutils literal notranslate"><span class="pre">finally</span></code> evaluates and saves its values before cleanup.
+The final <code class="docutils literal notranslate"><span class="pre">Return</span></code> terminator executes after cleanup; a return or raise from
+cleanup overrides the pending completion. <code class="docutils literal notranslate"><span class="pre">verify_cfg</span></code> rejects operations
+after a Return and executable normal successors of a Return.</p>
 </section>
 </section>
 </section>

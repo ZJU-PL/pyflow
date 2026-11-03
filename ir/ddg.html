@@ -135,7 +135,7 @@
   <section id="data-dependence-graph-ddg">
 <h1>Data Dependence Graph (DDG)<a class="headerlink" href="#data-dependence-graph-ddg" title="Link to this heading"></a></h1>
 <p>The Data Dependence Graph module constructs data dependence graphs on top of
-PyFlow’s data flow IR and SSA infrastructure.  A DDG represents which
+PyFlow’s CFG and SSA infrastructure. A DDG represents which
 operations produce data that is consumed by other operations.</p>
 <section id="key-features">
 <h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading"></a></h2>
@@ -149,9 +149,19 @@ dependence edges</p></li>
 <li><p><strong>Optimization Support</strong>: Identifies independent operations for
 parallelization and dead code elimination</p></li>
 </ul>
-<p>DDG generation supports source-level <code class="docutils literal notranslate"><span class="pre">try/except/else/finally</span></code>, <code class="docutils literal notranslate"><span class="pre">with</span></code>,
-and <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span></code> through the dataflow converter’s exceptional state merges.
-See <a class="reference internal" href="dataflow.html"><span class="doc">Data Flow Intermediate Representation</span></a> for the conservative exception and loop modeling limits.</p>
+<p>Source-backed DDGs follow CFG program points, branches, exceptional exits,
+and loop back-edges. Reaching local definitions are solved to a fixed point,
+so accumulators and pointer traversals have loop-carried def-use chains.
+For-loop iterable evaluation precedes the header and the index is defined
+only on the body edge, preserving zero-iteration bindings.</p>
+<p>Memory RAW/WAR/WAW and opaque-call EXTERNAL ordering also follow CFG paths.
+Source line numbers are display metadata and never determine execution order.
+Mutually exclusive branches remain unordered unless a loop permits their
+execution in different iterations. Loop-carried memory edges can point
+backward in source order or connect an operation to itself. Heap writes use
+conservative weak updates over abstract storage locations; alias imprecision
+can still introduce extra dependences. Opaque heap effects require models for
+greater precision, and <code class="docutils literal notranslate"><span class="pre">except*</span></code> matching remains approximate.</p>
 </section>
 <section id="graph-structure">
 <h2>Graph Structure<a class="headerlink" href="#graph-structure" title="Link to this heading"></a></h2>
@@ -165,14 +175,21 @@ See <a class="reference internal" href="dataflow.html"><span class="doc">Data Fl
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">graph.py</span></code> — Core data structures (<code class="docutils literal notranslate"><span class="pre">DDGNode</span></code>, <code class="docutils literal notranslate"><span class="pre">DDGEdge</span></code>,
 <code class="docutils literal notranslate"><span class="pre">DataDependenceGraph</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">construction.py</span></code> — Algorithms for building DDGs from data flow IR</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">construction.py</span></code> — CFG and raw-dataflow DDG entrypoints</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cfg_construction.py</span></code> — Cyclic CFG def-use and memory dependences</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">dump.py</span></code> — Visualization and serialization</p></li>
 </ul>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.ddg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_ddg</span><span class="p">,</span> <span class="n">DataDependenceGraph</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cfg</span><span class="w"> </span><span class="kn">import</span> <span class="n">transform</span>
 
-<span class="n">ddg</span><span class="p">:</span> <span class="n">DataDependenceGraph</span> <span class="o">=</span> <span class="n">construct_ddg</span><span class="p">(</span><span class="n">dataflow_graph</span><span class="p">)</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">transform</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+<span class="n">ddg</span><span class="p">:</span> <span class="n">DataDependenceGraph</span> <span class="o">=</span> <span class="n">construct_ddg</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">construct_ddg(dataflow_graph)</span></code> also accepts the result of the source dataflow
+converter, which carries a <code class="docutils literal notranslate"><span class="pre">control_flow</span></code> snapshot for this purpose. Raw
+client-built dataflow graphs without that snapshot retain their supplied
+value/operation topology and cannot recover missing control-flow back-edges.</p>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>

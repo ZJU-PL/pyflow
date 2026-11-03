@@ -90,9 +90,23 @@ verify before returning results or expanding phis. Invalid SSA raises
 
 SSA versions describe local values. Globals, closure cells, attributes, and
 subscripts remain storage operations handled by the memory model. Local copy
-assignments can disappear through reach-through optimization, so SSA does not
-preserve a value for every source binding. Walrus definitions remain inside
+assignments between different symbols retain a definition for the named target;
+only self-copies can disappear. Phi arguments and targets refer to the same
+lexical symbol, and anonymous values use distinct catalog names in dumps.
+Walrus definitions remain inside
 ``NamedExpr`` expressions, including switch conditions; consumers must inspect
 those expressions rather than only scanning ``Suite.ops`` for assignments.
 Unbound reads are legal values marked ``Value.undefined=True``. Verification
 accepts these values; consumers must check that flag explicitly.
+
+Expression-level yields are lifted into explicit ``Yield`` blocks and resume
+inputs before the received value is bound. ``Await`` blocks expose async
+suspension, normal resumption, and exceptional exits; ``AsyncForIter`` marks
+asynchronous iterator advancement. These boundaries do not model event-loop
+scheduling or prove race freedom. Short-circuit and conditional expressions
+retain branch-local suspension paths.
+
+A return through ``finally`` evaluates and saves its values before cleanup.
+The final ``Return`` terminator executes after cleanup; a return or raise from
+cleanup overrides the pending completion. ``verify_cfg`` rejects operations
+after a Return and executable normal successors of a Return.

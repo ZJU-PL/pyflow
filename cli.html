@@ -234,15 +234,18 @@ See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal I
 - <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-gir</span> <span class="pre">FUNCTION</span></code>: Dump Graph IR (GIR) for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
-- <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Persist artifacts in this directory. When omitted,</p>
+- <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function</p>
 <blockquote>
-<div><p>artifacts go to stdout and temporary files are cleaned up; multiple JSON
-artifacts form a single filename-to-document map. Progress goes to stderr</p>
+<div><p>using the cyclic CFG dependence model. Bulk DDG output to an interactive
+terminal requires a function filter or <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>; redirected output
+keeps the existing all-functions behavior</p>
 </div></blockquote>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-gir</span> <span class="pre">FUNCTION</span></code>: Dump Graph IR (GIR) for a named function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Persist artifacts in this directory. When omitted,
+artifacts go to stdout and temporary files are cleaned up; multiple JSON
+artifacts form a single filename-to-document map. Progress goes to stderr</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude</p></li>
@@ -251,6 +254,8 @@ artifacts form a single filename-to-document map. Progress goes to stderr</p>
 <p>MIR dumps lower source directly without importing or executing analyzed
 modules. They support text, JSON, and DOT output. With directory input,
 the output directory preserves the source directory structure.</p>
+<p>Both <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pyflow</span></code> and <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pyflow.cli</span></code> support the same CLI
+arguments and exit codes as the installed <code class="docutils literal notranslate"><span class="pre">pyflow</span></code> command.</p>
 </section>
 <section id="pyflow-concolic">
 <h3><strong>pyflow concolic</strong><a class="headerlink" href="#pyflow-concolic" title="Link to this heading"></a></h3>
