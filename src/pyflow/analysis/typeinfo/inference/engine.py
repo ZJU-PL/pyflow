@@ -7544,7 +7544,7 @@ class StaticTypeInferenceEngine:
         generator = function.is_generator_source or (
             function.summary is not None and function.summary.is_generator
         )
-        if generator:
+        if generator and function.effective_return is None:
             yield_value = (
                 function.summary.yield_value
                 if function.summary is not None
@@ -7555,7 +7555,15 @@ class StaticTypeInferenceEngine:
                 if yield_value is not None and not yield_value.is_bottom
                 else None
             ) or ANY
-            if not (
+            decorators = {
+                self._qualified_callee_name(decorator)
+                for decorator in getattr(function.node, "decorator_list", ())
+            }
+            if "contextlib.contextmanager" in decorators:
+                returns = self._proper_instance(contextlib.AbstractContextManager, element)
+            elif "contextlib.asynccontextmanager" in decorators:
+                returns = self._proper_instance(contextlib.AbstractAsyncContextManager, element)
+            elif not (
                 isinstance(returns, Instance)
                 and returns.type.raw_type
                 in {

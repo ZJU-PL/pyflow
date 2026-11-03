@@ -1070,3 +1070,30 @@ def test_async_generator_is_compatible_with_async_iterator_callback():
 
     assert result.converged
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_contextmanager_functions_project_context_manager_callables():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from contextlib import contextmanager, asynccontextmanager\n"
+        "from typing import AsyncContextManager, AsyncIterator, Callable, ContextManager, Iterator\n"
+        "@contextmanager\n"
+        "def cm() -> Iterator[int]:\n"
+        "    yield 1\n"
+        "@asynccontextmanager\n"
+        "async def acm() -> AsyncIterator[int]:\n"
+        "    yield 1\n"
+        "def take(fn):\n"
+        "    return fn\n"
+        "sync_value = take(cm)\n"
+        "async_value = take(acm)\n"
+        "def want_cm(fn: Callable[[], ContextManager[int]]) -> None: ...\n"
+        "def want_acm(fn: Callable[[], AsyncContextManager[int]]) -> None: ...\n"
+        "want_cm(cm)\n"
+        "want_acm(acm)\n",
+    )
+
+    assert result.converged
+    assert "AbstractContextManager[int]" in str(result.type_of("sync_value"))
+    assert "AbstractAsyncContextManager[int]" in str(result.type_of("async_value"))
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
