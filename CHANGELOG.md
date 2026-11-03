@@ -41,9 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previously spent the whole budget without producing a result.
 - Capability findings no longer split one async context-manager request into
   `$await_result`/`__aenter__`/wildcard aliases, and response parsing
-  (`post(...).json()`, `resp["token"]`) or derived environment strings
-  (`os.environ.get(...).split(...)`) are no longer reported as fresh capability
-  transfers.  Uncalled functions with annotated `Path` parameters now resolve
+  (`post(...).json()`, `resp["token"]`, chained `.json().get()`) or derived
+  environment strings (`os.environ.get(...).split(...)`) are no longer
+  reported as fresh capability transfers.  Uncalled functions with annotated `Path` parameters now resolve
   path methods.
 - Capability source reading honors UTF-8 BOM and PEP 263 coding cookies, and a
   `RecursionError` on deeply nested expressions is reported as an unsupported

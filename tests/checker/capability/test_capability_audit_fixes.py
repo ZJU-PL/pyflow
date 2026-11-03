@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from argparse import Namespace
+
+import pytest
 import json
 
 from pyflow.checker.capability import (
@@ -376,3 +378,21 @@ def test_single_file_report_excludes_imported_modules_by_default(tmp_path, capsy
         and finding["location"]["file"].endswith("config.py")
         for finding in payload["findings"]
     )
+
+
+def test_nested_response_data_access_is_not_network_io() -> None:
+    pytest.importorskip("httpx")
+    result = _result(
+        "import httpx\n"
+        "async def f():\n"
+        "    async with httpx.AsyncClient() as client:\n"
+        "        response = await client.get('http://x')\n"
+        "        return response.json().get('items', []).get('value')\n",
+        analyze_all_scopes=True,
+    )
+
+    network_paths = {
+        finding.access_path for finding in result.findings if finding.capability == "network.io"
+    }
+    assert network_paths
+    assert not any("json" in path or path.count(".<return>") >= 2 for path in network_paths)

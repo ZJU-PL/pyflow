@@ -388,8 +388,9 @@ def run_capabilities(args) -> int:
                         # Fast entry-only audit found nothing, but the file
                         # imports project-local modules.  Follow those imports
                         # once rather than leaving a false-negative report.
+                        fallback_depth = -1 if getattr(args, "include_imports", False) else 1
                         analyzed = analysis.analyze_project(
-                            entry, project_path=project_root, import_level=-1
+                            entry, project_path=project_root, import_level=fallback_depth
                         )
                 except (
                     OSError,

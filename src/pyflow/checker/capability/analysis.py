@@ -625,7 +625,18 @@ class DefensiveCapabilityAnalysis:
         if operation is not CapabilityOperation.CALL or ".<return>" not in access_path:
             return patterns
         terminal = access_path.rsplit(".", 1)[-1]
-        if terminal not in {"json", "__getitem__", "keys", "items", "values", "raise_for_status"}:
+        if (
+            terminal
+            not in {
+                "json",
+                "__getitem__",
+                "keys",
+                "items",
+                "values",
+                "raise_for_status",
+            }
+            and access_path.count(".<return>") < 2
+        ):
             return patterns
         return tuple(pattern for pattern in patterns if pattern.capability != "network.io")
 
