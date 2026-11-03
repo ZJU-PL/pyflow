@@ -234,6 +234,8 @@ def _normalize_descriptor_path(access_path: str) -> str:
         access_path = access_path.replace(f".{hook}.<return>", "")
     for segment in (".__aenter__.<return>", ".__enter__.<return>", ".$await_result"):
         access_path = access_path.replace(segment, "")
+    for path_type in _NON_HANDLE_PATH_TYPES:
+        access_path = access_path.replace(f"{path_type}.<return>.", f"{path_type}.")
     if ".<return>" in access_path:
         # Unknown-field aliases (``.*``) duplicate the concrete
         # ``$await_result`` path; keep a single canonical path.

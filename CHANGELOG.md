@@ -55,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `file.write`, rather than being recorded as write-only.
 - Environment item access no longer emits duplicate read and call findings for
   `os.environ.__getitem__`/`__setitem__`.
+- Path-method findings now canonicalize synthetic `pathlib.Path.<return>`
+  access paths, matching direct `pathlib.Path.exists`/`read_text` findings.
 - Single-file fast paths now cover any absolute-import module with no
   registry capability call and no capability-module import, not only
   re-export-only files; relative imports remain fully analyzed.
