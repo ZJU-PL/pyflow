@@ -255,6 +255,7 @@ def test_single_file_namespace_package_resolves_absolute_imports(tmp_path, capsy
         import_depth=-1,
         format="json",
         output=None,
+        include_imports=True,
         max_iterations=20000,
         max_seconds=60.0,
     )

@@ -367,8 +367,8 @@ def test_single_file_report_excludes_imported_modules_by_default(tmp_path, capsy
     assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     files = {finding["location"]["file"] for finding in payload["findings"]}
-    assert str((tmp_path / "util.py").resolve()) in files
-    assert str((tmp_path / "config.py").resolve()) not in files
+    assert str((tmp_path / "util.py").resolve()) not in files
+    assert files <= {str(entry.resolve())}
 
     args = _cli_args(input_path=str(entry), import_depth=None, include_imports=True)
     assert run_capabilities(args) == 0

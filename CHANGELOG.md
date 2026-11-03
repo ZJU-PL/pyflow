@@ -32,9 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tempfile.NamedTemporaryFile()` are now reported.
 - Single-file capability audits retry with project imports when the fast
   entry-only pass finds nothing but the file imports project-local modules;
-  findings are scoped to the requested file and its direct project imports
-  unless ``--include-imports`` is passed.  This avoids both empty reports for
-  local clients and dependency finding floods in small files.
+  findings are scoped to the requested file unless ``--include-imports`` is
+  passed.  This avoids both empty reports for local clients and dependency
+  finding floods in small files.
 - Capability registry path matching and solver statistics are cached.  Large
   heaps previously rescanned every registry pattern for the same object path
   and recomputed full points-to statistics several times per report.
