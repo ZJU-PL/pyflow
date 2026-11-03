@@ -412,11 +412,28 @@ class DefensiveCapabilityAnalysis:
             "setattr",
             "import_module",
         }
+        generic_names = {
+            "get",
+            "set",
+            "pop",
+            "clear",
+            "update",
+            "items",
+            "values",
+            "keys",
+            "copy",
+            "read",
+            "write",
+            "append",
+            "remove",
+            "replace",
+            "close",
+        }
         for pattern in self.registry.patterns:
             path = pattern.access_path
             paths.append(path)
             last = path.rsplit(".", 1)[-1]
-            if last == "*":
+            if last == "*" or last in generic_names:
                 continue
             if last.endswith("*"):
                 names.add(last)

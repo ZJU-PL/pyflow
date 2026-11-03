@@ -49,7 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `os.environ.__getitem__`/`__setitem__`.
 - Uncalled-scope auditing matches registry names exactly (or by explicit
   wildcard prefix) instead of seeding every function containing a name such as
-  `get_start`, which wasted solver budget on large geometry/ML modules.
+  `get_start`, and generic method names (`items`, `get`, `read`, ...) require
+  a full registry-path match.  This stops ordinary `dict.items()` calls from
+  triggering expensive scope audits in ML modules.
 - Native helper chains such as `im = im.convert(...)` now collapse repeated
   `method.<return>` cycles instead of growing an unbounded access path and
   exhausting the solver budget.  This restores findings for files that
