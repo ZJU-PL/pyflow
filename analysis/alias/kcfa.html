@@ -193,6 +193,22 @@ completion is explicit on the returned result:</p>
 </pre></div>
 </div>
 </section>
+<section id="modelled-patterns">
+<h2>Modelled patterns<a class="headerlink" href="#modelled-patterns" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">importlib.import_module(&quot;pkg.mod&quot;)</span></code> resolves through the namespace
+manager. Modules already present in the static import graph are bound
+directly; others are parsed and lowered on demand (bounded by
+<code class="docutils literal notranslate"><span class="pre">MAX_LAZY_MODULES</span></code>). An unresolvable name keeps the conservative stub
+result and marks the analysis incomplete.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">super().__call__(...)</span></code> inside a metaclass <code class="docutils literal notranslate"><span class="pre">__call__</span></code> resolves to
+<code class="docutils literal notranslate"><span class="pre">type.__call__</span></code> and performs the default instantiation of the receiver
+class, including <code class="docutils literal notranslate"><span class="pre">__init__</span></code> dispatch.</p></li>
+<li><p>Class attributes rebound to a plain function (<code class="docutils literal notranslate"><span class="pre">A.m</span> <span class="pre">=</span> <span class="pre">f</span></code>) are rebound as
+methods on lookup; functions stored in an instance <code class="docutils literal notranslate"><span class="pre">__dict__</span></code> stay
+unbound, matching Python.</p></li>
+</ul>
+</section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
 <ul class="simple">

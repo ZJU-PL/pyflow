@@ -56,6 +56,21 @@ completion is explicit on the returned result:
    if not results.complete:
        print(results.stop_reason, results.statistics())
 
+Modelled patterns
+-----------------
+
+* ``importlib.import_module("pkg.mod")`` resolves through the namespace
+  manager. Modules already present in the static import graph are bound
+  directly; others are parsed and lowered on demand (bounded by
+  ``MAX_LAZY_MODULES``). An unresolvable name keeps the conservative stub
+  result and marks the analysis incomplete.
+* ``super().__call__(...)`` inside a metaclass ``__call__`` resolves to
+  ``type.__call__`` and performs the default instantiation of the receiver
+  class, including ``__init__`` dispatch.
+* Class attributes rebound to a plain function (``A.m = f``) are rebound as
+  methods on lookup; functions stored in an instance ``__dict__`` stay
+  unbound, matching Python.
+
 See Also
 --------
 
