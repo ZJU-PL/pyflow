@@ -321,6 +321,7 @@ def document_diagnostics(index, uri, *, include_security=False):
                 and reference.symbol_id is None
                 and reference.location not in index._reference_targets
                 and reference.location not in index._keyword_targets
+                and not reference.string_literal
                 and reference.name not in known
                 and reference.location.start_line not in ignored
                 and (

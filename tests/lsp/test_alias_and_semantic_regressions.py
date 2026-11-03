@@ -1,5 +1,6 @@
 """Regressions for import aliases, completion receivers and semantic snapshots."""
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -222,3 +223,118 @@ def test_multi_root_workspace_resolves_across_roots(tmp_path: Path):
     definitions = index.definitions_at(path_to_uri(use), 3, 13)
     assert [item.uri for item in definitions] == [path_to_uri(r1 / "alpha" / "__init__.py")]
     assert "hi" in {item["label"] for item in index.completion_items(path_to_uri(use), 3, 13)}
+
+
+def test_utf8_bom_in_overlay_is_tolerated(tmp_path: Path):
+    path = tmp_path / "bom.py"
+    source = "\ufeffdef alpha() -> int:\n    return 1\n"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    assert [symbol.name for symbol in index.document_symbols(uri)] == ["alpha"]
+    assert document_diagnostics(index, uri) == []
+
+
+def test_unsupported_document_uri_is_ignored(tmp_path: Path):
+    import asyncio
+
+    from pyflow.lsp import AnalysisManager, LspHandler
+
+    path = tmp_path / "app.py"
+    path.write_text("value = 1\n")
+    manager = AnalysisManager()
+    manager.load_files([path], run_pipeline=False)
+    handler = LspHandler(manager)
+    document = {
+        "uri": "untitled:Untitled-1",
+        "languageId": "python",
+        "version": 1,
+        "text": "x = 1\n",
+    }
+    asyncio.run(handler._handle_did_open({"textDocument": document}))
+    asyncio.run(
+        handler._handle_did_change(
+            {
+                "textDocument": {"uri": "untitled:Untitled-1", "version": 2},
+                "contentChanges": [{"text": "x = 2\n"}],
+            }
+        )
+    )
+    assert "untitled:Untitled-1" not in handler._open_documents
+
+
+def test_string_annotations_are_references_and_renameable(tmp_path: Path):
+    source = (
+        "from typing import Literal, Optional\n"
+        "\n"
+        "class Widget:\n"
+        "    pass\n"
+        "\n"
+        'def make(x: "Widget", y: Optional["Widget"] = None) -> "Widget":\n'
+        "    return x\n"
+        "\n"
+        'value: Literal["Widget"] = "Widget"\n'
+    )
+    path = tmp_path / "forward.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+
+    string_ranges = {
+        (reference.location.start_line, reference.location.start_character)
+        for reference in index.references
+        if reference.location.uri == uri and reference.string_literal is False
+    }
+
+    def positions(line_no: int, name: str) -> set[tuple[int, int]]:
+        line = source.splitlines()[line_no]
+        found, start = set(), 0
+        while (index := line.find(name, start)) >= 0:
+            found.add((line_no, index))
+            start = index + 1
+        return found
+
+    assert positions(5, "Widget") <= string_ranges
+    assert not (positions(8, "Widget") & string_ranges)  # Literal values, not references
+
+    ranges = index.rename_ranges_at(uri, 2, 6)
+    lines = source.splitlines()
+    for source_range in sorted(
+        ranges, key=lambda item: (item.start_line, item.start_character), reverse=True
+    ):
+        lines[source_range.start_line] = (
+            lines[source_range.start_line][: source_range.start_character]
+            + "ZWidget"
+            + lines[source_range.start_line][source_range.end_character :]
+        )
+    updated = "\n".join(lines)
+    ast.parse(updated)
+    assert 'x: "ZWidget"' in updated
+    assert 'Optional["ZWidget"]' in updated
+    assert '-> "ZWidget"' in updated
+    assert 'Literal["Widget"] = "Widget"' in updated
+
+
+def test_escaped_string_annotation_is_replaced_as_a_literal(tmp_path: Path):
+    source = "class Widget:\n" "    pass\n" "\n" 'def make(x: "Wid\\x67et") -> None:\n' "    pass\n"
+    path = tmp_path / "escaped.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    references = [
+        item for item in index.references if item.location.uri == uri and item.name == "Widget"
+    ]
+    assert references and references[0].string_literal
+    ranges = index.rename_ranges_at(uri, 0, 6)
+    assert any(item.start_line == 3 for item in ranges)
+    assert index.replacement_text(
+        [item for item in ranges if item.start_line == 3][0], "ZWidget"
+    ) == repr("ZWidget")
+
+
+def test_unknown_names_in_string_annotations_are_not_diagnostics(tmp_path: Path):
+    source = 'def f(x: "UnknownType") -> None:\n    pass\n'
+    path = tmp_path / "unknown.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    assert document_diagnostics(index, path.as_uri()) == []

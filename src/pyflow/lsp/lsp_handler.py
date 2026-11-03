@@ -205,11 +205,22 @@ class LspHandler:
         if self._rpc is not None:
             self._rpc.stop()
 
+    @staticmethod
+    def _supported_document_uri(uri: str) -> bool:
+        try:
+            uri_to_path(uri)
+        except ValueError:
+            # Untitled buffers have no filesystem path; source locations cannot
+            # be represented for them without a virtual document layer.
+            LOG.info("Ignoring document with unsupported URI scheme: %s", uri)
+            return False
+        return True
+
     async def _handle_did_open(self, params: Any) -> None:
         document = (params or {}).get("textDocument", {})
         uri = document.get("uri")
         text = document.get("text")
-        if not uri or text is None:
+        if not uri or text is None or not self._supported_document_uri(uri):
             return
         # Opening is one-shot per document; publish synchronously so any
         # requests sent right after didOpen observe the new buffer.
@@ -224,7 +235,11 @@ class LspHandler:
         params = params or {}
         document = params.get("textDocument", {})
         changes = params.get("contentChanges") or []
-        if not document.get("uri") or not changes:
+        if (
+            not document.get("uri")
+            or not changes
+            or not self._supported_document_uri(document["uri"])
+        ):
             return
         try:
             # Apply the edit in order, then rebuild the source index in a
@@ -244,7 +259,7 @@ class LspHandler:
 
     async def _handle_did_close(self, params: Any) -> None:
         uri = ((params or {}).get("textDocument") or {}).get("uri")
-        if not uri:
+        if not uri or not self._supported_document_uri(uri):
             return
         self._open_documents.pop(uri, None)
         self._publish_epochs[uri] = self._publish_epochs.get(uri, 0) + 1

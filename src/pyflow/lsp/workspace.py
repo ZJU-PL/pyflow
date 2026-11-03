@@ -45,6 +45,11 @@ def path_to_uri(path: str | os.PathLike[str]) -> str:
 
 
 @lru_cache(maxsize=65536)
+def _strip_bom(text: str) -> str:
+    """Drop a UTF-8 BOM; Python accepts it in files but not in ``ast.parse`` text."""
+    return text[1:] if text.startswith("\ufeff") else text
+
+
 def _cached_path_to_uri(path: str) -> str:
     return path_to_uri(path)
 
@@ -442,7 +447,9 @@ class SourceIndex:
     ):
         self.workspace_roots = tuple(Path(root).absolute() for root in workspace_roots)
         self.module_identity = ModuleIdentityResolver(self.workspace_roots)
-        self.source_files = {os.path.abspath(path): text for path, text in source_files.items()}
+        self.source_files = {
+            os.path.abspath(path): _strip_bom(text) for path, text in source_files.items()
+        }
         self._file_indices: dict[str, _FileIndex] = {
             path: self._build_file_index(path, source) for path, source in self.source_files.items()
         }
@@ -466,7 +473,9 @@ class SourceIndex:
 
     def with_source_files(self, source_files: dict[str, str]) -> "SourceIndex":
         """Return an index that reparses only files whose text changed."""
-        normalized = {os.path.abspath(path): text for path, text in source_files.items()}
+        normalized = {
+            os.path.abspath(path): _strip_bom(text) for path, text in source_files.items()
+        }
         if normalized == self.source_files:
             return self
         file_indices: dict[str, _FileIndex] = {}
@@ -2052,6 +2061,7 @@ class _IndexVisitor(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node):
         self.generic_visit(node)
+        self._record_annotation_strings(node.annotation)
         self._bind_value(node.target, ("annotation", self._annotation_target(node.annotation)))
         if node.value is not None:
             self._bind_value(node.target, self._target(node.value))
@@ -2354,9 +2364,109 @@ class _IndexVisitor(ast.NodeVisitor):
             *([node.args.kwarg] if node.args.kwarg else []),
         ]:
             if argument.annotation is not None:
-                self.visit(argument.annotation)
+                self._visit_annotation(argument.annotation)
         if node.returns is not None:
-            self.visit(node.returns)
+            self._visit_annotation(node.returns)
+
+    def _visit_annotation(self, node: ast.AST) -> None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            self._record_string_annotation(node)
+            return
+        self.visit(node)
+        self._record_annotation_strings(node)
+
+    def _record_annotation_strings(self, node: ast.AST) -> None:
+        for constant in self._annotation_strings(node):
+            self._record_string_annotation(constant)
+
+    def _annotation_strings(self, node: ast.AST):
+        """Yield string literals used as forward references in an annotation."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield node
+            return
+        if isinstance(node, ast.Subscript):
+            qualified = self._qualified_expression_name(node.value)
+            arguments = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if qualified in {"typing.Literal", "typing_extensions.Literal"}:
+                return
+            if qualified in {"typing.Annotated", "typing_extensions.Annotated"}:
+                if arguments:
+                    yield from self._annotation_strings(arguments[0])
+                return
+            for argument in arguments:
+                yield from self._annotation_strings(argument)
+            return
+        if isinstance(node, (ast.Tuple, ast.List)):
+            for item in node.elts:
+                yield from self._annotation_strings(item)
+            return
+        for child in ast.iter_child_nodes(node):
+            yield from self._annotation_strings(child)
+
+    def _record_string_annotation(self, node: ast.Constant) -> None:
+        """Record identifiers referenced by a string annotation.
+
+        ``"Widget"`` and ``Optional["Widget"]`` are source-visible references:
+        navigation and rename must treat them like the equivalent expression.
+        Escaped or concatenated literals are replaced as a whole.
+        """
+        value = node.value
+        if not isinstance(value, str) or "\n" in value:
+            return
+        try:
+            expression = ast.parse(value, mode="eval").body
+        except (SyntaxError, ValueError, RecursionError):
+            return
+        segment = ast.get_source_segment(self.source, node)
+        if segment is None:
+            return
+        line_no = node.lineno - 1
+        line = self.lines[line_no] if line_no < len(self.lines) else ""
+        node_start = _byte_col_to_char(line, node.col_offset)
+        node_end = _byte_col_to_char(line, node.end_col_offset)
+        literal = line[node_start:node_end]
+        inner = literal.find(value)
+        escaped = inner < 0
+        seen: set[tuple[int, int]] = set()
+        for child in ast.walk(expression):
+            if isinstance(child, ast.Name):
+                name = child.id
+                end_in_value = _byte_col_to_char(value, child.end_col_offset)
+                start_in_value = _byte_col_to_char(value, child.col_offset)
+            elif isinstance(child, ast.Attribute):
+                name = child.attr
+                end_in_value = _byte_col_to_char(value, child.end_col_offset)
+                start_in_value = end_in_value - len(name)
+            else:
+                continue
+            if not name.isidentifier():
+                continue
+            if escaped:
+                start_char, end_char = node_start, node_end
+            else:
+                start_char = node_start + inner + start_in_value
+                end_char = node_start + inner + end_in_value
+                if line[start_char:end_char] != name:
+                    continue
+                if (start_char, end_char) in seen:
+                    continue
+                seen.add((start_char, end_char))
+            location = SourceRange(
+                self.uri,
+                line_no,
+                offset_to_lsp_character(line, start_char),
+                line_no,
+                offset_to_lsp_character(line, end_char),
+            )
+            self.index._reference_targets[location] = self._target(child)
+            self.index.references.append(
+                SourceReference(
+                    name,
+                    location,
+                    self._current_function(),
+                    string_literal=escaped,
+                )
+            )
 
     def _predeclare_function_bindings(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self._predeclare_bindings(
