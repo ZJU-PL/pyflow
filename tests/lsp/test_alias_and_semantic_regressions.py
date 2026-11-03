@@ -608,3 +608,29 @@ def test_cast_string_type_is_a_reference(tmp_path: Path):
     assert key in {
         (item.start_line, item.start_character) for item in index.rename_ranges_at(uri, 2, 6)
     }
+
+
+def test_self_annotations_resolve_to_the_enclosing_class(tmp_path: Path):
+    source = (
+        "from typing import Self\n"
+        "import typing as t\n"
+        "\n"
+        "class A:\n"
+        "    x: int = 1\n"
+        "    def f(self: Self) -> None:\n"
+        "        self.x\n"
+        "    def g(self) -> None:\n"
+        "        def helper(obj: t.Self) -> None:\n"
+        "            obj.x\n"
+        "        helper(self)\n"
+    )
+    path = tmp_path / "self_annotation.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    lines = source.splitlines()
+    for row in (6, 9):
+        dot = lines[row].index(".")
+        labels = {item["label"] for item in index.completion_items(uri, row, dot + 1)}
+        assert {"x", "f", "g"} <= labels
+    assert "A" in index.hover_at(uri, 9, 12)["contents"]["value"]

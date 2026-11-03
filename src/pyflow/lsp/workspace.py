@@ -1934,6 +1934,13 @@ class _IndexVisitor(ast.NodeVisitor):
                 node = ast.parse(node.value, mode="eval").body
             except SyntaxError:
                 return ("unknown",)
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            qualified = self._qualified_expression_name(node)
+            if (
+                qualified in {"typing.Self", "typing_extensions.Self"}
+                and self._current_scope.class_id is not None
+            ):
+                return ("instance", ("symbol", self._current_scope.class_id))
         if isinstance(node, ast.Constant) and node.value is None:
             return ("external", "builtins.NoneType")
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
