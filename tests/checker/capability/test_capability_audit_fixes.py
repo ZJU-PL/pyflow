@@ -416,3 +416,16 @@ def test_read_update_open_requires_both_file_capabilities() -> None:
         {"file.read", "file.write"}
     )
     assert capabilities_for_audit_event("open", ("x", "w", 0)) == frozenset({"file.write"})
+
+
+def test_network_io_policy_covers_socket_and_dns_events() -> None:
+    from pyflow.checker.capability.runtime import (
+        RuntimeCapabilityGuard,
+        RuntimeCapabilityPolicy,
+    )
+
+    for event in ("socket.__new__", "socket.connect", "socket.getaddrinfo"):
+        guard = RuntimeCapabilityGuard(RuntimeCapabilityPolicy.allowing(["network.io"]))
+        guard(event, (None,))  # must not raise
+    guard = RuntimeCapabilityGuard(RuntimeCapabilityPolicy.allowing(["network.socket"]))
+    guard("socket.__new__", (None,))

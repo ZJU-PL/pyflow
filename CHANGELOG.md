@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bodies for every synthesized solver identity; stable tokens use source spans
   when available.  Incomplete-variable reasons are also deduplicated with a
   set, avoiding quadratic list scans in native-call-heavy analyses.
+- Runtime allow-lists treat static `network.io` as covering the underlying
+  `network.socket`/`network.dns` audit events, so policies derived from static
+  findings can permit HTTP requests without separately allowing socket events.
 - Runtime auditing now records and enforces every capability required by an
   operation; `r+`/`w+` and `os.O_RDWR` require both `file.read` and
   `file.write`, rather than being recorded as write-only.

@@ -123,6 +123,8 @@ pyflow capability-run --allow file.read --allow 'network.*' app.py
 ```
 
 `capability-run` installs a permanent CPython audit hook in the CLI process.
+An allow-list entry for `network.io` covers the underlying `network.socket` and
+`network.dns` events; the reverse is not true.
 It observes classified events and, by default, uses an allow list to deny known
 operations. An uncaught denial exits with status 126. `--observe-only` records without denying.
 Unclassified events are ignored. Python-level audit hooks are not suitable for

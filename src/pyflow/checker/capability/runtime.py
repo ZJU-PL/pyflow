@@ -41,6 +41,15 @@ class RuntimeCapabilityEvent:
     capabilities: tuple[str, ...] = ()
 
 
+#: A static ``network.io`` finding covers the underlying socket/DNS audit
+#: events.  The reverse is deliberately not true: allowing only
+#: ``network.socket`` does not grant the broader ``network.io`` capability.
+_NETWORK_POLICY_ALIASES = {
+    "network.socket": ("network.io",),
+    "network.dns": ("network.io",),
+}
+
+
 @dataclass
 class RuntimeCapabilityPolicy:
     """Allow-list policy. Unknown audit events are ignored, known ones fail closed."""
@@ -55,7 +64,10 @@ class RuntimeCapabilityPolicy:
         return cls(frozenset(capabilities), enforce=enforce)
 
     def permits(self, capability: str) -> bool:
-        return any(fnmatchcase(capability, pattern) for pattern in self.allowed)
+        candidates = (capability, *_NETWORK_POLICY_ALIASES.get(capability, ()))
+        return any(
+            fnmatchcase(candidate, pattern) for candidate in candidates for pattern in self.allowed
+        )
 
 
 _PREFIX_CAPABILITIES = (
