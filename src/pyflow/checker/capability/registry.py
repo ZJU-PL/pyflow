@@ -51,6 +51,8 @@ class CapabilityRegistry:
     ) -> None:
         self._patterns = tuple(patterns)
         self._effects = tuple(effects)
+        self._match_cache: dict[tuple[str, CapabilityOperation], tuple[CapabilityPattern, ...]] = {}
+        self._reachable_cache: dict[str, tuple[CapabilityPattern, ...]] = {}
 
     @property
     def patterns(self) -> tuple[CapabilityPattern, ...]:
@@ -103,19 +105,28 @@ class CapabilityRegistry:
         access_path: str,
         operation: CapabilityOperation,
     ) -> tuple[CapabilityPattern, ...]:
-        return tuple(
-            pattern
-            for pattern in self._patterns
-            if pattern.operation is operation
-            and _compile_pattern(pattern.access_path).match(access_path)
-        )
+        key = (access_path, operation)
+        cached = self._match_cache.get(key)
+        if cached is None:
+            cached = tuple(
+                pattern
+                for pattern in self._patterns
+                if pattern.operation is operation
+                and _compile_pattern(pattern.access_path).match(access_path)
+            )
+            self._match_cache[key] = cached
+        return cached
 
     def reachable(self, access_path: str) -> tuple[CapabilityPattern, ...]:
         """Approximate potential capabilities using access-path prefixes.
 
         This is a syntactic over-approximation, not proof that a member exists
         or that the recipient can exercise the corresponding operation.
+        Results are cached because the checker queries repeated heap paths.
         """
+        cached = self._reachable_cache.get(access_path)
+        if cached is not None:
+            return cached
         matches = []
         for pattern in self._patterns:
             compiled = _compile_pattern(pattern.access_path)
@@ -127,7 +138,9 @@ class CapabilityRegistry:
                 or (pattern.access_path.endswith(".*") and access_path.startswith(static + "."))
             ):
                 matches.append(pattern)
-        return tuple(matches)
+        result = tuple(matches)
+        self._reachable_cache[access_path] = result
+        return result
 
 
 __all__ = ["CapabilityPattern", "CapabilityRegistry"]

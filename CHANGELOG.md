@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   findings are scoped to the requested file and its direct project imports
   unless ``--include-imports`` is passed.  This avoids both empty reports for
   local clients and dependency finding floods in small files.
+- Capability registry path matching and solver statistics are cached.  Large
+  heaps previously rescanned every registry pattern for the same object path
+  and recomputed full points-to statistics several times per report.
 - Class-heavy modules no longer spend most of their time dumping complete AST
   bodies for every synthesized solver identity; stable tokens use source spans
   when available.  Incomplete-variable reasons are also deduplicated with a

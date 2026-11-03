@@ -2880,6 +2880,7 @@ class SolverQuery(ISolverQuery):
         self._incomplete_scopes = incomplete_scopes
         self._global_incomplete_reasons = global_incomplete_reasons
         self._complete = fixpoint_complete and frontend_complete and semantic_complete
+        self._statistics_cache: Dict[str, Any] | None = None
 
     def points_to(self, var: "Variable") -> "PointsToSet":
         return self._state.get_points_to(var)
@@ -2900,17 +2901,19 @@ class SolverQuery(ISolverQuery):
         return self._state.call_graph
 
     def get_statistics(self) -> Dict[str, Any]:
-        state_stats = self._state.get_statistics()
-        unknown_stats = self._unknown_tracker.get_summary()
-        return {
-            **state_stats,
-            **self._stats,
-            "fixpoint_complete": self._fixpoint_complete,
-            "frontend_complete": self._frontend_complete,
-            "semantic_complete": self._semantic_complete,
-            "complete": self._complete,
-            **unknown_stats,
-        }
+        if self._statistics_cache is None:
+            state_stats = self._state.get_statistics()
+            unknown_stats = self._unknown_tracker.get_summary()
+            self._statistics_cache = {
+                **state_stats,
+                **self._stats,
+                "fixpoint_complete": self._fixpoint_complete,
+                "frontend_complete": self._frontend_complete,
+                "semantic_complete": self._semantic_complete,
+                "complete": self._complete,
+                **unknown_stats,
+            }
+        return dict(self._statistics_cache)
 
     def get_unknown_summary(self) -> Dict[str, int]:
         return self._unknown_tracker.get_summary()
