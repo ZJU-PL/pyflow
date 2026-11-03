@@ -2054,12 +2054,12 @@ class StaticTypeInferenceEngine:
                 entered = join_all(
                     alternatives, self.type_system, max_union_size=self.options.max_union_size
                 )
-                if entered.unknown:
+                if entered.unknown and item.optional_vars is not None:
                     self._add_diagnostic(
                         "unmodeled-context-manager",
                         f"Cannot resolve context manager {method}; bound value remains unknown",
                         node=item.context_expr,
-                        affects_completeness=item.optional_vars is not None,
+                        affects_completeness=True,
                     )
                 if self._is_never_value(entered):
                     return _Outcome(result, terminated=True)
@@ -7746,6 +7746,15 @@ class StaticTypeInferenceEngine:
             callable_target=function.qualified_name,
         )
 
+    def _is_cli_entrypoint(self, function: _FunctionInfo) -> bool:
+        for deco in getattr(function.node, "decorator_list", ()):
+            target = deco.func if isinstance(deco, ast.Call) else deco
+            name = (self._qualified_callee_name(target) or "").rsplit(".", 1)[-1]
+            qname = self._qualified_callee_name(target) or ""
+            if qname.startswith("click.") or name in {"command", "group"}:
+                return True
+        return False
+
     def _check_call_arity(
         self,
         function: _FunctionInfo,
@@ -7770,12 +7779,13 @@ class StaticTypeInferenceEngine:
         bound = self._bind_call_arguments(function, arguments, keywords)
         missing = self._required_parameter_names(function) - bound.keys()
         if missing and not (self._call_unknown_positional or self._call_unknown_keywords):
-            self._add_diagnostic(
-                "call-arity-mismatch",
-                f"Missing required arguments for {target}: {sorted(missing)}",
-                node=node or function.node,
-                severity="warning",
-            )
+            if not (not arguments and not keywords and self._is_cli_entrypoint(function)):
+                self._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Missing required arguments for {target}: {sorted(missing)}",
+                    node=node or function.node,
+                    severity="warning",
+                )
         positional_only = {argument.arg for argument in arguments_node.posonlyargs}
         known = {argument.arg for argument in (*positional, *arguments_node.kwonlyargs)}
         known.update(function.extra_keywords)

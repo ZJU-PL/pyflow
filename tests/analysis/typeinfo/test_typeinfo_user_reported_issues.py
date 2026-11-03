@@ -786,3 +786,19 @@ def test_nested_typeddict_literal_compatibility() -> None:
         "}\n"
     )
     assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_context_manager_without_as_target_does_not_warn() -> None:
+    result = _infer("class Ctx:\n" "    pass\n" "with Ctx():\n" "    pass\n")
+    assert not any(d.code == "unmodeled-context-manager" for d in result.diagnostics)
+
+
+def test_click_command_without_arguments_does_not_warn_call_arity() -> None:
+    result = _infer(
+        "import click\n"
+        "@click.command()\n"
+        "@click.argument('foo')\n"
+        "def main(foo): pass\n"
+        "main()\n"
+    )
+    assert not any(d.code == "call-arity-mismatch" for d in result.diagnostics)

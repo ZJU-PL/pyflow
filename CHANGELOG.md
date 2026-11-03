@@ -102,7 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   library namespaces (`argparse`, `decimal`, `enum`, `urllib.parse`, `ssl`, `socket`,
   `hashlib`, etc.) in type annotations, enables covariant tuple subtyping in generic
   containers, enables the numeric tower on `TypeInfoService`, and
-  validates nested `TypedDict` literal shapes against inner `TypedDict` annotations.
+  validates nested `TypedDict` literal shapes against inner `TypedDict` annotations,
+  suppresses `unmodeled-context-manager` diagnostics when no `as` target variable is
+  bound, and recognizes Click CLI entrypoint functions invoked without arguments.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values
