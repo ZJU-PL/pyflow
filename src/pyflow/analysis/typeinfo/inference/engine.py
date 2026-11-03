@@ -155,6 +155,8 @@ class _Outcome:
     terminated: bool = False
     breaks: bool = False
     continues: bool = False
+    break_envs: list[dict[str, AbstractTypeValue]] = field(default_factory=list)
+    continue_envs: list[dict[str, AbstractTypeValue]] = field(default_factory=list)
 
 
 class StaticTypeInferenceEngine:
@@ -1614,6 +1616,8 @@ class StaticTypeInferenceEngine:
         terminated = False
         breaks = False
         continues = False
+        break_envs: list[dict[str, AbstractTypeValue]] = []
+        continue_envs: list[dict[str, AbstractTypeValue]] = []
         for statement in statements:
             outcome = self._execute_statement(
                 statement,
@@ -1626,6 +1630,8 @@ class StaticTypeInferenceEngine:
             yields.extend(outcome.yields)
             breaks = breaks or outcome.breaks
             continues = continues or outcome.continues
+            break_envs.extend(outcome.break_envs)
+            continue_envs.extend(outcome.continue_envs)
             if outcome.terminated:
                 terminated = True
                 break
@@ -1636,6 +1642,8 @@ class StaticTypeInferenceEngine:
             terminated,
             breaks=breaks,
             continues=continues,
+            break_envs=break_envs,
+            continue_envs=continue_envs,
         )
 
     def _execute_statement(
@@ -1814,17 +1822,9 @@ class StaticTypeInferenceEngine:
                 result, true_outcome.environment, false_outcome.environment
             )
             if true_outcome.terminated and not false_outcome.terminated:
-                merged = (
-                    self._join_environments(true_outcome.environment, false_outcome.environment)
-                    if true_outcome.breaks or true_outcome.continues
-                    else false_outcome.environment
-                )
+                merged = false_outcome.environment
             elif false_outcome.terminated and not true_outcome.terminated:
-                merged = (
-                    self._join_environments(true_outcome.environment, false_outcome.environment)
-                    if false_outcome.breaks or false_outcome.continues
-                    else true_outcome.environment
-                )
+                merged = true_outcome.environment
             else:
                 merged = self._join_environments(
                     true_outcome.environment, false_outcome.environment
@@ -1836,6 +1836,8 @@ class StaticTypeInferenceEngine:
                 true_outcome.terminated and false_outcome.terminated,
                 breaks=true_outcome.breaks or false_outcome.breaks,
                 continues=true_outcome.continues or false_outcome.continues,
+                break_envs=true_outcome.break_envs + false_outcome.break_envs,
+                continue_envs=true_outcome.continue_envs + false_outcome.continue_envs,
             )
 
         if isinstance(node, (ast.While, ast.For, ast.AsyncFor)):
@@ -1946,11 +1948,22 @@ class StaticTypeInferenceEngine:
                     body.returns + otherwise.returns,
                     body.yields + otherwise.yields,
                     otherwise.terminated,
+                    breaks=body.breaks or otherwise.breaks,
+                    continues=body.continues or otherwise.continues,
+                    break_envs=body.break_envs + otherwise.break_envs,
+                    continue_envs=body.continue_envs + otherwise.continue_envs,
                 )
-            merged = self._join_many_environments(outcome.environment for outcome in outcomes)
+            break_envs = [env for outcome in outcomes for env in outcome.break_envs]
+            continue_envs = [env for outcome in outcomes for env in outcome.continue_envs]
+            active = [outcome.environment for outcome in outcomes if not outcome.terminated]
+            merged = self._join_many_environments(
+                active if active else [outcome.environment for outcome in outcomes]
+            )
             returns = [value for outcome in outcomes for value in outcome.returns]
             yields = [value for outcome in outcomes for value in outcome.yields]
             terminated = all(outcome.terminated for outcome in outcomes)
+            breaks = any(outcome.breaks for outcome in outcomes)
+            continues = any(outcome.continues for outcome in outcomes)
             if node.finalbody:
                 final = self._execute_block(
                     node.finalbody, merged, scope=scope, current_function=current_function
@@ -1959,7 +1972,20 @@ class StaticTypeInferenceEngine:
                 returns = final.returns if final.terminated else returns + final.returns
                 yields.extend(final.yields)
                 terminated = terminated or final.terminated
-            return _Outcome(merged, returns, yields, terminated)
+                breaks = breaks or final.breaks
+                continues = continues or final.continues
+                break_envs.extend(final.break_envs)
+                continue_envs.extend(final.continue_envs)
+            return _Outcome(
+                merged,
+                returns,
+                yields,
+                terminated,
+                breaks=breaks,
+                continues=continues,
+                break_envs=break_envs,
+                continue_envs=continue_envs,
+            )
 
         if isinstance(node, ast.Match):
             subject = self._evaluate_expression(
@@ -2098,6 +2124,8 @@ class StaticTypeInferenceEngine:
                 terminated=True,
                 breaks=isinstance(node, ast.Break),
                 continues=isinstance(node, ast.Continue),
+                break_envs=[dict(result)] if isinstance(node, ast.Break) else [],
+                continue_envs=[dict(result)] if isinstance(node, ast.Continue) else [],
             )
 
         if isinstance(node, ast.ImportFrom):
@@ -2183,6 +2211,8 @@ class StaticTypeInferenceEngine:
         head = dict(environment)
         returns: list[AbstractTypeValue] = []
         yields: list[AbstractTypeValue] = []
+        break_envs: list[dict[str, AbstractTypeValue]] = []
+        continue_envs: list[dict[str, AbstractTypeValue]] = []
         for _ in range(self.options.max_loop_iterations):
             body_env = dict(head)
             if isinstance(node, ast.While):
@@ -2218,7 +2248,11 @@ class StaticTypeInferenceEngine:
             )
             returns.extend(outcome.returns)
             yields.extend(outcome.yields)
+            break_envs.extend(outcome.break_envs)
+            continue_envs.extend(outcome.continue_envs)
             next_head = self._join_environments(entry, outcome.environment)
+            for continue_env in outcome.continue_envs:
+                next_head = self._join_environments(next_head, continue_env)
             if next_head == head:
                 head = next_head
                 break
@@ -2239,6 +2273,9 @@ class StaticTypeInferenceEngine:
         )
         returns.extend(orelse.returns)
         yields.extend(orelse.yields)
+        exit_env = orelse.environment
+        for break_env in [*break_envs, *continue_envs]:
+            exit_env = self._join_environments(exit_env, break_env)
 
         class BreakFinder(ast.NodeVisitor):
             found = False
@@ -2273,7 +2310,7 @@ class StaticTypeInferenceEngine:
             and bool(node.test.value)
             and not finder.found
         )
-        return _Outcome(orelse.environment, returns, yields, terminated=infinite)
+        return _Outcome(exit_env, returns, yields, terminated=infinite)
 
     # ------------------------------------------------------------------
     # Expression semantics

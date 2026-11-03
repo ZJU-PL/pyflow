@@ -622,3 +622,28 @@ def test_threading_lock_and_event_models() -> None:
     assert str(result.type_of("alive")) == "bool"
     assert result.status == "complete"
     assert not [item for item in result.diagnostics if "context manager" in item.message]
+
+
+def test_continue_and_try_break_environments_are_joined() -> None:
+    result = infer(
+        "def f(xs: list[int]) -> None:\n"
+        "    found = None\n"
+        "    for value in xs:\n"
+        "        try:\n"
+        "            if value == 1:\n"
+        "                found = value\n"
+        "                continue\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "    for value in xs:\n"
+        "        try:\n"
+        "            if value == 2:\n"
+        "                found = value\n"
+        "                break\n"
+        "        finally:\n"
+        "            pass\n"
+        "    if found is not None:\n"
+        "        print(found)\n"
+    )
+    span = next(span for span in result.expressions if span.lineno == 18 and span.col_offset == 14)
+    assert raw_types(result.expressions[span].runtime_type()) == {int}
