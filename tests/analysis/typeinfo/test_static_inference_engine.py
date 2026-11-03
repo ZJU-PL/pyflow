@@ -1038,3 +1038,35 @@ def test_generic_base_method_is_not_checked_against_one_subclass_argument():
 
     assert result.converged
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_generator_functions_used_as_values_project_generator_callables():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "def sync_gen():\n"
+        "    yield 1\n"
+        "async def async_gen():\n"
+        "    yield 1\n"
+        "def take(fn):\n"
+        "    return fn\n"
+        "sync_value = take(sync_gen)\n"
+        "async_value = take(async_gen)\n",
+    )
+
+    assert result.converged
+    assert "Generator[int" in str(result.type_of("sync_value"))
+    assert "AsyncGenerator[int" in str(result.type_of("async_value"))
+
+
+def test_async_generator_is_compatible_with_async_iterator_callback():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any, AsyncIterator, Callable\n"
+        "def use(fn: Callable[[Any], AsyncIterator[Any]]) -> None: ...\n"
+        "async def start(spider):\n"
+        "    yield 1\n"
+        "use(start)\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

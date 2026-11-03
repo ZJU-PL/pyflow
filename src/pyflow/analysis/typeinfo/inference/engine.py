@@ -7541,7 +7541,37 @@ class StaticTypeInferenceEngine:
             returns = function.documented_return.public_type() or ANY
         else:
             returns = ANY
-        if isinstance(function.node, ast.AsyncFunctionDef) and not function.is_generator_source:
+        generator = function.is_generator_source or (
+            function.summary is not None and function.summary.is_generator
+        )
+        if generator:
+            yield_value = (
+                function.summary.yield_value
+                if function.summary is not None
+                else AbstractTypeValue.unresolved()
+            )
+            element = (
+                yield_value.public_type()
+                if yield_value is not None and not yield_value.is_bottom
+                else None
+            ) or ANY
+            if not (
+                isinstance(returns, Instance)
+                and returns.type.raw_type
+                in {
+                    cabc.Generator,
+                    cabc.AsyncGenerator,
+                    cabc.Iterator,
+                    cabc.AsyncIterator,
+                    cabc.Iterable,
+                    cabc.AsyncIterable,
+                }
+            ):
+                if isinstance(function.node, ast.AsyncFunctionDef):
+                    returns = self._proper_instance(cabc.AsyncGenerator, element, ANY)
+                else:
+                    returns = self._proper_instance(cabc.Generator, element, ANY, NONE_TYPE)
+        if isinstance(function.node, ast.AsyncFunctionDef) and not generator:
             if not (isinstance(returns, Instance) and returns.type.raw_type is cabc.Coroutine):
                 returns = self._proper_instance(cabc.Coroutine, ANY, ANY, returns)
         arguments = getattr(function.node, "args", None)
