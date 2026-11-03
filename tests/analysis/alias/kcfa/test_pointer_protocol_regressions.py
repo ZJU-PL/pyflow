@@ -323,7 +323,7 @@ def test_plain_methods_still_resolve(dataclass_expr):
 # ---------------------------------------------------------------------------
 
 
-def test_custom_metaclass_call_is_not_silently_complete():
+def test_custom_metaclass_call_delegating_to_super_resolves_instance():
     result = _run("""
 class Meta(type):
     def __call__(cls, *args, **kwargs):
@@ -336,8 +336,28 @@ class A(metaclass=Meta):
 r = A().v
 """)
 
-    assert not result.complete
-    assert result.stop_reason == "semantic_incomplete"
+    assert result.complete
+    assert _points(result, "r")
+    assert any("__call__" in callee for _, callee in result.call_edges())
+
+
+def test_custom_metaclass_call_controls_result_without_default_instance():
+    result = _run("""
+sentinel = object()
+
+class Meta(type):
+    def __call__(cls):
+        return sentinel
+
+class A(metaclass=Meta):
+    pass
+
+r = A()
+""")
+
+    assert result.complete
+    assert _points(result, "r") == _points(result, "sentinel")
+    assert all("AllocKind.INSTANCE" not in obj for obj in _points(result, "r"))
 
 
 def test_plain_metaclass_instantiation_still_complete():
@@ -354,3 +374,45 @@ r = A().v
 
     assert result.complete
     assert _points(result, "r")
+
+
+# ---------------------------------------------------------------------------
+# Dynamic imports
+# ---------------------------------------------------------------------------
+
+
+def test_importlib_import_module_resolves_statically_loaded_module():
+    result = _run("""
+import importlib
+import os
+
+module = importlib.import_module("os")
+r = module.path
+""")
+
+    assert result.complete
+    assert _points(result, "r")
+
+
+def test_importlib_import_module_loads_module_on_demand():
+    result = _run("""
+import importlib
+
+module = importlib.import_module("json")
+r = module.loads
+""")
+
+    assert result.complete
+    assert any("loads" in obj for obj in _points(result, "r"))
+
+
+def test_importlib_import_module_unknown_module_is_incomplete():
+    result = _run("""
+import importlib
+
+module = importlib.import_module("pyflow_missing_module_xyz")
+r = module.thing
+""")
+
+    assert not result.complete
+    assert result.stop_reason == "semantic_incomplete"

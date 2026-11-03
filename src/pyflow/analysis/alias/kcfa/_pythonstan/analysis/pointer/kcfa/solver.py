@@ -48,7 +48,7 @@ from .class_hierarchy import ClassHierarchyManager
 from .builtin_api_handler import BuiltinSummaryManager
 from .unknown_tracker import UnknownTracker, UnknownKind
 from .object import *
-from .object import AbstractObject, AllocKind, ConstantObject
+from .object import AbstractObject, AllocKind, AllocSite, ConstantObject, ModuleObject
 from .solver_interface import ISolverQuery
 from .pointer_flow_graph import (
     PointerFlowGraph,
@@ -2053,22 +2053,129 @@ class PointerSolver:
             unknown_obj = AbstractObject(c.alloc_site, scope.context)
             return unknown_obj
 
+        return self.materialize_module(scope, context, module_ir, c.alloc_site)
+
+    def resolve_module_by_name(self, name: str):
+        """Return the module IR for dotted ``name``, loading it if necessary."""
+        graph = self.state.scope_manager.module_graph
+        for node in graph.nodes:
+            if node.get_qualname() == name:
+                return node
+        existing = self.state.scope_manager.get_module(name)
+        if isinstance(existing, IRModule):
+            return existing
+        return self._lazy_load_module(name)
+
+    #: Upper bound on modules loaded on demand for dynamic imports.
+    MAX_LAZY_MODULES = 100
+
+    def _lower_lazy_module(self, module: IRModule) -> None:
+        """Run the prerequisite lowering passes for an on-demand module."""
+        if self.state.scope_manager.get_ir(module, "ir") is not None:
+            return
+        try:
+            from pyflow.analysis.alias.kcfa._pythonstan.world.world import World
+
+            analysis_manager = getattr(World(), "analysis_manager", None)
+        except Exception:
+            analysis_manager = None
+        if analysis_manager is None:
+            return
+        for name in ("three address", "ir", "block cfg", "cfg", "closure"):
+            analysis_manager.analysis(name, module)
+
+    def _lazy_load_module(self, name: str):
+        """Best-effort load of a module reached only through a dynamic import.
+
+        ``importlib.import_module("pkg.mod")`` is not visible to the static
+        import walk, so the module and its direct imports are parsed and
+        lowered here before the module object is materialized.
+        """
+        if getattr(self, "_lazy_modules_loaded", 0) >= self.MAX_LAZY_MODULES:
+            return None
+        try:
+            from pyflow.analysis.alias.kcfa._pythonstan.world.world import World
+
+            world = World()
+            resolved = world.namespace_manager.resolve_import(name)
+        except Exception:
+            return None
+        if resolved is None:
+            return None
+        namespace, path = resolved
+        scope_manager = self.state.scope_manager
+        try:
+            module = scope_manager.add_module(namespace, path)
+        except Exception:
+            return None
+        if not isinstance(module, IRModule):
+            return None
+        self._lazy_modules_loaded = getattr(self, "_lazy_modules_loaded", 0) + 1
+        try:
+            self._lower_lazy_module(module)
+        except Exception:
+            return None
+        graph = scope_manager.module_graph
+        if module not in graph.nodes:
+            graph.add_node(module)
+        try:
+            imports = scope_manager.get_ir(module, "imports") or ()
+        except Exception:
+            imports = ()
+        for stmt in imports:
+            try:
+                dependency = world.namespace_manager.get_import(namespace, stmt)
+            except Exception:
+                continue
+            if dependency is None:
+                continue
+            dep_ns, dep_path = dependency
+            try:
+                dep_module = scope_manager.add_module(dep_ns, dep_path)
+            except Exception:
+                continue
+            if not isinstance(dep_module, IRModule):
+                continue
+            if dep_module not in graph.nodes:
+                graph.add_node(dep_module)
+            if scope_manager.get_ir(dep_module, "ir") is None:
+                try:
+                    self._lower_lazy_module(dep_module)
+                except Exception:
+                    continue
+            try:
+                graph.add_edge(module, stmt, dep_module)
+            except Exception:
+                continue
+        return module
+
+    def materialize_module(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        module_ir,
+        alloc_site: AllocSite,
+    ) -> "ModuleObject":
+        """Create (once) the ``ModuleObject`` for an already-loaded module IR.
+
+        Shared by static imports and by ``importlib.import_module``, which
+        reaches the same module without an ``IRImport`` statement.
+        """
         if module_ir in self._module_objects:
             return self._module_objects[module_ir]
         self._modules.add(module_ir)
-        module_obj = ModuleObject(context, c.alloc_site, module_ir)
+        module_obj = ModuleObject(context, alloc_site, module_ir)
         self._module_objects[module_ir] = module_obj
 
         # resolve the content of module
         module_ctx = context
-        # module_ctx = self.context_selector.select_alloc_context(context, module_obj)
         ctx_scope = Scope.new(module_obj, None, module_ctx, module_ir, None)
 
         self.state.set_internal_scope(module_obj, ctx_scope)
         self.initialize_builtins(ctx_scope, module_ctx)
 
         # translate the IRs in the imported module
-        for constraint in self.ir_translator.translate_module(module_ir, c.alloc_site.stmt):
+        for constraint in self.ir_translator.translate_module(module_ir, alloc_site.stmt):
             self.add_constraint(ctx_scope, module_ctx, constraint)
 
         return module_obj

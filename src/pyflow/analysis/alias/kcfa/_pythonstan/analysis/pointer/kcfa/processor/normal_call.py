@@ -27,6 +27,7 @@ from ..object import (
     BuiltinClassObject,
     BuiltinInstanceObject,
     AllocSite,
+    ConstantObject,
     TupleObject,
     DictObject,
 )
@@ -48,6 +49,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["CallResolver", "PythonCallService", "NormalCallProcessor"]
+
+
+def _module_qualname(scope_or_module) -> Optional[str]:
+    """Return the dotted module name for a module IR, module scope, or scope."""
+    if scope_or_module is None:
+        return None
+    getter = getattr(scope_or_module, "get_qualname", None)
+    if callable(getter):
+        return str(getter())
+    stmt = getattr(scope_or_module, "stmt", None)
+    if stmt is not None and hasattr(stmt, "get_qualname"):
+        return str(stmt.get_qualname())
+    return None
 
 
 class PythonCallService(Processor):
@@ -360,23 +374,11 @@ class PythonCallService(Processor):
         default_possible = self._metaclass_default_call_possible(solver, meta_obj)
         if default_possible is True:
             self._apply_default_metaclass_call(solver, scope, call, class_obj)
-        elif default_possible is False:
-            # A custom ``__call__`` controls the result, but its body is not
-            # interpreted and ``super().__call__`` (``type.__call__``) is not
-            # modelled.  A class whose metaclass delegates therefore yields no
-            # instance; report that instead of claiming a complete empty set.
-            solver.mark_semantic_incomplete(
-                variables=(
-                    (solver.state.get_variable(scope, scope.context, call.target),)
-                    if call.target is not None
-                    else ()
-                ),
-                kind=UnknownKind.UNKNOWN_BUILTIN.value,
-                message=(
-                    "custom metaclass __call__ is not interpreted; "
-                    "type.__call__ delegation is not modelled"
-                ),
-            )
+        # When a custom ``__call__`` overrides construction, its body decides
+        # the result.  ``super().__call__(...)`` inside it resolves to
+        # ``type.__call__`` (see AttributeResolver._install_builtin_super_candidate),
+        # which performs the default instantiation, so no extra marking is
+        # needed here.
 
     def _metaclass_default_call_possible(
         self,
@@ -600,6 +602,101 @@ class PythonCallService(Processor):
             else VariableKind.LOCAL
         )
 
+    #: Runtime module-import helper modelled by resolving the named module IR.
+    _DYNAMIC_IMPORT_QUALNAME = "importlib"
+    _DYNAMIC_IMPORT_FUNCTION = "import_module"
+
+    def _handle_dynamic_import_call(
+        self,
+        solver: "PointerSolver",
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        func_obj: "AbstractObject",
+    ) -> bool:
+        """Resolve ``importlib.import_module("pkg.mod")`` statically.
+
+        The vendored stub returns an opaque ``_Module`` placeholder, so every
+        attribute read on the result was lost.  When the target module is
+        already loaded, bind the real ``ModuleObject`` instead.
+        """
+        if not call.args or call.target is None:
+            return False
+        module_scope = getattr(func_obj.container_scope, "module", None)
+        if _module_qualname(module_scope) != self._DYNAMIC_IMPORT_QUALNAME:
+            return False
+        func_ir = func_obj.alloc_site.stmt
+        if getattr(func_ir, "name", None) != self._DYNAMIC_IMPORT_FUNCTION:
+            return False
+
+        state = solver.state
+        name_ctx = state.get_variable(scope, context, call.args[0])
+        requested = [
+            obj.value
+            for obj in state.get_points_to(name_ctx)
+            if isinstance(obj, ConstantObject) and isinstance(obj.value, str)
+        ]
+        if not requested:
+            return False
+
+        package = None
+        if len(call.args) > 1:
+            package_ctx = state.get_variable(scope, context, call.args[1])
+            packages = [
+                obj.value
+                for obj in state.get_points_to(package_ctx)
+                if isinstance(obj, ConstantObject) and isinstance(obj.value, str)
+            ]
+            if packages:
+                package = packages[0]
+
+        alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.MODULE)
+        target_var = state.get_variable(scope, context, call.target)
+        resolved = False
+        for name in requested:
+            qualified = self._qualify_dynamic_import(name, package, scope)
+            if qualified is None:
+                continue
+            module_ir = solver.resolve_module_by_name(qualified)
+            if module_ir is None:
+                continue
+            module_obj = solver.materialize_module(scope, context, module_ir, alloc_site)
+            solver.handle_new_points_to(target_var, scope, PointsToSet.singleton(module_obj))
+            resolved = True
+
+        if resolved:
+            return True
+        solver.mark_semantic_incomplete(
+            variables=(target_var,),
+            kind=UnknownKind.UNKNOWN_BUILTIN.value,
+            message="dynamic import target is not loaded; import_module result is unresolved",
+        )
+        return False
+
+    @staticmethod
+    def _qualify_dynamic_import(name: str, package: Optional[str], scope: "Scope") -> Optional[str]:
+        """Resolve an absolute or relative ``import_module`` name."""
+        if not name.startswith("."):
+            return name
+        base = package
+        if base is None:
+            qualname = _module_qualname(scope) or ""
+            base = qualname
+            if base.endswith(".__init__"):
+                base = base[: -len(".__init__")]
+            elif "." in base:
+                base = base.rsplit(".", 1)[0]
+        dots = len(name) - len(name.lstrip("."))
+        remainder = name.lstrip(".")
+        parts = base.split(".") if base else []
+        if dots - 1 > len(parts):
+            return None
+        if dots > 1:
+            parts = parts[: len(parts) - (dots - 1)]
+        if remainder:
+            parts.append(remainder)
+        return ".".join(part for part in parts if part)
+
     def _handle_method_call(
         self,
         solver: "PointerSolver",
@@ -753,6 +850,9 @@ class PythonCallService(Processor):
         if not isinstance(func_obj, FunctionObject):
             logger.info(f"is not function object, {type(func_obj)} got!")
             return False
+
+        if self._handle_dynamic_import_call(solver, scope, context, call, func_obj):
+            return True
 
         if self._defer_unpack_dependent_call(
             solver,

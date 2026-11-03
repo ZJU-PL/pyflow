@@ -361,6 +361,7 @@ class BuiltinAPIHandler:
             "__next__": self._handle_generic_method,
             "__new__": self._handle_generic_method,
             "__init__": self._handle_generic_method,
+            "__call__": self._handle_type_call,
             "__len__": self._handle_len_method,
             "__bool__": self._handle_bool_method,
             "__contains__": self._handle_bool_method,
@@ -2705,6 +2706,25 @@ class BuiltinAPIHandler:
         constraints.append(StoreConstraint(base=call.target, field=key(0), source=element_var))
         constraints.append(StoreConstraint(base=call.target, field=elem(), source=element_var))
         return constraints
+
+    def _handle_type_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model ``type.__call__(cls, *args)`` as default instantiation.
+
+        Reached through ``super().__call__(...)`` in a metaclass ``__call__``.
+        The builtin method object carries the concrete class in ``receiver``.
+        """
+        solver = self._solver
+        receiver = method_obj.receiver
+        if solver is not None and isinstance(receiver, ClassObject):
+            solver._handle_class_instantiation(scope, context, call, receiver)
+            return []
+        return self._handle_generic_method(scope, context, call, method_obj)
 
     def _handle_generic_method(
         self,

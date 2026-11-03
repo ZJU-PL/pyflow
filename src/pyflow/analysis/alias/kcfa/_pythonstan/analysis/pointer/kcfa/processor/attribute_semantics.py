@@ -73,9 +73,13 @@ class AttributeResolver(Processor):
     _READ_INTERCEPT_SKIP = {"__getattribute__", "__getattr__"}
     _WRITE_INTERCEPT_SKIP = {"__setattr__"}
 
+    #: Builtin metamethods that ``super()`` may reach through ``type``.
+    _BUILTIN_METAMETHODS = {"__call__"}
+
     def __init__(self) -> None:
         self._const_alloc_sites: Dict[str, AllocSite] = {}
         self._installed_field_lookups = set()
+        self._installed_builtin_super = set()
 
     def handle_field_read(
         self,
@@ -292,7 +296,7 @@ class AttributeResolver(Processor):
                 PointerFlowKind.NORMAL,
             )
         )
-        self._refresh_super_lookup(solver, super_obj, field, selector)
+        self._refresh_super_lookup(solver, super_obj, field, selector, scope)
         receiver_type = super_obj.receiver_type
         if receiver_type.kind is TypeRefKind.USER and isinstance(receiver_type.target, ClassObject):
             receiver_class = receiver_type.target
@@ -308,7 +312,7 @@ class AttributeResolver(Processor):
             solver.state.dependencies.subscribe(
                 ("super-lookup-mro", *key),
                 sources,
-                lambda: self._refresh_super_lookup(solver, super_obj, field, selector),
+                lambda: self._refresh_super_lookup(solver, super_obj, field, selector, scope),
             )
 
     def _refresh_super_lookup(
@@ -317,6 +321,7 @@ class AttributeResolver(Processor):
         super_obj: SuperObject,
         field: Field,
         selector: SelectorNode,
+        scope: "Scope",
     ) -> None:
         """Install candidates after ``start_type`` in each receiver MRO."""
         state = solver.state
@@ -327,7 +332,15 @@ class AttributeResolver(Processor):
         mro_alternatives = []
         if receiver_type.kind is TypeRefKind.USER and isinstance(receiver_type.target, ClassObject):
             variants = state.class_variants(receiver_type.target)
-            mro_alternatives.extend(variant.mro for variant in variants)
+            for variant in variants:
+                if variant.metaclass == start_type:
+                    # ``super()`` inside a metaclass method: the receiver is an
+                    # *instance* of the start type, so Python searches the
+                    # metaclass's own MRO (``type(A).__mro__``), not A's class
+                    # MRO.  Without this ``super().__call__`` found nothing.
+                    mro_alternatives.append(state.types.mro(variant.metaclass))
+                else:
+                    mro_alternatives.append(variant.mro)
         if not mro_alternatives:
             mro_alternatives.append(state.types.mro(receiver_type))
 
@@ -342,6 +355,10 @@ class AttributeResolver(Processor):
                 if type_ref.kind is not TypeRefKind.USER or not isinstance(
                     type_ref.target, ClassObject
                 ):
+                    if self._install_builtin_super_candidate(
+                        solver, super_obj, type_ref, field, selector, scope
+                    ):
+                        break
                     # Builtin/native member summaries are not yet expressible
                     # as PFG cells. Preserve completeness metadata instead of
                     # silently treating them as absent.
@@ -352,6 +369,49 @@ class AttributeResolver(Processor):
                 candidate_index += 1
                 if state.get_attribute_presence(candidate, field).must_exist:
                     break
+
+    def _install_builtin_super_candidate(
+        self,
+        solver: "PointerSolver",
+        super_obj: SuperObject,
+        type_ref,
+        field: Field,
+        selector: SelectorNode,
+        scope: "Scope",
+    ) -> bool:
+        """Expose ``type.__call__`` for a metaclass ``super()`` delegation.
+
+        ``class M(type): def __call__(cls, ...): return super().__call__(...)``
+        is the standard way to extend construction.  The builtin ``type`` base
+        has no PFG attribute cells, so install the bound builtin method
+        explicitly; ``_handle_type_call`` then performs the default
+        instantiation of the receiver class.
+        """
+        if field.kind is not FieldKind.ATTRIBUTE or field.name not in self._BUILTIN_METAMETHODS:
+            return False
+        if type_ref.kind is not TypeRefKind.BUILTIN or type_ref.name != "type":
+            return False
+        receiver = super_obj.receiver
+        if not isinstance(receiver, ClassObject):
+            return False
+        key = (super_obj, field, type_ref)
+        if key in self._installed_builtin_super:
+            return True
+        self._installed_builtin_super.add(key)
+        state = solver.state
+        method_obj = BuiltinMethodObject(
+            context=super_obj.context,
+            alloc_site=AllocSite(stmt=f"<builtin_method:{field.name}>", kind=AllocKind.BUILTIN),
+            method_name=field.name,
+            receiver=receiver,
+        )
+        method_var = Variable(f"$super_builtin@{stable_token(key)}", VariableKind.TEMPORARY)
+        method_ctx = state.get_variable(scope, scope.context, method_var)
+        solver.handle_new_points_to(method_ctx, scope, PointsToSet.singleton(method_obj))
+        edge = PointerFlowEdge(NormalNode(method_ctx), selector, PointerFlowKind.NORMAL)
+        selector.add_edge(edge, 1 << 20)
+        state._add_points_flow_edge(edge)
+        return True
 
     def handle_new_constraint(
         self, solver: "PointerSolver", scope: "Scope", constraint: "Constraint"
