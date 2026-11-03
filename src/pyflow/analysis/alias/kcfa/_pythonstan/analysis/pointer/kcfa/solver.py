@@ -153,6 +153,8 @@ class PointerSolver:
         self._semantic_complete = True
         self._incomplete_variables = defaultdict(list)
         self._incomplete_scopes = defaultdict(list)
+        self._incomplete_variable_keys = defaultdict(set)
+        self._incomplete_scope_keys = defaultdict(set)
         self._global_incomplete_reasons = []
 
         # Initialize builtin handler with state
@@ -345,11 +347,14 @@ class PointerSolver:
             if reason not in self._global_incomplete_reasons:
                 self._global_incomplete_reasons.append(reason)
             return
+        key = (kind, message)
         for variable in variables:
-            if reason not in self._incomplete_variables[variable]:
+            if key not in self._incomplete_variable_keys[variable]:
+                self._incomplete_variable_keys[variable].add(key)
                 self._incomplete_variables[variable].append(reason)
         for scope in scopes:
-            if reason not in self._incomplete_scopes[scope]:
+            if key not in self._incomplete_scope_keys[scope]:
+                self._incomplete_scope_keys[scope].add(key)
                 self._incomplete_scopes[scope].append(reason)
 
     def add_constraint(

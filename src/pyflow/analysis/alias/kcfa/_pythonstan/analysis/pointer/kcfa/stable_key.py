@@ -14,6 +14,18 @@ def _describe(value: Any) -> str:
     if isinstance(value, Enum):
         return f"{type(value).__qualname__}:{value.value}"
     if isinstance(value, ast.AST):
+        lineno = getattr(value, "lineno", None)
+        col = getattr(value, "col_offset", None)
+        if lineno is not None and col is not None:
+            # Full ``ast.dump`` of a class definition is quadratic in the
+            # class body size and dominated class-heavy analyses.  The source
+            # span plus node type is stable and sufficient for synthesized
+            # solver identities.
+            return (
+                f"{type(value).__qualname__}:{lineno}:{col}:"
+                f"{getattr(value, 'end_lineno', lineno)}:"
+                f"{getattr(value, 'end_col_offset', col)}"
+            )
         return ast.dump(value, annotate_fields=True, include_attributes=True)
     if isinstance(value, (tuple, list)):
         return "[" + ",".join(_describe(item) for item in value) + "]"

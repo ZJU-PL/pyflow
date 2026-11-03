@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   findings are scoped to the requested file and its direct project imports
   unless ``--include-imports`` is passed.  This avoids both empty reports for
   local clients and dependency finding floods in small files.
+- Class-heavy modules no longer spend most of their time dumping complete AST
+  bodies for every synthesized solver identity; stable tokens use source spans
+  when available.  Incomplete-variable reasons are also deduplicated with a
+  set, avoiding quadratic list scans in native-call-heavy analyses.
 - Runtime auditing now records and enforces every capability required by an
   operation; `r+`/`w+` and `os.O_RDWR` require both `file.read` and
   `file.write`, rather than being recorded as write-only.
