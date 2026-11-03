@@ -1139,6 +1139,12 @@ class CodeToDataflow(TypeDispatcher):
 
         self.handleExit()
 
+        # Preserve cyclic source control flow for DDG construction. The legacy
+        # value graph itself stays acyclic for its existing transformation passes.
+        from pyflow.ir.cfg import transform
+
+        self.dataflow.control_flow = transform.evaluate(None, self.code, commit_revision=False)
+
         return self.dataflow
 
 

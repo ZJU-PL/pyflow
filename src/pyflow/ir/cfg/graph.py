@@ -771,6 +771,12 @@ class ForIter(SingleEntryBlock):
         self.index = index
 
 
+class AsyncForIter(ForIter):
+    """Asynchronous iteration; advancing the iterator may suspend."""
+
+    __slots__ = ()
+
+
 class State(SingleEntryBlock):
     __slots__ = "name"
 
@@ -879,6 +885,13 @@ class Yield(SingleEntryBlock):
     __slots__ = ()
     # Python 3: single-element tuple needs a trailing comma
     exitNames = ("normal",)
+
+
+class Await(Yield):
+    """Await suspension with a normal resume edge."""
+
+    __slots__ = ()
+    exitNames = ("normal", "fail", "error")
 
 
 class Code(object):

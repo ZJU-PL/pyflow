@@ -55,6 +55,19 @@ def verify_cfg(cfg, catalog=None) -> None:
     forward_edges: set[tuple[graph.CFGBlock, object, graph.CFGBlock]] = set()
     reverse_edges: set[tuple[graph.CFGBlock, object, graph.CFGBlock]] = set()
     for block in blocks:
+        if isinstance(block, graph.Suite):
+            for position, operation in enumerate(block.ops):
+                if not isinstance(operation, ast.Return):
+                    continue
+                if position != len(block.ops) - 1:
+                    raise CFGVerificationError("Return is not the last operation in its block")
+                successor = block.next.get("normal")
+                seen = set()
+                while isinstance(successor, (graph.Merge, graph.State)) and successor not in seen:
+                    seen.add(successor)
+                    successor = successor.next.get("normal")
+                if successor is not None and successor is not cfg.normalTerminal:
+                    raise CFGVerificationError("Return has a normal successor that executes code")
         for label, target in block.next.items():
             if not block.validExitName(label):
                 raise CFGVerificationError(
@@ -306,6 +319,13 @@ def verify_ssa(cfg, catalog=None) -> None:
                         continue
                     if not catalog.has_value(argument, cfg.code):
                         raise SSAVerificationError("phi argument has no SSA value")
+                    if (
+                        catalog.value_id(argument, cfg.code).symbol
+                        != catalog.value_id(phi.target, cfg.code).symbol
+                    ):
+                        raise SSAVerificationError(
+                            "phi argument belongs to a different local symbol"
+                        )
                     check_available(
                         catalog.value_id(argument, cfg.code),
                         block,

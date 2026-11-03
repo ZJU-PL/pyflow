@@ -29,7 +29,8 @@ def _ssa_repr(node, catalog=None, code=None):
         if isinstance(current, ast.Local):
             if catalog is not None and code is not None and catalog.has_value(current, code):
                 value = catalog.value_for(current, code)
-                output.append(f"Local(%{current.name}.v{value.id.version})")
+                name = current.name or catalog.symbols[value.id.symbol].display_name
+                output.append(f"Local(%{name}.v{value.id.version})")
             else:
                 output.append(repr(current))
             continue
@@ -198,7 +199,7 @@ class NodeStyle(TypeDispatcher):
     @dispatch(cfg.Yield)
     def handleYield(self, node):
         return dict(
-            label="yield",
+            label=type(node).__name__.lower(),
             shape="circle",
             style="filled",
             fillcolor=self.yieldColor,

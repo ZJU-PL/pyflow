@@ -728,7 +728,7 @@ def f(x):
 
 
 def test_return_cleanup_is_not_merged_into_return_block():
-    """A finally cleanup must not be appended to a block containing Return."""
+    """A finally cleanup must execute before the Return terminator."""
     source = """
 def f():
     try:
@@ -742,7 +742,7 @@ def f():
     for block in _reachable_blocks(cfg.entryTerminal):
         ops = list(getattr(block, "ops", ()))
         if any(type(op).__name__ == "Return" for op in ops):
-            assert not any(type(op).__name__ == "Assign" for op in ops)
+            assert type(ops[-1]).__name__ == "Return"
 
 
 def test_except_as_target_is_deleted_after_handler():

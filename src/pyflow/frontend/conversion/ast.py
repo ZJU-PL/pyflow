@@ -1868,7 +1868,7 @@ class ASTConverter:
         body = self.convert_python_ast_to_pyflow(node.body)
         else_body = self.convert_python_ast_to_pyflow(node.orelse)
 
-        return pyflow_ast.For(
+        return pyflow_ast.AsyncFor(
             iterator=iter_expr,
             index=index,
             loopPreamble=pyflow_ast.Suite([]),

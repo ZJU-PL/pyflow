@@ -176,8 +176,12 @@ class _GraphAssemblyMixin:
             meta["is_pass"] = True
 
         cfg_node = getattr(node, "cfg_node", None)
-        if isinstance(cfg_node, cfg_graph.Yield):
+        if isinstance(cfg_node, cfg_graph.Await):
+            meta["cfg_await"] = True
+        elif isinstance(cfg_node, cfg_graph.Yield):
             meta["cfg_yield"] = True
+        if isinstance(cfg_node, cfg_graph.AsyncForIter):
+            meta["cfg_async_for"] = True
 
     @staticmethod
     def _ast_value(ast_node: Any) -> str:

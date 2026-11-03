@@ -89,6 +89,9 @@ Options:
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
 - ``--dump-cdg FUNCTION``: Dump Control Dependence Graph for a named function
 - ``--dump-ddg FUNCTION``: Dump Data Dependence Graph for a named function
+  using the cyclic CFG dependence model. Bulk DDG output to an interactive
+  terminal requires a function filter or ``--dump-output``; redirected output
+  keeps the existing all-functions behavior
 - ``--dump-gir FUNCTION``: Dump Graph IR (GIR) for a named function
 - ``--dump-format``: Output format (text, dot, json)
 - ``--dump-output``: Persist artifacts in this directory. When omitted,
@@ -102,6 +105,9 @@ Options:
 MIR dumps lower source directly without importing or executing analyzed
 modules. They support text, JSON, and DOT output. With directory input,
 the output directory preserves the source directory structure.
+
+Both ``python -m pyflow`` and ``python -m pyflow.cli`` support the same CLI
+arguments and exit codes as the installed ``pyflow`` command.
 
 **pyflow concolic**
 ~~~~~~~~~~~~~~~~~~~

@@ -105,6 +105,26 @@ def parse_ir_args(path, *arguments):
     return parser.parse_args(["ir", str(path), *map(str, arguments)])
 
 
+def test_unfiltered_ddg_requires_destination_on_a_terminal(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def f():\n    return 1\n")
+    monkeypatch.setattr(ir_cli.sys.stdout, "isatty", lambda: True)
+    with pytest.raises(SystemExit) as error:
+        ir_cli.run_ir_dump(source, parse_ir_args(source, "--dump-ddg"))
+    assert error.value.code == 2
+    assert "--dump-ddg FUNCTION" in capsys.readouterr().err
+
+
+def test_unfiltered_ddg_still_supports_redirected_json(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "sample.py"
+    source.write_text("def f():\n    return 1\ndef g():\n    return 2\n")
+    monkeypatch.setattr(ir_cli.sys.stdout, "isatty", lambda: False)
+    ir_cli.run_ir_dump(source, parse_ir_args(source, "--dump-ddg", "--dump-format", "json"))
+    result = json.loads(capsys.readouterr().out)
+    assert "f_ddg.json" in result
+    assert "g_ddg.json" in result
+
+
 @pytest.mark.parametrize(
     ("flag", "key"),
     [("--dump-ast", "ast"), ("--dump-cfg", "cfg"), ("--dump-ssa", "ssa")],

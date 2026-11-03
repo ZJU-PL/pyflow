@@ -461,9 +461,11 @@ class SSARename(TypeDispatcher):
         # edge from backedges generated inside the loop region.
         preheader_frame = incoming
         if isinstance(header, cfg.Merge):
-            for predecessor in header.reverse():
+            for predecessor, label in header.iterprev():
                 if predecessor.region is not header and predecessor in self.frames:
-                    preheader_frame = self.frames[predecessor]
+                    preheader_frame = self.edgeFrames.get(
+                        (predecessor, label, header), self.frames[predecessor]
+                    )
                     break
         iterator, iterator_frame = self.renameWithFrame(node.iterator, preheader_frame)
         node.iterator = iterator
@@ -771,22 +773,15 @@ class SSARename(TypeDispatcher):
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         expr = self(node.expr)
-        if isinstance(expr, ast.Local) and len(node.lcls) == 1:
-            # Reach-through optimisation: if the RHS is a simple local, we can
-            # map the LHS directly to the (already-renamed) RHS local instead
-            # of emitting a copy assignment.
-            #
-            # Bug #6 fix: the old code also accepted ast.Existing here, but
-            # Existing nodes are constants and should never be stored in the
-            # frame as the representative of a mutable local — doing so would
-            # cause downstream passes to see a constant where they expect a
-            # local, breaking SSA invariants.  Only Local-to-Local reach-
-            # through is safe.
-            #
-            # Additionally, the old code stored `expr` (the renamed RHS) in
-            # the frame under the *original* LHS key.  That is correct only
-            # when `expr` is a freshly-cloned SSA name.  We keep the same
-            # logic but restrict it to Local nodes only.
+        if (
+            isinstance(expr, ast.Local)
+            and len(node.lcls) == 1
+            and local_key(self.catalog, self.code, expr)
+            == local_key(self.catalog, self.code, node.lcls[0])
+        ):
+            # A self-copy can disappear. Cross-symbol copies must retain the
+            # target's lexical identity, including copies from anonymous
+            # exception-safe temporaries, so phis merge versions of one symbol.
             self.currentFrame[local_key(self.catalog, self.code, node.lcls[0])] = expr
             return None
 

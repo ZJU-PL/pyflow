@@ -633,6 +633,12 @@ class For(Loop):
     # TODO type of index?
 
 
+class AsyncFor(For):
+    """Source-level asynchronous iteration, preserved until CFG lowering."""
+
+    __fields__ = For.__fields__
+
+
 class TypeSwitchCase(PythonASTNode):
     __fields__ = "types:Existing* expr:Local? body:Suite"
 

@@ -50,10 +50,21 @@ def outer(value, decorate):
         op for op in operations if isinstance(op, ast.Assign) and isinstance(op.expr, ast.Call)
     )
     returned = next(op for op in operations if isinstance(op, ast.Return))
-    assert creation.expr.defaults == [code.codeparameters.params[0]]
-    assert decoration.expr.expr is code.codeparameters.params[1]
-    assert decoration.expr.args == creation.lcls
-    assert returned.exprs == decoration.lcls
+    copies = {
+        op.lcls[0]: op.expr
+        for op in operations
+        if isinstance(op, ast.Assign) and len(op.lcls) == 1 and isinstance(op.expr, ast.Local)
+    }
+
+    def origin(value):
+        while value in copies:
+            value = copies[value]
+        return value
+
+    assert [origin(value) for value in creation.expr.defaults] == [code.codeparameters.params[0]]
+    assert origin(decoration.expr.expr) is code.codeparameters.params[1]
+    assert [origin(value) for value in decoration.expr.args] == creation.lcls
+    assert [origin(value) for value in returned.exprs] == decoration.lcls
     assert inner.ast is original_body
     assert inner.codeparameters is original_parameters
     verify_catalog(code.ir_catalog)

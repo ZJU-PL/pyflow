@@ -9,6 +9,15 @@ import pytest
 cli_main = importlib.import_module("pyflow.cli.main")
 
 
+@pytest.mark.parametrize("module", ["pyflow", "pyflow.cli"])
+def test_module_entrypoints_support_help(module):
+    result = subprocess.run(
+        [sys.executable, "-m", module, "--help"], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
 def test_console_entrypoint_freezes_heap_after_main(monkeypatch):
     calls = []
     monkeypatch.setattr(cli_main, "main", lambda: 7)

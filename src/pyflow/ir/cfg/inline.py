@@ -153,7 +153,7 @@ class CFGClonerPre(TypeDispatcher):
 
     @dispatch(cfg.ForIter)
     def visitForIter(self, node):
-        return cfg.ForIter(
+        return type(node)(
             node.region,
             self.astcloner(node.iterator),
             self.astcloner(node.index),

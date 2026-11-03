@@ -749,7 +749,7 @@ class FieldNode(FlowSensitiveSlotNode):
         Returns:
             str: Representation showing field name
         """
-        return "field(%r)" % self.name
+        return "field(%r)" % (self.name,)
 
     def mustBeUnique(self):
         """Check if field must have unique definition (False for fields).
@@ -1613,6 +1613,7 @@ class DataflowGraph(object):
         "null",
         "entryPredicate",
         "code",
+        "control_flow",
         "killed",
     )
 
@@ -1627,6 +1628,7 @@ class DataflowGraph(object):
         self.existing = {}
         self.null = NullNode()
         self.code = None
+        self.control_flow = None
         self.killed = frozenset()
 
         self.entryPredicate = None

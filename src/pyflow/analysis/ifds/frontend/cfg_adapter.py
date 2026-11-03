@@ -1017,6 +1017,8 @@ class CFGSupergraphAdapter:
                 nodes = fragment.nodes
             else:
                 nodes = [CFGNode(cfg, block, "merge")]
+        elif isinstance(block, cfg_graph.Await):
+            nodes = [CFGNode(cfg, block, "await")]
         elif isinstance(block, cfg_graph.Yield):
             nodes = [CFGNode(cfg, block, "yield")]
         elif isinstance(block, cfg_graph.State):

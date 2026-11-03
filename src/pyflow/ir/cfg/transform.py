@@ -21,6 +21,7 @@ from pyflow.ir.cfg import simplify, killflow
 
 from pyflow.language.python import ast
 from pyflow.ir.cfg import graph as cfg
+from .suspension import SuspensionLowerer
 
 NoNormalFlow = cfg.NoNormalFlow
 
@@ -48,6 +49,8 @@ class CFGTransformer(TypeDispatcher):
     def __init__(self):
         self.exception_depth = 0
         self.exception_context = None
+        self.pending_returns = {}
+        self.suspensions = SuspensionLowerer(self)
 
     def emit(self, stmt):
         """Emit a statement to the current CFG node.
@@ -55,6 +58,9 @@ class CFGTransformer(TypeDispatcher):
         Args:
             stmt: AST statement to emit.
         """
+        self.emit_raw(self.suspensions.lower(stmt))
+
+    def emit_raw(self, stmt):
         if self.exception_depth and self.current.ops:
             previous = self.current
             following = self.makeNewSuite(origin_ast=previous.origin_ast)
@@ -87,7 +93,16 @@ class CFGTransformer(TypeDispatcher):
         Args:
             node: Return AST node.
         """
-        self.emit(node)
+        target = self.handler("return")
+        if target in self.pending_returns:
+            values = node.exprs or [ast.Existing(ast.program.Object(None))]
+            temporaries = self.pending_returns[target]
+            while len(temporaries) < len(values):
+                temporaries.append(ast.Local(None))
+            for value, temporary in zip(values, temporaries):
+                self(ast.Assign(value, [temporary]))
+        else:
+            self.emit(node)
         self.flowReturn()
 
     @dispatch(ast.Raise)
@@ -110,6 +125,19 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Assert)
     def visitAssert(self, node):
         """Emit an assertion, which may either continue or fail."""
+        if self.suspensions.has_suspension(node.message):
+            condition = self.suspensions.lower(node.test)
+            switch = cfg.Switch(self.region, ast.ConvertToBool(condition))
+            self.attachStandardHandlers(switch)
+            self.attachCurrent(switch)
+            join = self.createMerge()
+            switch.setExit("true", join)
+            switch.setExit("false", self.makeNewSuite())
+            message = self.suspensions.lower(node.message)
+            self.emit_raw(ast.Assert(ast.Existing(ast.program.Object(False)), message))
+            self.current = None
+            join.setExit("normal", self.makeNewSuite())
+            return
         self.emit(node)
 
     @dispatch(ast.Continue)
@@ -148,12 +176,14 @@ class CFGTransformer(TypeDispatcher):
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 
-    def _emitYieldBlock(self):
-        y = cfg.Yield(self.region)
+    def _emitYieldBlock(self, block_type=cfg.Yield):
+        y = block_type(self.region)
         self.attachCurrent(y)
+        if isinstance(y, cfg.Await):
+            self.attachStandardHandlers(y)
         y.setExit("normal", self.makeNewSuite())
 
-    @dispatch(ast.Yield, ast.YieldFrom, ast.AsyncYield)
+    @dispatch(ast.Yield, ast.YieldFrom, ast.AsyncYield, ast.Await)
     def visitYield(self, node):
         """Visit yield statements.
 
@@ -162,14 +192,24 @@ class CFGTransformer(TypeDispatcher):
         """
         # Preserve the yielded expression as an operation so downstream analyses
         # (e.g. IFDS clients) can observe reads/calls inside `yield <expr>`.
-        self.emit(node)
-        self._emitYieldBlock()
+        value = self.suspensions.lower(node.expr)
+        expression = type(node)(value)
+        expression.annotation = node.annotation
+        self.emit_raw(expression)
+        self._emitYieldBlock(cfg.Await if isinstance(node, ast.Await) else cfg.Yield)
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):
-        self.emit(node)
-        if isinstance(node.expr, (ast.Yield, ast.YieldFrom, ast.AsyncYield)):
-            self._emitYieldBlock()
+        if isinstance(node.expr, (ast.Yield, ast.YieldFrom, ast.AsyncYield, ast.Await)):
+            value = self.suspensions.lower(node.expr.expr)
+            expression = type(node.expr)(value)
+            expression.annotation = node.expr.annotation
+            replacement = ast.Discard(expression)
+            replacement.annotation = node.annotation
+            self.emit_raw(replacement)
+            self._emitYieldBlock(cfg.Await if isinstance(node.expr, ast.Await) else cfg.Yield)
+        else:
+            self.emit(node)
 
     @dispatch(
         ast.SetAttr,
@@ -282,7 +322,8 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Switch)
     def visitSwitch(self, node):
         self(node.condition.preamble)
-        switch = cfg.Switch(self.region, node.condition.conditional)
+        condition = self.suspensions.lower(node.condition.conditional)
+        switch = cfg.Switch(self.region, condition)
         self.attachStandardHandlers(switch)
 
         self.attachCurrent(switch)
@@ -321,7 +362,8 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.TypeSwitch)
     def visitTypeSwitch(self, node):
-        switch = cfg.TypeSwitch(self.region, node)
+        conditional = self.suspensions.lower(node.conditional)
+        switch = cfg.TypeSwitch(self.region, ast.TypeSwitch(conditional, node.cases))
         self.attachStandardHandlers(switch)
 
         self.attachCurrent(switch)
@@ -367,7 +409,8 @@ class CFGTransformer(TypeDispatcher):
         c.setExit("normal", self.makeNewSuite())
         self(node.condition.preamble)
 
-        switch = self.createSwitchAfter(node.condition.conditional, self.current)
+        conditional = self.suspensions.lower(node.condition.conditional)
+        switch = self.createSwitchAfter(conditional, self.current)
         switch.setExit("true", self.makeNewSuite(origin_ast=node))
 
         self.pushHandler("continue", c)
@@ -415,6 +458,7 @@ class CFGTransformer(TypeDispatcher):
                 if handlers:
                     cleanup[name] = (self.createMerge(), handlers[-1])
             cleanup["normal"] = (self.createMerge(), join)
+            self.pending_returns[cleanup["return"][0]] = []
             for name, (entry, _target) in cleanup.items():
                 if name != "normal":
                     self.pushHandler(name, entry)
@@ -528,6 +572,14 @@ class CFGTransformer(TypeDispatcher):
                         self.current.killExit("fail")
                         self.current.setExit("fail", target)
                         self.current = None
+                    elif name == "return":
+                        # Evaluate return values before cleanup, but emit the
+                        # terminator only after cleanup completes normally.
+                        values = self.pending_returns[entry]
+                        try:
+                            self.visitReturn(ast.Return(values))
+                        except NoNormalFlow:
+                            pass
                     else:
                         self.attachCurrent(target)
                 self.exception_context = outer_exception
@@ -546,6 +598,7 @@ class CFGTransformer(TypeDispatcher):
     def visitFor(self, node):
         """Lower a source-level for-loop through an iterator-aware header."""
         self(node.loopPreamble)
+        expression = self.suspensions.lower(node.iterator)
 
         header = self.createMerge()
         self.attachCurrent(header)
@@ -553,7 +606,8 @@ class CFGTransformer(TypeDispatcher):
         exhausted = cfg.Merge(self.region)
 
         self.pushRegion(header)
-        iterator = cfg.ForIter(self.region, node.iterator, node.index)
+        iterator_type = cfg.AsyncForIter if isinstance(node, ast.AsyncFor) else cfg.ForIter
+        iterator = iterator_type(self.region, expression, node.index)
         self.attachStandardHandlers(iterator)
         header.setExit("normal", iterator)
         iterator.setExit("body", self.makeNewSuite(origin_ast=node))

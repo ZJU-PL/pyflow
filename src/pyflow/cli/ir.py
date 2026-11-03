@@ -28,7 +28,6 @@ from pyflow.ir.cfg import transform, dump as cfg_dump, ssa
 from pyflow.ir.cfg.dump import generate_clang_style_cfg, generate_json_cfg
 from pyflow.ir.cdg import construct_cdg, dump_cdg
 from pyflow.ir.ddg import construction, dump as ddg_dump
-from pyflow.ir.dataflow import convert
 from pyflow.ir.gir import build_function_gir
 from pyflow.ir.gir.dump import dump_gir_content
 from pyflow.analysis.programculler import findLiveCode
@@ -136,7 +135,10 @@ def add_ir_parser(subparsers):
         nargs="?",
         const="*",
         metavar="FUNCTION",
-        help="Dump Data Dependence Graph for the specified function name, or all functions if omitted or \x27*\x27",
+        help=(
+            "Dump Data Dependence Graph for a function, or all functions if omitted or '*'; "
+            "interactive bulk output requires --dump-output or stdout redirection"
+        ),
     )
     parser.add_argument(
         "--dump-gir",
@@ -631,7 +633,7 @@ def dump_ddg(
         function_name,
         output_dir,
         format,
-        convert.evaluateCode,
+        lambda compiler, code: transform.evaluate(compiler, code),
         ddg_dump.dump_ddg,
         "DDG",
         program,
@@ -847,6 +849,14 @@ def run_ir_dump(input_path: Path, args):
 
     if getattr(args, "dump_output", None):
         return _run_ir_dump(input_path, args)
+    if sys.stdout.isatty() and getattr(args, "dump_ddg", None) in ("*", "all"):
+        print(
+            "Error: unfiltered DDG output is too large for an interactive terminal; "
+            "select a function with --dump-ddg FUNCTION, use --dump-output DIRECTORY, "
+            "or redirect stdout.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     with TemporaryDirectory(prefix="pyflow-ir-") as directory:
         effective_args = copy(args)
         effective_args.dump_output = directory

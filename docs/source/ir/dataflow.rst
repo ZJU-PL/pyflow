@@ -37,6 +37,13 @@ this supports dependence analysis rather than exact execution simulation.
 Core Components
 ---------------
 
+The legacy value graph summarizes zero iterations and one body execution and
+remains acyclic for its existing transformation passes. It is not a complete
+loop dependence graph. Source conversion also saves a cyclic CFG in
+``dataflow_graph.control_flow``; DDG construction uses that snapshot to recover
+loop-carried local and memory dependences. CLI and PDG construction build DDGs
+directly from CFGs. See :doc:`ddg` for the dependence model and alias limits.
+
 Graph Model
 ~~~~~~~~~~~
 

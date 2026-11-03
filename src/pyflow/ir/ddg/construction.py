@@ -42,7 +42,7 @@ from collections import deque
 from typing import Any, Dict, List, Set, Tuple
 
 from pyflow.ir.core import ensure_code_indexed
-from pyflow.ir.core.source import syntax_source_span
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.core.storage import UnknownStorage
 from pyflow.ir.dataflow import graph as df
 from pyflow.ir.core.storage import AttributeStorage, GlobalStorage, LocalStorage, SubscriptStorage
@@ -208,6 +208,9 @@ class DDGConstructor(object):
         # their stable semantic identities are available; otherwise nodes are
         # created with a fallback ``ddg.N`` id and later rebuilds disagree.
         code = getattr(dataflow, "code", None)
+        control_flow = getattr(dataflow, "control_flow", None)
+        if control_flow is not None:
+            return self.construct_from_cfg(control_flow)
         if code is not None:
             try:
                 ensure_code_indexed(code)
@@ -229,6 +232,18 @@ class DDGConstructor(object):
 
         self._prune_unconnected_nodes()
         return self.ddg
+
+    def construct_from_cfg(self, cfg):
+        """Build source dependences from cyclic CFG control-flow paths."""
+        from .cfg_construction import CFGDependences
+
+        ensure_code_indexed(cfg.code)
+        self.ddg = DataDependenceGraph(cfg.code)
+        self._memory_aliases = {}
+        self._parameter_symbols = set()
+        result = CFGDependences(self, cfg).construct()
+        self._prune_unconnected_nodes()
+        return result
 
     def _prune_unconnected_nodes(self) -> None:
         """Drop nodes that only carried control/order information.
@@ -592,36 +607,6 @@ class DDGConstructor(object):
 
         successors: Dict[Any, Set[Any]] = {ir: operation_successors(ir) for ir in ir_ops}
 
-        # The dataflow graph only links operations through values.  A read
-        # followed by an unrelated write to the same field therefore has no
-        # path between the two operations, and WAR could never be reported.
-        # Add a conservative source-order chain among heap-accessing operations
-        # that share a path predicate.  Operations in different branches use
-        # different canonical predicates and remain unordered relative to each
-        # other.
-        ordered: Dict[Any, List[Tuple[int, int, Any]]] = {}
-        for ir in ir_ops:
-            if not any(accesses[ir]):
-                continue
-            ast_node = getattr(ir, "op", None)
-            span = syntax_source_span(ast_node)
-            if span is None:
-                continue
-            predicate = getattr(ir, "predicate", None)
-            canonical_predicate = None
-            if predicate is not None and hasattr(predicate, "canonical"):
-                try:
-                    canonical_predicate = predicate.canonical()
-                except Exception:
-                    canonical_predicate = predicate
-            key = (canonical_predicate, span.path)
-            ordered.setdefault(key, []).append((span.start_line, span.start_column, ir))
-        for entries in ordered.values():
-            entries.sort(key=lambda entry: (entry[0], entry[1]))
-            for (_, _, earlier), (_, _, later) in zip(entries, entries[1:]):
-                if earlier is not later:
-                    successors.setdefault(earlier, set()).add(later)
-
         predecessors: Dict[Any, Set[Any]] = {ir: set() for ir in ir_ops}
         for source, targets in successors.items():
             for target in targets:
@@ -632,45 +617,44 @@ class DDGConstructor(object):
         for key, accessing_ops in ops_by_location.items():
             # Opaque calls all conservatively touch the same external heap.
             # Expanding that single summary location into every pair of
-            # accesses is quadratic (and can dominate the entire DDG).  Keep
-            # one source-ordered summary chain instead: reachability through
-            # the chain preserves an ordering summary without materializing
-            # a dense clique of indistinguishable dependencies.
+            # accesses is quadratic. Track nearest predecessor accesses on
+            # each graph path, preserving branch alternatives and back-edges.
             if isinstance(key, UnknownStorage):
                 external_locations.append(key)
                 continue
             writes_count = sum(1 for ir in accessing_ops if key in accesses[ir][2])
-            has_true_read = any(key in accesses[ir][0] for ir in accessing_ops)
-            # Read-only locations and single-write locations whose only reads
-            # are the store's implicit pseudo reads cannot produce a RAW, WAR,
-            # or WAW edge.  Treating those pseudo reads as a reason to solve
-            # the location made every distinct field store traverse its whole
-            # downstream graph, which is quadratic for large modules.
-            if writes_count > 0 and (has_true_read or writes_count > 1):
+            # Even a single write can produce a loop-carried WAW self-edge.
+            if writes_count > 0:
                 relevant_locations.append(key)
 
         for key in external_locations:
-            accessing_ops = ops_by_location[key]
-            ordered_ops = sorted(
-                accessing_ops,
-                key=lambda ir: (
-                    (
-                        (span.path, span.start_line, span.start_column)
-                        if (span := syntax_source_span(getattr(ir, "op", None))) is not None
-                        else ("", 0, 0)
-                    ),
-                ),
-            )
-            # A chain is a compact transitive summary.  Include all opaque
-            # accesses, not only writes, because unknown calls may both read
-            # and mutate external state.
-            for earlier, later in zip(ordered_ops, ordered_ops[1:]):
-                if earlier is not later:
+            accessing_ops = set(ops_by_location[key])
+            incoming, outgoing = {}, {}
+            pending = deque(accessing_ops)
+            queued = set(pending)
+            while pending:
+                ir = pending.popleft()
+                queued.discard(ir)
+                before = frozenset(
+                    earlier
+                    for predecessor in predecessors[ir]
+                    for earlier in outgoing.get(predecessor, ())
+                )
+                after = frozenset((ir,)) if ir in accessing_ops else before
+                if (
+                    incoming.get(ir, frozenset()) == before
+                    and outgoing.get(ir, frozenset()) == after
+                ):
+                    continue
+                incoming[ir], outgoing[ir] = before, after
+                for successor in successors[ir]:
+                    if successor not in queued:
+                        queued.add(successor)
+                        pending.append(successor)
+            for later in accessing_ops:
+                for earlier in incoming.get(later, ()):
                     self.ddg.add_mem_dep(
-                        op_nodes[earlier],
-                        op_nodes[later],
-                        label="EXTERNAL",
-                        location=key,
+                        op_nodes[earlier], op_nodes[later], label="EXTERNAL", location=key
                     )
 
         # Solve one abstract location at a time.  The forward state tracks
@@ -737,57 +721,15 @@ class DDGConstructor(object):
                 reaching_writes = in_writes.get(ir, empty_state)
                 if key in true_reads:
                     for writer in reaching_writes:
-                        if writer is not ir:
-                            self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW", location=key)
+                        self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW", location=key)
                 if key in writes:
                     for writer in reaching_writes:
-                        if writer is not ir:
-                            self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW", location=key)
+                        self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW", location=key)
                     for reader in reads_reaching(ir):
-                        if reader is not ir:
-                            self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
-
-        # The predicate-chain above keeps operations from different branches
-        # unordered.  A write inside a conditional branch still must reach a
-        # later read after the join; add a source-order fallback for that case.
-        def source_line(ir):
-            span = syntax_source_span(getattr(ir, "op", None))
-            return span.start_line if span is not None else 0
-
-        for key in relevant_locations:
-            access_ops = ops_by_location[key]
-            write_ops = [ir for ir in access_ops if key in accesses[ir][2]]
-            true_reads = [ir for ir in access_ops if key in accesses[ir][0]]
-            pseudo_reads = [ir for ir in access_ops if key in accesses[ir][1]]
-            for reader in true_reads:
-                reader_line = source_line(reader)
-                if not reader_line:
-                    continue
-                for writer in write_ops:
-                    writer_line = source_line(writer)
-                    if writer is not reader and writer_line and writer_line <= reader_line:
-                        self.ddg.add_mem_dep(
-                            op_nodes[writer], op_nodes[reader], label="RAW", location=key
-                        )
-            for later in write_ops:
-                later_line = source_line(later)
-                if not later_line:
-                    continue
-                for earlier in write_ops:
-                    earlier_line = source_line(earlier)
-                    if earlier is not later and earlier_line and earlier_line <= later_line:
-                        self.ddg.add_mem_dep(
-                            op_nodes[earlier], op_nodes[later], label="WAW", location=key
-                        )
-                for reader in (*true_reads, *pseudo_reads):
-                    reader_line = source_line(reader)
-                    if reader is not later and reader_line and reader_line <= later_line:
-                        self.ddg.add_mem_dep(
-                            op_nodes[reader], op_nodes[later], label="WAR", location=key
-                        )
+                        self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
 
 
-def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:
+def construct_ddg(dataflow: df.DataflowGraph | cfg_graph.Code) -> DataDependenceGraph:
     """
     Convenience function to construct a DDG from a dataflow IR graph.
 
@@ -795,9 +737,13 @@ def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:
     the resulting Data Dependence Graph.
 
     Args:
-        dataflow: The dataflow IR graph to build a DDG from
+        dataflow: CFG, source dataflow graph with a control-flow snapshot, or
+            a client-built raw dataflow graph whose supplied topology is used.
 
     Returns:
         The constructed Data Dependence Graph
     """
-    return DDGConstructor().construct_from_dataflow(dataflow)
+    constructor = DDGConstructor()
+    if isinstance(dataflow, cfg_graph.Code):
+        return constructor.construct_from_cfg(dataflow)
+    return constructor.construct_from_dataflow(dataflow)

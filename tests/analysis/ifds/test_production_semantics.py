@@ -274,7 +274,15 @@ def test_return_inside_try_runs_finally_before_procedure_exit():
     )
     reached = _reachable_nodes(adapter, return_node)
 
-    assert any(
+    cleanup_nodes = [
+        node
+        for node in adapter.supergraph.ordered_nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Assign)
+        and cleanup in adapter.operation_of(node).lcls
+    ]
+    assert cleanup_nodes
+    assert any(return_node in _reachable_nodes(adapter, node) for node in cleanup_nodes)
+    assert not any(
         isinstance(adapter.operation_of(node), ast.Assign)
         and cleanup in adapter.operation_of(node).lcls
         for node in reached

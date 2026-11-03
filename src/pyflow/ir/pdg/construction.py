@@ -21,7 +21,6 @@ from pyflow.ir.cfg.verifier import verify_ssa
 from pyflow.ir.cdg import construct_cdg
 from pyflow.ir.ddg import construct_ddg
 from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed, index_cfg
-from pyflow.ir.dataflow import convert
 from pyflow.ir.dataflow import graph as df_graph
 from pyflow.language.python import ast as py_ast
 
@@ -240,7 +239,8 @@ class PDGConstructor:
         if isinstance(ir, df_graph.Entry):
             return pdg.entry
         if isinstance(ir, df_graph.GenericOp):
-            return self._resolve_pdg_node_for_ast(pdg, ir.op, parent_map)
+            resolved = self._resolve_pdg_node_for_ast(pdg, ir.op, parent_map)
+            return resolved or pdg.get_cfg_anchor(getattr(ir, "cfg_block", None))
         return None
 
     def _normalize_slot_label(self, slot: Any) -> str:
@@ -286,7 +286,7 @@ class PDGConstructor:
         if root_code is None:
             return set()
 
-        ddg = construct_ddg(convert.evaluateCode(None, root_code))
+        ddg = construct_ddg(pdg.cfg)
         op_to_pdg: Dict[Any, PDGNode] = {}
         backed_nodes: Set[PDGNode] = set()
 

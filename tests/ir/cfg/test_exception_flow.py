@@ -175,5 +175,11 @@ def test_context_manager_return_reaches_exit_protocol(prefix):
     assert returns
     for block in returns:
         successors = blocks(block.getExit("normal"))
-        assert any(isinstance(node, graph.Switch) for node in successors)
-        assert any(getattr(node, "ops", ()) for node in successors)
+        assert cfg.normalTerminal in successors
+        assert not any(getattr(node, "ops", ()) for node in successors)
+        # Cleanup's protocol switch precedes the final Return terminator.
+        assert any(
+            block in blocks(candidate)
+            for candidate in blocks(cfg.entryTerminal)
+            if isinstance(candidate, graph.Switch)
+        )
