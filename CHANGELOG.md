@@ -97,8 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chains generic type parameter substitutions for inherited methods and constructors,
   resolves TypedDict subscripts with literal key variables, indexes expressions
   inside f-strings, fixes subtype distance for virtual ABCs, checks
-  `issubclass(observed, Callable)` in `validate_observed_types`, and honors
-  `# type: ignore` across all type-checking diagnostics.
+  `issubclass(observed, Callable)` in `validate_observed_types`, honors
+  `# type: ignore` across all type-checking diagnostics, resolves common standard
+  library namespaces (`argparse`, `decimal`, `enum`, `urllib.parse`, `ssl`, `socket`,
+  `hashlib`, etc.) in type annotations, enables covariant tuple subtyping in generic
+  containers, and enables the numeric tower on `TypeInfoService`.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values

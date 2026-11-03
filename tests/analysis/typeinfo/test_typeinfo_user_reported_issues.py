@@ -738,3 +738,32 @@ def test_subtype_distance_for_virtual_abc() -> None:
     t_seq = resolve_annotation("typing.Sequence[int]", lookup)
     t_list = resolve_annotation("list[int]", lookup)
     assert ts.subtype_distance(t_seq, t_list) == 1
+
+
+def test_tuple_covariance_in_generic_list_argument() -> None:
+    result = _infer(
+        "from typing import List, Tuple\n"
+        "def divide_all(divides: List[Tuple[float, float]]) -> None: pass\n"
+        "DIVIDES = [(1000, 200), (3.1427, 2)]\n"
+        "divide_all(DIVIDES)\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_common_stdlib_modules_and_types_resolve_in_annotations() -> None:
+    from pyflow.analysis.typeinfo.resolution.annotations import BuiltinTypeLookup
+
+    lookup = BuiltinTypeLookup()
+    for t in [
+        "argparse.Namespace",
+        "decimal.Decimal",
+        "enum.Enum",
+        "urllib.parse.ParseResult",
+        "ssl.SSLContext",
+        "socket.socket",
+        "Namespace",
+        "Decimal",
+        "Enum",
+        "ParseResult",
+    ]:
+        assert lookup(t) is not None, f"Failed for {t}"

@@ -7184,6 +7184,8 @@ class StaticTypeInferenceEngine:
                     continue
                 if actual.unknown_size and actual.args == (ANY,):
                     continue
+                if self.type_system.is_subtype(actual, wanted):
+                    continue
             if not (
                 self.type_system.is_subtype(actual, wanted)
                 and self.type_system.is_subtype(wanted, actual)

@@ -67,6 +67,7 @@ class TypeInfoService:
     ) -> None:
         self.project_context = project_context or ProjectContext(None)
         self.type_system = TypeSystem()
+        self.type_system.enable_numeric_tower()
         self.stub_resolver = StubResolver(
             self.project_context,
             typeshed_roots=typeshed_roots,

@@ -27,22 +27,37 @@ import collections
 import concurrent.futures
 import contextlib
 import contextvars
+import argparse
+import csv
 import datetime
+import decimal
+import enum
 import functools
+import hashlib
 import io
+import ipaddress
 import itertools
+import json
 import logging
 import os
 import pathlib
 import queue
 import re
 import shutil
+import socket
+import sqlite3
+import ssl
 import subprocess
 import tempfile
 import threading
+import traceback
 import types
 import unittest
+import urllib.parse
 import uuid
+import weakref
+import zipfile
+import zoneinfo
 from typing import TYPE_CHECKING, Protocol, Mapping
 
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
@@ -70,11 +85,26 @@ _STDLIB_TYPES = {
         re,
         shutil,
         subprocess,
+        argparse,
+        csv,
+        decimal,
+        enum,
+        hashlib,
+        ipaddress,
+        json,
+        socket,
+        sqlite3,
+        ssl,
         tempfile,
         threading,
+        traceback,
         types,
         unittest,
+        urllib.parse,
         uuid,
+        weakref,
+        zipfile,
+        zoneinfo,
     )
 }
 
@@ -89,6 +119,13 @@ _COMMON_STDLIB_TYPES = {
     "time": "datetime.time",
     "timedelta": "datetime.timedelta",
     "ContextVar": "contextvars.ContextVar",
+    "Namespace": "argparse.Namespace",
+    "Decimal": "decimal.Decimal",
+    "Enum": "enum.Enum",
+    "IntEnum": "enum.IntEnum",
+    "ParseResult": "urllib.parse.ParseResult",
+    "SSLContext": "ssl.SSLContext",
+    "Logger": "logging.Logger",
 }
 
 if TYPE_CHECKING:
