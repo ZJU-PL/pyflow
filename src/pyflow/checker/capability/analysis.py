@@ -171,6 +171,26 @@ def _instance_class_qualname(obj) -> str | None:
     return str(getter()) if callable(getter) else None
 
 
+_NETWORK_DATA_SEGMENTS = (
+    ".json",
+    ".__getitem__",
+    ".text",
+    ".content",
+    ".keys",
+    ".items",
+    ".values",
+    ".raise_for_status",
+)
+
+
+def _is_network_data_path(access_path: str) -> bool:
+    """Return True when a path reads data from an already-created response."""
+    if ".<return>" not in access_path:
+        return False
+    tail = access_path.split(".<return>", 1)[1]
+    return any(segment in tail for segment in _NETWORK_DATA_SEGMENTS)
+
+
 def _is_path_value(obj) -> bool:
     """Return True for pathname wrappers, which are not authority handles.
 
@@ -649,19 +669,7 @@ class DefensiveCapabilityAnalysis:
         """
         if operation is not CapabilityOperation.CALL or ".<return>" not in access_path:
             return patterns
-        terminal = access_path.rsplit(".", 1)[-1]
-        if (
-            terminal
-            not in {
-                "json",
-                "__getitem__",
-                "keys",
-                "items",
-                "values",
-                "raise_for_status",
-            }
-            and access_path.count(".<return>") < 2
-        ):
+        if not _is_network_data_path(access_path):
             return patterns
         return tuple(pattern for pattern in patterns if pattern.capability != "network.io")
 
@@ -1591,12 +1599,13 @@ class _CapabilityReachability:
                             patterns = self.registry.reachable(origin)
                         self.patterns[access_path] = patterns
                     patterns = self.patterns[access_path]
-                if patterns and access_path.count(".<return>") >= 2:
+                if patterns and _is_network_data_path(access_path):
                     # Data extracted from a network response (``post().json()``,
                     # ``resp["token"]``) is not a new network capability.
                     patterns = tuple(
                         pattern for pattern in patterns if pattern.capability != "network.io"
                     )
+                if patterns and access_path.count(".<return>") >= 2:
                     if access_path.startswith(("os.environ", "sys.argv")):
                         # ``os.environ.get(...).split()`` is data derived from
                         # an environment read, not a new environment capability.

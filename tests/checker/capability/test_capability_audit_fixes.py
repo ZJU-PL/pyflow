@@ -429,3 +429,20 @@ def test_network_io_policy_covers_socket_and_dns_events() -> None:
         guard(event, (None,))  # must not raise
     guard = RuntimeCapabilityGuard(RuntimeCapabilityPolicy.allowing(["network.socket"]))
     guard("socket.__new__", (None,))
+
+
+def test_chained_client_method_keeps_network_capability() -> None:
+    pytest.importorskip("httpx")
+    result = _result(
+        "import httpx\n"
+        "async def f():\n"
+        "    client = httpx.AsyncClient()\n"
+        "    scoped = client.with_options(timeout=10.0)\n"
+        "    await scoped.get('http://x')\n",
+        analyze_all_scopes=True,
+    )
+
+    paths = {
+        finding.access_path for finding in result.findings if finding.capability == "network.io"
+    }
+    assert "httpx.AsyncClient.<return>.with_options.<return>.get" in paths

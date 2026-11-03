@@ -64,6 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `method.<return>` cycles instead of growing an unbounded access path and
   exhausting the solver budget.  This restores findings for files that
   previously spent the whole budget without producing a result.
+- Network response-data filtering now keys off response extraction methods
+  rather than the number of native-return hops, so chained client methods such
+  as `client.with_options().get()` keep their `network.io` finding.
 - Capability findings no longer split one async context-manager request into
   `$await_result`/`__aenter__`/wildcard aliases, and response parsing
   (`post(...).json()`, `resp["token"]`, chained `.json().get()`) or derived
