@@ -1,0 +1,342 @@
+"""Regression tests for typeinfo issues found on real-world projects."""
+
+from __future__ import annotations
+
+from pyflow.analysis.typeinfo import StaticTypeInferenceEngine
+from pyflow.analysis.typeinfo.core.typesystem import TypeSystem
+from pyflow.analysis.typeinfo.inference.validation import (
+    ObservedType,
+    validate_observed_types,
+)
+
+
+def _infer(source: str) -> object:
+    return StaticTypeInferenceEngine().infer_source("sample", source)
+
+
+def _mismatches(result) -> list[str]:
+    return [
+        diagnostic.message
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "annotation-mismatch"
+    ]
+
+
+def test_asyncio_union_argument_does_not_recurse() -> None:
+    result = _infer(
+        "import asyncio\n"
+        "async def f(x: int | str):\n"
+        "    return await asyncio.to_thread(str, x)\n"
+    )
+    assert result.status == "complete"
+
+
+def test_call_site_starred_arguments_expand_fixed_tuples() -> None:
+    result = _infer(
+        "def f(x: int, y: str) -> str: ...\n"
+        "f(*(1, 'a'))\n"
+        "f(*[1, 'a'])\n"
+        "args = (1, 'a')\n"
+        "f(*args)\n"
+    )
+    assert _mismatches(result) == []
+    assert [
+        diagnostic.message
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "call-arity-mismatch"
+    ] == []
+
+
+def test_call_site_double_star_expands_mapping_shape() -> None:
+    result = _infer(
+        "def f(x: int, y: str) -> str: ...\n"
+        "kwargs = {'x': 1, 'y': 'a'}\n"
+        "result = f(**kwargs)\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("result")) == "str"
+
+
+def test_unknown_star_arguments_do_not_produce_false_arity_errors() -> None:
+    result = _infer(
+        "def f(x: int, y: str) -> str: ...\n"
+        "def forward(*args, **kwargs):\n"
+        "    return f(*args, **kwargs)\n"
+        "result = forward(1, 'a')\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("result")) == "str"
+
+
+def test_empty_list_literals_are_not_aliases() -> None:
+    result = _infer(
+        "def f(xs: list[int]) -> None: ...\n" "a = []\n" "b = []\n" "b.append('s')\n" "f(a)\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("a")) == "list[Never]"
+    assert str(result.type_of("b")) == "list[str]"
+
+
+def test_mutating_union_receiver_keeps_the_applicable_alternative() -> None:
+    result = _infer(
+        "a = [1]\n" "b = {1}\n" "value = a if a else b\n" "value.append(2)\n" "result = value\n"
+    )
+    assert str(result.type_of("result")) == "list[int]"
+
+
+def test_float_multiplication_over_union_keeps_float() -> None:
+    result = _infer(
+        "def f(flag):\n"
+        "    value = 1 if flag else 's'\n"
+        "    return 3.5 * value\n"
+        "result = f(True)\n"
+    )
+    assert str(result.type_of("result")) == "float"
+    assert validate_observed_types(result, [ObservedType(float, symbol="result")]) == []
+
+
+def test_class_decorator_uses_call_return_type() -> None:
+    result = _infer(
+        "class Deco:\n"
+        "    def __init__(self, f): self.f = f\n"
+        "    def __call__(self, *args, **kwargs): return 's'\n"
+        "@Deco\n"
+        "def g() -> int:\n"
+        "    return 1\n"
+        "result = g()\n"
+    )
+    assert str(result.type_of("result")) == "str"
+    assert validate_observed_types(result, [ObservedType(str, symbol="result")]) == []
+
+
+def test_qualified_and_aliased_cached_property() -> None:
+    for source in (
+        "import functools\n"
+        "class C:\n"
+        "    @functools.cached_property\n"
+        "    def x(self) -> int: return 1\n"
+        "value = C().x\n",
+        "from functools import cached_property as cp\n"
+        "class C:\n"
+        "    @cp\n"
+        "    def x(self) -> int: return 1\n"
+        "value = C().x\n",
+    ):
+        result = _infer(source)
+        assert str(result.type_of("value")) == "int"
+
+
+def test_mapping_proxy_type_is_a_class_object() -> None:
+    result = _infer(
+        "from types import MappingProxyType\n"
+        "mapping: dict[type, int] = {MappingProxyType: 1}\n"
+        "alias = MappingProxyType\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("alias")) == "type[mappingproxy]"
+
+
+def test_enum_subclass_members_keep_enum_type() -> None:
+    result = _infer(
+        "import enum\n"
+        "class Base(str, enum.Enum):\n"
+        "    A = 'a'\n"
+        "class Sub(Base):\n"
+        "    B = 'b'\n"
+        "member: Sub = Sub.B\n"
+        "value = Sub.B.value\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("member")) == "sample.Sub"
+    assert str(result.type_of("value")) == "str"
+
+
+def test_os_getenv_and_environ_get_honor_non_none_default() -> None:
+    result = _infer(
+        "import os\n"
+        "def f(value: str) -> None: ...\n"
+        "f(os.getenv('X', ''))\n"
+        "f(os.environ.get('X', ''))\n"
+        "without_default = os.getenv('X')\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("without_default")) == "None | str"
+
+
+def test_unannotated_generator_is_a_generator() -> None:
+    result = _infer(
+        "from typing import Generator\n"
+        "def use(value: Generator[int, None, None]) -> None: ...\n"
+        "def values():\n"
+        "    yield 1\n"
+        "use(values())\n"
+        "generator = values()\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.type_of("generator")) == "collections.abc.Generator[int, Any, None]"
+
+
+def test_generic_varargs_bind_element_type() -> None:
+    result = _infer(
+        "from typing import Generic, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "class M:\n"
+        "    def __add__(self, other: 'M') -> 'M':\n"
+        "        return Group(self, other)\n"
+        "class Group(M, Generic[T]):\n"
+        "    def __init__(self, *mobjects: T) -> None: ...\n"
+    )
+    assert _mismatches(result) == []
+    assert str(result.functions["sample.M.__add__"].return_type) == "sample.M"
+
+
+def test_empty_dict_setitem_refines_key_and_value_types() -> None:
+    result = _infer(
+        "def build():\n"
+        "    values = {}\n"
+        "    values['a'] = 1\n"
+        "    return values\n"
+        "result = build()\n"
+        "value = result['a']\n"
+    )
+    assert str(result.functions["sample.build"].return_type) == "dict[str, int]"
+    assert str(result.type_of("value")) == "int"
+
+
+def test_closure_container_mutation_reaches_enclosing_scope() -> None:
+    result = _infer(
+        "def collect():\n"
+        "    values = []\n"
+        "    def add(value: int) -> None:\n"
+        "        values.append(value)\n"
+        "    add(1)\n"
+        "    return values[0]\n"
+        "result = collect()\n"
+    )
+    assert str(result.functions["sample.collect"].return_type) == "int"
+    assert str(result.type_of("result")) == "int"
+
+
+def test_walrus_in_comprehension_condition_is_bound() -> None:
+    result = _infer("result = [value for item in range(3) if (value := item + 1)]\n")
+    assert str(result.type_of("result")) == "list[int]"
+
+
+def test_reanalysis_does_not_reuse_stale_class_structure() -> None:
+    type_system = TypeSystem()
+    type_system.enable_numeric_tower()
+    StaticTypeInferenceEngine(type_system=type_system).infer_source(
+        "sample",
+        "from typing import NamedTuple\n" "P = NamedTuple('P', [('x', int), ('y', str)])\n",
+    )
+    result = StaticTypeInferenceEngine(type_system=type_system).infer_source(
+        "sample",
+        "from typing import Protocol\n"
+        "class P(Protocol):\n"
+        "    x: int\n"
+        "def use(value: P) -> int: return value.x\n"
+        "class C:\n"
+        "    x = 1\n"
+        "use(C())\n",
+    )
+    assert _mismatches(result) == []
+    descriptor = type_system._types["sample.P"]
+    assert descriptor.tuple_fields is None
+    assert set(descriptor.members) == {"x"}
+
+
+def test_user_defined_iterables_and_enums_yield_element_types() -> None:
+    result = _infer(
+        "class It:\n"
+        "    def __iter__(self): return iter([1])\n"
+        "class Container:\n"
+        "    def __iter__(self): return It()\n"
+        "for item in Container():\n"
+        "    loop_value = item\n"
+        "import enum\n"
+        "class Color(enum.Enum):\n"
+        "    RED = 1\n"
+        "for member in Color:\n"
+        "    enum_value = member\n"
+    )
+    assert str(result.type_of("loop_value")) == "int"
+    assert str(result.type_of("enum_value")) == "sample.Color"
+
+
+def test_generator_send_returns_yield_type() -> None:
+    result = _infer(
+        "from typing import Generator\n"
+        "def values() -> Generator[int, str, None]:\n"
+        "    x = yield 1\n"
+        "    yield 2\n"
+        "generator = values()\n"
+        "sent = generator.send('a')\n"
+    )
+    assert str(result.type_of("sent")) == "int"
+
+
+def test_generic_dataclass_and_namedtuple_constructor_inference() -> None:
+    result = _infer(
+        "from dataclasses import dataclass\n"
+        "from typing import Generic, NamedTuple, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "@dataclass\n"
+        "class Box(Generic[T]):\n"
+        "    value: T\n"
+        "class Pair(NamedTuple, Generic[T]):\n"
+        "    item: T\n"
+        "box = Box(1)\n"
+        "pair = Pair('a')\n"
+        "box_value = box.value\n"
+        "pair_value = pair.item\n"
+    )
+    assert str(result.type_of("box_value")) == "int"
+    assert str(result.type_of("pair_value")) == "str"
+
+
+def test_typevar_class_constructor_binding() -> None:
+    result = _infer(
+        "from typing import TypeVar\n"
+        "T = TypeVar('T')\n"
+        "def make(cls: type[T]) -> T:\n"
+        "    return cls()\n"
+        "class C: pass\n"
+        "value = make(C)\n"
+    )
+    assert str(result.type_of("value")) == "sample.C"
+
+
+def test_property_setter_does_not_change_getter_type() -> None:
+    result = _infer(
+        "class C:\n"
+        "    @property\n"
+        "    def x(self) -> int: return 1\n"
+        "    @x.setter\n"
+        "    def x(self, value: str): ...\n"
+        "c = C()\n"
+        "c.x = 's'\n"
+        "value = c.x\n"
+    )
+    assert str(result.type_of("value")) == "int"
+
+
+def test_enum_inheritance_through_imported_base(tmp_path) -> None:
+    from pyflow.analysis.typeinfo import ProjectTypeInferenceEngine
+    from pyflow.language.modules.project_resolution import ProjectContext
+
+    (tmp_path / "dep.py").write_text(
+        "import enum\n" "class Base(str, enum.Enum):\n" "    A = 'a'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "from dep import Base\n"
+        "class Sub(Base):\n"
+        "    B = 'b'\n"
+        "member: Sub = Sub.B\n"
+        "value = Sub.B.value\n",
+        encoding="utf-8",
+    )
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["app"])
+    assert _mismatches(result.modules["app"]) == []
+    assert str(result.modules["app"].type_of("member")) == "app.Sub"
+    assert str(result.modules["app"].type_of("value")) == "str"

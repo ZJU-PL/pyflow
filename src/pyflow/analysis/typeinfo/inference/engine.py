@@ -36,6 +36,7 @@ import re
 import threading
 import datetime
 import tokenize
+import types
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable, cast
 
@@ -88,6 +89,15 @@ from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_document
 from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
+# Runtime names such as ``types.MappingProxyType`` are aliases for classes
+# whose ``__name__`` differs (``mappingproxy``).  Class-object detection must
+# compare against the actual runtime class name, not the imported alias.
+_STDLIB_CLASS_ALIASES = {
+    name: f"{value.__module__}.{value.__name__}"
+    for name, value in vars(types).items()
+    if isinstance(value, type) and value.__name__ != name
+}
+
 ExternalSymbolResolver = Callable[[str], ProperType | None]
 
 
@@ -124,6 +134,7 @@ class _FunctionInfo:
     documented_return: AbstractTypeValue | None = None
     parameter_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
     closure_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
+    mutated_closure_names: set[str] = field(default_factory=set)
     specializations: dict[_SpecializationKey, FunctionSpecialization] = field(default_factory=dict)
     widened_parameters: dict[str, AbstractTypeValue] = field(default_factory=dict)
     summary: FunctionSummary | None = None
@@ -219,6 +230,7 @@ class StaticTypeInferenceEngine:
         self._collect_type_variables(self._tree.body)
         self._collect_declarations(self._tree.body, parent=module_name)
         self.type_system.invalidate_subtype_caches()
+        self._refresh_effective_returns()
 
         self._persistent_diagnostics = list(self._diagnostics)
         self._persistent_keys = set(self._diagnostic_keys)
@@ -254,6 +266,7 @@ class StaticTypeInferenceEngine:
                 self._analyse_function(function)
 
             self._commit_pending_evidence()
+            self._refresh_effective_returns()
             if self._fingerprint() == before:
                 converged = True
                 break
@@ -361,6 +374,9 @@ class StaticTypeInferenceEngine:
         self._module_environment: dict[str, AbstractTypeValue] = {}
         self._last_argument_mutations: list[tuple[ast.expr, AbstractTypeValue]] = []
         self._observed_yields: list[AbstractTypeValue] = []
+        self._call_unknown_positional = False
+        self._call_unknown_keywords = False
+        self._current_function_info: _FunctionInfo | None = None
         self._mro_cache: dict[str, list[str]] = {}
         self._collect_specializations = True
 
@@ -547,9 +563,10 @@ class StaticTypeInferenceEngine:
                     "",
                 )
                 getter = any(
-                    isinstance(decorator, ast.Name)
-                    and decorator.id in {"property", "cached_property"}
+                    (self._qualified_callee_name(decorator) or "").rsplit(".", 1)[-1]
+                    in {"property", "cached_property"}
                     for decorator in node.decorator_list
+                    if not isinstance(decorator, ast.Call)
                 )
                 if owner and accessor:
                     qualified += f".<{accessor}>"
@@ -721,6 +738,18 @@ class StaticTypeInferenceEngine:
             )
             self._class_aliases[node.name] = qualified
             descriptor = self._classes[qualified].instance.type
+            # Source classes rebuild their structure on every analysis pass.
+            # Clear fields left by a previous revision of this module (for
+            # example a NamedTuple or TypedDict that is now a plain class).
+            # Stub descriptors are refreshed separately and keep their
+            # incrementally populated members.
+            descriptor.members.clear()
+            descriptor.instance_attributes.clear()
+            descriptor.attributes.clear()
+            descriptor.typed_dict_fields = None
+            descriptor.required_keys = frozenset()
+            descriptor.tuple_fields = None
+            descriptor.type_parameters = ()
             descriptor.is_protocol = any(base.rsplit(".", 1)[-1] == "Protocol" for base in bases)
             if any(base.rsplit(".", 1)[-1] == "TypedDict" for base in bases):
                 descriptor.typed_dict_fields = {}
@@ -762,18 +791,22 @@ class StaticTypeInferenceEngine:
                     if base_type.type.typed_dict_fields is not None:
                         descriptor.typed_dict_fields = dict(base_type.type.typed_dict_fields)
                         descriptor.required_keys = base_type.type.required_keys
-            base_last_names = {base.rsplit(".", 1)[-1] for base in bases}
-            if base_last_names & {"IntEnum", "IntFlag"}:
+            enum_kind = next(
+                (kind for base in bases if (kind := self._enum_base_kind(base)) is not None),
+                None,
+            )
+            if enum_kind in {"IntEnum", "IntFlag"}:
                 self.type_system.add_subclass_edge(
                     super_class=self.type_system.to_class_descriptor(int),
                     sub_class=self._classes[qualified].instance.type,
                 )
-            elif "StrEnum" in base_last_names:
+            elif enum_kind == "StrEnum":
                 self.type_system.add_subclass_edge(
                     super_class=self.type_system.to_class_descriptor(str),
                     sub_class=self._classes[qualified].instance.type,
                 )
-            if base_last_names & {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}:
+            if enum_kind is not None:
+                self._classes[qualified].instance.type.enum_kind = enum_kind
                 for item in node.body:
                     targets: list[ast.expr] = []
                     if isinstance(item, ast.Assign):
@@ -879,13 +912,7 @@ class StaticTypeInferenceEngine:
             return False
         if name in self._class_aliases:
             class_info = self._classes.get(self._class_aliases[name])
-            if class_info is not None and {base.rsplit(".", 1)[-1] for base in class_info.bases} & {
-                "Enum",
-                "IntEnum",
-                "StrEnum",
-                "Flag",
-                "IntFlag",
-            }:
+            if self._is_enum_class_info(class_info):
                 return False
             return True
         if name in self._type_aliases or name in self._type_vars:
@@ -1360,7 +1387,9 @@ class StaticTypeInferenceEngine:
         previous_vars = self._type_vars
         previous_owner = self._annotation_owner
         previous_substitutions = self._annotation_substitutions
+        previous_current_function = self._current_function_info
         self._annotation_substitutions = substitutions
+        self._current_function_info = function
         self._type_vars = {**previous_vars, **function.type_variables}
         self._annotation_owner = function.owner
         self._collect_specializations = collect_specializations
@@ -1402,6 +1431,7 @@ class StaticTypeInferenceEngine:
             self._type_vars = previous_vars
             self._annotation_owner = previous_owner
             self._annotation_substitutions = previous_substitutions
+            self._current_function_info = previous_current_function
 
         if function.explicit_return is not None:
             explicit_return = function.explicit_return
@@ -1693,9 +1723,17 @@ class StaticTypeInferenceEngine:
                             scope=scope,
                             current_function=current_function,
                         )
+                        class_targets = runtime.class_targets
+                        proxy = alias_val.public_type()
+                        if (
+                            not class_targets
+                            and isinstance(proxy, Instance)
+                            and isinstance(proxy.type.raw_type, type)
+                        ):
+                            class_targets = frozenset((proxy.type.full_name,))
                         alias_val = replace(
                             alias_val,
-                            class_targets=runtime.class_targets,
+                            class_targets=class_targets,
                         )
                     self._assign_target(target, alias_val, result, current_function)
                     return _Outcome(result)
@@ -2063,10 +2101,7 @@ class StaticTypeInferenceEngine:
             if class_info is not None:
                 class_environment = dict(result)
                 class_environment.update(class_info.attributes)
-                enum_class = any(
-                    base.rsplit(".", 1)[-1] in {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
-                    for base in class_info.bases
-                )
+                enum_class = self._is_enum_class_info(class_info)
                 for item in node.body:
                     if isinstance(item, ast.Assign):
                         value = self._evaluate_expression(
@@ -2647,6 +2682,7 @@ class StaticTypeInferenceEngine:
                 scope=scope,
                 current_function=current_function,
             )
+            self._propagate_comprehension_walrus(node, local_env, environment, current_function)
             if isinstance(node, ast.GeneratorExp):
                 value = self._instance(
                     cabc.Generator,
@@ -2669,6 +2705,7 @@ class StaticTypeInferenceEngine:
             item = self._evaluate_expression(
                 node.value, local_env, scope=scope, current_function=current_function
             )
+            self._propagate_comprehension_walrus(node, local_env, environment, current_function)
             value = self._instance(dict, key.public_type() or ANY, item.public_type() or ANY)
         elif isinstance(node, ast.Lambda):
             qualified = f"{scope}.<lambda@{node.lineno}:{node.col_offset}>"
@@ -2727,6 +2764,52 @@ class StaticTypeInferenceEngine:
         self._record_expression(node, value)
         return value
 
+    def _star_expansion(
+        self,
+        node: ast.Starred,
+        environment: dict[str, AbstractTypeValue],
+        *,
+        scope: str,
+        current_function: _FunctionInfo | None,
+    ) -> list[AbstractTypeValue] | None:
+        """Expand a starred call argument when its arity is statically known."""
+        if isinstance(node.value, (ast.List, ast.Tuple)):
+            return [
+                self._evaluate_expression(
+                    item,
+                    environment,
+                    scope=scope,
+                    current_function=current_function,
+                )
+                for item in node.value.elts
+                if not isinstance(item, ast.Starred)
+            ]
+        value = self._evaluate_expression(
+            node.value,
+            environment,
+            scope=scope,
+            current_function=current_function,
+        )
+        parts = self._flatten_union_parts(value)
+        if len(parts) == 1 and isinstance(parts[0], TupleType) and not parts[0].unknown_size:
+            return [AbstractTypeValue.from_type(item) for item in parts[0].args]
+        return None
+
+    def _keyword_expansion(
+        self,
+        mapping: AbstractTypeValue,
+    ) -> dict[str, AbstractTypeValue] | None:
+        """Expand a ``**mapping`` when its string-key layout is known."""
+        shapes = mapping.dict_shapes
+        if not shapes or len(shapes) != 1:
+            return None
+        expanded: dict[str, AbstractTypeValue] = {}
+        for key, value in next(iter(shapes)):
+            if not isinstance(key, str):
+                return None
+            expanded[key] = AbstractTypeValue.from_type(value)
+        return expanded
+
     def _evaluate_call(
         self,
         node: ast.Call,
@@ -2734,22 +2817,69 @@ class StaticTypeInferenceEngine:
         scope: str,
         current_function: _FunctionInfo | None,
     ) -> AbstractTypeValue:
-        arguments = [
-            self._evaluate_expression(
-                arg, environment, scope=scope, current_function=current_function
+        previous_positional = self._call_unknown_positional
+        previous_keywords = self._call_unknown_keywords
+        self._call_unknown_positional = False
+        self._call_unknown_keywords = False
+        try:
+            return self._evaluate_call_impl(
+                node, environment, scope=scope, current_function=current_function
             )
-            for arg in node.args
-        ]
-        keywords = {
-            keyword.arg: self._evaluate_expression(
-                keyword.value,
-                environment,
-                scope=scope,
-                current_function=current_function,
-            )
-            for keyword in node.keywords
-            if keyword.arg is not None
-        }
+        finally:
+            self._call_unknown_positional = previous_positional
+            self._call_unknown_keywords = previous_keywords
+
+    def _evaluate_call_impl(
+        self,
+        node: ast.Call,
+        environment: dict[str, AbstractTypeValue],
+        *,
+        scope: str,
+        current_function: _FunctionInfo | None,
+    ) -> AbstractTypeValue:
+        arguments: list[AbstractTypeValue] = []
+        for argument in node.args:
+            if isinstance(argument, ast.Starred):
+                expanded = self._star_expansion(
+                    argument, environment, scope=scope, current_function=current_function
+                )
+                if expanded is None:
+                    # ``_star_expansion`` already evaluated the operand.
+                    # Its length is unknown, so do not bind the iterable
+                    # itself as one positional argument.
+                    self._call_unknown_positional = True
+                else:
+                    arguments.extend(expanded)
+            else:
+                arguments.append(
+                    self._evaluate_expression(
+                        argument,
+                        environment,
+                        scope=scope,
+                        current_function=current_function,
+                    )
+                )
+        keywords: dict[str, AbstractTypeValue] = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                mapping = self._evaluate_expression(
+                    keyword.value,
+                    environment,
+                    scope=scope,
+                    current_function=current_function,
+                )
+                expanded_keywords = self._keyword_expansion(mapping)
+                if expanded_keywords is None:
+                    self._call_unknown_keywords = True
+                else:
+                    keywords.update(expanded_keywords)
+            else:
+                keywords[keyword.arg] = self._evaluate_expression(
+                    keyword.value,
+                    environment,
+                    scope=scope,
+                    current_function=current_function,
+                )
         if any(self._is_never_value(value) for value in arguments) or any(
             self._is_never_value(value) for value in keywords.values()
         ):
@@ -2877,21 +3007,25 @@ class StaticTypeInferenceEngine:
                 )
                 instance = AbstractTypeValue.from_type(specialized)
                 initializer = self._class_method(class_target, "__init__")
-                if (
-                    class_info.type_variables
-                    and not (isinstance(specialized, Instance) and specialized.args)
-                    and initializer is not None
+                if class_info.type_variables and not (
+                    isinstance(specialized, Instance) and specialized.args
                 ):
-                    initializer_info = self._functions[initializer]
-                    bound = self._bind_call_arguments(
-                        initializer_info, [instance, *arguments], keywords
-                    )
-                    substitutions = self._generic_substitutions(initializer_info, bound)
-                    inferred_args = tuple(
-                        substitutions.get(name, ANY) for name in class_info.type_variables
-                    )
-                    specialized = Instance(class_info.instance.type, inferred_args)
-                    instance = AbstractTypeValue.from_type(specialized)
+                    if initializer is not None:
+                        initializer_info = self._functions[initializer]
+                        bound = self._bind_call_arguments(
+                            initializer_info, [instance, *arguments], keywords
+                        )
+                        substitutions = self._generic_substitutions(initializer_info, bound)
+                        inferred_args = tuple(
+                            substitutions.get(name, ANY) for name in class_info.type_variables
+                        )
+                    else:
+                        inferred_args = self._generic_constructor_args(
+                            class_info, arguments, keywords
+                        )
+                    if inferred_args is not None:
+                        specialized = Instance(class_info.instance.type, inferred_args)
+                        instance = AbstractTypeValue.from_type(specialized)
                 if class_info.instance.type.typed_dict_fields is not None:
                     for name, expected in class_info.instance.type.typed_dict_fields.items():
                         if name in keywords:
@@ -2934,6 +3068,10 @@ class StaticTypeInferenceEngine:
             results.append(self._apply_function(target, arguments, keywords, node=node))
             called = self._functions.get(target)
             if called is not None:
+                for name in called.mutated_closure_names:
+                    closure_value = called.closure_evidence.get(name)
+                    if closure_value is not None:
+                        environment[name] = closure_value
                 if called.nonlocal_names:
                     parent = self._enclosing_function(called)
                     if parent is current_function:
@@ -3470,10 +3608,11 @@ class StaticTypeInferenceEngine:
         if qualified_name in {"os.getpid", "os.getppid"}:
             return self._instance(int)
         if qualified_name in {"os.getenv", "os.environ.get"}:
-            return self._join(
-                AbstractTypeValue.from_type(self._proper_instance(str)),
-                AbstractTypeValue.from_type(NONE_TYPE),
-            )
+            default = arguments[1] if len(arguments) > 1 else keywords.get("default")
+            string_value = AbstractTypeValue.from_type(self._proper_instance(str))
+            if default is not None and default.public_type() is not None:
+                return self._join(string_value, default)
+            return self._join(string_value, AbstractTypeValue.from_type(NONE_TYPE))
         if qualified_name == "os.cpu_count":
             return self._join(
                 AbstractTypeValue.from_type(self._proper_instance(int)),
@@ -3573,7 +3712,14 @@ class StaticTypeInferenceEngine:
         }:
             return self._instance(contextlib.AbstractContextManager, NONE_TYPE)
         if qualified_name.startswith("asyncio."):
-            result_types = [self._await_result(argument) for argument in arguments]
+            result_types = [
+                (
+                    self._await_result(argument)
+                    if self._is_awaitable_value(argument)
+                    else AbstractTypeValue.unresolved()
+                )
+                for argument in arguments
+            ]
             if qualified_name == "asyncio.sleep":
                 return self._instance(cabc.Coroutine, ANY, ANY, NONE_TYPE)
             if qualified_name in {"asyncio.create_task"} and result_types:
@@ -4094,10 +4240,20 @@ class StaticTypeInferenceEngine:
             raw = typ.type.raw_type
             args = typ.args
             if raw is cabc.Generator:
-                if node.attr == "send" and len(args) >= 3:
-                    return AbstractTypeValue.from_type(args[2])
-                if node.attr in {"close", "throw"}:
+                if node.attr == "send" and args:
+                    # Generator[Y, S, R].send() returns the next yielded value.
+                    return AbstractTypeValue.from_type(args[0])
+                if node.attr == "throw" and args:
+                    return AbstractTypeValue.from_type(args[0])
+                if node.attr == "close":
                     return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is cabc.AsyncGenerator:
+                if node.attr == "asend" and args:
+                    return self._instance(cabc.Coroutine, ANY, ANY, args[0])
+                if node.attr == "athrow" and args:
+                    return self._instance(cabc.Coroutine, ANY, ANY, args[0])
+                if node.attr == "aclose":
+                    return self._instance(cabc.Coroutine, ANY, ANY, NONE_TYPE)
             if isinstance(raw, type) and issubclass(raw, io.IOBase):
                 if node.attr == "__enter__":
                     return AbstractTypeValue.from_type(typ)
@@ -4271,7 +4427,9 @@ class StaticTypeInferenceEngine:
                 collection_element = AbstractTypeValue.from_type(args[0] if args else ANY)
                 if node.attr in {"sort", "reverse"} and raw is list:
                     return AbstractTypeValue.from_type(NONE_TYPE)
-                if node.attr in {"append", "add", "insert"}:
+                if (raw is list and node.attr in {"append", "insert"}) or (
+                    raw is set and node.attr == "add"
+                ):
                     if arguments:
                         widened = self._join(collection_element, arguments[-1])
                         updated = AbstractTypeValue.from_type(
@@ -4280,7 +4438,9 @@ class StaticTypeInferenceEngine:
                         updated = self._augment_element_shapes(updated, arguments[-1])
                         self._update_environment_receiver(environment, node.value, updated)
                     return AbstractTypeValue.from_type(NONE_TYPE)
-                if node.attr in {"extend", "update"}:
+                if (raw is list and node.attr == "extend") or (
+                    raw is set and node.attr == "update"
+                ):
                     if arguments:
                         added = self._iterable_element(arguments[0])
                         widened = self._join(collection_element, added)
@@ -5159,27 +5319,7 @@ class StaticTypeInferenceEngine:
                     if result is not None:
                         return self._instance(result)
         if isinstance(operator, ast.Mult):
-            for tuple_side, count_side in ((left, right), (right, left)):
-                tuple_args = [
-                    arg
-                    for typ in tuple_side.types
-                    if isinstance(typ, TupleType)
-                    for arg in typ.args
-                ]
-                if tuple_args and all(
-                    isinstance(typ, Instance) and typ.type.raw_type in {int, bool}
-                    for typ in count_side.types
-                ):
-                    element = join_all(
-                        (AbstractTypeValue.from_type(arg) for arg in tuple_args),
-                        self.type_system,
-                    )
-                    return AbstractTypeValue.from_type(
-                        TupleType((element.public_type() or ANY,), unknown_size=True)
-                    )
-            for raw in (str, bytes, list, tuple):
-                if self._contains_raw(left, raw) or self._contains_raw(right, raw):
-                    return left if self._contains_raw(left, raw) else right
+            return self._mult_result(left, right)
         if isinstance(operator, ast.Pow):
             return self._pow_result(left, right)
         if self._contains_any(left) or self._contains_any(right):
@@ -5204,6 +5344,101 @@ class StaticTypeInferenceEngine:
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
+
+    @staticmethod
+    def _flatten_union_parts(value: AbstractTypeValue) -> list[ProperType]:
+        parts: list[ProperType] = []
+        for typ in value.types:
+            if isinstance(typ, UnionType):
+                parts.extend(typ.items)
+            else:
+                parts.append(typ)
+        return parts
+
+    def _mult_result(
+        self,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> AbstractTypeValue:
+        """Multiply all alternatives, preserving numeric and repetition results."""
+        if self._contains_any(left) or self._contains_any(right):
+            return AbstractTypeValue.from_type(ANY)
+        numeric = {bool, int, float, complex}
+        results: list[ProperType] = []
+        unknown = left.unknown or right.unknown
+        sequence_types = {str, bytes, bytearray, list}
+        for left_part in self._flatten_union_parts(left):
+            for right_part in self._flatten_union_parts(right):
+                if (
+                    isinstance(left_part, TupleType)
+                    and isinstance(right_part, Instance)
+                    and right_part.type.raw_type in {int, bool}
+                ):
+                    element = join_all(
+                        (AbstractTypeValue.from_type(arg) for arg in left_part.args),
+                        self.type_system,
+                    )
+                    results.append(TupleType((element.public_type() or ANY,), unknown_size=True))
+                    continue
+                if (
+                    isinstance(right_part, TupleType)
+                    and isinstance(left_part, Instance)
+                    and left_part.type.raw_type in {int, bool}
+                ):
+                    element = join_all(
+                        (AbstractTypeValue.from_type(arg) for arg in right_part.args),
+                        self.type_system,
+                    )
+                    results.append(TupleType((element.public_type() or ANY,), unknown_size=True))
+                    continue
+                if (
+                    isinstance(left_part, Instance)
+                    and left_part.type.raw_type in sequence_types
+                    and isinstance(right_part, Instance)
+                    and right_part.type.raw_type in {int, bool}
+                ):
+                    results.append(left_part)
+                    continue
+                if (
+                    isinstance(right_part, Instance)
+                    and right_part.type.raw_type in sequence_types
+                    and isinstance(left_part, Instance)
+                    and left_part.type.raw_type in {int, bool}
+                ):
+                    results.append(right_part)
+                    continue
+                if (
+                    isinstance(left_part, Instance)
+                    and left_part.type.raw_type in numeric
+                    and isinstance(right_part, Instance)
+                    and right_part.type.raw_type in numeric
+                ):
+                    if left_part.type.raw_type is bool and right_part.type.raw_type is bool:
+                        results.append(self._proper_instance(int))
+                        continue
+                    joined = self._numeric_join(
+                        (
+                            AbstractTypeValue.from_type(left_part),
+                            AbstractTypeValue.from_type(right_part),
+                        )
+                    )
+                    if joined.public_type() is not None:
+                        results.append(joined.public_type())
+                    else:
+                        unknown = True
+                    continue
+                # An invalid alternative (for example ``str * float``) is not
+                # part of the successful result, but must not be reported as a
+                # concrete type.
+                unknown = True
+        if not results:
+            return AbstractTypeValue.unresolved() if unknown else AbstractTypeValue.bottom()
+        joined = join_all(
+            (AbstractTypeValue.from_type(item) for item in results),
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+        return replace(joined, unknown=joined.unknown or unknown)
 
     @staticmethod
     def _binary_protocol_names(operator: ast.operator) -> tuple[str | None, str | None]:
@@ -6165,8 +6400,8 @@ class StaticTypeInferenceEngine:
                 return
             self._add_diagnostic(
                 "annotation-mismatch",
-                f"Inferred {sorted(map(self._format_literal_value, inferred.literal_values))} is incompatible "
-                f"with annotated {expected} for {context}",
+                f"Inferred {sorted(map(self._format_literal_value, inferred.literal_values))} "
+                f"is incompatible with annotated {expected} for {context}",
                 node=node,
                 severity="error" if self.options.strict_annotations else "warning",
             )
@@ -6599,6 +6834,38 @@ class StaticTypeInferenceEngine:
             )
         return AbstractTypeValue.unresolved()
 
+    _ENUM_KIND_NAMES = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
+
+    def _enum_base_kind(self, base: str, seen: set[str] | None = None) -> str | None:
+        """Return the enum base kind for a direct or inherited enum base."""
+        short = base.rsplit(".", 1)[-1]
+        if short in self._ENUM_KIND_NAMES:
+            return short
+        seen = set() if seen is None else seen
+        if base in seen:
+            return None
+        seen.add(base)
+        info = self._classes.get(base)
+        if info is None:
+            alias = self._class_aliases.get(short)
+            if alias is not None:
+                info = self._classes.get(alias)
+        if info is None:
+            descriptor = self.type_system.class_descriptor(base)
+            if descriptor is not None and descriptor.enum_kind is not None:
+                return descriptor.enum_kind
+            return None
+        for parent in info.bases:
+            kind = self._enum_base_kind(parent, seen)
+            if kind is not None:
+                return kind
+        return None
+
+    def _is_enum_class_info(self, info: _ClassInfo | None) -> bool:
+        return info is not None and any(
+            self._enum_base_kind(base) is not None for base in info.bases
+        )
+
     def _mro_names(self, class_name: str) -> list[str]:
         """Approximate C3 linearization over classes known to this engine."""
         if class_name in self._mro_cache:
@@ -6682,7 +6949,9 @@ class StaticTypeInferenceEngine:
         # The external value is a class object only if the requested member is
         # the class itself, not an enum member or other uppercase attribute.
         if external.type.full_name.rsplit(".", 1)[-1] != name:
-            return None
+            aliased = _STDLIB_CLASS_ALIASES.get(name)
+            if aliased is None or external.type.full_name != aliased:
+                return None
         return external.type.full_name
 
     def _name_is_shadowed(
@@ -6699,6 +6968,19 @@ class StaticTypeInferenceEngine:
         if self._class_aliases.get(name) is not None:
             return True
         return self._resolve_import_name(name) is not None
+
+    def _refresh_effective_returns(self) -> None:
+        """Recompute decorator results after all class methods are known."""
+        for function in self._functions.values():
+            decorators = getattr(function.node, "decorator_list", ())
+            if not decorators:
+                continue
+            computed = self._decorator_effective_return(
+                function.node,
+                function.qualified_name.rpartition(".")[0],
+            )
+            if computed is not None:
+                function.effective_return = computed
 
     def _decorator_effective_return(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef, parent: str
@@ -6720,6 +7002,39 @@ class StaticTypeInferenceEngine:
                 imported = self._resolve_import_name(name) or name
                 decorator_type = self._external_type(imported)
             if not isinstance(decorator_type, CallableType):
+                # A callable class decorator (``@Deco``) replaces the
+                # decorated function with an instance.  The call result is
+                # the return type of that class's ``__call__`` method.
+                if call is None:
+                    class_name = self._class_aliases.get(name) or self._class_aliases.get(
+                        name.rsplit(".", 1)[-1]
+                    )
+                    call_method = (
+                        self._class_method(class_name, "__call__")
+                        if class_name is not None
+                        else None
+                    )
+                    if call_method is not None:
+                        signature = self._function_value(self._functions[call_method]).public_type()
+                        if (
+                            isinstance(signature, CallableType)
+                            and signature.return_type is not None
+                            and not self._contains_type_var(signature.return_type)
+                        ):
+                            return AbstractTypeValue.from_type(signature.return_type)
+                    member = None
+                    if isinstance(decorator_type, TypeType) and isinstance(
+                        decorator_type.item, Instance
+                    ):
+                        member = decorator_type.item.type.members.get("__call__")
+                    elif isinstance(decorator_type, Instance):
+                        member = decorator_type.type.members.get("__call__")
+                    if (
+                        isinstance(member, CallableType)
+                        and member.return_type is not None
+                        and not self._contains_type_var(member.return_type)
+                    ):
+                        return AbstractTypeValue.from_type(member.return_type)
                 continue
             value: ProperType = decorator_type.return_type
             unwraps = 2 if call is not None else 1
@@ -6765,6 +7080,58 @@ class StaticTypeInferenceEngine:
             callable_target=function.qualified_name,
         )
 
+    def _check_call_arity(
+        self,
+        function: _FunctionInfo,
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+        target: str,
+        node: ast.AST | None,
+    ) -> None:
+        arguments_node = function.node.args
+        positional = [*arguments_node.posonlyargs, *arguments_node.args]
+        if (
+            not self._call_unknown_positional
+            and arguments_node.vararg is None
+            and len(arguments) > len(positional)
+        ):
+            self._add_diagnostic(
+                "call-arity-mismatch",
+                f"Too many positional arguments for {target}",
+                node=node or function.node,
+                severity="warning",
+            )
+        bound = self._bind_call_arguments(function, arguments, keywords)
+        missing = self._required_parameter_names(function) - bound.keys()
+        if missing and not (self._call_unknown_positional or self._call_unknown_keywords):
+            self._add_diagnostic(
+                "call-arity-mismatch",
+                f"Missing required arguments for {target}: {sorted(missing)}",
+                node=node or function.node,
+                severity="warning",
+            )
+        positional_only = {argument.arg for argument in arguments_node.posonlyargs}
+        known = {argument.arg for argument in (*positional, *arguments_node.kwonlyargs)}
+        for name in keywords:
+            if name in positional_only:
+                self._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Positional-only argument {name!r} passed by keyword to {target}",
+                    node=node or function.node,
+                    severity="warning",
+                )
+            elif (
+                name not in known
+                and arguments_node.kwarg is None
+                and not self._call_unknown_keywords
+            ):
+                self._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Unexpected keyword argument {name!r} for {target}",
+                    node=node or function.node,
+                    severity="warning",
+                )
+
     def _apply_function(
         self,
         target: str,
@@ -6783,6 +7150,7 @@ class StaticTypeInferenceEngine:
         if selected is not None:
             return self._apply_overload(target, selected, arguments, keywords, node)
         self._last_argument_mutations = []
+        self._check_call_arity(function, arguments, keywords, target, node)
         bound_arguments = self._bind_call_arguments(function, arguments, keywords)
         substitutions = self._generic_substitutions(function, bound_arguments)
         for name, annotated in function.explicit_parameters.items():
@@ -6979,6 +7347,7 @@ class StaticTypeInferenceEngine:
         keywords: dict[str, AbstractTypeValue],
         node: ast.AST | None,
     ) -> AbstractTypeValue:
+        self._check_call_arity(overload, arguments, keywords, target, node)
         bound = self._bind_call_arguments(overload, arguments, keywords)
         substitutions = self._generic_substitutions(overload, bound)
         for name, annotated in overload.explicit_parameters.items():
@@ -7040,14 +7409,9 @@ class StaticTypeInferenceEngine:
                     # rebuilding Iterator[Y] would lose ``send`` and return
                     # types that callers may rely on.
                     return returned
-            return self._instance(
-                (
-                    cabc.AsyncIterator
-                    if isinstance(function.node, ast.AsyncFunctionDef)
-                    else cabc.Iterator
-                ),
-                element,
-            )
+            if isinstance(function.node, ast.AsyncFunctionDef):
+                return self._instance(cabc.AsyncGenerator, element, ANY)
+            return self._instance(cabc.Generator, element, ANY, NONE_TYPE)
         if isinstance(function.node, ast.AsyncFunctionDef):
             result = returned.public_type() or ANY
             return self._instance(cabc.Coroutine, ANY, ANY, result)
@@ -7197,6 +7561,30 @@ class StaticTypeInferenceEngine:
                 self._proper_instance(str),
                 values.public_type() or ANY,
             )
+        if self._call_unknown_positional or self._call_unknown_keywords:
+            for name in self._required_parameter_names(function):
+                if name in bound:
+                    continue
+                if name in keyword_only:
+                    if self._call_unknown_keywords:
+                        bound[name] = AbstractTypeValue.unresolved()
+                elif name in positional_names:
+                    if self._call_unknown_positional or self._call_unknown_keywords:
+                        bound[name] = AbstractTypeValue.unresolved()
+        if (
+            self._call_unknown_positional
+            and node_arguments.vararg is not None
+            and node_arguments.vararg.arg not in bound
+        ):
+            bound[node_arguments.vararg.arg] = AbstractTypeValue.from_type(
+                TupleType((ANY,), unknown_size=True)
+            )
+        if (
+            self._call_unknown_keywords
+            and node_arguments.kwarg is not None
+            and node_arguments.kwarg.arg not in bound
+        ):
+            bound[node_arguments.kwarg.arg] = self._instance(dict, self._proper_instance(str), ANY)
         return bound
 
     def _return_dependencies(self, function: _FunctionInfo) -> frozenset[str]:
@@ -7230,6 +7618,37 @@ class StaticTypeInferenceEngine:
         visit(function.node, root=True)
         return frozenset(dependencies) if saw_return and not invalid else frozenset()
 
+    def _generic_constructor_args(
+        self,
+        class_info: _ClassInfo,
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+    ) -> tuple[ProperType, ...] | None:
+        """Infer generics for dataclass/NamedTuple constructors without __init__."""
+        if class_info.instance.type.tuple_fields is not None:
+            field_names = list(class_info.instance.type.tuple_fields)
+        else:
+            field_names = [name for name in class_info.attributes if not name.startswith("_")]
+        substitutions: dict[str, ProperType] = {}
+        fixed: set[str] = set()
+        for name, value in zip(field_names, arguments):
+            annotation = class_info.attributes.get(name)
+            formal = None if annotation is None else annotation.public_type()
+            actual = value.public_type()
+            if formal is not None and actual is not None:
+                self._match_type_variables(formal, actual, substitutions, fixed)
+        for name, value in keywords.items():
+            annotation = class_info.attributes.get(name)
+            formal = None if annotation is None else annotation.public_type()
+            actual = value.public_type()
+            if formal is not None and actual is not None:
+                self._match_type_variables(formal, actual, substitutions, fixed)
+        if not class_info.type_variables:
+            return None
+        if not substitutions:
+            return tuple(ANY for _ in class_info.type_variables)
+        return tuple(substitutions.get(name, ANY) for name in class_info.type_variables)
+
     def _generic_substitutions(
         self,
         function: _FunctionInfo,
@@ -7251,12 +7670,37 @@ class StaticTypeInferenceEngine:
                             fixed.update(receiver_info.type_var_bindings)
                         for parameter, argument in zip(typ.type.type_parameters, typ.args):
                             self._match_type_variables(parameter, argument, substitutions, fixed)
+        vararg_name = (
+            function.node.args.vararg.arg if function.node.args.vararg is not None else None
+        )
+        kwarg_name = function.node.args.kwarg.arg if function.node.args.kwarg is not None else None
         for name, formal_value in function.explicit_parameters.items():
             formal = formal_value.public_type()
             actual = actuals.get(name)
             if formal is None or actual is None:
                 continue
+            if name == vararg_name:
+                # ``*args: T`` binds T from each element, not from the tuple.
+                actual = self._iterable_element(actual)
+            elif name == kwarg_name:
+                actual = join_all(
+                    (
+                        AbstractTypeValue.from_type(typ.args[1])
+                        for typ in actual.types
+                        if isinstance(typ, Instance) and len(typ.args) > 1
+                    ),
+                    self.type_system,
+                )
             actual_type = actual.public_type()
+            if (
+                actual_type is not None
+                and isinstance(formal, TypeType)
+                and actual.class_targets
+                and isinstance(actual_type, Instance)
+            ):
+                # Class objects are represented internally as Instance +
+                # class_targets; ``type[T]`` matching needs the explicit form.
+                actual_type = TypeType(actual_type)
             if actual_type is not None:
                 self._match_type_variables(formal, actual_type, substitutions, fixed)
         return substitutions
@@ -7387,13 +7831,7 @@ class StaticTypeInferenceEngine:
             if not isinstance(typ, Instance):
                 continue
             class_info = self._classes.get(typ.type.full_name)
-            enum_base_names = (
-                {base.rsplit(".", 1)[-1] for base in class_info.bases}
-                if class_info is not None
-                else set()
-            )
-            enum_names = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
-            if class_info is not None and enum_base_names & enum_names:
+            if self._is_enum_class_info(class_info):
                 if attribute in class_info.enum_values:
                     values.append(
                         AbstractTypeValue.from_type(
@@ -7407,29 +7845,18 @@ class StaticTypeInferenceEngine:
                 if attribute == "name":
                     return self._instance(str)
                 if attribute == "value":
-                    if enum_base_names & {"IntEnum", "IntFlag"}:
-                        return self._instance(int)
-                    if "StrEnum" in enum_base_names:
-                        return self._instance(str)
-                    values = list(class_info.enum_values.values())
+                    enum_values = list(class_info.enum_values.values())
                     return (
                         join_all(
-                            values,
+                            enum_values,
                             self.type_system,
                             max_union_size=self.options.max_union_size,
                         )
-                        if values
+                        if enum_values
                         else AbstractTypeValue.from_type(ANY)
                     )
             if class_info is not None:
-                enum_bases = {base.rsplit(".", 1)[-1] for base in class_info.bases}
-                if attribute == "__members__" and enum_bases & {
-                    "Enum",
-                    "IntEnum",
-                    "StrEnum",
-                    "Flag",
-                    "IntFlag",
-                }:
+                if attribute == "__members__" and self._is_enum_class_info(class_info):
                     values.append(self._instance(dict, self._proper_instance(str), typ))
                     continue
                 if class_info.instance.type.tuple_fields is not None:
@@ -8047,6 +8474,24 @@ class StaticTypeInferenceEngine:
             max_union_size=self.options.max_union_size,
         )
 
+    def _is_awaitable_value(self, value: AbstractTypeValue) -> bool:
+        """Return whether any alternative can be awaited."""
+        for typ in value.types:
+            if isinstance(typ, UnionType):
+                if any(
+                    self._is_awaitable_value(AbstractTypeValue.from_type(item))
+                    for item in typ.items
+                ):
+                    return True
+            elif isinstance(typ, Instance) and typ.type.raw_type in {
+                cabc.Coroutine,
+                cabc.Awaitable,
+                asyncio.Future,
+                asyncio.Task,
+            }:
+                return True
+        return False
+
     def _await_result(self, value: AbstractTypeValue) -> AbstractTypeValue:
         results: list[AbstractTypeValue] = []
         for typ in value.types:
@@ -8062,7 +8507,11 @@ class StaticTypeInferenceEngine:
                     results.append(AbstractTypeValue.from_type(typ.args[0]))
                     continue
             if isinstance(typ, UnionType):
-                results.append(self._await_result(AbstractTypeValue.from_type(typ)))
+                # ``from_type`` would wrap the union as a single proper type
+                # and this method would recurse on the same value forever.
+                results.extend(
+                    self._await_result(AbstractTypeValue.from_type(item)) for item in typ.items
+                )
         if results:
             return join_all(
                 results,
@@ -8071,12 +8520,15 @@ class StaticTypeInferenceEngine:
             )
         return AbstractTypeValue.unresolved() if value.unknown else AbstractTypeValue.from_type(ANY)
 
-    def _iterable_element(self, value: AbstractTypeValue) -> AbstractTypeValue:
+    def _iterable_element(self, value: AbstractTypeValue, *, _depth: int = 0) -> AbstractTypeValue:
+        if _depth > 4:
+            return AbstractTypeValue.unresolved()
         elements: list[AbstractTypeValue] = []
         for typ in value.types:
             if isinstance(typ, UnionType):
                 elements.extend(
-                    self._iterable_element(AbstractTypeValue.from_type(item)) for item in typ.items
+                    self._iterable_element(AbstractTypeValue.from_type(item), _depth=_depth + 1)
+                    for item in typ.items
                 )
                 continue
             if isinstance(typ, TupleType):
@@ -8084,7 +8536,11 @@ class StaticTypeInferenceEngine:
             elif isinstance(typ, Instance):
                 projected = self._builtin_projection(typ)
                 if projected is not None:
-                    elements.append(self._iterable_element(AbstractTypeValue.from_type(projected)))
+                    elements.append(
+                        self._iterable_element(
+                            AbstractTypeValue.from_type(projected), _depth=_depth + 1
+                        )
+                    )
                     continue
                 raw = typ.type.raw_type
                 if typ.type.tuple_fields is not None:
@@ -8133,6 +8589,53 @@ class StaticTypeInferenceEngine:
                     elements.append(self._instance(int))
                 elif raw is range:
                     elements.append(self._instance(int))
+                else:
+                    info = self._classes.get(typ.type.full_name)
+                    if info is not None and self._is_enum_class_info(info):
+                        elements.append(AbstractTypeValue.from_type(info.instance))
+                    elif info is not None:
+                        iter_method = self._class_method(info.qualified_name, "__iter__")
+                        next_method = self._class_method(info.qualified_name, "__next__")
+                        getitem_method = self._class_method(info.qualified_name, "__getitem__")
+                        method = iter_method or next_method or getitem_method
+                        function = self._functions.get(method) if method is not None else None
+                        if function is not None:
+                            signature = self._function_value(function).public_type()
+                            if (
+                                isinstance(signature, CallableType)
+                                and signature.return_type is not None
+                            ):
+                                returned_type = signature.return_type
+                                used_next_method = False
+                                if (
+                                    iter_method is not None
+                                    and isinstance(returned_type, Instance)
+                                    and returned_type.type.full_name == info.instance.type.full_name
+                                    and next_method is not None
+                                ):
+                                    next_function = self._functions.get(next_method)
+                                    next_signature = (
+                                        self._function_value(next_function).public_type()
+                                        if next_function is not None
+                                        else None
+                                    )
+                                    if (
+                                        isinstance(next_signature, CallableType)
+                                        and next_signature.return_type is not None
+                                    ):
+                                        returned_type = next_signature.return_type
+                                        used_next_method = True
+                                returned = AbstractTypeValue.from_type(returned_type)
+                                if iter_method is not None and not used_next_method:
+                                    if not (
+                                        isinstance(returned_type, Instance)
+                                        and returned_type.type.full_name
+                                        == info.instance.type.full_name
+                                    ):
+                                        returned = self._iterable_element(
+                                            returned, _depth=_depth + 1
+                                        )
+                                elements.append(returned)
         return (
             join_all(
                 elements,
@@ -8199,13 +8702,28 @@ class StaticTypeInferenceEngine:
         key = receiver.id if isinstance(receiver, ast.Name) else ast.unparse(receiver)
         old = environment.get(key)
         environment[key] = new_value
+        if isinstance(receiver, ast.Name):
+            current = self._current_function_info
+            if current is not None:
+                name = receiver.id
+                if name in current.closure_evidence:
+                    current.closure_evidence[name] = new_value
+                    current.mutated_closure_names.add(name)
+                    parent = self._enclosing_function(current)
+                    if parent is not None:
+                        previous = parent.closure_evidence.get(name, AbstractTypeValue.bottom())
+                        parent.closure_evidence[name] = self._join(previous, new_value)
+                        parent.mutated_closure_names.add(name)
+                if name in current.global_names:
+                    self._module_environment[name] = new_value
         if old is None:
             return
-        # Abstract values are immutable.  Equal values are either true aliases
-        # (``b = a``) or coincidentally equal containers; widening both is
-        # conservative and keeps later reads sound.
+        # Abstract values are immutable, so an actual alias (``b = a``)
+        # shares the same object.  Do not compare with ``==``: two distinct
+        # empty list/set literals compare equal and widening one must not
+        # silently change the inferred element type of the other.
         for name, value in list(environment.items()):
-            if name != key and value == old:
+            if name != key and value is old:
                 environment[name] = new_value
 
     def _enclosing_function(self, function: _FunctionInfo) -> _FunctionInfo | None:
@@ -8330,6 +8848,11 @@ class StaticTypeInferenceEngine:
         if isinstance(target, ast.Attribute):
             key = ast.unparse(target)
             self._invalidate_refinements(environment, target)
+            property_value = self._property_assignment_value(target, environment)
+            if property_value is not None:
+                # A property setter's parameter type does not change the
+                # getter result type observed by subsequent reads.
+                value = property_value
             environment[key] = value
             self._record_expression(target, value)
             if (
@@ -8359,7 +8882,22 @@ class StaticTypeInferenceEngine:
                 if isinstance(typ, Instance) and typ.type.raw_type is dict:
                     key_type = typ.args[0] if typ.args else ANY
                     old_value = typ.args[1] if len(typ.args) > 1 else ANY
-                    joined = self._join(AbstractTypeValue.from_type(old_value), value)
+                    if isinstance(target.slice, ast.Constant):
+                        new_key = self._proper_instance(type(target.slice.value))
+                        if isinstance(key_type, (AnyType, NeverType)):
+                            key_type = new_key
+                        else:
+                            key_type = (
+                                self._join(
+                                    AbstractTypeValue.from_type(key_type),
+                                    AbstractTypeValue.from_type(new_key),
+                                ).public_type()
+                                or ANY
+                            )
+                    if isinstance(old_value, (AnyType, NeverType)):
+                        joined = value
+                    else:
+                        joined = self._join(AbstractTypeValue.from_type(old_value), value)
                     updated.append(self._instance(dict, key_type, joined.public_type() or ANY))
                 elif isinstance(typ, Instance) and typ.type.raw_type is list:
                     old_value = typ.args[0] if typ.args else ANY
@@ -8371,6 +8909,31 @@ class StaticTypeInferenceEngine:
                     self.type_system,
                     max_union_size=self.options.max_union_size,
                 )
+
+    def _property_assignment_value(
+        self,
+        target: ast.Attribute,
+        environment: dict[str, AbstractTypeValue],
+    ) -> AbstractTypeValue | None:
+        if not isinstance(target.value, ast.Name):
+            return None
+        base = environment.get(target.value.id)
+        if base is None:
+            return None
+        for typ in base.types:
+            if not isinstance(typ, Instance):
+                continue
+            info = self._classes.get(typ.type.full_name)
+            if info is None or target.attr not in info.properties:
+                continue
+            getter = self._class_property(info.qualified_name, target.attr)
+            function = self._functions.get(getter) if getter is not None else None
+            if function is not None:
+                if function.explicit_return is not None:
+                    return function.explicit_return
+                if function.summary is not None and function.summary.return_type is not None:
+                    return AbstractTypeValue.from_type(function.summary.return_type)
+        return None
 
     @staticmethod
     def _invalidate_refinements(environment, target):
@@ -8434,6 +8997,34 @@ class StaticTypeInferenceEngine:
         element = self._iterable_element(value)
         return [element] * count
 
+    def _propagate_comprehension_walrus(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+        local_environment: dict[str, AbstractTypeValue],
+        environment: dict[str, AbstractTypeValue],
+        current_function: _FunctionInfo | None,
+    ) -> None:
+        expressions: list[ast.expr] = []
+        for generator in node.generators:
+            expressions.extend(generator.ifs)
+        if isinstance(node, ast.DictComp):
+            expressions.extend((node.key, node.value))
+        else:
+            expressions.append(node.elt)
+        for expression in expressions:
+            for child in ast.walk(expression):
+                if (
+                    isinstance(child, ast.NamedExpr)
+                    and isinstance(child.target, ast.Name)
+                    and child.target.id in local_environment
+                ):
+                    self._assign_target(
+                        child.target,
+                        local_environment[child.target.id],
+                        environment,
+                        current_function,
+                    )
+
     def _comprehension_environment(
         self,
         generators: list[ast.comprehension],
@@ -8456,6 +9047,15 @@ class StaticTypeInferenceEngine:
                 current_function,
             )
             for condition in generator.ifs:
+                if any(isinstance(child, ast.NamedExpr) for child in ast.walk(condition)):
+                    # Comprehension filters are only narrowed today, so a
+                    # walrus target would otherwise never receive its value.
+                    self._evaluate_expression(
+                        condition,
+                        result,
+                        scope=scope,
+                        current_function=current_function,
+                    )
                 result = self._narrow_environment(condition, result, truthy=True)
         return result
 

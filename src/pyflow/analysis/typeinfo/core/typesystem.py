@@ -1523,6 +1523,7 @@ class ClassDescriptor:
         # Static declarations, populated without executing analysed source.
         self.members: dict[str, ProperType] = {}
         self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
+        self.enum_kind: str | None = None
         self.typed_dict_fields: dict[str, ProperType] | None = None
         self.required_keys: frozenset[str] = frozenset()
         self.tuple_fields: tuple[str, ...] | None = None
@@ -2461,6 +2462,10 @@ class TypeSystem:  # noqa: PLR0904
 
         type(self).is_subtype.cache_clear()
         type(self).is_maybe_subtype.cache_clear()
+
+    def class_descriptor(self, full_name: str) -> ClassDescriptor | None:
+        """Return the descriptor registered for a fully qualified class name."""
+        return self._types.get(full_name)
 
     def forget_class_descriptor(self, full_name: str) -> None:
         """Drop a descriptor so a later analysis can recreate fresh state."""

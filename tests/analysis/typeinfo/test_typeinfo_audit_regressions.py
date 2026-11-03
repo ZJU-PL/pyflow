@@ -484,7 +484,9 @@ def test_generator_call_preserves_send_and_return_parameters() -> None:
     )
 
     assert str(result.type_of("sample.generator")).startswith("collections.abc.Generator")
-    assert _raw_types(result.type_of("sample.sent")) == {bool}
+    # Generator.send() returns the next *yielded* value (the first type
+    # argument), not the generator return value.
+    assert _raw_types(result.type_of("sample.sent")) == {int}
 
 
 def test_signature_and_members_follow_dotted_and_inherited_classes() -> None:
