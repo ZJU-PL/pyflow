@@ -432,3 +432,49 @@ def test_malformed_request_parameters_are_invalid_params(tmp_path: Path):
     with pytest.raises(JsonRpcError) as invalid_query:
         handler._handle_workspace_symbol({"query": None})
     assert invalid_query.value.code == ErrorCodes.InvalidParams
+
+
+def test_slots_declarations_are_fields_and_renameable(tmp_path: Path):
+    source = (
+        "class Slotted:\n"
+        '    __slots__ = ("x", "y")\n'
+        "\n"
+        "    def __init__(self) -> None:\n"
+        "        self.x = 1\n"
+        "        self.y = 2\n"
+    )
+    path = tmp_path / "slots.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    fields = {symbol.name: symbol for symbol in index.document_symbols(uri)}
+    assert {"x", "y"} <= set(fields)
+    assert fields["x"].selection_range.start_line == 1
+    assert fields["x"].selection_range.start_character == 18
+
+    lines = source.splitlines()
+    for source_range in index.rename_ranges_at(uri, 4, 13):
+        lines[source_range.start_line] = (
+            lines[source_range.start_line][: source_range.start_character]
+            + "z"
+            + lines[source_range.start_line][source_range.end_character :]
+        )
+    updated = "\n".join(lines)
+    ast.parse(updated)
+    assert '__slots__ = ("z", "y")' in updated
+    assert "self.z = 1" in updated
+
+
+def test_escaped_slots_entry_is_replaced_as_a_literal(tmp_path: Path):
+    source = 'class Slotted:\n    __slots__ = ("\\x78",)\n'
+    path = tmp_path / "escaped_slots.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    references = [
+        item for item in index.references if item.location.uri == uri and item.name == "x"
+    ]
+    assert references and references[0].string_literal
+    ranges = index.rename_ranges_at(uri, 1, 18)
+    slot_range = [item for item in ranges if item.start_line == 1]
+    assert index.replacement_text(slot_range[0], "z") == repr("z")

@@ -45,6 +45,20 @@ def path_to_uri(path: str | os.PathLike[str]) -> str:
 
 
 @lru_cache(maxsize=65536)
+def _literal_payload(segment: str | None) -> Optional[str]:
+    """Return the unquoted text of a simple string literal, if it is simple.
+
+    Comparing the payload with the decoded value detects escapes reliably;
+    a plain substring check fails for escapes that happen to spell the name
+    (``"\x78"`` contains an ``x`` but denotes ``"x"``).
+    """
+    if not segment or len(segment) < 2:
+        return None
+    if segment[0] == segment[-1] and segment[0] in {"'", '"'}:
+        return segment[1:-1]
+    return None
+
+
 def _strip_bom(text: str) -> str:
     """Drop a UTF-8 BOM; Python accepts it in files but not in ``ast.parse`` text."""
     return text[1:] if text.startswith("\ufeff") else text
@@ -1997,6 +2011,7 @@ class _IndexVisitor(ast.NodeVisitor):
             if isinstance(target, ast.Name) and target.id == "__all__":
                 self._record_exports(node.value)
             self._record_match_args(target, node.value)
+            self._record_slots(target, node.value)
 
     def _record_match_args(self, target, value):
         if (
@@ -2016,12 +2031,55 @@ class _IndexVisitor(ast.NodeVisitor):
         ]
         owner = ("symbol", self._current_scope.class_id)
         for item in value.elts:
-            escaped = item.value not in (ast.get_source_segment(self.source, item) or "")
+            escaped = _literal_payload(ast.get_source_segment(self.source, item)) != item.value
             location = self._range(item) if escaped else self._range(item, name=item.value)
             self.index._reference_targets[location] = ("member", owner, item.value, "read")
             self.index.references.append(
                 SourceReference(
                     item.value, location, self._current_function(), string_literal=escaped
+                )
+            )
+
+    def _record_slots(self, target, value):
+        """Declare and reference attribute names in a class ``__slots__`` literal."""
+        if (
+            self._current_scope.kind is not _ScopeKind.CLASS
+            or not isinstance(target, ast.Name)
+            or target.id != "__slots__"
+        ):
+            return
+        if isinstance(value, ast.Constant):
+            items = [value]
+        elif isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            items = list(value.elts)
+        elif isinstance(value, ast.Dict):
+            items = [key for key in value.keys if key is not None]
+        else:
+            return
+        owner = ("symbol", self._current_scope.class_id)
+        for item in items:
+            if not (isinstance(item, ast.Constant) and isinstance(item.value, str)):
+                continue
+            name = item.value
+            if not name.isidentifier():
+                continue
+            escaped = _literal_payload(ast.get_source_segment(self.source, item)) != name
+            location = self._range(item) if escaped else self._range(item, name=name)
+            symbol = self._add_local_definition_in_scope(
+                self._current_scope,
+                item,
+                name,
+                SymbolKind.VARIABLE,
+                selection_range=location,
+            )
+            self.index._reference_targets[location] = ("member", owner, name, "read")
+            self.index.references.append(
+                SourceReference(
+                    name,
+                    location,
+                    self._current_function(),
+                    symbol.symbol_id,
+                    string_literal=escaped,
                 )
             )
 
@@ -2042,7 +2100,7 @@ class _IndexVisitor(ast.NodeVisitor):
         for node in literals(value):
             symbol_id = self._resolve(node.value)
             if symbol_id and node.value.isidentifier():
-                escaped = node.value not in (ast.get_source_segment(self.source, node) or "")
+                escaped = _literal_payload(ast.get_source_segment(self.source, node)) != node.value
                 location = self._range(node) if escaped else self._range(node, name=node.value)
                 self.index.references.append(
                     SourceReference(
@@ -2068,6 +2126,7 @@ class _IndexVisitor(ast.NodeVisitor):
             if isinstance(node.target, ast.Name) and node.target.id == "__all__":
                 self._record_exports(node.value)
             self._record_match_args(node.target, node.value)
+            self._record_slots(node.target, node.value)
 
     def visit_Yield(self, node):
         self.generic_visit(node)
@@ -2425,8 +2484,8 @@ class _IndexVisitor(ast.NodeVisitor):
         node_start = _byte_col_to_char(line, node.col_offset)
         node_end = _byte_col_to_char(line, node.end_col_offset)
         literal = line[node_start:node_end]
-        inner = literal.find(value)
-        escaped = inner < 0
+        escaped = _literal_payload(literal) != value
+        inner = 1
         seen: set[tuple[int, int]] = set()
         for child in ast.walk(expression):
             if isinstance(child, ast.Name):
