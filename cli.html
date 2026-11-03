@@ -526,12 +526,17 @@ runtime value information separates them. Python type annotations such as
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--engine</span> <span class="pre">{flow-sensitive,kcfa}</span></code>: Analysis engine (default: flow-sensitive)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--k</span> <span class="pre">N</span></code>: k-CFA context sensitivity depth (kcfa engine only, default: 1)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>: kcfa only; analyze every function/method body instead of
+only code reachable from the entry module</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--max-seconds</span> <span class="pre">N</span></code>: Time budget across all files (default: 30); exhaustion
 reports partial coverage and retains completed files</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p></li>
 </ul>
+<p>The kcfa report includes solver coverage (<code class="docutils literal notranslate"><span class="pre">complete</span></code>/<code class="docutils literal notranslate"><span class="pre">stop_reason</span></code>), both
+in text and JSON form. Files skipped after a budget expiry appear in JSON with
+<code class="docutils literal notranslate"><span class="pre">&quot;status&quot;:</span> <span class="pre">&quot;skipped&quot;</span></code>.
+- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory
+- <code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text
+- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p>
 </section>
 </section>
 <section id="capability-commands">

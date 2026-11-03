@@ -239,6 +239,21 @@ type in <code class="docutils literal notranslate"><span class="pre">with</span>
 from async iterable, iterator, and generator annotations. Built-in annotation
 lookup resolves common types from <code class="docutils literal notranslate"><span class="pre">itertools</span></code>, <code class="docutils literal notranslate"><span class="pre">pathlib</span></code>, <code class="docutils literal notranslate"><span class="pre">datetime</span></code>,
 <code class="docutils literal notranslate"><span class="pre">re</span></code>, <code class="docutils literal notranslate"><span class="pre">uuid</span></code>, <code class="docutils literal notranslate"><span class="pre">types</span></code>, and <code class="docutils literal notranslate"><span class="pre">contextvars</span></code> without importing analysed code.</p>
+<p>Module imports bind module objects rather than same-named classes: <code class="docutils literal notranslate"><span class="pre">import</span>
+<span class="pre">time</span></code> refers to the <code class="docutils literal notranslate"><span class="pre">time</span></code> module even though a bare <code class="docutils literal notranslate"><span class="pre">time</span></code> annotation
+resolves to <code class="docutils literal notranslate"><span class="pre">datetime.time</span></code>. Common stdlib members (<code class="docutils literal notranslate"><span class="pre">sys.argv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">os.environ</span></code>, <code class="docutils literal notranslate"><span class="pre">math</span></code> constants, <code class="docutils literal notranslate"><span class="pre">time</span></code> clocks) are modelled without
+importing analysed code. Class objects obtained from stdlib modules
+(<code class="docutils literal notranslate"><span class="pre">datetime.date</span></code>, <code class="docutils literal notranslate"><span class="pre">uuid.UUID</span></code>) retain their <code class="docutils literal notranslate"><span class="pre">type[...]</span></code> projection inside
+list, tuple, set, and dictionary literals. Source classes inherit builtin
+ancestry (<code class="docutils literal notranslate"><span class="pre">ValueError</span></code> is an <code class="docutils literal notranslate"><span class="pre">Exception</span></code>; <code class="docutils literal notranslate"><span class="pre">dict</span></code> subclasses satisfy
+<code class="docutils literal notranslate"><span class="pre">Mapping</span></code>) for subtype and protocol checks, and members inherited from
+builtin or stdlib bases are resolved through the real MRO. When a class derives
+from an unmodelled third-party base, structural and subtype checks stay
+conservative instead of reporting incompatibilities that cannot be proven.
+Nested collection literals are widened recursively against an annotated
+container type. Plain rebindings of a name previously declared with <code class="docutils literal notranslate"><span class="pre">name:</span> <span class="pre">T</span></code>
+are checked against <code class="docutils literal notranslate"><span class="pre">T</span></code> when the new value is a literal or another name.</p>
 <p><code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through <code class="docutils literal notranslate"><span class="pre">diagnostics()</span></code> and
 <code class="docutils literal notranslate"><span class="pre">inference_result(module).status</span></code>. A failed imported symbol without usable
