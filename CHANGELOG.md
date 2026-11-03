@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return-only calls (`copy.copy`, `typing.cast`) as unanalysed escape
   boundaries.  Handle methods returned by `Path.open()` and
   `tempfile.NamedTemporaryFile()` are now reported.
+- Native helper chains such as `im = im.convert(...)` now collapse repeated
+  `method.<return>` cycles instead of growing an unbounded access path and
+  exhausting the solver budget.  This restores findings for files that
+  previously spent the whole budget without producing a result.
 - Capability findings no longer split one async context-manager request into
   `$await_result`/`__aenter__`/wildcard aliases, and response parsing
   (`post(...).json()`, `resp["token"]`) or derived environment strings

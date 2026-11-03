@@ -313,3 +313,23 @@ def test_derived_environment_values_are_not_new_capability_transfers() -> None:
         finding.capability == "information.environment" and finding.access_path == "os.environ.get"
         for finding in result.findings
     )
+
+
+def test_native_method_reassignment_reaches_fixpoint() -> None:
+    result = DefensiveCapabilityAnalysis(
+        report_public_exports=False,
+        analyze_all_scopes=True,
+        max_iterations=3000,
+    ).analyze_source(
+        "import PIL.Image\n"
+        "def convert(file, mode='RGB'):\n"
+        "    image = PIL.Image.open(file)\n"
+        "    image = image.convert(mode)\n"
+        "    return image\n"
+    )
+
+    assert result.coverage["fixpoint_complete"] is True
+    assert any(
+        finding.capability == "file.read" and finding.access_path == "PIL.Image.open"
+        for finding in result.findings
+    )

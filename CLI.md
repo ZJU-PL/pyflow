@@ -455,12 +455,11 @@ pyflow capabilities library/ -r --format json
 entry; without it, ``--entry`` selects one root. By default each entry's
 function and method scopes are audited too, so uncalled library functions and
 framework handlers are not silently skipped. Pass ``--reachable-only`` to
-restore the previous call-graph-reachability behavior. ``-r`` defaults to
-``--import-depth 0`` so a library scan does not spend its budget resolving
-every dependency; pass ``--import-depth -1`` explicitly for a whole-program
-analysis per entry.  Single-file audits also accept ``--import-depth 0`` when
-the file has expensive third-party imports and only its own scopes need
-review. Directory targets that are packages use
+restore the previous call-graph-reachability behavior. ``--import-depth``
+defaults to 0 for ``-r`` and for single files without package-relative
+imports; package-relative files and project-entry scans use the whole-program
+default of -1.  Pass ``-1`` explicitly to opt into whole-program analysis from
+any entry. Directory targets that are packages use
 their parent as the import root, and explicit file targets are analyzed even
 when they live in directories normally excluded from discovery. JSON and text
 reports include the entry coverage (`entries_total`, `entries_analyzed`,

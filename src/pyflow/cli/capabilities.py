@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import sys
+import tokenize
 from argparse import ArgumentTypeError
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -33,6 +34,16 @@ def import_depth(value: str) -> int:
     if depth < -1:
         raise ArgumentTypeError("import depth must be -1 (unlimited) or greater")
     return depth
+
+
+def _has_relative_import(path: Path) -> bool:
+    """Return True when a file uses package-relative imports."""
+    try:
+        with tokenize.open(path) as handle:
+            tree = ast.parse(handle.read(), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError):
+        return False
+    return any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
 
 
 def _project_root_for_file(path: Path) -> Path:
@@ -145,7 +156,8 @@ def add_capabilities_parser(subparsers) -> None:
         default=None,
         help=(
             "Maximum transitive import depth (-1 = unlimited, 0 = entry "
-            "only; default: 0 with -r, -1 otherwise)"
+            "only; default: 0 for absolute-import files and -r, -1 for "
+            "package-relative files and project entries)"
         ),
     )
     parser.add_argument(
@@ -201,7 +213,14 @@ def run_capabilities(args) -> int:
         # quadratic and spends the budget inside dependencies.  A file audit
         # and ``-r`` use the target's own scopes; a project entry keeps the
         # traditional whole-program default.
-        import_level = 0 if getattr(args, "recursive", False) else -1
+        if getattr(args, "recursive", False):
+            import_level = 0
+        elif target.is_file() and not _has_relative_import(target):
+            # Absolute-import scripts are audited quickly by their own scopes;
+            # package-relative files still need the project import graph.
+            import_level = 0
+        else:
+            import_level = -1
     if import_level < -1:
         print(
             "Error: --import-depth must be -1 (unlimited) or greater",

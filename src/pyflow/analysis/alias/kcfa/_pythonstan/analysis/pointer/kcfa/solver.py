@@ -2142,6 +2142,14 @@ class PointerSolver:
             return True
         target = self.state.get_variable(scope, context, call.target)
         result_path = f"{callee_obj.access_path}.<return>"
+        # Native helper chains such as ``im = im.convert(mode)`` would
+        # otherwise grow ``...convert.<return>.convert.<return>...`` on every
+        # worklist visit.  Collapse repeated identical method/return cycles;
+        # the abstract object identity is stable for the same method chain.
+        method = callee_obj.access_path.rsplit(".", 1)[-1]
+        cycle = f".{method}.<return>"
+        while result_path.endswith(cycle + cycle):
+            result_path = result_path[: -len(cycle)]
         result = NativeObject(
             context=context,
             alloc_site=AllocSite(f"<native:{result_path}>", AllocKind.NATIVE),
