@@ -678,3 +678,44 @@ def test_asyncio_and_contextlib_models() -> None:
     assert raw_types(result.type_of("ran")) == {int}
     assert result.status == "complete"
     assert not [item for item in result.diagnostics if "context manager" in item.message]
+
+
+def test_subprocess_shutil_logging_and_tempfile_models() -> None:
+    result = infer(
+        "import logging, shutil, subprocess, tempfile\n"
+        "completed = subprocess.run(['ls'], capture_output=True)\n"
+        "stdout = completed.stdout\n"
+        "return_code = completed.returncode\n"
+        "text_stdout = subprocess.run(['ls'], text=True).stdout\n"
+        "output = subprocess.check_output(['ls'])\n"
+        "call_code = subprocess.call(['ls'])\n"
+        "which = shutil.which('ls')\n"
+        "copied = shutil.copy('a', 'b')\n"
+        "usage = shutil.disk_usage('.')\n"
+        "logger = logging.getLogger('x')\n"
+        "logger_name = logger.name\n"
+        "logger_level = logger.level\n"
+        "logger.info('x')\n"
+        "directory = tempfile.mkdtemp()\n"
+        "handle, path = tempfile.mkstemp()\n"
+        "with tempfile.NamedTemporaryFile() as temporary:\n"
+        "    temporary_name = temporary.name\n"
+        "    temporary_data = temporary.read()\n"
+        "with tempfile.TemporaryDirectory() as temporary_dir:\n"
+        "    pass\n"
+    )
+    assert str(result.type_of("completed")) == "subprocess.CompletedProcess[bytes]"
+    assert str(result.type_of("stdout")) == "None | bytes"
+    assert raw_types(result.type_of("return_code")) == {int}
+    assert str(result.type_of("text_stdout")) == "None | str"
+    assert raw_types(result.type_of("output")) == {bytes}
+    assert raw_types(result.type_of("call_code")) == {int}
+    assert str(result.type_of("which")) == "None | str"
+    assert raw_types(result.type_of("copied")) == {str}
+    assert str(result.type_of("usage")) == "tuple[int, int, int]"
+    assert raw_types(result.type_of("logger_name")) == {str}
+    assert raw_types(result.type_of("logger_level")) == {int}
+    assert raw_types(result.type_of("directory")) == {str}
+    assert raw_types(result.type_of("path")) == {str}
+    assert raw_types(result.type_of("temporary_name")) == {str}
+    assert raw_types(result.type_of("temporary_data")) == {bytes}
