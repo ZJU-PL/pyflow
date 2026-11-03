@@ -2514,7 +2514,9 @@ class StaticTypeInferenceEngine:
                     value_parts.append(item_value)
             keys = join_all(key_parts, self.type_system)
             values = join_all(value_parts, self.type_system)
-            if self._is_never_value(keys) or self._is_never_value(values):
+            if not node.keys:
+                value = self._instance(dict, NEVER, NEVER)
+            elif self._is_never_value(keys) or self._is_never_value(values):
                 value = AbstractTypeValue.from_type(NEVER)
             else:
                 value = self._instance(
@@ -2776,6 +2778,14 @@ class StaticTypeInferenceEngine:
             if info is None:
                 parameters = [arg.arg for arg in _all_arguments(node.args)]
                 info = _FunctionInfo(qualified, node, parameters)
+                positional = [*node.args.posonlyargs, *node.args.args]
+                for argument, default in zip(
+                    positional[-len(node.args.defaults) :], node.args.defaults
+                ):
+                    info.default_parameters[argument.arg] = default
+                for argument, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+                    if default is not None:
+                        info.default_parameters[argument.arg] = default
                 self._functions[qualified] = info
             value = self._function_value(info)
         elif isinstance(node, ast.NamedExpr):
@@ -4012,7 +4022,7 @@ class StaticTypeInferenceEngine:
                         if isinstance(typ, Instance) and typ.type.raw_type is dict:
                             return AbstractTypeValue.from_type(typ)
                     return self._instance(dict, ANY, ANY)
-                return self._instance(dict, ANY, ANY)
+                return self._instance(dict, NEVER, NEVER)
             return self._instance(raw)
         if name in {"len", "hash", "id", "ord"}:
             return self._instance(int)
@@ -7845,11 +7855,21 @@ class StaticTypeInferenceEngine:
                 )
             else:
                 explicit = function.explicit_parameters.get(name)
-                parameters[name] = (
-                    explicit
-                    if explicit is not None
-                    else function.documented_parameters.get(name, AbstractTypeValue.unresolved())
-                )
+                if explicit is not None:
+                    parameters[name] = explicit
+                else:
+                    default = function.default_parameters.get(name)
+                    if default is not None:
+                        parameters[name] = self._evaluate_expression(
+                            default,
+                            self._module_environment,
+                            scope=function.qualified_name,
+                            current_function=None,
+                        )
+                    else:
+                        parameters[name] = function.documented_parameters.get(
+                            name, AbstractTypeValue.unresolved()
+                        )
         return parameters
 
     @staticmethod
@@ -8971,6 +8991,64 @@ class StaticTypeInferenceEngine:
                         iter_method = self._class_method(info.qualified_name, "__iter__")
                         next_method = self._class_method(info.qualified_name, "__next__")
                         getitem_method = self._class_method(info.qualified_name, "__getitem__")
+                        aiter_method = self._class_method(info.qualified_name, "__aiter__")
+                        anext_method = self._class_method(info.qualified_name, "__anext__")
+                        if (
+                            iter_method is None
+                            and next_method is None
+                            and getitem_method is None
+                            and (aiter_method is not None or anext_method is not None)
+                        ):
+                            method = aiter_method or anext_method
+                            function = self._functions.get(method)
+                            signature = (
+                                self._function_value(function).public_type()
+                                if function is not None
+                                else None
+                            )
+                            if (
+                                isinstance(signature, CallableType)
+                                and signature.return_type is not None
+                            ):
+                                returned_type = signature.return_type
+                                used_anext = False
+                                if (
+                                    aiter_method is not None
+                                    and anext_method is not None
+                                    and isinstance(returned_type, Instance)
+                                    and returned_type.type.full_name == info.instance.type.full_name
+                                ):
+                                    anext_function = self._functions.get(anext_method)
+                                    anext_signature = (
+                                        self._function_value(anext_function).public_type()
+                                        if anext_function is not None
+                                        else None
+                                    )
+                                    if (
+                                        isinstance(anext_signature, CallableType)
+                                        and anext_signature.return_type is not None
+                                    ):
+                                        returned_type = anext_signature.return_type
+                                        used_anext = True
+                                        if (
+                                            isinstance(returned_type, Instance)
+                                            and returned_type.type.raw_type is cabc.Coroutine
+                                            and len(returned_type.args) >= 3
+                                        ):
+                                            returned_type = returned_type.args[2]
+                                    else:
+                                        returned_type = None
+                                if returned_type is not None:
+                                    if used_anext:
+                                        elements.append(AbstractTypeValue.from_type(returned_type))
+                                    else:
+                                        elements.append(
+                                            self._iterable_element(
+                                                AbstractTypeValue.from_type(returned_type),
+                                                _depth=_depth + 1,
+                                            )
+                                        )
+                            continue
                         method = iter_method or next_method or getitem_method
                         function = self._functions.get(method) if method is not None else None
                         if function is not None:

@@ -453,3 +453,80 @@ def test_decorator_added_keyword_only_parameter_is_accepted() -> None:
         for diagnostic in result.diagnostics
         if diagnostic.code == "call-arity-mismatch"
     ] == []
+
+
+def test_omitted_default_parameters_keep_default_types() -> None:
+    result = _infer(
+        "def f(x=1):\n"
+        "    return x\n"
+        "def g(*, x=1):\n"
+        "    return x\n"
+        "def h(x, /, y=2):\n"
+        "    return x + y\n"
+        "a = f()\n"
+        "b = f('s')\n"
+        "c = g()\n"
+        "d = h(1)\n"
+    )
+    assert str(result.type_of("a")) == "int"
+    assert str(result.type_of("b")) == "str"
+    assert str(result.type_of("c")) == "int"
+    assert str(result.type_of("d")) == "int"
+
+
+def test_lambda_default_parameter_type() -> None:
+    result = _infer("f = lambda x=1: x\n" "without_argument = f()\n" "with_argument = f('s')\n")
+    assert str(result.type_of("without_argument")) == "int"
+    assert str(result.type_of("with_argument")) == "str"
+
+
+def test_fallback_analysis_uses_existing_classmethod_specializations() -> None:
+    result = _infer(
+        "from enum import Enum\n"
+        "class Convertible(Enum):\n"
+        "    @classmethod\n"
+        "    def convert(cls, value):\n"
+        "        if isinstance(value, cls): return value\n"
+        "        for member in cls:\n"
+        "            if member.value == value: return member\n"
+        "        return None\n"
+        "class First(Convertible):\n"
+        "    A = 'a'\n"
+        "class Second(Convertible):\n"
+        "    B = 'b'\n"
+        "def convert_both(first, second):\n"
+        "    return First.convert(first), Second.convert(second)\n"
+        "result = convert_both('a', 'b')\n"
+    )
+    assert str(result.functions["sample.convert_both"].return_type) == (
+        "tuple[None | sample.First, None | sample.Second]"
+    )
+
+
+def test_empty_dict_builders_refine_and_propagate_mutation() -> None:
+    result = _infer(
+        "def add(values):\n"
+        "    values['k'] = 1\n"
+        "values = {}\n"
+        "add(values)\n"
+        "value = values['k']\n"
+        "other = {}\n"
+        "set_value = other.setdefault('a', 1)\n"
+    )
+    assert str(result.type_of("values")) == "dict[str, int]"
+    assert str(result.type_of("value")) == "int"
+    assert str(result.type_of("set_value")) == "int"
+
+
+def test_user_defined_async_iterables_yield_element_types() -> None:
+    result = _infer(
+        "class Iterator:\n"
+        "    def __aiter__(self): return self\n"
+        "    async def __anext__(self) -> int: ...\n"
+        "class Container:\n"
+        "    def __aiter__(self): return Iterator()\n"
+        "async def first():\n"
+        "    async for value in Container():\n"
+        "        return value\n"
+    )
+    assert str(result.functions["sample.first"].return_type) == "None | int"
