@@ -101,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `# type: ignore` across all type-checking diagnostics, resolves common standard
   library namespaces (`argparse`, `decimal`, `enum`, `urllib.parse`, `ssl`, `socket`,
   `hashlib`, etc.) in type annotations, enables covariant tuple subtyping in generic
-  containers, and enables the numeric tower on `TypeInfoService`.
+  containers, enables the numeric tower on `TypeInfoService`, and
+  validates nested `TypedDict` literal shapes against inner `TypedDict` annotations.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values

@@ -767,3 +767,22 @@ def test_common_stdlib_modules_and_types_resolve_in_annotations() -> None:
         "ParseResult",
     ]:
         assert lookup(t) is not None, f"Failed for {t}"
+
+
+def test_nested_typeddict_literal_compatibility() -> None:
+    result = _infer(
+        "from typing import TypedDict, Literal\n"
+        "Role = Literal['system', 'user', 'assistant']\n"
+        "class Message(TypedDict):\n"
+        "    role: Role\n"
+        "    content: str\n"
+        "class ChatPrediction(TypedDict):\n"
+        "    generation: Message\n"
+        "pred: ChatPrediction = {\n"
+        '    "generation": {\n'
+        '        "role": "assistant",\n'
+        '        "content": "hello"\n'
+        "    }\n"
+        "}\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)

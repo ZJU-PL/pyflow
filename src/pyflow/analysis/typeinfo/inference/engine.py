@@ -6999,8 +6999,14 @@ class StaticTypeInferenceEngine:
                             severity="error" if self.options.strict_annotations else "warning",
                         )
                     for name in actual.keys() & fields.keys():
-                        actual_value = AbstractTypeValue.from_type(actual[name])
                         child = literal_nodes.get(name)
+                        child_span = None if child is None else _span(child)
+                        recorded_child = self._expressions.get(child_span) if child_span else None
+                        actual_value = (
+                            recorded_child
+                            if recorded_child is not None
+                            else AbstractTypeValue.from_type(actual[name])
+                        )
                         if isinstance(child, ast.Constant):
                             actual_value = AbstractTypeValue.from_type(
                                 actual[name], literal_values=frozenset((child.value,))
