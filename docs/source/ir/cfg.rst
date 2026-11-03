@@ -78,3 +78,21 @@ Converts CFGs to SSA form for:
 - Efficient data flow computation
 - Optimization opportunities
 - Phi node insertion and elimination
+
+Expression renaming, verification, and CFG/SSA dump rendering use explicit
+stacks, so deeply nested operator chains do not consume a Python frame per
+AST level. This does not make every AST transformation iterative.
+
+``verify_ssa(cfg)`` checks value availability, dominance, and phi consistency.
+SSA dumps, ``get_ssa`` queries, and PDG construction with ``run_ssa=True``
+verify before returning results or expanding phis. Invalid SSA raises
+``SSAVerificationError``; query results are cached only after verification.
+
+SSA versions describe local values. Globals, closure cells, attributes, and
+subscripts remain storage operations handled by the memory model. Local copy
+assignments can disappear through reach-through optimization, so SSA does not
+preserve a value for every source binding. Walrus definitions remain inside
+``NamedExpr`` expressions, including switch conditions; consumers must inspect
+those expressions rather than only scanning ``Suite.ops`` for assignments.
+Unbound reads are legal values marked ``Value.undefined=True``. Verification
+accepts these values; consumers must check that flag explicitly.

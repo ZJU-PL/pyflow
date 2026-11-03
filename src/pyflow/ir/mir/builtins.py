@@ -7,7 +7,7 @@ lists.  A dictionary payload is a raw list of immutable ``key``/``value`` pair
 objects, allowing Python objects to serve as keys.
 
 The models deliberately cover a bounded Python subset.  Range is eager, strings
-need frontend-provided character metadata for indexing/length, and dictionary
+carry explicit character metadata for indexing/length, and dictionary
 lookup uses equality rather than a hash table.  Unsupported builtin argument
 forms raise a modeled exception rather than executing host Python.
 """
@@ -240,7 +240,7 @@ def _bootstrap(rt, b):
             ancestors = ("int", "object")
         elif name == "BaseException":
             ancestors = ("object",)
-        elif name == "Exception":
+        elif name in {"Exception", "GeneratorExit"}:
             ancestors = ("BaseException", "object")
         elif name.endswith("Error") or name in {"StopIteration"}:
             ancestors = ("Exception", "BaseException", "object")
@@ -823,7 +823,10 @@ def _strings(rt, root):
         value = _arg(b, 2)
         string, other = b.branch(_same_class(rt, b, value, "str"))
         b.use(other)
-        b.ret(rt.special(b, value, "__str__"))
+        converted = rt.special(b, value, "__str__")
+        rt.checked(b)
+        _require_class(rt, b, converted, "str")
+        b.ret(converted)
         b.use(string)
         result = rt.box(b, field(value, "$value"), cls)
         haschars, missing = b.branch(Binary("in", Literal("$chars"), value))
@@ -997,9 +1000,44 @@ def _generators(rt, root):
         b.assign(field(self, "$running"), rt.raw(b, False))
         b.ret(result)
 
+    def close(b):
+        _arity(rt, b, 1, 1)
+        self = _arg(b, 1)
+        _guard(rt, b, Not(field(self, "$running")), "ValueError")
+        inactive, active = b.branch(
+            Binary("or", field(self, "$done"), Not(field(self, "$started")))
+        )
+        b.use(inactive)
+        b.assign(field(self, "$done"), rt.raw(b, True))
+        b.ret(rt.none)
+        b.use(active)
+        b.assign(field(field(self, "$frame"), "$closing"), rt.raw(b, True))
+        b.assign(field(self, "$running"), rt.raw(b, True))
+        b.call(field(self, "$resume"), b.alloc(ListExpr(())), b.alloc(DictExpr(())))
+        b.assign(field(self, "$running"), rt.raw(b, False))
+        yielded, raised = b.branch(Binary("=", rt.exception, rt.none))
+        b.use(yielded)
+        rt.error(b, "RuntimeError")
+        b.use(raised)
+        stopped = _same_class(rt, b, rt.exception, "StopIteration")
+        exited = _same_class(rt, b, rt.exception, "GeneratorExit")
+        expected, other = b.branch(Binary("or", stopped, exited))
+        b.use(other)
+        b.ret(rt.none)
+        b.use(expected)
+        value = b.bind(rt.none)
+        has_value, empty = b.branch(Binary("in", Literal("value"), rt.exception))
+        b.use(has_value)
+        b.assign(value, field(rt.exception, "value"))
+        b.join(b.tails, empty)
+        b.assign(rt.exception, rt.none)
+        b.assign(field(self, "$done"), rt.raw(b, True))
+        b.ret(value)
+
     _define(rt, root, "generator", "__iter__", iterator)
     _define(rt, root, "generator", "__next__", resume)
     _define(rt, root, "generator", "send", lambda b: resume(b, True))
+    _define(rt, root, "generator", "close", close)
     _define(rt, root, "StopIteration", "__init__", stop_init)
 
 
@@ -1262,6 +1300,10 @@ def initialize(runtime, b: Builder) -> None:
     _generators(runtime, b)
     _descriptors(runtime, b)
     _functions(runtime, b)
+    from . import builtins_iter, builtins_text
+
+    builtins_text.install(runtime, b)
+    builtins_iter.install(runtime, b)
 
 
 __all__ = ["initialize"]

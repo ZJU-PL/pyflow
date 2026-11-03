@@ -73,6 +73,26 @@ def test_cfg_structure_handles_linear_successor(monkeypatch):
     assert {"src": 1, "dst": 2, "type": "normal"} in result["edges"]
 
 
+def test_ssa_query_verifies_before_caching(monkeypatch):
+    from pyflow.api.queries import engine as engine_module
+    from pyflow.ir.cfg import SSAVerificationError
+
+    code, cfg = DummyCode("f"), object()
+    context = QueryContext(object(), SimpleNamespace(liveCode=[code], interface=None))
+    engine = GraphQueryEngine(context)
+    monkeypatch.setattr(engine_module.cfg_transform, "evaluate", lambda *_: cfg)
+    monkeypatch.setattr(engine_module.cfg_ssa, "evaluate", lambda *_: None)
+
+    def reject(graph):
+        assert graph is cfg
+        raise SSAVerificationError("invalid SSA")
+
+    monkeypatch.setattr(engine_module, "verify_ssa", reject)
+    with pytest.raises(SSAVerificationError, match="invalid SSA"):
+        engine.get_ssa("f")
+    assert code not in engine._ssa_cache
+
+
 def test_test_scenarios_do_not_break_on_cfg_cycles():
     entry = DummyBlock(1)
     loop = DummyBlock(2)

@@ -9,6 +9,7 @@ from pyflow.model.errors import TemporaryLimitation
 from pyflow.analysis.callgraph import CallGraph
 from pyflow.ir.cfg import ssa as cfg_ssa
 from pyflow.ir.cfg import transform as cfg_transform
+from pyflow.ir.cfg.verifier import verify_ssa
 from pyflow.ir.cdg import construct_cdg
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
 from pyflow.analysis.ifds.frontend.preparation import prepare_program_for_ifds
@@ -80,6 +81,7 @@ class GraphQueryEngine:
         if code not in self._ssa_cache:
             cfg = cfg_transform.evaluate(self.context.compiler, code)
             cfg_ssa.evaluate(self.context.compiler, cfg)
+            verify_ssa(cfg)
             self._sync_cache()
             self._ssa_cache[code] = cfg
         return self._ssa_cache[code]

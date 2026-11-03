@@ -625,6 +625,25 @@ def iterate(items):
         traversal.process(entry)
         self.assertEqual(len(traversal.processed), 1501)
 
+    def test_ssa_rewrites_deep_expressions_in_occurrence_order(self):
+        local = pyflow_ast.Local("value")
+        catalog, graph, code = _ssa_fixture((local,))
+        renamer = ssa.SSARename(graph, set(), {}, {}, catalog)
+        renamer.currentFrame = {}
+        before = renamer(local)
+        expression = pyflow_ast.NamedExpr(local, before)
+        for _ in range(6400):
+            expression = pyflow_ast.BinaryOp(expression, "+", local)
+
+        rewritten = renamer(expression)
+        after = renamer.currentFrame[catalog.symbol_id(local, code)]
+        self.assertIsNot(before, after)
+        for _ in range(6400):
+            self.assertIs(rewritten.right, after)
+            rewritten = rewritten.left
+        self.assertIs(rewritten.target, after)
+        self.assertIs(rewritten.value, before)
+
     def test_dominator_construction_handles_deep_linear_graph_iteratively(self):
         entry = cfg_graph.Entry(None)
         previous = entry

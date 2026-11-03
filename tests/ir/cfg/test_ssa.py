@@ -59,6 +59,14 @@ def walrus_condition(xs):
     return 0
 
 
+def walrus_keyword_condition(flag, consume):
+    value = 0
+    if flag:
+        if consume(keyword=(value := 1)):
+            pass
+    return value
+
+
 def chained_comparison(a, b, c):
     return a < b < c
 
@@ -179,6 +187,18 @@ class TestSSA(unittest.TestCase):
         graph = transform.evaluate(self.compiler, code)
         ssa.evaluate(self.compiler, graph)
         verify_ssa(graph, code.ir_catalog)
+
+    def test_walrus_in_keyword_argument_places_phi(self):
+        code = self.decompile(walrus_keyword_condition)
+        graph = transform.evaluate(self.compiler, code)
+        ssa.evaluate(self.compiler, graph)
+        verify_ssa(graph, code.ir_catalog)
+        targets = [
+            phi.target.name
+            for block in self._cfg_blocks(graph)
+            for phi in getattr(block, "phi", ())
+        ]
+        self.assertIn("value", targets)
 
     def test_chained_comparison_lowering_is_valid_ssa(self):
         code = self.decompile(chained_comparison)

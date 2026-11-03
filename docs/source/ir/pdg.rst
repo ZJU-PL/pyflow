@@ -13,6 +13,8 @@ PyFlow's PDG is an intraprocedural graph (single function) constructed from the 
 - **Data dependence** edges are derived from local def-use sets extracted from the CFG's AST.
 
 For higher precision data dependences, PDG construction can run SSA + phi expansion on the CFG.
+With ``run_ssa=True``, SSA is verified before phi expansion. Invalid SSA raises
+``SSAVerificationError`` rather than producing a dependence graph.
 
 Programmatic usage
 ------------------

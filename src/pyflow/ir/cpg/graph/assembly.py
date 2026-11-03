@@ -5,6 +5,7 @@ from collections import deque
 from time import monotonic
 from typing import Any, Dict, Iterator, List, Optional, Set
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.cfg.dump import _ssa_repr
 from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed
 from pyflow.ir.core.source import syntax_source_span
 from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
@@ -102,22 +103,21 @@ class _GraphAssemblyMixin:
     def _iter_source_statement_nodes(root: Any) -> Iterator[Any]:
         seen: Set[int] = set()
 
-        def walk(node: Any) -> Iterator[Any]:
+        pending = [root]
+        while pending:
+            node = pending.pop()
             if node is None:
-                return
+                continue
             nid = id(node)
             if nid in seen:
-                return
+                continue
             seen.add(nid)
             if isinstance(node, py_ast.leafTypes):
-                return
+                continue
             yield node
             if isinstance(node, py_ast.FunctionDef):
-                return
-            for child in _iter_ast_children(node):
-                yield from walk(child)
-
-        yield from walk(root)
+                continue
+            pending.extend(reversed(list(_iter_ast_children(node))))
 
     @staticmethod
     def _needs_synthetic_statement_node(ast_node: Any) -> bool:
@@ -188,6 +188,8 @@ class _GraphAssemblyMixin:
                 return ast_node.toStr()
             except Exception:
                 pass
+        if isinstance(ast_node, py_ast.PythonASTNode):
+            return _ssa_repr(ast_node)
         return str(ast_node)
 
     def _build_pdg_edges(self, pdg: ProgramDependenceGraph) -> None:
@@ -272,16 +274,17 @@ class _GraphAssemblyMixin:
         parent_map: Dict[int, Any] = {}
         ast_objects: Dict[int, Any] = {}
 
-        def collect(ast_node: Any, parent: Any) -> None:
+        pending = [(root.ast if isinstance(root, py_ast.Code) else root, None)]
+        while pending:
+            ast_node, parent = pending.pop()
             if ast_node is None or isinstance(ast_node, (py_ast.Code, py_ast.leafTypes)):
-                return
+                continue
             ast_objects[id(ast_node)] = ast_node
             if parent is not None:
                 parent_map[id(ast_node)] = parent
-            for child in _iter_ast_children(ast_node):
-                collect(child, ast_node)
-
-        collect(root.ast if isinstance(root, py_ast.Code) else root, None)
+            pending.extend(
+                (child, ast_node) for child in reversed(list(_iter_ast_children(ast_node)))
+            )
 
         for ast_id, ast_node in ast_objects.items():
             if ast_id in ast_to_pdg:
@@ -500,26 +503,30 @@ class _GraphAssemblyMixin:
         # In-memory/source-string CPGs have no readable source path. Recover
         # class inheritance from the module PDG's already-converted AST too.
         def collect_class_bases(node: Any) -> None:
-            if isinstance(node, py_ast.ClassDef):
-                class_name = getattr(node, "name", None)
-                if isinstance(class_name, str):
-                    bases = []
-                    for base in getattr(node, "bases", ()) or ():
-                        base_name = getattr(base, "name", None)
-                        if isinstance(base_name, str):
-                            bases.append(base_name.lstrip("%"))
-                        elif isinstance(base, py_ast.Existing):
-                            obj = getattr(base, "object", None)
-                            value = getattr(obj, "pyobj", None)
-                            if isinstance(value, str):
-                                bases.append(value)
-                    class_bases[class_name] = tuple(bases)
-            for child in _iter_ast_children(node):
-                if isinstance(child, (list, tuple)):
-                    for item in child:
-                        collect_class_bases(item)
-                elif child is not None:
-                    collect_class_bases(child)
+            pending, seen = [node], set()
+            while pending:
+                current = pending.pop()
+                if id(current) in seen:
+                    continue
+                seen.add(id(current))
+                if isinstance(current, py_ast.ClassDef):
+                    class_name = getattr(current, "name", None)
+                    if isinstance(class_name, str):
+                        bases = []
+                        for base in getattr(current, "bases", ()) or ():
+                            base_name = getattr(base, "name", None)
+                            if isinstance(base_name, str):
+                                bases.append(base_name.lstrip("%"))
+                            elif isinstance(base, py_ast.Existing):
+                                obj = getattr(base, "object", None)
+                                value = getattr(obj, "pyobj", None)
+                                if isinstance(value, str):
+                                    bases.append(value)
+                        class_bases[class_name] = tuple(bases)
+                if isinstance(current, (list, tuple)):
+                    pending.extend(reversed(current))
+                else:
+                    pending.extend(reversed(list(_iter_ast_children(current))))
 
         for module_pdg in self._pdgs.values():
             for module_node in module_pdg.nodes:
@@ -676,19 +683,14 @@ class _GraphAssemblyMixin:
     def _statement_call_names(cls, ast_node: Any) -> Iterator[str]:
         """Yield all calls owned by one PDG statement, excluding nested code."""
 
-        if isinstance(ast_node, (py_ast.FunctionDef, py_ast.ClassDef, py_ast.Code)):
-            return
-        if isinstance(ast_node, (py_ast.Call, py_ast.MethodCall, py_ast.DirectCall)):
-            call_name = cls._resolve_call_name(ast_node)
-            if call_name:
-                yield call_name
-        if isinstance(ast_node, py_ast.leafTypes):
-            return
-        if hasattr(ast_node, "children"):
-            for child in ast_node.children():
-                if isinstance(child, (list, tuple)):
-                    for item in child:
-                        if item is not None:
-                            yield from cls._statement_call_names(item)
-                elif child is not None:
-                    yield from cls._statement_call_names(child)
+        pending = [ast_node]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, (py_ast.FunctionDef, py_ast.ClassDef, py_ast.Code)):
+                continue
+            if isinstance(node, (py_ast.Call, py_ast.MethodCall, py_ast.DirectCall)):
+                call_name = cls._resolve_call_name(node)
+                if call_name:
+                    yield call_name
+            if not isinstance(node, py_ast.leafTypes):
+                pending.extend(reversed(list(_iter_ast_children(node))))

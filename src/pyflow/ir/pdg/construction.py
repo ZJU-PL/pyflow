@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from pyflow.ir.cfg import expandphi, ssa
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.cfg.verifier import verify_ssa
 from pyflow.ir.cdg import construct_cdg
 from pyflow.ir.ddg import construct_ddg
 from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed, index_cfg
@@ -78,26 +79,25 @@ def _build_ast_parent_map(root: Any) -> Dict[Any, Any]:
     parents: Dict[Any, Any] = {}
     visited_code: Set[py_ast.Code] = set()
 
-    def walk(node: Any) -> None:
+    pending = [(root, None)]
+    while pending:
+        node, parent = pending.pop()
+        if parent is not None:
+            parents[node] = parent
         if node is None:
-            return
+            continue
         if isinstance(node, (list, tuple)):
-            for child in _iter_ast_children(node):
-                walk(child)
-            return
+            pending.extend((child, None) for child in reversed(_iter_ast_children(node)))
+            continue
         if isinstance(node, py_ast.Code):
             if node in visited_code:
-                return
+                continue
             visited_code.add(node)
 
         if isinstance(node, py_ast.leafTypes):
-            return
+            continue
 
-        for child in _iter_ast_children(node):
-            parents[child] = node
-            walk(child)
-
-    walk(root)
+        pending.extend((child, node) for child in reversed(_iter_ast_children(node)))
     return parents
 
 
@@ -120,6 +120,7 @@ class PDGConstructor:
     def construct_from_cfg(self, cfg: cfg_graph.Code) -> ProgramDependenceGraph:
         if self.options.run_ssa:
             ssa.evaluate(None, cfg)
+            verify_ssa(cfg)
             if self.options.expand_phi:
                 expandphi.evaluate(None, cfg)
 

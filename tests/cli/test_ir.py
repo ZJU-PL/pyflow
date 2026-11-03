@@ -143,6 +143,23 @@ def test_cfg_json_defaults_to_stdout_without_text_header(tmp_path, monkeypatch, 
     assert payload["cfg"]["entry"] == "B0"
 
 
+@pytest.mark.parametrize("format", ["text", "json", "dot"])
+def test_ssa_dump_handles_deep_expression(tmp_path, format):
+    source = tmp_path / "deep.py"
+    source.write_text("def f(x):\n    return " + " + ".join(["x"] * 1200) + "\n")
+    destination = tmp_path / "out"
+    ir_cli.run_ir_dump(
+        source,
+        parse_ir_args(
+            source, "--dump-ssa", "f", "--dump-format", format, "--dump-output", destination
+        ),
+    )
+    output = (destination / f"f_ssa.{format}").read_text()
+    assert "Return" in output
+    assert "x.v0" in output
+    assert "Error processing" not in output
+
+
 @pytest.mark.parametrize("flag", ["--dump-cfg", "--dump-ssa", "--dump-ddg"])
 @pytest.mark.parametrize("context_manager", [False, True])
 def test_exception_functions_export_json(tmp_path, flag, context_manager):

@@ -194,22 +194,22 @@ class LivenessSearcher(TypeDispatcher):
             if ast_node is None:
                 return False
 
-            def check_yield(n):
-                if isinstance(n, (lang_ast.Yield, lang_ast.YieldFrom, lang_ast.AsyncYield)):
+            pending = [ast_node]
+            seen = set()
+            while pending:
+                current = pending.pop()
+                if id(current) in seen:
+                    continue
+                seen.add(id(current))
+                if isinstance(current, (lang_ast.Yield, lang_ast.YieldFrom, lang_ast.AsyncYield)):
                     return True
-                children = getattr(n, "children", None)
-                if children is not None:
-                    for child in children():
-                        if child is None:
-                            continue
-                        if isinstance(child, (list, tuple)):
-                            if any(check_yield(c) for c in child):
-                                return True
-                        elif check_yield(child):
-                            return True
-                return False
-
-            return check_yield(ast_node)
+                if isinstance(current, (list, tuple)):
+                    pending.extend(current)
+                else:
+                    children = getattr(current, "children", None)
+                    if children is not None:
+                        pending.extend(children())
+            return False
 
         visited = set()
         stack = [dataflow.entry]

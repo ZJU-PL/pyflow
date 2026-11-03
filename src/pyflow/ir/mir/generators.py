@@ -6,9 +6,9 @@ dispatches on a stored program counter, and every temporary that can cross a
 yield is lifted into the frame.  No native generator, Python execution hook, or
 eager execution of the body is involved.
 
-The implemented lifecycle includes iteration, send, return values, delegation
-with yield-from, and PEP 479 conversion of escaping StopIteration.  Throw/close
-and asynchronous generators require additional exception-injection protocols.
+The implemented lifecycle includes iteration, send, close, return values,
+delegation with yield-from, and PEP 479 conversion of escaping StopIteration.
+Throw and asynchronous generators require additional injection protocols.
 """
 
 from __future__ import annotations
@@ -135,8 +135,8 @@ def emit_generator_return(compiler, node=None) -> None:
         _stop(compiler, value)
 
 
-def _yield_value(compiler, value):
-    b = compiler.b
+def _yield_value(compiler, value, on_close=None):
+    b, rt = compiler.b, compiler.runtime
     state = compiler.generator_state
     if state is None:
         raise ValueError("A yield requires an active generator lowering state")
@@ -145,6 +145,16 @@ def _yield_value(compiler, value):
     b.assign(field(_frame(), "$pc"), b.alloc(Literal(continuation), "resume_pc"))
     b.ret(value)
     b.use({continuation})
+    closing, ordinary = b.branch(field(_frame(), "$closing"))
+    b.use(closing)
+    b.assign(field(_frame(), "$closing"), rt.raw(b, False))
+    if on_close is not None:
+        on_close()
+    exception = rt.obj(b, "GeneratorExit")
+    b.assign(field(exception, "args"), rt.sequence(b, (), "tuple"))
+    b.assign(rt.exception, exception)
+    b.jump(compiler.exception_target)
+    b.use(ordinary)
     return field(_frame(), "$sent")
 
 
@@ -174,7 +184,25 @@ def emit_yield(compiler, node):
     b.assign(yielded, compiler.call(method, (sent,)))
     b.join(next_tails, b.tails)
     compiler.exception_target = previous_exception
-    b.assign(sent, _yield_value(compiler, yielded))
+
+    def close_delegate():
+        method = rt.invoke(b, "getattr", (iterator, rt.raw(b, "close")))
+        success, failed = b.branch(Binary("=", rt.exception, rt.none))
+        b.use(failed)
+        missing = rt.contains_class(
+            b, field(rt.exception, "__class__"), rt.builtin("AttributeError")
+        )
+        absent, other = b.branch(missing)
+        b.use(other)
+        b.jump(previous_exception)
+        b.use(absent)
+        b.assign(rt.exception, rt.none)
+        absent_tails = set(b.tails)
+        b.use(success)
+        compiler.call(method)
+        b.join(b.tails, absent_tails)
+
+    b.assign(sent, _yield_value(compiler, yielded, close_delegate))
     b.jump(head)
     b.use({exhausted})
     stopped = rt.contains_class(b, field(rt.exception, "__class__"), rt.builtin("StopIteration"))
@@ -332,6 +360,7 @@ def lower_generator(compiler, node, lambda_body=None, _body_emitter=None):
     factory.assign("$generator", generator)
     factory.assign("$pc", rt.raw(factory, 0))
     factory.assign("$sent", rt.none)
+    factory.assign("$closing", rt.raw(factory, False))
     factory.assign(field(generator, "$frame"), Var("$env"))
     for flag in ("$done", "$started", "$running"):
         factory.assign(field(generator, flag), rt.raw(factory, False))

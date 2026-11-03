@@ -131,23 +131,21 @@ def _build_ast_parent_map(root: Any, *, pdg_ast_set: Optional[Set[int]] = None) 
     parents: Dict[int, Any] = {}
     visited_codes: Set[int] = set()
 
-    def walk(node: Any) -> None:
+    pending = [(root, None)]
+    while pending:
+        node, parent = pending.pop()
+        if parent is not None and (pdg_ast_set is None or id(node) in pdg_ast_set):
+            parents[id(node)] = parent
         if node is None:
-            return
+            continue
         if isinstance(node, py_ast.Code):
             nid = id(node)
             if nid in visited_codes:
-                return
+                continue
             visited_codes.add(nid)
         if isinstance(node, py_ast.leafTypes):
-            return
-        for child in _iter_ast_children(node):
-            cid = id(child)
-            if pdg_ast_set is None or cid in pdg_ast_set:
-                parents[cid] = node
-            walk(child)
-
-    walk(root)
+            continue
+        pending.extend((child, node) for child in reversed(list(_iter_ast_children(node))))
     return parents
 
 

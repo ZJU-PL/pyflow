@@ -141,18 +141,15 @@ def _expression_definitions(node):
     Chained comparisons are lowered through a synthetic ``NamedExpr`` by the
     frontend, which makes this the common case rather than a corner case.
     """
-    if node is None or isinstance(node, (str, int, float, bool)):
-        return
-    if isinstance(node, (tuple, list)):
-        for item in node:
-            yield from _expression_definitions(item)
-        return
-    if not isinstance(node, ast.PythonASTNode) or isinstance(node, ast.Code):
-        return
-    if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Local):
-        yield node.target
-    for _name, value in node.fields():
-        yield from _expression_definitions(value)
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, (tuple, list)):
+            pending.extend(reversed(current))
+        elif isinstance(current, ast.PythonASTNode) and not isinstance(current, ast.Code):
+            if isinstance(current, ast.NamedExpr) and isinstance(current.target, ast.Local):
+                yield current.target
+            pending.extend(value for _name, value in reversed(current.fields()))
 
 
 def _defined_references(block):

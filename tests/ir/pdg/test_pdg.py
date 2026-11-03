@@ -6,9 +6,11 @@ when raw dataflow IR lowering is unavailable.
 """
 
 import unittest
+from unittest.mock import patch
 from pyflow.application import context
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import transform
+from pyflow.ir.cfg import SSAVerificationError
 from pyflow.ir.pdg import construct_pdg
 from pyflow.language.python import ast
 
@@ -66,6 +68,20 @@ class TestPDG(unittest.TestCase):
         self.assertIsNotNone(pdg.entry)
         self.assertEqual(pdg.entry.kind, "entry")
         self.assertEqual(pdg.data_dependence_mode, "hybrid")
+
+    def test_pdg_verifies_ssa_before_expanding_phi(self):
+        cfg = self.build_cfg(simple_if)
+        with (
+            patch(
+                "pyflow.ir.pdg.construction.verify_ssa",
+                side_effect=SSAVerificationError("invalid SSA"),
+            ) as verify,
+            patch("pyflow.ir.pdg.construction.expandphi.evaluate") as expand,
+        ):
+            with self.assertRaisesRegex(SSAVerificationError, "invalid SSA"):
+                construct_pdg(cfg, run_ssa=True)
+            verify.assert_called_once_with(cfg)
+            expand.assert_not_called()
 
     def test_pdg_data_dependence_chain(self):
         cfg = self.build_cfg(simple_assignment)

@@ -129,7 +129,8 @@ Query components are created for an analyzed program snapshot via
 
 - ``get_cfg(function)``: Get Control Flow Graph
 - ``get_cfg_structure(function)``: Get CFG as dictionary
-- ``get_ssa(function)``: Get SSA form
+- ``get_ssa(function)``: Get verified SSA form; invalid SSA raises
+  ``SSAVerificationError`` and is not cached
 - ``get_cdg(function)``: Get Control Dependence Graph
 
 **Call Graph Queries (``queries.call_graph``):**

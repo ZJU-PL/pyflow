@@ -46,58 +46,40 @@ class UnsupportedDataflowConstructError(Exception):
 
 def _iter_slot_reads(node):
     """Yield local/global/existing reads needed by generic expression lowering."""
-    if node is None:
-        return
-    if isinstance(node, (list, tuple)):
-        for item in node:
-            yield from _iter_slot_reads(item)
-        return
-    if isinstance(node, ast.Code):
-        return
-    if isinstance(node, ast.Local):
-        yield node
-        return
-    if isinstance(node, ast.Existing):
-        yield node
-        return
-    if isinstance(node, ast.GetGlobal):
-        yield node.name
-        return
-    if isinstance(node, ast.leafTypes):
-        return
-    if isinstance(node, ast.NamedExpr):
-        yield from _iter_slot_reads(node.value)
-        return
-    children = getattr(node, "children", None)
-    if children is None:
-        return
-    for child in children():
-        if child is None:
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        if current is None or isinstance(current, ast.Code):
             continue
-        if isinstance(child, (list, tuple)):
-            for item in child:
-                yield from _iter_slot_reads(item)
-        else:
-            yield from _iter_slot_reads(child)
+        if isinstance(current, (list, tuple)):
+            pending.extend(reversed(current))
+        elif isinstance(current, (ast.Local, ast.Existing)):
+            yield current
+        elif isinstance(current, ast.GetGlobal):
+            yield current.name
+        elif isinstance(current, ast.NamedExpr):
+            pending.append(current.value)
+        elif not isinstance(current, ast.leafTypes):
+            children = getattr(current, "children", None)
+            if children is not None:
+                pending.extend(reversed(children()))
 
 
 def _collect_named_exprs(node):
     """Yield all named expressions (walrus :=) contained in node."""
-    if node is None or isinstance(node, (ast.Code, ast.leafTypes)):
-        return
-    if isinstance(node, ast.NamedExpr):
-        if isinstance(node.target, ast.Local):
-            yield node
-    children = getattr(node, "children", None)
-    if children is not None:
-        for child in children():
-            if child is None:
-                continue
-            if isinstance(child, (list, tuple)):
-                for item in child:
-                    yield from _collect_named_exprs(item)
-            else:
-                yield from _collect_named_exprs(child)
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        if current is None or isinstance(current, (ast.Code, ast.leafTypes)):
+            continue
+        if isinstance(current, (list, tuple)):
+            pending.extend(reversed(current))
+            continue
+        if isinstance(current, ast.NamedExpr) and isinstance(current.target, ast.Local):
+            yield current
+        children = getattr(current, "children", None)
+        if children is not None:
+            pending.extend(reversed(children()))
 
 
 class AbstractState(object):
@@ -547,9 +529,14 @@ class CodeToDataflow(TypeDispatcher):
         seen_reads = set()
         seen_writes = set()
 
-        def collect(current):
+        pending = list(reversed(node.children()))
+        while pending:
+            current = pending.pop()
             if current is None or isinstance(current, (ast.Code, ast.leafTypes)):
-                return
+                continue
+            if isinstance(current, (list, tuple)):
+                pending.extend(reversed(current))
+                continue
             try:
                 semantics = catalog.semantics_of(current, code=self.code)
             except (KeyError, AttributeError):
@@ -564,21 +551,8 @@ class CodeToDataflow(TypeDispatcher):
                         seen_writes.add(write)
                         writes.append(write)
             children = getattr(current, "children", None)
-            if children is None:
-                return
-            for child in children():
-                if isinstance(child, (list, tuple)):
-                    for item in child:
-                        collect(item)
-                else:
-                    collect(child)
-
-        for child in node.children():
-            if isinstance(child, (list, tuple)):
-                for item in child:
-                    collect(item)
-            else:
-                collect(child)
+            if children is not None:
+                pending.extend(reversed(children()))
         return reads, writes
 
     def handleMemory(self, node, g):

@@ -4,8 +4,6 @@ This module provides functionality to dump and visualize control flow graphs
 in various formats including DOT graphs for visualization.
 """
 
-import copy
-
 import pyflow.util.pydot as pydot
 from pyflow.util.typedispatch import *
 from pyflow.util.io import filesystem
@@ -16,32 +14,49 @@ cfg = cfg_graph
 
 def _ssa_repr(node, catalog=None, code=None):
     """Render an AST node with stable SSA versions without mutating the IR."""
-    if catalog is None or code is None or node is None:
-        return str(node)
-    # A nested ``Code`` carries ``ir_catalog``; deep-copying it would clone the
-    # entire program catalog (and its semantics table) for every rendered
-    # operation.  Share the catalog instead: only the cloned AST is annotated.
-    memo = {id(catalog): catalog}
-    cloned = copy.deepcopy(node, memo)
+    from pyflow.language.python import ast
 
-    def visit(original, duplicate):
-        from pyflow.language.python import ast
-
-        if isinstance(original, ast.Local):
-            if catalog.has_value(original, code):
-                value = catalog.value_for(original, code)
-                duplicate.name = f"{original.name}.v{value.id.version}"
-            return
-        if isinstance(original, (list, tuple)) and isinstance(duplicate, (list, tuple)):
-            for left, right in zip(original, duplicate):
-                visit(left, right)
-            return
-        if isinstance(original, ast.PythonASTNode) and isinstance(duplicate, ast.PythonASTNode):
-            for (name, left), (_, right) in zip(original.fields(), duplicate.fields()):
-                visit(left, right)
-
-    visit(node, cloned)
-    return str(cloned)
+    # Both deepcopy and generated repr recurse once per expression level.
+    # Emit tokens directly, keeping shared Code/Cell leaves and the public
+    # repr spelling intact, and substitute Local names only at display time.
+    output = []
+    pending = [(False, node)]
+    while pending:
+        literal, current = pending.pop()
+        if literal:
+            output.append(current)
+            continue
+        if isinstance(current, ast.Local):
+            if catalog is not None and code is not None and catalog.has_value(current, code):
+                value = catalog.value_for(current, code)
+                output.append(f"Local(%{current.name}.v{value.id.version})")
+            else:
+                output.append(repr(current))
+            continue
+        if isinstance(current, (list, tuple)):
+            opening, closing = ("[", "]") if isinstance(current, list) else ("(", ")")
+            children = list(current)
+            if isinstance(current, tuple) and len(current) == 1:
+                closing = ",)"
+        elif isinstance(current, ast.PythonASTNode) and not (
+            current.__shared__ or isinstance(current, ast.DoNotCare)
+        ):
+            opening, closing = f"{type(current).__name__}(", ")"
+            children = [value for _name, value in current.fields()]
+            if isinstance(current, ast.DirectCall):
+                name = current.code.codeName() if current.code is not None else "???"
+                opening += f"<{name}>, "
+                children = children[1:]
+        else:
+            output.append(repr(current))
+            continue
+        output.append(opening)
+        pending.append((True, closing))
+        for index in range(len(children) - 1, -1, -1):
+            pending.append((False, children[index]))
+            if index:
+                pending.append((True, ", "))
+    return "".join(output)
 
 
 def makeStr(s):

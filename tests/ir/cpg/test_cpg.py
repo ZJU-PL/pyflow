@@ -150,6 +150,23 @@ class TestCPGConstruction(unittest.TestCase):
         cpg = self.build_cpg(simple_assignment)
         self.assertEqual(cpg.functions, ("test_func",))
 
+    def test_deep_expression_builds_ssa_pdg_and_cpg(self):
+        import ast as python_ast
+        from pyflow.frontend.conversion.ast import ASTConverter
+
+        source = "def f(x):\n    return " + " + ".join(["x"] * 1100) + "\n"
+        suite = ASTConverter(verbose=False).convert_python_ast_to_pyflow(
+            python_ast.parse(source).body
+        )
+        cfg = transform.evaluate(self.compiler, suite.blocks[0].code)
+        pdg = construct_pdg(cfg, run_ssa=True)
+        self.assertEqual(pdg.data_dependence_mode, "hybrid", pdg.data_dependence_reason)
+        cpg = CodePropertyGraph()
+        cpg.add_function("f", pdg)
+        returns = [node for node in pdg.nodes if isinstance(node.ast_node, py_ast.Return)]
+        self.assertEqual(len(returns), 1)
+        self.assertEqual(cpg.node_meta(returns[0])["value"].count("Local("), 1100)
+
     def test_build_produces_nodes_and_edges(self):
         cpg = self.build_cpg(simple_assignment)
         cpg.build()

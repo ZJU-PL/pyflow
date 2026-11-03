@@ -136,6 +136,9 @@ class CollectModifies(TypeDispatcher):
             current = stack.pop()
             if current is None or isinstance(current, (ast.Code, ast.leafTypes)):
                 continue
+            if isinstance(current, (list, tuple)):
+                stack.extend(current)
+                continue
             if isinstance(current, ast.NamedExpr) and isinstance(current.target, ast.Local):
                 self.modified(current.target)
             children = getattr(current, "children", None)
@@ -621,7 +624,63 @@ class SSARename(TypeDispatcher):
         ast.Check,
     )
     def visitOK(self, node):
-        return node.rewriteChildren(self)
+        return self.rewriteExpression(node)
+
+    def rewriteExpression(self, node):
+        """Run expression continuations without using the Python call stack.
+
+        Each occurrence is rewritten in field order (including repeated fields).
+        Do not memoize by identity: a shared Local can occur before and after a
+        walrus binding and must read the frame at its own evaluation point.
+        """
+        stack = [self.expressionSteps(node)]
+        result = None
+        try:
+            while stack:
+                try:
+                    child = stack[-1].send(result)
+                except StopIteration as completed:
+                    result = completed.value
+                    stack.pop()
+                else:
+                    stack.append(self.expressionSteps(child))
+                    result = None
+            return result
+        finally:
+            for continuation in reversed(stack):
+                continuation.close()
+
+    def expressionSteps(self, node):
+        if isinstance(node, ast.NamedExpr):
+            value = yield node.value
+            if isinstance(node.target, ast.Local):
+                target = self.clone(node.target, self.currentFrame, definition=node)
+            else:
+                target = (yield node.target) if node.target is not None else None
+            result = ast.NamedExpr(target, value)
+            result.annotation = node.annotation
+            return result
+        if isinstance(node, tuple):
+            result = []
+            for item in node:
+                result.append((yield item) if item is not None else None)
+            return tuple(result)
+        if self.__typeDispatchTable__.get(type(node)) is type(self).visitOK:
+            children = []
+
+            def collect(child):
+                children.append(child)
+                return child
+
+            # Use the generated immediate-child protocol for optional, repeated,
+            # and shared fields; callbacks here never recurse into descendants.
+            node.rewriteChildren(collect)
+            rewritten = []
+            for child in children:
+                rewritten.append((yield child))
+            results = iter(rewritten)
+            return node.rewriteChildren(lambda child: next(results))
+        return self(node)
 
     @dispatch(ast.Delete)
     def visitDelete(self, node):
@@ -636,12 +695,7 @@ class SSARename(TypeDispatcher):
 
     @dispatch(ast.NamedExpr)
     def visitNamedExpr(self, node):
-        value = self(node.value)
-        if isinstance(node.target, ast.Local):
-            target = self.clone(node.target, self.currentFrame, definition=node)
-        else:
-            target = self(node.target) if getattr(node, "target", None) is not None else None
-        return ast.NamedExpr(target, value)
+        return self.rewriteExpression(node)
 
     @dispatch(ast.AnnAssign)
     def visitAnnAssign(self, node):
