@@ -6684,6 +6684,17 @@ class StaticTypeInferenceEngine:
             result = self._join_many_environments(alternatives)
         return result
 
+    @staticmethod
+    def _is_empty_dict_value(value: AbstractTypeValue) -> bool:
+        return bool(value.types) and all(
+            isinstance(candidate, Instance)
+            and candidate.type.raw_type is dict
+            and len(candidate.args) >= 2
+            and isinstance(candidate.args[0], NeverType)
+            and isinstance(candidate.args[1], NeverType)
+            for candidate in value.types
+        )
+
     def _check_annotation_compatibility(
         self,
         inferred: AbstractTypeValue,
@@ -6706,6 +6717,14 @@ class StaticTypeInferenceEngine:
             if isinstance(node, (ast.AnnAssign, ast.Assign, ast.Return)) and node.value is not None
             else node
         )
+        if self._is_empty_dict_value(inferred):
+            expected_parts = expected.items if isinstance(expected, UnionType) else (expected,)
+            if any(
+                isinstance(part, Instance)
+                and part.type.raw_type in {dict, cabc.Mapping, cabc.MutableMapping}
+                for part in expected_parts
+            ):
+                return
         expected_literals = self._literal_expected_values(expected)
         if expected_literals is not None and inferred.literal_values:
             if inferred.literal_values.issubset(expected_literals):

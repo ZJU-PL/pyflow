@@ -572,3 +572,14 @@ def test_empty_dict_is_compatible_with_total_false_typeddict() -> None:
     )
     assert str(result.type_of("options")) == "sample.Options"
     assert any("missing keys ['value']" in diagnostic.message for diagnostic in result.diagnostics)
+
+
+def test_empty_dict_is_compatible_with_mapping_annotations() -> None:
+    result = _infer(
+        "from typing import Any, Mapping\n"
+        "def consume(value: Mapping[str, int]) -> None: ...\n"
+        "def build() -> Mapping[str, Any]:\n"
+        "    return {}\n"
+        "consume({})\n"
+    )
+    assert _mismatches(result) == []
