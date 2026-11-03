@@ -38,6 +38,7 @@ class RuntimeCapabilityEvent:
     audit_event: str
     arguments: tuple[str, ...] = ()
     decision: str = "allow"
+    capabilities: tuple[str, ...] = ()
 
 
 @dataclass
@@ -134,6 +135,40 @@ def capability_for_audit_event(event: str, args: tuple[Any, ...]) -> str | None:
     return None
 
 
+def capabilities_for_audit_event(event: str, args: tuple[Any, ...]) -> frozenset[str]:
+    """Return every capability required by an audit event.
+
+    Most events require exactly one capability.  Read/write file modes such as
+    ``r+`` and ``os.O_RDWR`` require both, and a policy must allow both.
+    """
+    if event == "open":
+        mode = args[1] if len(args) > 1 else "r"
+        flags = args[2] if len(args) > 2 else 0
+        if isinstance(mode, str):
+            write = any(char in mode for char in "wax+")
+            read = "r" in mode or "+" in mode or not write
+            required = set()
+            if read:
+                required.add("file.read")
+            if write:
+                required.add("file.write")
+            if required:
+                return frozenset(required)
+        if isinstance(flags, int):
+            access = flags & os.O_ACCMODE if hasattr(os, "O_ACCMODE") else flags & 3
+            required = set()
+            if access != os.O_WRONLY:
+                required.add("file.read")
+            if access == os.O_WRONLY or access == os.O_RDWR:
+                required.add("file.write")
+            if flags & (os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+                required.add("file.write")
+            if required:
+                return frozenset(required)
+    capability = capability_for_audit_event(event, args)
+    return frozenset((capability,)) if capability is not None else frozenset()
+
+
 class RuntimeCapabilityGuard:
     """Callable CPython audit hook implementing a capability allow list."""
 
@@ -144,23 +179,32 @@ class RuntimeCapabilityGuard:
     def __call__(self, event: str, args: tuple[Any, ...]) -> None:
         if getattr(self._local, "active", False):
             return
-        capability = capability_for_audit_event(event, args)
-        if capability is None:
+        capabilities = capabilities_for_audit_event(event, args)
+        if not capabilities:
             return
         self._local.active = True
         try:
-            denied = self.policy.enforce and not self.policy.permits(capability)
+            denied_capability = next(
+                (
+                    capability
+                    for capability in sorted(capabilities)
+                    if self.policy.enforce and not self.policy.permits(capability)
+                ),
+                None,
+            )
+            denied = denied_capability is not None
             record = RuntimeCapabilityEvent(
-                capability=capability,
+                capability=denied_capability or capability_for_audit_event(event, args) or "",
                 audit_event=event,
                 arguments=tuple(_safe_argument(value) for value in args[:4]),
                 decision="deny" if denied else "allow",
+                capabilities=tuple(sorted(capabilities)),
             )
             self.policy.events.append(record)
             if self.policy.callback is not None:
                 self.policy.callback(record)
             if denied:
-                raise CapabilityViolation(capability, event)
+                raise CapabilityViolation(denied_capability, event)
         finally:
             self._local.active = False
 
@@ -186,5 +230,6 @@ __all__ = [
     "RuntimeCapabilityGuard",
     "RuntimeCapabilityPolicy",
     "capability_for_audit_event",
+    "capabilities_for_audit_event",
     "install_runtime_guard",
 ]

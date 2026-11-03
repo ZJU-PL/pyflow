@@ -19,6 +19,7 @@ from .runtime import (
     RuntimeCapabilityGuard,
     RuntimeCapabilityPolicy,
     capability_for_audit_event,
+    capabilities_for_audit_event,
     install_runtime_guard,
 )
 
@@ -42,5 +43,6 @@ __all__ = [
     "SourceLocation",
     "default_capability_registry",
     "capability_for_audit_event",
+    "capabilities_for_audit_event",
     "install_runtime_guard",
 ]

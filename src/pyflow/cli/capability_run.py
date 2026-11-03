@@ -87,6 +87,7 @@ def run_capability_guard(args) -> int:
                     "audit_event": event.audit_event,
                     "arguments": list(event.arguments),
                     "decision": event.decision,
+                    "capabilities": list(event.capabilities),
                 }
                 for event in policy.events
             ]

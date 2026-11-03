@@ -403,3 +403,16 @@ def test_environment_item_access_reports_one_operation() -> None:
     paths = [finding.access_path for finding in result.findings]
     assert paths.count("os.environ.__setitem__") == 1
     assert paths.count("os.environ.__getitem__") == 1
+
+
+def test_read_update_open_requires_both_file_capabilities() -> None:
+    from pyflow.checker.capability import (
+        capability_for_audit_event,
+        capabilities_for_audit_event,
+    )
+
+    assert capability_for_audit_event("open", ("x", "r+", 0)) == "file.write"
+    assert capabilities_for_audit_event("open", ("x", "r+", 0)) == frozenset(
+        {"file.read", "file.write"}
+    )
+    assert capabilities_for_audit_event("open", ("x", "w", 0)) == frozenset({"file.write"})
