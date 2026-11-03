@@ -35,7 +35,7 @@ def raw_types(typ) -> set[type]:
 
 
 def test_unknown_operand_does_not_produce_complete_numeric_type() -> None:
-    result = infer("import sys\nu = sys.argv[0]\nx = u * 2\n")
+    result = infer("import unknown_module\nu = unknown_module.value\nx = u * 2\n")
     value = result.value_of("x")
     assert value is not None
     assert value.public_type() is None or value.unknown

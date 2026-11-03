@@ -1007,6 +1007,12 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     return True
                 active.add(pair)
                 try:
+                    missing = [name for name in required if name not in available]
+                    if missing and getattr(left.type, "has_unresolved_bases", False):
+                        # Inherited members can come from a base that could not
+                        # be inspected; only report a violation when the whole
+                        # hierarchy is known.
+                        return True
                     return all(
                         name in available and self.sub_type_check(available[name], typ)
                         for name, typ in required.items()
@@ -1528,6 +1534,10 @@ class ClassDescriptor:
         # Static declarations, populated without executing analysed source.
         self.members: dict[str, ProperType] = {}
         self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
+        # True when a source class declares a base whose members cannot be
+        # inspected (third-party or otherwise unresolved).  Structural checks
+        # must then stay conservative instead of reporting missing members.
+        self.has_unresolved_bases = False
         self.enum_kind: str | None = None
         self.typed_dict_fields: dict[str, ProperType] | None = None
         self.required_keys: frozenset[str] = frozenset()
@@ -2381,9 +2391,20 @@ class TypeSystem:  # noqa: PLR0904
         Returns:
             True, if there is a subclassing path from left to right.
         """
-        if left in self._graph and right in self._graph:
-            if nx.has_path(self._graph, right, left):
+        if left in self._graph:
+            if right in self._graph and nx.has_path(self._graph, right, left):
                 return True
+            # Source classes are represented by synthetic ``type`` objects
+            # without real bases, so ``issubclass`` on the class itself cannot
+            # see builtin ancestry (``ValueError`` -> ``Exception``) or ABC
+            # registrations (``dict`` -> ``collections.abc.Mapping``).  Consult
+            # the real MRO of the nearest registered ancestors instead.
+            for ancestor in nx.ancestors(self._graph, left):
+                try:
+                    if issubclass(ancestor.raw_type, right.raw_type):
+                        return True
+                except TypeError:
+                    continue
         # Descriptors can be created lazily for external and built-in classes
         # without their hierarchy having been registered in this graph.
         try:
@@ -2563,11 +2584,26 @@ class TypeSystem:  # noqa: PLR0904
                 for name, annotation in annotations.items():
                     members[name] = convert(annotation)
             for name, member in vars(parent).items():
-                if name in {"__init__", "__init_subclass__", "__subclasshook__"}:
+                if name in {
+                    "__init__",
+                    "__init_subclass__",
+                    "__subclasshook__",
+                    "__dict__",
+                    "__weakref__",
+                    "__doc__",
+                    "__module__",
+                    "__qualname__",
+                    "__annotations__",
+                    "__slots__",
+                }:
                     continue
                 if isinstance(member, property) and member.fget is not None:
                     annotation = member.fget.__annotations__.get("return")
                     members[name] = convert(annotation)
+                elif inspect.isdatadescriptor(member):
+                    # C-level slots (``BaseException.args``, ``date.year``)
+                    # and similar descriptors carry no annotation we can read.
+                    members[name] = ANY
                 elif inspect.isroutine(member) or callable(member):
                     try:
                         signature = inspect.signature(member)

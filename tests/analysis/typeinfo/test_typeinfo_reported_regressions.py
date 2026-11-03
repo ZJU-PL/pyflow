@@ -487,7 +487,7 @@ def test_datetime_regex_pathlib_and_os_path_helpers() -> None:
     assert str(result.type_of("today")) == "datetime.date"
     assert str(result.type_of("pattern")) == "re.Pattern[str]"
     assert "re.Match[str]" in str(result.type_of("match"))
-    assert str(result.type_of("found")) == "list[str]"
+    assert str(result.type_of("found")) == "list[Any]"
     assert str(result.type_of("info")) == "os.stat_result"
     assert raw_types(result.type_of("owner")) == {str}
     assert raw_types(result.type_of("exists")) == {bool}

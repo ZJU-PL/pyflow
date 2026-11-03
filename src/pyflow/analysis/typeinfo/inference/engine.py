@@ -34,6 +34,7 @@ import logging
 import tempfile
 import re
 import threading
+import time
 import datetime
 import tokenize
 import types
@@ -413,6 +414,10 @@ class StaticTypeInferenceEngine:
         self._source_lines: list[str] = []
         self._imports: dict[str, str] = {}
         self._star_imports: list[str] = []
+        # Local names bound to module objects by ``import x [as y]``.  These
+        # must never be resolved through bare-name class aliases such as
+        # ``time`` -> ``datetime.time``.
+        self._module_names: set[str] = set()
         self._functions: dict[str, _FunctionInfo] = {}
         self._overloads: dict[str, list[_FunctionInfo]] = {}
         self._function_nodes: dict[int, str] = {}
@@ -436,6 +441,10 @@ class StaticTypeInferenceEngine:
         self._pending_parameter_evidence: dict[tuple[str, str], AbstractTypeValue] = {}
         self._pending_attributes: dict[tuple[str, str], AbstractTypeValue] = {}
         self._module_environment: dict[str, AbstractTypeValue] = {}
+        self._inherited_members: dict[tuple[str, str], ProperType | None] = {}
+        # Explicit annotations of ``name: T`` declarations, keyed by scope.
+        # Later plain assignments to that name are checked against them.
+        self._declared_annotations: dict[str, tuple[int, ProperType]] = {}
         self._last_argument_mutations: list[tuple[ast.expr, AbstractTypeValue]] = []
         self._observed_yields: list[AbstractTypeValue] = []
         self._call_unknown_positional = False
@@ -454,6 +463,8 @@ class StaticTypeInferenceEngine:
                 for alias in node.names:
                     local = alias.asname or alias.name.split(".")[0]
                     self._imports[local] = alias.name if alias.asname else local
+                    self._module_names.add(self._imports[local])
+                    self._module_names.add(alias.name)
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if node.level:
@@ -504,24 +515,42 @@ class StaticTypeInferenceEngine:
                 class_info.instance.type.type_parameters = tuple(class_info.type_variables.values())
                 self._type_vars.update(class_info.type_variables)
                 for base_node in node.bases:
-                    if not isinstance(base_node, ast.Subscript):
+                    head = base_node.value if isinstance(base_node, ast.Subscript) else base_node
+                    head_name = _expression_name(head)
+                    head_last = head_name.rsplit(".", 1)[-1] if head_name else ""
+                    if not isinstance(base_node, ast.Subscript) and head_last not in {
+                        "list",
+                        "set",
+                        "frozenset",
+                        "dict",
+                        "tuple",
+                        "List",
+                        "Set",
+                        "FrozenSet",
+                        "Dict",
+                        "Tuple",
+                    }:
+                        # Avoid evaluating synthetic bases such as
+                        # ``TypedDict``/``Protocol`` here; that would emit
+                        # spurious unresolved-annotation diagnostics.
                         continue
                     resolved_base = self._annotation_value(base_node).public_type()
+                    if (
+                        isinstance(resolved_base, Instance)
+                        and isinstance(resolved_base.type.raw_type, type)
+                        and resolved_base.type.raw_type in {list, set, frozenset, dict, tuple}
+                    ):
+                        raw_base = resolved_base.type.raw_type
+                        base_args = resolved_base.args
+                        if not base_args:
+                            # ``class L(list)`` still behaves like a list of
+                            # unknown element type for subscripting.
+                            base_args = (ANY, ANY) if raw_base is dict else (ANY,)
+                        class_info.builtin_base = (raw_base, base_args)
+                    if not isinstance(base_node, ast.Subscript):
+                        continue
                     if not isinstance(resolved_base, Instance):
                         continue
-                    if isinstance(
-                        resolved_base.type.raw_type, type
-                    ) and resolved_base.type.raw_type in {
-                        list,
-                        set,
-                        frozenset,
-                        dict,
-                        tuple,
-                    }:
-                        class_info.builtin_base = (
-                            resolved_base.type.raw_type,
-                            resolved_base.args,
-                        )
                     base_info = self._classes.get(resolved_base.type.full_name)
                     if base_info is None:
                         continue
@@ -814,6 +843,7 @@ class StaticTypeInferenceEngine:
             descriptor.required_keys = frozenset()
             descriptor.tuple_fields = None
             descriptor.type_parameters = ()
+            descriptor.has_unresolved_bases = False
             descriptor.is_protocol = any(base.rsplit(".", 1)[-1] == "Protocol" for base in bases)
             if any(base.rsplit(".", 1)[-1] == "TypedDict" for base in bases):
                 descriptor.typed_dict_fields = {}
@@ -847,14 +877,25 @@ class StaticTypeInferenceEngine:
             descriptor.type_parameters = tuple(variables.values())
             for base in bases:
                 base_type = self._lookup_annotation_type(base)
-                if isinstance(base_type, Instance):
-                    self.type_system.add_subclass_edge(
-                        super_class=base_type.type,
-                        sub_class=self._classes[qualified].instance.type,
-                    )
-                    if base_type.type.typed_dict_fields is not None:
-                        descriptor.typed_dict_fields = dict(base_type.type.typed_dict_fields)
-                        descriptor.required_keys = base_type.type.required_keys
+                if not isinstance(base_type, Instance):
+                    # The base could not be resolved to a class at all.
+                    descriptor.has_unresolved_bases = True
+                    continue
+                self.type_system.add_subclass_edge(
+                    super_class=base_type.type,
+                    sub_class=self._classes[qualified].instance.type,
+                )
+                if getattr(
+                    base_type.type.raw_type,
+                    "__pyflow_unresolved_external__",
+                    False,
+                ):
+                    # Members and ancestry of this base are unknown, so
+                    # structural checks must stay conservative.
+                    descriptor.has_unresolved_bases = True
+                if base_type.type.typed_dict_fields is not None:
+                    descriptor.typed_dict_fields = dict(base_type.type.typed_dict_fields)
+                    descriptor.required_keys = base_type.type.required_keys
             enum_kind = next(
                 (kind for base in bases if (kind := self._enum_base_kind(base)) is not None),
                 None,
@@ -973,6 +1014,10 @@ class StaticTypeInferenceEngine:
             return False
         if name in self._value_assignments or name in self._function_names:
             # A local value/function shadows a builtin type name.
+            return False
+        if self._resolve_import_name(name) in self._module_names:
+            # ``import time`` binds a module, even though a bare ``time``
+            # annotation means ``datetime.time``.
             return False
         if name in self._class_aliases:
             class_info = self._classes.get(self._class_aliases[name])
@@ -1858,6 +1903,29 @@ class StaticTypeInferenceEngine:
             if self._is_never_value(value):
                 return _Outcome(result, terminated=True)
             for target in node.targets:
+                if isinstance(target, ast.Name) and isinstance(
+                    node.value,
+                    (
+                        ast.Constant,
+                        ast.List,
+                        ast.Tuple,
+                        ast.Set,
+                        ast.Dict,
+                        ast.JoinedStr,
+                        ast.Name,
+                    ),
+                ):
+                    # Only obvious rebindings are checked here.  Call results
+                    # carry cross-module summary imprecision (overloads,
+                    # third-party returns), which would turn into noise.
+                    declaration = self._declared_annotations.get(f"{scope}.{target.id}")
+                    if declaration is not None and node.lineno >= declaration[0]:
+                        self._check_annotation_compatibility(
+                            value,
+                            AbstractTypeValue.from_type(declaration[1]),
+                            node,
+                            context=f"assignment to {target.id}",
+                        )
                 if isinstance(target, ast.Name):
                     if target.id in self._type_vars:
                         tv_val = AbstractTypeValue.from_type(self._type_vars[target.id])
@@ -1876,6 +1944,13 @@ class StaticTypeInferenceEngine:
                 result[node.target.id] = self._annotation_value(node.value)
                 return _Outcome(result)
             annotated = self._annotation_value(node.annotation)
+            if isinstance(node.target, ast.Name):
+                declared = annotated.public_type()
+                if declared is not None and not annotated.unknown:
+                    self._declared_annotations[f"{scope}.{node.target.id}"] = (
+                        node.lineno,
+                        declared,
+                    )
             inferred: AbstractTypeValue | None = None
             if node.value is not None:
                 inferred = self._evaluate_expression(
@@ -2336,6 +2411,11 @@ class StaticTypeInferenceEngine:
                     external = BuiltinTypeLookup()(qualified)
                     builtin_class = external is not None
                 if external is None:
+                    global_value = self._stdlib_global_value(qualified)
+                    if global_value is not None:
+                        result[local] = global_value
+                        continue
+                if external is None:
                     if self.project_context.find_module(qualified) is not None:
                         # from . import submodule keeps the module itself
                         # unresolved; attribute access resolves through imports.
@@ -2726,15 +2806,28 @@ class StaticTypeInferenceEngine:
                 imported = self._resolve_import_name(qualified)
                 if imported is not None and root in self._imports:
                     external = self._external_type(imported)
+                    builtin_class = False
+                    if external is None and "." in imported:
+                        # Stdlib class members are resolved without importing
+                        # analysed code (``datetime.date``, ``uuid.UUID``).
+                        # Without this, ``[datetime.date]`` degraded to
+                        # ``list[Any]`` even though ``x = datetime.date`` was
+                        # handled by the type-alias path.
+                        external = BuiltinTypeLookup()(imported)
+                        builtin_class = external is not None
                     if external is not None:
                         if isinstance(external, TypeType):
                             external = external.item
                         external_value = AbstractTypeValue.from_type(
                             external,
                             class_target=self._external_class_target(
-                                external, imported.rsplit(".", 1)[-1]
+                                external,
+                                imported.rsplit(".", 1)[-1],
+                                builtin_class=builtin_class,
                             ),
                         )
+                    if external_value is None:
+                        external_value = self._stdlib_global_value(imported)
             if external_value is not None:
                 value = external_value
             else:
@@ -3298,6 +3391,71 @@ class StaticTypeInferenceEngine:
             return modelled
         return None
 
+    _STDLIB_TEXT_GLOBALS = frozenset(
+        {
+            "sys.platform",
+            "sys.version",
+            "sys.byteorder",
+            "sys.executable",
+            "sys.prefix",
+            "sys.exec_prefix",
+            "os.sep",
+            "os.linesep",
+            "os.name",
+            "os.curdir",
+            "os.pardir",
+            "os.devnull",
+            "string.ascii_letters",
+            "string.ascii_lowercase",
+            "string.ascii_uppercase",
+            "string.digits",
+            "string.hexdigits",
+            "string.octdigits",
+            "string.punctuation",
+            "string.printable",
+            "string.whitespace",
+        }
+    )
+
+    _STDLIB_FLOAT_GLOBALS = frozenset(
+        {
+            "math.pi",
+            "math.e",
+            "math.tau",
+            "math.inf",
+            "math.nan",
+        }
+    )
+
+    def _stdlib_global_value(self, qualified_name: str) -> AbstractTypeValue | None:
+        """Model common module-level constants without importing analysed code."""
+
+        if qualified_name in {"sys.argv", "sys.path"}:
+            return self._instance(list, self._proper_instance(str))
+        if qualified_name in self._STDLIB_TEXT_GLOBALS:
+            return self._instance(str)
+        if qualified_name in self._STDLIB_FLOAT_GLOBALS:
+            return self._instance(float)
+        if qualified_name in {"sys.maxsize", "sys.maxunicode"}:
+            return self._instance(int)
+        if qualified_name in {"sys.stdout", "sys.stderr", "sys.stdin"}:
+            return self._instance(io.TextIOBase)
+        if qualified_name == "sys.version_info":
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(int),) * 5, unknown_size=True)
+            )
+        if qualified_name == "sys.modules":
+            return self._instance(
+                dict,
+                self._proper_instance(str),
+                self._proper_instance(types.ModuleType),
+            )
+        if qualified_name == "os.altsep":
+            return AbstractTypeValue.from_type(UnionType((self._proper_instance(str), NONE_TYPE)))
+        if qualified_name in {"os.environ", "os.environb"}:
+            return self._instance(dict, self._proper_instance(str), self._proper_instance(str))
+        return None
+
     def _model_stdlib_call(
         self,
         qualified_name: str,
@@ -3382,7 +3540,9 @@ class StaticTypeInferenceEngine:
                     AbstractTypeValue.from_type(NONE_TYPE),
                 )
             if qualified_name == "re.findall":
-                return self._instance(list, text_type)
+                # Typeshed: ``list[Any]`` -- capture groups may be tuples,
+                # unmatched optional groups are ``None``.
+                return self._instance(list, ANY)
             if qualified_name == "re.finditer":
                 return self._instance(cabc.Iterator, match_type)
             if qualified_name == "re.sub":
@@ -3392,7 +3552,9 @@ class StaticTypeInferenceEngine:
                     TupleType((text_type, self._proper_instance(int)))
                 )
             if qualified_name == "re.split":
-                return self._instance(list, text_type)
+                # Typeshed: ``list[str | Any]`` -- unmatched capture groups
+                # produce ``None``.
+                return self._instance(list, ANY)
             if qualified_name == "re.escape":
                 return self._instance(str)
         if qualified_name == "collections.Counter":
@@ -4010,6 +4172,43 @@ class StaticTypeInferenceEngine:
         if qualified_name == "enum.auto":
             # ``auto()`` assigns increasing integers to enum members.
             return self._instance(int)
+        if qualified_name.startswith("time."):
+            if qualified_name in {
+                "time.time",
+                "time.perf_counter",
+                "time.monotonic",
+                "time.process_time",
+                "time.mktime",
+                "time.clock_gettime",
+            }:
+                return self._instance(float)
+            if qualified_name in {
+                "time.time_ns",
+                "time.perf_counter_ns",
+                "time.monotonic_ns",
+                "time.process_time_ns",
+                "time.clock_gettime_ns",
+            }:
+                return self._instance(int)
+            if qualified_name == "time.sleep":
+                return AbstractTypeValue.from_type(NONE_TYPE)
+            if qualified_name in {"time.strftime", "time.ctime", "time.asctime"}:
+                return self._instance(str)
+            if qualified_name in {
+                "time.localtime",
+                "time.gmtime",
+                "time.strptime",
+            }:
+                return self._instance(time.struct_time)
+            if qualified_name in {"time.timezone", "time.altzone", "time.daylight"}:
+                return self._instance(int)
+            if qualified_name == "time.tzname":
+                return AbstractTypeValue.from_type(
+                    TupleType(
+                        (self._proper_instance(str), self._proper_instance(str)),
+                        unknown_size=True,
+                    )
+                )
         return None
 
     def _call_builtin(
@@ -4700,7 +4899,7 @@ class StaticTypeInferenceEngine:
                         AbstractTypeValue.from_type(NONE_TYPE),
                     )
                 if node.attr == "findall":
-                    return self._instance(list, text)
+                    return self._instance(list, ANY)
                 if node.attr == "finditer":
                     return self._instance(cabc.Iterator, match_type)
                 if node.attr == "sub":
@@ -4710,7 +4909,7 @@ class StaticTypeInferenceEngine:
                         TupleType((text, self._proper_instance(int)))
                     )
                 if node.attr == "split":
-                    return self._instance(list, text)
+                    return self._instance(list, ANY)
             if raw is re.Match:
                 text = args[0] if args else ANY
                 match_or_none = self._join(
@@ -7094,6 +7293,10 @@ class StaticTypeInferenceEngine:
         for candidate in inferred.types:
             if self._has_unresolved_annotation(candidate) or self._contains_type_var(candidate):
                 continue
+            if self._has_unresolved_ancestry(candidate):
+                # Part of the class hierarchy lives in an unmodelled third-party
+                # base, so incompatibility cannot be established either way.
+                continue
             if (
                 isinstance(candidate, Instance)
                 and isinstance(expected, Instance)
@@ -7171,7 +7374,7 @@ class StaticTypeInferenceEngine:
                         and candidate.args
                         and len(candidate.args) == len(part.args)
                         and all(
-                            self.type_system.is_subtype(actual, wanted)
+                            self._fresh_container_compatible(actual, wanted)
                             for actual, wanted in zip(candidate.args, part.args)
                         )
                         for part in expected_parts
@@ -7188,6 +7391,51 @@ class StaticTypeInferenceEngine:
                 node=node,
                 severity="error" if self.options.strict_annotations else "warning",
             )
+
+    def _has_unresolved_ancestry(self, typ: ProperType) -> bool:
+        """Whether a class, or a nested element class, has an unknowable base."""
+        if isinstance(typ, Instance):
+            if getattr(typ.type, "has_unresolved_bases", False):
+                return True
+            if getattr(typ.type.raw_type, "__pyflow_unresolved_external__", False):
+                return True
+            return any(self._has_unresolved_ancestry(argument) for argument in typ.args)
+        if isinstance(typ, UnionType):
+            return any(self._has_unresolved_ancestry(item) for item in typ.items)
+        if isinstance(typ, TypeType):
+            return self._has_unresolved_ancestry(typ.item)
+        if isinstance(typ, CallableType):
+            if typ.return_type is not None and self._has_unresolved_ancestry(typ.return_type):
+                return True
+            return any(
+                self._has_unresolved_ancestry(argument) for argument in (typ.arg_types or ())
+            )
+        return False
+
+    def _fresh_container_compatible(self, actual: ProperType, wanted: ProperType) -> bool:
+        """Compare a freshly written container literal with its expected type.
+
+        Nested literals are contextually typed in Python: ``[[None]]`` is a
+        valid ``list[list[str | None]]``.  Plain invariance would reject the
+        inner ``list[None]``, so widen recursively for fresh literals only.
+        """
+        if self.type_system.is_subtype(actual, wanted):
+            return True
+        if isinstance(actual, UnionType):
+            return all(self._fresh_container_compatible(item, wanted) for item in actual.items)
+        if isinstance(wanted, UnionType):
+            return any(self._fresh_container_compatible(actual, item) for item in wanted.items)
+        if not (isinstance(actual, Instance) and isinstance(wanted, Instance)):
+            return False
+        raw = actual.type.raw_type
+        if raw is not wanted.type.raw_type or raw not in {list, set, frozenset, dict}:
+            return False
+        if not actual.args or len(actual.args) != len(wanted.args):
+            return False
+        return all(
+            self._fresh_container_compatible(actual_arg, wanted_arg)
+            for actual_arg, wanted_arg in zip(actual.args, wanted.args)
+        )
 
     def _generic_arguments_compatible(
         self,
@@ -7450,10 +7698,25 @@ class StaticTypeInferenceEngine:
             )
         imported = self._resolve_import_name(name)
         if imported is not None:
+            if imported in self._module_names:
+                # ``import time`` binds the module, not a class that happens
+                # to share its name (``time`` -> ``datetime.time``).  Module
+                # objects themselves are unmodelled; member access resolves
+                # through qualified names instead.
+                external = self._external_type(imported)
+                if external is None:
+                    return AbstractTypeValue.unresolved()
+                if isinstance(external, TypeType):
+                    external = external.item
+                return AbstractTypeValue.from_type(external)
             external = BuiltinTypeLookup()(imported)
             builtin_class = external is not None
             if external is None:
                 external = self._external_type(imported)
+            if external is None:
+                global_value = self._stdlib_global_value(imported)
+                if global_value is not None:
+                    return global_value
             if isinstance(external, TypeType):
                 # External class facts are exposed as the runtime type
                 # ``type[T]``.  Internally a class object is represented by
@@ -8608,6 +8871,36 @@ class StaticTypeInferenceEngine:
         old = self._pending_parameter_evidence.get(key, AbstractTypeValue.bottom())
         self._pending_parameter_evidence[key] = self._join(old, value)
 
+    def _inherited_member(self, instance: Instance, attribute: str) -> AbstractTypeValue | None:
+        """Resolve a member provided by a builtin or stdlib base class.
+
+        Source classes are synthetic and only carry the members declared in
+        their own body.  Subclasses of ``dict``/``list``/``Exception`` must
+        still expose the inherited API (``get``, ``append``, ``args``, ...).
+        """
+        descriptor = instance.type
+        cache_key = (descriptor.full_name, attribute)
+        if cache_key in self._inherited_members:
+            cached = self._inherited_members[cache_key]
+            return None if cached is None else AbstractTypeValue.from_type(cached)
+        found: ProperType | None = None
+        for ancestor in self.type_system.get_superclasses(descriptor):
+            if ancestor is descriptor:
+                continue
+            raw = ancestor.raw_type
+            if not isinstance(raw, type):
+                continue
+            if "__pyflow_unresolved_external__" in vars(raw):
+                # Synthetic source classes are handled by the per-module class
+                # tables; only real builtin/stdlib classes are inspected here.
+                continue
+            member = self.type_system.get_members(ancestor).get(attribute)
+            if member is not None:
+                found = member
+                break
+        self._inherited_members[cache_key] = found
+        return None if found is None else AbstractTypeValue.from_type(found)
+
     def _attribute_value(self, base: AbstractTypeValue, attribute: str) -> AbstractTypeValue:
         if self._contains_any(base):
             return AbstractTypeValue.from_type(ANY)
@@ -8748,6 +9041,10 @@ class StaticTypeInferenceEngine:
                             )
                         finally:
                             self._resolving_attributes.remove(key)
+                if not has_known_attribute:
+                    inherited = self._inherited_member(typ, attribute)
+                    if inherited is not None:
+                        values.append(inherited)
             else:
                 if typ.type.raw_type is subprocess.CompletedProcess:
                     text = typ.args[0] if typ.args else ANY
@@ -9767,7 +10064,13 @@ class StaticTypeInferenceEngine:
                     key_type = typ.args[0] if typ.args else ANY
                     old_value = typ.args[1] if len(typ.args) > 1 else ANY
                     if isinstance(target.slice, ast.Constant):
-                        new_key = self._proper_instance(type(target.slice.value))
+                        key_value = AbstractTypeValue.from_type(
+                            self._proper_instance(type(target.slice.value))
+                        )
+                    else:
+                        key_value = environment.get(ast.unparse(target.slice))
+                    if key_value is not None and (key_value.types or not key_value.unknown):
+                        new_key = key_value.public_type() or ANY
                         if isinstance(key_type, (AnyType, NeverType)):
                             key_type = new_key
                         else:

@@ -86,18 +86,18 @@ def test_service_does_not_fabricate_nominal_classes_for_calls() -> None:
         "sample",
         source="""
 import json
+import math
 import os
 import re
-import time
 
 loaded = json.loads("{}")
 cwd = os.getcwd()
 pattern = re.compile("x")
-timestamp = time.time()
+computed = math.sqrt(2)
 """,
     )
 
-    assert service.fact_of("sample", "timestamp") is None
+    assert service.fact_of("sample", "computed") is None
     assert str(service.type_of("sample", "loaded")) == "Any"
     assert str(service.type_of("sample", "cwd")) == "str"
     pattern = service.type_of("sample", "pattern")

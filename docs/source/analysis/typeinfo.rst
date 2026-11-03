@@ -108,6 +108,22 @@ from async iterable, iterator, and generator annotations. Built-in annotation
 lookup resolves common types from ``itertools``, ``pathlib``, ``datetime``,
 ``re``, ``uuid``, ``types``, and ``contextvars`` without importing analysed code.
 
+Module imports bind module objects rather than same-named classes: ``import
+time`` refers to the ``time`` module even though a bare ``time`` annotation
+resolves to ``datetime.time``. Common stdlib members (``sys.argv``,
+``os.environ``, ``math`` constants, ``time`` clocks) are modelled without
+importing analysed code. Class objects obtained from stdlib modules
+(``datetime.date``, ``uuid.UUID``) retain their ``type[...]`` projection inside
+list, tuple, set, and dictionary literals. Source classes inherit builtin
+ancestry (``ValueError`` is an ``Exception``; ``dict`` subclasses satisfy
+``Mapping``) for subtype and protocol checks, and members inherited from
+builtin or stdlib bases are resolved through the real MRO. When a class derives
+from an unmodelled third-party base, structural and subtype checks stay
+conservative instead of reporting incompatibilities that cannot be proven.
+Nested collection literals are widened recursively against an annotated
+container type. Plain rebindings of a name previously declared with ``name: T``
+are checked against ``T`` when the new value is a literal or another name.
+
 ``TypeInfoService`` isolates source and stub collection failures, preserves
 facts already collected, and exposes errors through ``diagnostics()`` and
 ``inference_result(module).status``. A failed imported symbol without usable
