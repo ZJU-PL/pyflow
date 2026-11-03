@@ -282,9 +282,7 @@ def install(rt, root):
         _arity(rt, b, 2, 2)
         text, prefix = _arg(b, 1), _arg(b, 2)
         _require_class(rt, b, prefix, "str")
-        match = _match_at(
-            rt, b, field(text, "$chars"), field(prefix, "$chars"), Literal(1)
-        )
+        match = _match_at(rt, b, field(text, "$chars"), field(prefix, "$chars"), Literal(1))
         b.ret(rt.box(b, match, "bool"))
 
     def endswith(b):
@@ -437,9 +435,7 @@ def install(rt, root):
         limit = b.bind(rt.box(b, -1), "maxsplit")
         used = b.alloc(Literal(0))
         for index, name, target in ((2, "sep", separator), (3, "maxsplit", limit)):
-            positional, keyword = b.branch(
-                Not(Binary("<", Length(Var("$args")), Literal(index)))
-            )
+            positional, keyword = b.branch(Not(Binary("<", Length(Var("$args")), Literal(index))))
             b.use(positional)
             _guard(rt, b, Not(Binary("in", Literal(name), Var("$kwargs"))))
             b.assign(target, _arg(b, index))
@@ -467,9 +463,7 @@ def install(rt, root):
         b.ret(result)
         b.use(more)
         unbounded = Binary("<", limit, Literal(0))
-        room, remainder = b.branch(
-            Binary("or", unbounded, Binary("<", produced, limit))
-        )
+        room, remainder = b.branch(Binary("or", unbounded, Binary("<", produced, limit)))
         b.use(room)
         start = b.alloc(position, "word_start")
         word_done = b.node()
@@ -628,12 +622,20 @@ def install(rt, root):
             _define(rt, root, owner, method, lambda b, kind=owner: sequence_repr(b, kind))
     _define(rt, root, "BaseException", "__str__", exception)
     _define(rt, root, "str", "__repr__", string_repr)
-    _define(rt, root, "str", "upper", lambda b: case_map(
-        b, "abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    ))
-    _define(rt, root, "str", "lower", lambda b: case_map(
-        b, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
-    ))
+    _define(
+        rt,
+        root,
+        "str",
+        "upper",
+        lambda b: case_map(b, "abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    )
+    _define(
+        rt,
+        root,
+        "str",
+        "lower",
+        lambda b: case_map(b, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"),
+    )
     _define(rt, root, "str", "strip", strip)
     _define(rt, root, "str", "split", split)
     _define(rt, root, "str", "startswith", startswith)

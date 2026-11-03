@@ -176,6 +176,42 @@ def test_mutable_dictionary_aliases_remain_invariant():
     )
 
 
+@pytest.mark.parametrize(
+    "annotation,expression",
+    [
+        ("dict[str, list[object]]", '{"value": value}'),
+        ("dict[str, list[object]]", '{"fresh": [1], "alias": value}'),
+        ("dict[str, list[object]]", '{key: value for key in ["value"]}'),
+        ("list[list[object]]", "[value]"),
+        ("list[list[object]]", "[[1], value]"),
+        ("list[list[object]]", "[value for _ in [1]]"),
+        ("list[dict[str, list[object]]]", '[{"value": value}]'),
+    ],
+)
+def test_nested_mutable_aliases_do_not_widen_in_fresh_containers(annotation, expression):
+    assert errors(f"def f(value: list[int]) -> {annotation}:\n    return {expression}\n")
+    assert errors(f"value: list[int] = [1]\nresult: {annotation} = {expression}\n")
+    assert errors(
+        f"def consume(data: {annotation}) -> None: pass\n"
+        f"value: list[int] = [1]\nconsume({expression})\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation,expression",
+    [
+        ("dict[str, list[object]]", '{"value": [1]}'),
+        ("list[list[object]]", "[[1], [None]]"),
+        ("list[list[object]]", "[[value]]"),
+        ("list[list[object]]", "[[value] for _ in [1]]"),
+        ("dict[str, list[object]]", '{key: [value] for key in ["value"]}'),
+        ("list[dict[str, list[object]]]", '[{"value": [value]}]'),
+    ],
+)
+def test_nested_fresh_literals_still_widen_contextually(annotation, expression):
+    assert not errors(f"def f(value: int) -> {annotation}:\n    return {expression}\n")
+
+
 def test_source_class_shadowing_a_typing_module_alias_remains_a_class_annotation():
     source = "import typing as t\nclass t:\n    class Callable: pass\ndef f(value: t.Callable) -> t.Callable:\n    return value\n"
     assert not isinstance(inferred(source).functions["guards.f"].return_type, CallableType)

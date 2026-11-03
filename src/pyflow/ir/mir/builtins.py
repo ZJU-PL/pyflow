@@ -714,9 +714,7 @@ def _sequences(rt, root):
         at_tails = set(b.tails)
         b.use(later)
         b.join(b.tails, at_tails)
-        extended = b.alloc(
-            Binary("+", result, ListExpr((field(raw, position),))), "extended"
-        )
+        extended = b.alloc(Binary("+", result, ListExpr((field(raw, position),))), "extended")
         b.assign(result, extended)
         b.emit(Alloc(position.name, Binary("+", position, Literal(1))))
         b.jump(head)
@@ -755,9 +753,7 @@ def _sequences(rt, root):
         b.use(done)
         b.jump(finish)
         b.use(more)
-        extended = b.alloc(
-            Binary("+", result, ListExpr((field(raw, position),))), "extended"
-        )
+        extended = b.alloc(Binary("+", result, ListExpr((field(raw, position),))), "extended")
         b.assign(result, extended)
         b.emit(Alloc(position.name, Binary("-", position, Literal(1))))
         b.jump(head)

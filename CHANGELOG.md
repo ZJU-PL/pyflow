@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Type inference now preserves mutable alias invariance inside fresh container
+  literals and comprehensions, while still contextually typing nested literals.
 - k-CFA now handles starred class bases (`class C(*bases)`), `yield from`,
   advanced dataclass fields (`InitVar`, `field(init=False)`, `__post_init__`,
   `asdict`/`astuple`), `a.__class__`/`type(a)`, and `typing.NewType`; boolean

@@ -1237,9 +1237,7 @@ class SourceIndex:
                     return self._symbols_by_id.get(target, symbol)
                 return symbol
         for reference in self.references:
-            if reference.location.uri != uri or not reference.location.contains(
-                line, character
-            ):
+            if reference.location.uri != uri or not reference.location.contains(line, character):
                 continue
             symbol = self._symbols_by_id.get(reference.symbol_id)
             if symbol is not None:
@@ -1628,8 +1626,7 @@ class SourceIndex:
             or identities & self._ambiguous_imports
             or symbol.qualified_name in self._ambiguous_import_targets
             or any(
-                candidate.qualified_name in self._ambiguous_import_targets
-                for candidate in group
+                candidate.qualified_name in self._ambiguous_import_targets for candidate in group
             )
         ):
             return []
@@ -2949,9 +2946,7 @@ class _IndexVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             name = alias.asname or alias.name.split(".", 1)[0]
-            binding_range = (
-                self._alias_range(alias, alias.asname) if alias.asname else None
-            )
+            binding_range = self._alias_range(alias, alias.asname) if alias.asname else None
             symbol = self._add_local_definition(
                 alias,
                 name,
@@ -2985,11 +2980,7 @@ class _IndexVisitor(ast.NodeVisitor):
                 location = self._range(token)
                 prefix += component
                 self.index._reference_targets[location] = ("external", prefix)
-                binding = (
-                    not alias.asname
-                    and index == 0
-                    and location != symbol.selection_range
-                )
+                binding = not alias.asname and index == 0 and location != symbol.selection_range
                 self.index.references.append(
                     SourceReference(
                         component,

@@ -7373,10 +7373,7 @@ class StaticTypeInferenceEngine:
                         and candidate.type.raw_type in {list, set, frozenset, dict}
                         and candidate.args
                         and len(candidate.args) == len(part.args)
-                        and all(
-                            self._fresh_container_compatible(actual, wanted)
-                            for actual, wanted in zip(candidate.args, part.args)
-                        )
+                        and self._fresh_container_compatible(candidate, part, inspected_node)
                         for part in expected_parts
                     )
             except (AssertionError, KeyError, TypeError):
@@ -7412,19 +7409,26 @@ class StaticTypeInferenceEngine:
             )
         return False
 
-    def _fresh_container_compatible(self, actual: ProperType, wanted: ProperType) -> bool:
+    def _fresh_container_compatible(
+        self, actual: ProperType, wanted: ProperType, node: ast.AST | None = None
+    ) -> bool:
         """Compare a freshly written container literal with its expected type.
 
         Nested literals are contextually typed in Python: ``[[None]]`` is a
         valid ``list[list[str | None]]``.  Plain invariance would reject the
         inner ``list[None]``, so widen recursively for fresh literals only.
+        An existing mutable value inside a fresh literal remains invariant.
         """
         if self.type_system.is_subtype(actual, wanted):
             return True
         if isinstance(actual, UnionType):
-            return all(self._fresh_container_compatible(item, wanted) for item in actual.items)
+            return all(
+                self._fresh_container_compatible(item, wanted, node) for item in actual.items
+            )
         if isinstance(wanted, UnionType):
-            return any(self._fresh_container_compatible(actual, item) for item in wanted.items)
+            return any(
+                self._fresh_container_compatible(actual, item, node) for item in wanted.items
+            )
         if not (isinstance(actual, Instance) and isinstance(wanted, Instance)):
             return False
         raw = actual.type.raw_type
@@ -7432,8 +7436,38 @@ class StaticTypeInferenceEngine:
             return False
         if not actual.args or len(actual.args) != len(wanted.args):
             return False
+        children = None
+        if isinstance(node, (ast.List, ast.Set)) and raw in {list, set}:
+            children = [(element, wanted.args[0]) for element in node.elts]
+        elif isinstance(node, (ast.ListComp, ast.SetComp)) and raw in {list, set}:
+            children = [(node.elt, wanted.args[0])]
+        elif (
+            isinstance(node, ast.Dict) and raw is dict and all(key is not None for key in node.keys)
+        ):
+            children = [
+                (child, expected)
+                for key, value in zip(node.keys, node.values)
+                for child, expected in ((key, wanted.args[0]), (value, wanted.args[1]))
+            ]
+        elif isinstance(node, ast.DictComp) and raw is dict:
+            children = [(node.key, wanted.args[0]), (node.value, wanted.args[1])]
+        if children is not None:
+            for child, expected in children:
+                recorded = self._expressions.get(_span(child))
+                if recorded is None or isinstance(child, ast.Starred):
+                    break
+                child_type = self._runtime_value_type(recorded)
+                if self._fresh_collection_context(child):
+                    if not self._fresh_container_compatible(child_type, expected, child):
+                        return False
+                elif not self.type_system.is_subtype(child_type, expected):
+                    return False
+            else:
+                return True
+        # Without syntax proving that an inner container is fresh, only the
+        # outer container may widen; its elements keep their usual variance.
         return all(
-            self._fresh_container_compatible(actual_arg, wanted_arg)
+            self.type_system.is_subtype(actual_arg, wanted_arg)
             for actual_arg, wanted_arg in zip(actual.args, wanted.args)
         )
 
