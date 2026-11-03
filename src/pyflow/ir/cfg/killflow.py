@@ -13,6 +13,7 @@ and enabling more precise analysis downstream.
 """
 
 from pyflow.util.typedispatch import *
+from pyflow.util.typedispatch import dispatch__call__
 from pyflow.language.python import ast
 from . import graph as cfg
 from .dfs import CFGDFS
@@ -45,6 +46,28 @@ class OpFlow(TypeDispatcher):
     The analysis is pessimistic by default - if an operation's flow
     properties cannot be determined, it assumes all paths are possible.
     """
+
+    def __init__(self):
+        # Worklist used by ``__call__`` so expression traversal never recurses
+        # once per AST level (deep generated expressions are legal Python).
+        self._pending = None
+
+    def __call__(self, node, *args):
+        if self._pending is not None:
+            if node is not None:
+                self._pending.append(node)
+            return None
+        if node is None:
+            return None
+        pending = [node]
+        self._pending = pending
+        try:
+            while pending:
+                current = pending.pop()
+                dispatch__call__(self, current, *args)
+        finally:
+            self._pending = None
+        return None
 
     @dispatch(
         ast.leafTypes,

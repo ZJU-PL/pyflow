@@ -38,6 +38,28 @@ from .scope import (
     collect_scope_names,
 )
 
+_BINARY_OPERATOR_NAMES = {
+    python_ast.Add: "interpreter__add__",
+    python_ast.Sub: "interpreter__sub__",
+    python_ast.Mult: "interpreter__mul__",
+    python_ast.MatMult: "interpreter__matmul__",
+    python_ast.Div: "interpreter__truediv__",
+    python_ast.FloorDiv: "interpreter__floordiv__",
+    python_ast.Mod: "interpreter__mod__",
+    python_ast.Pow: "interpreter__pow__",
+    python_ast.BitAnd: "interpreter__and__",
+    python_ast.BitOr: "interpreter__or__",
+    python_ast.BitXor: "interpreter__xor__",
+    python_ast.LShift: "interpreter__lshift__",
+    python_ast.RShift: "interpreter__rshift__",
+}
+
+_UNARY_OPERATOR_NAMES = {
+    python_ast.UAdd: "interpreter__pos__",
+    python_ast.USub: "interpreter__neg__",
+    python_ast.Invert: "interpreter__invert__",
+}
+
 _COMPREHENSION_TYPES = (
     python_ast.ListComp,
     python_ast.SetComp,
@@ -680,6 +702,167 @@ class ASTConverter:
     def _convert_expression(self, node: python_ast.AST) -> PythonASTNode:
         return self._with_source_origin(self._convert_expression_impl(node), node)
 
+    def _convert_binop_chain(self, node) -> PythonASTNode:
+        """Lower a left-nested binary chain without one frame per level.
+
+        ``a + b + c + ...`` produces a left spine of ``BinOp`` nodes; walking
+        it with a loop keeps deep generated expressions off the Python stack.
+        """
+        if type(node.op) not in _BINARY_OPERATOR_NAMES:
+            return pyflow_ast.Existing(Object(None))
+        spine = []
+        current = node
+        while isinstance(current, python_ast.BinOp) and type(current.op) in _BINARY_OPERATOR_NAMES:
+            spine.append(current)
+            current = current.left
+        result = self._convert_expression(current)
+        for current in reversed(spine):
+            right = self._convert_expression(current.right)
+            result = self._with_source_origin(
+                self._call_named(_BINARY_OPERATOR_NAMES[type(current.op)], [result, right]),
+                current,
+            )
+        return result
+
+    def _convert_unary_chain(self, node) -> PythonASTNode:
+        if isinstance(node.op, python_ast.Not):
+            pass
+        elif type(node.op) not in _UNARY_OPERATOR_NAMES:
+            return self._unsupported_expr(node, "unknown unary operator")
+        spine = []
+        current = node
+        while isinstance(current, python_ast.UnaryOp) and (
+            isinstance(current.op, python_ast.Not) or type(current.op) in _UNARY_OPERATOR_NAMES
+        ):
+            spine.append(current)
+            current = current.operand
+        result = self._convert_expression_safe(current)
+        for current in reversed(spine):
+            if isinstance(current.op, python_ast.Not):
+                converted: PythonASTNode = pyflow_ast.Not(result)
+            else:
+                converted = self._call_named(_UNARY_OPERATOR_NAMES[type(current.op)], [result])
+            result = self._with_source_origin(converted, current)
+        return result
+
+    def _convert_attribute_chain(self, node) -> PythonASTNode:
+        spine = []
+        current = node
+        while isinstance(current, python_ast.Attribute):
+            spine.append(current)
+            current = current.value
+        result = self._convert_expression(current)
+        for current in reversed(spine):
+            result = self._with_source_origin(
+                pyflow_ast.GetAttr(result, pyflow_ast.Existing(Object(current.attr))),
+                current,
+            )
+        return result
+
+    def _convert_subscript_chain(self, node) -> PythonASTNode:
+        spine = []
+        current = node
+        while isinstance(current, python_ast.Subscript):
+            spine.append(current)
+            current = current.value
+        result = self._convert_expression(current)
+        for current in reversed(spine):
+            index = self._convert_subscript_index(current.slice)
+            result = self._with_source_origin(
+                self._call_named("interpreter_getitem", [result, index]), current
+            )
+        return result
+
+    def _convert_call_chain(self, node) -> PythonASTNode:
+        spine = []
+        current = node
+        while isinstance(current, python_ast.Call):
+            spine.append(current)
+            current = current.func
+        result = self._convert_expression_safe(current)
+        for current in reversed(spine):
+            result = self._with_source_origin(self._build_call(current, result), current)
+        return result
+
+    def _build_call(self, node, func: PythonASTNode) -> PythonASTNode:
+        args: List[PythonASTNode] = []
+        vargs: Optional[PythonASTNode] = None
+        positional_spreads: List[PythonASTNode] = []
+        positional_items: List[Tuple[bool, PythonASTNode]] = []
+        ordered_arguments: List[Tuple[int, int, int, PythonASTNode]] = []
+        order_index = 0
+        for arg in node.args:
+            if isinstance(arg, python_ast.Starred):
+                star = self._convert_expression_safe(arg.value)
+                positional_spreads.append(star)
+                positional_items.append((True, star))
+                ordered_arguments.append(
+                    (
+                        int(getattr(arg, "lineno", 0) or 0),
+                        int(getattr(arg, "col_offset", 0) or 0),
+                        order_index,
+                        star,
+                    )
+                )
+                if vargs is None:
+                    vargs = star
+                else:
+                    # Preserve intent of repeated unpacking with a merge helper.
+                    self._telemetry["merged_varargs"] += 1
+                    vargs = self._call_named("interpreter_merge_varargs", [vargs, star])
+            else:
+                converted_arg = self._convert_expression_safe(arg)
+                args.append(converted_arg)
+                positional_items.append((False, converted_arg))
+                ordered_arguments.append(
+                    (
+                        int(getattr(arg, "lineno", 0) or 0),
+                        int(getattr(arg, "col_offset", 0) or 0),
+                        order_index,
+                        converted_arg,
+                    )
+                )
+            order_index += 1
+
+        keywords = []
+        kargs: Optional[PythonASTNode] = None
+        keyword_spreads: List[PythonASTNode] = []
+        if node.keywords:
+            for kw in node.keywords:
+                converted_value = self._convert_expression_safe(kw.value)
+                ordered_arguments.append(
+                    (
+                        int(getattr(kw.value, "lineno", 0) or 0),
+                        int(getattr(kw.value, "col_offset", 0) or 0),
+                        order_index,
+                        converted_value,
+                    )
+                )
+                order_index += 1
+                if kw.arg is None:
+                    # **kwargs
+                    keyword_spreads.append(converted_value)
+                    if kargs is None:
+                        kargs = converted_value
+                    else:
+                        # Preserve chained unpacking with an explicit merge helper.
+                        self._telemetry["merged_kwargs"] += 1
+                        kargs = self._call_named(
+                            "interpreter_merge_kwargs", [kargs, converted_value]
+                        )
+                else:
+                    keywords.append((kw.arg, converted_value))
+
+        call = pyflow_ast.Call(func, args, keywords, vargs, kargs)
+        register_call_argument_metadata(
+            call,
+            evaluation_order=tuple(item[3] for item in sorted(ordered_arguments)),
+            positional_spreads=tuple(positional_spreads),
+            keyword_spreads=tuple(keyword_spreads),
+            positional_items=tuple(positional_items),
+        )
+        return call
+
     def _convert_expression_impl(self, node: python_ast.AST) -> PythonASTNode:
         """Convert Python AST expressions to pyflow AST expressions."""
         if isinstance(node, python_ast.Name):
@@ -689,85 +872,7 @@ class ASTConverter:
             return pyflow_ast.Existing(Object(node.value))
 
         elif isinstance(node, python_ast.Call):
-            # Handle function calls
-            func = self._convert_expression_safe(node.func)
-            args: List[PythonASTNode] = []
-            vargs: Optional[PythonASTNode] = None
-            positional_spreads: List[PythonASTNode] = []
-            positional_items: List[Tuple[bool, PythonASTNode]] = []
-            ordered_arguments: List[Tuple[int, int, int, PythonASTNode]] = []
-            order_index = 0
-            for arg in node.args:
-                if isinstance(arg, python_ast.Starred):
-                    star = self._convert_expression_safe(arg.value)
-                    positional_spreads.append(star)
-                    positional_items.append((True, star))
-                    ordered_arguments.append(
-                        (
-                            int(getattr(arg, "lineno", 0) or 0),
-                            int(getattr(arg, "col_offset", 0) or 0),
-                            order_index,
-                            star,
-                        )
-                    )
-                    if vargs is None:
-                        vargs = star
-                    else:
-                        # Preserve intent of repeated unpacking with a merge helper.
-                        self._telemetry["merged_varargs"] += 1
-                        vargs = self._call_named("interpreter_merge_varargs", [vargs, star])
-                else:
-                    converted_arg = self._convert_expression_safe(arg)
-                    args.append(converted_arg)
-                    positional_items.append((False, converted_arg))
-                    ordered_arguments.append(
-                        (
-                            int(getattr(arg, "lineno", 0) or 0),
-                            int(getattr(arg, "col_offset", 0) or 0),
-                            order_index,
-                            converted_arg,
-                        )
-                    )
-                order_index += 1
-
-            keywords = []
-            kargs: Optional[PythonASTNode] = None
-            keyword_spreads: List[PythonASTNode] = []
-            if node.keywords:
-                for kw in node.keywords:
-                    converted_value = self._convert_expression_safe(kw.value)
-                    ordered_arguments.append(
-                        (
-                            int(getattr(kw.value, "lineno", 0) or 0),
-                            int(getattr(kw.value, "col_offset", 0) or 0),
-                            order_index,
-                            converted_value,
-                        )
-                    )
-                    order_index += 1
-                    if kw.arg is None:
-                        # **kwargs
-                        keyword_spreads.append(converted_value)
-                        if kargs is None:
-                            kargs = converted_value
-                        else:
-                            # Preserve chained unpacking with an explicit merge helper.
-                            self._telemetry["merged_kwargs"] += 1
-                            kargs = self._call_named(
-                                "interpreter_merge_kwargs", [kargs, converted_value]
-                            )
-                    else:
-                        keywords.append((kw.arg, converted_value))
-
-            call = pyflow_ast.Call(func, args, keywords, vargs, kargs)
-            register_call_argument_metadata(
-                call,
-                evaluation_order=tuple(item[3] for item in sorted(ordered_arguments)),
-                positional_spreads=tuple(positional_spreads),
-                keyword_spreads=tuple(keyword_spreads),
-                positional_items=tuple(positional_items),
-            )
-            return call
+            return self._convert_call_chain(node)
 
         elif isinstance(node, python_ast.Starred):
             # Starred expressions are only valid in certain contexts (call args, unpacking).
@@ -775,36 +880,7 @@ class ASTConverter:
             return self._convert_expression_safe(node.value)
 
         elif isinstance(node, python_ast.UnaryOp):
-            operand = self._convert_expression_safe(node.operand)
-            if isinstance(node.op, python_ast.Not):
-                return pyflow_ast.Not(operand)
-            # Represent unary ops using the same "interpreter_*" call convention as BinOp/Compare,
-            # because downstream analyses don't universally handle UnaryPrefixOp nodes.
-            if isinstance(node.op, python_ast.UAdd):
-                return pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter__pos__")),
-                    [operand],
-                    [],
-                    None,
-                    None,
-                )
-            if isinstance(node.op, python_ast.USub):
-                return pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter__neg__")),
-                    [operand],
-                    [],
-                    None,
-                    None,
-                )
-            if isinstance(node.op, python_ast.Invert):
-                return pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter__invert__")),
-                    [operand],
-                    [],
-                    None,
-                    None,
-                )
-            return self._unsupported_expr(node, "unknown unary operator")
+            return self._convert_unary_chain(node)
 
         elif isinstance(node, python_ast.Compare):
             left = self._convert_expression_safe(node.left)
@@ -852,32 +928,7 @@ class ASTConverter:
             return expr
 
         elif isinstance(node, python_ast.BinOp):
-            # Handle binary operations (+, -, *, /, etc.)
-            left = self._convert_expression(node.left)
-            right = self._convert_expression(node.right)
-
-            op_map = {
-                python_ast.Add: "interpreter__add__",
-                python_ast.Sub: "interpreter__sub__",
-                python_ast.Mult: "interpreter__mul__",
-                python_ast.MatMult: "interpreter__matmul__",
-                python_ast.Div: "interpreter__truediv__",
-                python_ast.FloorDiv: "interpreter__floordiv__",
-                python_ast.Mod: "interpreter__mod__",
-                python_ast.Pow: "interpreter__pow__",
-                python_ast.BitAnd: "interpreter__and__",
-                python_ast.BitOr: "interpreter__or__",
-                python_ast.BitXor: "interpreter__xor__",
-                python_ast.LShift: "interpreter__lshift__",
-                python_ast.RShift: "interpreter__rshift__",
-            }
-
-            if type(node.op) in op_map:
-                op_name = op_map[type(node.op)]
-                return self._call_named(op_name, [left, right])
-
-            # Fallback
-            return pyflow_ast.Existing(Object(None))
+            return self._convert_binop_chain(node)
 
         elif isinstance(node, python_ast.Slice):
             start = self._convert_expression_safe(node.lower) if node.lower else None
@@ -886,9 +937,7 @@ class ASTConverter:
             return pyflow_ast.BuildSlice(start, stop, step)
 
         elif isinstance(node, python_ast.Subscript):
-            value = self._convert_expression(node.value)
-            index = self._convert_subscript_index(node.slice)
-            return self._call_named("interpreter_getitem", [value, index])
+            return self._convert_subscript_chain(node)
 
         elif isinstance(node, python_ast.Tuple):
             # Handle tuple creation: (a, b, c)
@@ -955,11 +1004,7 @@ class ASTConverter:
                 return pyflow_ast.BuildSet(elts)
 
         elif isinstance(node, python_ast.Attribute):
-            # Handle attribute access: obj.attr
-            value = self._convert_expression(node.value)
-            # Create an Existing object for the attribute name
-            attr_name = pyflow_ast.Existing(Object(node.attr))
-            return pyflow_ast.GetAttr(value, attr_name)
+            return self._convert_attribute_chain(node)
 
         elif isinstance(node, python_ast.BoolOp):
             values = [self._convert_expression_safe(v) for v in node.values]
@@ -2761,18 +2806,19 @@ class ASTConverter:
 
     @staticmethod
     def _comprehension_capture_names(node: python_ast.AST) -> List[str]:
+        """Free names a comprehension reads from its enclosing scope."""
         loaded: Set[str] = set()
         bound: Set[str] = set()
-
-        class CaptureVisitor(python_ast.NodeVisitor):
-            def visit_Name(self, current: python_ast.Name) -> None:
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, python_ast.Lambda):
+                continue
+            if isinstance(current, python_ast.Name):
                 if isinstance(current.ctx, python_ast.Load):
                     loaded.add(current.id)
                 else:
                     bound.add(current.id)
-
-            def visit_Lambda(self, current: python_ast.Lambda) -> None:
-                return
-
-        CaptureVisitor().visit(node)
+                continue
+            stack.extend(python_ast.iter_child_nodes(current))
         return sorted(loaded - bound)

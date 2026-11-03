@@ -116,22 +116,31 @@ def _subscript_key(node) -> object:
 
 
 def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocation, ...]:
-    if isinstance(node, ast.Local) and catalog.has_symbol(node, code_id):
-        return (LocalStorage(catalog.symbol_id(node, code_id)),)
-    if isinstance(node, (ast.Cell, ast.GetCell, ast.GetCellDeref)):
-        cell = node if isinstance(node, ast.Cell) else node.cell
+    # Attribute/subscript chains nest through ``.expr``; walk the spine with a
+    # loop so deep chains (``a.b.c...``) cannot exhaust the Python stack.
+    spine = []
+    current = node
+    while isinstance(current, (ast.GetAttr, ast.Load, ast.Check, ast.GetSubscript)):
+        spine.append(current)
+        current = current.expr
+    if isinstance(current, ast.Local) and catalog.has_symbol(current, code_id):
+        bases: tuple[StorageLocation, ...] = (LocalStorage(catalog.symbol_id(current, code_id)),)
+    elif isinstance(current, (ast.Cell, ast.GetCell, ast.GetCellDeref)):
+        cell = current if isinstance(current, ast.Cell) else current.cell
         if catalog.has_symbol(cell, code_id):
-            return (CellStorage(catalog.symbol_id(cell, code_id)),)
-        return (UnknownStorage("cell"),)
-    if isinstance(node, ast.GetGlobal):
-        return (GlobalStorage("", str(_literal_name(node.name))),)
-    if isinstance(node, (ast.GetAttr, ast.Load, ast.Check)):
-        bases = _storage_for_expr(catalog, code_id, node.expr)
-        return tuple(AttributeStorage(base, _literal_name(node.name)) for base in bases)
-    if isinstance(node, ast.GetSubscript):
-        bases = _storage_for_expr(catalog, code_id, node.expr)
-        return tuple(SubscriptStorage(base, _subscript_key(node.subscript)) for base in bases)
-    return ()
+            bases = (CellStorage(catalog.symbol_id(cell, code_id)),)
+        else:
+            bases = (UnknownStorage("cell"),)
+    elif isinstance(current, ast.GetGlobal):
+        bases = (GlobalStorage("", str(_literal_name(current.name))),)
+    else:
+        return ()
+    for item in reversed(spine):
+        if isinstance(item, ast.GetSubscript):
+            bases = tuple(SubscriptStorage(base, _subscript_key(item.subscript)) for base in bases)
+        else:
+            bases = tuple(AttributeStorage(base, _literal_name(item.name)) for base in bases)
+    return bases
 
 
 def _explicit_storage(catalog: IRCatalog, code_id, node):
@@ -394,23 +403,44 @@ def build_semantics(
 
     local_occurrences_by_identity: dict[int, tuple[ast.Local, ...]] = {}
 
-    def local_occurrences(node) -> tuple[ast.Local, ...]:
-        if node is None or isinstance(node, ast.leafTypes):
-            return ()
-        if isinstance(node, (tuple, list)):
-            return tuple(local for child in node for local in local_occurrences(child))
-        identity = id(node)
-        cached = local_occurrences_by_identity.get(identity)
-        if cached is not None:
-            return cached
-        if isinstance(node, ast.Local):
-            result = (node,)
-        elif isinstance(node, ast.Code):
-            result = ()
-        else:
-            result = tuple(local for child in children(node) for local in local_occurrences(child))
-        local_occurrences_by_identity[identity] = result
-        return result
+    def local_occurrences(root) -> tuple[ast.Local, ...]:
+        """All local/cell occurrences reachable from *root*, iteratively.
+
+        The relation is memoized per node identity; an explicit stack keeps
+        deeply nested expressions from consuming the Python stack.
+        """
+        if isinstance(root, (tuple, list)):
+            return tuple(local for child in root for local in local_occurrences(child))
+        stack = [(root, False)]
+        while stack:
+            node, expanded = stack.pop()
+            if node is None or isinstance(node, ast.leafTypes):
+                continue
+            if isinstance(node, (tuple, list)):
+                if not expanded:
+                    for child in reversed(node):
+                        stack.append((child, False))
+                continue
+            identity = id(node)
+            if identity in local_occurrences_by_identity:
+                continue
+            if isinstance(node, ast.Local):
+                local_occurrences_by_identity[identity] = (node,)
+                continue
+            if isinstance(node, ast.Code):
+                local_occurrences_by_identity[identity] = ()
+                continue
+            if expanded:
+                local_occurrences_by_identity[identity] = tuple(
+                    local
+                    for child in children(node)
+                    for local in local_occurrences_by_identity.get(id(child), ())
+                )
+                continue
+            stack.append((node, True))
+            for child in reversed(list(children(node))):
+                stack.append((child, False))
+        return local_occurrences_by_identity.get(id(root), ())
 
     # A Local/Cell occurrence's binding is immutable for the duration of this
     # pass, but container semantics encounter the same occurrence once for

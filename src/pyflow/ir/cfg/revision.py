@@ -56,34 +56,88 @@ def _roots(block):
     return ()
 
 
+def _scalar_fields(node):
+    values = []
+    for name, value in node.fields():
+        if value is None or isinstance(value, (str, int, float, bool)):
+            values.append((name, value))
+        elif isinstance(value, ast.PythonASTNode):
+            # Child nodes are covered by the iterative walk; ``repr`` here
+            # would recurse through the whole subtree again.
+            values.append((name, ("node", type(value).__qualname__)))
+        elif isinstance(value, (list, tuple)):
+            if all(item is None or isinstance(item, (str, int, float, bool)) for item in value):
+                values.append((name, tuple(value)))
+            else:
+                values.append((name, ("seq", len(value))))
+        else:
+            values.append((name, repr(value)[:120]))
+    return tuple(values)
+
+
+def _node_signature(root) -> tuple:
+    """Structural digest of *root* without recursive ``repr``.
+
+    ``repr`` recurses once per AST level, so a deep generated expression made
+    the CFG transaction fingerprint exhaust the Python stack.  This walk uses
+    an explicit stack and records types, scalar fields, and child counts.
+    """
+    digest = []
+    seen: set[int] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node is None or isinstance(node, (str, int, float, bool)):
+            digest.append(node)
+            continue
+        if isinstance(node, (list, tuple)):
+            digest.append(("seq", len(node)))
+            stack.extend(node)
+            continue
+        if not isinstance(node, ast.PythonASTNode):
+            digest.append(("leaf", repr(node)[:120]))
+            continue
+        identity = id(node)
+        if identity in seen:
+            digest.append(("ref", identity))
+            continue
+        seen.add(identity)
+        digest.append((type(node).__qualname__, _scalar_fields(node)))
+        children = getattr(node, "children", None)
+        if children is not None:
+            kids = list(children())
+            digest.append(("kids", len(kids)))
+            stack.extend(kids)
+    return tuple(digest)
+
+
 def _ast_nodes(cfg) -> tuple[object, ...]:
     ordered = []
-    seen: list[ast.PythonASTNode] = []
     seen_ids: set[int] = set()
 
-    def visit(node):
+    roots = []
+    for block in _blocks(cfg):
+        roots.extend(_roots(block))
+    stack = list(reversed(roots))
+    while stack:
+        node = stack.pop()
         if node is None or isinstance(node, ast.leafTypes):
-            return
+            continue
         if isinstance(node, (tuple, list)):
-            for item in node:
-                visit(item)
-            return
+            stack.extend(reversed(node))
+            continue
         if not isinstance(node, ast.PythonASTNode):
-            return
+            continue
         node_id = id(node)
         if node_id in seen_ids:
-            return
+            continue
         if isinstance(node, ast.Code) and node is not cfg.code:
-            return
+            continue
         seen_ids.add(node_id)
-        seen.append(node)
         ordered.append(node)
         children = getattr(node, "children", None)
         if children is not None:
-            visit(tuple(children()))
-
-    for block in _blocks(cfg):
-        visit(_roots(block))
+            stack.extend(reversed(list(children())))
     return tuple(ordered)
 
 
@@ -136,7 +190,7 @@ class CFGTransformTransaction:
                             key=lambda item: str(item[0]),
                         )
                     ),
-                    tuple(repr(root) for root in _roots(block)),
+                    tuple(_node_signature(root) for root in _roots(block)),
                 )
                 for block in blocks
             ),

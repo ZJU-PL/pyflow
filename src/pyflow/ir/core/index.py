@@ -620,25 +620,30 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
 
     seen_ast: set[int] = set()
 
-    def visit_ast(node, inherited_origin=None):
-        if node is None or isinstance(node, ast.leafTypes):
-            return
-        if isinstance(node, (list, tuple)):
-            for item in node:
-                visit_ast(item, inherited_origin)
-            return
-        if not isinstance(node, ast.PythonASTNode) or id(node) in seen_ast:
-            return
-        seen_ast.add(id(node))
-        if isinstance(node, ast.Code) and node is not code:
-            return
-        origin = _source_origin(node, inherited_origin)
-        catalog.register_node(procedure.code_id, node, origin=origin)
-        if isinstance(node, (ast.Local, ast.Cell)):
-            bind_reference(node, origin)
-            return
-        for child in _flatten(_iter_children(node)):
-            visit_ast(child, origin)
+    def visit_ast(root, inherited_origin=None):
+        # Explicit worklist: node registration must not recurse once per AST
+        # level (deeply nested expressions are legal).
+        worklist = [(root, inherited_origin)]
+        while worklist:
+            node, inherited = worklist.pop()
+            if node is None or isinstance(node, ast.leafTypes):
+                continue
+            if isinstance(node, (list, tuple)):
+                for item in reversed(node):
+                    worklist.append((item, inherited))
+                continue
+            if not isinstance(node, ast.PythonASTNode) or id(node) in seen_ast:
+                continue
+            seen_ast.add(id(node))
+            if isinstance(node, ast.Code) and node is not code:
+                continue
+            origin = _source_origin(node, inherited)
+            catalog.register_node(procedure.code_id, node, origin=origin)
+            if isinstance(node, (ast.Local, ast.Cell)):
+                bind_reference(node, origin)
+                continue
+            for child in reversed(list(_flatten(_iter_children(node)))):
+                worklist.append((child, origin))
 
     visited_blocks = set()
     terminals = (

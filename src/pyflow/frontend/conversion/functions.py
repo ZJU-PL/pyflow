@@ -317,29 +317,24 @@ class FunctionExtractor:
 
     @staticmethod
     def _contains_yield(func_node: python_ast.AST) -> bool:
-        class YieldVisitor(python_ast.NodeVisitor):
-            found = False
+        """Return whether *func_node* yields, without recursing per AST level.
 
-            def visit_Yield(self, node):
-                self.found = True
-
-            def visit_YieldFrom(self, node):
-                self.found = True
-
-            def visit_FunctionDef(self, node):
-                if node is func_node:
-                    self.generic_visit(node)
-
-            def visit_AsyncFunctionDef(self, node):
-                if node is func_node:
-                    self.generic_visit(node)
-
-            def visit_Lambda(self, node):
-                return None
-
-        visitor = YieldVisitor()
-        visitor.visit(func_node)
-        return visitor.found
+        Nested functions and lambdas are separate scopes and are skipped.
+        """
+        stack = [func_node]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, (python_ast.Yield, python_ast.YieldFrom)):
+                return True
+            if isinstance(node, python_ast.Lambda):
+                continue
+            if (
+                isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef))
+                and node is not func_node
+            ):
+                continue
+            stack.extend(python_ast.iter_child_nodes(node))
+        return False
 
     def _convert_body(
         self, body_nodes: Iterable[python_ast.AST], filename: Optional[str]
@@ -436,36 +431,38 @@ class FunctionExtractor:
             self._add_code_to_program(program, nested)
             definitions.append((nested, qualified_name(candidate), source_line(nested)))
 
-        def walk_values(values, skip_codes: tuple[pyflow_ast.Code, ...], prefix: str) -> None:
-            for value in values:
-                if value is None:
-                    continue
-                if isinstance(value, (list, tuple)):
-                    walk_values(value, skip_codes, prefix)
-                    continue
-                if isinstance(value, pyflow_ast.Code) and any(
-                    value is skipped for skipped in skip_codes
-                ):
-                    continue
-                walk(value, prefix)
+        def flatten_children(node):
+            for field in node.children():
+                if isinstance(field, (list, tuple)):
+                    for item in field:
+                        yield item
+                else:
+                    yield field
 
-        def walk_fields(
-            node: PythonASTNode, skip_codes: tuple[pyflow_ast.Code, ...], prefix: str
-        ) -> None:
-            for child in node.children():
-                walk_values(
-                    child if isinstance(child, (list, tuple)) else (child,), skip_codes, prefix
-                )
+        def push_children(node, prefix: str, skip=()) -> None:
+            children = [
+                child
+                for child in flatten_children(node)
+                if child is not None
+                and not (isinstance(child, pyflow_ast.Code) and any(child is item for item in skip))
+            ]
+            for child in reversed(children):
+                worklist.append((child, prefix))
 
-        def walk(node: PythonASTNode, prefix: str) -> None:
+        # Explicit worklist: nested code discovery must not recurse once per
+        # AST level (deeply nested expressions are legal Python).
+        worklist: list[tuple[object, str]] = [(code.ast, module_name)]
+        while worklist:
+            node, prefix = worklist.pop()
             if node is None or isinstance(node, pyflow_ast.leafTypes):
-                return
+                continue
             if isinstance(node, (list, tuple)):
-                walk_values(node, (), prefix)
-                return
+                for item in reversed(node):
+                    worklist.append((item, prefix))
+                continue
             nid = id(node)
             if nid in seen_nodes:
-                return
+                continue
             seen_nodes.add(nid)
 
             if isinstance(node, pyflow_ast.Code):
@@ -477,34 +474,27 @@ class FunctionExtractor:
                     span = syntax_source_span(node)
                     location = f"@{span.start_line}:{span.start_column}" if span else ""
                     add_nested_code(node, f"{prefix}.<{base}>{location}")
-                walk(node.ast, f"{node.codeName()}.<locals>")
-                return
+                worklist.append((node.ast, f"{node.codeName()}.<locals>"))
+                continue
 
             if isinstance(node, pyflow_ast.FunctionDef):
                 nested = node.code
                 if nested not in program.liveCode:
                     add_nested_code(nested, f"{prefix}.{node.name}")
-                walk(nested.ast, f"{nested.codeName()}.<locals>")
-                # Default arguments and annotations are stored on the code
-                # parameters, not in the function body or the FunctionDef
-                # fields.  They can contain lambdas and comprehensions.
-                walk(nested.codeparameters, f"{nested.codeName()}.<locals>")
-                # Decorators and annotations can also contain lambdas or
-                # comprehensions outside the function code object.  Skip only
-                # the function's own code; other Code children are real nested
-                # expressions.
-                walk_fields(node, (nested,), prefix)
-                return
+                # Reverse-pushed so the pop order matches the recursive walk:
+                # body, parameters, then the remaining fields.
+                push_children(node, prefix, skip=(nested,))
+                worklist.append((nested.codeparameters, f"{nested.codeName()}.<locals>"))
+                worklist.append((nested.ast, f"{nested.codeName()}.<locals>"))
+                continue
 
             if isinstance(node, pyflow_ast.ClassDef):
-                class_name = f"{prefix}.{node.name}"
-                walk(node.body, class_name)
-                walk_fields(node, (), prefix)
-                return
+                push_children(node, prefix)
+                worklist.append((node.body, f"{prefix}.{node.name}"))
+                continue
 
-            walk_fields(node, (), prefix)
+            push_children(node, prefix)
 
-        walk(code.ast, module_name)
         return code, definitions
 
     def _convert_function_args(

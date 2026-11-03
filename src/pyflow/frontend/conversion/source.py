@@ -58,42 +58,44 @@ def _normalize_qualname(qualname: Optional[str]) -> Optional[str]:
 
 
 def _iter_function_spans(tree: ast.AST) -> Iterable[FunctionSpan]:
-    stack: List[str] = []
+    """Yield function spans with an explicit stack.
 
-    # NodeVisitor doesn't support generators directly, so we manually drive a stack.
-    # We implement a small custom traversal that yields spans.
-    def walk(node: ast.AST) -> Iterable[FunctionSpan]:
+    A recursive walk exhausts the Python stack on legal but deeply nested
+    expressions (for example a generated ``a + b + ...`` chain), so traversal
+    is iterative.  ``("leave", None)`` marks the end of a qualified-name
+    segment.
+    """
+    qualname: List[str] = []
+    worklist: List[tuple[str, Optional[ast.AST]]] = [("enter", tree)]
+    while worklist:
+        action, node = worklist.pop()
+        if action == "leave":
+            qualname.pop()
+            continue
         if isinstance(node, ast.ClassDef):
-            stack.append(node.name)
-            for child in node.body:
-                yield from walk(child)
-            stack.pop()
-            return
-
+            qualname.append(node.name)
+            worklist.append(("leave", None))
+            for child in reversed(node.body):
+                worklist.append(("enter", child))
+            continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            stack.append(node.name)
-            qualname = ".".join(stack)
-
+            qualname.append(node.name)
             lineno = getattr(node, "lineno", None)
             end_lineno = getattr(node, "end_lineno", None)
             if isinstance(lineno, int) and isinstance(end_lineno, int):
                 yield FunctionSpan(
-                    qualname=qualname,
+                    qualname=".".join(qualname),
                     name=node.name,
                     lineno=lineno,
                     end_lineno=end_lineno,
                 )
             # Keep walking nested defs.
-            for child in getattr(node, "body", []):
-                yield from walk(child)
-            stack.pop()
-            return
-
-        # Generic: walk children.
-        for child in ast.iter_child_nodes(node):
-            yield from walk(child)
-
-    yield from walk(tree)
+            worklist.append(("leave", None))
+            for child in reversed(node.body):
+                worklist.append(("enter", child))
+            continue
+        for child in reversed(list(ast.iter_child_nodes(node))):
+            worklist.append(("enter", child))
 
 
 def _slice_lines(source: str, lineno: int, end_lineno: int) -> str:

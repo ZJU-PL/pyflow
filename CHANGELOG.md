@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deeply nested expressions no longer exhaust the Python stack while generating
+  IR: the scope/name collectors, source-span scan, nested-code discovery,
+  yield probe, comprehension capture probe, semantic-fact builders, catalog
+  indexing, CFG fingerprint, flow analysis, and SSA scans now use explicit
+  worklists, and binary/unary/attribute/subscript/call chains are lowered
+  iteratively.  A 6,400-term `a + b + ...` expression now builds a CFG
+  (previously ~450); SSA renaming is still bounded by the generic AST rebuild.
 - Walrus bindings inside comprehensions and generator expressions now bind in
   the containing function (PEP 572): the comprehension writes a closure cell and
   the enclosing statement refreshes its local from it, so a later read no longer

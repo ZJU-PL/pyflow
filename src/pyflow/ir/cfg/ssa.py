@@ -131,18 +131,21 @@ class CollectModifies(TypeDispatcher):
             self.current = None
 
     def _collect_named_exprs(self, node):
-        if node is None or isinstance(node, (ast.Code, ast.leafTypes)):
-            return
-        if isinstance(node, ast.NamedExpr):
-            if isinstance(node.target, ast.Local):
-                self.modified(node.target)
-        if hasattr(node, "children"):
-            for child in node.children():
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if current is None or isinstance(current, (ast.Code, ast.leafTypes)):
+                continue
+            if isinstance(current, ast.NamedExpr) and isinstance(current.target, ast.Local):
+                self.modified(current.target)
+            children = getattr(current, "children", None)
+            if children is None:
+                continue
+            for child in children():
                 if isinstance(child, (list, tuple)):
-                    for item in child:
-                        self._collect_named_exprs(item)
+                    stack.extend(child)
                 else:
-                    self._collect_named_exprs(child)
+                    stack.append(child)
 
     @dispatch(
         ast.Discard,
@@ -987,29 +990,27 @@ def _contains_try_except_finally(entry):
 
 
 def _ast_contains_try_except_finally(node, seen):
-    if node is None or isinstance(node, ast.Code):
-        return False
-
-    if isinstance(node, ast.TryExceptFinally):
-        return True
-
-    node_id = id(node)
-    if node_id in seen:
-        return False
-    seen.add(node_id)
-
-    fields = getattr(type(node), "__fields__", ())
-    if isinstance(fields, str):
-        fields = (fields,)
-
-    for field in fields:
-        name = field.split(":", 1)[0].rstrip("?*")
-        child = getattr(node, name, None)
-        if isinstance(child, (list, tuple)):
-            for item in child:
-                if _ast_contains_try_except_finally(item, seen):
-                    return True
-        elif _ast_contains_try_except_finally(child, seen):
+    # Iterative: deep expression trees must not consume the Python stack.
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current is None or isinstance(current, ast.Code):
+            continue
+        if isinstance(current, ast.TryExceptFinally):
             return True
+        node_id = id(current)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
 
+        fields = getattr(type(current), "__fields__", ())
+        if isinstance(fields, str):
+            fields = (fields,)
+        for field in fields:
+            name = field.split(":", 1)[0].rstrip("?*")
+            child = getattr(current, name, None)
+            if isinstance(child, (list, tuple)):
+                stack.extend(child)
+            elif child is not None:
+                stack.append(child)
     return False

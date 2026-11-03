@@ -71,18 +71,22 @@ def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis
 
     def zero_only(node: ast.AST | None) -> None:
         nonlocal has_zero_arg_super
-        if node is None:
-            return
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "super"
-            and not node.args
-            and not node.keywords
-        ):
-            has_zero_arg_super = True
-        for child in ast.iter_child_nodes(node):
-            zero_only(child)
+        # Iterative: legal but deeply nested expressions must not exhaust the
+        # Python stack (for example a generated ``a + b + ...`` chain).
+        worklist = [node]
+        while worklist:
+            current = worklist.pop()
+            if current is None:
+                continue
+            if (
+                isinstance(current, ast.Call)
+                and isinstance(current.func, ast.Name)
+                and current.func.id == "super"
+                and not current.args
+                and not current.keywords
+            ):
+                has_zero_arg_super = True
+            worklist.extend(ast.iter_child_nodes(current))
 
     def scan_arguments_for_zero(arguments: ast.arguments) -> None:
         for argument in (
@@ -192,100 +196,100 @@ def analyze_function_body(body_nodes: Sequence[ast.AST]) -> FunctionBodyAnalysis
         yield_enabled: bool,
     ) -> None:
         nonlocal has_zero_arg_super, has_yield
-        if node is None:
-            return
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "super"
-            and not node.args
-            and not node.keywords
-        ):
-            has_zero_arg_super = True
-        if yield_enabled and isinstance(node, (ast.Yield, ast.YieldFrom)):
-            has_yield = True
+        # Walk expressions with an explicit worklist; nested scopes still
+        # recurse through ``scan_function``/``scan_class``, whose depth is
+        # bounded by lexical nesting rather than expression size.
+        worklist = [(node, facts, in_descendant, allow_direct_child, yield_enabled)]
+        while worklist:
+            node, facts, in_descendant, allow_direct_child, yield_enabled = worklist.pop()
+            if node is None:
+                continue
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "super"
+                and not node.args
+                and not node.keywords
+            ):
+                has_zero_arg_super = True
+            if yield_enabled and isinstance(node, (ast.Yield, ast.YieldFrom)):
+                has_yield = True
 
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            scan_function(
-                node,
-                facts,
-                in_descendant=in_descendant,
-                allow_direct_child=allow_direct_child,
-            )
-            return
-        if isinstance(node, ast.ClassDef):
-            scan_class(
-                node,
-                facts,
-                in_descendant=in_descendant,
-                yield_enabled=yield_enabled,
-            )
-            return
-        if isinstance(node, ast.Lambda):
-            # Lambda defaults/annotations are ignored by the old lexical
-            # collectors but remain visible to the broad super() probe.
-            for default in (*node.args.defaults, *node.args.kw_defaults):
-                zero_only(default)
-            scan_arguments_for_zero(node.args)
-            if facts is root and allow_direct_child:
-                child_facts = _MutableScopeFacts()
-                child_facts.bound.update(_argument_names(node.args))
-                direct_children.append(child_facts)
-                scan(
-                    node.body,
-                    child_facts,
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scan_function(
+                    node,
+                    facts,
                     in_descendant=in_descendant,
-                    allow_direct_child=False,
-                    yield_enabled=False,
+                    allow_direct_child=allow_direct_child,
                 )
-            else:
-                zero_only(node.body)
-            return
+                continue
+            if isinstance(node, ast.ClassDef):
+                scan_class(
+                    node,
+                    facts,
+                    in_descendant=in_descendant,
+                    yield_enabled=yield_enabled,
+                )
+                continue
+            if isinstance(node, ast.Lambda):
+                # Lambda defaults/annotations are ignored by the old lexical
+                # collectors but remain visible to the broad super() probe.
+                for default in (*node.args.defaults, *node.args.kw_defaults):
+                    zero_only(default)
+                scan_arguments_for_zero(node.args)
+                if facts is root and allow_direct_child:
+                    child_facts = _MutableScopeFacts()
+                    child_facts.bound.update(_argument_names(node.args))
+                    direct_children.append(child_facts)
+                    scan(
+                        node.body,
+                        child_facts,
+                        in_descendant=in_descendant,
+                        allow_direct_child=False,
+                        yield_enabled=False,
+                    )
+                else:
+                    zero_only(node.body)
+                continue
 
-        if isinstance(node, ast.Global):
-            if facts is not None:
-                facts.global_names.update(node.names)
-            if in_descendant:
-                descendant_global.update(node.names)
-            return
-        if isinstance(node, ast.Nonlocal):
-            if facts is not None:
-                facts.nonlocal_names.update(node.names)
-            if in_descendant:
-                descendant_nonlocal.update(node.names)
-            return
-        if isinstance(node, ast.Name) and facts is not None:
-            if isinstance(node.ctx, (ast.Store, ast.Del)):
-                facts.bound.add(node.id)
-            else:
-                facts.loaded.add(node.id)
-            return
-        if isinstance(node, ast.Import) and facts is not None:
-            for alias in node.names:
-                facts.bound.add(alias.asname or alias.name.split(".")[0])
-            return
-        if isinstance(node, ast.ImportFrom) and facts is not None:
-            for alias in node.names:
-                if alias.name != "*":
-                    facts.bound.add(alias.asname or alias.name)
-            return
-        if isinstance(node, ast.ExceptHandler) and facts is not None and node.name:
-            facts.bound.add(node.name)
-        if isinstance(node, ast.MatchAs) and facts is not None and node.name:
-            facts.bound.add(node.name)
-        if isinstance(node, ast.MatchStar) and facts is not None and node.name:
-            facts.bound.add(node.name)
-        if isinstance(node, ast.MatchMapping) and facts is not None and node.rest:
-            facts.bound.add(node.rest)
+            if isinstance(node, ast.Global):
+                if facts is not None:
+                    facts.global_names.update(node.names)
+                if in_descendant:
+                    descendant_global.update(node.names)
+                continue
+            if isinstance(node, ast.Nonlocal):
+                if facts is not None:
+                    facts.nonlocal_names.update(node.names)
+                if in_descendant:
+                    descendant_nonlocal.update(node.names)
+                continue
+            if isinstance(node, ast.Name) and facts is not None:
+                if isinstance(node.ctx, (ast.Store, ast.Del)):
+                    facts.bound.add(node.id)
+                else:
+                    facts.loaded.add(node.id)
+                continue
+            if isinstance(node, ast.Import) and facts is not None:
+                for alias in node.names:
+                    facts.bound.add(alias.asname or alias.name.split(".")[0])
+                continue
+            if isinstance(node, ast.ImportFrom) and facts is not None:
+                for alias in node.names:
+                    if alias.name != "*":
+                        facts.bound.add(alias.asname or alias.name)
+                continue
+            if isinstance(node, ast.ExceptHandler) and facts is not None and node.name:
+                facts.bound.add(node.name)
+            if isinstance(node, ast.MatchAs) and facts is not None and node.name:
+                facts.bound.add(node.name)
+            if isinstance(node, ast.MatchStar) and facts is not None and node.name:
+                facts.bound.add(node.name)
+            if isinstance(node, ast.MatchMapping) and facts is not None and node.rest:
+                facts.bound.add(node.rest)
 
-        for child in ast.iter_child_nodes(node):
-            scan(
-                child,
-                facts,
-                in_descendant=in_descendant,
-                allow_direct_child=allow_direct_child,
-                yield_enabled=yield_enabled,
-            )
+            for child in ast.iter_child_nodes(node):
+                worklist.append((child, facts, in_descendant, allow_direct_child, yield_enabled))
 
     for statement in body_nodes:
         scan(
@@ -318,26 +322,20 @@ def collect_direct_scope_directives(
 ) -> tuple[set[str], set[str]]:
     global_names: set[str] = set()
     nonlocal_names: set[str] = set()
-
-    class DirectiveVisitor(ast.NodeVisitor):
-        def visit_Global(self, node: ast.Global) -> None:
+    # Iterative walk: nested expression trees can be arbitrarily deep.
+    # Nested functions and classes are separate scopes and are not entered.
+    stack = list(reversed(list(body_nodes)))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Global):
             global_names.update(node.names)
-
-        def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+            continue
+        if isinstance(node, ast.Nonlocal):
             nonlocal_names.update(node.names)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            return
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            return
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            return
-
-    visitor = DirectiveVisitor()
-    for statement in body_nodes:
-        visitor.visit(statement)
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
     return global_names, nonlocal_names
 
 
@@ -356,85 +354,91 @@ def collect_function_scope(
 
     Returns ``(global_names, nonlocal_names, bound, loaded)``.
     """
+    global_names, nonlocal_names, bound, loaded = _collect_scope_facts(body_nodes)
+    return global_names, nonlocal_names, bound, loaded
 
+
+def _collect_scope_facts(
+    body_nodes: Sequence[ast.AST],
+) -> tuple[set[str], set[str], set[str], set[str]]:
+    """Collect globals, nonlocals, bound and loaded names in one lexical scope.
+
+    The walk is iterative so a deeply nested expression cannot exhaust the
+    Python stack.  Nested function/class bodies are separate scopes: only their
+    decorators, defaults and bases are visible here, and lambdas are opaque.
+    """
     global_names: set[str] = set()
     nonlocal_names: set[str] = set()
     bound: set[str] = set()
     loaded: set[str] = set()
 
-    class ScopeVisitor(ast.NodeVisitor):
-        def visit_Global(self, node: ast.Global) -> None:
+    def push(nodes) -> None:
+        stack.extend(reversed(list(nodes)))
+
+    def push_args(node) -> None:
+        push((*node.args.defaults, *(d for d in node.args.kw_defaults if d is not None)))
+
+    stack = list(reversed(list(body_nodes)))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Global):
             global_names.update(node.names)
-
-        def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+            continue
+        if isinstance(node, ast.Nonlocal):
             nonlocal_names.update(node.names)
-
-        def visit_Name(self, node: ast.Name) -> None:
+            continue
+        if isinstance(node, ast.Name):
             if isinstance(node.ctx, (ast.Store, ast.Del)):
                 bound.add(node.id)
             else:
                 loaded.add(node.id)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             bound.add(node.name)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-            for default in (*node.args.defaults, *node.args.kw_defaults):
-                if default is not None:
-                    self.visit(default)
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            push(node.decorator_list)
+            push_args(node)
+            continue
+        if isinstance(node, ast.ClassDef):
             bound.add(node.name)
-            for base in node.bases:
-                self.visit(base)
-            for keyword in node.keywords:
-                self.visit(keyword.value)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            return
-
-        def visit_Import(self, node: ast.Import) -> None:
+            push(node.bases)
+            push(keyword.value for keyword in node.keywords)
+            push(node.decorator_list)
+            continue
+        if isinstance(node, ast.Lambda):
+            continue
+        if isinstance(node, ast.Import):
             for alias in node.names:
                 bound.add(alias.asname or alias.name.split(".")[0])
-
-        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            continue
+        if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if alias.name != "*":
                     bound.add(alias.asname or alias.name)
-
-        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            continue
+        if isinstance(node, ast.ExceptHandler):
             if node.name:
                 bound.add(node.name)
             if node.type is not None:
-                self.visit(node.type)
-            for statement in node.body:
-                self.visit(statement)
-
-        def visit_MatchAs(self, node: ast.MatchAs) -> None:
+                stack.append(node.type)
+            push(node.body)
+            continue
+        if isinstance(node, ast.MatchAs):
             if node.name:
                 bound.add(node.name)
             if node.pattern is not None:
-                self.visit(node.pattern)
-
-        def visit_MatchStar(self, node: ast.MatchStar) -> None:
+                stack.append(node.pattern)
+            continue
+        if isinstance(node, ast.MatchStar):
             if node.name:
                 bound.add(node.name)
-
-        def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+            continue
+        if isinstance(node, ast.MatchMapping):
             if node.rest:
                 bound.add(node.rest)
-            for key in node.keys:
-                self.visit(key)
-            for pattern in node.patterns:
-                self.visit(pattern)
-
-    visitor = ScopeVisitor()
-    for statement in body_nodes:
-        visitor.visit(statement)
+            push(node.keys)
+            push(node.patterns)
+            continue
+        push(ast.iter_child_nodes(node))
     return global_names, nonlocal_names, bound, loaded
 
 
@@ -442,77 +446,7 @@ def collect_scope_names(
     body_nodes: Sequence[ast.AST],
 ) -> tuple[set[str], set[str]]:
     """Collect names bound and loaded directly in one lexical scope."""
-
-    bound: set[str] = set()
-    loaded: set[str] = set()
-
-    class ScopeVisitor(ast.NodeVisitor):
-        def visit_Name(self, node: ast.Name) -> None:
-            if isinstance(node.ctx, (ast.Store, ast.Del)):
-                bound.add(node.id)
-            else:
-                loaded.add(node.id)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            bound.add(node.name)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-            for default in (*node.args.defaults, *node.args.kw_defaults):
-                if default is not None:
-                    self.visit(default)
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            bound.add(node.name)
-            for base in node.bases:
-                self.visit(base)
-            for keyword in node.keywords:
-                self.visit(keyword.value)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            return
-
-        def visit_Import(self, node: ast.Import) -> None:
-            for alias in node.names:
-                bound.add(alias.asname or alias.name.split(".")[0])
-
-        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-            for alias in node.names:
-                if alias.name != "*":
-                    bound.add(alias.asname or alias.name)
-
-        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-            if node.name:
-                bound.add(node.name)
-            if node.type is not None:
-                self.visit(node.type)
-            for statement in node.body:
-                self.visit(statement)
-
-        def visit_MatchAs(self, node: ast.MatchAs) -> None:
-            if node.name:
-                bound.add(node.name)
-            if node.pattern is not None:
-                self.visit(node.pattern)
-
-        def visit_MatchStar(self, node: ast.MatchStar) -> None:
-            if node.name:
-                bound.add(node.name)
-
-        def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
-            if node.rest:
-                bound.add(node.rest)
-            for key in node.keys:
-                self.visit(key)
-            for pattern in node.patterns:
-                self.visit(pattern)
-
-    visitor = ScopeVisitor()
-    for statement in body_nodes:
-        visitor.visit(statement)
+    _global_names, _nonlocal_names, bound, loaded = _collect_scope_facts(body_nodes)
     return bound, loaded
 
 
@@ -529,52 +463,39 @@ def direct_child_captures(
 
     captures: set[str] = set()
 
-    class ChildVisitor(ast.NodeVisitor):
-        def _visit_function(self, node) -> None:
+    def argument_names(arguments) -> set[str]:
+        names = {
+            argument.arg
+            for argument in (
+                *getattr(arguments, "posonlyargs", ()),
+                *getattr(arguments, "args", ()),
+                *getattr(arguments, "kwonlyargs", ()),
+            )
+        }
+        if getattr(arguments, "vararg", None) is not None:
+            names.add(arguments.vararg.arg)
+        if getattr(arguments, "kwarg", None) is not None:
+            names.add(arguments.kwarg.arg)
+        return names
+
+    stack = list(reversed(list(body_nodes)))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             child_bound, child_loaded = scope_names(node.body)
             child_globals, child_nonlocals = scope_directives(node.body)
-            child_bound.update(
-                argument.arg
-                for argument in (
-                    *getattr(node.args, "posonlyargs", ()),
-                    *getattr(node.args, "args", ()),
-                    *getattr(node.args, "kwonlyargs", ()),
-                )
-            )
-            if getattr(node.args, "vararg", None) is not None:
-                child_bound.add(node.args.vararg.arg)
-            if getattr(node.args, "kwarg", None) is not None:
-                child_bound.add(node.args.kwarg.arg)
+            child_bound.update(argument_names(node.args))
             candidates = (child_loaded - child_bound - child_globals) | child_nonlocals
             captures.update(candidates & parent_bound)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            self._visit_function(node)
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
+            continue
+        if isinstance(node, ast.Lambda):
             child_bound, child_loaded = scope_names([node.body])
-            child_bound.update(
-                argument.arg
-                for argument in (
-                    *getattr(node.args, "posonlyargs", ()),
-                    *getattr(node.args, "args", ()),
-                    *getattr(node.args, "kwonlyargs", ()),
-                )
-            )
-            if getattr(node.args, "vararg", None) is not None:
-                child_bound.add(node.args.vararg.arg)
-            if getattr(node.args, "kwarg", None) is not None:
-                child_bound.add(node.args.kwarg.arg)
+            child_bound.update(argument_names(node.args))
             captures.update((child_loaded - child_bound) & parent_bound)
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            return
-
-    visitor = ChildVisitor()
-    for statement in body_nodes:
-        visitor.visit(statement)
+            continue
+        if isinstance(node, ast.ClassDef):
+            continue
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
     return captures
 
 
