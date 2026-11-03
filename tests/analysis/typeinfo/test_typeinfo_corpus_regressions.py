@@ -133,6 +133,102 @@ def c(): return CONFIG['x']
     assert raw_types(result.functions["m.c"].return_type) == {int}
 
 
+def test_calling_a_class_from_a_property_uses_its_constructor() -> None:
+    source = """
+class Manager:
+    def __init__(self, instance): pass
+    def __call__(self, *, manager): pass
+class Relation:
+    @property
+    def related_manager_cls(self): return Manager
+    def get(self, instance): return self.related_manager_cls(instance)
+"""
+
+    result = infer(source, strict=True)
+
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+    returned = result.functions["m.Relation.get"].return_type
+    assert isinstance(returned, Instance)
+    assert returned.type.full_name == "m.Manager"
+
+
+def test_class_object_equality_does_not_call_instance_eq() -> None:
+    result = infer(
+        "class Model:\n"
+        "    def __eq__(self, other): return False\n"
+        "same = Model == Model\n"
+        "def compare(cls: type[Model]): return cls == Model\n"
+    )
+
+    assert raw_types(result.type_of("same")) == {bool}
+    assert raw_types(result.functions["m.compare"].return_type) == {bool}
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_constructor_attribute_uses_type_after_flow_narrowing() -> None:
+    source = """
+class AgentType:
+    def __init__(self, value: str): self.type = value
+class AgentId:
+    def __init__(self, value: str | AgentType):
+        if isinstance(value, AgentType):
+            value = value.type
+        self._type = value
+    @property
+    def type(self) -> str:
+        return self._type
+"""
+
+    result = infer(source, strict=True)
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert raw_types(result.functions["m.AgentId.type"].return_type) == {str}
+
+
+def test_static_call_protocol_does_not_inject_callable_instance() -> None:
+    result = infer(
+        "class Handler:\n"
+        "    @staticmethod\n"
+        "    def __call__(value: int) -> str: return str(value)\n"
+        "handler = Handler()\n"
+        "result = handler(1)\n",
+        strict=True,
+    )
+
+    assert raw_types(result.type_of("result")) == {str}
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_init_subclass_receives_class_object() -> None:
+    result = infer(
+        "def inspect_class(cls: type) -> bool: return True\n"
+        "class Base:\n"
+        "    def __init_subclass__(cls, **kwargs):\n"
+        "        inspect_class(cls)\n"
+        "class Child(Base): pass\n",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_class_identity_check_narrows_constructor_target() -> None:
+    result = infer(
+        "class FileNode:\n"
+        "    def __init__(self, name): pass\n"
+        "class DirNode:\n"
+        "    def __init__(self): pass\n"
+        "def make(flag: bool):\n"
+        "    child_cls = FileNode if flag else DirNode\n"
+        "    if child_cls is FileNode:\n"
+        "        return child_cls(name='item')\n"
+        "    return child_cls()\n",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
 def test_varargs_and_kwargs_bodies_see_containers() -> None:
     result = infer("def f(*xs: int):\n    return xs[0]\n" "def g(**kw: int):\n    return kw['a']\n")
     assert raw_types(result.functions["m.f"].return_type) == {int}
@@ -324,6 +420,16 @@ def test_project_inference_is_order_independent(tmp_path: Path) -> None:
             )
         )
     assert results == [({int}, {int}), ({int}, {int})]
+
+
+def test_project_inference_prefers_sidecar_stubs(tmp_path: Path) -> None:
+    (tmp_path / "lib.py").write_text("def make():\n    return 1\n")
+    (tmp_path / "lib.pyi").write_text("def make() -> str: ...\n")
+    (tmp_path / "app.py").write_text("from lib import make\nvalue = make()\n")
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["app"])
+
+    assert raw_types(result.modules["app"].type_of("value")) == {str}
 
 
 def test_project_module_qualified_access_and_reexports(tmp_path: Path) -> None:
@@ -545,6 +651,49 @@ def first(lines: Lines) -> Text:
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
 
 
+def test_overload_selection_does_not_match_only_one_union_alternative() -> None:
+    source = """
+from typing import overload
+class UserMessage: pass
+class SystemMessage: pass
+Message = UserMessage | SystemMessage
+@overload
+def serialize(message: UserMessage) -> str: ...
+@overload
+def serialize(message: SystemMessage) -> bytes: ...
+def serialize(message: Message) -> str | bytes:
+    return ''
+def use(message: Message) -> str | bytes:
+    return serialize(message)
+"""
+
+    result = infer(source, strict=True)
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert raw_types(result.functions["m.use"].return_type) == {str, bytes}
+
+
+def test_overload_coverage_falls_back_to_implementation_for_uncovered_union() -> None:
+    source = """
+from typing import overload
+class UserMessage: pass
+class SystemMessage: pass
+class OtherMessage: pass
+Message = UserMessage | SystemMessage | OtherMessage
+@overload
+def serialize(message: UserMessage) -> str: ...
+@overload
+def serialize(message: SystemMessage) -> bytes: ...
+def serialize(message: Message) -> str | bytes: ...
+def use(message: Message) -> str | bytes:
+    return serialize(message)
+"""
+
+    result = infer(source, strict=True)
+
+    assert any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
 def test_tuple_class_object_dictionary_key_is_type() -> None:
     result = infer(
         "from typing import Dict\nitems: Dict[type, int] = {tuple: 1, dict: 2}\n",
@@ -614,6 +763,24 @@ wrapped = deco(target)
 """
     result = infer(source, strict=True)
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_type_alias_inside_type_checking_block_is_collected() -> None:
+    result = infer(
+        "from __future__ import annotations\n"
+        "from typing import TYPE_CHECKING, Any, Concatenate, TypeAlias\n"
+        "if TYPE_CHECKING:\n"
+        "    from collections.abc import Callable\n"
+        "    class Response: ...\n"
+        "    Callback: TypeAlias = Callable[Concatenate[Response, ...], Any]\n"
+    )
+
+    assert isinstance(result.type_of("Callback"), CallableType)
+    assert not [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code in {"unsupported-expression", "unresolved-annotation"}
+    ]
 
 
 def test_async_function_satisfies_async_callable_annotation() -> None:

@@ -168,6 +168,15 @@ class ProjectTypeInferenceEngine:
                     )
                 )
                 continue
+            # A sidecar stub describes the public type surface of a module
+            # and takes precedence over its implementation during static
+            # analysis.  ``ProjectContext`` resolves source modules first, so
+            # select the adjacent stub here before reading the module.
+            resolved_path = Path(path)
+            if resolved_path.suffix == ".py":
+                stub_path = resolved_path.with_suffix(".pyi")
+                if stub_path.is_file():
+                    path = str(stub_path)
             source = self.project_context.source_files.get(path)
             if source is None:
                 try:
