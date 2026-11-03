@@ -92,6 +92,11 @@ Options:
   using the cyclic CFG dependence model. Bulk DDG output to an interactive
   terminal requires a function filter or ``--dump-output``; redirected output
   keeps the existing all-functions behavior
+- ``--conservative-dependencies``: For DDG/CDG dumps, restore unknown effects
+  for arbitrary Python protocols, allow parameter bases to alias, and include
+  implicit exceptional control flow. Defaults assume primitive intrinsics and
+  distinct parameter bases, and use structured control dependences. JSON
+  exports record these choices
 - ``--dump-gir FUNCTION``: Dump Graph IR (GIR) for a named function
 - ``--dump-format``: Output format (text, dot, json)
 - ``--dump-output``: Persist artifacts in this directory. When omitted,

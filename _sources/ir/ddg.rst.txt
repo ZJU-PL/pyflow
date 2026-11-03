@@ -32,6 +32,41 @@ conservative weak updates over abstract storage locations; alias imprecision
 can still introduce extra dependences. Opaque heap effects require models for
 greater precision, and ``except*`` matching remains approximate.
 
+Precision assumptions
+---------------------
+
+Source-backed DDGs default to ``DDGConstructionOptions()`` with
+``assume_primitive_intrinsics=True`` and ``assume_distinct_parameters=True``.
+Known compiler arithmetic/comparison/getitem intrinsics use their modeled
+effects instead of acquiring unknown read/write effects. Attribute and
+subscript accesses still retain their explicit storage dependences. Ordinary
+calls, including calls inside intrinsic arguments and local callables named
+``isinstance``, retain unknown heap effects.
+
+Different parameter roots remain separate, and local copy aliases are
+resolved at the copy's definition using CFG reaching definitions. Reassigning
+``a`` after ``b = a`` does not retarget ``b``. Joins retain all reaching origins.
+Walrus reads after a binding in the same statement have explicit def-use
+edges, including self-edges at statement granularity; repeated walrus bindings
+retain separate local slots.
+
+These are inspection assumptions, not proofs about arbitrary Python objects.
+Overloaded operators, custom indexing and instance checks can execute user
+code, and arguments can alias. Restore conservative protocol and parameter
+modeling explicitly when those behaviors matter::
+
+   from pyflow.ir.ddg import DDGConstructionOptions, construct_ddg
+
+   ddg = construct_ddg(cfg, options=DDGConstructionOptions(
+       assume_primitive_intrinsics=False,
+       assume_distinct_parameters=False,
+   ))
+
+This remains an intraprocedural origin/storage model, not a complete heap
+points-to analysis. Recursive origins are summarized; unknown call returns
+and shared objects behind heap paths can require additional alias facts.
+Text and JSON dumps record the selected assumptions.
+
 Graph Structure
 ---------------
 

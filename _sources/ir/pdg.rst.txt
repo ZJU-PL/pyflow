@@ -16,6 +16,23 @@ For higher precision data dependences, PDG construction can run SSA + phi expans
 With ``run_ssa=True``, SSA is verified before phi expansion. Invalid SSA raises
 ``SSAVerificationError`` rather than producing a dependence graph.
 
+The default ``run_ssa=False`` also uses CFG reaching definitions. A later
+assignment cannot feed an earlier use in an acyclic sequence; backward edges
+remain possible where a CFG loop makes them loop-carried. The local-only
+fallback after a heap-modeling failure uses the same reaching-definition
+solver rather than connecting every definition of a symbol to every use.
+
+PDGs inherit the DDG's primitive-intrinsic and distinct-parameter defaults and
+the CDG's structured control mode. Configure them independently when needed::
+
+   from pyflow.ir.ddg import DDGConstructionOptions
+
+   pdg = construct_pdg(
+       cfg,
+       ddg_options=DDGConstructionOptions(False, False),
+       include_exceptional_control=True,
+   )
+
 Programmatic usage
 ------------------
 

@@ -153,6 +153,19 @@ flow reasoning.</p>
 <li><p><strong>Edge Creation</strong>: Creates edges from controlling to controlled statements</p></li>
 <li><p><strong>Graph Refinement</strong>: Handles complex control structures and exceptions</p></li>
 </ol>
+<p>The default CDG projects structured control flow: implicit <code class="docutils literal notranslate"><span class="pre">fail</span></code>/<code class="docutils literal notranslate"><span class="pre">error</span></code>
+edges alongside a normal continuation are excluded from post-dominance and
+dependence construction. An ordinary potentially raising suite therefore
+does not become a controller of the entire remaining function. Explicit
+unconditional exceptional transfers remain in the projection. A return after
+both arms of an <code class="docutils literal notranslate"><span class="pre">if</span></code> is not controlled by either arm merely because an
+operation in that arm might raise.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">construct_cdg(cfg,</span> <span class="pre">include_exceptional=True)</span></code> or
+<code class="docutils literal notranslate"><span class="pre">CDGConstructor(cfg,</span> <span class="pre">include_exceptional=True)</span></code> to include implicit
+exceptional flow. In that mode, later statements can correctly depend on
+earlier operations completing normally; dense control edges are possible.
+The CFG itself is unchanged in either mode. Text and JSON exports identify
+the selected mode.</p>
 </section>
 <section id="applications">
 <h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>

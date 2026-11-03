@@ -146,6 +146,22 @@ into a single graph that supports dependency queries and program slicing.</p>
 <p>For higher precision data dependences, PDG construction can run SSA + phi expansion on the CFG.
 With <code class="docutils literal notranslate"><span class="pre">run_ssa=True</span></code>, SSA is verified before phi expansion. Invalid SSA raises
 <code class="docutils literal notranslate"><span class="pre">SSAVerificationError</span></code> rather than producing a dependence graph.</p>
+<p>The default <code class="docutils literal notranslate"><span class="pre">run_ssa=False</span></code> also uses CFG reaching definitions. A later
+assignment cannot feed an earlier use in an acyclic sequence; backward edges
+remain possible where a CFG loop makes them loop-carried. The local-only
+fallback after a heap-modeling failure uses the same reaching-definition
+solver rather than connecting every definition of a symbol to every use.</p>
+<p>PDGs inherit the DDG’s primitive-intrinsic and distinct-parameter defaults and
+the CDG’s structured control mode. Configure them independently when needed:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.ddg</span><span class="w"> </span><span class="kn">import</span> <span class="n">DDGConstructionOptions</span>
+
+<span class="n">pdg</span> <span class="o">=</span> <span class="n">construct_pdg</span><span class="p">(</span>
+    <span class="n">cfg</span><span class="p">,</span>
+    <span class="n">ddg_options</span><span class="o">=</span><span class="n">DDGConstructionOptions</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+    <span class="n">include_exceptional_control</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="programmatic-usage">
 <h2>Programmatic usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>

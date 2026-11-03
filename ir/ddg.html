@@ -74,6 +74,7 @@
 <li class="toctree-l2"><a class="reference internal" href="dataflow.html">Data Flow Intermediate Representation</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Data Dependence Graph (DDG)</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#key-features">Key Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#precision-assumptions">Precision assumptions</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#graph-structure">Graph Structure</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#module-structure">Module Structure</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#see-also">See Also</a></li>
@@ -162,6 +163,38 @@ backward in source order or connect an operation to itself. Heap writes use
 conservative weak updates over abstract storage locations; alias imprecision
 can still introduce extra dependences. Opaque heap effects require models for
 greater precision, and <code class="docutils literal notranslate"><span class="pre">except*</span></code> matching remains approximate.</p>
+</section>
+<section id="precision-assumptions">
+<h2>Precision assumptions<a class="headerlink" href="#precision-assumptions" title="Link to this heading"></a></h2>
+<p>Source-backed DDGs default to <code class="docutils literal notranslate"><span class="pre">DDGConstructionOptions()</span></code> with
+<code class="docutils literal notranslate"><span class="pre">assume_primitive_intrinsics=True</span></code> and <code class="docutils literal notranslate"><span class="pre">assume_distinct_parameters=True</span></code>.
+Known compiler arithmetic/comparison/getitem intrinsics use their modeled
+effects instead of acquiring unknown read/write effects. Attribute and
+subscript accesses still retain their explicit storage dependences. Ordinary
+calls, including calls inside intrinsic arguments and local callables named
+<code class="docutils literal notranslate"><span class="pre">isinstance</span></code>, retain unknown heap effects.</p>
+<p>Different parameter roots remain separate, and local copy aliases are
+resolved at the copy’s definition using CFG reaching definitions. Reassigning
+<code class="docutils literal notranslate"><span class="pre">a</span></code> after <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">=</span> <span class="pre">a</span></code> does not retarget <code class="docutils literal notranslate"><span class="pre">b</span></code>. Joins retain all reaching origins.
+Walrus reads after a binding in the same statement have explicit def-use
+edges, including self-edges at statement granularity; repeated walrus bindings
+retain separate local slots.</p>
+<p>These are inspection assumptions, not proofs about arbitrary Python objects.
+Overloaded operators, custom indexing and instance checks can execute user
+code, and arguments can alias. Restore conservative protocol and parameter
+modeling explicitly when those behaviors matter:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.ddg</span><span class="w"> </span><span class="kn">import</span> <span class="n">DDGConstructionOptions</span><span class="p">,</span> <span class="n">construct_ddg</span>
+
+<span class="n">ddg</span> <span class="o">=</span> <span class="n">construct_ddg</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">DDGConstructionOptions</span><span class="p">(</span>
+    <span class="n">assume_primitive_intrinsics</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">assume_distinct_parameters</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">))</span>
+</pre></div>
+</div>
+<p>This remains an intraprocedural origin/storage model, not a complete heap
+points-to analysis. Recursive origins are summarized; unknown call returns
+and shared objects behind heap paths can require additional alias facts.
+Text and JSON dumps record the selected assumptions.</p>
 </section>
 <section id="graph-structure">
 <h2>Graph Structure<a class="headerlink" href="#graph-structure" title="Link to this heading"></a></h2>

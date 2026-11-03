@@ -241,6 +241,11 @@ terminal requires a function filter or <code class="docutils literal notranslate
 keeps the existing all-functions behavior</p>
 </div></blockquote>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--conservative-dependencies</span></code>: For DDG/CDG dumps, restore unknown effects
+for arbitrary Python protocols, allow parameter bases to alias, and include
+implicit exceptional control flow. Defaults assume primitive intrinsics and
+distinct parameter bases, and use structured control dependences. JSON
+exports record these choices</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-gir</span> <span class="pre">FUNCTION</span></code>: Dump Graph IR (GIR) for a named function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Persist artifacts in this directory. When omitted,
