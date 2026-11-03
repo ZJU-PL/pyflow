@@ -533,3 +533,29 @@ def test_plain_dict_subscripts_remain_unresolved(tmp_path: Path):
     uri = path.as_uri()
     assert index.symbol_at(uri, 1, 17) is None
     assert index.definitions_at(uri, 1, 17) == []
+
+
+def test_pydantic_model_fields_follow_constructor_keywords(tmp_path: Path):
+    source = (
+        "from pydantic import BaseModel\n"
+        "\n"
+        "class User(BaseModel):\n"
+        "    name: str\n"
+        "    age: int = 0\n"
+        "\n"
+        'user = User(name="a", age=2)\n'
+    )
+    path = tmp_path / "model.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    name_ranges = index.rename_ranges_at(uri, 3, 6)
+    assert {(item.start_line, item.start_character) for item in name_ranges} == {
+        (3, 4),
+        (6, 12),
+    }
+    age_ranges = index.rename_ranges_at(uri, 4, 6)
+    assert {(item.start_line, item.start_character) for item in age_ranges} == {
+        (4, 4),
+        (6, 22),
+    }

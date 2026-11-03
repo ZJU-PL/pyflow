@@ -2630,12 +2630,19 @@ class _IndexVisitor(ast.NodeVisitor):
                 "typing_extensions.NamedTuple",
                 "typing.TypedDict",
                 "typing_extensions.TypedDict",
+                "pydantic.BaseModel",
+                "pydantic.main.BaseModel",
+                "pydantic.v1.BaseModel",
+                "pydantic.v1.main.BaseModel",
             }
             for base in node.bases
         )
         for decorator in node.decorator_list:
             head = decorator.func if isinstance(decorator, ast.Call) else decorator
-            if self._qualified_expression_name(head) == "dataclasses.dataclass":
+            if self._qualified_expression_name(head) in {
+                "dataclasses.dataclass",
+                "pydantic.dataclasses.dataclass",
+            }:
                 options = decorator.keywords if isinstance(decorator, ast.Call) else ()
                 generated = not any(
                     item.arg == "init"
