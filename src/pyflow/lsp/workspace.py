@@ -1690,6 +1690,7 @@ class _IndexVisitor(ast.NodeVisitor):
         self.module = module
         self.scope: list[str] = []
         self._scopes: list[_Scope] = [_Scope(_ScopeKind.MODULE, {})]
+        self._annotation_depth = 0
 
     @property
     def _current_scope(self) -> _Scope:
@@ -2040,6 +2041,33 @@ class _IndexVisitor(ast.NodeVisitor):
                 )
             )
 
+    def _record_dict_keys(self, annotation, value: ast.Dict) -> None:
+        """Link string keys of an annotated dict literal to known members.
+
+        TypedDict construction is the common case: ``m: Movie = {"title": ...}``
+        must follow a rename of ``Movie.title``.
+        """
+        if not isinstance(value, ast.Dict):
+            return
+        target = self._annotation_target(annotation)
+        for key in value.keys:
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                continue
+            name = key.value
+            if not name.isidentifier():
+                continue
+            escaped = _literal_payload(ast.get_source_segment(self.source, key)) != name
+            location = self._range(key) if escaped else self._range(key, name=name)
+            self.index._reference_targets[location] = ("member", target, name, "read")
+            self.index.references.append(
+                SourceReference(
+                    name,
+                    location,
+                    self._current_function(),
+                    string_literal=escaped,
+                )
+            )
+
     def _record_slots(self, target, value):
         """Declare and reference attribute names in a class ``__slots__`` literal."""
         if (
@@ -2118,10 +2146,13 @@ class _IndexVisitor(ast.NodeVisitor):
             self._record_exports(node.value)
 
     def visit_AnnAssign(self, node):
-        self.generic_visit(node)
-        self._record_annotation_strings(node.annotation)
+        self.visit(node.target)
+        if node.value is not None:
+            self.visit(node.value)
+        self._visit_annotation(node.annotation)
         self._bind_value(node.target, ("annotation", self._annotation_target(node.annotation)))
         if node.value is not None:
+            self._record_dict_keys(node.annotation, node.value)
             self._bind_value(node.target, self._target(node.value))
             if isinstance(node.target, ast.Name) and node.target.id == "__all__":
                 self._record_exports(node.value)
@@ -2162,7 +2193,7 @@ class _IndexVisitor(ast.NodeVisitor):
             for name in ("bound", "default_value"):
                 value = getattr(parameter, name, None)
                 if value is not None:
-                    self.visit(value)
+                    self._visit_annotation(value)
         return True
 
     def _pop_type_parameters(self, node):
@@ -2173,7 +2204,7 @@ class _IndexVisitor(ast.NodeVisitor):
         name = node.name.id
         symbol = self._add_local_definition(node, name, SymbolKind.TYPE_ALIAS)
         scoped = self._push_type_parameters(node, symbol)
-        self.visit(node.value)
+        self._visit_annotation(node.value)
         if scoped:
             self._pop_type_parameters(node)
 
@@ -2431,7 +2462,11 @@ class _IndexVisitor(ast.NodeVisitor):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             self._record_string_annotation(node)
             return
-        self.visit(node)
+        self._annotation_depth += 1
+        try:
+            self.visit(node)
+        finally:
+            self._annotation_depth -= 1
         self._record_annotation_strings(node)
 
     def _record_annotation_strings(self, node: ast.AST) -> None:
@@ -2590,7 +2625,12 @@ class _IndexVisitor(ast.NodeVisitor):
             symbol = self._add_definition(node, node.name, 5, SymbolKind.CLASS)
         generated = any(
             self._qualified_expression_name(base)
-            in {"typing.NamedTuple", "typing_extensions.NamedTuple"}
+            in {
+                "typing.NamedTuple",
+                "typing_extensions.NamedTuple",
+                "typing.TypedDict",
+                "typing_extensions.TypedDict",
+            }
             for base in node.bases
         )
         for decorator in node.decorator_list:
@@ -2998,6 +3038,28 @@ class _IndexVisitor(ast.NodeVisitor):
         if node.rest:
             self._add_local_definition(node, node.rest, SymbolKind.VARIABLE)
         self.generic_visit(node)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        self.generic_visit(node)
+        if self._annotation_depth:
+            return
+        key = node.slice
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return
+        name = key.value
+        if not name.isidentifier():
+            return
+        escaped = _literal_payload(ast.get_source_segment(self.source, key)) != name
+        location = self._range(key) if escaped else self._range(key, name=name)
+        self.index._reference_targets[location] = ("member", self._target(node.value), name, "read")
+        self.index.references.append(
+            SourceReference(
+                name,
+                location,
+                self._current_function(),
+                string_literal=escaped,
+            )
+        )
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         location = self._range(node)

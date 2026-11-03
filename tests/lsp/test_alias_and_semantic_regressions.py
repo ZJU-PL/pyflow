@@ -478,3 +478,58 @@ def test_escaped_slots_entry_is_replaced_as_a_literal(tmp_path: Path):
     ranges = index.rename_ranges_at(uri, 1, 18)
     slot_range = [item for item in ranges if item.start_line == 1]
     assert index.replacement_text(slot_range[0], "z") == repr("z")
+
+
+def test_typeddict_fields_follow_subscripts_literals_and_constructor_keywords(tmp_path: Path):
+    source = (
+        "from typing import TypedDict\n"
+        "\n"
+        "class Movie(TypedDict):\n"
+        "    title: str\n"
+        "    year: int\n"
+        "\n"
+        "def use(m: Movie, title: str) -> None:\n"
+        '    print(m["title"])\n'
+        '    other: Movie = {"title": title, "year": 2000}\n'
+        "    copy = Movie(title=title, year=1)\n"
+    )
+    path = tmp_path / "movie.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+
+    ranges = index.rename_ranges_at(uri, 3, 6)
+    assert {(item.start_line, item.start_character) for item in ranges} == {
+        (3, 4),
+        (7, 13),
+        (8, 21),
+        (9, 17),
+    }
+    definitions = index.definitions_at(uri, 7, 13)
+    assert [(item.start_line, item.start_character) for item in definitions] == [(3, 4)]
+    assert "title: str" in index.hover_at(uri, 7, 13)["contents"]["value"]
+
+    lines = source.splitlines()
+    for source_range in sorted(
+        ranges, key=lambda item: (item.start_line, item.start_character), reverse=True
+    ):
+        lines[source_range.start_line] = (
+            lines[source_range.start_line][: source_range.start_character]
+            + "heading"
+            + lines[source_range.start_line][source_range.end_character :]
+        )
+    updated = "\n".join(lines)
+    ast.parse(updated)
+    assert 'm["heading"]' in updated
+    assert '{"heading": title, "year": 2000}' in updated
+    assert "Movie(heading=title, year=1)" in updated
+
+
+def test_plain_dict_subscripts_remain_unresolved(tmp_path: Path):
+    source = 'def f(data: dict[str, int]) -> int:\n    return data["a"]\n'
+    path = tmp_path / "plain.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    assert index.symbol_at(uri, 1, 17) is None
+    assert index.definitions_at(uri, 1, 17) == []
