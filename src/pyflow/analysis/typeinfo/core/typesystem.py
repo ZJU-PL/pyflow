@@ -1111,7 +1111,9 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             if left.type == self.right.type and (left.args or self.right.args):
                 # A bare generic is an Any-parameterized instance, not an
                 # incompatible zero-argument specialization.
-                if self.right.args and not left.args:
+                if not self.right.args:
+                    return True
+                if not left.args:
                     return True
                 # TODO(fk) handle generics properly :(
                 # Until variance metadata exists, same-origin generics are invariant.

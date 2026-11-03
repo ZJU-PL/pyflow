@@ -3511,8 +3511,13 @@ class StaticTypeInferenceEngine:
                             and typ.type.raw_type is dict
                             and len(typ.args) >= 2
                         ):
-                            key_parts.append(typ.args[0])
-                            value_parts.append(typ.args[1])
+                            # An empty dict contributes no key/value evidence;
+                            # Never would otherwise make the result unusable
+                            # as a Mapping[str, Any].
+                            if not isinstance(typ.args[0], NeverType):
+                                key_parts.append(typ.args[0])
+                            if not isinstance(typ.args[1], NeverType):
+                                value_parts.append(typ.args[1])
                 key_type = (
                     join_all(
                         (AbstractTypeValue.from_type(item) for item in key_parts),
@@ -3997,7 +4002,10 @@ class StaticTypeInferenceEngine:
             if raw is dict:
                 if keywords:
                     value = join_all(
-                        keywords.values(),
+                        (
+                            AbstractTypeValue.from_type(self._runtime_value_type(keyword_value))
+                            for keyword_value in keywords.values()
+                        ),
                         self.type_system,
                         max_union_size=self.options.max_union_size,
                     )
@@ -6747,6 +6755,27 @@ class StaticTypeInferenceEngine:
             for candidate in value.types
         )
 
+    def _runtime_value_type(self, value: AbstractTypeValue) -> ProperType:
+        """Proper type for a runtime value, keeping class-object alternatives.
+
+        ``public_type()`` flattens a runtime class object to its instance type.
+        Containers built from class objects (dict keyword values, variadic
+        argument tuples) must retain ``type[...]`` so they are checked against
+        class-object annotations instead of instances.
+        """
+        typ = value.public_type() or ANY
+
+        def wrap(item: ProperType) -> ProperType:
+            return TypeType(item) if isinstance(item, Instance) else item
+
+        if not value.class_targets:
+            return typ
+        if isinstance(typ, Instance):
+            return TypeType(typ)
+        if isinstance(typ, UnionType):
+            return UnionType(tuple(wrap(item) for item in typ.items))
+        return typ
+
     def _is_type_variable_annotation(self, node, type_variables=None) -> bool:
         """Whether *node* is a bare type-variable reference."""
         if not isinstance(node, ast.Name):
@@ -6790,14 +6819,58 @@ class StaticTypeInferenceEngine:
             if isinstance(node, (ast.AnnAssign, ast.Assign, ast.Return)) and node.value is not None
             else node
         )
+        expected_parts = expected.items if isinstance(expected, UnionType) else (expected,)
         if self._is_empty_dict_value(inferred):
-            expected_parts = expected.items if isinstance(expected, UnionType) else (expected,)
             if any(
                 isinstance(part, Instance)
                 and part.type.raw_type in {dict, cabc.Mapping, cabc.MutableMapping}
                 for part in expected_parts
             ):
                 return
+        constructor = (
+            _expression_name(inspected_node.func)
+            if isinstance(inspected_node, ast.Call) and isinstance(inspected_node.func, ast.Name)
+            else None
+        )
+        if constructor in {"list", "set", "frozenset", "dict"}:
+            # Contextual typing for fresh container constructors: the literal
+            # is checked against the expected element type, not invariantly.
+            for part in expected_parts:
+                if not isinstance(part, Instance):
+                    continue
+                if constructor == "dict":
+                    if part.type.raw_type not in {dict, cabc.Mapping, cabc.MutableMapping}:
+                        continue
+                    if len(part.args) < 2:
+                        return
+                    actuals = [
+                        typ
+                        for typ in inferred.types
+                        if isinstance(typ, Instance)
+                        and typ.type.raw_type is dict
+                        and len(typ.args) >= 2
+                    ]
+                    if actuals and all(
+                        self.type_system.is_subtype(self._proper_instance(str), part.args[0])
+                        and self.type_system.is_subtype(typ.args[1], part.args[1])
+                        for typ in actuals
+                    ):
+                        return
+                else:
+                    raw = {"list": list, "set": set, "frozenset": frozenset}[constructor]
+                    if part.type.raw_type is not raw:
+                        continue
+                    if not part.args:
+                        return
+                    actuals = [
+                        typ
+                        for typ in inferred.types
+                        if isinstance(typ, Instance) and typ.type.raw_type is raw and typ.args
+                    ]
+                    if actuals and all(
+                        self.type_system.is_subtype(typ.args[0], part.args[0]) for typ in actuals
+                    ):
+                        return
         expected_literals = self._literal_expected_values(expected)
         if expected_literals is not None and inferred.literal_values:
             if inferred.literal_values.issubset(expected_literals):
@@ -8085,24 +8158,14 @@ class StaticTypeInferenceEngine:
         extra_positional = arguments[len(positional_names) :]
         if node_arguments.vararg is not None and extra_positional:
             element = join_all(
-                extra_positional,
+                (
+                    AbstractTypeValue.from_type(self._runtime_value_type(value))
+                    for value in extra_positional
+                ),
                 self.type_system,
                 max_union_size=self.options.max_union_size,
             )
             element_type = element.public_type() or ANY
-            if all(value.class_targets for value in extra_positional):
-                # ``public_type()`` flattens runtime class objects to their
-                # instance types.  Keep the class-object marker so a
-                # ``*args: type[T]`` parameter is checked against type[...]
-                # rather than against an instance.
-                def as_type(typ: ProperType) -> ProperType:
-                    if isinstance(typ, Instance):
-                        return TypeType(typ)
-                    if isinstance(typ, UnionType):
-                        return UnionType(tuple(as_type(item) for item in typ.items))
-                    return typ
-
-                element_type = as_type(element_type)
             bound[node_arguments.vararg.arg] = AbstractTypeValue.from_type(
                 TupleType((element_type,), unknown_size=True)
             )

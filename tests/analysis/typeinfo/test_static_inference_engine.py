@@ -1127,3 +1127,55 @@ def test_varargs_class_objects_still_reject_non_types():
 
     assert result.converged
     assert [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_bare_generic_annotations_accept_specializations():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any, Callable, Iterator\n"
+        "def use(fn: Callable[[Any], Iterator]) -> None: ...\n"
+        "def gen(value: Any) -> Iterator[tuple[int, int]]:\n"
+        "    yield (1, 2)\n"
+        "use(gen)\n"
+        "value: Iterator = iter([1])\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_container_constructors_use_contextual_element_types():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any\n"
+        "a: list[object] = list([1])\n"
+        "b: set[object] = set([1])\n"
+        "c: dict[str, object] = dict(item=1)\n"
+        "d: dict[str, type] = dict(first=int, second=str)\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_container_constructors_still_reject_wrong_elements():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "values: list[int] = list(['x'])\n",
+    )
+
+    assert result.converged
+    assert [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_chainmap_from_empty_dict_can_flow_into_mapping():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from collections import ChainMap\n"
+        "from typing import Any, Mapping\n"
+        "def make(layers: list[Mapping[str, Any]]) -> Mapping[str, Any]:\n"
+        "    return ChainMap({}, *layers)\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

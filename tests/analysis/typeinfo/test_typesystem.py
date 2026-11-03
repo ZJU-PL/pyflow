@@ -367,7 +367,10 @@ def test_generic_arity_mismatch_returns_false_instead_of_raising(type_system) ->
     assert isinstance(parameterized, Instance)
     bare_internal_instance = Instance(parameterized.type)
 
-    assert type_system.is_subtype(parameterized, bare_internal_instance) is False
+    # A bare generic is Any-parameterized, so either direction is assignable.
+    # The comparison must remain total instead of raising on arity mismatch.
+    assert type_system.is_subtype(parameterized, bare_internal_instance) is True
+    assert type_system.is_subtype(bare_internal_instance, parameterized) is True
 
 
 def test_variadic_tuple_subtyping(type_system) -> None:
