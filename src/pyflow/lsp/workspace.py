@@ -1390,6 +1390,30 @@ class SourceIndex:
         declaration = symbol.detail or symbol.name
         documentation = symbol.documentation
         if symbol.symbol_id.kind in {SymbolKind.VARIABLE, SymbolKind.PARAMETER}:
+            class_object = next(
+                (
+                    value[1]
+                    for value in self._resolver.values.get(symbol.symbol_id, ())
+                    if value
+                    and value[0] == "annotation"
+                    and value[1]
+                    and value[1][0] == "class-object"
+                ),
+                None,
+            )
+            if class_object is not None:
+                declared = sorted(self._resolver.names(class_object[1]))
+                if declared:
+                    return {
+                        "contents": {
+                            "kind": "markdown",
+                            "value": "```python\n"
+                            + symbol.name
+                            + ": "
+                            + " | ".join(f"type[{name}]" for name in declared)
+                            + "\n```",
+                        }
+                    }
             names = self._resolver.names(("symbol", symbol.symbol_id))
             types = [
                 name.removeprefix("builtins.")
@@ -1954,6 +1978,26 @@ class _IndexVisitor(ast.NodeVisitor):
             qualified = self.index._import_targets.get(self._resolve(head), head) + (
                 separator + tail if separator else ""
             )
+            if qualified in {"type", "builtins.type", "typing.Type", "typing_extensions.Type"}:
+                argument = (
+                    node.slice.elts[0]
+                    if isinstance(node.slice, ast.Tuple) and node.slice.elts
+                    else node.slice
+                )
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    try:
+                        argument = ast.parse(argument.value, mode="eval").body
+                    except SyntaxError:
+                        return ("unknown",)
+                if isinstance(argument, (ast.Name, ast.Attribute)):
+                    if (
+                        self._qualified_expression_name(argument)
+                        in {"typing.Self", "typing_extensions.Self"}
+                        and self._current_scope.class_id is not None
+                    ):
+                        return ("class-object", ("symbol", self._current_scope.class_id))
+                    return ("class-object", self._target(argument))
+                return ("unknown",)
             arguments = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
             if qualified in {"typing.Optional", "typing_extensions.Optional"}:
                 return (

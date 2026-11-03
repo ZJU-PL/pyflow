@@ -634,3 +634,37 @@ def test_self_annotations_resolve_to_the_enclosing_class(tmp_path: Path):
         labels = {item["label"] for item in index.completion_items(uri, row, dot + 1)}
         assert {"x", "f", "g"} <= labels
     assert "A" in index.hover_at(uri, 9, 12)["contents"]["value"]
+
+
+def test_type_annotations_expose_class_members(tmp_path: Path):
+    source = (
+        "from typing import Self, Type\n"
+        "\n"
+        "class A:\n"
+        "    x: int = 1\n"
+        "\n"
+        "    @classmethod\n"
+        "    def make(cls, value: int = 1) -> 'A': ...\n"
+        "\n"
+        "    def use(self, other: type[Self], legacy: Type[A]) -> None:\n"
+        "        other.x\n"
+        "        legacy.x\n"
+        "\n"
+        "def f(c: type[A], d: type['A']) -> None:\n"
+        "    c.x\n"
+        "    d.make(1)\n"
+    )
+    path = tmp_path / "class_objects.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    lines = source.splitlines()
+    for row in (9, 10, 13, 14):
+        dot = lines[row].index(".")
+        labels = {item["label"] for item in index.completion_items(uri, row, dot + 1)}
+        assert {"x", "make", "use"} <= labels
+    hover = index.hover_at(uri, 13, 4)
+    assert hover is not None and "type[" in hover["contents"]["value"]
+    signature = index.signature_help(uri, 14, lines[14].index("(") + 1)
+    assert signature is not None
+    assert "make(value: int = 1)" in signature["signatures"][0]["label"]

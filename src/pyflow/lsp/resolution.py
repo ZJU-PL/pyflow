@@ -233,6 +233,8 @@ class WorkspaceResolver:
         kind = target[0]
         if kind == "annotation":
             return self.names(target[1], seen)
+        if kind == "class-object":
+            return self.names(target[1], seen)
         if kind == "super":
             return frozenset().union(
                 *(
@@ -353,6 +355,8 @@ class WorkspaceResolver:
         if not target or target in seen or len(seen) > 64 or target[0] == "unknown":
             return False
         seen = seen | {target}
+        if target[0] == "class-object":
+            return self.is_complete(target[1], seen)
         if target[0] == "super":
             return self.is_complete(target[1], seen) and bool(self.names(target, frozenset()))
         if target[0] == "external":
