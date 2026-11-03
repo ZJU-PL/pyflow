@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolves stub re-exports and star imports, and substitutes type arguments for
   generic stub methods.  Walrus, match-pattern, starred-unpacking, and nested
   class bindings are also narrowed or registered correctly.
+- Additional typeinfo regressions found across Home Assistant, Scrapy, yt-dlp,
+  scikit-learn, and other corpus projects are fixed: key-specific TypedDict
+  methods and copies, dataclass `KW_ONLY`/`InitVar` pseudo-fields, NamedTuple
+  helper members, enum subscription and literal overloads, `ParamSpec`
+  forwarding, method-call argument locations for `type: ignore`, and loop
+  `break`/`continue` environments.  Common stdlib models now cover datetime,
+  regex, pathlib, os.path, itertools, functools.partial, queue,
+  concurrent.futures, contextvars, threading, and abstract containers.
 
 - Deeply nested expressions no longer exhaust the Python stack while generating
   IR: the scope/name collectors, source-span scan, nested-code discovery,

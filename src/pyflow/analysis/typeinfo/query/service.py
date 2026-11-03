@@ -868,7 +868,11 @@ class TypeInfoService:
         class_typ = self._synthetic_instance(qualified_name)
         for stmt in node.body:
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                raw_annotation = _annotation_to_str(stmt.annotation)
+                annotation_name = _annotation_to_str(stmt.annotation)
+                base_name = annotation_name.split("[", 1)[0].rsplit(".", 1)[-1]
+                if base_name in {"KW_ONLY", "InitVar"}:
+                    continue
+                raw_annotation = annotation_name
                 members[stmt.target.id] = TypeFact(
                     name=stmt.target.id,
                     typ=self._resolve_annotation(

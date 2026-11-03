@@ -97,8 +97,12 @@ timestamp = time.time()
 """,
     )
 
-    for name in ("loaded", "cwd", "pattern", "timestamp"):
-        assert service.fact_of("sample", name) is None
+    assert service.fact_of("sample", "timestamp") is None
+    assert str(service.type_of("sample", "loaded")) == "Any"
+    assert str(service.type_of("sample", "cwd")) == "str"
+    pattern = service.type_of("sample", "pattern")
+    assert pattern is not None
+    assert "Pattern" in str(pattern)
     assert service.inference_result("sample").status == "complete"
 
 

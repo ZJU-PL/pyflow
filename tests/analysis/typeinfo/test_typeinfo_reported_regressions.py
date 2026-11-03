@@ -389,3 +389,236 @@ def test_builtin_class_objects_satisfy_callable_annotations() -> None:
         strict=True,
     )
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_typed_dict_key_specific_methods_preserve_the_declaration() -> None:
+    result = infer(
+        "from typing import TypedDict, NotRequired\n"
+        "class Movie(TypedDict):\n"
+        "    title: str\n"
+        "    year: NotRequired[int]\n"
+        "m: Movie = {'title': 'x'}\n"
+        "a = m.get('title')\n"
+        "b = m.get('year')\n"
+        "c = m.setdefault('year', 0)\n"
+        "d = m.pop('year', 0)\n"
+        "e = m.copy()\n"
+        "m.update({'year': 1})\n"
+        "f = m\n",
+        strict=True,
+    )
+    assert raw_types(result.type_of("a")) == {str}
+    assert raw_types(result.type_of("b")) == {int, type(None)}
+    assert raw_types(result.type_of("c")) == {int}
+    assert raw_types(result.type_of("d")) == {int}
+    assert str(result.type_of("e")) == "m.Movie"
+    assert str(result.type_of("f")) == "m.Movie"
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_dataclass_pseudo_fields_are_not_instance_members() -> None:
+    result = infer(
+        "from dataclasses import dataclass, InitVar, KW_ONLY, field\n"
+        "@dataclass\n"
+        "class Child:\n"
+        "    value: int\n"
+        "    extra: InitVar[str] = 'x'\n"
+        "    _: KW_ONLY\n"
+        "    items: list[int] = field(default_factory=list)\n"
+        "child = Child(1)\n"
+        "items = child.items\n"
+    )
+    assert result.status == "complete"
+    assert result.type_of("m.Child.extra") is None
+    assert raw_types(result.type_of("items")) == {list}
+
+
+def test_namedtuple_and_enum_helper_members() -> None:
+    result = infer(
+        "from enum import Enum\n"
+        "from typing import NamedTuple\n"
+        "class Point(NamedTuple):\n"
+        "    x: int\n"
+        "    y: str = 'a'\n"
+        "p = Point(1)\n"
+        "field_names = Point._fields\n"
+        "defaults = p._field_defaults\n"
+        "replaced = p._replace(x=2)\n"
+        "mapping = p._asdict()\n"
+        "class Color(Enum):\n"
+        "    RED = 1\n"
+        "    BLUE = 2\n"
+        "red = Color['RED']\n"
+        "members = Color.__members__\n"
+    )
+    assert "tuple[str, ...]" == str(result.type_of("field_names"))
+    assert str(result.type_of("defaults")) == "dict[str, Any]"
+    assert str(result.type_of("replaced")) == "m.Point"
+    assert str(result.type_of("mapping")) == "dict[str, Any]"
+    assert str(result.type_of("red")) == "m.Color"
+    assert str(result.type_of("members")) == "dict[str, m.Color]"
+
+
+def test_datetime_regex_pathlib_and_os_path_helpers() -> None:
+    result = infer(
+        "import os, re\n"
+        "from datetime import date, datetime\n"
+        "from pathlib import Path\n"
+        "b = b'abc'\n"
+        "hexed = b.hex()\n"
+        "now = datetime.now()\n"
+        "current_time = now.time()\n"
+        "zone = now.tzinfo\n"
+        "parsed = datetime.strptime('2020', '%Y')\n"
+        "today = date.fromisoformat('2020-01-01')\n"
+        "pattern = re.compile('a')\n"
+        "match = pattern.match('abc')\n"
+        "found = re.findall('a', 'abc')\n"
+        "p = Path('x')\n"
+        "info = p.stat()\n"
+        "owner = p.owner()\n"
+        "exists = os.path.exists('x')\n"
+        "stem, ext = os.path.splitext('x.txt')\n"
+    )
+    assert raw_types(result.type_of("hexed")) == {str}
+    assert str(result.type_of("current_time")) == "datetime.time"
+    assert "datetime.tzinfo" in str(result.type_of("zone"))
+    assert str(result.type_of("parsed")) == "datetime.datetime"
+    assert str(result.type_of("today")) == "datetime.date"
+    assert str(result.type_of("pattern")) == "re.Pattern[str]"
+    assert "re.Match[str]" in str(result.type_of("match"))
+    assert str(result.type_of("found")) == "list[str]"
+    assert str(result.type_of("info")) == "os.stat_result"
+    assert raw_types(result.type_of("owner")) == {str}
+    assert raw_types(result.type_of("exists")) == {bool}
+    assert str(result.type_of("stem")) == "str"
+    assert str(result.type_of("ext")) == "str"
+
+
+def test_itertools_functools_json_queue_and_contextvar_models() -> None:
+    result = infer(
+        "import functools, itertools, json\n"
+        "from contextvars import ContextVar\n"
+        "from queue import Queue\n"
+        "from concurrent.futures import Future\n"
+        "def f(a: int, b: str) -> bool: return True\n"
+        "partial_by_keyword = functools.partial(f, b='x')\n"
+        "accumulated = itertools.accumulate([1, 2])\n"
+        "chained = itertools.chain.from_iterable([[1], [2]])\n"
+        "tees = itertools.tee([1, 2], n=3)\n"
+        "dumped = json.dumps({})\n"
+        "queue: Queue[int] = Queue()\n"
+        "queued = queue.get()\n"
+        "var: ContextVar[int] = ContextVar('v')\n"
+        "current = var.get()\n"
+        "future: Future[str] = Future()\n"
+        "resolved = future.result()\n"
+    )
+    assert str(result.type_of("partial_by_keyword")) == "Callable[[int], bool]"
+    assert str(result.type_of("accumulated")) == "collections.abc.Iterator[int]"
+    assert str(result.type_of("chained")) == "collections.abc.Iterator[int]"
+    assert str(result.type_of("tees")).count("Iterator[int]") == 3
+    assert raw_types(result.type_of("dumped")) == {str}
+    assert raw_types(result.type_of("queued")) == {int}
+    assert raw_types(result.type_of("current")) == {int}
+    assert raw_types(result.type_of("resolved")) == {str}
+
+
+def test_paramspec_forwarding_and_method_argument_ignore() -> None:
+    result = infer(
+        "from typing import Callable, ParamSpec\n"
+        "P = ParamSpec('P')\n"
+        "def forward(f: Callable[P, None], *a: P.args, **kw: P.kwargs) -> None:\n"
+        "    f(*a, **kw)\n"
+        "def target(x: int, y: str) -> None: ...\n"
+        "forward(target, 1, 'a')\n"
+        "class C:\n"
+        "    value: str | None = None\n"
+        "class M:\n"
+        "    def take(self, x: str) -> None: ...\n"
+        "    def run(self, c: C) -> None:\n"
+        "        self.take(\n"
+        "            c.value,  # type: ignore[arg-type]\n"
+        "        )\n",
+        strict=True,
+    )
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_abstract_container_methods_work_without_stubs() -> None:
+    result = infer(
+        "from collections.abc import Mapping, Sequence, MutableSequence\n"
+        "m: Mapping[str, int] = {}\n"
+        "a = m.get('x')\n"
+        "b = m['x']\n"
+        "s: Sequence[int] = []\n"
+        "c = s[0]\n"
+        "ms: MutableSequence[int] = []\n"
+        "d = ms.pop()\n"
+        "ms.append(1)\n"
+    )
+    assert raw_types(result.type_of("a")) == {int, type(None)}
+    assert raw_types(result.type_of("b")) == {int}
+    assert raw_types(result.type_of("c")) == {int}
+    assert raw_types(result.type_of("d")) == {int}
+
+
+def test_enum_literal_overloads_and_assignments() -> None:
+    result = infer(
+        "from enum import Enum\n"
+        "from typing import Literal, overload\n"
+        "class E(Enum):\n"
+        "    A = 1\n"
+        "    B = 2\n"
+        "@overload\n"
+        "def f(x: Literal[E.A]) -> int: ...\n"
+        "@overload\n"
+        "def f(x: Literal[E.B]) -> str: ...\n"
+        "def f(x): ...\n"
+        "a = f(E.A)\n"
+        "b = f(E.B)\n"
+        "good: Literal[E.A] = E.A\n"
+        "bad: Literal[E.A] = E.B\n",
+        strict=True,
+    )
+    assert raw_types(result.type_of("a")) == {int}
+    assert raw_types(result.type_of("b")) == {str}
+    mismatches = [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+    assert len(mismatches) == 1
+    assert "Literal[E.A]" in mismatches[0].message
+
+
+def test_loop_break_assignments_reach_the_loop_exit() -> None:
+    result = infer(
+        "def f(xs: list[int]) -> None:\n"
+        "    found = None\n"
+        "    for index, value in enumerate(xs):\n"
+        "        if value == 1:\n"
+        "            found = index\n"
+        "            break\n"
+        "    if found is not None:\n"
+        "        print(found)\n"
+    )
+    value = result.value_of("m.f")
+    assert value is not None
+    span = next(span for span in result.expressions if span.lineno == 8 and span.col_offset == 14)
+    assert str(result.expressions[span].runtime_type()) == "int"
+
+
+def test_threading_lock_and_event_models() -> None:
+    result = infer(
+        "import threading\n"
+        "lock = threading.Lock()\n"
+        "with lock:\n"
+        "    pass\n"
+        "event = threading.Event()\n"
+        "waiting = event.wait()\n"
+        "thread = threading.Thread()\n"
+        "name = thread.name\n"
+        "alive = thread.is_alive()\n"
+    )
+    assert str(result.type_of("waiting")) == "bool"
+    assert str(result.type_of("name")) == "str"
+    assert str(result.type_of("alive")) == "bool"
+    assert result.status == "complete"
+    assert not [item for item in result.diagnostics if "context manager" in item.message]

@@ -801,6 +801,8 @@ class TypeStringVisitor(TypeVisitor[str]):
 
     def visit_instance(self, left: Instance) -> str:  # noqa: D102
         if isinstance(left, LiteralType):
+            if isinstance(left.value, tuple) and len(left.value) == 3 and left.value[0] == "enum":
+                return f"Literal[{left.value[1].rsplit('.', 1)[-1]}.{left.value[2]}]"
             return f"Literal[{left.value!r}]"
         rep = left.type.name if left.type.module == "builtins" else left.type.full_name
         if len(left.args) > 0:

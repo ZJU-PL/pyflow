@@ -437,7 +437,7 @@ def test_typed_dict_methods_and_keys():
     )
     res = StaticTypeInferenceEngine().infer_source("m", src)
     assert res.status == "complete"
-    assert str(res.type_of("m.t")) == "None | str"
+    assert str(res.type_of("m.t")) == "str"
     assert str(res.type_of("m.y")) == "int"
     assert "KeysView[str]" in str(res.type_of("m.keys"))
     assert "ItemsView[str, int | str]" in str(res.type_of("m.items"))

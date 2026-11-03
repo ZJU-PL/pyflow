@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import builtins
 import collections
+import concurrent.futures
 import contextvars
 import datetime
 import functools
@@ -30,8 +31,11 @@ import io
 import itertools
 import os
 import pathlib
+import queue
 import re
+import threading
 import types
+import unittest
 import uuid
 from typing import TYPE_CHECKING, Protocol, Mapping
 
@@ -45,6 +49,7 @@ _STDLIB_TYPES = {
     module.__name__: module
     for module in (
         collections,
+        concurrent.futures,
         contextvars,
         datetime,
         functools,
@@ -52,8 +57,11 @@ _STDLIB_TYPES = {
         itertools,
         os,
         pathlib,
+        queue,
         re,
+        threading,
         types,
+        unittest,
         uuid,
     )
 }

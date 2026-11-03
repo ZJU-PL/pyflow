@@ -17,6 +17,7 @@ import ast
 import builtins
 import collections
 import collections.abc as cabc
+import contextvars
 import contextlib
 import enum
 import functools
@@ -24,6 +25,10 @@ import io
 import itertools
 import operator
 import os
+import queue
+import concurrent.futures
+import re
+import threading
 import datetime
 import tokenize
 from dataclasses import dataclass, field, replace
@@ -148,6 +153,8 @@ class _Outcome:
     returns: list[AbstractTypeValue] = field(default_factory=list)
     yields: list[AbstractTypeValue] = field(default_factory=list)
     terminated: bool = False
+    breaks: bool = False
+    continues: bool = False
 
 
 class StaticTypeInferenceEngine:
@@ -448,6 +455,8 @@ class StaticTypeInferenceEngine:
                         class_info.attributes.update(base_info.attributes)
                 for item in node.body:
                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                        if self._is_dataclass_pseudo_annotation(item.annotation):
+                            continue
                         val_annotation = self._annotation_value(item.annotation)
                         is_bare = (
                             isinstance(item.annotation, ast.Name)
@@ -674,6 +683,12 @@ class StaticTypeInferenceEngine:
                 )
                 self._type_vars = previous_vars
 
+    @staticmethod
+    def _is_dataclass_pseudo_annotation(node: ast.expr) -> bool:
+        base = node.value if isinstance(node, ast.Subscript) else node
+        name = _expression_name(base) or ""
+        return name.rsplit(".", 1)[-1] in {"KW_ONLY", "InitVar"}
+
     def _precollect_classes(
         self,
         statements: Iterable[ast.stmt],
@@ -751,6 +766,18 @@ class StaticTypeInferenceEngine:
                     super_class=self.type_system.to_class_descriptor(str),
                     sub_class=self._classes[qualified].instance.type,
                 )
+            if base_last_names & {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}:
+                for item in node.body:
+                    targets: list[ast.expr] = []
+                    if isinstance(item, ast.Assign):
+                        targets = list(item.targets)
+                    elif isinstance(item, ast.AnnAssign):
+                        targets = [item.target]
+                    for target in targets:
+                        if isinstance(target, ast.Name) and not target.id.startswith("_"):
+                            self._classes[qualified].enum_values.setdefault(
+                                target.id, AbstractTypeValue.from_type(ANY)
+                            )
             self._precollect_classes(node.body, parent=qualified)
 
     def _collect_type_variables(self, statements: Iterable[ast.stmt]) -> None:
@@ -843,7 +870,18 @@ class StaticTypeInferenceEngine:
         if name in self._value_assignments or name in self._function_names:
             # A local value/function shadows a builtin type name.
             return False
-        if name in self._class_aliases or name in self._type_aliases or name in self._type_vars:
+        if name in self._class_aliases:
+            class_info = self._classes.get(self._class_aliases[name])
+            if class_info is not None and {base.rsplit(".", 1)[-1] for base in class_info.bases} & {
+                "Enum",
+                "IntEnum",
+                "StrEnum",
+                "Flag",
+                "IntFlag",
+            }:
+                return False
+            return True
+        if name in self._type_aliases or name in self._type_vars:
             return True
         qualified = self._qualified_callee_name(base) or name
         if qualified.startswith(("typing.", "typing_extensions.", "collections.abc.")):
@@ -958,6 +996,22 @@ class StaticTypeInferenceEngine:
         local = self._class_aliases.get(name) or self._class_aliases.get(normalized)
         if local is not None:
             return self._classes[local].instance
+
+        class_name, separator, member_name = name.rpartition(".")
+        if separator:
+            resolved_class_name = class_name
+            if resolved_class_name not in self._classes:
+                resolved_class_name = self._class_aliases.get(class_name, class_name)
+            class_info = self._classes.get(resolved_class_name)
+            if (
+                class_info is not None
+                and class_info.enum_values
+                and member_name in class_info.enum_values
+            ):
+                return LiteralType(
+                    ("enum", class_info.qualified_name, member_name),
+                    class_info.instance,
+                )
 
         imported = self._resolve_import_name(name)
         if imported is not None:
@@ -1136,10 +1190,19 @@ class StaticTypeInferenceEngine:
         """
         arguments = function.node.args
         if arguments.vararg is not None and arguments.vararg.arg == name:
+            annotation = arguments.vararg.annotation
+            if isinstance(annotation, ast.Attribute) and annotation.attr == "args":
+                # ParamSpec.args already describes the whole positional
+                # argument tuple; wrapping it again produces
+                # tuple[tuple[...], ...] and corrupts forwarded calls.
+                return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
             return AbstractTypeValue.from_type(
                 TupleType((value.public_type() or ANY,), unknown_size=True)
             )
         if arguments.kwarg is not None and arguments.kwarg.arg == name:
+            annotation = arguments.kwarg.annotation
+            if isinstance(annotation, ast.Attribute) and annotation.attr == "kwargs":
+                return self._instance(dict, self._proper_instance(str), ANY)
             return self._instance(dict, self._proper_instance(str), value.public_type() or ANY)
         return value
 
@@ -1549,6 +1612,8 @@ class StaticTypeInferenceEngine:
         returns: list[AbstractTypeValue] = []
         yields: list[AbstractTypeValue] = []
         terminated = False
+        breaks = False
+        continues = False
         for statement in statements:
             outcome = self._execute_statement(
                 statement,
@@ -1559,10 +1624,19 @@ class StaticTypeInferenceEngine:
             current = outcome.environment
             returns.extend(outcome.returns)
             yields.extend(outcome.yields)
+            breaks = breaks or outcome.breaks
+            continues = continues or outcome.continues
             if outcome.terminated:
                 terminated = True
                 break
-        return _Outcome(current, returns, yields, terminated)
+        return _Outcome(
+            current,
+            returns,
+            yields,
+            terminated,
+            breaks=breaks,
+            continues=continues,
+        )
 
     def _execute_statement(
         self,
@@ -1740,9 +1814,17 @@ class StaticTypeInferenceEngine:
                 result, true_outcome.environment, false_outcome.environment
             )
             if true_outcome.terminated and not false_outcome.terminated:
-                merged = false_outcome.environment
+                merged = (
+                    self._join_environments(true_outcome.environment, false_outcome.environment)
+                    if true_outcome.breaks or true_outcome.continues
+                    else false_outcome.environment
+                )
             elif false_outcome.terminated and not true_outcome.terminated:
-                merged = true_outcome.environment
+                merged = (
+                    self._join_environments(true_outcome.environment, false_outcome.environment)
+                    if false_outcome.breaks or false_outcome.continues
+                    else true_outcome.environment
+                )
             else:
                 merged = self._join_environments(
                     true_outcome.environment, false_outcome.environment
@@ -1752,6 +1834,8 @@ class StaticTypeInferenceEngine:
                 true_outcome.returns + false_outcome.returns,
                 true_outcome.yields + false_outcome.yields,
                 true_outcome.terminated and false_outcome.terminated,
+                breaks=true_outcome.breaks or false_outcome.breaks,
+                continues=true_outcome.continues or false_outcome.continues,
             )
 
         if isinstance(node, (ast.While, ast.For, ast.AsyncFor)):
@@ -1968,6 +2052,7 @@ class StaticTypeInferenceEngine:
                         isinstance(item, ast.AnnAssign)
                         and isinstance(item.target, ast.Name)
                         and item.value is not None
+                        and not self._is_dataclass_pseudo_annotation(item.annotation)
                     ):
                         value = self._evaluate_expression(
                             item.value,
@@ -2008,7 +2093,12 @@ class StaticTypeInferenceEngine:
             return _Outcome(result)
 
         if isinstance(node, (ast.Raise, ast.Break, ast.Continue)):
-            return _Outcome(result, terminated=True)
+            return _Outcome(
+                result,
+                terminated=True,
+                breaks=isinstance(node, ast.Break),
+                continues=isinstance(node, ast.Continue),
+            )
 
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
@@ -2916,11 +3006,57 @@ class StaticTypeInferenceEngine:
         if qualified_name in {
             "datetime.datetime.now",
             "datetime.datetime.utcnow",
+            "datetime.datetime.today",
             "datetime.datetime.fromtimestamp",
+            "datetime.datetime.utcfromtimestamp",
+            "datetime.datetime.strptime",
+            "datetime.datetime.combine",
+            "datetime.datetime.fromisoformat",
         }:
             return self._instance(datetime.datetime)
-        if qualified_name == "datetime.date.today":
+        if qualified_name in {
+            "datetime.date.today",
+            "datetime.date.fromtimestamp",
+            "datetime.date.fromisoformat",
+            "datetime.date.fromordinal",
+        }:
             return self._instance(datetime.date)
+        if qualified_name.startswith("re."):
+            text_raw: type = str
+            candidates = (arguments[1].types if len(arguments) > 1 else ()) if arguments else ()
+            if not candidates and arguments:
+                candidates = arguments[0].types
+            for typ in candidates:
+                if isinstance(typ, Instance) and typ.type.raw_type is bytes:
+                    text_raw = bytes
+                    break
+                if isinstance(typ, Instance) and typ.type.raw_type is str:
+                    text_raw = str
+                    break
+            text_type = self._proper_instance(text_raw)
+            match_type = self._proper_instance(re.Match, text_type)
+            pattern_type = self._proper_instance(re.Pattern, text_type)
+            if qualified_name == "re.compile":
+                return AbstractTypeValue.from_type(pattern_type)
+            if qualified_name in {"re.match", "re.search", "re.fullmatch"}:
+                return self._join(
+                    AbstractTypeValue.from_type(match_type),
+                    AbstractTypeValue.from_type(NONE_TYPE),
+                )
+            if qualified_name == "re.findall":
+                return self._instance(list, text_type)
+            if qualified_name == "re.finditer":
+                return self._instance(cabc.Iterator, match_type)
+            if qualified_name == "re.sub":
+                return self._instance(text_raw)
+            if qualified_name == "re.subn":
+                return AbstractTypeValue.from_type(
+                    TupleType((text_type, self._proper_instance(int)))
+                )
+            if qualified_name == "re.split":
+                return self._instance(list, text_type)
+            if qualified_name == "re.escape":
+                return self._instance(str)
         if qualified_name == "collections.Counter":
             return self._instance(collections.Counter, element(arguments[0]) if arguments else ANY)
         if qualified_name == "collections.namedtuple" and node is not None:
@@ -3132,12 +3268,24 @@ class StaticTypeInferenceEngine:
             return self._instance(raw, key_type, value_type)
         if qualified_name == "functools.partial" and arguments:
             for typ in arguments[0].types:
-                if isinstance(typ, CallableType):
-                    if typ.arg_types is None:
-                        return AbstractTypeValue.from_type(typ)
-                    return AbstractTypeValue.from_type(
-                        CallableType(typ.arg_types[len(arguments) - 1 :], typ.return_type)
+                if not isinstance(typ, CallableType):
+                    continue
+                if typ.arg_types is None:
+                    return AbstractTypeValue.from_type(typ)
+                bound_positions = set(range(len(arguments) - 1))
+                target_name = next(iter(arguments[0].callable_targets), None)
+                target = self._functions.get(target_name) if target_name else None
+                if target is not None:
+                    names = target.parameter_names
+                    bound_positions.update(
+                        names.index(name)
+                        for name in keywords
+                        if name in names and names.index(name) < len(typ.arg_types)
                     )
+                remaining = tuple(
+                    item for index, item in enumerate(typ.arg_types) if index not in bound_positions
+                )
+                return AbstractTypeValue.from_type(CallableType(remaining, typ.return_type))
             return AbstractTypeValue.unresolved()
         if qualified_name == "functools.reduce" and len(arguments) >= 2:
             reduced = element(arguments[1])
@@ -3148,7 +3296,13 @@ class StaticTypeInferenceEngine:
                 )
             return AbstractTypeValue.from_type(reduced)
         if qualified_name.startswith("itertools."):
-            if qualified_name in {"itertools.chain", "itertools.chain.from_iterable"}:
+            if qualified_name == "itertools.chain.from_iterable" and arguments:
+                inner = element(arguments[0])
+                joined = (
+                    self._iterable_element(AbstractTypeValue.from_type(inner)).public_type() or ANY
+                )
+                return self._instance(cabc.Iterator, joined)
+            if qualified_name == "itertools.chain":
                 values = [element(argument) for argument in arguments]
                 joined = (
                     join_all(
@@ -3159,18 +3313,89 @@ class StaticTypeInferenceEngine:
                     or ANY
                 )
                 return self._instance(cabc.Iterator, joined)
+            if qualified_name == "itertools.islice" and arguments:
+                return self._instance(cabc.Iterator, element(arguments[0]))
             if (
                 qualified_name
                 in {
-                    "itertools.islice",
                     "itertools.filterfalse",
                     "itertools.dropwhile",
                     "itertools.takewhile",
-                    "itertools.starmap",
                 }
-                and arguments
+                and len(arguments) >= 2
             ):
+                return self._instance(cabc.Iterator, element(arguments[1]))
+            if qualified_name == "itertools.starmap" and len(arguments) >= 2:
+                tuple_element = element(arguments[1])
+                callable_targets = arguments[0].callable_targets
+                if callable_targets and isinstance(tuple_element, TupleType):
+                    return self._instance(
+                        cabc.Iterator,
+                        join_all(
+                            (
+                                self._apply_function(
+                                    target,
+                                    [
+                                        AbstractTypeValue.from_type(item)
+                                        for item in tuple_element.args
+                                    ],
+                                    {},
+                                )
+                                for target in callable_targets
+                            ),
+                            self.type_system,
+                            max_union_size=self.options.max_union_size,
+                        ).public_type()
+                        or ANY,
+                    )
+                return self._instance(cabc.Iterator, tuple_element)
+            if qualified_name == "itertools.accumulate" and arguments:
+                accumulated = element(arguments[0])
+                if len(arguments) > 1 and arguments[1].callable_targets:
+                    target = next(iter(arguments[1].callable_targets))
+                    result = self._apply_function(
+                        target,
+                        [
+                            AbstractTypeValue.from_type(accumulated),
+                            AbstractTypeValue.from_type(accumulated),
+                        ],
+                        {},
+                    ).public_type()
+                    if result is not None:
+                        accumulated = result
+                return self._instance(cabc.Iterator, accumulated)
+            if qualified_name == "itertools.count" and arguments:
+                count_raw = (
+                    float
+                    if any(
+                        isinstance(part, Instance) and part.type.raw_type is float
+                        for argument in arguments
+                        for part in argument.types
+                    )
+                    else int
+                )
+                return self._instance(cabc.Iterator, self._proper_instance(count_raw))
+            if qualified_name == "itertools.cycle" and arguments:
                 return self._instance(cabc.Iterator, element(arguments[0]))
+            if qualified_name == "itertools.tee" and arguments:
+                item = element(arguments[0])
+                count = 2
+                if len(arguments) > 1 or "n" in keywords:
+                    try:
+                        count_node = next(
+                            (keyword.value for keyword in node.keywords if keyword.arg == "n"),
+                            node.args[1] if len(node.args) > 1 else None,
+                        )
+                        count_value = ast.literal_eval(count_node)
+                        if isinstance(count_value, int):
+                            count = max(0, count_value)
+                    except (ValueError, TypeError, SyntaxError):
+                        count = 2
+                return AbstractTypeValue.from_type(
+                    TupleType(
+                        tuple(self._proper_instance(cabc.Iterator, item) for _ in range(count))
+                    )
+                )
             if qualified_name in {"itertools.product", "itertools.zip_longest"}:
                 return self._instance(
                     cabc.Iterator,
@@ -3189,6 +3414,42 @@ class StaticTypeInferenceEngine:
                     cabc.Iterator,
                     TupleType((item, self._proper_instance(cabc.Iterator, item))),
                 )
+        if qualified_name in {"os.getcwd", "os.getcwdb"}:
+            return self._instance(bytes if qualified_name.endswith("b") else str)
+        if qualified_name in {"os.getpid", "os.getppid"}:
+            return self._instance(int)
+        if qualified_name in {"os.getenv", "os.environ.get"}:
+            return self._join(
+                AbstractTypeValue.from_type(self._proper_instance(str)),
+                AbstractTypeValue.from_type(NONE_TYPE),
+            )
+        if qualified_name == "os.cpu_count":
+            return self._join(
+                AbstractTypeValue.from_type(self._proper_instance(int)),
+                AbstractTypeValue.from_type(NONE_TYPE),
+            )
+        if qualified_name == "os.listdir":
+            return self._instance(list, self._proper_instance(str))
+        if qualified_name == "os.scandir":
+            return self._instance(cabc.Iterator, ANY)
+        if qualified_name in {"os.stat", "os.lstat"}:
+            return self._instance(os.stat_result)
+        if qualified_name == "os.urandom":
+            return self._instance(bytes)
+        if qualified_name in {
+            "os.makedirs",
+            "os.remove",
+            "os.unlink",
+            "os.rmdir",
+            "os.rename",
+            "os.replace",
+            "os.chmod",
+            "os.chown",
+            "os.chdir",
+            "os.symlink",
+            "os.link",
+        }:
+            return AbstractTypeValue.from_type(NONE_TYPE)
         if qualified_name in {"os.path.join", "posixpath.join", "ntpath.join"}:
             return self._instance(
                 bytes if any(self._contains_raw(argument, bytes) for argument in arguments) else str
@@ -3197,12 +3458,61 @@ class StaticTypeInferenceEngine:
             "os.fspath",
             "os.path.basename",
             "os.path.dirname",
+            "os.path.abspath",
+            "os.path.realpath",
+            "os.path.normpath",
+            "os.path.expanduser",
+            "os.path.expandvars",
+            "os.path.relpath",
             "posixpath.basename",
             "posixpath.dirname",
+            "posixpath.abspath",
+            "posixpath.realpath",
             "ntpath.basename",
             "ntpath.dirname",
+            "ntpath.abspath",
+            "ntpath.realpath",
         }:
+            return self._instance(
+                bytes if any(self._contains_raw(argument, bytes) for argument in arguments) else str
+            )
+        if qualified_name in {
+            "os.path.exists",
+            "os.path.isfile",
+            "os.path.isdir",
+            "os.path.islink",
+            "os.path.isabs",
+            "os.path.samefile",
+            "posixpath.exists",
+            "posixpath.isfile",
+            "posixpath.isdir",
+            "ntpath.exists",
+            "ntpath.isfile",
+            "ntpath.isdir",
+        }:
+            return self._instance(bool)
+        if qualified_name in {"os.path.getsize", "os.path.getmtime"}:
+            return self._instance(int if qualified_name.endswith("getsize") else float)
+        if qualified_name in {
+            "os.path.splitext",
+            "os.path.split",
+            "posixpath.splitext",
+            "posixpath.split",
+            "ntpath.splitext",
+            "ntpath.split",
+        }:
+            raw = (
+                bytes if any(self._contains_raw(argument, bytes) for argument in arguments) else str
+            )
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(raw), self._proper_instance(raw)))
+            )
+        if qualified_name == "json.dumps":
             return self._instance(str)
+        if qualified_name in {"json.dump"}:
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if qualified_name in {"json.loads", "json.load"}:
+            return AbstractTypeValue.from_type(ANY)
         if qualified_name == "enum.auto":
             # ``auto()`` assigns increasing integers to enum members.
             return self._instance(int)
@@ -3490,7 +3800,7 @@ class StaticTypeInferenceEngine:
     ) -> AbstractTypeValue | None:
         for target in base.callable_targets:
             if node.attr == "__call__":
-                return self._apply_function(target, arguments, keywords, node=node)
+                return self._apply_function(target, arguments, keywords, node=call_node or node)
 
         for typ in base.types:
             pathlib_class: Instance | None = None
@@ -3504,6 +3814,23 @@ class StaticTypeInferenceEngine:
                 and node.attr in {"home", "cwd"}
             ):
                 return AbstractTypeValue.from_type(pathlib_class)
+
+        for typ in base.types:
+            if not isinstance(typ, Instance):
+                continue
+            class_info = self._classes.get(typ.type.full_name)
+            if class_info is None or class_info.instance.type.tuple_fields is None:
+                continue
+            if node.attr in {"_replace", "_make"}:
+                return AbstractTypeValue.from_type(typ)
+            if node.attr == "_asdict":
+                return self._instance(dict, self._proper_instance(str), ANY)
+            if node.attr in {"_fields", "__match_args__"}:
+                return AbstractTypeValue.from_type(
+                    TupleType((self._proper_instance(str),), unknown_size=True)
+                )
+            if node.attr == "_field_defaults":
+                return self._instance(dict, self._proper_instance(str), ANY)
 
         method_targets: list[str] = []
         for typ in base.types:
@@ -3540,7 +3867,7 @@ class StaticTypeInferenceEngine:
                         target,
                         self._method_arguments(self._functions[target], base, arguments),
                         keywords,
-                        node=node,
+                        node=call_node or node,
                     )
                     for target in method_targets
                 ],
@@ -3566,9 +3893,10 @@ class StaticTypeInferenceEngine:
             if not isinstance(typ, Instance):
                 continue
             original_type = typ.type
-            projected = self._builtin_projection(typ)
-            if projected is not None:
-                typ = projected
+            if typ.type.typed_dict_fields is None:
+                projected = self._builtin_projection(typ)
+                if projected is not None:
+                    typ = projected
             raw = typ.type.raw_type
             args = typ.args
             if raw is cabc.Generator:
@@ -3616,8 +3944,20 @@ class StaticTypeInferenceEngine:
                     "is_absolute",
                     "is_relative_to",
                     "match",
+                    "samefile",
+                    "is_mount",
+                    "is_socket",
+                    "is_fifo",
+                    "is_block_device",
+                    "is_char_device",
                 }:
                     return self._instance(bool)
+                if node.attr in {"stat", "lstat"}:
+                    return self._instance(os.stat_result)
+                if node.attr in {"owner", "group", "as_uri"}:
+                    return self._instance(str)
+                if node.attr == "readlink":
+                    return AbstractTypeValue.from_type(typ)
                 if node.attr in {"iterdir", "glob", "rglob"}:
                     return self._instance(cabc.Iterator, typ)
                 if node.attr == "walk":
@@ -3674,6 +4014,13 @@ class StaticTypeInferenceEngine:
             if raw is datetime.datetime:
                 if node.attr == "date":
                     return self._instance(datetime.date)
+                if node.attr in {"time", "timetz"}:
+                    return self._instance(datetime.time)
+                if node.attr == "tzinfo":
+                    return self._join(
+                        self._instance(datetime.tzinfo),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
                 if node.attr == "timestamp":
                     return self._instance(float)
                 if node.attr in {"isoformat", "strftime", "ctime"}:
@@ -3692,7 +4039,13 @@ class StaticTypeInferenceEngine:
                     return self._instance(str)
                 if node.attr in {"weekday", "isoweekday"}:
                     return self._instance(int)
-                if node.attr == "replace":
+                if node.attr in {
+                    "replace",
+                    "today",
+                    "fromtimestamp",
+                    "fromisoformat",
+                    "fromordinal",
+                }:
                     return AbstractTypeValue.from_type(typ)
             if raw is datetime.timedelta:
                 if node.attr == "total_seconds":
@@ -3790,6 +4143,232 @@ class StaticTypeInferenceEngine:
                     return self._instance(str)
                 if node.attr in {"append", "extend"}:
                     return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is re.Pattern:
+                text = args[0] if args else ANY
+                match_type = self._proper_instance(re.Match, text)
+                if node.attr in {"match", "search", "fullmatch"}:
+                    return self._join(
+                        AbstractTypeValue.from_type(match_type),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr == "findall":
+                    return self._instance(list, text)
+                if node.attr == "finditer":
+                    return self._instance(cabc.Iterator, match_type)
+                if node.attr == "sub":
+                    return AbstractTypeValue.from_type(text)
+                if node.attr == "subn":
+                    return AbstractTypeValue.from_type(
+                        TupleType((text, self._proper_instance(int)))
+                    )
+                if node.attr == "split":
+                    return self._instance(list, text)
+            if raw is re.Match:
+                text = args[0] if args else ANY
+                match_or_none = self._join(
+                    AbstractTypeValue.from_type(text),
+                    AbstractTypeValue.from_type(NONE_TYPE),
+                )
+                if node.attr == "group":
+                    return AbstractTypeValue.from_type(text)
+                if node.attr == "expand":
+                    return AbstractTypeValue.from_type(text)
+                if node.attr == "__getitem__":
+                    return AbstractTypeValue.from_type(text)
+                if node.attr == "groups":
+                    return AbstractTypeValue.from_type(
+                        TupleType((match_or_none.public_type() or ANY,), unknown_size=True)
+                    )
+                if node.attr == "groupdict":
+                    return self._instance(
+                        dict, self._proper_instance(str), match_or_none.public_type() or ANY
+                    )
+                if node.attr in {"start", "end"}:
+                    if arguments:
+                        return self._join(
+                            AbstractTypeValue.from_type(self._proper_instance(int)),
+                            AbstractTypeValue.from_type(NONE_TYPE),
+                        )
+                    return self._instance(int)
+                if node.attr == "span":
+                    if arguments:
+                        return AbstractTypeValue.from_type(
+                            TupleType(
+                                (
+                                    self._join(
+                                        AbstractTypeValue.from_type(self._proper_instance(int)),
+                                        AbstractTypeValue.from_type(NONE_TYPE),
+                                    ).public_type()
+                                    or ANY,
+                                    self._join(
+                                        AbstractTypeValue.from_type(self._proper_instance(int)),
+                                        AbstractTypeValue.from_type(NONE_TYPE),
+                                    ).public_type()
+                                    or ANY,
+                                )
+                            )
+                        )
+                    return AbstractTypeValue.from_type(
+                        TupleType((self._proper_instance(int), self._proper_instance(int)))
+                    )
+            if raw in {threading.Lock, threading.RLock}:
+                if node.attr in {"__enter__"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr in {"__exit__", "release"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"acquire", "locked"}:
+                    return self._instance(bool)
+            if raw in {
+                threading.Event,
+                threading.Condition,
+                threading.Semaphore,
+                threading.BoundedSemaphore,
+                threading.Barrier,
+            }:
+                if node.attr in {
+                    "wait",
+                    "wait_for",
+                    "is_set",
+                    "isSet",
+                    "acquire",
+                }:
+                    return self._instance(bool)
+                if node.attr in {
+                    "set",
+                    "clear",
+                    "release",
+                    "notify_all",
+                    "notifyAll",
+                    "abort",
+                    "reset",
+                }:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"__enter__"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr in {"__exit__"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is threading.Thread:
+                if node.attr in {"start", "join", "run"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"is_alive"}:
+                    return self._instance(bool)
+                if node.attr == "name":
+                    return self._instance(str)
+                if node.attr in {"daemon"}:
+                    return self._instance(bool)
+            if raw in {
+                queue.Queue,
+                queue.SimpleQueue,
+                queue.LifoQueue,
+                queue.PriorityQueue,
+            }:
+                item = args[0] if args else ANY
+                if node.attr == "get":
+                    return AbstractTypeValue.from_type(item)
+                if node.attr in {"put", "put_nowait", "task_done", "join"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "qsize":
+                    return self._instance(int)
+                if node.attr in {"empty", "full"}:
+                    return self._instance(bool)
+            if raw is concurrent.futures.Future:
+                item = args[0] if args else ANY
+                if node.attr == "result":
+                    return AbstractTypeValue.from_type(item)
+                if node.attr == "exception":
+                    return self._join(
+                        AbstractTypeValue.from_type(self._proper_instance(BaseException)),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr in {"done", "cancelled", "running", "cancel"}:
+                    return self._instance(bool)
+                if node.attr in {
+                    "set_result",
+                    "set_exception",
+                    "set_running_or_notify_cancel",
+                    "add_done_callback",
+                }:
+                    return AbstractTypeValue.from_type(
+                        self._proper_instance(bool)
+                        if node.attr == "set_running_or_notify_cancel"
+                        else NONE_TYPE
+                    )
+            if raw in {
+                concurrent.futures.ThreadPoolExecutor,
+                concurrent.futures.ProcessPoolExecutor,
+            }:
+                if node.attr == "submit" and arguments:
+                    return self._instance(
+                        concurrent.futures.Future,
+                        self._callable_return_type(arguments[0]).public_type() or ANY,
+                    )
+                if node.attr in {"shutdown"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw in {cabc.Iterator, cabc.AsyncIterator}:
+                item = args[0] if args else ANY
+                if node.attr in {"__iter__", "__aiter__"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr in {"__next__", "__anext__"}:
+                    return AbstractTypeValue.from_type(item)
+            if raw in {cabc.Mapping, cabc.MutableMapping}:
+                key = args[0] if args else ANY
+                item = args[1] if len(args) > 1 else ANY
+                key_value = AbstractTypeValue.from_type(key)
+                item_value = AbstractTypeValue.from_type(item)
+                if node.attr == "get":
+                    default = (
+                        arguments[1]
+                        if len(arguments) > 1
+                        else AbstractTypeValue.from_type(NONE_TYPE)
+                    )
+                    return self._join(item_value, default)
+                if node.attr in {"__getitem__", "pop"}:
+                    if node.attr == "pop" and len(arguments) > 1:
+                        return self._join(item_value, arguments[1])
+                    return item_value
+                if node.attr == "keys":
+                    return self._instance(cabc.KeysView, key)
+                if node.attr == "values":
+                    return self._instance(cabc.ValuesView, item)
+                if node.attr == "items":
+                    return self._instance(cabc.ItemsView, key, item)
+                if node.attr in {"copy", "__iter__"}:
+                    return (
+                        AbstractTypeValue.from_type(typ)
+                        if node.attr == "copy"
+                        else self._instance(cabc.Iterator, key)
+                    )
+                if node.attr in {"__len__", "count"}:
+                    return self._instance(int)
+                if node.attr in {"clear", "update", "setdefault"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw in {cabc.Sequence, cabc.MutableSequence}:
+                item = args[0] if args else ANY
+                item_value = AbstractTypeValue.from_type(item)
+                if node.attr == "__getitem__":
+                    return item_value
+                if node.attr in {"count", "index", "__len__"}:
+                    return self._instance(int)
+                if node.attr in {"pop"}:
+                    return item_value
+                if node.attr in {"copy", "reverse"}:
+                    return (
+                        AbstractTypeValue.from_type(typ)
+                        if node.attr == "copy"
+                        else AbstractTypeValue.from_type(NONE_TYPE)
+                    )
+                if node.attr in {"append", "extend", "insert", "remove", "sort", "clear"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "__iter__":
+                    return self._instance(cabc.Iterator, item)
+            if raw is contextvars.ContextVar:
+                item = args[0] if args else ANY
+                if node.attr == "get":
+                    return AbstractTypeValue.from_type(item)
+                if node.attr == "set":
+                    return self._instance(contextvars.Token, item)
+                if node.attr == "reset":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is collections.Counter:
                 counter_element = AbstractTypeValue.from_type(args[0] if args else ANY)
                 if node.attr == "most_common":
@@ -3830,18 +4409,26 @@ class StaticTypeInferenceEngine:
                         item = field_values[0]
                     else:
                         item = UnionType(tuple(sorted(field_values)))
+                    key_name = (
+                        call_node.args[0].value
+                        if call_node
+                        and call_node.args
+                        and isinstance(call_node.args[0], ast.Constant)
+                        and isinstance(call_node.args[0].value, str)
+                        else None
+                    )
                     if node.attr == "get":
-                        item_type = item
-                        if (
-                            call_node
-                            and call_node.args
-                            and isinstance(call_node.args[0], ast.Constant)
-                            and isinstance(call_node.args[0].value, str)
-                        ):
-                            key_name = call_node.args[0].value
-                            if key_name in fields:
-                                item_type = fields[key_name]
-                        result = AbstractTypeValue.from_type(item_type)
+                        if key_name in fields:
+                            result = AbstractTypeValue.from_type(fields[key_name])
+                            if key_name in typ.type.required_keys:
+                                return result
+                            default = (
+                                arguments[1]
+                                if len(arguments) > 1
+                                else AbstractTypeValue.from_type(NONE_TYPE)
+                            )
+                            return self._join(result, default)
+                        result = AbstractTypeValue.from_type(item)
                         default = (
                             arguments[1]
                             if len(arguments) > 1
@@ -3854,28 +4441,17 @@ class StaticTypeInferenceEngine:
                             if len(arguments) > 1
                             else AbstractTypeValue.from_type(NONE_TYPE)
                         )
-                        result = self._join(AbstractTypeValue.from_type(item), default)
-                        key_type = (
-                            arguments[0].public_type()
-                            if arguments and arguments[0].public_type() is not None
-                            else key
-                        )
-                        widened_key = self._join(
-                            AbstractTypeValue.from_type(key), AbstractTypeValue.from_type(key_type)
-                        )
-                        widened_item = self._join(AbstractTypeValue.from_type(item), default)
-                        self._update_environment_receiver(
-                            environment,
-                            node.value,
-                            self._instance(
-                                dict,
-                                widened_key.public_type() or ANY,
-                                widened_item.public_type() or ANY,
-                            ),
-                        )
-                        return result
+                        field = fields.get(key_name) if key_name is not None else None
+                        if key_name in typ.type.required_keys and field is not None:
+                            return AbstractTypeValue.from_type(field)
+                        if field is not None:
+                            return self._join(AbstractTypeValue.from_type(field), default)
+                        return self._join(AbstractTypeValue.from_type(item), default)
                     if node.attr == "pop":
-                        result = AbstractTypeValue.from_type(item)
+                        field = fields.get(key_name) if key_name is not None else None
+                        result = AbstractTypeValue.from_type(field if field is not None else item)
+                        if key_name in typ.type.required_keys:
+                            return result
                         if len(arguments) > 1:
                             return self._join(result, arguments[1])
                         return result
@@ -3888,34 +4464,9 @@ class StaticTypeInferenceEngine:
                     if node.attr == "items":
                         return self._instance(cabc.ItemsView, key, item)
                     if node.attr in {"update", "clear"}:
-                        if node.attr == "update":
-                            mapping_key: AbstractTypeValue | None = None
-                            mapping_item: AbstractTypeValue | None = None
-                            if arguments:
-                                mapping_key, mapping_item = self._mapping_key_value(arguments[0])
-                            elif keywords:
-                                mapping_key = self._instance(str)
-                                mapping_item = join_all(
-                                    keywords.values(),
-                                    self.type_system,
-                                    max_union_size=self.options.max_union_size,
-                                )
-                            if mapping_key is not None and mapping_item is not None:
-                                widened_key = self._join(
-                                    AbstractTypeValue.from_type(key), mapping_key
-                                )
-                                widened_item = self._join(
-                                    AbstractTypeValue.from_type(item), mapping_item
-                                )
-                                self._update_environment_receiver(
-                                    environment,
-                                    node.value,
-                                    self._instance(
-                                        dict,
-                                        widened_key.public_type() or ANY,
-                                        widened_item.public_type() or ANY,
-                                    ),
-                                )
+                        # TypedDict keys and their types are fixed by the
+                        # declaration; mutating methods must not project the
+                        # receiver to an anonymous dict.
                         return AbstractTypeValue.from_type(NONE_TYPE)
                 else:
                     key = args[0] if len(args) > 0 else ANY
@@ -4092,6 +4643,8 @@ class StaticTypeInferenceEngine:
         if attribute == "encode" and receiver is str:
             return self._instance(bytes)
         if attribute == "decode" and receiver is bytes:
+            return self._instance(str)
+        if attribute == "hex" and receiver is bytes:
             return self._instance(str)
         if attribute in preserving[receiver]:
             return self._instance(receiver)
@@ -4502,6 +5055,10 @@ class StaticTypeInferenceEngine:
     ) -> AbstractTypeValue:
         if self._contains_any(base) or self._contains_any(exponent):
             return AbstractTypeValue.from_type(ANY)
+        if any(isinstance(part, Instance) and part.type.raw_type is complex for part in base.types):
+            return self._instance(complex)
+        if self._all_bool_values(base, exponent):
+            return self._instance(int)
         negative_exponent = bool(exponent.literal_values) and all(
             isinstance(value, int) and value < 0 for value in exponent.literal_values
         )
@@ -5286,7 +5843,7 @@ class StaticTypeInferenceEngine:
                 return
             self._add_diagnostic(
                 "annotation-mismatch",
-                f"Inferred {sorted(map(repr, inferred.literal_values))} is incompatible "
+                f"Inferred {sorted(map(self._format_literal_value, inferred.literal_values))} is incompatible "
                 f"with annotated {expected} for {context}",
                 node=node,
                 severity="error" if self.options.strict_annotations else "warning",
@@ -5508,6 +6065,12 @@ class StaticTypeInferenceEngine:
         return True
 
     @staticmethod
+    def _format_literal_value(value: object) -> str:
+        if isinstance(value, tuple) and len(value) == 3 and value[0] == "enum":
+            return f"{value[1]}.{value[2]}"
+        return repr(value)
+
+    @staticmethod
     def _expected_contains_literal(expected: ProperType) -> bool:
         if isinstance(expected, LiteralType):
             return True
@@ -5651,6 +6214,9 @@ class StaticTypeInferenceEngine:
             return None
         arguments = function.node.args
         positional = [*arguments.posonlyargs, *arguments.args]
+        if function.owner is not None and function.method_kind != "static" and positional:
+            # The receiver is already bound and is not present in node.args.
+            positional = positional[1:]
         if name in {argument.arg for argument in positional}:
             index = next(i for i, argument in enumerate(positional) if argument.arg == name)
             return node.args[index] if index < len(node.args) else None
@@ -6504,6 +7070,16 @@ class StaticTypeInferenceEngine:
             )
             enum_names = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
             if class_info is not None and enum_base_names & enum_names:
+                if attribute in class_info.enum_values:
+                    values.append(
+                        AbstractTypeValue.from_type(
+                            class_info.instance,
+                            literal_values=frozenset(
+                                (("enum", class_info.qualified_name, attribute),)
+                            ),
+                        )
+                    )
+                    continue
                 if attribute == "name":
                     return self._instance(str)
                 if attribute == "value":
@@ -6522,6 +7098,27 @@ class StaticTypeInferenceEngine:
                         else AbstractTypeValue.from_type(ANY)
                     )
             if class_info is not None:
+                enum_bases = {base.rsplit(".", 1)[-1] for base in class_info.bases}
+                if attribute == "__members__" and enum_bases & {
+                    "Enum",
+                    "IntEnum",
+                    "StrEnum",
+                    "Flag",
+                    "IntFlag",
+                }:
+                    values.append(self._instance(dict, self._proper_instance(str), typ))
+                    continue
+                if class_info.instance.type.tuple_fields is not None:
+                    if attribute in {"_fields", "__match_args__"}:
+                        values.append(
+                            AbstractTypeValue.from_type(
+                                TupleType((self._proper_instance(str),), unknown_size=True)
+                            )
+                        )
+                        continue
+                    if attribute == "_field_defaults":
+                        values.append(self._instance(dict, self._proper_instance(str), ANY))
+                        continue
                 getter = self._class_property(class_info.qualified_name, attribute)
                 if getter is not None:
                     function = self._functions[getter]
@@ -6592,6 +7189,64 @@ class StaticTypeInferenceEngine:
                         finally:
                             self._resolving_attributes.remove(key)
             else:
+                if typ.type.raw_type is threading.Thread:
+                    if attribute == "name":
+                        values.append(self._instance(str))
+                        continue
+                    if attribute == "daemon":
+                        values.append(self._instance(bool))
+                        continue
+                    if attribute in {"ident", "native_id"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(int)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                if typ.type.raw_type is contextvars.ContextVar and attribute == "name":
+                    values.append(self._instance(str))
+                    continue
+                if typ.type.raw_type is re.Pattern:
+                    text = typ.args[0] if typ.args else ANY
+                    if attribute == "pattern":
+                        values.append(AbstractTypeValue.from_type(text))
+                        continue
+                    if attribute in {"flags", "groups"}:
+                        values.append(self._instance(int))
+                        continue
+                    if attribute == "groupindex":
+                        values.append(
+                            self._instance(
+                                dict,
+                                self._proper_instance(str),
+                                self._proper_instance(int),
+                            )
+                        )
+                        continue
+                if typ.type.raw_type is re.Match:
+                    text = typ.args[0] if typ.args else ANY
+                    if attribute == "string":
+                        values.append(AbstractTypeValue.from_type(text))
+                        continue
+                    if attribute == "re":
+                        values.append(self._instance(re.Pattern, text))
+                        continue
+                    if attribute in {"pos", "endpos"}:
+                        values.append(self._instance(int))
+                        continue
+                    if attribute in {"lastindex", "lastgroup"}:
+                        values.append(
+                            self._join(
+                                (
+                                    AbstractTypeValue.from_type(text)
+                                    if attribute == "lastgroup"
+                                    else self._instance(int)
+                                ),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
                 if typ.type.raw_type is datetime.timedelta and attribute in {
                     "days",
                     "seconds",
@@ -6608,6 +7263,17 @@ class StaticTypeInferenceEngine:
                     "second",
                     "microsecond",
                 }:
+                    values.append(self._instance(int))
+                    continue
+                if typ.type.raw_type is datetime.datetime and attribute == "tzinfo":
+                    values.append(
+                        self._join(
+                            self._instance(datetime.tzinfo),
+                            AbstractTypeValue.from_type(NONE_TYPE),
+                        )
+                    )
+                    continue
+                if typ.type.raw_type is datetime.datetime and attribute == "fold":
                     values.append(self._instance(int))
                     continue
                 if self._is_pathlib_type(typ):
@@ -6697,6 +7363,17 @@ class StaticTypeInferenceEngine:
 
     def _subscript_value(self, base: AbstractTypeValue, slice_node: ast.expr) -> AbstractTypeValue:
         if base.class_targets:
+            for target in base.class_targets:
+                class_info = self._classes.get(target)
+                if class_info is None or not class_info.enum_values:
+                    continue
+                if (
+                    isinstance(slice_node, ast.Constant)
+                    and isinstance(slice_node.value, str)
+                    and slice_node.value in class_info.enum_values
+                ):
+                    return AbstractTypeValue.from_type(class_info.instance)
+                return AbstractTypeValue.unresolved()
             arguments = slice_node.elts if isinstance(slice_node, ast.Tuple) else [slice_node]
             parameters = tuple(
                 self._annotation_value(item).public_type() or ANY for item in arguments
@@ -6716,7 +7393,7 @@ class StaticTypeInferenceEngine:
                     for item in typ.items
                 )
                 continue
-            if isinstance(typ, Instance):
+            if isinstance(typ, Instance) and typ.type.typed_dict_fields is None:
                 projected = self._builtin_projection(typ)
                 if projected is not None:
                     typ = projected
@@ -6767,6 +7444,12 @@ class StaticTypeInferenceEngine:
                 values.extend(AbstractTypeValue.from_type(item) for item in typ.args)
             elif isinstance(typ, Instance):
                 raw = typ.type.raw_type
+                if raw in {cabc.Mapping, cabc.MutableMapping} and len(typ.args) >= 2:
+                    values.append(AbstractTypeValue.from_type(typ.args[1]))
+                    continue
+                if raw in {cabc.Sequence, cabc.MutableSequence} and typ.args:
+                    values.append(AbstractTypeValue.from_type(typ.args[0]))
+                    continue
                 if typ.type.typed_dict_fields is not None:
                     if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
                         values.append(
