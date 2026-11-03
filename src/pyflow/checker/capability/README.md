@@ -74,13 +74,18 @@ closure cells and reachable fields are then traversed for each transfer.
 ```python
 from pyflow.checker.capability import DefensiveCapabilityAnalysis
 
-result = DefensiveCapabilityAnalysis(k=1).analyze_project(
+result = DefensiveCapabilityAnalysis(k=1, analyze_all_scopes=True).analyze_project(
     "src/package/__main__.py",
     project_path=".",
 )
 for finding in result.findings:
     print(finding.capability, finding.report_kind, finding.location)
 ```
+
+``analyze_all_scopes=True`` translates every function and method scope in the
+entry module, including bodies that are never called from module import.  This
+is the CLI default; pass ``--reachable-only`` to restrict the audit to code
+reachable from the entrypoint.
 
 The default model is the versioned JSON file
 `pyflow/config/capability/stdlib.json`. A project can append its own model with
@@ -110,6 +115,8 @@ opaque external return object.
 ```text
 pyflow capabilities PROJECT --entry app.py --format sarif
 pyflow capabilities app.py --capability-model company-capabilities.json
+pyflow capabilities library/ -r              # audits every file's scopes
+pyflow capabilities library/ -r --reachable-only   # old reachability mode
 pyflow capabilities app.py --report-callable-boundaries
 pyflow capability-run --observe-only --audit-log observed.json app.py
 pyflow capability-run --allow file.read --allow 'network.*' app.py

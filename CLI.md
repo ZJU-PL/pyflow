@@ -448,19 +448,29 @@ pyflow security project/ -r --severity medium --skip-rule A105 --fail-on high
 pyflow security project/ -r --format json --json-schema unified > report.json
 pyflow security project/ -r --baseline report.json --format json --json-schema unified
 pyflow callgraph library/ -r
-pyflow capabilities library/ -r --import-depth 0 --format json
+pyflow capabilities library/ -r --format json
 ```
 
 ``capabilities -r`` analyzes every discovered project source file as its own
-entry (one whole-project analysis each); without it, ``--entry`` selects one
-root. Explicit file targets are analyzed even when they live in directories
-normally excluded from discovery. JSON and text reports include the entry
-coverage (`entries_total`, `entries_analyzed`, `entries_failed`,
-`entries_skipped`), so a budget-truncated run is never mistaken for a complete
-project inventory.
+entry; without it, ``--entry`` selects one root. By default each entry's
+function and method scopes are audited too, so uncalled library functions and
+framework handlers are not silently skipped. Pass ``--reachable-only`` to
+restore the previous call-graph-reachability behavior. ``-r`` defaults to
+``--import-depth 0`` so a library scan does not spend its budget resolving
+every dependency; pass ``--import-depth -1`` explicitly for a whole-program
+analysis per entry.  Single-file audits also accept ``--import-depth 0`` when
+the file has expensive third-party imports and only its own scopes need
+review. Directory targets that are packages use
+their parent as the import root, and explicit file targets are analyzed even
+when they live in directories normally excluded from discovery. JSON and text
+reports include the entry coverage (`entries_total`, `entries_analyzed`,
+`entries_failed`, `entries_skipped`), so a budget-truncated run is never
+mistaken for a complete project inventory.
 
 Capabilities use `--max-iterations` (default: 20000 per entry) and
-`--max-seconds` (default: 30 across all entries). Budget exhaustion preserves
+`--max-seconds` (default: 120 for one entry, 60 with `-r`). Scope auditing is
+more expensive than reachable-only analysis; raise these budgets for large
+files. Budget exhaustion preserves
 completed reports and adds partial diagnostics. Each report also carries a
 `coverage` block with the solver's completeness flags; `complete` means only
 that no unknown/unsupported/budget diagnostic was emitted. Alias and capabilities time

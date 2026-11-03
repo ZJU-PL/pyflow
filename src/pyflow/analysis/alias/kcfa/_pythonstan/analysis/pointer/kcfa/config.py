@@ -52,6 +52,7 @@ class Config:
     project_path: Optional[str] = None
     library_paths: Optional[List[str]] = None
     max_import_depth: int = -1
+    analyze_all_scopes: bool = False
     track_unknowns: bool = True
     log_unknown_details: bool = False
     type: str = "pointer analysis"
@@ -105,6 +106,7 @@ class Config:
             "project_path": self.project_path,
             "library_paths": self.library_paths,
             "max_import_depth": self.max_import_depth,
+            "analyze_all_scopes": self.analyze_all_scopes,
             "track_unknowns": self.track_unknowns,
             "log_unknown_details": self.log_unknown_details,
             "index_sensitive": self.index_sensitive,

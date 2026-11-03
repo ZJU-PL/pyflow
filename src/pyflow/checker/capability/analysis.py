@@ -145,11 +145,45 @@ _HANDLE_WRITE_METHODS = frozenset({"write", "writelines", "truncate"})
 
 #: APIs whose *second* positional argument (or ``mode`` keyword) selects
 #: between reading and writing, in addition to anything ending in ``.open``.
-_MODE_AWARE_OPEN_PATHS = frozenset({"builtins.open", "io.open", "zipfile.ZipFile"})
+_MODE_AWARE_OPEN_PATHS = frozenset({"builtins.open", "io.open", "os.fdopen", "zipfile.ZipFile"})
 
 
 def _is_mode_aware_open(access_path: str) -> bool:
     return access_path in _MODE_AWARE_OPEN_PATHS or access_path.endswith(".open")
+
+
+_NON_HANDLE_PATH_TYPES = frozenset(
+    {
+        "pathlib.Path",
+        "pathlib.PurePath",
+        "pathlib.PosixPath",
+        "pathlib.WindowsPath",
+        "pathlib.PurePosixPath",
+        "pathlib.PureWindowsPath",
+    }
+)
+
+
+def _instance_class_qualname(obj) -> str | None:
+    class_obj = getattr(obj, "class_obj", None)
+    ir = getattr(class_obj, "ir", None)
+    getter = getattr(ir, "get_qualname", None)
+    return str(getter()) if callable(getter) else None
+
+
+def _is_path_value(obj) -> bool:
+    """Return True for pathname wrappers, which are not authority handles.
+
+    A ``Path`` is an ordinary string-like value.  Treating it as a file handle
+    made every path transfer (``open(p)``, ``json.dumps(p)``, a public ``Path``
+    constant, ...) produce read/write/metadata "capability transfer" noise.
+    Direct ``Path.read_text``/``open``/``exists`` calls are reported from
+    their own call events and do not need value identity.
+    """
+    if not isinstance(obj, InstanceObject):
+        return False
+    qualname = _instance_class_qualname(obj)
+    return qualname in _NON_HANDLE_PATH_TYPES
 
 
 def _can_denote_handle(obj) -> bool:
@@ -159,6 +193,8 @@ def _can_denote_handle(obj) -> bool:
     if isinstance(obj, NativeObject):
         return True
     if isinstance(obj, InstanceObject):
+        if _is_path_value(obj):
+            return False
         # Instances of user/stub classes: ``io.TextIOWrapper``/``FileIO`` are
         # handles, ``_StatResult`` is metadata.  Both are worth tracking.
         return True
@@ -299,6 +335,7 @@ class DefensiveCapabilityAnalysis:
         report_public_exports: bool = True,
         report_callable_boundaries: bool = False,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
+        analyze_all_scopes: bool = False,
     ) -> None:
         self.registry = registry or default_capability_registry()
         self.k = k
@@ -306,6 +343,7 @@ class DefensiveCapabilityAnalysis:
         self.report_public_exports = report_public_exports
         self.report_callable_boundaries = report_callable_boundaries
         self.max_iterations = max_iterations
+        self.analyze_all_scopes = analyze_all_scopes
         self._return_identities: dict = {}
         self._return_capabilities: dict = {}
         self._stub_scopes: set[str] = set()
@@ -317,6 +355,7 @@ class DefensiveCapabilityAnalysis:
             context_policy=self.context_policy,
             native_effects=self._pointer_effects(),
             max_iterations=self.max_iterations,
+            analyze_all_scopes=self.analyze_all_scopes,
         ).run()
         return self.analyze_pointer_result(pointer_result)
 
@@ -327,6 +366,7 @@ class DefensiveCapabilityAnalysis:
         project_path: str | Path | None = None,
         library_paths: Iterable[str | Path] = (),
         import_level: int = -1,
+        analyze_all_scopes: bool | None = None,
     ) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis.from_project(
             entry_file,
@@ -337,6 +377,9 @@ class DefensiveCapabilityAnalysis:
             native_effects=self._pointer_effects(),
             import_level=import_level,
             max_iterations=self.max_iterations,
+            analyze_all_scopes=(
+                self.analyze_all_scopes if analyze_all_scopes is None else analyze_all_scopes
+            ),
         ).run()
         return self.analyze_pointer_result(pointer_result)
 
@@ -408,6 +451,17 @@ class DefensiveCapabilityAnalysis:
             return None
         if isinstance(obj, DictObject):
             return "os.environ" if self._is_environ_dict(obj) else None
+        if isinstance(obj, MethodObject):
+            receiver_path = (
+                self._object_path(obj.instance_obj) if obj.instance_obj is not None else None
+            )
+            if receiver_path is not None:
+                method_name = (
+                    getattr(obj.ir, "name", "")
+                    or str(getattr(obj.ir, "get_qualname", lambda: "")()).rsplit(".", 1)[-1]
+                )
+                if method_name:
+                    return f"{receiver_path}.{method_name}"
         if isinstance(obj, FunctionObject):
             module = getattr(obj.container_scope, "module", None)
             filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
@@ -491,12 +545,12 @@ class DefensiveCapabilityAnalysis:
         self, access_path: str, operation: CapabilityOperation
     ) -> tuple[CapabilityPattern, ...]:
         """Match a path, resolving synthetic ``<return>`` handle identities."""
-        patterns = self.registry.match(access_path, operation)
+        patterns = self._filter_sensitive_read(
+            access_path, operation, self.registry.match(access_path, operation)
+        )
         if patterns or ".<return>" not in access_path:
             return patterns
-        normalized = access_path
-        while ".<return>" in normalized:
-            normalized = normalized.replace(".<return>", "")
+        normalized = access_path.replace(".<return>", "")
         method = normalized.rsplit(".", 1)[-1]
         if method in _HANDLE_READ_METHODS:
             wanted = {"file.read"}
@@ -507,12 +561,50 @@ class DefensiveCapabilityAnalysis:
             # use of their own.
             return ()
         origin = normalized.rsplit(".", 1)[0]
-        for candidate in (origin, normalized):
-            matched = self.registry.match(candidate, operation)
-            if matched:
-                filtered = tuple(p for p in matched if p.capability in wanted)
-                return filtered or matched
-        return ()
+        matched = self.registry.match(origin, operation)
+        if not matched:
+            return ()
+        filtered = tuple(pattern for pattern in matched if pattern.capability in wanted)
+        if filtered:
+            return self._filter_sensitive_read(access_path, operation, filtered)
+        # ``urlopen(...).read()`` is a network operation, not file IO.  Keep
+        # non-file producer capabilities, but never relabel a read on a
+        # write-only file producer as a write.
+        non_file = tuple(
+            pattern for pattern in matched if not pattern.capability.startswith("file.")
+        )
+        return self._filter_sensitive_read(access_path, operation, non_file)
+
+    @staticmethod
+    def _filter_sensitive_read(access_path, operation, patterns):
+        """Suppress method/alias chains on information capabilities.
+
+        ``Path(sys.argv[1]) / "x"`` used to produce ``read
+        information.environment`` findings for ``__truediv__``,
+        ``__bool__``, ``__len__`` and every alias of the same argv value.
+        Reading argv/environ is a capability use; manipulating the resulting
+        string/path is not.  Keep the root read and one direct member/index
+        access, and drop synthetic wildcard aliases and deeper chains.
+        """
+        if operation is not CapabilityOperation.READ:
+            return patterns
+        root = None
+        if access_path == "sys.argv" or access_path.startswith("sys.argv."):
+            root = "sys.argv"
+        elif access_path == "os.environ" or access_path.startswith("os.environ."):
+            root = "os.environ"
+        if root is None:
+            return patterns
+        remainder = access_path[len(root) :]
+        if remainder.startswith("."):
+            remainder = remainder[1:]
+        if not remainder:
+            return tuple(patterns)
+        if remainder in {"*", "True", "False", "None"}:
+            return tuple(p for p in patterns if p.capability != "information.environment")
+        if "." in remainder:
+            return tuple(p for p in patterns if p.capability != "information.environment")
+        return tuple(patterns)
 
     @staticmethod
     def _callable_class_path(obj) -> str | None:
@@ -610,13 +702,20 @@ class DefensiveCapabilityAnalysis:
         constraint = event.constraint
         findings: list[CapabilityFinding] = []
         effects = self.registry.effects_for(callee_path)
-        boundary_effects = tuple(
-            effect
-            for effect in effects
-            if effect.kind
-            not in {ExternalEffectKind.RETURN_ARGUMENT, ExternalEffectKind.RETURN_RECEIVER}
-        )
-        if not boundary_effects:
+        if effects:
+            # A return-only summary (``copy.copy``, ``typing.cast``) keeps the
+            # capability in the caller; it is not an unanalysed external
+            # boundary.  Reporting every argument here produced a bogus
+            # "escapes through unanalyzed call" finding.
+            boundary_effects = tuple(
+                effect
+                for effect in effects
+                if effect.kind
+                not in {ExternalEffectKind.RETURN_ARGUMENT, ExternalEffectKind.RETURN_RECEIVER}
+            )
+            if not boundary_effects:
+                return []
+        else:
             boundary_effects = (None,)
         for effect in boundary_effects:
             if effect is None:

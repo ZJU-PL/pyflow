@@ -4,6 +4,7 @@ This module provides the main entry point for running pointer analysis.
 """
 
 import logging
+import sys
 from typing import Optional, List, Any, TYPE_CHECKING, Dict
 from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisDriver, AnalysisConfig
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import AllocKind, AllocSite
@@ -130,7 +131,24 @@ class PointerAnalysis(AnalysisDriver):
         ctx_scope = Scope(scope, None, empty_context, None, None)
         self.state.set_internal_scope(module_obj, ctx_scope)
 
-        truncated_imports = tuple(self.world.truncated_imports)
+        truncated_imports = []
+        for module, stmt, depth in self.world.truncated_imports:
+            if getattr(stmt, "level", 0):
+                truncated_imports.append((module, stmt, depth))
+                continue
+            import_name = getattr(stmt, "module", None) or getattr(stmt, "name", "") or ""
+            base = import_name.split(".", 1)[0]
+            if base in sys.stdlib_module_names or base in sys.builtin_module_names:
+                # Entry-only audits still model stdlib imports through the
+                # bundled stubs; counting them as skipped made every
+                # ``--import-depth 0`` report partial even for ``import os``.
+                continue
+            from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import Namespace
+
+            if self.world.namespace_manager._find_mock_path(Namespace.from_str(import_name)):
+                continue
+            truncated_imports.append((module, stmt, depth))
+        truncated_imports = tuple(truncated_imports)
         if truncated_imports:
             count = len(truncated_imports)
             max_depth = max(depth for _, _, depth in truncated_imports)
@@ -190,6 +208,9 @@ class PointerAnalysis(AnalysisDriver):
         logger.info("Initializing builtin functions...")
         self._initialize_builtins(ctx_scope, empty_context)
 
+        if self.kcfa_config.analyze_all_scopes:
+            self._audit_project_scopes(scope, ctx_scope, empty_context)
+
         # Solve to fixpoint
         self.solver.solve_to_fixpoint()
 
@@ -227,6 +248,38 @@ class PointerAnalysis(AnalysisDriver):
 
         logger.info("Analysis complete")
         return result
+
+    def _audit_project_scopes(self, entry_scope, entry_scope_ctx, empty_context) -> None:
+        """Translate the entry module's function scopes as audit roots.
+
+        ``capabilities`` is an audit tool: a function that is never called is
+        still part of the reviewed program.  The normal solver translates a
+        function body lazily when a call reaches it, which silently hides
+        capabilities in library functions and framework handlers.  Analyze
+        every function/method scope in the entry module at the empty context
+        so direct capability calls inside those bodies produce findings.
+        ``capabilities -r`` makes every project file its own entry, so this
+        also covers uncalled functions in a library scan.
+        """
+        self._seed_scope_functions(entry_scope, entry_scope_ctx, entry_scope_ctx, empty_context)
+
+    def _seed_scope_functions(self, scope_ir, parent_scope, module_scope, empty_context) -> None:
+        from .context import Scope
+        from pyflow.analysis.alias.kcfa._pythonstan.ir import IRClass, IRFunc
+
+        for child in self.world.scope_manager.get_subscopes(scope_ir):
+            if isinstance(child, IRFunc):
+                if child in self.translator._scope_constraints:
+                    continue
+                func_scope = Scope.new(None, module_scope, empty_context, child, parent_scope)
+                for constraint in self.translator.translate_function(child):
+                    self.solver.add_constraint(func_scope, empty_context, constraint)
+                self._seed_scope_functions(child, func_scope, module_scope, empty_context)
+            elif isinstance(child, IRClass):
+                # The module-level translation already allocates the class and
+                # binds its methods; only method bodies need seeding here.
+                class_scope = Scope.new(None, module_scope, empty_context, child, parent_scope)
+                self._seed_scope_functions(child, class_scope, module_scope, empty_context)
 
     def _initialize_builtins(self, module_scope: "Scope", context: "AbstractContext") -> None:
         """Initialize common builtin functions in the global scope.

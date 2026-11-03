@@ -2,6 +2,7 @@
 
 import ast
 import os
+import tokenize
 from typing import Set, List, Dict, Tuple, Any, Optional, FrozenSet
 
 from .namespace import Namespace
@@ -141,7 +142,7 @@ class ScopeManager:
             return existing
         if not os.path.isfile(filename):
             return None
-        with open(filename, "r") as f:
+        with tokenize.open(filename) as f:
             m_ast = ast.parse(f.read(), filename=filename)
         mod = IRModule(ns.to_str(), m_ast, ns.get_name(), filename)
         self.scopes.add(mod)

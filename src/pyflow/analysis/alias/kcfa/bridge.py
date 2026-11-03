@@ -13,6 +13,7 @@ import ast
 import logging
 import re
 import tempfile
+import tokenize
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -357,6 +358,7 @@ class PointerAnalysis:
         native_effects: Sequence[dict] = (),
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
+        analyze_all_scopes: bool = False,
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
     ) -> None:
@@ -379,6 +381,7 @@ class PointerAnalysis:
         self._native_effects = tuple(dict(effect) for effect in native_effects)
         self._max_iterations = max_iterations
         self._max_points_to_size = max_points_to_size
+        self._analyze_all_scopes = bool(analyze_all_scopes)
         self._worklist_policy = worklist_policy
         self._worklist_seed = worklist_seed
         self._entry_file: Path | None = None
@@ -398,6 +401,7 @@ class PointerAnalysis:
         native_effects: Sequence[dict] = (),
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
+        analyze_all_scopes: bool = False,
         import_level: int = -1,
         max_import_depth: int = -1,
         worklist_policy: str = "fifo",
@@ -422,13 +426,16 @@ class PointerAnalysis:
             raise ValueError(
                 "max_import_depth must be >= -1 (-1 = unlimited, " "0 = entry module only)"
             )
+        with tokenize.open(entry) as source_file:
+            entry_source = source_file.read()
         analysis = cls(
-            entry.read_text(encoding="utf-8"),
+            entry_source,
             k=k,
             context_policy=context_policy,
             native_effects=native_effects,
             max_iterations=max_iterations,
             max_points_to_size=max_points_to_size,
+            analyze_all_scopes=analyze_all_scopes,
             worklist_policy=worklist_policy,
             worklist_seed=worklist_seed,
         )
@@ -496,6 +503,7 @@ class PointerAnalysis:
                             "native_effects": list(self._native_effects),
                             "max_iterations": self._max_iterations,
                             "max_points_to_size": self._max_points_to_size,
+                            "analyze_all_scopes": self._analyze_all_scopes,
                             "worklist_policy": self._worklist_policy,
                             "worklist_seed": self._worklist_seed,
                         },

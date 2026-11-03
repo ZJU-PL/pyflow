@@ -172,6 +172,24 @@ class Path(PurePath):
 
         return File(self)
 
+    def symlink_to(self, target, target_is_directory=False):
+        pass
+
+    def hardlink_to(self, target):
+        pass
+
+    def owner(self):
+        return "user"
+
+    def group(self):
+        return "group"
+
+    def samefile(self, other_path):
+        return str(self) == str(other_path)
+
+    def readlink(self):
+        return Path(str(self))
+
     def read_text(self, encoding=None, errors=None):
         return ""
 

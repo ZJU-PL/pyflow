@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Set, Union, List, Optional, Tuple, Type
 import ast
+import tokenize
 from ast import stmt as Statement
 from ast import Module, ClassDef, Name
 
@@ -1368,7 +1369,7 @@ class IRModule(IRScope, IRStatement):
     def load_module(cls, name: str, filename: str, content: Optional[str] = None) -> "IRModule":
         """Parses raw source and wraps it in an ``IRModule``."""
         if content is None:
-            with open(filename, "r") as f:
+            with tokenize.open(filename) as f:
                 content = f.read()
         mod_ast = ast.parse(content, filename)
         mod = cls(mod_ast, name=name, filename=filename)

@@ -21,7 +21,12 @@ and an independent mechanism restricting the recipient's ambient authority.
 
 ## Static coverage
 
-Coverage depends on source reachability from the configured entrypoint,
+By default every function and method scope in each analyzed entry module is
+translated, including bodies that are not reachable from module import.  Pass
+``--reachable-only`` to restrict the audit to call-graph reachability.  In
+either mode, modules that are imported but never analyzed as their own entry
+can contain calls that are only summarized by the solver; ``-r`` makes every
+project file an entry.  Coverage also depends on the configured entrypoint,
 import depth, the solver's Python models, and the capability registry. Native
 extensions, generated code, reflection, import machinery, and interpreter
 mutation may introduce behavior outside those models. Runtime observation

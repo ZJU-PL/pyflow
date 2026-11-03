@@ -100,8 +100,17 @@ def add_capabilities_parser(subparsers) -> None:
         "-r",
         action="store_true",
         help=(
-            "Analyze every project Python file as an entry (one whole-project "
-            "analysis each; the report states how many entries were covered)"
+            "Analyze every project Python file as its own entry (import depth "
+            "0 by default; the report states how many entries were covered)"
+        ),
+    )
+    parser.add_argument(
+        "--reachable-only",
+        action="store_true",
+        help=(
+            "Only analyze code reachable from the entrypoint (the previous "
+            "behavior); by default every function/method scope in the entry "
+            "module is audited"
         ),
     )
     parser.add_argument("--context-depth", type=int, choices=(0, 1, 2, 3), default=1)
@@ -133,8 +142,11 @@ def add_capabilities_parser(subparsers) -> None:
     parser.add_argument(
         "--import-depth",
         type=import_depth,
-        default=-1,
-        help="Maximum transitive import depth (-1 = unlimited, 0 = entry only)",
+        default=None,
+        help=(
+            "Maximum transitive import depth (-1 = unlimited, 0 = entry "
+            "only; default: 0 with -r, -1 otherwise)"
+        ),
     )
     parser.add_argument(
         "--max-iterations",
@@ -145,8 +157,11 @@ def add_capabilities_parser(subparsers) -> None:
     parser.add_argument(
         "--max-seconds",
         type=positive_seconds,
-        default=30.0,
-        help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
+        default=None,
+        help=(
+            "Wall-clock budget for the entire analysis (default: 120 for one "
+            "entry, 60 with -r; reports partial)"
+        ),
     )
     parser.add_argument("--format", choices=("text", "json", "sarif"), default="text")
     parser.add_argument(
@@ -180,14 +195,29 @@ def add_capabilities_parser(subparsers) -> None:
 
 def run_capabilities(args) -> int:
     target = Path(args.input_path).resolve()
-    import_level = getattr(args, "import_depth", -1)
+    import_level = getattr(args, "import_depth", None)
+    if import_level is None:
+        # Scope auditing makes whole-program analysis from every file
+        # quadratic and spends the budget inside dependencies.  A file audit
+        # and ``-r`` use the target's own scopes; a project entry keeps the
+        # traditional whole-program default.
+        import_level = 0 if getattr(args, "recursive", False) else -1
     if import_level < -1:
         print(
             "Error: --import-depth must be -1 (unlimited) or greater",
             file=sys.stderr,
         )
         return 2
+    max_seconds = getattr(args, "max_seconds", None)
+    if max_seconds is None:
+        max_seconds = 60.0 if (target.is_dir() and getattr(args, "recursive", False)) else 120.0
     if target.is_dir():
+        if getattr(args, "recursive", False) and getattr(args, "entry", None):
+            print(
+                "Error: --entry cannot be combined with --recursive",
+                file=sys.stderr,
+            )
+            return 2
         if getattr(args, "recursive", False):
             from pyflow.frontend.file_selection import (
                 discover_python_files,
@@ -223,6 +253,11 @@ def run_capabilities(args) -> int:
                 print(f"  {candidate.path} [{candidate.source}]", file=sys.stderr)
             return 2
         project_root = target
+        # ``capabilities pkg/`` must use the import root of a package, not
+        # the package directory itself: otherwise ``from . import sibling``
+        # cannot resolve and the whole scan silently degrades.
+        while (project_root / "__init__.py").is_file():
+            project_root = project_root.parent
     elif target.is_file() and target.suffix == ".py":
         entry = target
         entries = [entry]
@@ -245,6 +280,7 @@ def run_capabilities(args) -> int:
         report_public_exports=not getattr(args, "no_public_exports", False),
         report_callable_boundaries=getattr(args, "report_callable_boundaries", False),
         max_iterations=getattr(args, "max_iterations", 20000),
+        analyze_all_scopes=not getattr(args, "reachable_only", False),
     )
     from pyflow.checker.capability.model import CapabilityAnalysisResult
 
@@ -253,13 +289,20 @@ def run_capabilities(args) -> int:
     failed_entries = 0
     solver_coverages: list[dict] = []
     try:
-        with analysis_time_budget(getattr(args, "max_seconds", 30.0)), redirect_stdout(sys.stderr):
+        with analysis_time_budget(max_seconds), redirect_stdout(sys.stderr):
             for entry in entries:
                 try:
                     analyzed = analysis.analyze_project(
                         entry, project_path=project_root, import_level=import_level
                     )
-                except (OSError, SyntaxError, UnicodeError, AssertionError, ValueError) as exc:
+                except (
+                    OSError,
+                    SyntaxError,
+                    UnicodeError,
+                    AssertionError,
+                    ValueError,
+                    RecursionError,
+                ) as exc:
                     from pyflow.checker.capability.model import (
                         CapabilityDiagnostic,
                         SourceLocation,
@@ -289,6 +332,14 @@ def run_capabilities(args) -> int:
 
         result.diagnostics.append(CapabilityDiagnostic(kind="budget", message=str(exc)))
         result.status = "partial"
+    # ``-r`` runs one analysis per entry, so the same module import or native
+    # effect diagnostic is emitted once per entry.  Collapse those duplicates
+    # before reporting.
+    deduped = {}
+    for diagnostic in result.diagnostics:
+        key = (diagnostic.kind, diagnostic.message, diagnostic.location)
+        deduped.setdefault(key, diagnostic)
+    result.diagnostics = list(deduped.values())
     if solver_coverages:
         result.coverage.update(
             {

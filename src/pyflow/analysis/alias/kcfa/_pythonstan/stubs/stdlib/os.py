@@ -140,6 +140,46 @@ def scandir(path="."):
     return _ScandirIterator(path)
 
 
+def fdopen(fd, mode="r", *args, **kwargs):
+    class _File:
+        def __init__(self):
+            self.fd = fd
+            self.mode = mode
+
+        def read(self, size=-1):
+            return ""
+
+        def write(self, data):
+            return len(data)
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    return _File()
+
+
+def chroot(path):
+    pass
+
+
+def getxattr(path, attribute, *args, **kwargs):
+    return b""
+
+
+def setxattr(path, attribute, value, flags=0):
+    pass
+
+
+def lockf(fd, cmd, len=0, start=0, whence=0):
+    pass
+
+
 def open(file, flags, mode=0o777):
     return 0
 

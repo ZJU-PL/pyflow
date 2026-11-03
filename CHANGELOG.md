@@ -9,11 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pyflow capabilities` now audits every function and method scope in the
+  entry module by default, so uncalled library functions and framework
+  handlers are reported.  `--reachable-only` restores call-graph reachability.
+  `-r` defaults to `--import-depth 0`, and package-directory targets use their
+  parent as the import root.
+- Capability models now cover additional stdlib and ecosystem file APIs,
+  including `os.chdir`/`link`/`symlink`/`utime`, `os.fdopen`, path link and
+  metadata methods, `PIL.Image.open`, `pandas.read_*`, `numpy.load`,
+  `aiofiles.open`, `openpyxl.load_workbook`, `boto3.client`, and
+  `yaml.load_all`.
 - `pyflow supply-chain audit --reachability-source` separates application code
   from an installed package tree during vulnerability reachability annotation.
 
 ### Fixed
 
+- Capability analysis no longer treats `pathlib.Path` values as resource
+  handles, no longer reports method-chain aliases such as
+  `sys.argv.__getitem__.<return>` as environment reads, and no longer reports
+  return-only calls (`copy.copy`, `typing.cast`) as unanalysed escape
+  boundaries.  Handle methods returned by `Path.open()` and
+  `tempfile.NamedTemporaryFile()` are now reported.
+- Capability source reading honors UTF-8 BOM and PEP 263 coding cookies, and a
+  `RecursionError` on deeply nested expressions is reported as an unsupported
+  entry instead of crashing the CLI.  Recursive diagnostics are deduplicated.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values
