@@ -22,7 +22,7 @@ from urllib.parse import unquote, urlparse
 from pyflow.language.modules.project_resolution import ModuleIdentityResolver
 from pyflow.frontend.source import read_python_source
 
-_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+_IDENTIFIER = re.compile(r"[^\W\d]\w*")
 
 
 def uri_to_path(uri: str) -> str:
@@ -1297,7 +1297,7 @@ class SourceIndex:
             return []
         before = lines[line][: lsp_character_to_offset(lines[line], character)]
         bindings = self.visible_bindings_at(uri, line, character)
-        member = re.search(r"\.([A-Za-z_]\w*)?$", before)
+        member = re.search(rf"\.({_IDENTIFIER.pattern})?$", before)
         external = []
         if member:
             prefix = member.group(1) or ""
@@ -1307,7 +1307,7 @@ class SourceIndex:
             for owner in self._resolver.names(target):
                 external.extend(self._external_members(owner, prefix))
         else:
-            match = re.search(r"[A-Za-z_]\w*$", before)
+            match = re.search(rf"{_IDENTIFIER.pattern}$", before)
             prefix = match.group(0) if match else ""
             symbols = [
                 self._symbols_by_id[symbol]
@@ -2636,6 +2636,17 @@ class _IndexVisitor(ast.NodeVisitor):
                 prefix += "."
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        module = node.module or ""
+        if node.level:
+            package = (
+                self.module.split(".")
+                if Path(self.path).name == "__init__.py"
+                else self.module.split(".")[:-1]
+            )
+            module = ".".join(
+                [*package[: len(package) - node.level + 1], *([module] if module else [])]
+            )
+        self._record_import_module_reference(node, module)
         for alias in node.names:
             if alias.name != "*":
                 symbol = self._add_local_definition(
@@ -2647,16 +2658,6 @@ class _IndexVisitor(ast.NodeVisitor):
                         self._alias_range(alias, alias.asname) if alias.asname else None
                     ),
                 )
-                module = node.module or ""
-                if node.level:
-                    package = (
-                        self.module.split(".")
-                        if Path(self.path).name == "__init__.py"
-                        else self.module.split(".")[:-1]
-                    )
-                    module = ".".join(
-                        [*package[: len(package) - node.level + 1], *([module] if module else [])]
-                    )
                 self.index._import_targets[symbol.symbol_id] = f"{module}.{alias.name}".lstrip(".")
                 self.index.references.append(
                     SourceReference(
@@ -2667,6 +2668,36 @@ class _IndexVisitor(ast.NodeVisitor):
                         import_name=True,
                     )
                 )
+
+    def _record_import_module_reference(self, node: ast.ImportFrom, module: str) -> None:
+        """Expose the module path of ``from pkg.mod import name`` for navigation."""
+        if not node.module or not module:
+            return
+        line_no = node.lineno - 1
+        line = self.lines[line_no] if line_no < len(self.lines) else ""
+        start = _byte_col_to_char(line, node.col_offset)
+        found = line.find(node.module, start)
+        if found < 0:
+            return
+        textual = node.module.split(".")
+        absolute = module.split(".")
+        base = len(absolute) - len(textual)
+        offset = 0
+        for index, component in enumerate(textual):
+            column = found + offset
+            location = SourceRange(
+                self.uri,
+                line_no,
+                offset_to_lsp_character(line, column),
+                line_no,
+                offset_to_lsp_character(line, column + len(component)),
+            )
+            prefix = ".".join(absolute[: base + index + 1])
+            self.index._reference_targets[location] = ("external", prefix)
+            self.index.references.append(
+                SourceReference(component, location, self._current_function())
+            )
+            offset += len(component) + 1
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, (ast.Store, ast.Del)):

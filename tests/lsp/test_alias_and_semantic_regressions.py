@@ -160,3 +160,65 @@ def test_delete_attribute_does_not_abort_cpa(tmp_path: Path):
     manager = AnalysisManager()
     manager.load_files([path], passes=["ipa", "cpa"])
     assert manager.current_snapshot().features.cpa
+
+
+def test_unicode_identifiers_navigate_complete_and_rename(tmp_path: Path):
+    source = (
+        "café = 1\n"
+        "\n"
+        "class Café:\n"
+        "    def __init__(self) -> None:\n"
+        "        self.属性 = 2\n"
+        "    def méto(self, 变量: int) -> int:\n"
+        "        return 变量 + café\n"
+    )
+    path = tmp_path / "unicode_ids.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    assert {"café", "Café", "属性", "méto"} <= {
+        symbol.name for symbol in index.document_symbols(uri)
+    }
+    assert index.word_at(uri, 6, 15) == "变量"
+    assert "属性" in {item["label"] for item in index.completion_items(uri, 4, 13)}
+    assert "属性" in {item["label"] for item in index.completion_items(uri, 4, 14)}
+
+    lines = source.splitlines()
+    for source_range in index.rename_ranges_at(uri, 5, 19):
+        assert (
+            lines[source_range.start_line][
+                source_range.start_character : source_range.end_character
+            ]
+            == "变量"
+        )
+
+
+def test_from_import_module_path_is_navigable(tmp_path: Path):
+    models = tmp_path / "models.py"
+    models.write_text("class Widget:\n    pass\n")
+    main = tmp_path / "main.py"
+    main.write_text("from models import Widget\n\nvalue = Widget()\n")
+    index = SourceIndex({str(models): models.read_text(), str(main): main.read_text()}, (tmp_path,))
+    definitions = index.definitions_at(path_to_uri(main), 0, 7)
+    assert [item.uri for item in definitions] == [path_to_uri(models)]
+
+
+def test_multi_root_workspace_resolves_across_roots(tmp_path: Path):
+    r1 = tmp_path / "r1"
+    r2 = tmp_path / "r2"
+    (r1 / "alpha").mkdir(parents=True)
+    (r2 / "beta").mkdir(parents=True)
+    (r1 / "alpha" / "__init__.py").write_text(
+        "class A:\n    def hi(self) -> str:\n        return 'a'\n"
+    )
+    (r2 / "beta" / "__init__.py").write_text("class B:\n    pass\n")
+    use = r2 / "beta" / "use.py"
+    use.write_text("from alpha import A\n\ndef run(a: A) -> str:\n    return a.hi()\n")
+    sources = {
+        str(path): path.read_text()
+        for path in [r1 / "alpha" / "__init__.py", r2 / "beta" / "__init__.py", use]
+    }
+    index = SourceIndex(sources, (r1, r2))
+    definitions = index.definitions_at(path_to_uri(use), 3, 13)
+    assert [item.uri for item in definitions] == [path_to_uri(r1 / "alpha" / "__init__.py")]
+    assert "hi" in {item["label"] for item in index.completion_items(path_to_uri(use), 3, 13)}
