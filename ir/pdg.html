@@ -143,7 +143,9 @@ into a single graph that supports dependency queries and program slicing.</p>
 <li><p><strong>Control dependence</strong> edges are derived using post-dominator information on the CFG.</p></li>
 <li><p><strong>Data dependence</strong> edges are derived from local def-use sets extracted from the CFG’s AST.</p></li>
 </ul>
-<p>For higher precision data dependences, PDG construction can run SSA + phi expansion on the CFG.</p>
+<p>For higher precision data dependences, PDG construction can run SSA + phi expansion on the CFG.
+With <code class="docutils literal notranslate"><span class="pre">run_ssa=True</span></code>, SSA is verified before phi expansion. Invalid SSA raises
+<code class="docutils literal notranslate"><span class="pre">SSAVerificationError</span></code> rather than producing a dependence graph.</p>
 </section>
 <section id="programmatic-usage">
 <h2>Programmatic usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>

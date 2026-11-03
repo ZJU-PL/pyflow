@@ -210,6 +210,21 @@ conservative branches.</p>
 <li><p>Optimization opportunities</p></li>
 <li><p>Phi node insertion and elimination</p></li>
 </ul>
+<p>Expression renaming, verification, and CFG/SSA dump rendering use explicit
+stacks, so deeply nested operator chains do not consume a Python frame per
+AST level. This does not make every AST transformation iterative.</p>
+<p><code class="docutils literal notranslate"><span class="pre">verify_ssa(cfg)</span></code> checks value availability, dominance, and phi consistency.
+SSA dumps, <code class="docutils literal notranslate"><span class="pre">get_ssa</span></code> queries, and PDG construction with <code class="docutils literal notranslate"><span class="pre">run_ssa=True</span></code>
+verify before returning results or expanding phis. Invalid SSA raises
+<code class="docutils literal notranslate"><span class="pre">SSAVerificationError</span></code>; query results are cached only after verification.</p>
+<p>SSA versions describe local values. Globals, closure cells, attributes, and
+subscripts remain storage operations handled by the memory model. Local copy
+assignments can disappear through reach-through optimization, so SSA does not
+preserve a value for every source binding. Walrus definitions remain inside
+<code class="docutils literal notranslate"><span class="pre">NamedExpr</span></code> expressions, including switch conditions; consumers must inspect
+those expressions rather than only scanning <code class="docutils literal notranslate"><span class="pre">Suite.ops</span></code> for assignments.
+Unbound reads are legal values marked <code class="docutils literal notranslate"><span class="pre">Value.undefined=True</span></code>. Verification
+accepts these values; consumers must check that flag explicitly.</p>
 </section>
 </section>
 </section>

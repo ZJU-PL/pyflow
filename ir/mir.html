@@ -466,7 +466,8 @@ special-method protocols.</p></td>
 <tr class="row-even"><td><p>Generators</p></td>
 <td><p>Lazy generator functions and expressions, persistent suspended frames,
 <code class="docutils literal notranslate"><span class="pre">yield</span></code>, <code class="docutils literal notranslate"><span class="pre">yield</span> <span class="pre">from</span></code>, <code class="docutils literal notranslate"><span class="pre">send</span></code>, and generator return values carried
-by <code class="docutils literal notranslate"><span class="pre">StopIteration.value</span></code>.</p></td>
+by <code class="docutils literal notranslate"><span class="pre">StopIteration.value</span></code>, and <code class="docutils literal notranslate"><span class="pre">close()</span></code> with <code class="docutils literal notranslate"><span class="pre">GeneratorExit</span></code> injection,
+finalization, and delegated closing.</p></td>
 </tr>
 <tr class="row-odd"><td><p>Modules</p></td>
 <td><p>Statically resolved local Python modules and package imports, including
@@ -488,8 +489,24 @@ calls in the lowered program. <code class="docutils literal notranslate"><span c
 select alternate language semantics.</p>
 <p>Builtin models also have deliberate limits:</p>
 <ul class="simple">
-<li><p>Generator <code class="docutils literal notranslate"><span class="pre">throw</span></code> and <code class="docutils literal notranslate"><span class="pre">close</span></code> methods are not modeled. Ordinary
-iteration, suspension, <code class="docutils literal notranslate"><span class="pre">send</span></code>, and <code class="docutils literal notranslate"><span class="pre">yield</span> <span class="pre">from</span></code> delegation are supported.</p></li>
+<li><p>Generator <code class="docutils literal notranslate"><span class="pre">throw</span></code> is not modeled. <code class="docutils literal notranslate"><span class="pre">close</span></code> injects <code class="docutils literal notranslate"><span class="pre">GeneratorExit</span></code> at
+the suspended yield, runs exception handlers and finalizers, and closes
+delegated iterators when they provide a close method. Yielding during close
+raises a modeled <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code>. Like Python 3.13+, close returns a value
+returned by a generator that handles <code class="docutils literal notranslate"><span class="pre">GeneratorExit</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code> supports strings, integers, booleans, singleton values, supported
+sequences, exceptions with supported arguments, and custom <code class="docutils literal notranslate"><span class="pre">__str__</span></code>
+methods. String <code class="docutils literal notranslate"><span class="pre">join</span></code> consumes an iterable and rejects non-string items.
+Percent formatting supports <code class="docutils literal notranslate"><span class="pre">%s</span></code>, <code class="docutils literal notranslate"><span class="pre">%r</span></code>, <code class="docutils literal notranslate"><span class="pre">%d</span></code>, <code class="docutils literal notranslate"><span class="pre">%i</span></code>, and <code class="docutils literal notranslate"><span class="pre">%%</span></code>;
+mapping keys, flags, widths, precisions, and other conversion codes are
+outside this model. String <code class="docutils literal notranslate"><span class="pre">repr</span></code> currently supports ASCII characters,
+including control escapes; other characters raise a modeled <code class="docutils literal notranslate"><span class="pre">TypeError</span></code>.
+Recursive container representations are not modeled.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">any</span></code> and <code class="docutils literal notranslate"><span class="pre">all</span></code> short-circuit through the iteration and truth protocols.
+<code class="docutils literal notranslate"><span class="pre">enumerate</span></code> and <code class="docutils literal notranslate"><span class="pre">zip</span></code> are lazy iterators; <code class="docutils literal notranslate"><span class="pre">zip(strict=True)</span></code> checks for
+unequal lengths. <code class="docutils literal notranslate"><span class="pre">sorted</span></code> returns a new list, calls <code class="docutils literal notranslate"><span class="pre">key</span></code> once per item,
+supports <code class="docutils literal notranslate"><span class="pre">reverse</span></code>, and preserves the order of equal keys. Its explicit
+insertion sort can take quadratic time in the reference interpreter.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">print</span></code> is a no-output model returning <code class="docutils literal notranslate"><span class="pre">None</span></code>. Output behavior and
 implicit string-conversion callbacks are not represented by this stub.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">range</span></code> materializes its values eagerly. Large ranges can therefore cost

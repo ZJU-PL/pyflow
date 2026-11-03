@@ -254,7 +254,8 @@ semantic query components for analysis results.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cfg(function)</span></code>: Get Control Flow Graph</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cfg_structure(function)</span></code>: Get CFG as dictionary</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_ssa(function)</span></code>: Get SSA form</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_ssa(function)</span></code>: Get verified SSA form; invalid SSA raises
+<code class="docutils literal notranslate"><span class="pre">SSAVerificationError</span></code> and is not cached</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_cdg(function)</span></code>: Get Control Dependence Graph</p></li>
 </ul>
 <p><strong>Call Graph Queries (``queries.call_graph``):</strong></p>

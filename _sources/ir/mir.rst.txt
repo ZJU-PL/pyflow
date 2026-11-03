@@ -337,7 +337,8 @@ inside it has a complete model.
    * - Generators
      - Lazy generator functions and expressions, persistent suspended frames,
        ``yield``, ``yield from``, ``send``, and generator return values carried
-       by ``StopIteration.value``.
+       by ``StopIteration.value``, and ``close()`` with ``GeneratorExit`` injection,
+       finalization, and delegated closing.
    * - Modules
      - Statically resolved local Python modules and package imports, including
        cyclic imports, read from source without execution.
@@ -358,8 +359,24 @@ select alternate language semantics.
 
 Builtin models also have deliberate limits:
 
-* Generator ``throw`` and ``close`` methods are not modeled. Ordinary
-  iteration, suspension, ``send``, and ``yield from`` delegation are supported.
+* Generator ``throw`` is not modeled. ``close`` injects ``GeneratorExit`` at
+  the suspended yield, runs exception handlers and finalizers, and closes
+  delegated iterators when they provide a close method. Yielding during close
+  raises a modeled ``RuntimeError``. Like Python 3.13+, close returns a value
+  returned by a generator that handles ``GeneratorExit``.
+* ``str`` supports strings, integers, booleans, singleton values, supported
+  sequences, exceptions with supported arguments, and custom ``__str__``
+  methods. String ``join`` consumes an iterable and rejects non-string items.
+  Percent formatting supports ``%s``, ``%r``, ``%d``, ``%i``, and ``%%``;
+  mapping keys, flags, widths, precisions, and other conversion codes are
+  outside this model. String ``repr`` currently supports ASCII characters,
+  including control escapes; other characters raise a modeled ``TypeError``.
+  Recursive container representations are not modeled.
+* ``any`` and ``all`` short-circuit through the iteration and truth protocols.
+  ``enumerate`` and ``zip`` are lazy iterators; ``zip(strict=True)`` checks for
+  unequal lengths. ``sorted`` returns a new list, calls ``key`` once per item,
+  supports ``reverse``, and preserves the order of equal keys. Its explicit
+  insertion sort can take quadratic time in the reference interpreter.
 * ``print`` is a no-output model returning ``None``. Output behavior and
   implicit string-conversion callbacks are not represented by this stub.
 * ``range`` materializes its values eagerly. Large ranges can therefore cost
