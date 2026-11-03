@@ -9,7 +9,10 @@ class WorkspaceResolver:
         self.function_groups = {}
         self.parameter_declarations = {}
         self.property_declarations = {}
+        self.declarations = {}
         for symbol in symbols:
+            if symbol.symbol_id.kind.value in {"class", "function", "method"}:
+                self.declarations.setdefault(symbol.qualified_name, []).append(symbol)
             if symbol.symbol_id.kind.value == "parameter":
                 self.parameter_declarations.setdefault(symbol.qualified_name, []).append(symbol)
             if symbol.symbol_id.kind.value in {"function", "method"} and not symbol.accessor:
@@ -433,6 +436,15 @@ class WorkspaceResolver:
     def property_group(self, symbol):
         if symbol.symbol_id.kind.value == "parameter" and symbol.container_name in self.overloads:
             return self.parameter_declarations.get(symbol.qualified_name, [symbol])
+        if symbol.accessor:
+            return self.property_declarations.get(symbol.qualified_name, [symbol])
+        if symbol.symbol_id.kind.value in {"class", "function", "method"}:
+            # Conditional definitions (platform/version branches, stub-like
+            # redefinitions) share one runtime binding; rename must update
+            # every textual declaration in that scope.
+            declarations = self.declarations.get(symbol.qualified_name)
+            if declarations:
+                return declarations
         if symbol.qualified_name in self.overloads:
             return self.function_groups[symbol.qualified_name]
         return self.dynamic_declarations.get(

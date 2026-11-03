@@ -238,6 +238,10 @@ class SourceReference:
     # Unlike ordinary uses of the local binding, this token denotes the target
     # symbol and therefore follows import aliases.
     import_name: bool = False
+    # Import declaration metadata used to detect ambiguous conditional
+    # bindings (``try: from a import X`` / ``except: from b import X``).
+    binding_target: Optional[str] = None
+    binding_aliased: bool = False
 
 
 @dataclass(frozen=True)
@@ -721,15 +725,57 @@ class SourceIndex:
                     pending.append(dependent)
         return affected
 
+    def _compute_ambiguous_imports(self) -> None:
+        """Find import bindings with no single safe rename target.
+
+        Conditional imports can bind one name to different modules/classes
+        (``try: from a import X`` / ``except ImportError: from b import X``).
+        Renaming either target would rewrite both import tokens and break the
+        other branch, so those bindings are made non-renameable.
+        """
+        self._ambiguous_imports = set()
+        self._ambiguous_import_targets = set()
+        bindings: dict[SymbolId, list] = {}
+        declarations: dict[str, list] = {}
+        for shard in self._file_indices.values():
+            for reference in shard.references:
+                if reference.binding_target is not None and reference.symbol_id is not None:
+                    bindings.setdefault(reference.symbol_id, []).append(reference)
+            for symbol in shard.symbols:
+                declarations.setdefault(symbol.qualified_name, []).append(symbol)
+
+        def ambiguous(symbol_id: SymbolId) -> None:
+            self._ambiguous_imports.add(symbol_id)
+            target = self._import_targets.get(symbol_id)
+            if target:
+                self._ambiguous_import_targets.add(target)
+
+        for symbol_id, group in bindings.items():
+            if len(group) > 1:
+                targets = {reference.binding_target for reference in group}
+                aliased = {reference.binding_aliased for reference in group}
+                if len(targets) > 1 or len(aliased) > 1:
+                    ambiguous(symbol_id)
+        for group in declarations.values():
+            kinds = {symbol.symbol_id.kind for symbol in group}
+            if SymbolKind.IMPORT in kinds and len(kinds) > 1:
+                for symbol in group:
+                    if symbol.symbol_id.kind is SymbolKind.IMPORT:
+                        ambiguous(symbol.symbol_id)
+
     def _resolve_file(self, path, shard):
         aliases = self._resolved_import_aliases
         # ``import x as y`` / ``from m import x as y`` introduce a local binding.
         # Its uses must retain the alias identity so rename stays local; only the
         # imported-name token (and unaliased imports) denotes the target symbol.
         aliased_bindings = {symbol.symbol_id for symbol in shard.symbols if symbol.aliased}
+        ambiguous_bindings = self._ambiguous_imports
         refs = []
         for reference in shard.references:
             identity = reference.symbol_id
+            if identity in ambiguous_bindings:
+                refs.append(reference)
+                continue
             if reference.import_name or identity not in aliased_bindings:
                 identity = aliases.get(identity, identity)
             refs.append(
@@ -960,6 +1006,7 @@ class SourceIndex:
             root = group[0].symbol_id
             self._resolver.values[root] = tuple(self._resolver.values.get(root, ())) + tuple(values)
         self._resolve_import_aliases()
+        self._compute_ambiguous_imports()
         affected = self._affected_files(previous)
         self._resolved_files = {}
         self.references, self.calls = [], []
@@ -987,6 +1034,8 @@ class SourceIndex:
         self._string_literal_ranges = {
             reference.location for reference in self.references if reference.string_literal
         }
+        self._ambiguous_imports: set[SymbolId] = set()
+        self._ambiguous_import_targets: set[str] = set()
         if previous is not None:
             for identity, symbol in previous._symbols_by_id.items():
                 if _cached_uri_to_path(symbol.selection_range.uri) not in previous.source_files:
@@ -1178,14 +1227,23 @@ class SourceIndex:
             if symbol.selection_range.uri == uri and symbol.selection_range.contains(
                 line, character
             ):
-                if symbol.symbol_id.kind is SymbolKind.IMPORT and not symbol.aliased:
+                if (
+                    symbol.symbol_id.kind is SymbolKind.IMPORT
+                    and not symbol.aliased
+                    and symbol.symbol_id not in self._ambiguous_imports
+                ):
                     # Unaliased imports denote the imported object itself.
                     target = self._resolved_import_aliases.get(symbol.symbol_id)
                     return self._symbols_by_id.get(target, symbol)
                 return symbol
         for reference in self.references:
-            if reference.location.uri == uri and reference.location.contains(line, character):
-                return self._symbols_by_id.get(reference.symbol_id)
+            if reference.location.uri != uri or not reference.location.contains(
+                line, character
+            ):
+                continue
+            symbol = self._symbols_by_id.get(reference.symbol_id)
+            if symbol is not None:
+                return symbol
         return None
 
     def visible_bindings_at(self, uri, line, character):
@@ -1563,7 +1621,18 @@ class SourceIndex:
             or uri_to_path(symbol.selection_range.uri) not in self.source_files
         ):
             return []
-        identities = {candidate.symbol_id for candidate in self._resolver.property_group(symbol)}
+        group = self._resolver.property_group(symbol)
+        identities = {candidate.symbol_id for candidate in group}
+        if (
+            symbol.symbol_id in self._ambiguous_imports
+            or identities & self._ambiguous_imports
+            or symbol.qualified_name in self._ambiguous_import_targets
+            or any(
+                candidate.qualified_name in self._ambiguous_import_targets
+                for candidate in group
+            )
+        ):
+            return []
         owner = self._resolver.symbols.get(symbol.container_name)
         if (
             symbol.symbol_id.kind is SymbolKind.METHOD
@@ -2880,19 +2949,31 @@ class _IndexVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             name = alias.asname or alias.name.split(".", 1)[0]
+            binding_range = (
+                self._alias_range(alias, alias.asname) if alias.asname else None
+            )
             symbol = self._add_local_definition(
                 alias,
                 name,
                 SymbolKind.IMPORT,
                 aliased=bool(alias.asname),
-                selection_range=(self._alias_range(alias, alias.asname) if alias.asname else None),
+                selection_range=binding_range,
             )
+            if binding_range is not None and binding_range != symbol.selection_range:
+                self.index.references.append(
+                    SourceReference(
+                        name,
+                        binding_range,
+                        self._current_function(),
+                        symbol.symbol_id,
+                    )
+                )
             self.index._import_targets[symbol.symbol_id] = (
                 alias.name if alias.asname else alias.name.split(".")[0]
             )
             components = alias.name.split(".")
             prefix = ""
-            for component in components:
+            for index, component in enumerate(components):
                 column = alias.col_offset + len(prefix.encode("utf-8"))
                 token = ast.Name(
                     id=component,
@@ -2904,8 +2985,18 @@ class _IndexVisitor(ast.NodeVisitor):
                 location = self._range(token)
                 prefix += component
                 self.index._reference_targets[location] = ("external", prefix)
+                binding = (
+                    not alias.asname
+                    and index == 0
+                    and location != symbol.selection_range
+                )
                 self.index.references.append(
-                    SourceReference(component, location, self._current_function())
+                    SourceReference(
+                        component,
+                        location,
+                        self._current_function(),
+                        symbol.symbol_id if binding else None,
+                    )
                 )
                 prefix += "."
 

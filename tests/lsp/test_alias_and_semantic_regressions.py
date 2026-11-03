@@ -668,3 +668,52 @@ def test_type_annotations_expose_class_members(tmp_path: Path):
     signature = index.signature_help(uri, 14, lines[14].index("(") + 1)
     assert signature is not None
     assert "make(value: int = 1)" in signature["signatures"][0]["label"]
+
+
+def test_conditional_duplicate_definitions_rename_together(tmp_path: Path):
+    from pyflow.lsp.refactor import validate_rename
+
+    source = (
+        "import sys\n"
+        "\n"
+        'if sys.platform == "win32":\n'
+        "    def helper() -> int:\n"
+        "        return 1\n"
+        "else:\n"
+        "    def helper() -> int:\n"
+        "        return 2\n"
+        "\n"
+        "class C:\n"
+        '    if sys.platform == "win32":\n'
+        "        def run(self) -> int:\n"
+        "            return 1\n"
+        "    else:\n"
+        "        def run(self) -> int:\n"
+        "            return 2\n"
+        "\n"
+        "x = helper()\n"
+        "c = C()\n"
+        "y = c.run()\n"
+    )
+    path = tmp_path / "conditional.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+
+    helper_ranges = index.rename_ranges_at(uri, 3, 8)
+    assert {(item.start_line, item.start_character) for item in helper_ranges} == {
+        (3, 8),
+        (6, 8),
+        (17, 4),
+    }
+    helper = index.symbol_at(uri, 3, 8)
+    validate_rename(index, helper, helper_ranges, "zz_helper")
+
+    run_ranges = index.rename_ranges_at(uri, 11, 12)
+    assert {(item.start_line, item.start_character) for item in run_ranges} == {
+        (11, 12),
+        (14, 12),
+        (19, 6),
+    }
+    run = index.symbol_at(uri, 11, 12)
+    validate_rename(index, run, run_ranges, "zz_run")
