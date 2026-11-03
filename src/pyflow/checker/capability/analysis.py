@@ -419,7 +419,7 @@ class DefensiveCapabilityAnalysis:
             if last == "*":
                 continue
             if last.endswith("*"):
-                names.add(last.rstrip("*"))
+                names.add(last)
             elif last.isidentifier():
                 names.add(last)
         return tuple(dict.fromkeys(paths)), tuple(sorted(names))

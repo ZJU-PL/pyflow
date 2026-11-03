@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   findings are scoped to the requested file and its direct project imports
   unless ``--include-imports`` is passed.  This avoids both empty reports for
   local clients and dependency finding floods in small files.
+- Uncalled-scope auditing matches registry names exactly (or by explicit
+  wildcard prefix) instead of seeding every function containing a name such as
+  `get_start`, which wasted solver budget on large geometry/ML modules.
 - Native helper chains such as `im = im.convert(...)` now collapse repeated
   `method.<return>` cycles instead of growing an unbounded access path and
   exhausting the solver budget.  This restores findings for files that

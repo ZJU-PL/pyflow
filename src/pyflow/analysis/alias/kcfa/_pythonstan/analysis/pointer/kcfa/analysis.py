@@ -301,7 +301,10 @@ class PointerAnalysis(AnalysisDriver):
         import fnmatch
 
         def matches_name(value: str) -> bool:
-            return any(value == name or value.startswith(name) for name in names)
+            return any(
+                value.startswith(name[:-1]) if name.endswith("*") else value == name
+                for name in names
+            )
 
         for node in ast.walk(func_ir.stmt):
             if isinstance(node, ast.Call):
