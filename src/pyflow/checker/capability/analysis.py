@@ -202,15 +202,24 @@ def _can_denote_handle(obj) -> bool:
 
 
 def _normalize_descriptor_path(access_path: str) -> str:
-    """Collapse solver-synthesised descriptor plumbing onto the base path.
+    """Collapse solver-synthesised descriptor and protocol plumbing.
 
     Attribute access is lowered through ``__get__``/``__set__``/``__delete__``
-    hooks.  The synthetic hook itself is not a user operation, so findings
-    should be attributed to the underlying object rather than to
-    ``<object>.__get__.<return>``.
+    hooks.  Async/sync context-manager entry also produces synthetic
+    ``__aenter__.<return>``/``__enter__.<return>`` segments, and ``await``
+    produces ``$await_result``.  These are not user operations; collapse them
+    so one capability use is reported once instead of once per alias.
     """
     for hook in _DESCRIPTOR_HOOKS:
         access_path = access_path.replace(f".{hook}.<return>", "")
+    for segment in (".__aenter__.<return>", ".__enter__.<return>", ".$await_result"):
+        access_path = access_path.replace(segment, "")
+    if ".<return>" in access_path:
+        # Unknown-field aliases (``.*``) duplicate the concrete
+        # ``$await_result`` path; keep a single canonical path.
+        access_path = access_path.replace(".*.", ".")
+        if access_path.endswith(".*"):
+            access_path = access_path[:-2]
     return access_path
 
 
@@ -356,6 +365,8 @@ class DefensiveCapabilityAnalysis:
             native_effects=self._pointer_effects(),
             max_iterations=self.max_iterations,
             analyze_all_scopes=self.analyze_all_scopes,
+            audit_scope_paths=self._audit_scope_filters()[0],
+            audit_scope_names=self._audit_scope_filters()[1],
         ).run()
         return self.analyze_pointer_result(pointer_result)
 
@@ -380,11 +391,38 @@ class DefensiveCapabilityAnalysis:
             analyze_all_scopes=(
                 self.analyze_all_scopes if analyze_all_scopes is None else analyze_all_scopes
             ),
+            audit_scope_paths=self._audit_scope_filters()[0],
+            audit_scope_names=self._audit_scope_filters()[1],
         ).run()
         return self.analyze_pointer_result(pointer_result)
 
     def _pointer_effects(self) -> tuple[dict, ...]:
         return tuple(effect.to_pointer_effect() for effect in self.registry.effects)
+
+    def _audit_scope_filters(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return path/name markers for the uncalled-scope prefilter."""
+        paths: list[str] = []
+        names: set[str] = {
+            "open",
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "getattr",
+            "setattr",
+            "import_module",
+        }
+        for pattern in self.registry.patterns:
+            path = pattern.access_path
+            paths.append(path)
+            last = path.rsplit(".", 1)[-1]
+            if last == "*":
+                continue
+            if last.endswith("*"):
+                names.add(last.rstrip("*"))
+            elif last.isidentifier():
+                names.add(last)
+        return tuple(dict.fromkeys(paths)), tuple(sorted(names))
 
     def analyze_pointer_result(
         self,
@@ -548,6 +586,7 @@ class DefensiveCapabilityAnalysis:
         patterns = self._filter_sensitive_read(
             access_path, operation, self.registry.match(access_path, operation)
         )
+        patterns = self._filter_network_data_use(access_path, operation, patterns)
         if patterns or ".<return>" not in access_path:
             return patterns
         normalized = access_path.replace(".<return>", "")
@@ -574,6 +613,21 @@ class DefensiveCapabilityAnalysis:
             pattern for pattern in matched if not pattern.capability.startswith("file.")
         )
         return self._filter_sensitive_read(access_path, operation, non_file)
+
+    @staticmethod
+    def _filter_network_data_use(access_path, operation, patterns):
+        """Do not treat response parsing as a fresh network operation.
+
+        ``client.post(...).json()`` and ``resp["token"]`` operate on an
+        already-returned response object.  The network capability belongs to
+        the request call, not to every dictionary/JSON access on its result.
+        """
+        if operation is not CapabilityOperation.CALL or ".<return>" not in access_path:
+            return patterns
+        terminal = access_path.rsplit(".", 1)[-1]
+        if terminal not in {"json", "__getitem__", "keys", "items", "values", "raise_for_status"}:
+            return patterns
+        return tuple(pattern for pattern in patterns if pattern.capability != "network.io")
 
     @staticmethod
     def _filter_sensitive_read(access_path, operation, patterns):
@@ -643,6 +697,8 @@ class DefensiveCapabilityAnalysis:
         if event.kind is PointerEventKind.CALL:
             callee_name = getattr(getattr(event.constraint, "callee", None), "name", "") or ""
             if _is_synthetic_descriptor_call(base_path, callee_name):
+                return None, None
+            if base_path.endswith((".__aenter__", ".__aexit__", ".__enter__", ".__exit__")):
                 return None, None
             return CapabilityOperation.CALL, _normalize_descriptor_path(base_path)
         base_path = _normalize_descriptor_path(base_path)
@@ -1476,20 +1532,43 @@ class _CapabilityReachability:
             if access_path is not None:
                 access_path = _normalize_descriptor_path(access_path)
             if access_path is not None and not access_path.endswith(".__set_name__"):
-                if access_path not in self.patterns:
-                    patterns = self.registry.reachable(access_path)
-                    if not patterns and obj in self.analysis._return_identities:
-                        # A *mapped* handle (``builtins.open.<return>``) carries
-                        # the capability of the call that produced it.  Opaque
-                        # native returns are deliberately excluded: the value
-                        # returned by ``importlib.import_module`` is a module,
-                        # not the capability to import one.
-                        origin = access_path
-                        while ".<return>" in origin:
-                            origin = origin.replace(".<return>", "")
-                        patterns = self.registry.reachable(origin)
-                    self.patterns[access_path] = patterns
-                patterns = self.patterns[access_path]
+                if access_path in _NON_HANDLE_PATH_TYPES or any(
+                    access_path.startswith(path_type + ".<return>")
+                    for path_type in _NON_HANDLE_PATH_TYPES
+                ):
+                    # Pathname wrappers are values, not file handles.  Their
+                    # direct operations are still reported from call events.
+                    patterns = ()
+                else:
+                    if access_path not in self.patterns:
+                        patterns = self.registry.reachable(access_path)
+                        if not patterns and obj in self.analysis._return_identities:
+                            # A *mapped* handle (``builtins.open.<return>``)
+                            # carries the capability of the call that produced
+                            # it.  Opaque native returns are deliberately
+                            # excluded: the value returned by
+                            # ``importlib.import_module`` is a module, not the
+                            # capability to import one.
+                            origin = access_path
+                            while ".<return>" in origin:
+                                origin = origin.replace(".<return>", "")
+                            patterns = self.registry.reachable(origin)
+                        self.patterns[access_path] = patterns
+                    patterns = self.patterns[access_path]
+                if patterns and access_path.count(".<return>") >= 2:
+                    # Data extracted from a network response (``post().json()``,
+                    # ``resp["token"]``) is not a new network capability.
+                    patterns = tuple(
+                        pattern for pattern in patterns if pattern.capability != "network.io"
+                    )
+                    if access_path.startswith(("os.environ", "sys.argv")):
+                        # ``os.environ.get(...).split()`` is data derived from
+                        # an environment read, not a new environment capability.
+                        patterns = tuple(
+                            pattern
+                            for pattern in patterns
+                            if pattern.capability != "information.environment"
+                        )
                 if patterns:
                     allowed = self.analysis._return_capabilities.get(obj)
                     if allowed is not None:

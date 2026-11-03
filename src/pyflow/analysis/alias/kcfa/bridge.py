@@ -359,6 +359,8 @@ class PointerAnalysis:
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
         analyze_all_scopes: bool = False,
+        audit_scope_paths: Sequence[str] = (),
+        audit_scope_names: Sequence[str] = (),
         worklist_policy: str = "fifo",
         worklist_seed: int = 0,
     ) -> None:
@@ -382,6 +384,8 @@ class PointerAnalysis:
         self._max_iterations = max_iterations
         self._max_points_to_size = max_points_to_size
         self._analyze_all_scopes = bool(analyze_all_scopes)
+        self._audit_scope_paths = tuple(audit_scope_paths)
+        self._audit_scope_names = tuple(audit_scope_names)
         self._worklist_policy = worklist_policy
         self._worklist_seed = worklist_seed
         self._entry_file: Path | None = None
@@ -402,6 +406,8 @@ class PointerAnalysis:
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_points_to_size: int | None = None,
         analyze_all_scopes: bool = False,
+        audit_scope_paths: Sequence[str] = (),
+        audit_scope_names: Sequence[str] = (),
         import_level: int = -1,
         max_import_depth: int = -1,
         worklist_policy: str = "fifo",
@@ -436,6 +442,8 @@ class PointerAnalysis:
             max_iterations=max_iterations,
             max_points_to_size=max_points_to_size,
             analyze_all_scopes=analyze_all_scopes,
+            audit_scope_paths=audit_scope_paths,
+            audit_scope_names=audit_scope_names,
             worklist_policy=worklist_policy,
             worklist_seed=worklist_seed,
         )
@@ -504,6 +512,8 @@ class PointerAnalysis:
                             "max_iterations": self._max_iterations,
                             "max_points_to_size": self._max_points_to_size,
                             "analyze_all_scopes": self._analyze_all_scopes,
+                            "audit_scope_paths": list(self._audit_scope_paths),
+                            "audit_scope_names": list(self._audit_scope_names),
                             "worklist_policy": self._worklist_policy,
                             "worklist_seed": self._worklist_seed,
                         },

@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return-only calls (`copy.copy`, `typing.cast`) as unanalysed escape
   boundaries.  Handle methods returned by `Path.open()` and
   `tempfile.NamedTemporaryFile()` are now reported.
+- Capability findings no longer split one async context-manager request into
+  `$await_result`/`__aenter__`/wildcard aliases, and response parsing
+  (`post(...).json()`, `resp["token"]`) or derived environment strings
+  (`os.environ.get(...).split(...)`) are no longer reported as fresh capability
+  transfers.  Uncalled functions with annotated `Path` parameters now resolve
+  path methods.
 - Capability source reading honors UTF-8 BOM and PEP 263 coding cookies, and a
   `RecursionError` on deeply nested expressions is reported as an unsupported
   entry instead of crashing the CLI.  Recursive diagnostics are deduplicated.

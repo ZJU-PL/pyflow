@@ -252,3 +252,64 @@ def test_package_directory_uses_parent_import_root(tmp_path, capsys) -> None:
         "unresolved project import" in diagnostic["message"]
         for diagnostic in payload["diagnostics"]
     )
+
+
+def test_async_context_manager_aliases_are_collapsed() -> None:
+    result = _result(
+        "import os\n"
+        "class Client:\n"
+        "    async def __aenter__(self):\n"
+        "        return self\n"
+        "    async def __aexit__(self, *args):\n"
+        "        pass\n"
+        "    async def post(self, url):\n"
+        "        os.system(url)\n"
+        "async def run():\n"
+        "    async with Client() as client:\n"
+        "        await client.post('x')\n",
+        analyze_all_scopes=True,
+    )
+
+    assert len([f for f in result.findings if f.access_path == "os.system"]) == 1
+    assert not any(
+        marker in finding.access_path
+        for finding in result.findings
+        for marker in ("$await_result", "__aenter__", ".*")
+    )
+
+
+def test_annotated_path_parameter_supports_method_and_avoids_transfer_noise() -> None:
+    result = _result(
+        "from pathlib import Path\n"
+        "import shutil\n"
+        "def save(p: Path):\n"
+        "    shutil.copyfile(p, 'out')\n"
+        "    return p.read_text()\n",
+        analyze_all_scopes=True,
+    )
+
+    assert any(
+        finding.capability == "file.read" and finding.access_path == "pathlib.Path.read_text"
+        for finding in result.findings
+    )
+    assert not any(
+        finding.access_path.startswith("pathlib.Path")
+        and finding.report_kind is CapabilityReportKind.INDIRECT
+        for finding in result.findings
+    )
+
+
+def test_derived_environment_values_are_not_new_capability_transfers() -> None:
+    result = _result(
+        "import os\n" "import plugin_api\n" "plugin_api.sink(os.environ.get('LIST').split(','))\n"
+    )
+
+    assert not any(
+        finding.capability == "information.environment"
+        and finding.report_kind is CapabilityReportKind.INDIRECT
+        for finding in result.findings
+    )
+    assert any(
+        finding.capability == "information.environment" and finding.access_path == "os.environ.get"
+        for finding in result.findings
+    )

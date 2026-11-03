@@ -272,6 +272,10 @@ class PointerAnalysis(AnalysisDriver):
                 if child in self.translator._scope_constraints:
                     continue
                 func_scope = Scope.new(None, module_scope, empty_context, child, parent_scope)
+                if not self._scope_has_audit_marker(child):
+                    self._seed_scope_functions(child, func_scope, module_scope, empty_context)
+                    continue
+                self._seed_annotated_parameters(func_scope, child, empty_context)
                 for constraint in self.translator.translate_function(child):
                     self.solver.add_constraint(func_scope, empty_context, constraint)
                 self._seed_scope_functions(child, func_scope, module_scope, empty_context)
@@ -280,6 +284,99 @@ class PointerAnalysis(AnalysisDriver):
                 # binds its methods; only method bodies need seeding here.
                 class_scope = Scope.new(None, module_scope, empty_context, child, parent_scope)
                 self._seed_scope_functions(child, class_scope, module_scope, empty_context)
+
+    def _scope_has_audit_marker(self, func_ir) -> bool:
+        """Cheaply decide whether an uncalled function is worth translating.
+
+        Translating every body in a large file can exhaust the solver before
+        any finding is produced.  The capability layer supplies the registry
+        paths and terminal names it cares about; a function with none of them
+        is unlikely to contain a direct capability call and is skipped.
+        """
+        paths = tuple(self.kcfa_config.audit_scope_paths or ())
+        names = tuple(self.kcfa_config.audit_scope_names or ())
+        if not paths and not names:
+            return True
+        import ast
+        import fnmatch
+
+        def matches_name(value: str) -> bool:
+            return any(value == name or value.startswith(name) for name in names)
+
+        for node in ast.walk(func_ir.stmt):
+            if isinstance(node, ast.Call):
+                try:
+                    rendered = ast.unparse(node.func)
+                except Exception:
+                    rendered = ""
+                terminal = rendered.rsplit(".", 1)[-1]
+                if any(fnmatch.fnmatchcase(rendered, pattern) for pattern in paths):
+                    return True
+                if matches_name(terminal):
+                    return True
+            elif isinstance(node, ast.Attribute):
+                if matches_name(node.attr):
+                    return True
+            elif isinstance(node, ast.Name):
+                if matches_name(node.id):
+                    return True
+        return False
+
+    def _seed_annotated_parameters(self, func_scope, func_ir, context) -> None:
+        """Give uncalled-function parameters an annotated value where known.
+
+        Scope auditing translates an uncalled body with no call site, so a
+        parameter such as ``def save(path: Path): path.write_text(...)`` had
+        an empty points-to set.  Seed path-like parameters with a canonical
+        ``pathlib.Path`` native object so their methods are still recognized.
+        """
+        import ast
+
+        from .object import AllocSite, AllocKind, NativeObject
+        from .points_to_set import PointsToSet
+        from .variable import Variable, VariableKind
+
+        path_types = {
+            "Path",
+            "PurePath",
+            "PosixPath",
+            "WindowsPath",
+            "PurePosixPath",
+            "PureWindowsPath",
+            "PathLike",
+        }
+        args = list(getattr(func_ir.args, "posonlyargs", ()))
+        args += list(getattr(func_ir.args, "args", ()))
+        args += list(getattr(func_ir.args, "kwonlyargs", ()))
+        for extra in (getattr(func_ir.args, "vararg", None), getattr(func_ir.args, "kwarg", None)):
+            if extra is not None:
+                args.append(extra)
+        for arg in args:
+            annotation = getattr(arg, "annotation", None)
+            if annotation is None:
+                continue
+            try:
+                rendered = ast.unparse(annotation)
+            except Exception:
+                continue
+            if rendered.rsplit(".", 1)[-1].split("[", 1)[0] not in path_types:
+                continue
+            obj = NativeObject(
+                context=context,
+                alloc_site=AllocSite(
+                    f"<audit-param:{func_ir.get_qualname()}:{arg.arg}>",
+                    AllocKind.NATIVE,
+                ),
+                access_path="pathlib.Path",
+            )
+            variable = self.state.get_variable(
+                func_scope,
+                context,
+                Variable(arg.arg, VariableKind.LOCAL),
+            )
+            points_to = PointsToSet.singleton(obj, self.state.arena)
+            self.state.set_points_to(variable, points_to)
+            self.solver.handle_new_points_to(variable, func_scope, points_to)
 
     def _initialize_builtins(self, module_scope: "Scope", context: "AbstractContext") -> None:
         """Initialize common builtin functions in the global scope.
