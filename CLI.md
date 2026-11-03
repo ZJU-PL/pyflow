@@ -460,7 +460,10 @@ defaults to 0 for ``-r`` and for single files without package-relative
 imports; package-relative files and project-entry scans use the whole-program
 default of -1.  If a fast single-file audit finds nothing but the file imports
 project-local modules, the CLI retries that entry with ``-1`` to avoid a false
-empty report.  Pass ``-1`` explicitly to force whole-program analysis. Directory targets that are packages use
+empty report.  Single-file reports include the requested file and its direct
+project imports by default; pass ``--include-imports`` to include all
+transitively imported project modules.  Pass ``-1`` explicitly to force
+whole-program analysis. Directory targets that are packages use
 their parent as the import root, and explicit file targets are analyzed even
 when they live in directories normally excluded from discovery. JSON and text
 reports include the entry coverage (`entries_total`, `entries_analyzed`,

@@ -345,7 +345,34 @@ def test_absolute_local_import_triggers_deep_audit_fallback(tmp_path, capsys) ->
     entry = tmp_path / "app.py"
     entry.write_text("from util import run\nrun()\n", encoding="utf-8")
 
-    args = _cli_args(input_path=str(entry), import_depth=None)
+    args = _cli_args(input_path=str(entry), import_depth=None, include_imports=True)
     assert run_capabilities(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert any(finding["capability"] == "process.execute" for finding in payload["findings"])
+
+
+def test_single_file_report_excludes_imported_modules_by_default(tmp_path, capsys) -> None:
+    from pyflow.cli.capabilities import run_capabilities
+
+    (tmp_path / "config.py").write_text("import os\nCONFIG = os.getenv('Y')\n", encoding="utf-8")
+    (tmp_path / "util.py").write_text(
+        "import os\nfrom config import CONFIG\nTOKEN = os.getenv('X')\n", encoding="utf-8"
+    )
+    entry = tmp_path / "app.py"
+    entry.write_text("from util import TOKEN\n", encoding="utf-8")
+
+    args = _cli_args(input_path=str(entry), import_depth=None)
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    files = {finding["location"]["file"] for finding in payload["findings"]}
+    assert str((tmp_path / "util.py").resolve()) in files
+    assert str((tmp_path / "config.py").resolve()) not in files
+
+    args = _cli_args(input_path=str(entry), import_depth=None, include_imports=True)
+    assert run_capabilities(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert any(
+        finding["capability"] == "information.environment"
+        and finding["location"]["file"].endswith("config.py")
+        for finding in payload["findings"]
+    )

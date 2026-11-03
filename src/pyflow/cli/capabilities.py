@@ -94,6 +94,54 @@ def _absolute_import_roots(path: Path) -> set[str]:
     return names
 
 
+def _direct_import_files(path: Path, root: Path) -> set[Path]:
+    """Resolve the files imported directly by ``path`` (best effort)."""
+    try:
+        with tokenize.open(path) as handle:
+            tree = ast.parse(handle.read(), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError):
+        return set()
+    files: set[Path] = set()
+    package_dir = path.parent
+    for node in ast.walk(tree):
+        modules: list[str] = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package_dir
+                for _ in range(max(node.level - 1, 0)):
+                    base = base.parent
+                try:
+                    base_parts = list(base.relative_to(root).parts)
+                except ValueError:
+                    base_parts = []
+                prefix = ".".join(base_parts)
+                module = node.module or ""
+                if module:
+                    modules = [f"{prefix}.{module}" if prefix else module]
+                    for alias in node.names:
+                        modules.append(
+                            f"{prefix}.{module}.{alias.name}"
+                            if prefix
+                            else f"{module}.{alias.name}"
+                        )
+                else:
+                    modules = [
+                        f"{prefix}.{alias.name}" if prefix else alias.name for alias in node.names
+                    ]
+            else:
+                modules = [node.module] if node.module else []
+        for module in modules:
+            if not module:
+                continue
+            rel = Path(*module.split("."))
+            for candidate in (root / rel.with_suffix(".py"), root / rel / "__init__.py"):
+                if candidate.is_file():
+                    files.add(candidate.resolve())
+    return files
+
+
 def _has_local_absolute_import(path: Path, root: Path) -> bool:
     """Return True when a file imports a module living under ``root``."""
     return any(
@@ -181,6 +229,15 @@ def add_capabilities_parser(subparsers) -> None:
         help=(
             "Wall-clock budget for the entire analysis (default: 120 for one "
             "entry, 60 with -r; reports partial)"
+        ),
+    )
+    parser.add_argument(
+        "--include-imports",
+        action="store_true",
+        help=(
+            "For a single-file target, report findings in all transitively "
+            "imported project modules (default: target file and its direct "
+            "imports)"
         ),
     )
     parser.add_argument("--format", choices=("text", "json", "sarif"), default="text")
@@ -359,6 +416,14 @@ def run_capabilities(args) -> int:
                         )
                     )
                     continue
+                if target.is_file() and not getattr(args, "include_imports", False):
+                    allowed = {entry.resolve()}
+                    allowed.update(_direct_import_files(entry, project_root))
+                    analyzed.findings = [
+                        finding
+                        for finding in analyzed.findings
+                        if Path(finding.location.filename).resolve() in allowed
+                    ]
                 analyzed_entries += 1
                 if analyzed.coverage:
                     solver_coverages.append(analyzed.coverage)
