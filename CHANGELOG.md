@@ -43,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwarding, method-call argument locations for `type: ignore`, and loop
   `break`/`continue` environments.  Common stdlib models now cover datetime,
   regex, pathlib, os.path, itertools, functools.partial, queue,
-  concurrent.futures, contextvars, threading, and abstract containers.
+  concurrent.futures, asyncio, contextlib, subprocess, shutil, logging,
+  tempfile, contextvars, threading, and abstract containers.
 
 - Deeply nested expressions no longer exhaust the Python stack while generating
   IR: the scope/name collectors, source-span scan, nested-code discovery,

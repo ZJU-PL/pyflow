@@ -647,3 +647,34 @@ def test_continue_and_try_break_environments_are_joined() -> None:
     )
     span = next(span for span in result.expressions if span.lineno == 18 and span.col_offset == 14)
     assert raw_types(result.expressions[span].runtime_type()) == {int}
+
+
+def test_asyncio_and_contextlib_models() -> None:
+    result = infer(
+        "import asyncio\n"
+        "from contextlib import closing, nullcontext\n"
+        "async def value() -> int: return 1\n"
+        "async def main():\n"
+        "    got = await value()\n"
+        "    task = asyncio.create_task(value())\n"
+        "    task_value = await task\n"
+        "    waited = await asyncio.wait_for(value(), 1)\n"
+        "    lock = asyncio.Lock()\n"
+        "    async with lock:\n"
+        "        pass\n"
+        "    event = asyncio.Event()\n"
+        "    ready = await event.wait()\n"
+        "    return got, task_value, waited, ready\n"
+        "with closing(open('x')) as handle:\n"
+        "    text = handle.read()\n"
+        "with nullcontext(1) as number:\n"
+        "    pass\n"
+        "ran = asyncio.run(value())\n"
+    )
+    main_return = result.functions["m.main"].return_value.public_type()
+    assert str(main_return) == "tuple[int, int, int, bool]"
+    assert raw_types(result.type_of("text")) == {str}
+    assert raw_types(result.type_of("number")) == {int}
+    assert raw_types(result.type_of("ran")) == {int}
+    assert result.status == "complete"
+    assert not [item for item in result.diagnostics if "context manager" in item.message]

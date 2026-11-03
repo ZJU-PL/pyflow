@@ -21,18 +21,24 @@ SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import ast
+import asyncio
 import builtins
 import collections
 import concurrent.futures
+import contextlib
 import contextvars
 import datetime
 import functools
 import io
 import itertools
+import logging
 import os
 import pathlib
 import queue
 import re
+import shutil
+import subprocess
+import tempfile
 import threading
 import types
 import unittest
@@ -48,17 +54,23 @@ from pyflow.analysis.typeinfo.resolution.typing_syntax import (
 _STDLIB_TYPES = {
     module.__name__: module
     for module in (
+        asyncio,
         collections,
         concurrent.futures,
+        contextlib,
         contextvars,
         datetime,
         functools,
         io,
         itertools,
+        logging,
         os,
         pathlib,
         queue,
         re,
+        shutil,
+        subprocess,
+        tempfile,
         threading,
         types,
         unittest,

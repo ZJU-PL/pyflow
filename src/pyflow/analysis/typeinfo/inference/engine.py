@@ -27,6 +27,11 @@ import operator
 import os
 import queue
 import concurrent.futures
+import asyncio
+import shutil
+import subprocess
+import logging
+import tempfile
 import re
 import threading
 import datetime
@@ -908,6 +913,15 @@ class StaticTypeInferenceEngine:
         return variables
 
     def _annotation_value(self, node: ast.expr) -> AbstractTypeValue:
+        if isinstance(node, ast.Subscript) and self._qualified_callee_name(node.value) in {
+            "Unpack",
+            "typing.Unpack",
+            "typing_extensions.Unpack",
+        }:
+            # Variadic parameter annotations are not fully modelled yet.
+            # Treat them as gradual evidence instead of re-specializing the
+            # same call until project inference hits its iteration limit.
+            return AbstractTypeValue.from_type(ANY)
         try:
             text = ast.unparse(node)
         except Exception:
@@ -3544,6 +3558,149 @@ class StaticTypeInferenceEngine:
             return AbstractTypeValue.from_type(
                 TupleType((self._proper_instance(raw), self._proper_instance(raw)))
             )
+        if qualified_name == "contextlib.nullcontext":
+            entered = (arguments[0].public_type() or ANY) if arguments else NONE_TYPE
+            return self._instance(contextlib.AbstractContextManager, entered)
+        if qualified_name == "contextlib.closing" and arguments:
+            return self._instance(
+                contextlib.AbstractContextManager,
+                arguments[0].public_type() or ANY,
+            )
+        if qualified_name in {
+            "contextlib.suppress",
+            "contextlib.redirect_stdout",
+            "contextlib.redirect_stderr",
+        }:
+            return self._instance(contextlib.AbstractContextManager, NONE_TYPE)
+        if qualified_name.startswith("asyncio."):
+            result_types = [self._await_result(argument) for argument in arguments]
+            if qualified_name == "asyncio.sleep":
+                return self._instance(cabc.Coroutine, ANY, ANY, NONE_TYPE)
+            if qualified_name in {"asyncio.create_task"} and result_types:
+                return self._instance(asyncio.Task, result_types[0].public_type() or ANY)
+            if qualified_name in {"asyncio.ensure_future", "asyncio.shield"} and result_types:
+                return self._instance(asyncio.Future, result_types[0].public_type() or ANY)
+            if qualified_name == "asyncio.run" and result_types:
+                return result_types[0]
+            if qualified_name == "asyncio.wait_for" and result_types:
+                return self._instance(
+                    cabc.Coroutine,
+                    ANY,
+                    ANY,
+                    result_types[0].public_type() or ANY,
+                )
+            if qualified_name == "asyncio.gather" and result_types:
+                gathered = (
+                    join_all(
+                        result_types,
+                        self.type_system,
+                        max_union_size=self.options.max_union_size,
+                    ).public_type()
+                    or ANY
+                )
+                return self._instance(asyncio.Future, self._proper_instance(list, gathered))
+            if qualified_name == "asyncio.to_thread" and arguments:
+                return self._instance(
+                    cabc.Coroutine,
+                    ANY,
+                    ANY,
+                    self._callable_return_type(arguments[0]).public_type() or ANY,
+                )
+            if qualified_name in {"asyncio.get_running_loop", "asyncio.get_event_loop"}:
+                return self._instance(asyncio.AbstractEventLoop)
+        if qualified_name in {"subprocess.run", "subprocess.Popen"}:
+            text_mode = any(
+                keyword.arg in {"text", "universal_newlines", "encoding", "errors"}
+                and not (
+                    isinstance(keyword.value, ast.Constant) and keyword.value.value in (False, None)
+                )
+                for keyword in node.keywords
+            )
+            raw = str if text_mode else bytes
+            if qualified_name.endswith("run"):
+                return self._instance(subprocess.CompletedProcess, self._proper_instance(raw))
+            return self._instance(subprocess.Popen, self._proper_instance(raw))
+        if qualified_name in {"subprocess.check_output", "subprocess.getoutput"}:
+            text_mode = any(
+                keyword.arg in {"text", "universal_newlines", "encoding", "errors"}
+                and not (
+                    isinstance(keyword.value, ast.Constant) and keyword.value.value in (False, None)
+                )
+                for keyword in node.keywords
+            )
+            return self._instance(
+                str if text_mode or qualified_name.endswith("getoutput") else bytes
+            )
+        if qualified_name == "subprocess.getstatusoutput":
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(int), self._proper_instance(str)))
+            )
+        if qualified_name in {"subprocess.call", "subprocess.check_call"}:
+            return self._instance(int)
+        if qualified_name == "shutil.which":
+            return self._join(
+                AbstractTypeValue.from_type(self._proper_instance(str)),
+                AbstractTypeValue.from_type(NONE_TYPE),
+            )
+        if qualified_name in {
+            "shutil.copy",
+            "shutil.copy2",
+            "shutil.copyfile",
+            "shutil.copytree",
+            "shutil.move",
+            "shutil.make_archive",
+        }:
+            return self._instance(str)
+        if qualified_name in {
+            "shutil.rmtree",
+            "shutil.chown",
+            "shutil.copymode",
+            "shutil.copystat",
+        }:
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if qualified_name == "shutil.disk_usage":
+            return AbstractTypeValue.from_type(
+                TupleType(
+                    (
+                        self._proper_instance(int),
+                        self._proper_instance(int),
+                        self._proper_instance(int),
+                    )
+                )
+            )
+        if qualified_name == "shutil.get_terminal_size":
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(int), self._proper_instance(int)))
+            )
+        if qualified_name in {
+            "logging.getLogger",
+            "logging.getLoggerClass",
+        }:
+            return self._instance(logging.Logger)
+        if qualified_name == "logging.basicConfig":
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if qualified_name in {
+            "logging.debug",
+            "logging.info",
+            "logging.warning",
+            "logging.error",
+            "logging.exception",
+            "logging.critical",
+            "logging.log",
+        }:
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if qualified_name == "tempfile.mkdtemp":
+            return self._instance(str)
+        if qualified_name == "tempfile.mkstemp":
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(int), self._proper_instance(str)))
+            )
+        if qualified_name == "tempfile.gettempdir":
+            return self._instance(str)
+        if qualified_name == "tempfile.NamedTemporaryFile":
+            return self._instance(io.BufferedIOBase)
+        if qualified_name == "tempfile.TemporaryDirectory":
+            return self._instance(contextlib.AbstractContextManager, self._proper_instance(str))
         if qualified_name == "json.dumps":
             return self._instance(str)
         if qualified_name in {"json.dump"}:
@@ -4293,6 +4450,49 @@ class StaticTypeInferenceEngine:
                     return self._instance(str)
                 if node.attr in {"daemon"}:
                     return self._instance(bool)
+            if raw in {asyncio.Future, asyncio.Task}:
+                item = args[0] if args else ANY
+                if node.attr == "result":
+                    return AbstractTypeValue.from_type(item)
+                if node.attr == "exception":
+                    return self._join(
+                        AbstractTypeValue.from_type(self._proper_instance(BaseException)),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr in {"done", "cancelled", "cancel"}:
+                    return self._instance(bool)
+                if node.attr in {"add_done_callback", "remove_done_callback"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if raw is asyncio.Task and node.attr == "get_name":
+                    return self._instance(str)
+                if raw is asyncio.Task and node.attr == "set_name":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            async_bool = self._instance(cabc.Coroutine, ANY, ANY, self._proper_instance(bool))
+            if raw in {asyncio.Lock}:
+                if node.attr in {"__aenter__"}:
+                    return self._instance(cabc.Coroutine, ANY, ANY, typ)
+                if node.attr in {"__aexit__", "release"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "acquire":
+                    return async_bool
+                if node.attr == "locked":
+                    return self._instance(bool)
+            if raw in {asyncio.Event}:
+                if node.attr == "wait":
+                    return async_bool
+                if node.attr in {"set", "clear"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "is_set":
+                    return self._instance(bool)
+            if raw in {asyncio.Semaphore, asyncio.BoundedSemaphore}:
+                if node.attr in {"__aenter__"}:
+                    return self._instance(cabc.Coroutine, ANY, ANY, typ)
+                if node.attr in {"__aexit__", "release"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "acquire":
+                    return async_bool
+                if node.attr == "locked":
+                    return self._instance(bool)
             if raw in {
                 queue.Queue,
                 queue.SimpleQueue,
@@ -4337,6 +4537,11 @@ class StaticTypeInferenceEngine:
                 if node.attr == "submit" and arguments:
                     return self._instance(
                         concurrent.futures.Future,
+                        self._callable_return_type(arguments[0]).public_type() or ANY,
+                    )
+                if node.attr == "map" and arguments:
+                    return self._instance(
+                        cabc.Iterator,
                         self._callable_return_type(arguments[0]).public_type() or ANY,
                     )
                 if node.attr in {"shutdown"}:
@@ -4398,6 +4603,86 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr == "__iter__":
                     return self._instance(cabc.Iterator, item)
+            if raw is subprocess.CompletedProcess:
+                text = args[0] if args else ANY
+                if node.attr == "stdout" or node.attr == "stderr":
+                    return self._join(
+                        AbstractTypeValue.from_type(text),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr == "returncode":
+                    return self._instance(int)
+                if node.attr == "check_returncode":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if raw is subprocess.Popen:
+                text = args[0] if args else ANY
+                if node.attr == "wait":
+                    return self._instance(int)
+                if node.attr == "poll":
+                    return self._join(
+                        AbstractTypeValue.from_type(self._proper_instance(int)),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
+                if node.attr == "communicate":
+                    return AbstractTypeValue.from_type(
+                        TupleType(
+                            (
+                                self._join(
+                                    AbstractTypeValue.from_type(text),
+                                    AbstractTypeValue.from_type(NONE_TYPE),
+                                ).public_type()
+                                or ANY,
+                                self._join(
+                                    AbstractTypeValue.from_type(text),
+                                    AbstractTypeValue.from_type(NONE_TYPE),
+                                ).public_type()
+                                or ANY,
+                            )
+                        )
+                    )
+                if node.attr in {"kill", "terminate", "send_signal"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"__enter__"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr in {"__exit__"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"__enter__"}:
+                    return AbstractTypeValue.from_type(typ)
+            if raw is logging.Logger:
+                if node.attr in {
+                    "debug",
+                    "info",
+                    "warning",
+                    "error",
+                    "exception",
+                    "critical",
+                    "log",
+                    "setLevel",
+                    "addHandler",
+                }:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "isEnabledFor":
+                    return self._instance(bool)
+            if raw is contextlib.ExitStack:
+                if node.attr in {"__enter__", "pop_all"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr == "enter_context" and arguments:
+                    entered: ProperType = ANY
+                    for item in arguments[0].types:
+                        if (
+                            isinstance(item, Instance)
+                            and item.type.raw_type
+                            in {
+                                contextlib.AbstractContextManager,
+                                contextlib.AbstractAsyncContextManager,
+                            }
+                            and item.args
+                        ):
+                            entered = item.args[0]
+                            break
+                    return AbstractTypeValue.from_type(entered)
+                if node.attr in {"__exit__", "close", "callback", "push", "push_async"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is contextvars.ContextVar:
                 item = args[0] if args else ANY
                 if node.attr == "get":
@@ -7226,6 +7511,46 @@ class StaticTypeInferenceEngine:
                         finally:
                             self._resolving_attributes.remove(key)
             else:
+                if typ.type.raw_type is subprocess.CompletedProcess:
+                    text = typ.args[0] if typ.args else ANY
+                    if attribute in {"stdout", "stderr"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(text),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                    if attribute == "returncode":
+                        values.append(self._instance(int))
+                        continue
+                if typ.type.raw_type is subprocess.Popen:
+                    if attribute == "returncode":
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(int)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                    if attribute == "pid":
+                        values.append(self._instance(int))
+                        continue
+                    if attribute in {"stdout", "stderr", "stdin"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(io.IOBase)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                if typ.type.raw_type is logging.Logger:
+                    if attribute == "name":
+                        values.append(self._instance(str))
+                        continue
+                    if attribute == "level":
+                        values.append(self._instance(int))
+                        continue
                 if typ.type.raw_type is threading.Thread:
                     if attribute == "name":
                         values.append(self._instance(str))
@@ -7240,6 +7565,33 @@ class StaticTypeInferenceEngine:
                                 AbstractTypeValue.from_type(NONE_TYPE),
                             )
                         )
+                        continue
+                if isinstance(typ.type.raw_type, type) and issubclass(typ.type.raw_type, io.IOBase):
+                    if attribute == "name":
+                        values.append(self._instance(str))
+                        continue
+                    if attribute == "mode":
+                        values.append(self._instance(str))
+                        continue
+                    if attribute == "encoding":
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(str)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                if typ.type.raw_type in {
+                    asyncio.Lock,
+                    asyncio.Event,
+                    asyncio.Semaphore,
+                    asyncio.BoundedSemaphore,
+                }:
+                    if attribute == "__aenter__":
+                        values.append(self._instance(cabc.Coroutine, ANY, ANY, typ))
+                        continue
+                    if attribute == "__aexit__":
+                        values.append(AbstractTypeValue.from_type(NONE_TYPE))
                         continue
                 if typ.type.raw_type is contextvars.ContextVar and attribute == "name":
                     values.append(self._instance(str))
@@ -7690,6 +8042,30 @@ class StaticTypeInferenceEngine:
             self.type_system,
             max_union_size=self.options.max_union_size,
         )
+
+    def _await_result(self, value: AbstractTypeValue) -> AbstractTypeValue:
+        results: list[AbstractTypeValue] = []
+        for typ in value.types:
+            if self._contains_any(AbstractTypeValue.from_type(typ)):
+                results.append(AbstractTypeValue.from_type(ANY))
+                continue
+            if isinstance(typ, Instance):
+                raw = typ.type.raw_type
+                if raw is cabc.Coroutine and len(typ.args) >= 3:
+                    results.append(AbstractTypeValue.from_type(typ.args[2]))
+                    continue
+                if raw in {cabc.Awaitable, asyncio.Future, asyncio.Task} and typ.args:
+                    results.append(AbstractTypeValue.from_type(typ.args[0]))
+                    continue
+            if isinstance(typ, UnionType):
+                results.append(self._await_result(AbstractTypeValue.from_type(typ)))
+        if results:
+            return join_all(
+                results,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
+        return AbstractTypeValue.unresolved() if value.unknown else AbstractTypeValue.from_type(ANY)
 
     def _iterable_element(self, value: AbstractTypeValue) -> AbstractTypeValue:
         elements: list[AbstractTypeValue] = []
