@@ -470,7 +470,7 @@ def _analyze_file_kcfa_json(
     result_data["statistics"] = result.statistics()
     reasons = result.incomplete_reasons()
     result_data["incomplete_reasons"] = reasons[: int(50)]
-    result_data["incomplete_reason_count"] = len(reasons)
+    result_data["incomplete_reason_count"] = sum(reason.get("count", 1) for reason in reasons)
 
     call_edges = result.call_edges()
     result_data["call_edges"] = [{"caller": c, "callee": t} for c, t in call_edges]

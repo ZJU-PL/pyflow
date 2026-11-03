@@ -5,6 +5,7 @@ This module translates IR events to pointer constraints for analysis.
 
 from typing import List, TYPE_CHECKING, Optional, Tuple, Dict, Set, Union
 import logging, ast
+import copy
 from collections import defaultdict
 from dataclasses import replace
 
@@ -13,6 +14,7 @@ from .config import Config
 from .context import CallSite
 from .variable import Variable, VariableFactory, VariableKind
 from .heap_model import dict_keys, elem, attr, key
+from .builtin_types import BUILTIN_EXCEPTION_NAMES
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import *
 from .object import AllocSite, AllocKind
 from .stable_key import stable_token
@@ -97,8 +99,7 @@ class IRTranslator:
             binders.difference_update(func.get_global_vars())
             binders.difference_update(func.get_nonlocal_vars())
             locals_set.update(name for name in binders if name and name.isidentifier())
-            for stmt in stmts:
-                constraints.extend(self._process_stmt(stmt))
+            self._translate_statements(list(stmts), constraints)
 
         self._scope_constraints[func] = constraints
         return constraints
@@ -118,8 +119,7 @@ class IRTranslator:
         if ir is not None:
             self._current_scope = module
             self._current_module = module
-            for stmt in ir:
-                constraints.extend(self._process_stmt(stmt))
+            self._translate_statements(list(ir), constraints)
 
             self._scope_constraints[module] = constraints
 
@@ -143,6 +143,74 @@ class IRTranslator:
                 return True
         return False
 
+    @staticmethod
+    def _may_raise_implicitly(stmt: "IRStatement") -> bool:
+        """Whether the operation can raise without an explicit ``raise``."""
+        if isinstance(
+            stmt,
+            (
+                IRCall,
+                IRImport,
+                IRDel,
+                IRLoadAttr,
+                IRStoreAttr,
+                IRLoadSubscr,
+                IRStoreSubscr,
+                IRYield,
+                IRAwait,
+                IRRaise,
+                IRFunc,
+                IRClass,
+            ),
+        ):
+            return True
+        if isinstance(stmt, IRAssign):
+            return isinstance(
+                stmt.get_rval(),
+                (ast.Attribute, ast.Subscript, ast.BinOp, ast.UnaryOp, ast.Call, ast.Await),
+            )
+        return False
+
+    def _translate_statements(
+        self, statements: List["IRStatement"], constraints: List["Constraint"]
+    ) -> None:
+        """Translate statements and connect try bodies to their handler bindings."""
+        positions = {
+            stmt: index for index, stmt in enumerate(statements) if isinstance(stmt, Label)
+        }
+        handlers = [stmt for stmt in statements if isinstance(stmt, IRCatchException)]
+
+        for stmt in statements:
+            constraints.extend(self._process_stmt(stmt))
+
+        caught = self._make_variable("$caught_exception")
+        raised = self._make_variable("$raised_exception")
+        for handler in handlers:
+            start = positions.get(handler.from_label)
+            end = positions.get(handler.to_label)
+            if start is None or end is None or end <= start:
+                continue
+            body = statements[start + 1 : end]
+            for stmt in body:
+                if isinstance(stmt, IRRaise):
+                    constraints.append(CopyConstraint(source=raised, target=caught))
+            implicit_operations = [stmt for stmt in body if self._may_raise_implicitly(stmt)]
+            for stmt in implicit_operations:
+                constraints.append(
+                    AllocConstraint(
+                        target=caught,
+                        alloc_site=AllocSite.from_ir_node(stmt, AllocKind.UNKNOWN),
+                    )
+                )
+            if implicit_operations:
+                constraints.append(
+                    SemanticGapConstraint(
+                        target=caught,
+                        kind="implicit_exceptions_unmodeled",
+                        message="implicit exception values are not modeled for this handler",
+                    )
+                )
+
     def translate_class(self, cls_stmt: IRClass) -> Tuple[Variable, List["Constraint"]]:
         """Translate class definition: allocate class object and bind methods."""
         assert isinstance(cls_stmt, IRClass), f"Class is not an IRClass: {type(cls_stmt)}"
@@ -159,6 +227,7 @@ class IRTranslator:
             old_scope = self._current_scope
             self._current_scope = cls_stmt
             is_enum = self._class_has_enum_base(cls_stmt)
+            class_statements = []
             for stmt in irs:
                 if is_enum and isinstance(stmt, (IRCopy, IRAssign)):
                     lval = stmt.get_lval()
@@ -172,7 +241,8 @@ class IRTranslator:
                         # model; keeping the raw class-body value in the class
                         # namespace makes ``E.A`` also point to ``1``.
                         continue
-                constraints.extend(self._process_stmt(stmt))
+                class_statements.append(stmt)
+            self._translate_statements(class_statements, constraints)
             self._current_scope = old_scope
 
             self._class_used_variables[cls_stmt] = list(self.used_variables)
@@ -271,6 +341,45 @@ class IRTranslator:
         locals_set = self._local_vars.setdefault(self._current_scope, set())
         locals_set.add(name)
 
+    def _scope_binds_name(self, name: str) -> bool:
+        scope = self._current_scope
+        if isinstance(scope, IRFunc):
+            if (
+                name in scope.arg_names
+                or name in scope.get_global_vars()
+                or name in scope.get_nonlocal_vars()
+            ):
+                return True
+            return name in self._local_vars.get(scope, set())
+        if isinstance(scope, IRClass) and name in self._local_vars.get(scope, set()):
+            return True
+        if scope is not None and hasattr(self.scope_manager, "scope_ir"):
+            return any(
+                name in (stmt.get_stores() or ())
+                for stmt in self.scope_manager.get_ir(scope, "ir") or ()
+            )
+        return False
+
+    def _translate_truthiness(self, value: "Variable", site: "IRStatement") -> List["Constraint"]:
+        """Use builtin bool dispatch to model __bool__/__len__ on user objects."""
+        if self._scope_binds_name("bool"):
+            return [
+                SemanticGapConstraint(
+                    kind="shadowed_truth_builtin",
+                    message="truth protocol could not be resolved because bool is shadowed",
+                )
+            ]
+        call_site = CallSite(statement=site, scope_name=self._get_current_scope_label())
+        return [
+            CallConstraint(
+                callee=self._make_variable("bool"),
+                args=(value,),
+                kwargs=(),
+                target=None,
+                call_site=call_site,
+            )
+        ]
+
     def _process_stmt(self, stmt: IRStatement) -> List["Constraint"]:
         ret = []
 
@@ -288,6 +397,19 @@ class IRTranslator:
             ret = self._translate_return(stmt)
         elif isinstance(stmt, IRRaise):
             ret = self._translate_raise(stmt)
+        elif isinstance(stmt, (JumpIfTrue, JumpIfFalse)):
+            test = stmt.test
+            while isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                test = test.operand
+            if isinstance(test, ast.Name):
+                ret.extend(self._translate_truthiness(self._make_variable(test.id), stmt))
+            else:
+                ret.append(
+                    SemanticGapConstraint(
+                        kind="truthiness_test_unmodeled",
+                        message=f"branch truthiness test was not modeled: {ast.unparse(stmt.test)}",
+                    )
+                )
         elif isinstance(stmt, IRDel):
             ret = self._translate_delete(stmt)
         elif isinstance(stmt, IRLoadSubscr):
@@ -361,15 +483,15 @@ class IRTranslator:
             delitem_method_var = self._make_variable(
                 f"$optional_callee@delitem:{stable_token(stmt)}"
             )
+            call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
             constraints.append(
-                LoadConstraint(
+                AttrReadConstraint(
                     base=container_var,
-                    field=attr("__delitem__"),
+                    attr="__delitem__",
                     target=delitem_method_var,
-                    index=None,
+                    call_site=call_site,
                 )
             )
-            call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
             constraints.append(
                 CallConstraint(
                     callee=delitem_method_var,
@@ -469,20 +591,13 @@ class IRTranslator:
 
         awaitable_var = self._make_variable(awaitable_expr.id)
 
-        # If there's a target, load the await result into it
         target = stmt.get_target()
+        target_var = None
         if target is not None and isinstance(target, ast.Name):
             target_name = target.id
             self._register_local_var(target_name)
             target_var = self._make_variable(target_name)
-
-            # Load from awaitable.$await_result (set by async function return)
-            constraints.append(
-                LoadConstraint(base=awaitable_var, field=attr("$await_result"), target=target_var)
-            )
-
-            # For soundness: also load from elem() to handle generators-as-coroutines
-            constraints.append(LoadConstraint(base=awaitable_var, field=elem(), target=target_var))
+        constraints.append(AwaitConstraint(awaitable=awaitable_var, target=target_var, site=stmt))
 
         return constraints
 
@@ -527,7 +642,13 @@ class IRTranslator:
                     else:
                         precise_positions = False
         elif isinstance(rval, ast.Name):
-            source_var = self._make_variable(rval.id)
+            # ``@caught_except`` is an IR-only name assigned by the exception
+            # lowering pass.  Map it to the per-scope exception flow variable
+            # populated by ``_translate_raise`` rather than treating it as an
+            # unresolved module global.
+            source_var = self._make_variable(
+                "$caught_exception" if rval.id == "@caught_except" else rval.id
+            )
             constraints.append(CopyConstraint(source=source_var, target=target_var))
 
         elif isinstance(rval, ast.BinOp):
@@ -540,6 +661,36 @@ class IRTranslator:
             operand = self._make_variable(rval.operand.id)
             target = self._make_variable(lval.id)
             constraints.extend(self._translate_unary_op(operand, target, rval.op, stmt))
+
+        elif (
+            isinstance(rval, ast.Compare)
+            and len(rval.ops) == 1
+            and isinstance(rval.left, ast.Name)
+            and isinstance(rval.comparators[0], ast.Name)
+        ):
+            # Comparisons can return arbitrary user objects through rich
+            # comparison methods, so retain both the conservative boolean
+            # fallback and any result produced by the operand's dunder.
+            constraints.append(
+                AllocConstraint(
+                    target=target_var,
+                    alloc_site=AllocSite.from_ir_node(stmt, AllocKind.UNKNOWN),
+                )
+            )
+            left = self._make_variable(rval.left.id)
+            right = self._make_variable(rval.comparators[0].id)
+            if isinstance(rval.ops[0], (ast.In, ast.NotIn)):
+                # Python looks up ``__contains__`` on the container (right
+                # operand), passing the searched value as its argument.
+                left, right = right, left
+            constraints.extend(
+                self._translate_binary_op(
+                    left,
+                    right,
+                    target_var,
+                    rval.ops[0],
+                )
+            )
 
         elif isinstance(rval, ast.Dict):
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.DICT)
@@ -850,15 +1001,43 @@ class IRTranslator:
 
         For regular functions: stores to $return variable.
         For async functions: stores to $coroutine.$await_result field.
-        For generator functions: yield handles the values, return just exits.
+        For generators, retain the value used by ``yield from``'s
+        ``StopIteration.value`` as well as the ordinary return flow.
         """
         rval = stmt.get_value()
-
-        if not rval:
-            return []
-
-        source_var = self._make_variable(rval)
         constraints = []
+        source_var = self._make_variable(rval) if rval else None
+
+        is_generator = False
+        if isinstance(self._current_scope, IRFunc):
+            body = self.scope_manager.get_ir(self._current_scope, "ir") or ()
+            is_generator = any(isinstance(item, IRYield) for item in body)
+        if is_generator:
+            if source_var is None:
+                none_name = f"$yield_from_none@{stable_token(stmt)}"
+                source_var = self._make_variable(none_name)
+                none_assign = IRAssign(
+                    ast.Assign(
+                        targets=[ast.Name(id=none_name, ctx=ast.Store())],
+                        value=ast.Constant(value=None),
+                    )
+                )
+                constraints.append(
+                    AllocConstraint(
+                        target=source_var,
+                        alloc_site=AllocSite.from_ir_node(none_assign, AllocKind.CONSTANT),
+                    )
+                )
+            constraints.append(
+                StoreConstraint(
+                    base=self._make_variable("$generator"),
+                    field=attr("$yield_from_return"),
+                    source=source_var,
+                )
+            )
+
+        if source_var is None:
+            return constraints
 
         # Check if we're in an async function
         is_async = isinstance(self._current_scope, IRFunc) and self._current_scope.is_async
@@ -877,10 +1056,176 @@ class IRTranslator:
         return constraints
 
     def _translate_raise(self, stmt: IRRaise) -> List["Constraint"]:
-        """Retain exception and cause values as explicit boundary constraints."""
-        exception = self._make_variable(stmt.exc.id) if isinstance(stmt.exc, ast.Name) else None
+        """Propagate raised values into the exception-handler flow variable."""
+        raised_var = self._make_variable("$raised_exception")
+        caught_var = self._make_variable("$caught_exception")
+        constraints = []
+
+        if isinstance(stmt.exc, ast.Name):
+            exception = self._make_variable(stmt.exc.id)
+            if self._is_known_exception_class(stmt.exc.id):
+                constraints.append(
+                    CallConstraint(
+                        callee=exception,
+                        args=(),
+                        kwargs=(),
+                        target=raised_var,
+                        call_site=CallSite(
+                            statement=stmt,
+                            scope_name=self._get_current_scope_label(),
+                        ),
+                    )
+                )
+            elif self._raise_name_may_be_a_class(stmt.exc.id):
+                constraints.append(CopyConstraint(source=exception, target=raised_var))
+                constraints.append(
+                    CallConstraint(
+                        callee=exception,
+                        args=(),
+                        kwargs=(),
+                        target=raised_var,
+                        call_site=CallSite(
+                            statement=stmt,
+                            scope_name=self._get_current_scope_label(),
+                        ),
+                    )
+                )
+                constraints.append(
+                    SemanticGapConstraint(
+                        target=raised_var,
+                        kind="ambiguous_raise_value",
+                        message=(
+                            f"raised name {stmt.exc.id!r} may be an exception class or instance"
+                        ),
+                    )
+                )
+            else:
+                constraints.append(CopyConstraint(source=exception, target=raised_var))
+        elif isinstance(stmt.exc, ast.Call) and isinstance(stmt.exc.func, ast.Name):
+            # A direct ``raise ExceptionType(...)`` is not otherwise lowered
+            # to an IRCall.  Route it through the usual call translator so
+            # builtin and project exception constructors get their normal
+            # points-to model.
+            assignment = ast.Assign(
+                targets=[ast.Name(id="$raised_exception_call", ctx=ast.Store())],
+                value=stmt.exc,
+            )
+            ast.copy_location(assignment, stmt.get_ast())
+            constraints.extend(self._translate_call(IRCall(assignment)))
+            constraints.append(
+                CopyConstraint(
+                    source=self._make_variable("$raised_exception_call"), target=raised_var
+                )
+            )
+        elif stmt.exc is None:
+            # Bare ``raise`` re-raises the active handler exception.
+            constraints.append(CopyConstraint(source=caught_var, target=raised_var))
+        else:
+            constraints.append(
+                SemanticGapConstraint(
+                    target=caught_var,
+                    kind="unsupported_raise_expression",
+                    message=(
+                        "raised exception expression was not modeled: " f"{ast.unparse(stmt.exc)}"
+                    ),
+                )
+            )
+
+        constraints.append(CopyConstraint(source=raised_var, target=caught_var))
         cause = self._make_variable(stmt.cause.id) if isinstance(stmt.cause, ast.Name) else None
-        return [RaiseConstraint(exception=exception, cause=cause)]
+        if cause is not None:
+            constraints.append(
+                AttrWriteConstraint(
+                    base=raised_var,
+                    attr="__cause__",
+                    source=cause,
+                    call_site=CallSite(
+                        statement=stmt,
+                        scope_name=self._get_current_scope_label(),
+                    ),
+                )
+            )
+        if stmt.exc is not None:
+            constraints.append(
+                AttrWriteConstraint(
+                    base=raised_var,
+                    attr="__context__",
+                    source=caught_var,
+                    call_site=CallSite(
+                        statement=stmt,
+                        scope_name=self._get_current_scope_label(),
+                    ),
+                )
+            )
+        constraints.append(RaiseConstraint(exception=raised_var, cause=cause))
+        return constraints
+
+    def _is_known_exception_class(self, name: str, seen: Optional[Set[str]] = None) -> bool:
+        """Whether a bare raised name denotes a class that must be instantiated."""
+        if seen is None:
+            seen = set()
+        if name in seen:
+            return False
+        seen.add(name)
+        if name in BUILTIN_EXCEPTION_NAMES:
+            return True
+        if name in self._import_aliases and name[:1].isupper():
+            return True
+        if any(
+            isinstance(scope, IRClass) and scope.name == name for scope in self.scope_manager.father
+        ):
+            return True
+        scopes = {self._current_scope, self._enclosing_module()}
+        for scope in scopes:
+            if scope is None:
+                continue
+            for stmt in self.scope_manager.get_ir(scope, "ir") or ():
+                if not isinstance(stmt, (IRAssign, IRCopy)):
+                    continue
+                target = stmt.get_lval()
+                value = stmt.get_rval()
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == name
+                    and isinstance(value, ast.Name)
+                    and self._is_known_exception_class(value.id, seen)
+                ):
+                    return True
+        return False
+
+    def _raise_name_may_be_a_class(self, name: str, seen: Optional[Set[str]] = None) -> bool:
+        """Whether name-based raise semantics depend on an unknown runtime type."""
+        if seen is None:
+            seen = set()
+        if name in seen:
+            return False
+        seen.add(name)
+        if name in self._import_aliases:
+            return True
+        if isinstance(self._current_scope, IRFunc) and name in self._current_scope.arg_names:
+            return True
+        for scope in {self._current_scope, self._enclosing_module()}:
+            if scope is None:
+                continue
+            for stmt in self.scope_manager.get_ir(scope, "ir") or ():
+                if (
+                    isinstance(stmt, IRLoadAttr)
+                    and stmt.get_lval().id == name
+                    and stmt.get_attr()[:1].isupper()
+                ):
+                    return True
+                if not isinstance(stmt, (IRAssign, IRCopy)):
+                    continue
+                target = stmt.get_lval()
+                value = stmt.get_rval()
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == name
+                    and isinstance(value, ast.Name)
+                    and self._raise_name_may_be_a_class(value.id, seen)
+                ):
+                    return True
+        return False
 
     def _translate_load_subscr(self, stmt: IRLoadSubscr) -> List["Constraint"]:
         """Translate IRLoadSubscr: target = container[index]"""
@@ -938,27 +1283,25 @@ class IRTranslator:
 
         # Also generate __getitem__ call for custom container types
         getitem_method_var = self._make_variable(f"$optional_callee@getitem:{stable_token(stmt)}")
+        call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
         constraints.append(
-            LoadConstraint(
-                base=container_var, field=attr("__getitem__"), target=getitem_method_var, index=None
+            AttrReadConstraint(
+                base=container_var,
+                attr="__getitem__",
+                target=getitem_method_var,
+                call_site=call_site,
             )
         )
 
-        try:
-            call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
-            constraints.append(
-                CallConstraint(
-                    callee=getitem_method_var,
-                    args=(index_var,),
-                    kwargs=(),
-                    target=target_var,
-                    call_site=call_site,
-                )
+        constraints.append(
+            CallConstraint(
+                callee=getitem_method_var,
+                args=(index_var,),
+                kwargs=(),
+                target=target_var,
+                call_site=call_site,
             )
-        finally:
-            pass
-        # except Exception as e:
-        #     logger.debug(f"Error generating __getitem__ call: {e}")
+        )
 
         # for fields of class, we need to store the value to the class
         if (
@@ -1009,28 +1352,25 @@ class IRTranslator:
 
         # Also generate __setitem__ call for custom container types
         setitem_method_var = self._make_variable(f"$optional_callee@setitem:{stable_token(stmt)}")
+        call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
         constraints.append(
-            LoadConstraint(
-                base=container_var, field=attr("__setitem__"), target=setitem_method_var, index=None
+            AttrReadConstraint(
+                base=container_var,
+                attr="__setitem__",
+                target=setitem_method_var,
+                call_site=call_site,
             )
         )
 
-        try:
-            call_site = CallSite(statement=stmt, scope_name=self._get_current_scope_label())
-
-            constraints.append(
-                CallConstraint(
-                    callee=setitem_method_var,
-                    args=(index_var, value_var),
-                    kwargs=(),
-                    target=None,
-                    call_site=call_site,
-                )
+        constraints.append(
+            CallConstraint(
+                callee=setitem_method_var,
+                args=(index_var, value_var),
+                kwargs=(),
+                target=None,
+                call_site=call_site,
             )
-        finally:
-            ...
-        # except Exception as e:
-        #     logger.debug(f"Error generating __setitem__ call: {e}")
+        )
 
         return constraints
 
@@ -1047,6 +1387,144 @@ class IRTranslator:
             func_alloc = AllocSite.from_ir_node(stmt, AllocKind.FUNCTION)
         func_var = self._make_variable(stmt.name)
         constraints.append(AllocConstraint(target=func_var, alloc_site=func_alloc))
+
+        type_params = getattr(getattr(stmt, "stmt", None), "type_params", ())
+        if type_params:
+            type_params_var = self._make_variable(f"$function_type_params@{stable_token(stmt)}")
+            type_params_site = IRAssign(
+                ast.Assign(
+                    targets=[ast.Name(id=type_params_var.name, ctx=ast.Store())],
+                    value=ast.Constant(value=None),
+                )
+            )
+            constraints.append(
+                AllocConstraint(
+                    target=type_params_var,
+                    alloc_site=AllocSite.from_ir_node(type_params_site, AllocKind.TUPLE),
+                )
+            )
+            type_parameter_variables = {}
+
+            def type_parameter_value(expression, suffix):
+                if isinstance(expression, ast.Name):
+                    return type_parameter_variables.get(expression.id) or self._make_variable(
+                        expression.id
+                    )
+                variable = self._make_variable(
+                    f"$function_type_metadata@{stable_token(stmt)}_{suffix}"
+                )
+                assign = IRAssign(
+                    ast.Assign(
+                        targets=[ast.Name(id=variable.name, ctx=ast.Store())],
+                        value=copy.deepcopy(expression),
+                    )
+                )
+                kind = (
+                    AllocKind.CONSTANT if isinstance(expression, ast.Constant) else AllocKind.OBJECT
+                )
+                constraints.append(
+                    AllocConstraint(
+                        target=variable,
+                        alloc_site=AllocSite.from_ir_node(assign, kind),
+                    )
+                )
+                return variable
+
+            for index, parameter in enumerate(type_params):
+                parameter_var = self._make_variable(
+                    f"$function_type_param@{stable_token(stmt)}_{index}"
+                )
+                parameter_site = IRAssign(
+                    ast.Assign(
+                        targets=[ast.Name(id=parameter_var.name, ctx=ast.Store())],
+                        value=ast.Constant(value=None),
+                    )
+                )
+                constraints.append(
+                    AllocConstraint(
+                        target=parameter_var,
+                        alloc_site=AllocSite.from_ir_node(parameter_site, AllocKind.OBJECT),
+                    )
+                )
+                type_parameter_variables[parameter.name] = parameter_var
+                constraints.extend(
+                    [
+                        StoreConstraint(
+                            base=type_params_var,
+                            field=key(index),
+                            source=parameter_var,
+                        ),
+                        StoreConstraint(
+                            base=type_params_var,
+                            field=elem(),
+                            source=parameter_var,
+                        ),
+                    ]
+                )
+                bound = getattr(parameter, "bound", None)
+                if isinstance(bound, ast.Tuple):
+                    constraints_var = self._make_variable(
+                        f"$function_type_constraints@{stable_token(stmt)}_{index}"
+                    )
+                    constraints_site = IRAssign(
+                        ast.Assign(
+                            targets=[ast.Name(id=constraints_var.name, ctx=ast.Store())],
+                            value=ast.Constant(value=None),
+                        )
+                    )
+                    constraints.append(
+                        AllocConstraint(
+                            target=constraints_var,
+                            alloc_site=AllocSite.from_ir_node(constraints_site, AllocKind.TUPLE),
+                        )
+                    )
+                    for constraint_index, expression in enumerate(bound.elts):
+                        value_var = type_parameter_value(expression, f"{index}_{constraint_index}")
+                        constraints.extend(
+                            [
+                                StoreConstraint(
+                                    base=constraints_var,
+                                    field=key(constraint_index),
+                                    source=value_var,
+                                ),
+                                StoreConstraint(
+                                    base=constraints_var,
+                                    field=elem(),
+                                    source=value_var,
+                                ),
+                            ]
+                        )
+                    constraints.append(
+                        StoreConstraint(
+                            base=parameter_var,
+                            field=attr("__constraints__"),
+                            source=constraints_var,
+                        )
+                    )
+                elif bound is not None:
+                    constraints.append(
+                        StoreConstraint(
+                            base=parameter_var,
+                            field=attr("__bound__"),
+                            source=type_parameter_value(bound, f"{index}_bound"),
+                        )
+                    )
+                default_value = getattr(parameter, "default_value", None)
+                if default_value is not None:
+                    constraints.append(
+                        StoreConstraint(
+                            base=parameter_var,
+                            field=attr("__default__"),
+                            source=type_parameter_value(default_value, f"{index}_default"),
+                        )
+                    )
+            constraints.append(
+                StoreConstraint(
+                    base=func_var,
+                    field=attr("__type_params__"),
+                    source=type_params_var,
+                )
+            )
 
         if hasattr(stmt, "decorator_list") and stmt.decorator_list:
             current_var = self._apply_decorators(
@@ -1513,14 +1991,17 @@ class IRTranslator:
         enter_method_var = self._make_variable(
             f"$optional_callee@enter:{stable_token(context_manager_var)}"
         )
+        call_stmt = IRCall(ast.parse(f"[{target_var}] = {context_manager_var}.__enter__()").body[0])
+        call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
-            LoadConstraint(
-                base=context_manager_var, field=attr("__enter__"), target=enter_method_var
+            AttrReadConstraint(
+                base=context_manager_var,
+                attr="__enter__",
+                target=enter_method_var,
+                call_site=call_site,
             )
         )
 
-        call_stmt = IRCall(ast.parse(f"[{target_var}] = {context_manager_var}.__enter__()").body[0])
-        call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
         constraints.append(
             CallConstraint(
                 callee=enter_method_var, args=(), kwargs=(), target=target_var, call_site=call_site
@@ -1539,14 +2020,19 @@ class IRTranslator:
         exit_method_var = self._make_variable(
             f"$optional_callee@exit:{stable_token(context_manager_var)}"
         )
-        constraints.append(
-            LoadConstraint(base=context_manager_var, field=attr("__exit__"), target=exit_method_var)
-        )
-
         call_stmt = IRCall(
             ast.parse(f"{context_manager_var}.__exit__(None, None, None)").body[0].value
         )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
+        constraints.append(
+            AttrReadConstraint(
+                base=context_manager_var,
+                attr="__exit__",
+                target=exit_method_var,
+                call_site=call_site,
+            )
+        )
+
         constraints.append(
             CallConstraint(
                 callee=exit_method_var, args=(), kwargs=(), target=None, call_site=call_site
@@ -1565,12 +2051,17 @@ class IRTranslator:
         constraints = []
 
         iter_method_var = self._make_variable(f"$optional_callee@iter:{stable_token(iterable_var)}")
-        constraints.append(
-            LoadConstraint(base=iterable_var, field=attr("__iter__"), target=iter_method_var)
-        )
-
         call_stmt = IRCall(ast.parse(f"[{target_var}] = {iterable_var}.__iter__()").body[0])
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
+        constraints.append(
+            AttrReadConstraint(
+                base=iterable_var,
+                attr="__iter__",
+                target=iter_method_var,
+                call_site=call_site,
+            )
+        )
+
         constraints.append(
             CallConstraint(
                 callee=iter_method_var, args=(), kwargs=(), target=target_var, call_site=call_site
@@ -1586,12 +2077,17 @@ class IRTranslator:
         constraints = []
 
         next_method_var = self._make_variable(f"$optional_callee@next:{stable_token(iterator_var)}")
-        constraints.append(
-            LoadConstraint(base=iterator_var, field=attr("__next__"), target=next_method_var)
-        )
-
         call_stmt = IRCall(ast.parse(f"[{target_var}] = {iterator_var}.__next__()").body[0])
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
+        constraints.append(
+            AttrReadConstraint(
+                base=iterator_var,
+                attr="__next__",
+                target=next_method_var,
+                call_site=call_site,
+            )
+        )
+
         constraints.append(
             CallConstraint(
                 callee=next_method_var, args=(), kwargs=(), target=target_var, call_site=call_site
@@ -1617,7 +2113,6 @@ class IRTranslator:
         # is not an analysis gap, so do not emit unknown-callee diagnostics.
         token = stable_token(left_var)
         method_var = self._make_variable(f"$optional_callee@binop:{op_name}@{token}")
-        constraints.append(LoadConstraint(base=left_var, field=attr(op_name), target=method_var))
 
         # Syntactic placeholder only: three-address temporaries such as
         # ``$tmp_0`` are not valid Python identifiers, and IRCall requires a
@@ -1630,6 +2125,14 @@ class IRTranslator:
             )
         )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
+        constraints.append(
+            AttrReadConstraint(
+                base=left_var,
+                attr=op_name,
+                target=method_var,
+                call_site=call_site,
+            )
+        )
         constraints.append(
             CallConstraint(
                 callee=method_var,
@@ -1657,48 +2160,25 @@ class IRTranslator:
         constraints = []
 
         if isinstance(op, ast.Not):
-            for method_name in ("__bool__", "__len__"):
-                method_var = self._make_variable(
-                    f"$optional_callee@truth:{method_name}:{stable_token(operand_var)}"
-                )
-                constraints.append(
-                    LoadConstraint(
-                        base=operand_var,
-                        field=attr(method_name),
-                        target=method_var,
-                    )
-                )
-                call_stmt = IRCall(
-                    ast.Call(
-                        func=ast.Name(id=method_name, ctx=ast.Load()),
-                        args=[],
-                        keywords=[],
+            constraints.extend(self._translate_truthiness(operand_var, stmt))
+            rval = stmt.get_rval()
+            if isinstance(rval, ast.UnaryOp) and isinstance(rval.operand, ast.Constant):
+                outcomes = (not bool(rval.operand.value),)
+            else:
+                outcomes = (False, True)
+            for outcome in outcomes:
+                bool_assign = IRAssign(
+                    ast.Assign(
+                        targets=[ast.Name(id=target_var.name, ctx=ast.Store())],
+                        value=ast.Constant(value=outcome),
                     )
                 )
                 constraints.append(
-                    CallConstraint(
-                        callee=method_var,
-                        args=(),
-                        kwargs=(),
-                        target=None,
-                        call_site=CallSite(
-                            statement=call_stmt,
-                            scope_name=self._get_current_scope_label(),
-                        ),
+                    AllocConstraint(
+                        target=target_var,
+                        alloc_site=AllocSite.from_ir_node(bool_assign, AllocKind.CONSTANT),
                     )
                 )
-            bool_assign = IRAssign(
-                ast.Assign(
-                    targets=[ast.Name(id=target_var.name, ctx=ast.Store())],
-                    value=ast.Constant(value=False),
-                )
-            )
-            constraints.append(
-                AllocConstraint(
-                    target=target_var,
-                    alloc_site=AllocSite.from_ir_node(bool_assign, AllocKind.CONSTANT),
-                )
-            )
             return constraints
 
         op_name = UNARYOP_TABLE.get(type(op), None)
@@ -1707,11 +2187,18 @@ class IRTranslator:
 
         token = stable_token(operand_var)
         method_var = self._make_variable(f"$optional_callee@unaryop:{op_name}@{token}")
-        constraints.append(LoadConstraint(base=operand_var, field=attr(op_name), target=method_var))
         call_stmt = IRCall(
             ast.Call(func=ast.Name(id=op_name, ctx=ast.Load()), args=[], keywords=[])
         )
         call_site = CallSite(statement=call_stmt, scope_name=self._get_current_scope_label())
+        constraints.append(
+            AttrReadConstraint(
+                base=operand_var,
+                attr=op_name,
+                target=method_var,
+                call_site=call_site,
+            )
+        )
         constraints.append(
             CallConstraint(
                 callee=method_var, args=(), kwargs=(), target=target_var, call_site=call_site

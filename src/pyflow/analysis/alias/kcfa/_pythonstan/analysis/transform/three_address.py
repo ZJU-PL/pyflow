@@ -547,7 +547,19 @@ class ThreeAddressTransformer(NodeTransformer):
         return_name = (
             f"$yield_from_return@{getattr(node, 'lineno', 0)}_" f"{getattr(node, 'col_offset', 0)}"
         )
-        result = ast.Call(func=ast.Name(id=return_name, ctx=Load()), args=[], keywords=[])
+        none_result = ast.Assign(
+            targets=[ast.Name(id=return_name, ctx=Store())],
+            value=ast.Constant(value=None),
+        )
+        ast.copy_location(none_result, node)
+        blk.append(none_result)
+        returned_value = ast.Assign(
+            targets=[ast.Name(id=return_name, ctx=Store())],
+            value=ast.Attribute(value=elt, attr="$yield_from_return", ctx=Load()),
+        )
+        ast.copy_location(returned_value, node)
+        blk.append(returned_value)
+        result = ast.Name(id=return_name, ctx=Load())
         ast.copy_location(result, node)
         return blk, result
 
@@ -816,6 +828,140 @@ class ThreeAddressTransformer(NodeTransformer):
                 blk.extend(tmp_blk)
         return blk
 
+    def visit_TypeAlias(self, node):
+        """Lower PEP 695 aliases to a runtime alias object with its value."""
+        blk = []
+        type_param_names = {}
+        type_param_values = []
+        type_param_metadata = []
+        for parameter in getattr(node, "type_params", ()):
+            parameter_l, parameter_s = self.tmp_gen()
+            allocate_parameter = ast.Assign(
+                targets=[parameter_s],
+                value=ast.Call(func=ast.Name(id="object", ctx=Load()), args=[], keywords=[]),
+            )
+            ast.copy_location(allocate_parameter, parameter)
+            blk.extend(self.visit(allocate_parameter))
+            type_param_names[parameter.name] = parameter_l.id
+            type_param_values.append(parameter_l)
+            bound = getattr(parameter, "bound", None)
+            if bound is not None:
+                attribute = "__constraints__" if isinstance(bound, ast.Tuple) else "__bound__"
+                type_param_metadata.append((parameter_l, attribute, bound))
+            default_value = getattr(parameter, "default_value", None)
+            if default_value is not None:
+                type_param_metadata.append((parameter_l, "__default__", default_value))
+
+        class ReplaceTypeParameters(ast.NodeTransformer):
+            def visit_Name(self, name_node):
+                replacement = type_param_names.get(name_node.id)
+                if replacement is None or not isinstance(name_node.ctx, Load):
+                    return name_node
+                result = ast.Name(id=replacement, ctx=Load())
+                return ast.copy_location(result, name_node)
+
+        for parameter_value, attribute, expression in type_param_metadata:
+            expression = ReplaceTypeParameters().visit(copy.deepcopy(expression))
+            metadata_blk, metadata_value = self.split_expr(expression)
+            blk.extend(metadata_blk)
+            store_metadata = ast.Assign(
+                targets=[
+                    ast.Attribute(
+                        value=copy.deepcopy(parameter_value),
+                        attr=attribute,
+                        ctx=Store(),
+                    )
+                ],
+                value=metadata_value,
+            )
+            ast.copy_location(store_metadata, node)
+            blk.extend(self.visit(store_metadata))
+
+        generic_metadata = []
+        if isinstance(node.value, ast.Subscript):
+            slice_value = node.value.slice
+            args = list(slice_value.elts) if isinstance(slice_value, ast.Tuple) else [slice_value]
+            generic_metadata = [
+                ("__origin__", copy.deepcopy(node.value.value)),
+                ("__args__", ast.Tuple(elts=copy.deepcopy(args), ctx=Load())),
+            ]
+            value_expression = ast.Call(
+                func=ast.Name(id="object", ctx=Load()), args=[], keywords=[]
+            )
+        elif isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.BitOr):
+            generic_metadata = [
+                (
+                    "__args__",
+                    ast.Tuple(
+                        elts=[copy.deepcopy(node.value.left), copy.deepcopy(node.value.right)],
+                        ctx=Load(),
+                    ),
+                )
+            ]
+            value_expression = ast.Call(
+                func=ast.Name(id="object", ctx=Load()), args=[], keywords=[]
+            )
+        else:
+            value_expression = copy.deepcopy(node.value)
+        value_expression = ReplaceTypeParameters().visit(value_expression)
+        value_blk, aliased_value = self.split_expr(value_expression)
+        blk.extend(value_blk)
+        for attribute, expression in generic_metadata:
+            expression = ReplaceTypeParameters().visit(expression)
+            metadata_blk, metadata_value = self.split_expr(expression)
+            blk.extend(metadata_blk)
+            store_metadata = ast.Assign(
+                targets=[
+                    ast.Attribute(
+                        value=copy.deepcopy(aliased_value),
+                        attr=attribute,
+                        ctx=Store(),
+                    )
+                ],
+                value=metadata_value,
+            )
+            ast.copy_location(store_metadata, node)
+            blk.extend(self.visit(store_metadata))
+        alias_l, alias_s = self.tmp_gen()
+        allocate_alias = ast.Assign(
+            targets=[alias_s],
+            value=ast.Call(func=ast.Name(id="object", ctx=Load()), args=[], keywords=[]),
+        )
+        ast.copy_location(allocate_alias, node)
+        blk.extend(self.visit(allocate_alias))
+
+        bind_alias = ast.Assign(targets=[node.name], value=alias_l)
+        ast.copy_location(bind_alias, node)
+        blk.extend(self.visit(bind_alias))
+
+        if type_param_values:
+            store_params = ast.Assign(
+                targets=[
+                    ast.Attribute(
+                        value=ast.Name(id=node.name.id, ctx=Load()),
+                        attr="__type_params__",
+                        ctx=Store(),
+                    )
+                ],
+                value=ast.Tuple(elts=type_param_values, ctx=Load()),
+            )
+            ast.copy_location(store_params, node)
+            blk.extend(self.visit(store_params))
+
+        store_value = ast.Assign(
+            targets=[
+                ast.Attribute(
+                    value=ast.Name(id=node.name.id, ctx=Load()),
+                    attr="__value__",
+                    ctx=Store(),
+                )
+            ],
+            value=aliased_value,
+        )
+        ast.copy_location(store_value, node)
+        blk.extend(self.visit(store_value))
+        return blk
+
     """
     For(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
 
@@ -876,20 +1022,37 @@ class ThreeAddressTransformer(NodeTransformer):
         iter_blk, iter_val = self.split_expr(node.iter)
         body.extend(iter_blk)
         iter_l, iter_s = self.tmp_gen()
+        aiter_l, aiter_s = self.tmp_gen()
+        aiter_method = ast.Assign(
+            targets=[aiter_s],
+            value=ast.Attribute(value=iter_val, attr="__aiter__", ctx=Load()),
+        )
+        ast.copy_location(aiter_method, node.iter)
+        body.append(aiter_method)
         iter_stmt = ast.Assign(
             targets=[iter_s],
-            value=ast.Call(func=ast.Name(id="iter", ctx=Load()), args=[iter_val], keywords=[]),
+            value=ast.Call(func=aiter_l, args=[], keywords=[]),
         )
         ast.copy_location(iter_stmt, node.iter)
         body.append(iter_stmt)
         tmp_l, tmp_s = self.tmp_gen()
+        anext_l, anext_s = self.tmp_gen()
+        anext_method = ast.Assign(
+            targets=[anext_s],
+            value=ast.Attribute(value=iter_l, attr="__anext__", ctx=Load()),
+        )
+        ast.copy_location(anext_method, node.iter)
+        body.append(anext_method)
+        awaitable_l, awaitable_s = self.tmp_gen()
+        anext_call = ast.Assign(
+            targets=[awaitable_s],
+            value=ast.Call(func=anext_l, args=[], keywords=[]),
+        )
+        ast.copy_location(anext_call, node.iter)
+        body.append(anext_call)
         next_stmt = ast.Assign(
             targets=[tmp_s],
-            value=ast.Call(
-                func=ast.Name(id="next", ctx=Load()),
-                args=[iter_l, self.const_colle.load(None)],
-                keywords=[],
-            ),
+            value=ast.Await(value=awaitable_l),
         )
         ast.copy_location(next_stmt, node.iter)
 
@@ -906,6 +1069,8 @@ class ThreeAddressTransformer(NodeTransformer):
         ass_blk = self.resolve_single_Assign(node.target, tmp_l, node.iter)
         b_blk = self.visit_stmt_list(node.body)
         ass_blk.extend(b_blk)
+        ass_blk.append(copy.deepcopy(anext_method))
+        ass_blk.append(copy.deepcopy(anext_call))
         ass_blk.append(copy.deepcopy(next_stmt))
         ass_blk.append(copy.deepcopy(test_stmt))
         o_blk = self.visit_stmt_list(node.orelse)
@@ -1010,13 +1175,14 @@ class ThreeAddressTransformer(NodeTransformer):
         e_elt, c_elt = None, None
         if node.exc is not None:
             e_blk, e_elt = self.split_expr(node.exc)
-            blk.append(e_blk)
+            blk.extend(e_blk)
         if node.cause is not None:
             c_blk, c_elt = self.split_expr(node.cause)
-            blk.append(c_blk)
+            blk.extend(c_blk)
         ins = ast.Raise(exc=e_elt, cause=c_elt)
         ast.copy_location(ins, node)
-        return ins
+        blk.append(ins)
+        return blk
 
     def visit_Try(self, node):
         return self._lower_try(node)
@@ -1122,37 +1288,247 @@ class ThreeAddressTransformer(NodeTransformer):
         ast.copy_location(subj_stmt, node.subject)
         blk.append(subj_stmt)
         for case in node.cases:
+            for name, value in self._match_capture_bindings(
+                case.pattern, ast.Name(id=subj_l.id, ctx=Load())
+            ):
+                bind = ast.Assign(
+                    targets=[ast.Name(id=name, ctx=Store())],
+                    value=value,
+                )
+                ast.copy_location(bind, case.pattern)
+                blk.extend(self.visit(bind))
             if case.guard is not None:
                 guard_blk, _ = self.split_expr(case.guard)
                 blk.extend(guard_blk)
-            for name in self._match_capture_names(case.pattern):
-                bind = ast.Assign(
-                    targets=[ast.Name(id=name, ctx=Store())],
-                    value=ast.Name(id=subj_l.id, ctx=Load()),
-                )
-                ast.copy_location(bind, case.pattern)
-                blk.append(bind)
             blk.extend(self.visit_stmt_list(case.body))
         return blk
 
+    def _match_capture_bindings(self, pattern, subject):
+        """Return conservative ``(name, value expression)`` capture bindings."""
+        bindings = []
+
+        def bind(current_pattern, current_subject):
+            if isinstance(current_pattern, ast.MatchAs):
+                if current_pattern.pattern is not None:
+                    bind(current_pattern.pattern, current_subject)
+                if current_pattern.name:
+                    bindings.append((current_pattern.name, copy.deepcopy(current_subject)))
+            elif isinstance(current_pattern, ast.MatchStar):
+                if current_pattern.name:
+                    bindings.append(
+                        (
+                            current_pattern.name,
+                            ast.Call(
+                                func=ast.Name(id="list", ctx=Load()),
+                                args=[copy.deepcopy(current_subject)],
+                                keywords=[],
+                            ),
+                        )
+                    )
+            elif isinstance(current_pattern, ast.MatchSequence):
+                star_index = next(
+                    (
+                        index
+                        for index, child in enumerate(current_pattern.patterns)
+                        if isinstance(child, ast.MatchStar)
+                    ),
+                    None,
+                )
+                for index, child in enumerate(current_pattern.patterns):
+                    if isinstance(child, ast.MatchStar):
+                        bind(child, current_subject)
+                        continue
+                    if star_index is not None and index > star_index:
+                        subscript = ast.Constant(value=index - len(current_pattern.patterns))
+                    else:
+                        subscript = ast.Constant(value=index)
+                    item = ast.Subscript(
+                        value=copy.deepcopy(current_subject),
+                        slice=subscript,
+                        ctx=Load(),
+                    )
+                    bind(child, item)
+            elif isinstance(current_pattern, ast.MatchMapping):
+                for key, child in zip(current_pattern.keys, current_pattern.patterns):
+                    item = ast.Subscript(
+                        value=copy.deepcopy(current_subject),
+                        slice=copy.deepcopy(key),
+                        ctx=Load(),
+                    )
+                    bind(child, item)
+                if current_pattern.rest:
+                    bindings.append(
+                        (
+                            current_pattern.rest,
+                            ast.Call(
+                                func=ast.Name(id="dict", ctx=Load()),
+                                args=[copy.deepcopy(current_subject)],
+                                keywords=[],
+                            ),
+                        )
+                    )
+            elif isinstance(current_pattern, ast.MatchClass):
+                # Keyword class patterns identify the source attributes
+                # directly. Resolve literal __match_args__ for local classes;
+                # external classes stay fail-visible instead of silently
+                # binding positional captures to the whole object.
+                for name, child in zip(current_pattern.kwd_attrs, current_pattern.kwd_patterns):
+                    item = ast.Attribute(
+                        value=copy.deepcopy(current_subject), attr=name, ctx=Load()
+                    )
+                    bind(child, item)
+                match_args = self._resolve_match_args(current_pattern.cls)
+                for index, child in enumerate(current_pattern.patterns):
+                    if match_args is not None and index < len(match_args):
+                        attribute = match_args[index]
+                        item = (
+                            copy.deepcopy(current_subject)
+                            if attribute is None
+                            else ast.Attribute(
+                                value=copy.deepcopy(current_subject),
+                                attr=attribute,
+                                ctx=Load(),
+                            )
+                        )
+                        bind(child, item)
+                        continue
+                    for name in ThreeAddressTransformer._pattern_capture_names(child):
+                        bindings.append(
+                            (
+                                name,
+                                ast.Call(
+                                    func=ast.Name(id="$unmodeled_match_attribute", ctx=Load()),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            )
+                        )
+            elif isinstance(current_pattern, ast.MatchOr):
+                for alternative in current_pattern.patterns:
+                    bind(alternative, current_subject)
+
+        bind(pattern, subject)
+        # Keep duplicate names from MatchOr alternatives: each alternative
+        # can bind the same name from a different source expression, and the
+        # points-to solver unions those paths.
+        return bindings
+
+    def _resolve_match_args(self, class_expr):
+        """Resolve explicit literal __match_args__ for a local class pattern."""
+        if isinstance(class_expr, ast.Name) and class_expr.id in {
+            "bool",
+            "bytearray",
+            "bytes",
+            "dict",
+            "float",
+            "frozenset",
+            "int",
+            "list",
+            "set",
+            "str",
+            "tuple",
+        }:
+            # These builtin classes define a one-position self-match.
+            return (None,)
+        if not isinstance(class_expr, ast.Name):
+            return None
+        for statement in getattr(self, "orig_stmts", ()):
+            for candidate in ast.walk(statement):
+                if not isinstance(candidate, ast.ClassDef) or candidate.name != class_expr.id:
+                    continue
+                for class_stmt in candidate.body:
+                    targets = []
+                    if isinstance(class_stmt, ast.Assign):
+                        targets = class_stmt.targets
+                    elif isinstance(class_stmt, ast.AnnAssign):
+                        targets = [class_stmt.target]
+                    if any(
+                        isinstance(target, ast.Name) and target.id == "__match_args__"
+                        for target in targets
+                    ):
+                        value = getattr(class_stmt, "value", None)
+                        if isinstance(value, (ast.Tuple, ast.List)) and all(
+                            isinstance(item, ast.Constant) and isinstance(item.value, str)
+                            for item in value.elts
+                        ):
+                            return tuple(item.value for item in value.elts)
+                        return None
+                decorators = [
+                    decorator.func if isinstance(decorator, ast.Call) else decorator
+                    for decorator in candidate.decorator_list
+                ]
+                dataclass_decorator = any(
+                    (isinstance(decorator, ast.Name) and decorator.id == "dataclass")
+                    or (isinstance(decorator, ast.Attribute) and decorator.attr == "dataclass")
+                    for decorator in decorators
+                )
+                namedtuple_base = any(
+                    (isinstance(base, ast.Name) and base.id == "NamedTuple")
+                    or (isinstance(base, ast.Attribute) and base.attr == "NamedTuple")
+                    for base in candidate.bases
+                )
+                if dataclass_decorator or namedtuple_base:
+                    for decorator in candidate.decorator_list:
+                        if not isinstance(decorator, ast.Call):
+                            continue
+                        if any(
+                            keyword.arg == "match_args"
+                            and isinstance(keyword.value, ast.Constant)
+                            and keyword.value.value is False
+                            for keyword in decorator.keywords
+                        ):
+                            return ()
+                        if any(
+                            keyword.arg == "kw_only"
+                            and isinstance(keyword.value, ast.Constant)
+                            and keyword.value.value is True
+                            for keyword in decorator.keywords
+                        ):
+                            return ()
+                    fields = []
+                    keyword_only = False
+                    for class_stmt in candidate.body:
+                        if not isinstance(class_stmt, ast.AnnAssign) or not isinstance(
+                            class_stmt.target, ast.Name
+                        ):
+                            continue
+                        annotation = ast.unparse(class_stmt.annotation)
+                        if annotation.endswith("KW_ONLY"):
+                            keyword_only = True
+                            continue
+                        if "ClassVar" in annotation:
+                            continue
+                        if isinstance(class_stmt.value, ast.Call):
+                            field_keywords = class_stmt.value.keywords
+                            if any(
+                                keyword.arg == "kw_only"
+                                and isinstance(keyword.value, ast.Constant)
+                                and keyword.value.value is True
+                                for keyword in field_keywords
+                            ):
+                                continue
+                            if any(
+                                keyword.arg == "init"
+                                and isinstance(keyword.value, ast.Constant)
+                                and keyword.value.value is False
+                                for keyword in field_keywords
+                            ):
+                                continue
+                        if keyword_only:
+                            continue
+                        fields.append(class_stmt.target.id)
+                    return tuple(fields)
+        return None
+
     @staticmethod
-    def _match_capture_names(pattern):
-        """Return the names bound by a match pattern, in source order."""
+    def _pattern_capture_names(pattern):
         names = []
         for child in ast.walk(pattern):
-            if isinstance(child, (ast.MatchAs, ast.MatchStar)):
-                if child.name:
-                    names.append(child.name)
-            elif isinstance(child, ast.MatchMapping):
-                if child.rest:
-                    names.append(child.rest)
-        seen = set()
-        ordered = []
-        for name in names:
-            if name not in seen:
-                seen.add(name)
-                ordered.append(name)
-        return ordered
+            if isinstance(child, (ast.MatchAs, ast.MatchStar)) and child.name:
+                names.append(child.name)
+            elif isinstance(child, ast.MatchMapping) and child.rest:
+                names.append(child.rest)
+        return tuple(dict.fromkeys(names))
 
     #: ``typing`` helpers whose only runtime role is ``__mro_entries__``.
     _TYPING_ONLY_BASES = frozenset({"Generic", "Protocol", "NamedTuple", "TypedDict"})
@@ -1210,13 +1586,74 @@ class ThreeAddressTransformer(NodeTransformer):
             keyword_blk, keyword_value = self.split_expr(keyword.value)
             blk.extend(keyword_blk)
             keywords.append(ast.keyword(arg=keyword.arg, value=keyword_value))
+        class_body = self.visit_stmt_list(node.body)
+        type_params = getattr(node, "type_params", ())
+        if type_params:
+            setup = []
+            param_variables = {}
+            param_values = []
+            for parameter in type_params:
+                parameter_l, parameter_s = self.tmp_gen()
+                allocate_parameter = ast.Assign(
+                    targets=[parameter_s],
+                    value=ast.Call(func=ast.Name(id="object", ctx=Load()), args=[], keywords=[]),
+                )
+                ast.copy_location(allocate_parameter, parameter)
+                setup.extend(self.visit(allocate_parameter))
+                param_variables[parameter.name] = parameter_l.id
+                param_values.append(parameter_l)
+
+            class ReplaceTypeParameters(ast.NodeTransformer):
+                def visit_Name(self, name_node):
+                    replacement = param_variables.get(name_node.id)
+                    if replacement is None or not isinstance(name_node.ctx, Load):
+                        return name_node
+                    return ast.copy_location(ast.Name(id=replacement, ctx=Load()), name_node)
+
+            for parameter, parameter_value in zip(type_params, param_values):
+                bound = getattr(parameter, "bound", None)
+                if bound is not None:
+                    attribute = "__constraints__" if isinstance(bound, ast.Tuple) else "__bound__"
+                    expressions = [(attribute, bound)]
+                else:
+                    expressions = []
+                default_value = getattr(parameter, "default_value", None)
+                if default_value is not None:
+                    expressions.append(("__default__", default_value))
+                for attribute, expression in expressions:
+                    expression = ReplaceTypeParameters().visit(copy.deepcopy(expression))
+                    value_blk, value = self.split_expr(expression)
+                    setup.extend(value_blk)
+                    store_parameter_metadata = ast.Assign(
+                        targets=[
+                            ast.Attribute(
+                                value=copy.deepcopy(parameter_value),
+                                attr=attribute,
+                                ctx=Store(),
+                            )
+                        ],
+                        value=value,
+                    )
+                    ast.copy_location(store_parameter_metadata, node)
+                    setup.extend(self.visit(store_parameter_metadata))
+
+            store_type_params = ast.Assign(
+                targets=[ast.Name(id="__type_params__", ctx=Store())],
+                value=ast.Tuple(elts=param_values, ctx=Load()),
+            )
+            ast.copy_location(store_type_params, node)
+            setup.extend(self.visit(store_type_params))
+            class_body = setup + class_body
+
         ins = ast.ClassDef(
             name=node.name,
             bases=bases,
             keywords=keywords,
-            body=self.visit_stmt_list(node.body),
+            body=class_body,
             decorator_list=node.decorator_list,
         )
+        if hasattr(node, "type_params"):
+            ins.type_params = node.type_params
         ast.copy_location(ins, node)
         if is_namedtuple:
             # ``NamedTuple`` is erased as a runtime base.  Preserve its
@@ -1236,6 +1673,8 @@ class ThreeAddressTransformer(NodeTransformer):
             returns=node.returns,
             type_comment=node.type_comment,
         )
+        if hasattr(node, "type_params"):
+            ins.type_params = node.type_params
         ast.copy_location(ins, node)
         blk.append(ins)
         return blk
@@ -1250,6 +1689,8 @@ class ThreeAddressTransformer(NodeTransformer):
             returns=node.returns,
             type_comment=node.type_comment,
         )
+        if hasattr(node, "type_params"):
+            ins.type_params = node.type_params
         ast.copy_location(ins, node)
         blk.append(ins)
         return blk
@@ -1372,6 +1813,7 @@ class ThreeAddressTransformer(NodeTransformer):
 
     def visit_Module(self, node):
         self.reset()
+        self.orig_stmts = node.body
         for statement in node.body:
             if isinstance(statement, ast.ImportFrom) and statement.module in {
                 "typing",

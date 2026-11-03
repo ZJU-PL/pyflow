@@ -827,6 +827,13 @@ class PointerAnalysisState:
                 "__next__",
                 "__iter__",
             },
+            "async_generator": {
+                "asend",
+                "athrow",
+                "aclose",
+                "__aiter__",
+                "__anext__",
+            },
             "int": {
                 "__add__",
                 "__sub__",

@@ -10,7 +10,6 @@ import pytest
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.constraints import (
     AllocConstraint,
     CallConstraint,
-    LoadConstraint,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.ir_translator import IRTranslator
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa import Config
@@ -51,13 +50,13 @@ class TestIRTranslatorInitialization:
 
         constraints = translator._translate_unary_op(operand, target, ast.Not(), statement)
 
-        assert sum(isinstance(item, LoadConstraint) for item in constraints) == 2
         calls = [item for item in constraints if isinstance(item, CallConstraint)]
-        assert len(calls) == 2
+        assert len(calls) == 1
+        assert calls[0].callee.name == "bool"
         assert all(item.target is None for item in calls)
         allocations = [item for item in constraints if isinstance(item, AllocConstraint)]
-        assert len(allocations) == 1
-        assert allocations[0].target == target
+        assert len(allocations) == 2
+        assert all(item.target == target for item in allocations)
 
 
 # NOTE: IR translation is comprehensively tested via:

@@ -64,3 +64,33 @@ def test_object_sensitive_policies_analyze_allocations_and_method_calls():
         assert result.points_to("b")
         assert result.points_to("a") == result.points_to("b")
         assert any("fn value(" in callee for _, callee in result.call_edges())
+
+
+def test_deque_indexing_preserves_remaining_elements_after_popleft():
+    result = PointerAnalysis("""
+from collections import deque
+class A: pass
+class B: pass
+a = A()
+b = B()
+items = deque([a, b])
+head = items.popleft()
+remaining = items[0]
+""").run()
+
+    assert result.points_to("b") <= result.points_to("remaining")
+
+
+def test_builtin_mapping_subclasses_retain_initial_values():
+    result = PointerAnalysis("""
+from collections import OrderedDict, defaultdict
+a = object()
+b = object()
+default_values = defaultdict(lambda: b, {"key": a})
+ordered_values = OrderedDict({"key": a})
+default_result = default_values["key"]
+ordered_result = ordered_values["key"]
+""").run()
+
+    assert result.points_to("a") <= result.points_to("default_result")
+    assert result.points_to("a") <= result.points_to("ordered_result")

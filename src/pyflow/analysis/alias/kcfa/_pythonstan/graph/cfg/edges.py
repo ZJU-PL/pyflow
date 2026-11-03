@@ -69,11 +69,8 @@ class IfEdge(CFGEdge):
     value: bool
 
     def __init__(self, src, tgt, test_expr, value):
-        assert isinstance(
-            test_expr, ast.Name
-        ), f"The test variable of IfEdge should be ast.Name! {ast.dump(test_expr)}:{type(test_expr)} got"
         super().__init__(src, tgt)
-        self.test = test_expr.id
+        self.test = ast.unparse(test_expr)
         self.value = value
 
     def get_name(self) -> str:

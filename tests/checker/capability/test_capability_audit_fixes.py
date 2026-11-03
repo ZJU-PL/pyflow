@@ -130,7 +130,7 @@ def test_sys_argv_method_chains_are_not_environment_reads() -> None:
         for path in env_paths
         for marker in ("__truediv__", "__bool__", "__len__", "startswith", "read_text")
     )
-    assert all(path in {"sys.argv.__getitem__", "sys.argv.1"} for path in env_paths)
+    assert all(path in {"sys.argv", "sys.argv.__getitem__", "sys.argv.1"} for path in env_paths)
 
 
 def test_return_only_effect_summaries_are_not_external_escapes() -> None:

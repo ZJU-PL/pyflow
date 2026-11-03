@@ -1254,8 +1254,8 @@ class DefensiveCapabilityAnalysis:
                     CapabilityDiagnostic(
                         kind="note",
                         message=(
-                            f"{len(reasons)} operation(s) had no exhaustive native "
-                            "effect summary; capability identity behind their "
+                            f"native effect summaries are incomplete in {len(reasons)} "
+                            "scope(s); capability identity behind their "
                             "return values is opaque"
                         ),
                     )

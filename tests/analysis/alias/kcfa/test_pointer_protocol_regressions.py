@@ -173,6 +173,65 @@ for item in Box():
     assert any("__iter__" in callee for _, callee in result.call_edges())
 
 
+def test_user_defined_iterator_dispatches_through_dunder_next():
+    result = _run("""
+marker = object()
+class Iterator:
+    def __iter__(self):
+        return self
+    def __next__(self):
+        return marker
+class Source:
+    def __iter__(self):
+        return Iterator()
+
+for value in Source():
+    result = value
+""")
+
+    assert _points(result, "marker") <= _points(result, "result")
+    assert any("__next__" in callee for _, callee in result.call_edges())
+
+
+def test_async_for_dispatches_through_async_iterator_protocol():
+    result = _run("""
+class Marker: pass
+marker = Marker()
+class AsyncIterator:
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        return marker
+async def consume():
+    async for item in AsyncIterator():
+        observed = item
+        break
+    return observed
+coroutine = consume()
+""")
+
+    assert _points(result, "marker") <= _points(result, "observed")
+    assert any("__aiter__" in callee for _, callee in result.call_edges())
+    assert any("__anext__" in callee for _, callee in result.call_edges())
+
+
+def test_async_for_preserves_async_generator_yielded_values():
+    result = _run("""
+class Marker: pass
+marker = Marker()
+async def source():
+    yield marker
+async def consume():
+    async for item in source():
+        observed = item
+        break
+coroutine = consume()
+""")
+
+    assert _points(result, "marker") <= _points(result, "observed")
+    assert result.complete
+
+
 def test_string_iteration_is_reported_incomplete():
     result = _run("""
 text = 'ab'

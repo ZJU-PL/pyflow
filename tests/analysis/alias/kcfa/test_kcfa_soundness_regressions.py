@@ -1,5 +1,10 @@
 """Regression tests for k-CFA soundness and termination gaps."""
 
+import builtins
+import ast
+
+import pytest
+
 from pyflow.analysis.alias.kcfa import AliasStatus, PointerAnalysis
 
 
@@ -35,6 +40,210 @@ y = f()
 
     assert result.complete
     assert _points(result, "y") == _points(result, "a")
+
+
+@pytest.mark.skipif(
+    not hasattr(builtins, "ExceptionGroup"), reason="ExceptionGroup requires Python 3.11+"
+)
+def test_exception_group_members_flow_through_exceptions_attribute():
+    result = PointerAnalysis("""
+member = ValueError()
+group = ExceptionGroup("request failed", [member])
+direct = group.exceptions[0]
+try:
+    raise group
+except* ValueError as caught:
+    handled = caught.exceptions[0]
+""").run()
+
+    assert _points(result, "member") <= _points(result, "direct")
+    assert _points(result, "member") <= _points(result, "handled")
+    assert result.points_to_query("direct").complete
+
+
+def test_match_sequence_captures_point_to_items_and_starred_remainder():
+    result = PointerAnalysis("""
+class Marker: pass
+marker = Marker()
+other = object()
+items = [marker, other]
+match items:
+    case [head, *tail]:
+        first = head
+tail_item = tail[0]
+""").run()
+
+    assert _points(result, "marker") <= _points(result, "first")
+    assert _points(result, "marker") <= _points(result, "head")
+    assert _points(result, "head").isdisjoint(_points(result, "items"))
+    assert _points(result, "tail").isdisjoint(_points(result, "items"))
+    assert _points(result, "other") <= _points(result, "tail_item")
+
+
+def test_match_mapping_capture_reads_the_matched_value():
+    result = PointerAnalysis("""
+class Marker: pass
+marker = Marker()
+record = {"item": marker}
+match record:
+    case {"item": captured}:
+        result = captured
+""").run()
+
+    assert _points(result, "marker") <= _points(result, "result")
+
+
+def test_match_or_capture_unions_values_from_all_alternatives():
+    result = PointerAnalysis("""
+class A: pass
+class B: pass
+a = A()
+b = B()
+record = {"left": a, "right": b}
+match record:
+    case {"left": captured} | {"right": captured}:
+        result = captured
+""").run()
+
+    assert _points(result, "a") <= _points(result, "result")
+    assert _points(result, "b") <= _points(result, "result")
+
+
+def test_match_class_positional_capture_uses_match_args():
+    result = PointerAnalysis("""
+class Marker: pass
+marker = Marker()
+class Record:
+    __match_args__ = ("payload",)
+    def __init__(self, payload):
+        self.payload = payload
+record = Record(marker)
+match record:
+    case Record(captured):
+        result = captured
+""").run()
+
+    assert _points(result, "marker") <= _points(result, "result")
+    assert result.points_to_query("result").complete
+
+
+def test_match_builtin_class_capture_preserves_subject_value():
+    result = PointerAnalysis("""
+value = "connected"
+match value:
+    case str(captured):
+        result = captured
+""").run()
+
+    assert _points(result, "value") <= _points(result, "result")
+    assert result.points_to_query("result").complete
+
+
+def test_match_dataclass_positional_capture_uses_field_order():
+    result = PointerAnalysis("""
+from dataclasses import dataclass
+class Marker: pass
+marker = Marker()
+@dataclass
+class Record:
+    payload: object
+record = Record(marker)
+match record:
+    case Record(captured):
+        result = captured
+""").run()
+
+    assert _points(result, "marker") <= _points(result, "result")
+    assert result.points_to_query("result").complete
+
+
+@pytest.mark.skipif(not hasattr(ast, "TypeAlias"), reason="type statements require Python 3.12+")
+def test_type_alias_binds_runtime_alias_object_and_value():
+    result = PointerAnalysis("""
+class Marker: pass
+type Alias = Marker
+alias_object = Alias
+alias_value = Alias.__value__
+""").run()
+
+    assert _points(result, "Alias")
+    assert _points(result, "Alias") <= _points(result, "alias_object")
+    assert _points(result, "Marker") <= _points(result, "alias_value")
+    assert result.points_to_query("Alias").complete
+
+
+@pytest.mark.skipif(not hasattr(ast, "TypeAlias"), reason="type statements require Python 3.12+")
+def test_generic_type_alias_preserves_type_parameters_and_arguments():
+    result = PointerAnalysis("""
+class Bound: pass
+type Alias[T: Bound] = list[T]
+alias_value = Alias.__value__
+type_param = Alias.__type_params__[0]
+bound = type_param.__bound__
+argument = alias_value.__args__[0]
+""").run()
+
+    assert _points(result, "Alias")
+    assert _points(result, "Bound") <= _points(result, "bound")
+    assert _points(result, "type_param") <= _points(result, "argument")
+    assert result.points_to_query("argument").complete
+
+
+@pytest.mark.skipif(not hasattr(ast, "TypeAlias"), reason="type statements require Python 3.12+")
+def test_constrained_type_alias_preserves_type_parameter_constraints():
+    result = PointerAnalysis("""
+class A: pass
+class B: pass
+type Alias[T: (A, B)] = list[T]
+constraints = Alias.__type_params__[0].__constraints__
+first_constraint = constraints[0]
+""").run()
+
+    assert _points(result, "A") <= _points(result, "first_constraint")
+    assert result.points_to_query("first_constraint").complete
+
+
+@pytest.mark.skipif(not hasattr(ast, "TypeAlias"), reason="type parameters require Python 3.12+")
+def test_generic_class_preserves_runtime_type_parameters():
+    result = PointerAnalysis("""
+class Bound: pass
+class Container[T: Bound]:
+    pass
+parameter = Container.__type_params__[0]
+bound = parameter.__bound__
+def identity[T: Bound](value):
+    return value
+function_parameter = identity.__type_params__[0]
+function_bound = function_parameter.__bound__
+def constrained[T: (Bound, str)](value):
+    return value
+function_constraints = constrained.__type_params__[0].__constraints__
+first_function_constraint = function_constraints[0]
+""").run()
+
+    assert _points(result, "Container")
+    assert _points(result, "Bound") <= _points(result, "bound")
+    assert _points(result, "identity")
+    assert _points(result, "Bound") <= _points(result, "function_bound")
+    assert _points(result, "Bound") <= _points(result, "first_function_constraint")
+    assert result.points_to_query("parameter").complete
+    assert result.points_to_query("function_parameter").complete
+
+
+@pytest.mark.skipif(
+    "default_value" not in getattr(getattr(ast, "TypeVar", ast.AST), "_fields", ()),
+    reason="type parameter defaults require Python 3.13+",
+)
+def test_generic_function_preserves_type_parameter_default():
+    result = PointerAnalysis("""
+class Default: pass
+def identity[T = Default](value):
+    return value
+default = identity.__type_params__[0].__default__
+""").run()
+
+    assert _points(result, "Default") <= _points(result, "default")
+    assert result.points_to_query("default").complete
 
 
 def test_depth_limited_same_name_import_terminates(tmp_path):
@@ -116,6 +325,128 @@ repeated0 = repeated[0]
     assert _points(result, "b") <= _points(result, "repeated0")
     assert _points(result, "merged_x") == _points(result, "a")
     assert _points(result, "b") <= _points(result, "union_y")
+
+
+def test_builtin_container_subclasses_use_user_defined_subscript_methods():
+    result = PointerAnalysis("""
+list_marker = object()
+add_marker = object()
+dict_marker = object()
+stored = object()
+
+class CustomList(list):
+    def __getitem__(self, index):
+        return list_marker
+    def __add__(self, other):
+        return add_marker
+
+class CustomDict(dict):
+    def __getitem__(self, key):
+        return dict_marker
+    def __setitem__(self, key, value):
+        self.saved = value
+
+items = CustomList()
+mapping = CustomDict()
+list_value = items[0]
+combined = items + []
+dict_value = mapping["key"]
+mapping["key"] = stored
+saved_value = mapping.saved
+""").run()
+
+    assert _points(result, "list_marker") <= _points(result, "list_value")
+    assert _points(result, "add_marker") <= _points(result, "combined")
+    assert _points(result, "dict_marker") <= _points(result, "dict_value")
+    assert _points(result, "stored") <= _points(result, "saved_value")
+
+
+def test_rich_comparison_can_return_user_pointer_values():
+    result = PointerAnalysis("""
+marker = object()
+class Equality(list):
+    def __eq__(self, other):
+        return marker
+left = Equality()
+right = Equality()
+comparison = left == right
+""").run()
+
+    assert _points(result, "marker") <= _points(result, "comparison")
+
+
+def test_contains_dispatches_to_the_container_operand():
+    result = PointerAnalysis("""
+sentinel = object()
+seen = None
+class Container:
+    def __contains__(self, value):
+        global seen
+        seen = sentinel
+        return True
+item = object()
+container = Container()
+result = item in container
+""").run()
+
+    assert _points(result, "sentinel") <= _points(result, "seen")
+
+
+def test_len_and_bool_execute_user_defined_special_methods():
+    length = PointerAnalysis("""
+sentinel = object()
+seen = None
+class Length(list):
+    def __len__(self):
+        global seen
+        seen = sentinel
+        return 1
+value = len(Length())
+""").run()
+    truth = PointerAnalysis("""
+sentinel = object()
+seen = None
+class Truth(list):
+    def __bool__(self):
+        global seen
+        seen = sentinel
+        return True
+value = bool(Truth())
+""").run()
+
+    assert _points(length, "sentinel") <= _points(length, "seen")
+    assert _points(truth, "sentinel") <= _points(truth, "seen")
+
+
+def test_if_condition_invokes_user_truth_protocol():
+    source = """
+sentinel = object()
+seen = None
+class Condition(list):
+    def __bool__(self):
+        global seen
+        seen = sentinel
+        return True
+if Condition():
+    pass
+"""
+    result = PointerAnalysis(source).run()
+    negated = PointerAnalysis(source.replace("if Condition():", "if not Condition():")).run()
+
+    assert result.points_to("sentinel") <= result.points_to("seen")
+    assert negated.points_to("sentinel") <= negated.points_to("seen")
+    assert result.complete
+
+
+def test_not_preserves_the_possible_boolean_values():
+    result = PointerAnalysis("""
+known = not False
+unknown = not object()
+""").run()
+
+    assert any("True" in value for value in _points(result, "known"))
+    assert any("False" in value for value in _points(result, "unknown"))
+    assert any("True" in value for value in _points(result, "unknown"))
 
 
 def test_alias_query_for_unbound_name_is_unknown():
@@ -395,7 +726,8 @@ class B: pass
 
 def inner():
     yield A()
-    return B()
+    returned = B()
+    return returned
 
 def outer():
     value = yield from inner()
@@ -408,6 +740,17 @@ second = next(it)
 
     assert any("A()" in obj for obj in _points(result, "first"))
     assert any("A()" in obj for obj in _points(result, "second"))
+    assert _points(result, "returned") <= _points(result, "second")
+
+
+def test_next_with_default_includes_default_for_empty_iterator():
+    result = PointerAnalysis("""
+class Fallback: pass
+fallback = Fallback()
+value = next(iter(()), fallback)
+""").run()
+
+    assert _points(result, "fallback") <= _points(result, "value")
 
 
 def test_advanced_dataclass_fields_post_init_and_asdict():

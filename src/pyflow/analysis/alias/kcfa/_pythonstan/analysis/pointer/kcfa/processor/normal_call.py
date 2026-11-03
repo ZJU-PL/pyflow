@@ -12,6 +12,7 @@ from ..constraints import (
     CallConstraint,
     AllocConstraint,
     LoadConstraint,
+    StoreConstraint,
     argument_source_signature,
 )
 from ..object import (
@@ -38,6 +39,7 @@ from ..heap_model import key, attr, dict_keys, elem, value
 from ..call_binding import bind_arguments, mapping_key_hints
 from ..stable_key import stable_token
 from ..type_ref import ClassConstructionKind, TypeRefKind
+from ..builtin_types import BUILTIN_EXCEPTION_NAMES
 from pyflow.analysis.alias.kcfa._pythonstan.graph.call_graph import CallEdge, CallKind
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRAssign
 
@@ -272,9 +274,15 @@ class PythonCallService(Processor):
             return True
         if construction.kind is ClassConstructionKind.UNKNOWN:
             solver.mark_semantic_incomplete(message="; ".join(construction.reasons))
+            self._store_exception_args(
+                solver, scope, context, call, class_obj, construction.variants
+            )
             self._apply_default_metaclass_call(solver, scope, call, class_obj)
             return True
         if construction.kind is ClassConstructionKind.FEASIBLE:
+            self._store_exception_args(
+                solver, scope, context, call, class_obj, construction.variants
+            )
             for variant in construction.variants:
                 metaclass = variant.metaclass
                 if metaclass.kind is TypeRefKind.USER and isinstance(metaclass.target, ClassObject):
@@ -292,6 +300,46 @@ class PythonCallService(Processor):
                     self._apply_default_metaclass_call(solver, scope, call, class_obj)
             return True
         raise AssertionError(f"unknown class construction state: {construction.kind}")
+
+    @staticmethod
+    def _store_exception_args(solver, scope, context, call, class_obj, variants) -> None:
+        """Model BaseException.args for user-defined exception subclasses."""
+        is_exception = any(
+            ref.kind is TypeRefKind.BUILTIN and ref.name in BUILTIN_EXCEPTION_NAMES
+            for variant in variants
+            for ref in variant.mro
+        )
+        if not is_exception or call.target is None:
+            return
+
+        arguments = tuple(call.args) + tuple(argument for _, argument in call.kwargs)
+        args_var = solver.variable_factory.make_variable(
+            f"$exception_args@{call.call_site.short_id()}", VariableKind.TEMPORARY
+        )
+        solver.add_constraint(
+            scope,
+            context,
+            AllocConstraint(
+                target=args_var,
+                alloc_site=AllocSite(call.call_site.statement, AllocKind.TUPLE),
+            ),
+        )
+        for index, argument in enumerate(arguments):
+            solver.add_constraint(
+                scope,
+                context,
+                StoreConstraint(base=args_var, field=key(index), source=argument),
+            )
+            solver.add_constraint(
+                scope,
+                context,
+                StoreConstraint(base=args_var, field=elem(), source=argument),
+            )
+        solver.add_constraint(
+            scope,
+            context,
+            StoreConstraint(base=call.target, field=attr("args"), source=args_var),
+        )
 
     def _apply_metaclass_object(
         self,
@@ -697,6 +745,27 @@ class PythonCallService(Processor):
             parts.append(remainder)
         return ".".join(part for part in parts if part)
 
+    @staticmethod
+    def _connect_raised_exception(
+        solver, caller_scope, caller_context, callee_scope, callee_context
+    ):
+        """Flow explicit exceptions from an analyzed callee into its caller."""
+        callee_raised = solver.variable_factory.make_variable(
+            "$raised_exception", VariableKind.TEMPORARY
+        )
+        callee_raised_var = solver.state.get_variable(callee_scope, callee_context, callee_raised)
+        caller_caught = solver.variable_factory.make_variable(
+            "$caught_exception", VariableKind.TEMPORARY
+        )
+        caller_caught_var = solver.state.get_variable(caller_scope, caller_context, caller_caught)
+        solver.state._add_var_points_flow(callee_raised_var, caller_caught_var)
+
+        callee_caught = solver.variable_factory.make_variable(
+            "$caught_exception", VariableKind.TEMPORARY
+        )
+        callee_caught_var = solver.state.get_variable(callee_scope, callee_context, callee_caught)
+        solver.state._add_var_points_flow(caller_caught_var, callee_caught_var)
+
     def _handle_method_call(
         self,
         solver: "PointerSolver",
@@ -807,6 +876,8 @@ class PythonCallService(Processor):
             ret_var = solver.state.get_variable(callee_scope, call_context, ret)
             target_var = solver.state.get_variable(scope, context, call.target)
             solver.state._add_var_points_flow(ret_var, target_var)
+
+        self._connect_raised_exception(solver, scope, context, callee_scope, call_context)
 
         solver.state.call_graph.add_edge(call_edge)
         logger.debug(f"Adding call edge: {call_edge}")
@@ -932,6 +1003,8 @@ class PythonCallService(Processor):
                 )
                 logger.info(f"  Call target var: {call.target.name}, kind={call.target.kind}")
             solver.state._add_var_points_flow(ret_var, target_var)
+
+        self._connect_raised_exception(solver, scope, context, callee_scope, call_context)
 
         solver.state.call_graph.add_edge(call_edge)
         logger.debug(f"Adding call edge: {call_edge}")

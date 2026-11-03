@@ -23,6 +23,7 @@ from ..stable_key import stable_token
 from ..type_ref import TypeRef
 from ..unknown_tracker import UnknownKind
 from ..variable import Variable, VariableKind
+from ..builtin_types import BUILTIN_EXCEPTION_NAMES
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
 
 if TYPE_CHECKING:
@@ -51,7 +52,22 @@ class BaseResolutionProcessor(Processor):
         "str",
         "tuple",
         "type",
-    }
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "AttributeError",
+        "FileNotFoundError",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "NotImplementedError",
+        "OSError",
+        "RuntimeError",
+        "StopIteration",
+        "TypeError",
+        "ValueError",
+        "ZeroDivisionError",
+    } | BUILTIN_EXCEPTION_NAMES
 
     def __init__(self) -> None:
         self._scheduled_calls = set()

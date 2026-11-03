@@ -212,6 +212,7 @@ class IRTransformer(NodeVisitor):
 
     def visit_If(self, node: If):
         cond_jmp = JumpIfFalse(test=node.test, stmt_ast=node)
+        self.stmts.append(cond_jmp)
         self.visit_stmts(node.body)
         if len(node.orelse) > 0:
             true_end_jmp = Goto()
@@ -285,6 +286,9 @@ label_fin:
         self.stmts.append(label_try)
         self.stmts.append(IRPass())
         self.visit_stmts(node.body)
+        try_end = self.label_gen.gen()
+        self.stmts.append(try_end)
+        self.stmts.append(IRPass())
         try_goto = Goto()
         self.stmts.append(try_goto)
         goto_fin_list = [try_goto]
@@ -326,7 +330,7 @@ label_fin:
                         e, Name
                     ), "Type of Exception should be Name or None or [Name]!"
                     expt_types.append(e.id)
-            catch_stmt = IRCatchException(expt_types, label_try, label_catch, label_e, expt)
+            catch_stmt = IRCatchException(expt_types, label_try, try_end, label_e, expt)
             self.stmts.insert(catch_idx, catch_stmt)
             catch_idx += 1
 

@@ -111,15 +111,16 @@ class GeneratorProcessor(Processor):
         if func_ir is None:
             return False
 
-        # Check for async function
-        if func_ir.is_async:
-            return self._handle_coroutine_call(
+        # Async generator functions are both async and generators. Detect
+        # their yield before treating every async function call as a coroutine;
+        # an async generator call returns an async iterator immediately.
+        if self._is_generator_function(func_ir, solver):
+            return self._handle_generator_call(
                 solver, scope, scope.context, call, func_obj, func_ir
             )
 
-        # Check for generator function
-        if self._is_generator_function(func_ir, solver):
-            return self._handle_generator_call(
+        if func_ir.is_async:
+            return self._handle_coroutine_call(
                 solver, scope, scope.context, call, func_obj, func_ir
             )
 

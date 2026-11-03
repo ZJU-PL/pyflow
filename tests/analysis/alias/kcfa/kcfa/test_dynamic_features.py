@@ -504,6 +504,24 @@ c = f()
         assert result.points_to("c")
         assert any("AllocKind.COROUTINE" in obj for obj in result.points_to("c"))
 
+    def test_await_custom_protocol_preserves_yielded_pointer(self):
+        result = PointerAnalysis(
+            """
+marker = object()
+class Awaitable:
+    def __await__(self):
+        yield marker
+async def consume():
+    value = await Awaitable()
+    return value
+coroutine = consume()
+""",
+            k=1,
+        ).run()
+
+        assert result.points_to("marker") <= result.points_to("value")
+        assert result.points_to_query("value").complete is False
+
     def test_super_method_return_flows_to_override(self):
         source = """
 class A:

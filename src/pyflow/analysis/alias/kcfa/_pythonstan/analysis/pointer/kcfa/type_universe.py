@@ -14,6 +14,7 @@ from .object import (
     NativeObject,
 )
 from .type_ref import TypeRef, TypeRefKind
+from .builtin_types import BUILTIN_EXCEPTION_NAMES
 
 if TYPE_CHECKING:
     from .heap_model import Field
@@ -38,7 +39,22 @@ class TypeUniverse:
         "str",
         "tuple",
         "type",
-    }
+        "BaseException",
+        "Exception",
+        "AssertionError",
+        "AttributeError",
+        "FileNotFoundError",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "NotImplementedError",
+        "OSError",
+        "RuntimeError",
+        "StopIteration",
+        "TypeError",
+        "ValueError",
+        "ZeroDivisionError",
+    } | BUILTIN_EXCEPTION_NAMES
 
     def __init__(self, state: "PointerAnalysisState") -> None:
         self._state = state

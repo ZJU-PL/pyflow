@@ -41,6 +41,9 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable impor
     Variable,
     VariableKind,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.builtin_types import (
+    BUILTIN_EXCEPTION_NAMES,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
     AllocKind,
     AllocSite,
@@ -50,17 +53,24 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     BuiltinMethodObject,
     ClassObject,
     ConstantObject,
+    GeneratorObject,
     InstanceObject,
     ListObject,
     DictObject,
     SetObject,
     TupleObject,
+    NativeObject,
     ObjectFactory,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.type_ref import TypeRefKind
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
     NormalNode,
 )
-from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRAssign
+from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import (
+    IRAssign,
+    IRCall,
+    JumpIfFalse,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.points_to_set import PointsToSet
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.variable import (
     Variable,
@@ -89,25 +99,7 @@ __all__ = ["BuiltinAPIHandler", "BuiltinSummaryManager"]
 
 #: Builtin exception classes: their construction has no capability effect and
 #: needs no dedicated per-class handler.
-EXCEPTION_BUILTINS = frozenset(
-    {
-        "BaseException",
-        "Exception",
-        "AssertionError",
-        "AttributeError",
-        "FileNotFoundError",
-        "ImportError",
-        "IndexError",
-        "KeyError",
-        "NotImplementedError",
-        "OSError",
-        "RuntimeError",
-        "StopIteration",
-        "TypeError",
-        "ValueError",
-        "ZeroDivisionError",
-    }
-)
+EXCEPTION_BUILTINS = BUILTIN_EXCEPTION_NAMES
 
 
 class BuiltinAPIHandler:
@@ -159,6 +151,7 @@ class BuiltinAPIHandler:
         self.config = config
         self._solver: Optional["PointerSolver"] = None
         self._installed_iteration_helpers: Set = set()
+        self._exception_group_alloc_sites: Dict[int, IRCall] = {}
         self._method_handlers: Dict[str, callable] = self._init_method_handlers()
         self._function_handlers: Dict[str, callable] = self._init_function_handlers()
 
@@ -243,6 +236,157 @@ class BuiltinAPIHandler:
             kind=VariableKind.TEMPORARY,
         )
 
+    def _install_user_special_method_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        receiver: "Variable",
+        method_name: str,
+    ) -> None:
+        """Model user special-method side effects behind scalar builtins."""
+        solver = self._solver
+        if solver is None:
+            return
+
+        def emit() -> None:
+            receiver_ctx = self.state.get_variable(scope, context, receiver)
+            if not any(
+                isinstance(obj, InstanceObject) for obj in self.state.get_points_to(receiver_ctx)
+            ):
+                return
+            method_var = self._make_temp_var(f"protocol_{method_name}", call)
+            solver.add_constraint(
+                scope,
+                context,
+                AttrReadConstraint(
+                    base=receiver,
+                    attr=method_name,
+                    target=method_var,
+                    call_site=call.call_site,
+                ),
+            )
+            solver.add_constraint(
+                scope,
+                context,
+                CallConstraint(
+                    callee=method_var,
+                    args=(),
+                    kwargs=(),
+                    target=None,
+                    call_site=call.call_site,
+                ),
+            )
+
+        self._defer_on_source(
+            ("builtin-user-protocol", scope, context, call, method_name),
+            scope,
+            context,
+            receiver,
+            emit,
+        )
+
+    def _user_truth_method(self, instance: InstanceObject) -> Optional[str]:
+        """Resolve Python's ``__bool__``-before-``__len__`` truth protocol."""
+        for variant in self.state.class_variants(instance.class_obj):
+            for type_ref in variant.mro:
+                if type_ref.kind is TypeRefKind.USER and isinstance(type_ref.target, ClassObject):
+                    class_body = type_ref.target.ir.get_ast().body
+                    methods = {
+                        stmt.name
+                        for stmt in class_body
+                        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    }
+                    if "__bool__" in methods:
+                        return "__bool__"
+                    if "__len__" in methods:
+                        return "__len__"
+                elif type_ref.kind is TypeRefKind.BUILTIN and type_ref.name in {
+                    "list",
+                    "dict",
+                    "set",
+                    "tuple",
+                    "str",
+                }:
+                    return "__len__"
+        return None
+
+    def _install_user_truth_protocol(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        receiver: "Variable",
+    ) -> None:
+        """Invoke only the special method Python selects for each user type."""
+        solver = self._solver
+        if solver is None:
+            return
+
+        def emit() -> None:
+            receiver_ctx = self.state.get_variable(scope, context, receiver)
+            methods = {
+                method
+                for obj in self.state.get_points_to(receiver_ctx)
+                if isinstance(obj, InstanceObject)
+                if (method := self._user_truth_method(obj)) is not None
+            }
+            for method_name in methods:
+                method_var = self._make_temp_var(f"truth_{method_name}", call)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    AttrReadConstraint(
+                        base=receiver,
+                        attr=method_name,
+                        target=method_var,
+                        call_site=call.call_site,
+                    ),
+                )
+                solver.add_constraint(
+                    scope,
+                    context,
+                    CallConstraint(
+                        callee=method_var,
+                        args=(),
+                        kwargs=(),
+                        target=None,
+                        call_site=call.call_site,
+                    ),
+                )
+
+        self._defer_on_source(
+            ("builtin-truth-protocol", scope, context, call),
+            scope,
+            context,
+            receiver,
+            emit,
+        )
+
+    def _mark_opaque_truth_protocol_incomplete(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint", method: str
+    ) -> None:
+        """Do not claim completeness for opaque native truth/length methods."""
+        if self._solver is None or not call.args:
+            return
+
+        def mark_if_opaque() -> None:
+            receiver = self.state.get_variable(scope, context, call.args[0])
+            if any(isinstance(obj, NativeObject) for obj in self.state.get_points_to(receiver)):
+                self._solver.mark_semantic_incomplete(
+                    scopes=(scope,),
+                    kind="native_truth_protocol",
+                    message=f"native __{method}__ behavior is not modeled exhaustively",
+                )
+
+        self._defer_on_source(
+            ("native-truth-protocol", scope, context, call, method),
+            scope,
+            context,
+            call.args[0],
+            mark_if_opaque,
+        )
+
     @staticmethod
     def _is_string_like(obj: "AbstractObject") -> bool:
         """Whether ``obj`` is a string literal or a modelled string value."""
@@ -252,11 +396,12 @@ class BuiltinAPIHandler:
             return obj.builtin_type in {"str", "bytes"}
         return getattr(getattr(obj, "alloc_site", None), "kind", None) is AllocKind.STRING
 
-    @staticmethod
-    def _infer_container_type(receiver: "AbstractObject") -> Optional[str]:
+    def _infer_container_type(self, receiver: "AbstractObject") -> Optional[str]:
         """Infer builtin container type name from receiver object."""
         if isinstance(receiver, BuiltinInstanceObject):
             return receiver.builtin_type
+        if isinstance(receiver, InstanceObject) and self.state is not None:
+            return self.state.builtin_base_name(receiver.class_obj)
         if isinstance(receiver, ListObject):
             return "list"
         if isinstance(receiver, DictObject):
@@ -359,6 +504,8 @@ class BuiltinAPIHandler:
             "__enter__": self._handle_enter_method,
             "__exit__": self._handle_generic_method,
             "__next__": self._handle_generic_method,
+            "__aiter__": self._handle_async_generator_iter,
+            "__anext__": self._handle_async_generator_next,
             "__new__": self._handle_generic_method,
             "__init__": self._handle_generic_method,
             "__call__": self._handle_type_call,
@@ -482,9 +629,11 @@ class BuiltinAPIHandler:
             "locals": self._handle_locals,
             # Object-oriented functions
             "super": self._handle_super,
+            "ExceptionGroup": self._handle_exception_group_constructor,
+            "BaseExceptionGroup": self._handle_exception_group_constructor,
         }
         for exception_name in EXCEPTION_BUILTINS:
-            handlers.setdefault(exception_name, self._handle_generic_precise)
+            handlers.setdefault(exception_name, self._handle_exception_constructor)
         return handlers
 
     def is_precise_builtin(self, builtin_obj: "AbstractObject") -> bool:
@@ -1339,32 +1488,56 @@ class BuiltinAPIHandler:
         call: "CallConstraint",
         method_obj: "BuiltinMethodObject",
     ) -> List["Constraint"]:
-        """Handle dict.update(other)."""
+        """Handle mapping, pair-iterable, starred, and keyword dict updates."""
         constraints = []
+        if not method_obj.receiver_var:
+            return constraints
 
-        if len(call.args) > 0 and method_obj.receiver_var:
-            other_var = call.args[0]
-            # Copy other's values to receiver
-            elem_var = self._make_temp_var("dict_update_elem", call)
-            constraints.append(
-                LoadConstraint(
-                    base=other_var,
-                    field=elem(),
-                    target=elem_var,
+        sources = []
+        for index, (argument, starred) in enumerate(call.iter_args()):
+            source = argument
+            if starred:
+                source = self._make_temp_var(f"dict_update_star_{index}", call)
+                constraints.append(LoadConstraint(base=argument, field=elem(), target=source))
+            sources.append((source, True))
+        for index, (name, argument) in enumerate(call.kwargs):
+            if name is None:
+                source = self._make_temp_var(f"dict_update_dstar_{index}", call)
+                constraints.append(LoadConstraint(base=argument, field=elem(), target=source))
+                sources.append((source, True))
+            else:
+                sources.append((argument, False))
+
+        for index, (source, mapping) in enumerate(sources):
+            if mapping:
+                value_var = self._make_temp_var(f"dict_update_mapping_value_{index}", call)
+                constraints.append(LoadConstraint(base=source, field=elem(), target=value_var))
+                # Iterable-of-pairs inputs contribute their second component.
+                pair_var = self._make_temp_var(f"dict_update_pair_{index}", call)
+                pair_value = self._make_temp_var(f"dict_update_pair_value_{index}", call)
+                constraints.append(LoadConstraint(base=source, field=elem(), target=pair_var))
+                constraints.append(LoadConstraint(base=pair_var, field=elem(), target=pair_value))
+                constraints.append(
+                    StoreConstraint(
+                        base=method_obj.receiver_var,
+                        field=elem(),
+                        source=pair_value,
+                    )
                 )
-            )
+            else:
+                value_var = source
             constraints.append(
                 StoreConstraint(
                     base=method_obj.receiver_var,
                     field=elem(),
-                    source=elem_var,
+                    source=value_var,
                 )
             )
             constraints.append(
                 StoreConstraint(
                     base=method_obj.receiver_var,
                     field=elem_only(),
-                    source=elem_var,
+                    source=value_var,
                 )
             )
 
@@ -1705,7 +1878,12 @@ class BuiltinAPIHandler:
         solver.add_constraint(
             scope,
             context,
-            LoadConstraint(base=source_var, field=attr("__iter__"), target=method_var),
+            AttrReadConstraint(
+                base=source_var,
+                attr="__iter__",
+                target=method_var,
+                call_site=call.call_site,
+            ),
         )
         solver.add_constraint(
             scope,
@@ -1733,8 +1911,91 @@ class BuiltinAPIHandler:
 
             # Load from iterator.elem()
             constraints.append(LoadConstraint(base=iterator_var, field=elem(), target=call.target))
+            if len(call.args) > 1 and not self._is_for_loop_next_probe(scope, call):
+                constraints.append(CopyConstraint(source=call.args[1], target=call.target))
+
+            solver = self._solver
+            if solver is not None:
+
+                def emit_user_next() -> None:
+                    source_ctx = self.state.get_variable(scope, context, iterator_var)
+                    if not any(
+                        isinstance(obj, InstanceObject)
+                        for obj in self.state.get_points_to(source_ctx)
+                    ):
+                        return
+                    method_var = self._make_temp_var("next_dunder", call)
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        AttrReadConstraint(
+                            base=iterator_var,
+                            attr="__next__",
+                            target=method_var,
+                            call_site=call.call_site,
+                        ),
+                    )
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        CallConstraint(
+                            callee=method_var,
+                            args=(),
+                            kwargs=(),
+                            target=call.target,
+                            call_site=call.call_site,
+                        ),
+                    )
+
+                self._defer_on_source(
+                    ("next-source", scope, context, call),
+                    scope,
+                    context,
+                    iterator_var,
+                    emit_user_next,
+                )
 
         return constraints
+
+    def _is_for_loop_next_probe(self, scope, call: "CallConstraint") -> bool:
+        """Recognise the synthetic next/default comparison guarding a for body."""
+        target = call.target
+        statement = call.call_site.statement
+        if (
+            target is None
+            or not target.name.startswith("$")
+            or len(call.args) < 2
+            or not isinstance(statement, IRCall)
+        ):
+            return False
+        statements = self.state.scope_manager.get_ir(scope.stmt, "ir") or ()
+        call_index = next((i for i, item in enumerate(statements) if item is statement), None)
+        if call_index is None:
+            return False
+
+        default_name = call.args[1].name
+        guard_name = None
+        for candidate in statements[call_index + 1 : call_index + 6]:
+            if isinstance(candidate, IRAssign):
+                expression = candidate.get_rval()
+                if (
+                    isinstance(expression, ast.Compare)
+                    and len(expression.ops) == 1
+                    and isinstance(expression.ops[0], ast.IsNot)
+                    and isinstance(expression.left, ast.Name)
+                    and expression.left.id == target.name
+                    and isinstance(expression.comparators[0], ast.Name)
+                    and expression.comparators[0].id == default_name
+                ):
+                    guard_name = candidate.get_lval().id
+            elif (
+                guard_name is not None
+                and isinstance(candidate, JumpIfFalse)
+                and isinstance(candidate.test, ast.Name)
+                and candidate.test.id == guard_name
+            ):
+                return True
+        return False
 
     def _handle_enumerate(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
@@ -2069,6 +2330,10 @@ class BuiltinAPIHandler:
         """Handle len(obj)."""
         constraints = []
 
+        if call.args:
+            self._mark_opaque_truth_protocol_incomplete(scope, context, call, "len")
+            self._install_user_special_method_call(scope, context, call, call.args[0], "__len__")
+
         if call.target:
             # Create int object
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.INTEGER)
@@ -2199,6 +2464,10 @@ class BuiltinAPIHandler:
     ) -> List["Constraint"]:
         """Handle bool(obj)."""
         constraints = []
+
+        if call.args:
+            self._mark_opaque_truth_protocol_incomplete(scope, context, call, "bool")
+            self._install_user_truth_protocol(scope, context, call, call.args[0])
 
         if call.target:
             alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.BOOLEAN)
@@ -2643,6 +2912,73 @@ class BuiltinAPIHandler:
 
         return constraints
 
+    def _handle_exception_constructor(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Allocate an exception and retain its constructor arguments in ``args``."""
+        if not call.target:
+            return []
+
+        exception_args = tuple(call.args) + tuple(argument for _, argument in call.kwargs)
+        args_var = Variable(
+            name=f"$exception_args@{call.call_site.short_id()}",
+            kind=VariableKind.TEMPORARY,
+        )
+        constraints: List["Constraint"] = [
+            AllocConstraint(
+                target=call.target,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT),
+            ),
+            AllocConstraint(
+                target=args_var,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.TUPLE),
+            ),
+            StoreConstraint(base=call.target, field=attr("args"), source=args_var),
+        ]
+        for index, argument in enumerate(exception_args):
+            constraints.append(StoreConstraint(base=args_var, field=key(index), source=argument))
+            constraints.append(StoreConstraint(base=args_var, field=elem(), source=argument))
+        return constraints
+
+    def _handle_exception_group_constructor(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Model ``ExceptionGroup.exceptions`` as a tuple of its members."""
+        constraints = self._handle_exception_constructor(scope, context, call)
+        if not call.target or len(call.args) < 2:
+            return constraints
+
+        exceptions_var = self._make_temp_var("exception_group_members", call)
+        members_var = self._make_temp_var("exception_group_member", call)
+        alloc_site = self._exception_group_alloc_sites.get(id(call))
+        if alloc_site is None:
+            alloc_site = IRCall(
+                ast.Call(func=ast.Name(id="tuple", ctx=ast.Load()), args=[], keywords=[])
+            )
+            self._exception_group_alloc_sites[id(call)] = alloc_site
+        constraints.extend(
+            [
+                AllocConstraint(
+                    target=exceptions_var,
+                    # ``args`` already allocates a tuple at ``call.stmt``;
+                    # this distinct synthetic site avoids reusing that object.
+                    alloc_site=AllocSite(stmt=alloc_site, kind=AllocKind.TUPLE),
+                ),
+                LoadConstraint(base=call.args[1], field=elem(), target=members_var),
+                StoreConstraint(
+                    base=exceptions_var,
+                    field=elem(),
+                    source=members_var,
+                ),
+                StoreConstraint(
+                    base=call.target,
+                    field=attr("exceptions"),
+                    source=exceptions_var,
+                ),
+            ]
+        )
+        return constraints
+
     def _handle_generic_builtin(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint", function_name: str
     ) -> List["Constraint"]:
@@ -2742,6 +3078,51 @@ class BuiltinAPIHandler:
             constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
 
         return constraints
+
+    def _handle_async_generator_iter(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Return an async generator itself from ``__aiter__``."""
+        if call.target is None or method_obj.receiver_var is None:
+            return []
+        if isinstance(method_obj.receiver, GeneratorObject):
+            return [CopyConstraint(source=method_obj.receiver_var, target=call.target)]
+        return self._handle_generic_method(scope, context, call, method_obj)
+
+    def _handle_async_generator_next(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        method_obj: "BuiltinMethodObject",
+    ) -> List["Constraint"]:
+        """Model an async generator's ``__anext__`` awaitable result."""
+        if call.target is None or method_obj.receiver_var is None:
+            return []
+        if not isinstance(method_obj.receiver, GeneratorObject):
+            return self._handle_generic_method(scope, context, call, method_obj)
+
+        yielded_var = self._make_temp_var("async_generator_yield", call)
+        return [
+            AllocConstraint(
+                target=call.target,
+                alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.COROUTINE),
+            ),
+            LoadConstraint(
+                base=method_obj.receiver_var,
+                field=elem(),
+                target=yielded_var,
+            ),
+            StoreConstraint(
+                base=call.target,
+                field=attr("$await_result"),
+                source=yielded_var,
+            ),
+        ]
 
 
 # Maintain backward compatibility with old BuiltinSummaryManager

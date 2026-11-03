@@ -42,6 +42,286 @@ def _module_points_to(result, name: str) -> set[str]:
 
 class TestBasicPointerAnalysis:
 
+    def test_raised_exception_flows_to_caught_binding(self) -> None:
+        source = """
+error = ValueError()
+try:
+    raise error
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.points_to("error") <= result.points_to("alias")
+        query = result.points_to_query("alias")
+        assert query.complete is False
+
+    def test_direct_exception_constructor_flows_to_caught_binding(self) -> None:
+        source = """
+try:
+    raise ValueError()
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.points_to("alias")
+        assert result.points_to_query("alias").complete is False
+
+    def test_exception_flows_through_called_function_to_handler(self) -> None:
+        source = """
+error = ValueError()
+def fail():
+    raise error
+try:
+    fail()
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.points_to("error") <= result.points_to("alias")
+        assert result.points_to_query("alias").complete is False
+
+    def test_implicit_attribute_exception_marks_handler_query_incomplete(self) -> None:
+        source = """
+class Empty:
+    pass
+value = Empty()
+try:
+    missing = value.not_present
+except AttributeError as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        query = result.points_to_query("alias")
+        assert query.objects
+        assert query.complete is False
+        assert any(reason["kind"] == "implicit_exceptions_unmodeled" for reason in query.reasons)
+
+    def test_class_definition_failure_in_try_has_unknown_exception_target(self) -> None:
+        result = PointerAnalysis(
+            "try:\n    class Invalid(1):\n        pass\n"
+            "except TypeError as caught:\n    alias = caught\n"
+        ).run()
+
+        query = result.points_to_query("alias")
+        assert query.objects
+        assert query.complete is False
+        assert any(reason["kind"] == "implicit_exceptions_unmodeled" for reason in query.reasons)
+
+    def test_decorated_function_definition_in_try_marks_implicit_failure(self) -> None:
+        result = PointerAnalysis(
+            "def decorate(function):\n    return function\n"
+            "try:\n    @decorate\n    def callback():\n        pass\n"
+            "except Exception as caught:\n    alias = caught\n"
+        ).run()
+
+        query = result.points_to_query("alias")
+        assert query.objects
+        assert query.complete is False
+
+    def test_user_exception_subclasses_are_constructed_and_raised(self) -> None:
+        source = """
+class CustomError(Exception):
+    pass
+try:
+    raise CustomError
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.complete is False
+        assert result.points_to("alias")
+        assert all("<builtin_function" not in obj for obj in result.points_to("alias"))
+
+    def test_qualified_exception_class_is_constructed_before_raise(self) -> None:
+        source = """
+class Errors:
+    class Failure(Exception):
+        pass
+try:
+    raise Errors.Failure
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert any("AllocKind.INSTANCE" in obj for obj in result.points_to("alias"))
+
+    def test_parameter_raised_as_class_or_instance_keeps_instance_target(self) -> None:
+        source = """
+class CustomError(Exception):
+    pass
+def fail(error_type):
+    raise error_type
+try:
+    fail(CustomError)
+except Exception as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        query = result.points_to_query("alias")
+        assert any("AllocKind.INSTANCE" in obj for obj in query.objects)
+        assert query.complete is False
+        assert any(reason["kind"] == "ambiguous_raise_value" for reason in query.reasons)
+
+    def test_less_common_builtin_exception_classes_are_resolved(self) -> None:
+        source = """
+try:
+    raise SystemExit
+except BaseException as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.complete is False
+        assert result.points_to("alias")
+        assert all("<builtin_function" not in obj for obj in result.points_to("alias"))
+
+    def test_bare_raise_with_invalid_constructor_marks_type_error_path(self) -> None:
+        source = """
+class NeedsArgument(Exception):
+    def __init__(self, value):
+        self.value = value
+try:
+    raise NeedsArgument
+except TypeError as caught:
+    alias = caught
+"""
+        result = PointerAnalysis(source).run()
+
+        query = result.points_to_query("alias")
+        assert query.objects
+        assert query.complete is False
+        assert any(reason["kind"] == "implicit_exceptions_unmodeled" for reason in query.reasons)
+
+    def test_bare_raise_of_argument_requiring_builtin_marks_incomplete(self) -> None:
+        result = PointerAnalysis(
+            "try:\n    raise ExceptionGroup\n" "except TypeError as caught:\n    alias = caught\n"
+        ).run()
+
+        query = result.points_to_query("alias")
+        assert query.objects
+        assert query.complete is False
+
+    def test_exception_cause_remains_reachable_from_caught_exception(self) -> None:
+        source = """
+cause = object()
+try:
+    raise ValueError() from cause
+except Exception as caught:
+    alias = caught
+    chained = alias.__cause__
+"""
+        result = PointerAnalysis(source).run()
+
+        assert result.points_to("cause") <= result.points_to("chained")
+        assert result.points_to_query("chained").complete is False
+
+        named_source = """
+cause = object()
+error = ValueError()
+try:
+    raise error from cause
+except Exception as caught:
+    alias = caught
+    chained = alias.__cause__
+"""
+        named_result = PointerAnalysis(named_source).run()
+        assert named_result.points_to("cause") <= named_result.points_to("chained")
+        assert named_result.points_to_query("chained").complete is False
+
+    def test_incomplete_base_taints_loaded_attribute_query(self) -> None:
+        result = PointerAnalysis(
+            "import missing_native\n"
+            "value = missing_native.make_value()\n"
+            "field = value.field\n"
+        ).run()
+
+        assert result.points_to_query("value").complete is False
+        assert result.points_to_query("field").complete is False
+
+    def test_opaque_native_truth_method_marks_scope_incomplete(self) -> None:
+        result = PointerAnalysis("""
+import missing_native
+unknown = missing_native.make_value()
+safe = object()
+flag = bool(unknown)
+""").run()
+
+        assert result.points_to_query("safe").complete is False
+        assert any(
+            reason["kind"] == "native_truth_protocol" for reason in result.incomplete_reasons()
+        )
+
+    def test_exception_context_flows_to_nested_raised_exception(self) -> None:
+        result = PointerAnalysis("""
+original = ValueError()
+try:
+    raise original
+except ValueError:
+    try:
+        raise RuntimeError()
+    except RuntimeError as current:
+        context = current.__context__
+""").run()
+
+        assert result.points_to("original") <= result.points_to("context")
+        assert result.points_to_query("context").complete is False
+
+    def test_exception_context_flows_through_called_function(self) -> None:
+        result = PointerAnalysis("""
+original = ValueError()
+def fail():
+    raise RuntimeError()
+try:
+    raise original
+except ValueError:
+    try:
+        fail()
+    except RuntimeError as current:
+        context = current.__context__
+""").run()
+
+        assert result.points_to("original") <= result.points_to("context")
+        assert result.points_to_query("context").complete is False
+
+    def test_exception_args_preserve_constructor_argument_pointers(self) -> None:
+        result = PointerAnalysis("""
+payload = object()
+class CustomError(Exception):
+    pass
+error = CustomError(payload)
+first = error.args[0]
+""").run()
+
+        assert result.points_to("payload") <= result.points_to("first")
+
+    @pytest.mark.parametrize(
+        "exception_name",
+        [
+            "ArithmeticError",
+            "EOFError",
+            "GeneratorExit",
+            "KeyboardInterrupt",
+            "ModuleNotFoundError",
+            "TimeoutError",
+            "Warning",
+        ],
+    )
+    def test_other_builtin_exception_names_are_resolved(self, exception_name: str) -> None:
+        result = PointerAnalysis(
+            f"try:\n    raise {exception_name}\n"
+            "except BaseException as caught:\n    alias = caught\n"
+        ).run()
+
+        assert result.points_to("alias")
+        assert result.complete is False
+
     def test_config_from_empty_dict_uses_dataclass_defaults(self) -> None:
         assert Config.from_dict({}) == Config()
         assert Config().max_iterations == DEFAULT_MAX_ITERATIONS == 100_000
@@ -790,6 +1070,23 @@ result = missing_native.identity(sentinel)
 
         assert analysis.points_to("result") == analysis.points_to("sentinel")
         assert analysis.points_to_query("result").complete is True
+
+    def test_native_incompleteness_reasons_are_deduplicated_by_scope(self) -> None:
+        analysis = PointerAnalysis(
+            "import missing_native\n"
+            "first = missing_native.alpha()\n"
+            "second = missing_native.beta()\n"
+        ).run()
+
+        reasons = analysis.incomplete_reasons()
+        native = [reason for reason in reasons if reason["kind"] == "native_effect"]
+        query = analysis.points_to_query("first")
+
+        assert len(native) == 1
+        assert native[0]["count"] == 1
+        assert native[0]["message"] == "native calls in this scope lack exhaustive effect summaries"
+        assert query.complete is False
+        assert len(query.reasons) == 1
 
     def test_native_write_and_escape_effects_update_heap_metadata(self) -> None:
         source = """

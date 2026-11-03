@@ -156,6 +156,41 @@ class PointsToQueryResult:
     reasons: tuple[dict, ...] = ()
 
 
+def _summarize_incomplete_reasons(reasons) -> tuple[dict, ...]:
+    """Collapse repeated native-effect diagnostics by source scope."""
+    other: list[dict] = []
+    seen_other = set()
+    native: dict[object, dict[str, object]] = {}
+    for reason in reasons:
+        if reason.get("kind") != "native_effect":
+            key = (reason.get("kind"), reason.get("message"), reason.get("scope"))
+            if key not in seen_other:
+                seen_other.add(key)
+                other.append(dict(reason))
+            continue
+
+        scope = reason.get("scope")
+        group = native.setdefault(scope, {"messages": set()})
+        message = str(reason.get("message", "native call has no exhaustive effect summary"))
+        messages = group["messages"]
+        if message in messages:
+            continue
+        messages.add(message)
+
+    summaries = []
+    for scope, group in native.items():
+        count = len(group["messages"])
+        summaries.append(
+            {
+                "kind": "native_effect",
+                "message": "native calls in this scope lack exhaustive effect summaries",
+                "scope": scope,
+                "count": count,
+            }
+        )
+    return tuple((*other, *summaries))
+
+
 class PointerAnalysisResult:
     """Expose a stable, pyflow-facing view of a completed analysis.
 
@@ -316,7 +351,7 @@ class PointerAnalysisResult:
         return PointsToQueryResult(
             objects=frozenset(self.points_to(binding, scope=scope, context=context)),
             complete=complete,
-            reasons=reasons,
+            reasons=_summarize_incomplete_reasons(reasons),
         )
 
     def _binding_exists(self, binding: str | BindingId) -> bool:
@@ -386,15 +421,7 @@ class PointerAnalysisResult:
             name = _scope_qualname(getattr(variable, "scope", None))
             for reason in scoped or ():
                 reasons.append({**reason, "scope": name})
-        unique: list[dict] = []
-        seen = set()
-        for reason in reasons:
-            key = (reason.get("kind"), reason.get("message"), reason.get("scope"))
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(reason)
-        return unique
+        return list(_summarize_incomplete_reasons(reasons))
 
     def statistics(self) -> dict[str, object]:
         """Return solver statistics, including completeness status."""

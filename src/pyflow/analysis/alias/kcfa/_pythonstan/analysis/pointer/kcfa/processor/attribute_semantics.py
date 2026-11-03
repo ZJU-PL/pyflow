@@ -487,6 +487,7 @@ class AttributeResolver(Processor):
                         base=constraint.base,
                         field=attr_field,
                         target=constraint.target,
+                        site=constraint.call_site.statement,
                     ),
                     PointsToSet.singleton(base_obj),
                 )

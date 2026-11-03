@@ -46,6 +46,7 @@ from .context_selector import ContextSelector, AbstractContext
 from .context import Ctx, Scope, CallSite
 from .class_hierarchy import ClassHierarchyManager
 from .builtin_api_handler import BuiltinSummaryManager
+from .builtin_types import BUILTIN_EXCEPTION_NAMES
 from .unknown_tracker import UnknownTracker, UnknownKind
 from .object import *
 from .object import AbstractObject, AllocKind, AllocSite, ConstantObject, ModuleObject
@@ -248,6 +249,9 @@ class PointerSolver:
         "ImportError",
         "ZeroDivisionError",
     ]
+    for _exception_name in sorted(BUILTIN_EXCEPTION_NAMES):
+        if _exception_name not in BUILTIN_FUNCTIONS:
+            BUILTIN_FUNCTIONS.append(_exception_name)
 
     def initialize_builtins(self, scope: "Scope", context: "AbstractContext") -> None:
         """Initialize builtin function objects in a module-like scope.
@@ -378,6 +382,143 @@ class PointerSolver:
             self.state._static_constraints.append((scope, context, constraint))
         elif isinstance(constraint, AllocConstraint):
             self.state._static_constraints.append((scope, context, constraint))
+        elif isinstance(constraint, AwaitConstraint):
+            awaitable = self.state.get_variable(scope, context, constraint.awaitable)
+            target = constraint.target
+            if target is not None:
+                self.add_constraint(
+                    scope,
+                    context,
+                    LoadConstraint(
+                        base=constraint.awaitable,
+                        field=attr("$await_result"),
+                        target=target,
+                        site=constraint.site,
+                    ),
+                )
+                self.add_constraint(
+                    scope,
+                    context,
+                    LoadConstraint(
+                        base=constraint.awaitable,
+                        field=elem(),
+                        target=target,
+                        site=constraint.site,
+                    ),
+                )
+
+            site_statement = constraint.site or scope.stmt
+            call_site = CallSite(
+                statement=site_statement,
+                scope_name=(
+                    scope.stmt.get_qualname()
+                    if hasattr(scope.stmt, "get_qualname")
+                    else str(scope.stmt)
+                ),
+            )
+
+            def install_user_await_protocol() -> None:
+                for awaitable_obj in self.state.get_points_to(awaitable):
+                    if isinstance(awaitable_obj, (CoroutineObject, GeneratorObject)) or (
+                        getattr(getattr(awaitable_obj, "alloc_site", None), "kind", None)
+                        is AllocKind.COROUTINE
+                    ):
+                        continue
+                    if not isinstance(awaitable_obj, InstanceObject):
+                        affected = (
+                            (self.state.get_variable(scope, context, target),)
+                            if target is not None
+                            else ()
+                        )
+                        self.mark_semantic_incomplete(
+                            variables=affected,
+                            scopes=() if affected else (scope,),
+                            kind="await_protocol_unmodeled",
+                            message="await result came from an unmodeled awaitable object",
+                        )
+                        if target is not None:
+                            self.add_constraint(
+                                scope,
+                                context,
+                                AllocConstraint(
+                                    target=target,
+                                    alloc_site=AllocSite(site_statement, AllocKind.UNKNOWN),
+                                ),
+                            )
+                        continue
+
+                    protocol_key = ("await-protocol", scope, context, constraint, awaitable_obj)
+                    if protocol_key in self._scheduled_optional_calls:
+                        continue
+                    self._scheduled_optional_calls.add(protocol_key)
+                    target_var = (
+                        self.state.get_variable(scope, context, target)
+                        if target is not None
+                        else None
+                    )
+                    if target_var is not None:
+                        self.mark_semantic_incomplete(
+                            variables=(target_var,),
+                            kind="await_protocol_incomplete",
+                            message="user-defined __await__ execution may raise or suspend dynamically",
+                        )
+
+                    method = self.variable_factory.make_variable(
+                        f"$await_method@{stable_token(protocol_key)}", VariableKind.TEMPORARY
+                    )
+                    iterator = self.variable_factory.make_variable(
+                        f"$await_iterator@{stable_token(protocol_key)}", VariableKind.TEMPORARY
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        AttrReadConstraint(
+                            base=constraint.awaitable,
+                            attr="__await__",
+                            target=method,
+                            call_site=call_site,
+                        ),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        CallConstraint(
+                            callee=method,
+                            args=(),
+                            kwargs=(),
+                            target=iterator,
+                            call_site=call_site,
+                        ),
+                    )
+                    next_function = self.variable_factory.make_variable(
+                        f"$await_next@{stable_token(protocol_key)}", VariableKind.TEMPORARY
+                    )
+                    next_function_ctx = self.state.get_variable(scope, context, next_function)
+                    self.handle_new_points_to(
+                        next_function_ctx,
+                        scope,
+                        PointsToSet.singleton(
+                            ObjectFactory.create_builtin_function("next", context)
+                        ),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        CallConstraint(
+                            callee=next_function,
+                            args=(iterator,),
+                            kwargs=(),
+                            target=target,
+                            call_site=call_site,
+                        ),
+                    )
+
+            self.state.dependencies.subscribe(
+                ("await-protocol", scope, context, constraint),
+                (awaitable,),
+                install_user_await_protocol,
+                run_initial=True,
+            )
         else:
             if isinstance(constraint, LoadConstraint):
                 base = self.state.get_variable(scope, context, constraint.base)
@@ -2289,7 +2430,11 @@ class PointerSolver:
                     builtin_type = base_obj.builtin_type
                 elif isinstance(base_obj, InstanceObject):
                     builtin_type = self.state.builtin_base_name(base_obj.class_obj)
-                elif isinstance(base_obj, (GeneratorObject, CoroutineObject)):
+                elif isinstance(base_obj, GeneratorObject):
+                    builtin_type = (
+                        "async_generator" if base_obj.func_obj.ir.is_async else "generator"
+                    )
+                elif isinstance(base_obj, CoroutineObject):
                     builtin_type = "generator"
                 elif (
                     isinstance(base_obj, BuiltinFunctionObject)
@@ -2574,9 +2719,7 @@ class PointerSolver:
                 variables=affected,
                 scopes=(scope,) if call.target is None else (),
                 kind="native_effect",
-                message=(
-                    f"native call {callee_obj.access_path} has no exhaustive " "effect summary"
-                ),
+                message="native call has no exhaustive effect summary",
             )
         if call.target is None or exhaustive:
             return True
@@ -3977,6 +4120,7 @@ class SolverQuery(ISolverQuery):
         self._global_incomplete_reasons = global_incomplete_reasons
         self._complete = fixpoint_complete and frontend_complete and semantic_complete
         self._statistics_cache: Dict[str, Any] | None = None
+        self._completeness_transfer_succs = None
 
     def points_to(self, var: "Variable") -> "PointsToSet":
         return self._state.get_points_to(var)
@@ -4017,6 +4161,27 @@ class SolverQuery(ISolverQuery):
     def get_unknown_details(self) -> List[Dict]:
         return self._unknown_tracker.get_detailed_report()
 
+    def _load_completeness_successors(self):
+        """Build conservative base-to-result edges for reads absent from the PFG."""
+        if self._completeness_transfer_succs is not None:
+            return self._completeness_transfer_succs
+        successors = defaultdict(set)
+        for scope, context, constraint in self._state.constraint_definitions:
+            if isinstance(constraint, (LoadConstraint, AttrReadConstraint)):
+                bases = (constraint.base,)
+                target = constraint.target
+            elif isinstance(constraint, LoadSubscrConstraint):
+                bases = (constraint.base, constraint.index)
+                target = constraint.target
+            else:
+                continue
+            target_node = NormalNode(self._state.get_variable(scope, context, target))
+            for base in bases:
+                base_node = NormalNode(self._state.get_variable(scope, context, base))
+                successors[base_node].add(target_node)
+        self._completeness_transfer_succs = successors
+        return successors
+
     def completeness_for(self, variables) -> Tuple[bool, Tuple[Dict, ...]]:
         """Return completeness for the dataflow region reaching variables."""
         reasons = list(self._global_incomplete_reasons)
@@ -4036,6 +4201,7 @@ class SolverQuery(ISolverQuery):
             )
 
         graph = self._state.pointer_flow_graph
+        transfer_succs = self._load_completeness_successors()
         targets = set(variables)
         target_nodes = {NormalNode(target) for target in targets}
 
@@ -4046,10 +4212,12 @@ class SolverQuery(ISolverQuery):
                 node = queue.popleft()
                 if node in target_nodes:
                     return True
-                for edge in graph.succs.get(node, ()):
-                    if edge.target not in seen:
-                        seen.add(edge.target)
-                        queue.append(edge.target)
+                successors = [edge.target for edge in graph.succs.get(node, ())]
+                successors.extend(transfer_succs.get(node, ()))
+                for successor in successors:
+                    if successor not in seen:
+                        seen.add(successor)
+                        queue.append(successor)
             return False
 
         for incomplete_scope, scope_reasons in self._incomplete_scopes.items():

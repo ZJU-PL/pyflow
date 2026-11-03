@@ -31,7 +31,7 @@ class Counter(dict):
 
 class defaultdict(dict):
     def __init__(self, default_factory=None, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
+        self.update(*args, **kwargs)
         self.default_factory = default_factory
 
     def __missing__(self, key):
@@ -40,10 +40,15 @@ class defaultdict(dict):
         self[key] = self.default_factory()
         return self[key]
 
+    def __getitem__(self, key):
+        if key in self:
+            return self.get(key)
+        return self.__missing__(key)
+
 
 class OrderedDict(dict):
     def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
+        self.update(*args, **kwargs)
 
     def move_to_end(self, key, last=True):
         pass
@@ -100,6 +105,15 @@ class deque:
 
     def __len__(self):
         return len(self._items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def __setitem__(self, index, value):
+        self._items[index] = value
+
+    def __delitem__(self, index):
+        del self._items[index]
 
     def __iter__(self):
         return iter(self._items)

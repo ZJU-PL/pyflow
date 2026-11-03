@@ -66,6 +66,29 @@ def test_json_report_exposes_completeness(tmp_path, capsys):
     assert "incomplete_reasons" in report
 
 
+def test_json_report_counts_native_effect_scope_summaries(tmp_path, capsys):
+    entry = tmp_path / "main.py"
+    entry.write_text(
+        "import missing_native\n"
+        "first = missing_native.alpha()\n"
+        "second = missing_native.beta()\n",
+        encoding="utf-8",
+    )
+
+    args = _args(entry, "--engine", "kcfa", "--json", "--max-seconds", "30")
+    assert alias.run_alias_analysis(str(entry), args) == 0
+
+    report = json.loads(capsys.readouterr().out)[0]
+    native = [
+        reason for reason in report["incomplete_reasons"] if reason["kind"] == "native_effect"
+    ]
+    assert len(native) == 1
+    assert native[0]["count"] == 1
+    assert report["incomplete_reason_count"] == sum(
+        reason.get("count", 1) for reason in report["incomplete_reasons"]
+    )
+
+
 def test_text_report_prints_solver_status(tmp_path, capsys):
     entry = tmp_path / "main.py"
     entry.write_text("x = [1]\n", encoding="utf-8")
