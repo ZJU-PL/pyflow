@@ -430,7 +430,15 @@ class LspHandler:
         params = params or {}
         uri = (params.get("textDocument") or {}).get("uri", "")
         position = params.get("position") or {}
-        return uri, int(position.get("line", 0)), int(position.get("character", 0))
+        try:
+            line = int(position.get("line", 0))
+            character = int(position.get("character", 0))
+        except (TypeError, ValueError) as error:
+            raise JsonRpcError(
+                ErrorCodes.InvalidParams,
+                "position must contain integer line and character",
+            ) from error
+        return uri, line, character
 
     def _handle_definition(self, params: Any) -> list[dict[str, Any]]:
         self._require_loaded()
@@ -687,6 +695,8 @@ class LspHandler:
     def _handle_workspace_symbol(self, params: Any) -> list[dict[str, Any]]:
         self._require_loaded()
         query = (params or {}).get("query", "")
+        if not isinstance(query, str):
+            raise JsonRpcError(ErrorCodes.InvalidParams, "workspace/symbol query must be a string")
         return [
             symbol.symbol_information()
             for symbol in self._server.current_snapshot().source_index.workspace_symbols(query)[

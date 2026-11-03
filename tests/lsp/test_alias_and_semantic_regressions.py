@@ -406,3 +406,29 @@ def test_handler_barrier_waits_for_pending_index_rebuild(tmp_path: Path):
         assert handler._pending_index == {}
 
     asyncio.run(scenario())
+
+
+def test_malformed_request_parameters_are_invalid_params(tmp_path: Path):
+    import pytest
+
+    from pyflow.lsp import AnalysisManager, LspHandler
+    from pyflow.lsp.transport import ErrorCodes, JsonRpcError
+
+    path = tmp_path / "app.py"
+    path.write_text("value = 1\n")
+    manager = AnalysisManager()
+    manager.load_files([path], run_pipeline=False)
+    handler = LspHandler(manager)
+
+    with pytest.raises(JsonRpcError) as invalid_position:
+        handler._handle_completion(
+            {
+                "textDocument": {"uri": path.as_uri()},
+                "position": {"line": "not-a-number", "character": 0},
+            }
+        )
+    assert invalid_position.value.code == ErrorCodes.InvalidParams
+
+    with pytest.raises(JsonRpcError) as invalid_query:
+        handler._handle_workspace_symbol({"query": None})
+    assert invalid_query.value.code == ErrorCodes.InvalidParams
