@@ -1538,9 +1538,9 @@ class IRClass(IRScope, IRStatement):
         """Captures base/keyword/decorator metadata for this class."""
         super().__init__(qualname)
         self.name = cls.name
-        assert all(
-            isinstance(i, ast.Name) for i in cls.bases
-        ), f"Base of the class should be ast.Name, {cls.bases} got!"
+        # ``class C(*bases)`` is valid Python; the concrete bases are only
+        # known dynamically.  Keep the expression and let the translator
+        # represent the unresolved base conservatively instead of crashing.
         self.bases = cls.bases
         self.keywords = cls.keywords
         self.decorator_list = cls.decorator_list
@@ -1574,7 +1574,7 @@ class IRClass(IRScope, IRStatement):
         """Classes do not expose delete info at this node."""
         return {*()}
 
-    def get_bases(self) -> List[ast.Name]:
+    def get_bases(self) -> List[ast.expr]:
         """Returns the base expressions declared on the class."""
         return self.bases
 

@@ -368,3 +368,129 @@ from_local = local_scope["a"]
     assert _points(result, "a") <= _points(result, "chained")
     assert _points(result, "from_scope") == _points(result, "a")
     assert _points(result, "from_local") == _points(result, "a")
+
+
+def test_starred_class_bases_do_not_crash():
+    result = PointerAnalysis("""
+class MyTimeout(Exception):
+    pass
+
+Bases = (ValueError, LookupError)
+
+class Combined(*Bases):
+    pass
+
+instance = Combined()
+""").run()
+
+    assert _points(result, "instance")
+    assert result.complete is False
+    assert any(reason["kind"] == "starred_class_base" for reason in result.incomplete_reasons())
+
+
+def test_yield_from_yields_inner_elements():
+    result = PointerAnalysis("""
+class A: pass
+class B: pass
+
+def inner():
+    yield A()
+    return B()
+
+def outer():
+    value = yield from inner()
+    yield value
+
+it = outer()
+first = next(it)
+second = next(it)
+""").run()
+
+    assert any("A()" in obj for obj in _points(result, "first"))
+    assert any("A()" in obj for obj in _points(result, "second"))
+
+
+def test_advanced_dataclass_fields_post_init_and_asdict():
+    result = PointerAnalysis("""
+from dataclasses import dataclass, field, InitVar, asdict, astuple
+from typing import ClassVar
+class A: pass
+class B: pass
+a = A()
+b = B()
+
+@dataclass
+class D:
+    cv: ClassVar[object] = None
+    iv: InitVar[object] = None
+    x: object = field(init=False)
+    y: object = field(default=b)
+
+    def __post_init__(self, iv):
+        self.x = a
+
+d = D()
+dx = d.x
+dy = d.y
+mapping = asdict(d)
+mapping_x = mapping["x"]
+values = astuple(d)
+value_x = values[0]
+""").run()
+
+    assert result.complete
+    assert _points(result, "dx") == _points(result, "a")
+    assert _points(result, "dy") == _points(result, "b")
+    assert _points(result, "mapping_x") == _points(result, "a")
+    assert _points(result, "value_x") == _points(result, "a")
+
+
+def test_type_and_class_attributes_resolve_class_objects():
+    result = PointerAnalysis("""
+class A: pass
+a = A()
+class_of_a = a.__class__
+via_type = type(a)
+first = class_of_a()
+second = via_type()
+""").run()
+
+    assert result.complete
+    assert any("class A" in obj for obj in _points(result, "class_of_a"))
+    assert any("class A" in obj for obj in _points(result, "via_type"))
+    assert _points(result, "first")
+    assert _points(result, "second")
+
+
+def test_typing_newtype_is_identity():
+    result = PointerAnalysis("""
+from typing import NewType
+class A: pass
+a = A()
+UserId = NewType("UserId", int)
+value = UserId(a)
+""").run()
+
+    assert result.complete
+    assert _points(result, "value") == _points(result, "a")
+
+
+def test_boolean_and_integer_constants_do_not_alias():
+    result = PointerAnalysis("""
+class A: pass
+class B: pass
+a = A()
+b = B()
+values = [a, b]
+zero = values[False]
+one = values[True]
+mapping = {False: a, True: b}
+mapping_zero = mapping[0]
+mapping_one = mapping[1]
+""").run()
+
+    assert result.complete
+    assert _points(result, "zero") == _points(result, "a")
+    assert _points(result, "one") == _points(result, "b")
+    assert _points(result, "mapping_zero") == _points(result, "a")
+    assert _points(result, "mapping_one") == _points(result, "b")

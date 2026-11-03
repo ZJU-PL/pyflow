@@ -29,6 +29,7 @@ from .heap_model import (
     Field,
     FieldKind,
     attr,
+    dict_keys,
     dynamic_attr,
     elem,
     is_dunder_name,
@@ -2247,6 +2248,78 @@ class PointerSolver:
             field_access = self.state.raw_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(source_var, field_access)
 
+    def _handle_dataclass_conversion(
+        self,
+        scope: Scope,
+        context: AbstractContext,
+        call: CallConstraint,
+        callee: FunctionObject,
+    ) -> bool:
+        """Model ``dataclasses.asdict`` / ``astuple`` field values."""
+        if not call.target or not call.args:
+            return False
+        as_dict = callee.ir.get_qualname() == "dataclasses.asdict"
+        target = self.state.get_variable(scope, context, call.target)
+        alloc_kind = AllocKind.DICT if as_dict else AllocKind.TUPLE
+        obj = (DictObject if as_dict else TupleObject)(
+            context, AllocSite(call.call_site.statement, alloc_kind)
+        )
+        self.handle_new_points_to(target, scope, PointsToSet.singleton(obj))
+        self.state._precise_container_objects.add(obj)
+
+        source_ctx = self.state.get_variable(scope, context, call.args[0])
+
+        def populate() -> None:
+            for instance in self.state.get_points_to(source_ctx):
+                if not isinstance(instance, InstanceObject):
+                    continue
+                specs = [
+                    spec
+                    for spec in self._dataclass_field_specs(instance.class_obj)
+                    if not spec.get("initvar")
+                ]
+                instance_scope = self.state.get_internal_scope(instance) or scope
+                for index, spec in enumerate(specs):
+                    name = spec["name"]
+                    source_field = self.state.get_field(
+                        instance_scope, instance.context, instance, attr(name)
+                    )
+                    field = key(name) if as_dict else key(index)
+                    target_field = self.state.get_field(scope, context, obj, field)
+                    self.state._add_var_points_flow(source_field, target_field)
+                    elem_field = self.state.get_field(scope, context, obj, elem())
+                    self.state._add_var_points_flow(source_field, elem_field)
+                    if as_dict:
+                        key_name = f"$dataclass_asdict_key@{call.call_site.short_id()}@{name}"
+                        key_var = self.variable_factory.make_variable(
+                            key_name, VariableKind.TEMPORARY
+                        )
+                        key_assign = IRAssign(
+                            ast.Assign(
+                                targets=[ast.Name(id=key_name, ctx=ast.Store())],
+                                value=ast.Constant(value=name),
+                            )
+                        )
+                        self.add_constraint(
+                            scope,
+                            context,
+                            AllocConstraint(
+                                target=key_var,
+                                alloc_site=AllocSite.from_ir_node(key_assign, AllocKind.CONSTANT),
+                            ),
+                        )
+                        keys_field = self.state.get_field(scope, context, obj, dict_keys())
+                        key_ctx = self.state.get_variable(scope, context, key_var)
+                        self.state._add_var_points_flow(key_ctx, keys_field)
+
+        self.state.dependencies.subscribe(
+            ("dataclass-conversion", scope, context, call, callee),
+            (source_ctx,),
+            populate,
+            run_initial=True,
+        )
+        return True
+
     def _apply_call(
         self, scope: "Scope", variable: "Ctx", c: "CallConstraint", pts: "PointsToSet"
     ) -> bool:
@@ -2276,6 +2349,13 @@ class PointerSolver:
                 PointerEvent(PointerEventKind.CALL, scope, context, c, callee_obj)
             )
             self._apply_configured_return_effects(scope, context, c, callee_obj)
+            if (
+                isinstance(callee_obj, FunctionObject)
+                and callee_obj.ir.get_qualname() in {"dataclasses.asdict", "dataclasses.astuple"}
+                and self._handle_dataclass_conversion(scope, context, c, callee_obj)
+            ):
+                changed = True
+                continue
             # logger.info(f"Handling function call: {c.call_site} -> {callee_obj.alloc_site.stmt}\n    {type(callee_obj)} {type(callee_obj.alloc_site.stmt)}")
             if isinstance(callee_obj, NativeObject):
                 changed = self._handle_native_call(scope, context, c, callee_obj)
@@ -2411,6 +2491,14 @@ class PointerSolver:
                     alloc_site=AllocSite(call.call_site.statement, fresh_kind),
                 )
                 self.state._worklist.add((scope, NormalNode(target), PointsToSet.singleton(fresh)))
+            elif kind == "return_native" and call.target is not None:
+                result_path = canonicalize_native_access_path(f"{callee_obj.access_path}.<return>")
+                result = NativeObject(
+                    context=context,
+                    alloc_site=AllocSite(stmt=f"<native:{result_path}>", kind=AllocKind.NATIVE),
+                    access_path=result_path,
+                )
+                self.state._worklist.add((scope, NormalNode(target), PointsToSet.singleton(result)))
             elif kind == "return_sequence" and call.target is not None:
                 self.add_constraint(
                     scope,
@@ -2635,14 +2723,44 @@ class PointerSolver:
                 for statement in class_ir
                 if isinstance(statement, IRCopy)
             }
+            class_scope_for_consts = self.state.get_internal_scope(class_obj)
+            if class_scope_for_consts is None:
+                class_scope_for_consts = class_obj.container_scope
+
+            def const_value(name):
+                ctx = self.state.get_variable(
+                    class_scope_for_consts,
+                    class_scope_for_consts.context,
+                    Variable(name, VariableKind.TEMPORARY),
+                )
+                values = list(self.state.get_points_to(ctx))
+                if len(values) == 1 and isinstance(values[0], ConstantObject):
+                    return values[0].value
+                return None
+
             for field_name, temp_name in copies.items():
                 call = calls.get(temp_name)
                 if call is None or call.get_func_name().rsplit(".", 1)[-1] != "field":
                     continue
-                ir_spec = {"factory_name": None, "init": True, "kw_only": False}
+                ir_spec = {
+                    "factory_name": None,
+                    "default_name": None,
+                    "init": True,
+                    "kw_only": False,
+                }
                 for keyword, argument in call.get_keywords():
                     if keyword == "default_factory":
                         ir_spec["factory_name"] = argument
+                    elif keyword == "default":
+                        ir_spec["default_name"] = argument
+                    elif keyword == "init":
+                        value = const_value(argument)
+                        if isinstance(value, bool):
+                            ir_spec["init"] = value
+                    elif keyword == "kw_only":
+                        value = const_value(argument)
+                        if isinstance(value, bool):
+                            ir_spec["kw_only"] = value
                 field_calls[field_name] = ir_spec
             for node in body:
                 if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
@@ -2651,8 +2769,9 @@ class PointerSolver:
                 if name in seen:
                     continue
                 annotation = ast.unparse(node.annotation) if node.annotation is not None else ""
-                if annotation.startswith(("ClassVar", "typing.ClassVar", "InitVar")):
+                if annotation.startswith(("ClassVar", "typing.ClassVar")):
                     continue
+                is_initvar = annotation.startswith("InitVar")
                 seen.add(name)
                 value = node.value if node.value is not None else assigned_values.get(name)
                 default, factory, init, kw_only = self._dataclass_field_defaults(value)
@@ -2667,6 +2786,8 @@ class PointerSolver:
                         "factory_name": ir_spec.get("factory_name"),
                         "init": ir_spec.get("init", init),
                         "kw_only": ir_spec.get("kw_only", kw_only),
+                        "default_name": ir_spec.get("default_name"),
+                        "initvar": is_initvar,
                         "node": node,
                     }
                 )
@@ -2762,6 +2883,17 @@ class PointerSolver:
                 ),
                 state.arena,
             )
+        default_name = spec.get("default_name")
+        if default_name:
+            class_scope = state.get_internal_scope(class_obj) or class_obj.container_scope
+            default_var = Variable(
+                default_name,
+                VariableKind.TEMPORARY if default_name.startswith("$") else VariableKind.GLOBAL,
+            )
+            default_ctx = state.get_variable(class_scope, class_scope.context, default_var)
+            default_values = state.get_points_to(default_ctx)
+            if not default_values.is_empty():
+                return default_values
         class_scope = state.get_internal_scope(class_obj)
         if class_scope is None:
             return None
@@ -2841,6 +2973,81 @@ class PointerSolver:
             return None
         return PointsToSet.from_objects(defaults, arena=state.arena)
 
+    def _install_dataclass_post_init(
+        self,
+        class_obj: ClassObject,
+        instance_obj: InstanceObject,
+        instance_scope: Scope,
+        instance_ctx: AbstractContext,
+        initvar_vars,
+        call: CallConstraint,
+    ) -> None:
+        """Invoke a dataclass ``__post_init__`` with its InitVar values."""
+        owners = [class_obj]
+        if self.class_hierarchy is not None:
+            try:
+                owners = [
+                    obj
+                    for obj in self.class_hierarchy.get_mro(class_obj)
+                    if isinstance(obj, ClassObject)
+                ]
+            except Exception:
+                pass
+        post_fields = []
+        for owner in owners:
+            owner_scope = self.state.get_internal_scope(owner)
+            if owner_scope is None:
+                continue
+            post_fields.append(
+                self.state.raw_field(owner_scope, owner.context, owner, attr("__post_init__"))
+            )
+        if not post_fields:
+            return
+
+        def schedule() -> None:
+            for post_field in post_fields:
+                for method in self.state.get_points_to(post_field):
+                    if not isinstance(method, MethodObject):
+                        continue
+                    key = ("dataclass-post-init", instance_obj, method)
+                    if key in self._scheduled_optional_calls:
+                        continue
+                    self._scheduled_optional_calls.add(key)
+                    bound = method.deliver_into(instance_obj)
+                    callee = Variable(
+                        name=(
+                            f"$dataclass_post_init@{stable_token(class_obj)}"
+                            f"@{stable_token(instance_obj)}@{stable_token(method)}"
+                        ),
+                        kind=VariableKind.TEMPORARY,
+                    )
+                    callee_ctx = self.state.get_variable(instance_scope, instance_ctx, callee)
+                    self.handle_new_points_to(
+                        callee_ctx, instance_scope, PointsToSet.singleton(bound)
+                    )
+                    self.add_constraint(
+                        instance_scope,
+                        instance_ctx,
+                        CallConstraint(
+                            callee=callee,
+                            args=tuple(initvar_vars),
+                            kwargs=(),
+                            target=None,
+                            call_site=CallSite(
+                                statement=class_obj.ir,
+                                scope_name=class_obj.ir.get_qualname(),
+                                index=40,
+                            ),
+                        ),
+                    )
+
+        self.state.dependencies.subscribe(
+            ("dataclass-post-init", class_obj, instance_obj),
+            tuple(post_fields),
+            schedule,
+            run_initial=True,
+        )
+
     def _install_dataclass_fields(
         self,
         scope: Scope,
@@ -2853,7 +3060,9 @@ class PointerSolver:
     ) -> None:
         """Bind constructor arguments and defaults to dataclass instance fields."""
         specs = self._dataclass_field_specs(class_obj)
-        self._dataclass_field_names[class_obj].update(spec["name"] for spec in specs)
+        self._dataclass_field_names[class_obj].update(
+            spec["name"] for spec in specs if not spec.get("initvar")
+        )
         positional = [
             (self.state.get_variable(scope, context, arg), starred)
             for arg, starred in call.iter_args()
@@ -2864,39 +3073,139 @@ class PointerSolver:
             if name is not None
         }
         arg_index = 0
-        if True:
-            for spec in specs:
-                name = spec["name"]
-                source = None
-                if spec["init"] and not spec["kw_only"] and arg_index < len(positional):
-                    candidate, starred = positional[arg_index]
-                    arg_index += 1
-                    if not starred:
-                        source = candidate
-                if source is None and name in keywords:
-                    source = keywords[name]
-                field_ctx = self.state.get_field(
-                    instance_scope, instance_ctx, instance_obj, attr(name)
-                )
+        initvar_vars = []
+        for spec in specs:
+            name = spec["name"]
+            source = None
+            if spec["init"] and not spec["kw_only"] and arg_index < len(positional):
+                candidate, starred = positional[arg_index]
+                arg_index += 1
+                if not starred:
+                    source = candidate
+            if source is None and name in keywords:
+                source = keywords[name]
+            if spec.get("initvar"):
                 if source is not None:
-                    self.state._add_var_points_flow(source, field_ctx)
-                    continue
-                defaults = self._dataclass_state_defaults(class_obj, name, spec, instance_ctx)
-                if defaults is not None:
+                    initvar_vars.append(source.content)
+                else:
                     temp = Variable(
-                        name=f"$dataclass_default@{stable_token(class_obj)}:{name}",
+                        name=f"$dataclass_initvar@{stable_token(class_obj)}:{name}",
                         kind=VariableKind.TEMPORARY,
                     )
                     temp_ctx = self.state.get_variable(instance_scope, instance_ctx, temp)
-                    self.handle_new_points_to(temp_ctx, instance_scope, defaults)
-                    self.state._add_var_points_flow(temp_ctx, field_ctx)
-                else:
-                    self._unknown_tracker.record(
-                        UnknownKind.MISSING_ARGUMENT,
-                        str(call.call_site),
-                        f"dataclass field {name} was not provided and has no modeled default",
-                        context=class_obj.ir.get_qualname(),
+                    initvar_vars.append(temp)
+                    defaults = self._dataclass_state_defaults(class_obj, name, spec, instance_ctx)
+                    if defaults is not None:
+                        self.handle_new_points_to(temp_ctx, instance_scope, defaults)
+                    else:
+                        class_scope = self.state.get_internal_scope(class_obj)
+                        source_cells = []
+                        if spec.get("default_name"):
+                            source_scope = class_scope or class_obj.container_scope
+                            source_cells.append(
+                                self.state.get_variable(
+                                    source_scope,
+                                    source_scope.context,
+                                    Variable(
+                                        spec["default_name"],
+                                        (
+                                            VariableKind.TEMPORARY
+                                            if spec["default_name"].startswith("$")
+                                            else VariableKind.GLOBAL
+                                        ),
+                                    ),
+                                )
+                            )
+                        if class_scope is not None:
+                            source_cells.append(
+                                self.state.raw_field(
+                                    class_scope, class_obj.context, class_obj, attr(name)
+                                )
+                            )
+
+                        def fill_initvar(
+                            name=name,
+                            spec=spec,
+                            temp_ctx=temp_ctx,
+                        ) -> None:
+                            values = self._dataclass_state_defaults(
+                                class_obj, name, spec, instance_ctx
+                            )
+                            if values is not None:
+                                self.handle_new_points_to(temp_ctx, instance_scope, values)
+
+                        self.state.dependencies.subscribe(
+                            ("dataclass-initvar", class_obj, name, instance_obj),
+                            tuple(source_cells),
+                            fill_initvar,
+                            run_initial=True,
+                        )
+                continue
+            field_ctx = self.state.get_field(instance_scope, instance_ctx, instance_obj, attr(name))
+            if source is not None:
+                self.state._add_var_points_flow(source, field_ctx)
+                continue
+            class_scope = self.state.get_internal_scope(class_obj)
+            source_cells = []
+            if spec.get("default_name"):
+                default_name = spec["default_name"]
+                source_scope = class_scope or class_obj.container_scope
+                source_cells.append(
+                    self.state.get_variable(
+                        source_scope,
+                        source_scope.context,
+                        Variable(
+                            default_name,
+                            (
+                                VariableKind.TEMPORARY
+                                if default_name.startswith("$")
+                                else VariableKind.GLOBAL
+                            ),
+                        ),
                     )
+                )
+            if class_scope is not None:
+                source_cells.append(
+                    self.state.raw_field(class_scope, class_obj.context, class_obj, attr(name))
+                )
+
+            def fill_default(
+                name=name,
+                spec=spec,
+                field_ctx=field_ctx,
+            ) -> None:
+                defaults = self._dataclass_state_defaults(class_obj, name, spec, instance_ctx)
+                if defaults is None:
+                    return
+                temp = Variable(
+                    name=f"$dataclass_default@{stable_token(class_obj)}:{name}",
+                    kind=VariableKind.TEMPORARY,
+                )
+                temp_ctx = self.state.get_variable(instance_scope, instance_ctx, temp)
+                self.handle_new_points_to(temp_ctx, instance_scope, defaults)
+                self.state._add_var_points_flow(temp_ctx, field_ctx)
+
+            self.state.dependencies.subscribe(
+                ("dataclass-default", class_obj, name, instance_obj),
+                tuple(source_cells),
+                fill_default,
+                run_initial=True,
+            )
+            if not source_cells and spec.get("init"):
+                self._unknown_tracker.record(
+                    UnknownKind.MISSING_ARGUMENT,
+                    str(call.call_site),
+                    f"dataclass field {name} was not provided and has no modeled default",
+                    context=class_obj.ir.get_qualname(),
+                )
+        self._install_dataclass_post_init(
+            class_obj,
+            instance_obj,
+            instance_scope,
+            instance_ctx,
+            initvar_vars,
+            call,
+        )
 
     def _handle_class_instantiation(
         self,

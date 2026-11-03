@@ -492,6 +492,16 @@ class AttributeResolver(Processor):
         state = solver.state
         context = scope.context
         target_ctx = state.get_variable(scope, context, target_var)
+        class_obj = base_obj.class_obj
+        if attr_name == "__class__":
+            state._worklist.add(
+                (
+                    scope,
+                    NormalNode(target_ctx),
+                    PointsToSet.singleton(class_obj),
+                )
+            )
+            return
         attr_token = self._attr_token(attr_name)
 
         inst_var = self._make_object_var(
@@ -635,9 +645,8 @@ class AttributeResolver(Processor):
         # over-approximation of the descriptor/plain split.
         owner_is_dataclass = self._is_dataclass_class(class_obj)
 
-        dataclass_fields = getattr(solver, "_dataclass_field_names", {}).get(class_obj, set())
-
         def plain_class_objects(pts):
+            dataclass_fields = getattr(solver, "_dataclass_field_names", {}).get(class_obj, set())
             for obj in pts:
                 if isinstance(obj, SlotDescriptorObject):
                     continue

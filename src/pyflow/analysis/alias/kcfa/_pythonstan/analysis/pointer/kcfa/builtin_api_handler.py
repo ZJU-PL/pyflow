@@ -1858,9 +1858,17 @@ class BuiltinAPIHandler:
                         (scope, NormalNode(target_ctx), PointsToSet.singleton(obj))
                     )
                     added = True
-            if not added:
-                alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.OBJECT)
-                constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
+            # ``arg`` may not have received its points-to set yet when this
+            # handler runs.  The attribute constraint is also lazy and will
+            # resolve ``__class__`` once the argument grows.
+            constraints.append(
+                AttrReadConstraint(
+                    base=arg_var,
+                    attr="__class__",
+                    target=call.target,
+                    call_site=call.call_site,
+                )
+            )
 
         return constraints
 

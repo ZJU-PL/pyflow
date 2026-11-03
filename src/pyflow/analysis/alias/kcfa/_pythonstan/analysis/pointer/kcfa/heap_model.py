@@ -101,7 +101,10 @@ def key(key_name: str) -> Field:
     Returns:
         Field for specific key access
     """
-    if not isinstance(key_name, str):
+    if isinstance(key_name, bool):
+        # Python treats ``False``/``True`` as integer keys 0/1.
+        key_name = str(int(key_name))
+    elif not isinstance(key_name, str):
         key_name = str(key_name)
     return Field(FieldKind.KEY, key_name, None)
 

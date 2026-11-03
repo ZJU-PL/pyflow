@@ -43,19 +43,23 @@ class ConstCollector:
         return self.template % idx
 
     def load(self, c) -> ast.Name:
-        if c in self.consts:
-            idx = self.consts[c]
+        # ``False == 0`` and ``True == 1`` in Python's value-based dict keys.
+        # Include the value type so a boolean constant cannot alias an index
+        # constant (which made ``values[0]`` read key ``"False"``).
+        key = (type(c), c)
+        if key in self.consts:
+            idx = self.consts[key]
         else:
             c_idx = self.next_idx
             self.next_idx += 1
-            self.consts[c] = c_idx
+            self.consts[key] = c_idx
             idx = c_idx
         return ast.Name(id=self.to_name(idx), ctx=ast.Load())
 
     def dump(self) -> List[Tuple[str, Any]]:
-        ret = [(v, k) for k, v in self.consts.items()]
+        ret = [(index, value) for (_, value), index in self.consts.items()]
         ret.sort(key=lambda x: x[0])
-        return [(self.to_name(k), v) for k, v in ret]
+        return [(self.to_name(index), value) for index, value in ret]
 
 
 class ThreeAddressTransformer(NodeTransformer):
@@ -522,14 +526,30 @@ class ThreeAddressTransformer(NodeTransformer):
         return blk, exp
 
     def visit_YieldFrom(self, node):
-        blk, elt = self.visit(node.value)
-        tmp_l, tmp_s = self.tmp_gen()
-        ins = ast.Assign(targets=[tmp_s], value=elt)
-        ast.copy_location(ins, node)
-        blk.append(ins)
-        exp = ast.YieldFrom(value=tmp_l)
-        ast.copy_location(exp, node)
-        return blk, exp
+        # ``yield from iterable`` forwards every item yielded by the
+        # iterable.  The old lowering emitted a plain ``yield iterable``, so
+        # the outer generator yielded the inner generator object instead of
+        # its elements.  Desugar to a loop; the StopIteration return value is
+        # conservatively represented by a fresh ``object()``.
+        blk, elt = self.split_expr(node.value)
+        item_l, item_s = self.tmp_gen()
+        for_stmt = ast.For(
+            target=item_s,
+            iter=elt,
+            body=[ast.Expr(value=ast.Yield(value=item_l))],
+            orelse=[],
+            type_comment=None,
+        )
+        ast.copy_location(for_stmt, node)
+        for for_stmt_elt in (for_stmt, for_stmt.target, for_stmt.body[0]):
+            ast.copy_location(for_stmt_elt, node)
+        blk.extend(self.visit(for_stmt))
+        return_name = (
+            f"$yield_from_return@{getattr(node, 'lineno', 0)}_" f"{getattr(node, 'col_offset', 0)}"
+        )
+        result = ast.Call(func=ast.Name(id=return_name, ctx=Load()), args=[], keywords=[])
+        ast.copy_location(result, node)
+        return blk, result
 
     def visit_BoolOp(self, node):
         blk, elts = None, []

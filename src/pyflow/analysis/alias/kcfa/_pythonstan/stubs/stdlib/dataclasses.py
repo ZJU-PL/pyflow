@@ -129,11 +129,14 @@ def asdict(obj, dict_factory=dict):
     result = {}
     for name in obj.__dataclass_fields__:
         result[name] = getattr(obj, name)
-    return dict_factory(result.items()) if dict_factory is not dict else result
+    return result
 
 
 def astuple(obj, tuple_factory=tuple):
-    return tuple_factory(getattr(obj, name) for name in obj.__dataclass_fields__)
+    result = []
+    for name in obj.__dataclass_fields__:
+        result.append(getattr(obj, name))
+    return tuple(result)
 
 
 def make_dataclass(

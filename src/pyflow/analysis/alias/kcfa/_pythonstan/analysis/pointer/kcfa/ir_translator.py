@@ -69,6 +69,7 @@ class IRTranslator:
         self._class_keyword_variables: Dict[
             IRClass, Tuple[Tuple[Optional[str], "Variable"], ...]
         ] = {}
+        self._import_aliases: Dict[str, str] = {}
 
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
 
@@ -1250,13 +1251,15 @@ class IRTranslator:
             constraints.append(AllocConstraint(target=var, alloc_site=const_alloc))
         return var
 
-    @staticmethod
-    def _is_dataclass_decorator(expr: ast.expr) -> bool:
+    def _is_dataclass_decorator(self, expr: ast.expr) -> bool:
         """Recognize the class-preserving ``dataclasses.dataclass`` decorator."""
         if isinstance(expr, ast.Call):
             expr = expr.func
         if isinstance(expr, ast.Name):
-            return expr.id == "dataclass"
+            return (
+                expr.id == "dataclass"
+                or self._import_aliases.get(expr.id) == "dataclasses.dataclass"
+            )
         if isinstance(expr, ast.Attribute):
             return expr.attr == "dataclass"
         return False
@@ -1274,14 +1277,35 @@ class IRTranslator:
         for base in ir_cls.get_bases():
             if isinstance(base, ast.Name):
                 base_variables.append(self._make_variable(base.id))
+            elif isinstance(base, ast.Starred):
+                constraints.append(
+                    SemanticGapConstraint(
+                        kind="starred_class_base",
+                        message=("starred class base was not expanded: " f"{ast.unparse(base)}"),
+                    )
+                )
         self._class_base_variables[ir_cls] = tuple(base_variables)
 
         metaclass_variables = []
         class_keyword_variables = []
         for keyword in ir_cls.keywords:
-            if not isinstance(keyword.value, ast.Name):
+            if isinstance(keyword.value, ast.Name):
+                keyword_var = self._make_variable(keyword.value.id)
+            elif isinstance(keyword.value, ast.Constant):
+                keyword_name = f"$class_keyword@{stable_token(ir_cls)}@{keyword.arg}"
+                keyword_var = self._make_variable(keyword_name)
+                assignment = ast.Assign(
+                    targets=[ast.Name(id=keyword_name, ctx=ast.Store())],
+                    value=keyword.value,
+                )
+                constraints.append(
+                    AllocConstraint(
+                        target=keyword_var,
+                        alloc_site=AllocSite.from_ir_node(IRAssign(assignment), AllocKind.CONSTANT),
+                    )
+                )
+            else:
                 continue
-            keyword_var = self._make_variable(keyword.value.id)
             if keyword.arg == "metaclass":
                 metaclass_variables.append(keyword_var)
             else:
@@ -1361,6 +1385,16 @@ class IRTranslator:
     def _translate_import(self, stmt: IRImport) -> List["Constraint"]:
         """Translate import statement with transitive analysis."""
         constraints = []
+        import_node = stmt.stmt
+        if isinstance(import_node, ast.ImportFrom):
+            prefix = import_node.module or ""
+            for alias in import_node.names:
+                local = alias.asname or alias.name
+                self._import_aliases[local] = f"{prefix}.{alias.name}".lstrip(".")
+        elif isinstance(import_node, ast.Import):
+            for alias in import_node.names:
+                local = alias.asname or alias.name.split(".", 1)[0]
+                self._import_aliases[local] = alias.name
 
         # Import resolution always happens in the namespace of the containing
         # module, even when the statement itself appears inside a function or

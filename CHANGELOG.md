@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- k-CFA now handles starred class bases (`class C(*bases)`), `yield from`,
+  advanced dataclass fields (`InitVar`, `field(init=False)`, `__post_init__`,
+  `asdict`/`astuple`), `a.__class__`/`type(a)`, and `typing.NewType`; boolean
+  and integer constants no longer collide in the constant pool, and unresolved
+  native call chains are bounded while preserving capability access paths.
 - k-CFA pointer analysis no longer diverges on same-name imports
   (`from datetime import datetime`), grows unbounded native access paths, or
   loses positional-only/default argument flow.  It now models dataclass and

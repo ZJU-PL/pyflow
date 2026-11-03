@@ -87,6 +87,19 @@ _DEFAULT_NATIVE_EFFECTS = (
         "arguments": ["*"],
         "exhaustive": True,
     },
+    {
+        # ``NewType("Name", T)`` returns a callable that is the identity at
+        # runtime; the returned native object is modeled below as well.
+        "access_path": "typing.NewType",
+        "kind": "return_native",
+        "exhaustive": True,
+    },
+    {
+        "access_path": "typing.NewType.<return>",
+        "kind": "return_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
 )
 
 __all__ = [

@@ -258,7 +258,7 @@ class ModuleObject(AbstractObject):
 #: create a fresh ``NativeObject`` on every join (``a.update.<return>.update...``)
 #: and the solver never reaches a fixed point.  Collapsing beyond this depth is
 #: conservative: all deeper native values are represented by one object.
-MAX_NATIVE_ACCESS_PATH_DEPTH = 24
+MAX_NATIVE_ACCESS_PATH_DEPTH = 10
 
 _DEEP_NATIVE_SEGMENT = "<deep>"
 
