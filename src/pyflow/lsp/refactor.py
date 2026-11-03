@@ -1,7 +1,35 @@
 """Validate a proposed rename against syntax and lexical binding identity."""
 
 import warnings
-from .workspace import _position_to_offset, uri_to_path
+from .workspace import _cached_uri_to_path, lsp_character_to_offset, uri_to_path
+
+
+class _LineOffsets:
+    """O(1) line/character to absolute offset conversion for one document."""
+
+    __slots__ = ("text", "starts")
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        starts = [0]
+        index = text.find("\n")
+        while index >= 0:
+            starts.append(index + 1)
+            index = text.find("\n", index + 1)
+        self.starts = starts
+
+    def offset(self, line: int, character: int) -> int:
+        if line < 0:
+            raise ValueError("source position cannot be negative")
+        if line >= len(self.starts):
+            return len(self.text)
+        start = self.starts[line]
+        end = self.starts[line + 1] if line + 1 < len(self.starts) else len(self.text)
+        return start + lsp_character_to_offset(self.text[start:end], character)
+
+
+def _line_offsets(sources):
+    return {path: _LineOffsets(text) for path, text in sources.items()}
 
 
 def validate_rename(index, symbol, ranges, new_name):
@@ -23,14 +51,15 @@ def validate_rename(index, symbol, ranges, new_name):
         existing = index._resolver.member(symbol.container_name, new_name)
         if existing is not None and existing.symbol_id not in identities:
             raise ValueError(f"Rename conflicts with member '{new_name}'")
+    original_offsets = _line_offsets(index.source_files)
     edits = {}
     for location in ranges:
         path = uri_to_path(location.uri)
-        text = index.source_files.get(path)
-        if text is None:
+        offsets = original_offsets.get(path)
+        if offsets is None:
             raise ValueError("Cannot rename a definition outside the indexed workspace")
-        start = _position_to_offset(text, location.start_line, location.start_character)
-        end = _position_to_offset(text, location.end_line, location.end_character)
+        start = offsets.offset(location.start_line, location.start_character)
+        end = offsets.offset(location.end_line, location.end_character)
         edits.setdefault(path, []).append((start, end, index.replacement_text(location, new_name)))
     updated = dict(index.source_files)
     for path, changes in edits.items():
@@ -51,10 +80,12 @@ def validate_rename(index, symbol, ranges, new_name):
                     raise ValueError(f"Rename would produce invalid Python: {error}") from error
         updated[path] = text
     candidate = index.with_source_files(updated)
+    updated_offsets = _line_offsets(updated)
 
     def offset(location, sources):
-        return _position_to_offset(
-            sources[uri_to_path(location.uri)], location.start_line, location.start_character
+        table = updated_offsets if sources is updated else original_offsets
+        return table[_cached_uri_to_path(location.uri)].offset(
+            location.start_line, location.start_character
         )
 
     def translate(path, position):

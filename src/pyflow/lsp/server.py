@@ -395,10 +395,41 @@ class AnalysisManager:
             _workspace_roots=roots,
         )
 
+    # Overlay mutations are cheap and must stay ordered.  Building the source
+    # index is comparatively expensive, so protocol adapters may apply the
+    # edit first and publish it from a worker thread.
+
+    def apply_document_open(self, uri: str, text: str, version: Optional[int] = None) -> bool:
+        return self._documents.open(uri_to_path(uri), text, version)
+
+    def apply_document_change(
+        self,
+        uri: str,
+        changes: list[dict[str, object]],
+        version: Optional[int] = None,
+    ) -> bool:
+        return self._documents.change(uri_to_path(uri), changes, version)
+
+    def apply_document_close(self, uri: str) -> bool:
+        return self._documents.close(uri_to_path(uri))
+
+    def publish_document_change(self, uri: str) -> None:
+        """Publish the current overlays unless the snapshot is already current."""
+        if not self._loaded:
+            return
+        with self._state_lock:
+            current = self._snapshot
+            if (
+                current is not None
+                and current.source_revision == self._documents.current_revision()
+            ):
+                return
+        self._publish_syntax_snapshot(uri_to_path(uri))
+
     def open_document(self, uri: str, text: str, version: Optional[int] = None) -> bool:
-        changed = self._documents.open(uri_to_path(uri), text, version)
-        if changed and self._loaded:
-            self._publish_syntax_snapshot(uri_to_path(uri))
+        changed = self.apply_document_open(uri, text, version)
+        if changed:
+            self.publish_document_change(uri)
         return changed
 
     def change_document(
@@ -407,15 +438,15 @@ class AnalysisManager:
         changes: list[dict[str, object]],
         version: Optional[int] = None,
     ) -> bool:
-        changed = self._documents.change(uri_to_path(uri), changes, version)
-        if changed and self._loaded:
-            self._publish_syntax_snapshot(uri_to_path(uri))
+        changed = self.apply_document_change(uri, changes, version)
+        if changed:
+            self.publish_document_change(uri)
         return changed
 
     def close_document(self, uri: str) -> bool:
-        changed = self._documents.close(uri_to_path(uri))
-        if changed and self._loaded:
-            self._publish_syntax_snapshot(uri_to_path(uri))
+        changed = self.apply_document_close(uri)
+        if changed:
+            self.publish_document_change(uri)
         return changed
 
     def _publish_syntax_snapshot(self, changed_path: Optional[str] = None) -> None:

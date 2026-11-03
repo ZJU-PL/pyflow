@@ -50,9 +50,16 @@ class AnalysisFeatures:
 
     @classmethod
     def from_program(cls, program: object, *, type_info: bool = False) -> "AnalysisFeatures":
+        from pyflow.ir.core import Capabilities
+
         results = getattr(getattr(program, "session", None), "results", {})
+        facts = getattr(getattr(program, "ir", None), "facts", None)
+        call_graph = "ipa" in results or bool(
+            facts is not None
+            and (facts.has(Capabilities.CALL_TARGETS) or facts.has(Capabilities.CALL_TARGET_CODES))
+        )
         return cls(
-            call_graph="ipa" in results,
+            call_graph=call_graph,
             control_flow=bool(getattr(program, "liveCode", ())),
             cpa="cpa" in results,
             lifetime="lifetime" in results,

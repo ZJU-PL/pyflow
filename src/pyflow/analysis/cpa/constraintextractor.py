@@ -670,6 +670,15 @@ class ExtractDataflow(TypeDispatcher):
         # This is a simplified version - in practice this would need more complex handling
         pass
 
+    @dispatch(ast.DeleteAttr)
+    def visitDeleteAttr(self, node):
+        # Flow-insensitive CPA retains values from paths before deletion, so
+        # evaluating the receiver and name is sufficient.  Without this handler
+        # ``del obj.attr`` aborts the whole pipeline with a TypeDispatchError.
+        self(node.expr)
+        self(node.name)
+        return None
+
     @dispatch(ast.DirectCall)
     def visitDirectCall(self, node, targets=None):
         return self.directCall(

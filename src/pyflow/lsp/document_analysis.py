@@ -132,6 +132,92 @@ def _undefined_suppressions(text, tree):
     return ignored, guarded
 
 
+def _implicit_name_positions(text, tree):
+    """Positions where the compiler provides names that are never bound in source.
+
+    ``__module__``/``__qualname__`` exist in a class body.  ``__class__`` is a
+    closure cell for functions (including lambdas and nested functions) defined
+    in a class body, but not for the class body itself or for comprehensions
+    executed directly there.
+    """
+    lines = text.splitlines()
+    allowed = set()
+
+    def remember(node, name):
+        line = max(node.lineno - 1, 0)
+        line_text = lines[line] if line < len(lines) else ""
+        start = offset_to_lsp_character(line_text, _byte_col_to_char(line_text, node.col_offset))
+        allowed.add((line, start, name))
+
+    def outer_expressions(node, class_body, class_cell):
+        for value in getattr(node, "decorator_list", ()):
+            walk(value, class_body=class_body, class_cell=class_cell)
+        if isinstance(node, ast.ClassDef):
+            return
+        if isinstance(node, ast.Lambda):
+            for value in [*node.args.defaults, *node.args.kw_defaults]:
+                if value is not None:
+                    walk(value, class_body=class_body, class_cell=class_cell)
+            return
+        for value in [*node.args.defaults, *node.args.kw_defaults]:
+            if value is not None:
+                walk(value, class_body=class_body, class_cell=class_cell)
+        for argument in [
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *([node.args.vararg] if node.args.vararg else []),
+            *([node.args.kwarg] if node.args.kwarg else []),
+        ]:
+            if argument.annotation is not None:
+                walk(argument.annotation, class_body=class_body, class_cell=class_cell)
+        if getattr(node, "returns", None) is not None:
+            walk(node.returns, class_body=class_body, class_cell=class_cell)
+
+    def walk(node, *, class_body=False, class_cell=False):
+        if isinstance(node, ast.ClassDef):
+            outer_expressions(node, class_body, class_cell)
+            for value in node.bases:
+                walk(value, class_body=class_body, class_cell=class_cell)
+            for keyword in node.keywords:
+                walk(keyword.value, class_body=class_body, class_cell=class_cell)
+            for statement in node.body:
+                walk(statement, class_body=True, class_cell=False)
+            return
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            outer_expressions(node, class_body, class_cell)
+            body_cell = class_cell or class_body
+            body = node.body if isinstance(node.body, list) else [node.body]
+            for statement in body:
+                walk(statement, class_body=False, class_cell=body_cell)
+            return
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            generators = node.generators
+            if generators:
+                # The first iterable is evaluated in the enclosing scope.
+                walk(generators[0].iter, class_body=class_body, class_cell=class_cell)
+            for index, generator in enumerate(generators):
+                if index:
+                    walk(generator.iter, class_body=False, class_cell=class_cell)
+                walk(generator.target, class_body=False, class_cell=class_cell)
+                for condition in generator.ifs:
+                    walk(condition, class_body=False, class_cell=class_cell)
+            values = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+            for value in values:
+                walk(value, class_body=False, class_cell=class_cell)
+            return
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id == "__class__" and class_cell:
+                remember(node, "__class__")
+            elif node.id in {"__module__", "__qualname__"} and class_body:
+                remember(node, node.id)
+        for child in ast.iter_child_nodes(node):
+            walk(child, class_body=class_body, class_cell=class_cell)
+
+    walk(tree)
+    return allowed
+
+
 def document_diagnostics(index, uri, *, include_security=False):
     syntax = index.diagnostics_for_uri(uri)
     if syntax:
@@ -227,6 +313,7 @@ def document_diagnostics(index, uri, *, include_security=False):
         "__cached__",
     }
     ignored, guarded = _undefined_suppressions(text, tree)
+    implicit = _implicit_name_positions(text, tree)
     if not wildcard_imports:
         for reference in index.references:
             if (
@@ -236,6 +323,12 @@ def document_diagnostics(index, uri, *, include_security=False):
                 and reference.location not in index._keyword_targets
                 and reference.name not in known
                 and reference.location.start_line not in ignored
+                and (
+                    reference.location.start_line,
+                    reference.location.start_character,
+                    reference.name,
+                )
+                not in implicit
                 and (
                     reference.location.start_line,
                     index.python_column(

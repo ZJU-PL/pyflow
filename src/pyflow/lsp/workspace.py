@@ -14,6 +14,7 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 from urllib.parse import unquote, urlparse
@@ -43,13 +44,29 @@ def path_to_uri(path: str | os.PathLike[str]) -> str:
     return Path(path).absolute().as_uri()
 
 
+@lru_cache(maxsize=65536)
+def _cached_path_to_uri(path: str) -> str:
+    return path_to_uri(path)
+
+
+@lru_cache(maxsize=65536)
+def _cached_uri_to_path(uri: str) -> str:
+    return uri_to_path(uri)
+
+
 def _byte_col_to_char(line: str, byte_col: int) -> int:
+    if line.isascii():
+        return min(byte_col, len(line))
     raw = line.encode("utf-8")[:byte_col]
     return len(raw.decode("utf-8", errors="ignore"))
 
 
 def lsp_character_to_offset(line: str, character: int) -> int:
     """Translate an LSP UTF-16 character offset to a Python string offset."""
+    if character <= 0:
+        return 0
+    if line.isascii():
+        return min(character, len(line))
     units = 0
     for index, char in enumerate(line):
         if units >= character:
@@ -59,6 +76,10 @@ def lsp_character_to_offset(line: str, character: int) -> int:
 
 
 def offset_to_lsp_character(line: str, offset: int) -> int:
+    if offset <= 0:
+        return 0
+    if line.isascii():
+        return min(offset, len(line))
     return sum(2 if ord(char) > 0xFFFF else 1 for char in line[:offset])
 
 
@@ -163,6 +184,7 @@ class SourceSymbol:
     parameters: tuple = ()
     binding: str = ""
     constructor_fields: Optional[tuple[str, ...]] = None
+    aliased: bool = False
 
     def document_symbol(self) -> dict:
         result = {
@@ -193,6 +215,10 @@ class SourceReference:
     enclosing_function: Optional[str]
     symbol_id: Optional[SymbolId] = None
     string_literal: bool = False
+    # True for the imported name token in ``from pkg import name as alias``.
+    # Unlike ordinary uses of the local binding, this token denotes the target
+    # symbol and therefore follows import aliases.
+    import_name: bool = False
 
 
 @dataclass(frozen=True)
@@ -674,9 +700,15 @@ class SourceIndex:
 
     def _resolve_file(self, path, shard):
         aliases = self._resolved_import_aliases
+        # ``import x as y`` / ``from m import x as y`` introduce a local binding.
+        # Its uses must retain the alias identity so rename stays local; only the
+        # imported-name token (and unaliased imports) denotes the target symbol.
+        aliased_bindings = {symbol.symbol_id for symbol in shard.symbols if symbol.aliased}
         refs = []
         for reference in shard.references:
-            identity = aliases.get(reference.symbol_id, reference.symbol_id)
+            identity = reference.symbol_id
+            if reference.import_name or identity not in aliased_bindings:
+                identity = aliases.get(identity, identity)
             refs.append(
                 reference
                 if identity == reference.symbol_id
@@ -740,12 +772,12 @@ class SourceIndex:
                 )
             )
         dependencies = {
-            uri_to_path(reference.symbol_id.uri)
+            _cached_uri_to_path(reference.symbol_id.uri)
             for reference in refs
             if reference.symbol_id is not None
         }
         dependencies.update(
-            uri_to_path(call.callee_id.uri) for call in calls if call.callee_id is not None
+            _cached_uri_to_path(call.callee_id.uri) for call in calls if call.callee_id is not None
         )
         module_paths = self._module_paths
         for identity, imported in shard.import_targets:
@@ -804,7 +836,7 @@ class SourceIndex:
             self._dynamic_writes.update(file_index.dynamic_writes)
         modules = {}
         for path, name in self._modules.items():
-            uri = path_to_uri(path)
+            uri = _cached_path_to_uri(path)
             lines = self.source_files[path].splitlines()
             location = SourceRange(
                 uri,
@@ -833,14 +865,16 @@ class SourceIndex:
         for identity, name in self._fixtures.items():
             source = self._symbols_by_id.get(identity)
             if source and source.container_name == source.module:
-                fixtures.append((source, name, Path(uri_to_path(source.selection_range.uri))))
+                fixtures.append(
+                    (source, name, Path(_cached_uri_to_path(source.selection_range.uri)))
+                )
         for identity, parameters in self._keyword_parameters.items():
             function = self._symbols_by_id.get(identity)
             if function is None or not (
                 function.name.startswith("test_") or identity in self._fixtures
             ):
                 continue
-            path = Path(uri_to_path(function.selection_range.uri))
+            path = Path(_cached_uri_to_path(function.selection_range.uri))
             for name, parameter in parameters:
                 if parameter in self._value_targets:
                     continue
@@ -927,9 +961,12 @@ class SourceIndex:
             for dependency in dependencies:
                 if dependency != path:
                     self._dependents.setdefault(dependency, set()).add(path)
+        self._string_literal_ranges = {
+            reference.location for reference in self.references if reference.string_literal
+        }
         if previous is not None:
             for identity, symbol in previous._symbols_by_id.items():
-                if uri_to_path(symbol.selection_range.uri) not in previous.source_files:
+                if _cached_uri_to_path(symbol.selection_range.uri) not in previous.source_files:
                     self._resolver.by_id.setdefault(identity, symbol)
         self._symbols_by_id.update(self._resolver.by_id)
 
@@ -1118,8 +1155,11 @@ class SourceIndex:
             if symbol.selection_range.uri == uri and symbol.selection_range.contains(
                 line, character
             ):
-                target = self._resolved_import_aliases.get(symbol.symbol_id)
-                return self._symbols_by_id.get(target, symbol)
+                if symbol.symbol_id.kind is SymbolKind.IMPORT and not symbol.aliased:
+                    # Unaliased imports denote the imported object itself.
+                    target = self._resolved_import_aliases.get(symbol.symbol_id)
+                    return self._symbols_by_id.get(target, symbol)
+                return symbol
         for reference in self.references:
             if reference.location.uri == uri and reference.location.contains(line, character):
                 return self._symbols_by_id.get(reference.symbol_id)
@@ -1154,10 +1194,38 @@ class SourceIndex:
             symbol = bindings.get(expression.id)
             if symbol:
                 return ("symbol", symbol)
-            if expression.id in {"str", "list", "dict", "int"}:
+            if expression.id in {
+                "str",
+                "int",
+                "float",
+                "bool",
+                "bytes",
+                "list",
+                "dict",
+                "set",
+                "tuple",
+            }:
                 return ("external", "builtins." + expression.id)
         if isinstance(expression, ast.Attribute):
             return ("member", self._position_target(expression.value, bindings), expression.attr)
+        if isinstance(expression, ast.BoolOp):
+            # ``a and b`` / ``a or b``: offer the last operand's members, which
+            # is the expression the user is usually completing.
+            return (
+                self._position_target(expression.values[-1], bindings)
+                if expression.values
+                else ("unknown",)
+            )
+        if isinstance(expression, ast.IfExp):
+            return (
+                "alternatives",
+                (
+                    self._position_target(expression.body, bindings),
+                    self._position_target(expression.orelse, bindings),
+                ),
+            )
+        if isinstance(expression, (ast.NamedExpr, ast.Await, ast.Starred)):
+            return self._position_target(expression.value, bindings)
         if isinstance(expression, ast.Call):
             if (
                 isinstance(expression.func, ast.Name)
@@ -1188,6 +1256,38 @@ class SourceIndex:
             return ("instance", self._position_target(expression.func, bindings))
         return ("unknown",)
 
+    def _receiver_target(self, receiver_text: str, bindings):
+        """Resolve the primary expression immediately before a completion dot.
+
+        Parsing the first identifier whose suffix happens to be valid picks the
+        wrong expression for ``a + b.`` or ``cond and obj.``.  Walk a primary
+        expression backwards from the dot instead (the same scan signature help
+        uses for callees).
+        """
+        import io
+        import tokenize
+
+        from .signatures import receiver_expression
+
+        tokens = []
+        try:
+            for token in tokenize.generate_tokens(io.StringIO(receiver_text).readline):
+                if token.type not in {
+                    tokenize.NL,
+                    tokenize.NEWLINE,
+                    tokenize.COMMENT,
+                    tokenize.INDENT,
+                    tokenize.DEDENT,
+                    tokenize.ENDMARKER,
+                }:
+                    tokens.append(token)
+        except (tokenize.TokenError, IndentationError):
+            pass
+        expression = receiver_expression(tokens, len(tokens))
+        if expression is None:
+            return ("unknown",)
+        return self._position_target(expression, bindings)
+
     def completion_items(self, uri, line, character):
         text = self.text_for_uri(uri)
         lines = text.splitlines() if text is not None else []
@@ -1202,14 +1302,7 @@ class SourceIndex:
         if member:
             prefix = member.group(1) or ""
             receiver_text = before[: member.start()]
-            target = ("unknown",)
-            for match in _IDENTIFIER.finditer(receiver_text):
-                try:
-                    expression = ast.parse(receiver_text[match.start() :], mode="eval").body
-                except SyntaxError:
-                    continue
-                target = self._position_target(expression, bindings)
-                break
+            target = self._receiver_target(receiver_text, bindings)
             symbols = self._resolver.members(target)
             for owner in self._resolver.names(target):
                 external.extend(self._external_members(owner, prefix))
@@ -1301,7 +1394,16 @@ class SourceIndex:
             elif declaration == symbol.name:
                 return None
         elif symbol.symbol_id.kind is SymbolKind.IMPORT:
-            declaration = "import " + self._import_targets.get(symbol.symbol_id, symbol.name)
+            target = self._import_targets.get(symbol.symbol_id, symbol.name)
+            declaration = (
+                "import "
+                + target
+                + (
+                    " as " + symbol.name
+                    if symbol.aliased and not target.endswith("." + symbol.name)
+                    else ""
+                )
+            )
         value = f"```python\n{declaration}\n```"
         overloads = self._resolver.overloads.get(symbol.qualified_name, ())
         if overloads:
@@ -1370,7 +1472,14 @@ class SourceIndex:
 
     def definitions_at(self, uri: str, line: int, character: int) -> list[SourceRange]:
         symbol = self.symbol_at(uri, line, character)
-        return [symbol.selection_range] if symbol else []
+        if symbol is None:
+            return []
+        if symbol.symbol_id.kind is SymbolKind.IMPORT:
+            target = self._resolved_import_aliases.get(symbol.symbol_id)
+            target_symbol = self._symbols_by_id.get(target) if target is not None else None
+            if target_symbol is not None:
+                return [target_symbol.selection_range]
+        return [symbol.selection_range]
 
     def references_at(
         self, uri: str, line: int, character: int, *, include_declaration: bool
@@ -1442,7 +1551,7 @@ class SourceIndex:
             if reference.symbol_id in identities
         }
         if any(
-            index.syntax_stale and path_to_uri(path) in affected
+            index.syntax_stale and _cached_path_to_uri(path) in affected
             for path, index in self._file_indices.items()
         ):
             return []
@@ -1456,14 +1565,7 @@ class SourceIndex:
         )
 
     def replacement_text(self, source_range, new_name):
-        return (
-            repr(new_name)
-            if any(
-                reference.location == source_range and reference.string_literal
-                for reference in self.references
-            )
-            else new_name
-        )
+        return repr(new_name) if source_range in self._string_literal_ranges else new_name
 
     def diagnostics_for_uri(self, uri: str) -> list[dict[str, object]]:
         text = self.text_for_uri(uri)
@@ -1597,6 +1699,29 @@ class _IndexVisitor(ast.NodeVisitor):
             offset_to_lsp_character(end_text, end_char),
         )
 
+    def _alias_range(self, alias: ast.alias, name: str) -> SourceRange:
+        """Locate the ``as name`` token of an import alias.
+
+        ``ast.alias.col_offset`` points at the module or imported name, not at
+        the alias introduced by ``as``. Searching forward from that offset can
+        therefore land on an identical character inside the module path (for
+        example ``import pkg.models as m``). Search backwards from the end of
+        the alias node instead.
+        """
+        line_no = max((getattr(alias, "end_lineno", None) or alias.lineno) - 1, 0)
+        line = self.lines[line_no] if line_no < len(self.lines) else ""
+        end = _byte_col_to_char(line, getattr(alias, "end_col_offset", 0) or len(line))
+        start = line.rfind(name, 0, end)
+        if start < 0:
+            return self._range(alias, name=name)
+        return SourceRange(
+            self.uri,
+            line_no,
+            offset_to_lsp_character(line, start),
+            line_no,
+            offset_to_lsp_character(line, start + len(name)),
+        )
+
     def _qualified(self, name: str) -> str:
         return ".".join([self.module, *self.scope, name])
 
@@ -1606,8 +1731,19 @@ class _IndexVisitor(ast.NodeVisitor):
         name: str,
         kind: int,
         identity_kind: SymbolKind,
+        *,
+        aliased: bool = False,
+        selection_range: Optional[SourceRange] = None,
     ) -> SourceSymbol:
-        return self._add_definition_in_scope(self._current_scope, node, name, kind, identity_kind)
+        return self._add_definition_in_scope(
+            self._current_scope,
+            node,
+            name,
+            kind,
+            identity_kind,
+            aliased=aliased,
+            selection_range=selection_range,
+        )
 
     def _add_definition_in_scope(
         self,
@@ -1616,6 +1752,9 @@ class _IndexVisitor(ast.NodeVisitor):
         name: str,
         kind: int,
         identity_kind: SymbolKind,
+        *,
+        aliased: bool = False,
+        selection_range: Optional[SourceRange] = None,
     ) -> SourceSymbol:
         if identity_kind is SymbolKind.VARIABLE:
             if scope.kind in {_ScopeKind.MODULE, _ScopeKind.CLASS} and name.isupper():
@@ -1624,7 +1763,7 @@ class _IndexVisitor(ast.NodeVisitor):
                 kind = 8
         qualified = ".".join([self.module, *scope.path, name])
         container = ".".join([self.module, *scope.path]) if scope.path else self.module
-        selection_range = self._range(node, name=name)
+        selection_range = selection_range or self._range(node, name=name)
         symbol = SourceSymbol(
             symbol_id=SymbolId(
                 module=self.module,
@@ -1648,6 +1787,7 @@ class _IndexVisitor(ast.NodeVisitor):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 else ""
             ),
+            aliased=aliased,
         )
         self.index.symbols.append(symbol)
         self.index._symbols_by_id[symbol.symbol_id] = symbol
@@ -2026,20 +2166,49 @@ class _IndexVisitor(ast.NodeVisitor):
         return None
 
     def _add_local_definition(
-        self, node: ast.AST, name: str, kind: SymbolKind, lsp_kind: int = 13
+        self,
+        node: ast.AST,
+        name: str,
+        kind: SymbolKind,
+        lsp_kind: int = 13,
+        *,
+        aliased: bool = False,
+        selection_range: Optional[SourceRange] = None,
     ) -> SourceSymbol:
         existing = self._current_scope.bindings.get(name)
         if existing is not None:
             return self.index._symbols_by_id[existing]
-        return self._add_definition(node, name, lsp_kind, kind)
+        return self._add_definition(
+            node,
+            name,
+            lsp_kind,
+            kind,
+            aliased=aliased,
+            selection_range=selection_range,
+        )
 
     def _add_local_definition_in_scope(
-        self, scope: _Scope, node: ast.AST, name: str, kind: SymbolKind
+        self,
+        scope: _Scope,
+        node: ast.AST,
+        name: str,
+        kind: SymbolKind,
+        *,
+        aliased: bool = False,
+        selection_range: Optional[SourceRange] = None,
     ) -> SourceSymbol:
         existing = scope.bindings.get(name)
         if existing is not None:
             return self.index._symbols_by_id[existing]
-        return self._add_definition_in_scope(scope, node, name, 13, kind)
+        return self._add_definition_in_scope(
+            scope,
+            node,
+            name,
+            13,
+            kind,
+            aliased=aliased,
+            selection_range=selection_range,
+        )
 
     def predeclare_module(self, tree: ast.Module) -> None:
         self._predeclare_bindings(tree.body)
@@ -2069,7 +2238,7 @@ class _IndexVisitor(ast.NodeVisitor):
             symbol = self._add_definition(
                 node,
                 node.name,
-                6 if self.scope else 12,
+                6 if is_method else 12,
                 SymbolKind.METHOD if is_method else SymbolKind.FUNCTION,
             )
         from .signatures import parameters
@@ -2205,7 +2374,8 @@ class _IndexVisitor(ast.NodeVisitor):
         self, statements: list[ast.stmt], *, arguments: list[ast.arg] | None = None
     ) -> None:
         collector = _ScopeBindingCollector(
-            function_lsp_kind=12 if self._current_scope.kind is _ScopeKind.MODULE else 6
+            function_lsp_kind=(6 if self._current_scope.kind is _ScopeKind.CLASS else 12),
+            alias_range=self._alias_range,
         )
         for argument in arguments or []:
             collector.visit(argument)
@@ -2219,14 +2389,19 @@ class _IndexVisitor(ast.NodeVisitor):
             ):
                 continue
             symbol = self._add_local_definition(
-                binding.node, binding.name, binding.identity_kind, binding.lsp_kind
+                binding.node,
+                binding.name,
+                binding.identity_kind,
+                binding.lsp_kind,
+                aliased=binding.aliased,
+                selection_range=binding.selection_range,
             )
             self._current_scope.predeclared.add(symbol.symbol_id)
 
     def _predeclare_expression_bindings(
         self, expression: ast.expr, *, arguments: list[ast.arg]
     ) -> None:
-        collector = _ScopeBindingCollector(function_lsp_kind=6)
+        collector = _ScopeBindingCollector(function_lsp_kind=12, alias_range=self._alias_range)
         for argument in arguments:
             collector.visit(argument)
         collector.visit(expression)
@@ -2431,7 +2606,13 @@ class _IndexVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             name = alias.asname or alias.name.split(".", 1)[0]
-            symbol = self._add_local_definition(alias, name, SymbolKind.IMPORT)
+            symbol = self._add_local_definition(
+                alias,
+                name,
+                SymbolKind.IMPORT,
+                aliased=bool(alias.asname),
+                selection_range=(self._alias_range(alias, alias.asname) if alias.asname else None),
+            )
             self.index._import_targets[symbol.symbol_id] = (
                 alias.name if alias.asname else alias.name.split(".")[0]
             )
@@ -2458,7 +2639,13 @@ class _IndexVisitor(ast.NodeVisitor):
         for alias in node.names:
             if alias.name != "*":
                 symbol = self._add_local_definition(
-                    alias, alias.asname or alias.name, SymbolKind.IMPORT
+                    alias,
+                    alias.asname or alias.name,
+                    SymbolKind.IMPORT,
+                    aliased=bool(alias.asname),
+                    selection_range=(
+                        self._alias_range(alias, alias.asname) if alias.asname else None
+                    ),
                 )
                 module = node.module or ""
                 if node.level:
@@ -2477,6 +2664,7 @@ class _IndexVisitor(ast.NodeVisitor):
                         self._range(alias, name=alias.name),
                         self._current_function(),
                         symbol.symbol_id,
+                        import_name=True,
                     )
                 )
 
@@ -2698,16 +2886,19 @@ class _FunctionBinding:
     name: str
     identity_kind: SymbolKind
     lsp_kind: int = 13
+    aliased: bool = False
+    selection_range: Optional[SourceRange] = None
 
 
 class _ScopeBindingCollector(ast.NodeVisitor):
     """Collect scope-local bindings without descending into child scopes."""
 
-    def __init__(self, *, function_lsp_kind: int = 6) -> None:
+    def __init__(self, *, function_lsp_kind: int = 6, alias_range=None) -> None:
         self.bindings: list[_FunctionBinding] = []
         self.global_names: set[str] = set()
         self.nonlocal_names: set[str] = set()
         self._function_lsp_kind = function_lsp_kind
+        self._alias_range = alias_range
 
     def visit_Global(self, node: ast.Global) -> None:
         self.global_names.update(node.names)
@@ -2730,22 +2921,28 @@ class _ScopeBindingCollector(ast.NodeVisitor):
     def visit_arg(self, node: ast.arg) -> None:
         self.bindings.append(_FunctionBinding(node, node.arg, SymbolKind.PARAMETER))
 
+    def _import_binding(self, alias: ast.alias, name: str) -> _FunctionBinding:
+        selection = None
+        if alias.asname and self._alias_range is not None:
+            selection = self._alias_range(alias, alias.asname)
+        return _FunctionBinding(
+            alias,
+            name,
+            SymbolKind.IMPORT,
+            aliased=bool(alias.asname),
+            selection_range=selection,
+        )
+
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             self.bindings.append(
-                _FunctionBinding(
-                    alias,
-                    alias.asname or alias.name.split(".", 1)[0],
-                    SymbolKind.IMPORT,
-                )
+                self._import_binding(alias, alias.asname or alias.name.split(".", 1)[0])
             )
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
             if alias.name != "*":
-                self.bindings.append(
-                    _FunctionBinding(alias, alias.asname or alias.name, SymbolKind.IMPORT)
-                )
+                self.bindings.append(self._import_binding(alias, alias.asname or alias.name))
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:

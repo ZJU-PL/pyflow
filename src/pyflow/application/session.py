@@ -47,6 +47,19 @@ class AnalysisResults(Mapping):
     def record(self, key, result):
         self._entries[key] = (self._token(), result)
 
+    def rebind(self, previous_catalog):
+        """Re-stamp results recorded against a replaced IR catalog.
+
+        Some analyses (notably CPA) publish a fresh ``IRCatalog`` instance at
+        the same revision and import the previous facts/contexts into it.  The
+        results recorded before the swap remain valid, but their token points
+        at the old catalog object.
+        """
+        current = self._token()
+        for key, (token, result) in list(self._entries.items()):
+            if token[0] is previous_catalog and token[1:] == current[1:]:
+                self._entries[key] = (current, result)
+
     def invalidate(self, keys):
         for key in keys:
             self._entries.pop(key, None)

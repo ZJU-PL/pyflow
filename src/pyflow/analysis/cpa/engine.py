@@ -531,6 +531,9 @@ class InterproceduralDataflow(object):
                     (Capabilities.CONTEXTS, Capabilities.CALL_TARGETS),
                 )
             prgm.ir = catalog
+            session = getattr(prgm, "session", None)
+            if session is not None:
+                session.results.rebind(previous_catalog)
             publish_cpa_facts(catalog, published_records)
 
     ### Debugging methods ###

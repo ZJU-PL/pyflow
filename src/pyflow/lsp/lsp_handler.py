@@ -33,6 +33,7 @@ class LspHandler:
         self._open_documents = {}
         self._publish_tasks = {}
         self._publish_epochs = {}
+        self._index_locks = {}
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         self._rpc = rpc
@@ -60,7 +61,7 @@ class LspHandler:
         rpc.register("textDocument/signatureHelp", self._handle_signature_help)
         rpc.register("textDocument/documentHighlight", self._handle_document_highlight)
         rpc.register("textDocument/prepareRename", self._handle_prepare_rename)
-        rpc.register("textDocument/rename", self._handle_rename)
+        rpc.register("textDocument/rename", self._handle_rename_request)
         rpc.register("textDocument/diagnostic", self._handle_document_diagnostic)
         rpc.register("textDocument/prepareCallHierarchy", self._handle_call_hierarchy_prepare)
         rpc.register("callHierarchy/incomingCalls", self._handle_call_hierarchy_incoming)
@@ -146,6 +147,9 @@ class LspHandler:
             },
             "callHierarchyProvider": True,
             "workspaceSymbolProvider": True,
+            "workspace": {
+                "workspaceFolders": {"supported": True, "changeNotifications": True},
+            },
         }
         return {
             "capabilities": self._capabilities,
@@ -207,6 +211,8 @@ class LspHandler:
         text = document.get("text")
         if not uri or text is None:
             return
+        # Opening is one-shot per document; publish synchronously so any
+        # requests sent right after didOpen observe the new buffer.
         changed = self._server.open_document(uri, text, document.get("version"))
         if not self._server.is_loaded:
             await asyncio.to_thread(self._server.load_source_files, [Path(uri_to_path(uri))])
@@ -221,11 +227,15 @@ class LspHandler:
         if not document.get("uri") or not changes:
             return
         try:
-            changed = self._server.change_document(
+            # Apply the edit in order, then rebuild the source index in a
+            # worker so a large workspace does not block the event loop.
+            changed = self._server.apply_document_change(
                 document["uri"], changes, document.get("version")
             )
         except ValueError as exc:
             raise JsonRpcError(ErrorCodes.InvalidParams, str(exc)) from exc
+        if changed:
+            await self._ensure_index(document["uri"])
         if changed and document["uri"] in self._open_documents:
             self._open_documents[document["uri"]] = document.get("version")
             self._schedule_publish(document["uri"])
@@ -262,9 +272,18 @@ class LspHandler:
             previous.cancel()
         self._publish_tasks[uri] = asyncio.create_task(self._publish_document(uri, epoch))
 
+    async def _ensure_index(self, uri):
+        """Publish the latest overlay for *uri* without blocking the event loop."""
+        lock = self._index_locks.get(uri)
+        if lock is None:
+            lock = self._index_locks[uri] = asyncio.Lock()
+        async with lock:
+            await asyncio.to_thread(self._server.publish_document_change, uri)
+
     async def _publish_document(self, uri, epoch):
         try:
             await asyncio.sleep(0.15)
+            await self._ensure_index(uri)
             version = self._open_documents.get(uri)
             result = await self._handle_document_diagnostic({"textDocument": {"uri": uri}})
             if (
@@ -412,22 +431,22 @@ class LspHandler:
         self._require_loaded()
         uri, line, character = self._position(params)
         snapshot = self._server.current_snapshot()
-        if isinstance(snapshot.source_index, SourceIndex):
-            declaration = snapshot.source_index.hover_at(uri, line, character)
+        index = snapshot.source_index
+        if isinstance(index, SourceIndex):
+            declaration = index.hover_at(uri, line, character)
             if declaration is not None:
                 return declaration
-        if isinstance(snapshot.source_index, SourceIndex):
             from .document_analysis import infer_document
 
-            text = snapshot.source_index.text_for_uri(uri)
-            module = snapshot.source_index.module_for_uri(uri)
+            text = index.text_for_uri(uri)
+            module = index.module_for_uri(uri)
             if text is not None and module:
                 try:
                     inferred = await asyncio.to_thread(
                         infer_document, uri_to_path(uri), module, text
                     )
                     result = inferred.expression_type(
-                        line + 1, snapshot.source_index.python_column(uri, line, character)
+                        line + 1, index.python_column(uri, line, character)
                     )
                     if result is not None:
                         if not self._document_is_current(snapshot, uri):
@@ -442,17 +461,17 @@ class LspHandler:
                     raise
                 except Exception:
                     LOG.exception("Document hover inference failed")
-            symbol = snapshot.source_index.symbol_at(uri, line, character)
-            return (
-                {
+            symbol = index.symbol_at(uri, line, character)
+            if symbol is not None:
+                return {
                     "contents": {
                         "kind": "markdown",
                         "value": f"```python\n{symbol.detail or symbol.name}\n```",
                     }
                 }
-                if symbol
-                else None
-            )
+        # Fall back to compiler type information when the source resolver and
+        # bounded inference have no answer.  (Previously this block was
+        # unreachable because the source-index branch above always returned.)
         if snapshot.semantic_stale or not self._server.supports("type_info"):
             return None
         module = snapshot.source_index.module_for_uri(uri)
@@ -488,6 +507,10 @@ class LspHandler:
             return None
         token = index.token_range_at(uri, line, character)
         return token.to_lsp() if token else None
+
+    async def _handle_rename_request(self, params: Any) -> dict[str, Any]:
+        """Run validation off the event loop; it re-indexes the workspace."""
+        return await asyncio.to_thread(self._handle_rename, params)
 
     def _handle_rename(self, params: Any) -> dict[str, Any]:
         self._require_loaded()

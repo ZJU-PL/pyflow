@@ -312,8 +312,11 @@ class WorkspaceResolver:
                     else:
                         candidates.update(self.names(("symbol", member.symbol_id), seen))
                 else:
-                    # Retain an imported namespace for external module completion.
-                    if owner not in self.symbols:
+                    # Retain an imported namespace for external module
+                    # completion.  Builtin instances are not namespaces: adding
+                    # e.g. ``builtins.str.upper`` would later be reported as the
+                    # type of ``s.upper()``.
+                    if owner not in self.symbols and not owner.startswith("builtins."):
                         candidates.add(f"{owner}.{target[2]}")
             return frozenset(candidates)
         if kind == "instance":
@@ -335,14 +338,14 @@ class WorkspaceResolver:
                 elif symbol:
                     for value in self.return_targets(symbol.symbol_id, seen):
                         candidates.update(self.names(value, seen))
-                elif (
-                    name.startswith("builtins.")
-                    or self.models
-                    and self.models.canonical_class(name)
-                ):
-                    candidates.add(
-                        self.models.canonical_class(name) or name if self.models else name
-                    )
+                elif name.startswith("builtins."):
+                    # Only a builtin class (``builtins.str``) denotes a value
+                    # type; ``builtins.str.upper`` is a member, not an
+                    # instance.
+                    if name.count(".") == 1:
+                        candidates.add(name)
+                elif self.models and self.models.canonical_class(name):
+                    candidates.add(self.models.canonical_class(name) or name)
             return frozenset(candidates)
         return frozenset()
 
