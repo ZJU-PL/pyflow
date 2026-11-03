@@ -1097,3 +1097,33 @@ def test_contextmanager_functions_project_context_manager_callables():
     assert "AbstractContextManager[int]" in str(result.type_of("sync_value"))
     assert "AbstractAsyncContextManager[int]" in str(result.type_of("async_value"))
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_varargs_class_objects_keep_their_class_value_marker():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any\n"
+        "class A: pass\n"
+        "class B: pass\n"
+        "Alias = A\n"
+        "def take(*classes: type[Any]) -> None: ...\n"
+        "take(A)\n"
+        "take(Alias)\n"
+        "take(A, B)\n",
+    )
+
+    assert result.converged
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_varargs_class_objects_still_reject_non_types():
+    result = StaticTypeInferenceEngine().infer_source(
+        "sample",
+        "from typing import Any\n"
+        "class A: pass\n"
+        "def take(*classes: type[Any]) -> None: ...\n"
+        "take(A, 1)\n",
+    )
+
+    assert result.converged
+    assert [d for d in result.diagnostics if d.code == "annotation-mismatch"]

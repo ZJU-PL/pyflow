@@ -8089,8 +8089,22 @@ class StaticTypeInferenceEngine:
                 self.type_system,
                 max_union_size=self.options.max_union_size,
             )
+            element_type = element.public_type() or ANY
+            if all(value.class_targets for value in extra_positional):
+                # ``public_type()`` flattens runtime class objects to their
+                # instance types.  Keep the class-object marker so a
+                # ``*args: type[T]`` parameter is checked against type[...]
+                # rather than against an instance.
+                def as_type(typ: ProperType) -> ProperType:
+                    if isinstance(typ, Instance):
+                        return TypeType(typ)
+                    if isinstance(typ, UnionType):
+                        return UnionType(tuple(as_type(item) for item in typ.items))
+                    return typ
+
+                element_type = as_type(element_type)
             bound[node_arguments.vararg.arg] = AbstractTypeValue.from_type(
-                TupleType((element.public_type() or ANY,), unknown_size=True)
+                TupleType((element_type,), unknown_size=True)
             )
 
         unmatched_keywords: list[AbstractTypeValue] = []
