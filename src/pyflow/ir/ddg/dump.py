@@ -96,6 +96,8 @@ class DDGDumper(object):
         with open(path, "w") as f:
             stats = self.ddg.stats()
             f.write("%s\n%s\n\n" % (title, "=" * 60))
+            if self.ddg.assumptions:
+                f.write(f"Assumptions: {self.ddg.assumptions}\n\n")
             f.write(
                 "Nodes: %(nodes)d, Edges: %(edges)d, Ops: %(ops)d, Slots: %(slots)d\n\n" % stats
             )
@@ -158,6 +160,7 @@ class DDGDumper(object):
         """
         data = {
             "title": title,
+            "assumptions": self.ddg.assumptions,
             "stats": self.ddg.stats(),
             "nodes": [
                 {"id": n.stable_id, "category": n.category, "ir": repr(n.ir_node)}

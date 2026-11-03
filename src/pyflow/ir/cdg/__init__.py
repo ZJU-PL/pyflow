@@ -16,9 +16,10 @@ In simpler terms: B is control dependent on A if A's decision (e.g., in an if/wh
 determines whether B executes.
 
 **Construction Algorithm:**
-The CDG is constructed from a total reverse-CFG post-dominator tree spanning
-normal, failure, error, and non-terminating sink regions. Branch successors are
-walked up to the controller's immediate post-dominator to derive dependence.
+The CDG uses a reverse-CFG post-dominator tree over structured control flow by
+default. Implicit exceptional edges can be included explicitly. Non-terminating
+sink regions receive virtual exits in either mode. Branch successors are walked
+up to the controller's immediate post-dominator to derive dependence.
 
 **Use Cases:**
 - Program slicing: Extract code that affects a specific variable or statement

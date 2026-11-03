@@ -255,6 +255,7 @@ class ControlDependenceGraph:
             cfg: The Control Flow Graph to build the CDG from
         """
         self.cfg = cfg
+        self.include_exceptional = False
         self.nodes: Dict[cfg_graph.CFGBlock, CDGNode] = {}
         self.node_id_counter = 0
         self.root_node: Optional[CDGNode] = None

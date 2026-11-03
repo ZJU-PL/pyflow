@@ -651,7 +651,7 @@ def f():
 
 
 def test_ddg_aliased_attribute_memory_dependencies():
-    """DDG must connect memory dependencies between aliased parameter attributes and copies."""
+    """Conservative parameter aliases and explicit copies both create RAW edges."""
     from pyflow.application.context import CompilerContext
     from pyflow.util.application.console import Console
     from pyflow.ir.dataflow import convert
@@ -673,7 +673,11 @@ def g(a):
 
     code_f = conv._convert_function_def(tree.body[0]).code
     df_f = convert.evaluateCode(compiler, code_f)
-    ddg_f = construction.construct_ddg(df_f)
+    default_f = construction.construct_ddg(df_f)
+    assert not any(e.kind == "memory" and e.label == "RAW" for e in default_f.all_edges())
+    ddg_f = construction.construct_ddg(
+        df_f, options=construction.DDGConstructionOptions(assume_distinct_parameters=False)
+    )
     mem_edges_f = [e for e in ddg_f.all_edges() if e.kind == "memory"]
     assert any(e.label == "RAW" for e in mem_edges_f)
 

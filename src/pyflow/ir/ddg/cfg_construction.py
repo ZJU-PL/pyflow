@@ -8,16 +8,15 @@ are weak updates because a storage identity may summarize aliased objects.
 
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.cfg.dump import _ssa_repr
 from pyflow.ir.core import ensure_code_indexed, index_cfg
 from pyflow.ir.core.build_semantics import _definition_references, _explicit_storage
 from pyflow.ir.core.storage import LocalStorage, UnknownStorage
-from pyflow.ir.core.symbols import SymbolKind
 from pyflow.ir.dataflow import graph as df
 from pyflow.language.python import ast
+from .intrinsics import has_bounded_effects
 
 
 class CFGOperation(df.GenericOp):
@@ -41,6 +40,11 @@ class Point:
     uses: dict = field(default_factory=dict)
     constants: dict = field(default_factory=dict)
     definitions: dict = field(default_factory=dict)
+    bindings: dict = field(default_factory=dict)
+    definition_values: dict = field(default_factory=dict)
+    intra_uses: list = field(default_factory=list)
+    read_bindings: dict = field(default_factory=dict)
+    read_symbols: dict = field(default_factory=dict)
     kills: set = field(default_factory=set)
     reads: set = field(default_factory=set)
     writes: set = field(default_factory=set)
@@ -105,6 +109,7 @@ class CFGDependences:
         self.ddg = constructor.ddg
         self.points, self.by_block = [], {}
         self.iterators, self.bindings = {}, {}
+        self.local_reaching = {}
 
     def point(self, block, operation=None, phase="operation", *, external=False):
         point = Point(block, operation)
@@ -128,7 +133,9 @@ class CFGDependences:
                 continue
             if define:
                 if isinstance(node, ast.Local):
-                    point.definitions[self.symbol(node)] = node
+                    key = self.symbol(node)
+                    point.definitions[key] = node
+                    point.bindings[id(node)] = (key, node)
                 continue
             if isinstance(node, (list, tuple)):
                 pending.extend((False, child) for child in reversed(node))
@@ -138,14 +145,30 @@ class CFGDependences:
                 continue
             if isinstance(node, ast.Local):
                 key = self.symbol(node)
+                point.read_bindings[id(node)] = point.definitions.get(key)
+                point.read_symbols[id(node)] = key
                 if key not in point.definitions:
                     point.uses[key] = node
+                else:
+                    point.intra_uses.append((key, point.definitions[key]))
                 continue
             if isinstance(node, ast.Delete) and isinstance(node.lcl, ast.Local):
                 point.kills.add(self.symbol(node.lcl))
                 pending.append((False, node.lcl))
                 continue
             targets = _definition_references(node)
+            for index, target in enumerate(targets):
+                if isinstance(node, ast.Assign):
+                    value = node.expr
+                elif isinstance(node, (ast.NamedExpr, ast.AnnAssign)):
+                    value = node.value
+                elif isinstance(node, ast.Phi):
+                    value = tuple(node.arguments)
+                elif isinstance(node, ast.UnpackSequence):
+                    value = (node.expr, index)
+                else:
+                    value = None
+                point.definition_values[id(target)] = value
             pending.extend((True, target) for target in targets)
             skipped = {id(target) for target in targets}
             if isinstance(node, ast.NamedExpr):
@@ -173,7 +196,29 @@ class CFGDependences:
                 reads, writes = _explicit_storage(self.catalog, self.code_id, node)
                 point.reads.update(read for read in reads if not isinstance(read, LocalStorage))
                 point.writes.update(writes)
-                if isinstance(node, (ast.Call, ast.MethodCall, ast.DirectCall)):
+                if isinstance(node, (ast.Call, ast.MethodCall, ast.DirectCall)) and not (
+                    self.owner.options.assume_primitive_intrinsics and has_bounded_effects(node)
+                ):
+                    point.reads.add(UnknownStorage("unknown"))
+                    point.writes.add(UnknownStorage("unknown"))
+                if not self.owner.options.assume_primitive_intrinsics and isinstance(
+                    node,
+                    (
+                        ast.BinaryOp,
+                        ast.UnaryPrefixOp,
+                        ast.ConvertToBool,
+                        ast.Not,
+                        ast.ShortCircutAnd,
+                        ast.ShortCircutOr,
+                        ast.GetAttr,
+                        ast.GetSubscript,
+                        ast.SetAttr,
+                        ast.SetSubscript,
+                        ast.DeleteAttr,
+                        ast.DeleteSubscript,
+                        ast.UnpackSequence,
+                    ),
+                ):
                     point.reads.add(UnknownStorage("unknown"))
                     point.writes.add(UnknownStorage("unknown"))
 
@@ -201,6 +246,13 @@ class CFGDependences:
                 roots = []
             points = [self.point(block, root) for root in roots] or [self.point(block)]
             self.by_block[block] = points
+            if (
+                isinstance(block, cfg_graph.Switch)
+                and not self.owner.options.assume_primitive_intrinsics
+            ):
+                # A plain Local condition also invokes the truth protocol.
+                points[-1].reads.add(UnknownStorage("unknown"))
+                points[-1].writes.add(UnknownStorage("unknown"))
             for left, right in zip(points, points[1:]):
                 left.connect(right)
             if isinstance(block, cfg_graph.ForIter):
@@ -265,17 +317,27 @@ class CFGDependences:
     def local_edges(self):
         definitions, uses, kills, slots = defaultdict(set), defaultdict(list), defaultdict(set), {}
         constants = {}
+        references = {}
         for point in self.points:
             for obj in point.constants:
                 if obj not in constants:
                     constants[obj] = self.ddg.get_or_create_slot_node(df.ExistingNode(obj, None))
                 constants[obj].add_edge_to(point.anchor, "def-use", label="constant")
-            for key, reference in sorted(point.definitions.items(), key=lambda item: repr(item[0])):
+            bindings = dict(point.bindings)
+            for key, reference in point.definitions.items():
+                bindings.setdefault(id(reference), (key, reference))
+            for reference_id, (key, reference) in bindings.items():
                 definitions[key].add(point)
                 slot = self.ddg.get_or_create_slot_node(df.LocalNode(None, (reference,)))
-                slots[point, key] = slot
+                references[point, reference_id] = slot
+                if point.definitions.get(key) is reference:
+                    slots[point, key] = slot
                 point.anchor.add_edge_to(
                     slot, "def-use", label=reference.name or self.catalog.symbols[key].display_name
+                )
+            for key, reference in point.intra_uses:
+                references[point, id(reference)].add_edge_to(
+                    point.anchor, "def-use", label=self.catalog.symbols[key].display_name
                 )
             for key in point.uses:
                 uses[key].append(point)
@@ -284,53 +346,33 @@ class CFGDependences:
         for key, readers in uses.items():
             available = reaching(self.points, definitions[key], kills[key], readers=readers)
             for reader in readers:
+                self.local_reaching[reader, key] = available.get(reader, frozenset())
                 for writer in available.get(reader, ()):
                     slots[writer, key].add_edge_to(
                         reader.anchor, "def-use", label=self.catalog.symbols[key].display_name
                     )
 
     def memory_edges(self):
-        # Reuse the storage alias policy of raw-dataflow DDGs. Every copy in
-        # the CFG contributes a may-alias relation, including branch/loop copies.
-        aliases = self.owner._memory_aliases
-        self.owner._index_ast_aliases(self.code, self.catalog)
-        parents = {}
+        from .aliases import ValueOrigins
 
-        def canonical(symbol):
-            chain = []
-            while symbol in parents:
-                chain.append(symbol)
-                symbol = parents[symbol]
-            for item in chain:
-                parents[item] = symbol
-            return symbol
-
+        origins = ValueOrigins(self)
         for point in self.points:
-            node = point.operation
-            if isinstance(node, ast.Assign) and isinstance(node.expr, ast.Local):
-                for target in node.lcls:
-                    left, right = canonical(self.symbol(target)), canonical(self.symbol(node.expr))
-                    if left != right:
-                        parents[left] = right
-        for symbol in parents:
-            aliases.setdefault(symbol, canonical(symbol))
-        self.owner._parameter_symbols = {
-            symbol.id
-            for symbol in self.catalog.symbols.for_code(self.code_id)
-            if symbol.kind is SymbolKind.PARAMETER
-        }
-        from .construction import _memory_slot_key
-
-        def location(storage):
-            return _memory_slot_key(
-                SimpleNamespace(name=storage), aliases, self.owner._parameter_symbols
-            )
+            for reference in point.definitions.values():
+                origins.run(("definition", point, reference))
 
         accesses = defaultdict(set)
         inputs, versions = {}, {}
         for point in self.points:
-            point.reads = {location(key) for key in point.reads}
-            point.writes = {location(key) for key in point.writes}
+            point.reads = {
+                location
+                for key in sorted(point.reads, key=repr)
+                for location in origins.locations(point, key)
+            }
+            point.writes = {
+                location
+                for key in sorted(point.writes, key=repr)
+                for location in origins.locations(point, key)
+            }
             for key in point.reads | point.writes:
                 accesses[key].add(point)
             for key in sorted(point.reads, key=repr):

@@ -49,13 +49,16 @@ from pyflow.ir.core.storage import AttributeStorage, GlobalStorage, LocalStorage
 from pyflow.ir.core.symbols import SymbolKind
 from pyflow.language.python import ast as py_ast
 from .graph import DataDependenceGraph, DDGNode
+from .options import DDGConstructionOptions
 
 
 class MalformedForwardingCycleError(ValueError):
     """Raised when a dataflow slot's forwarding chain contains a cycle."""
 
 
-def _memory_slot_key(slot: Any, aliases=None, parameter_symbols=()) -> Any:
+def _memory_slot_key(
+    slot: Any, aliases=None, parameter_symbols=(), *, assume_distinct_parameters=True
+) -> Any:
     """Return a stable identity for the storage location of *slot*.
 
     Dataflow slots are value versions, not storage locations: a store to a
@@ -121,7 +124,7 @@ def _memory_slot_key(slot: Any, aliases=None, parameter_symbols=()) -> Any:
                 return symbol
             if isinstance(symbol, (AttributeStorage, LocalStorage, SubscriptStorage)):
                 return canonical_storage(symbol, seen)
-            if symbol in parameter_symbols:
+            if symbol in parameter_symbols and not assume_distinct_parameters:
                 # Parameters may alias at the call site.  Treat their field
                 # bases as a single conservative parameter location.
                 return ("parameter-base",)
@@ -180,13 +183,14 @@ class DDGConstructor(object):
         ddg: The Data Dependence Graph being constructed
     """
 
-    __slots__ = ("ddg", "_memory_aliases", "_parameter_symbols")
+    __slots__ = ("ddg", "_memory_aliases", "_parameter_symbols", "options")
 
-    def __init__(self):
+    def __init__(self, options: DDGConstructionOptions = DDGConstructionOptions()):
         """Initialize a DDG constructor."""
         self.ddg = DataDependenceGraph()
         self._memory_aliases = {}
         self._parameter_symbols = set()
+        self.options = options
 
     def construct_from_dataflow(self, dataflow: df.DataflowGraph) -> DataDependenceGraph:
         """
@@ -239,6 +243,10 @@ class DDGConstructor(object):
 
         ensure_code_indexed(cfg.code)
         self.ddg = DataDependenceGraph(cfg.code)
+        self.ddg.assumptions = {
+            "primitive_intrinsics": self.options.assume_primitive_intrinsics,
+            "distinct_parameters": self.options.assume_distinct_parameters,
+        }
         self._memory_aliases = {}
         self._parameter_symbols = set()
         result = CFGDependences(self, cfg).construct()
@@ -596,6 +604,7 @@ class DDGConstructor(object):
                         slot,
                         self._memory_aliases,
                         self._parameter_symbols,
+                        assume_distinct_parameters=self.options.assume_distinct_parameters,
                     )
                     for slot in group
                 }
@@ -729,7 +738,11 @@ class DDGConstructor(object):
                         self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR", location=key)
 
 
-def construct_ddg(dataflow: df.DataflowGraph | cfg_graph.Code) -> DataDependenceGraph:
+def construct_ddg(
+    dataflow: df.DataflowGraph | cfg_graph.Code,
+    *,
+    options: DDGConstructionOptions = DDGConstructionOptions(),
+) -> DataDependenceGraph:
     """
     Convenience function to construct a DDG from a dataflow IR graph.
 
@@ -743,7 +756,7 @@ def construct_ddg(dataflow: df.DataflowGraph | cfg_graph.Code) -> DataDependence
     Returns:
         The constructed Data Dependence Graph
     """
-    constructor = DDGConstructor()
+    constructor = DDGConstructor(options)
     if isinstance(dataflow, cfg_graph.Code):
         return constructor.construct_from_cfg(dataflow)
     return constructor.construct_from_dataflow(dataflow)

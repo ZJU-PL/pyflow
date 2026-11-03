@@ -3,9 +3,9 @@ Program Dependence Graph (PDG) construction.
 
 Construction sources:
 - Control dependences are derived from the CDG constructed from a CFG.
-- Data dependences are derived from the DDG constructed from dataflow IR and
-  projected back onto PDG statement/condition nodes. Mandatory shared IR
-  semantics supply local def/use edges for nodes outside the dataflow IR.
+- Data dependences are projected from the CFG-backed DDG onto PDG
+  statement/condition nodes. Local-only fallback also uses CFG reaching
+  definitions, avoiding flow-insensitive all-definitions edges.
 
 This module focuses on intraprocedural PDGs (single function).
 """
@@ -19,8 +19,7 @@ from pyflow.ir.cfg import expandphi, ssa
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.cfg.verifier import verify_ssa
 from pyflow.ir.cdg import construct_cdg
-from pyflow.ir.ddg import construct_ddg
-from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed, index_cfg
+from pyflow.ir.ddg import construct_ddg, DDGConstructionOptions
 from pyflow.ir.dataflow import graph as df_graph
 from pyflow.language.python import ast as py_ast
 
@@ -33,6 +32,8 @@ class PDGConstructionOptions:
     include_data: bool = True
     run_ssa: bool = False
     expand_phi: bool = True
+    ddg_options: DDGConstructionOptions = DDGConstructionOptions()
+    include_exceptional_control: bool = False
 
 
 def _safe_ast_label(node: Any) -> str:
@@ -107,8 +108,7 @@ class PDGConstructor:
     Notes on precision:
     - If `run_ssa=True`, the constructor mutates the provided CFG by applying
       SSA renaming and (optionally) phi expansion.
-    - Without SSA, data dependences are conservative (all defs may reach all
-      uses for a given local).
+    - Local data dependences follow reaching definitions even without SSA.
     """
 
     __slots__ = ("options",)
@@ -204,7 +204,7 @@ class PDGConstructor:
                     pdg.add_cfg_content(cnode, n)
 
     def _add_control_edges_from_cdg(self, pdg: ProgramDependenceGraph) -> None:
-        cdg = construct_cdg(pdg.cfg)
+        cdg = construct_cdg(pdg.cfg, include_exceptional=self.options.include_exceptional_control)
         for edge in cdg.get_all_edges():
             controller_anchor = pdg.get_cfg_anchor(edge.source.cfg_node)
             if controller_anchor is None:
@@ -286,7 +286,10 @@ class PDGConstructor:
         if root_code is None:
             return set()
 
-        ddg = construct_ddg(pdg.cfg)
+        ddg = construct_ddg(pdg.cfg, options=self.options.ddg_options)
+        return self._project_data_edges(pdg, ddg, parent_map)
+
+    def _project_data_edges(self, pdg, ddg, parent_map):
         op_to_pdg: Dict[Any, PDGNode] = {}
         backed_nodes: Set[PDGNode] = set()
 
@@ -319,8 +322,7 @@ class PDGConstructor:
                 current_pdg = op_to_pdg.get(current)
 
                 if current_pdg is not None:
-                    if current_pdg is not start_pdg:
-                        start_pdg.add_edge_to(current_pdg, "data", label)
+                    start_pdg.add_edge_to(current_pdg, "data", label)
                     continue
 
                 if is_control_slot(current):
@@ -337,75 +339,34 @@ class PDGConstructor:
 
         return backed_nodes
 
-    def _add_semantic_data_edges(self, pdg: ProgramDependenceGraph) -> None:
-        root_code = getattr(pdg.cfg, "code", None)
-        if root_code is None:
-            return
-        catalog = ensure_code_indexed(root_code)
-        # CFG transformation/revision and CDG construction already synchronize
-        # this catalog.  Re-index only when a caller supplied a raw CFG that
-        # has never been registered; rebuilding semantics here for every PDG
-        # used to duplicate one of the most expensive construction passes.
-        try:
-            catalog.block_id(pdg.cfg.entryTerminal, root_code)
-        except KeyError:
-            index_cfg(catalog, pdg.cfg)
-        procedure = catalog.procedure(root_code)
+    def _add_semantic_data_edges(self, pdg, parent_map):
+        """Local-only fallback using the same CFG reaching-definition solver.
 
-        var_to_defs: Dict[object, List[PDGNode]] = {}
-        if pdg.entry is not None:
-            for symbol in catalog.symbols:
-                if symbol.id.scope == procedure.root_scope and symbol.kind is SymbolKind.PARAMETER:
-                    var_to_defs.setdefault(symbol.id, []).append(pdg.entry)
-                    for value in catalog.values:
-                        if (
-                            value.id.symbol == symbol.id
-                            and value.definition is None
-                            and not value.undefined
-                        ):
-                            var_to_defs.setdefault(value.id, []).append(pdg.entry)
+        A failure in optional heap modeling must not turn every definition of
+        a lexical symbol into a predecessor of every use.
+        """
+        from pyflow.ir.ddg import DDGConstructor, DataDependenceGraph
+        from pyflow.ir.ddg.cfg_construction import CFGDependences
 
-        node_uses: Dict[PDGNode, tuple[object, ...]] = {}
-        for node in pdg.nodes:
-            if node.ast_node is None:
-                continue
-            try:
-                semantics = catalog.semantics.operation(catalog.node_id(node.ast_node, root_code))
-            except KeyError:
-                continue
-            node_uses[node] = semantics.uses
-            for symbol_id in semantics.definitions:
-                var_to_defs.setdefault(symbol_id, []).append(node)
-
-        for use_node, uses in node_uses.items():
-            for symbol_id in uses:
-                def_nodes = var_to_defs.get(symbol_id, [])
-                for def_node in def_nodes:
-                    if def_node is use_node:
-                        continue
-                    identity = (
-                        catalog.values[symbol_id].id.symbol
-                        if isinstance(symbol_id, ValueId)
-                        else symbol_id
-                    )
-                    symbol = catalog.symbols.get(identity)
-                    label = symbol.display_name if symbol is not None else str(symbol_id)
-                    def_node.add_edge_to(use_node, "data", label)
+        constructor = DDGConstructor(self.options.ddg_options)
+        constructor.ddg = DataDependenceGraph(pdg.cfg.code)
+        dependencies = CFGDependences(constructor, pdg.cfg)
+        dependencies.build_points()
+        dependencies.local_edges()
+        self._project_data_edges(pdg, constructor.ddg, parent_map)
 
     def _add_data_edges(self, pdg: ProgramDependenceGraph, parent_map: Dict[Any, Any]) -> None:
         try:
             self._add_data_edges_from_ddg(pdg, parent_map)
         except Exception as exc:
-            # Shared IRSemantics is the authoritative representation for
-            # constructs the optional legacy dataflow/DDG lowering does not
-            # model. A lowering failure must not discard the CFG, control
-            # dependence, or semantic def/use edges already available here.
+            # Retain CFG local reaching definitions when optional heap modeling
+            # fails, without reintroducing all-definitions-to-all-uses edges.
             pdg.data_dependence_mode = "semantics"
             pdg.data_dependence_reason = f"{type(exc).__name__}: {exc}"
+            self._add_semantic_data_edges(pdg, parent_map)
         else:
             pdg.data_dependence_mode = "hybrid"
             pdg.data_dependence_reason = ""
-        self._add_semantic_data_edges(pdg)
 
 
 def construct_pdg(cfg: cfg_graph.Code, **kwargs) -> ProgramDependenceGraph:

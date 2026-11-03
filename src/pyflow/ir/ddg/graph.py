@@ -215,6 +215,7 @@ class DataDependenceGraph(object):
         "code",
         "catalog",
         "_semantic_counts",
+        "assumptions",
     )
 
     def __init__(self, code=None):
@@ -226,6 +227,7 @@ class DataDependenceGraph(object):
         self.code = code
         self.catalog = getattr(code, "ir_catalog", None)
         self._semantic_counts: Dict[str, int] = {}
+        self.assumptions = {}
 
     def _semantic_id(self, ir_node: Any, category: str):
         if self.catalog is None or self.code is None:

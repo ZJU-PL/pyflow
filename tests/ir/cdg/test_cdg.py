@@ -319,7 +319,7 @@ class TestCDG(unittest.TestCase):
 
     def test_simple_if_has_normal_and_exceptional_control_edges(self):
         """The total CDG keeps ordinary branches and possible errors."""
-        cdg = self.build_cdg(simple_if)
+        cdg = construct_cdg(self.build_cfg(simple_if), include_exceptional=True)
 
         edges = sorted(
             (
@@ -431,7 +431,7 @@ class TestCDG(unittest.TestCase):
         self.assertTrue(raise_suites)
         self.assertTrue(all(node.getExit("normal") is None for node in raise_suites))
 
-    def test_exceptional_control_dependence_is_always_present(self):
+    def test_exceptional_control_dependence_is_available_explicitly(self):
         code = cfg_graph.Code()
         operation = cfg_graph.Suite(None)
         normal = cfg_graph.Merge(None)
@@ -443,7 +443,8 @@ class TestCDG(unittest.TestCase):
         normal.setExit("normal", code.normalTerminal)
         error.setExit("normal", code.errorTerminal)
 
-        exception_aware = construct_cdg(code)
+        self.assertFalse(construct_cdg(code).get_all_edges())
+        exception_aware = construct_cdg(code, include_exceptional=True)
         labels = {
             edge.label
             for edge in exception_aware.get_all_edges()

@@ -103,6 +103,8 @@ class CDGDumper:
             else "Control Dependence Graph"
         )
         f.write(f"{title}\n{'=' * 60}\n\n")
+        mode = "exception-aware" if self.cdg.include_exceptional else "structured"
+        f.write(f"Control mode: {mode}\n\n")
 
     def _write_statistics(self, f):
         """
@@ -263,6 +265,7 @@ class CDGDumper:
         """
         data = {
             "function_name": function_name,
+            "include_exceptional": self.cdg.include_exceptional,
             "statistics": self.cdg.get_statistics(),
             "nodes": [
                 self._node_to_dict(cfg_node, cdg_node)

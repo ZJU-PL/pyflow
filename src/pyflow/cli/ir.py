@@ -28,6 +28,7 @@ from pyflow.ir.cfg import transform, dump as cfg_dump, ssa
 from pyflow.ir.cfg.dump import generate_clang_style_cfg, generate_json_cfg
 from pyflow.ir.cdg import construct_cdg, dump_cdg
 from pyflow.ir.ddg import construction, dump as ddg_dump
+from pyflow.ir.ddg import DDGConstructionOptions
 from pyflow.ir.gir import build_function_gir
 from pyflow.ir.gir.dump import dump_gir_content
 from pyflow.analysis.programculler import findLiveCode
@@ -154,6 +155,15 @@ def add_ir_parser(subparsers):
         help="Format for IR dumps",
     )
     parser.add_argument("--dump-output", help="Write IR dumps to this directory (default: stdout)")
+    parser.add_argument(
+        "--conservative-dependencies",
+        action="store_true",
+        help=(
+            "For DDG/CDG, include arbitrary protocol side effects, parameter may-aliases, "
+            "and implicit exceptional control flow; default assumes primitive intrinsics "
+            "and distinct parameter bases with structured control dependences"
+        ),
+    )
 
     return parser
 
@@ -531,18 +541,19 @@ def _dump_graph_single(
     builder_func,
     dump_func,
     ir_name: str,
+    graph_options=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"{function_name}_{ir_name.lower()}.{format}")
 
-    # Build base structure (CFG for CDG, Dataflow for DDG)
+    # Both source-backed dependence graphs are projections of the CFG.
     base_structure = builder_func(compiler, func)
 
     # Construct and dump the graph IR
     graph_ir = (
-        construct_cdg(base_structure)
+        construct_cdg(base_structure, **(graph_options or {}))
         if ir_name == "CDG"
-        else construction.construct_ddg(base_structure)
+        else construction.construct_ddg(base_structure, **(graph_options or {}))
     )
     dump_func(graph_ir, output_file, format, function_name)
     print(f"{ir_name} dumped to: {output_file}")
@@ -559,6 +570,7 @@ def _dump_graph_ir(
     dump_func,
     ir_name: str,
     program=None,
+    graph_options=None,
 ):
     """Generic function to dump graph-based IRs (CDG, DDG)."""
     if function_name in ("*", "all", None):
@@ -569,7 +581,15 @@ def _dump_graph_ir(
         for func, fname in _iter_function_labels(liveCode):
             try:
                 _dump_graph_single(
-                    compiler, func, fname, output_dir, format, builder_func, dump_func, ir_name
+                    compiler,
+                    func,
+                    fname,
+                    output_dir,
+                    format,
+                    builder_func,
+                    dump_func,
+                    ir_name,
+                    graph_options,
                 )
             except BrokenPipeError:
                 raise
@@ -584,7 +604,15 @@ def _dump_graph_ir(
 
     try:
         return _dump_graph_single(
-            compiler, func, function_name, output_dir, format, builder_func, dump_func, ir_name
+            compiler,
+            func,
+            function_name,
+            output_dir,
+            format,
+            builder_func,
+            dump_func,
+            ir_name,
+            graph_options,
         )
     except BrokenPipeError:
         raise
@@ -603,6 +631,8 @@ def dump_cdg_func(
     output_dir: str,
     format: str = "text",
     program=None,
+    *,
+    include_exceptional=False,
 ):
     """Dump the Control Dependence Graph for a specific function."""
     return _dump_graph_ir(
@@ -615,6 +645,7 @@ def dump_cdg_func(
         dump_cdg,
         "CDG",
         program,
+        {"include_exceptional": include_exceptional},
     )
 
 
@@ -625,6 +656,8 @@ def dump_ddg(
     output_dir: str,
     format: str = "text",
     program=None,
+    *,
+    options=DDGConstructionOptions(),
 ):
     """Dump the Data Dependence Graph for a specific function."""
     return _dump_graph_ir(
@@ -637,6 +670,7 @@ def dump_ddg(
         ddg_dump.dump_ddg,
         "DDG",
         program,
+        {"options": options},
     )
 
 
@@ -1018,6 +1052,12 @@ def _run_ir_dump(input_path: Path, args):
 
         for dump_arg, dump_func in dump_functions.items():
             if hasattr(args, dump_arg) and getattr(args, dump_arg):
+                options = {}
+                if getattr(args, "conservative_dependencies", False):
+                    if dump_arg == "dump_cdg":
+                        options["include_exceptional"] = True
+                    elif dump_arg == "dump_ddg":
+                        options["options"] = DDGConstructionOptions(False, False)
                 if not dump_func(
                     compiler,
                     liveCode,
@@ -1025,6 +1065,7 @@ def _run_ir_dump(input_path: Path, args):
                     output_dir,
                     args.dump_format,
                     program,
+                    **options,
                 ):
                     success = False
 

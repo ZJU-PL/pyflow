@@ -20,17 +20,39 @@ class CDGConstructor:
 
     _EXIT_SINK = object()
 
-    def __init__(self, cfg: cfg_graph.Code):
+    def __init__(self, cfg: cfg_graph.Code, *, include_exceptional: bool = False):
         self.cfg = cfg
+        self.include_exceptional = include_exceptional
         self.cdg = ControlDependenceGraph(cfg)
         self.control_dependences: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
         self.post_dominators: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
         self._postdom_nodes: Dict[cfg_graph.CFGBlock, Any] = {}
         self._cfg_nodes: Optional[List[cfg_graph.CFGBlock]] = None
 
+    def _successors(self, node):
+        successors = [
+            (label, child)
+            for label, child in node.next.items()
+            if child is not None and label != "yield"
+        ]
+        if self.include_exceptional:
+            return successors
+        normal = [(label, child) for label, child in successors if label not in ("fail", "error")]
+        # Explicit raises and other unconditional exceptional transfers remain
+        # real exits. Only implicit exceptions beside normal flow are omitted.
+        return normal or successors
+
+    def _predecessors(self, node, node_set):
+        return [
+            pred
+            for pred, label in node.iterprev()
+            if pred in node_set and (label, node) in self._successors(pred)
+        ]
+
     def construct(self) -> ControlDependenceGraph:
         # A constructor may be reused after the CFG has changed.
         self.cdg = ControlDependenceGraph(self.cfg)
+        self.cdg.include_exceptional = self.include_exceptional
         self.control_dependences = {}
         self.post_dominators = {}
         self._postdom_nodes = {}
@@ -81,11 +103,7 @@ class CDGConstructor:
         def reverse_forward(node):
             if node is self._EXIT_SINK:
                 return [*real_terminals, *virtual_terminals]
-            return [
-                pred
-                for pred, name in node.iterprev()
-                if pred is not None and pred in node_set and name != "yield"
-            ]
+            return self._predecessors(node, node_set)
 
         def bind_callback(node, dj_node: Any):
             if node is not self._EXIT_SINK:
@@ -99,10 +117,11 @@ class CDGConstructor:
         """Return one deterministic virtual exit for each non-exiting sink SCC."""
         can_exit = set(real_terminals)
         pending = list(real_terminals)
+        node_set = set(all_nodes)
         while pending:
             node = pending.pop()
-            for predecessor, name in node.iterprev():
-                if predecessor is not None and name != "yield" and predecessor not in can_exit:
+            for predecessor in self._predecessors(node, node_set):
+                if predecessor not in can_exit:
                     can_exit.add(predecessor)
                     pending.append(predecessor)
 
@@ -111,11 +130,7 @@ class CDGConstructor:
             return []
 
         successors = {
-            node: [
-                child
-                for label, child in node.next.items()
-                if label != "yield" and child in nonterminating
-            ]
+            node: [child for label, child in self._successors(node) if child in nonterminating]
             for node in nonterminating
         }
         predecessors = {node: [] for node in nonterminating}
@@ -189,11 +204,7 @@ class CDGConstructor:
             self.cdg.add_node(cfg_node)
 
         for controller in all_cfg_nodes:
-            successors = []
-            for label, successor in controller.next.items():
-                if successor is None or label == "yield":
-                    continue
-                successors.append((label, successor))
+            successors = self._successors(controller)
 
             if len(successors) <= 1:
                 continue
@@ -223,7 +234,7 @@ class CDGConstructor:
 
             visited.add(node)
             order.append(node)
-            for next_node in node.forward():
+            for _, next_node in self._successors(node):
                 if next_node is not None and next_node not in visited:
                     stack.append(next_node)
 
@@ -248,20 +259,24 @@ class CDGConstructor:
         return dependent in self.control_dependences.get(controller, set())
 
 
-def construct_cdg(cfg: cfg_graph.Code) -> ControlDependenceGraph:
-    """Construct a CDG over every normal and exceptional CFG edge."""
-    constructor = CDGConstructor(cfg)
+def construct_cdg(
+    cfg: cfg_graph.Code, *, include_exceptional: bool = False
+) -> ControlDependenceGraph:
+    """Construct structured control dependences, optionally including implicit exceptions."""
+    constructor = CDGConstructor(cfg, include_exceptional=include_exceptional)
     return constructor.construct()
 
 
-def analyze_control_dependencies(cfg: cfg_graph.Code) -> Dict[str, Any]:
+def analyze_control_dependencies(
+    cfg: cfg_graph.Code, *, include_exceptional: bool = False
+) -> Dict[str, Any]:
     """
     Analyze control dependencies in a CFG and return statistics.
 
-    The result includes control dependences over normal, failure, and error
-    edges, plus total post-dominance for non-terminating sink regions.
+    The result follows the selected control projection, with total
+    post-dominance for non-terminating sink regions.
     """
-    constructor = CDGConstructor(cfg)
+    constructor = CDGConstructor(cfg, include_exceptional=include_exceptional)
     cdg = constructor.construct()
 
     def node_key(node: cfg_graph.CFGBlock) -> str:

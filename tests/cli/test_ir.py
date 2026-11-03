@@ -105,6 +105,31 @@ def parse_ir_args(path, *arguments):
     return parser.parse_args(["ir", str(path), *map(str, arguments)])
 
 
+@pytest.mark.parametrize("flag", ["--dump-ddg", "--dump-cdg"])
+@pytest.mark.parametrize("conservative", [False, True])
+def test_dependence_modes_are_explicit_in_json(tmp_path, flag, conservative):
+    source = tmp_path / "precision.py"
+    source.write_text(
+        "def f(a,b):\n    if a:\n        x=a+b\n    else:\n        x=a-b\n    return x\n"
+    )
+    destination = tmp_path / "out"
+    arguments = [flag, "f", "--dump-format", "json", "--dump-output", destination]
+    if conservative:
+        arguments.append("--conservative-dependencies")
+    ir_cli.run_ir_dump(source, parse_ir_args(source, *arguments))
+    suffix = flag.removeprefix("--dump-")
+    payload = json.loads((destination / f"f_{suffix}.json").read_text())
+    if suffix == "ddg":
+        assert payload["assumptions"] == {
+            "primitive_intrinsics": not conservative,
+            "distinct_parameters": not conservative,
+        }
+        assert any(edge["label"] == "EXTERNAL" for edge in payload["edges"]) == conservative
+    else:
+        assert payload["include_exceptional"] is conservative
+        assert any(edge["label"] == "error" for edge in payload["edges"]) == conservative
+
+
 def test_unfiltered_ddg_requires_destination_on_a_terminal(tmp_path, monkeypatch, capsys):
     source = tmp_path / "sample.py"
     source.write_text("def f():\n    return 1\n")
