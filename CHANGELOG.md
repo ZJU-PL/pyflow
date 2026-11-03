@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `file.write`, rather than being recorded as write-only.
 - Environment item access no longer emits duplicate read and call findings for
   `os.environ.__getitem__`/`__setitem__`.
+- Single-file audits of large modules with no registry-relevant calls use an
+  entry-only, reachable-only fast path instead of resolving the entire local
+  package graph; explicit `--include-imports` retains the deeper scan.
 - Uncalled-scope auditing matches registry names exactly (or by explicit
   wildcard prefix) instead of seeding every function containing a name such as
   `get_start`, and generic method names (`items`, `get`, `read`, ...) require

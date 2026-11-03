@@ -94,6 +94,74 @@ def _absolute_import_roots(path: Path) -> set[str]:
     return names
 
 
+def _has_registry_call(path: Path, registry) -> bool:
+    """Return True when an AST call matches a capability registry path/name."""
+    try:
+        with tokenize.open(path) as handle:
+            tree = ast.parse(handle.read(), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError):
+        return False
+    names: set[str] = {
+        "open",
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "import_module",
+    }
+    generic = {
+        "get",
+        "set",
+        "pop",
+        "clear",
+        "update",
+        "items",
+        "values",
+        "keys",
+        "copy",
+        "read",
+        "write",
+        "append",
+        "remove",
+        "replace",
+        "close",
+        "setdefault",
+        "extend",
+        "insert",
+        "exists",
+        "is_file",
+        "is_dir",
+        "is_symlink",
+        "stat",
+    }
+    for pattern in registry.patterns:
+        last = pattern.access_path.rsplit(".", 1)[-1]
+        if last == "*" or not last or last in generic:
+            continue
+        names.add(last)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        try:
+            rendered = ast.unparse(node.func)
+        except Exception:
+            continue
+        terminal = rendered.rsplit(".", 1)[-1]
+        if registry.match(
+            rendered,
+            __import__(
+                "pyflow.checker.capability.model", fromlist=["CapabilityOperation"]
+            ).CapabilityOperation.CALL,
+        ):
+            return True
+        if any(
+            terminal.startswith(name[:-1]) if name.endswith("*") else terminal == name
+            for name in names
+        ):
+            return True
+    return False
+
+
 def _has_local_absolute_import(path: Path, root: Path) -> bool:
     """Return True when a file imports a module living under ``root``."""
     return any(
@@ -327,14 +395,38 @@ def run_capabilities(args) -> int:
         with analysis_time_budget(max_seconds), redirect_stdout(sys.stderr):
             for entry in entries:
                 try:
+                    entry_scope_audit = not getattr(args, "reachable_only", False)
+                    entry_max_iterations = getattr(args, "max_iterations", 20000)
+                    entry_import_level = import_level
+                    fast_unmarked = (
+                        target.is_file()
+                        and not getattr(args, "include_imports", False)
+                        and entry.stat().st_size > 64 * 1024
+                        and not _has_registry_call(entry, registry)
+                    )
+                    if fast_unmarked:
+                        # Large class-heavy modules with no registry-relevant
+                        # call cost far more than they can reveal; use the
+                        # reachable-only solver and entry-only imports.
+                        entry_scope_audit = False
+                        entry_max_iterations = min(entry_max_iterations, 3000)
+                        entry_import_level = 0
                     analyzed = analysis.analyze_project(
-                        entry, project_path=project_root, import_level=import_level
+                        entry,
+                        project_path=project_root,
+                        import_level=entry_import_level,
+                        analyze_all_scopes=entry_scope_audit,
+                        max_iterations=entry_max_iterations,
                     )
                     if (
                         target.is_file()
-                        and import_level == 0
+                        and not fast_unmarked
+                        and entry_import_level == 0
                         and not analyzed.findings
                         and _has_local_absolute_import(entry, project_root)
+                        and (
+                            entry.stat().st_size <= 64 * 1024 or _has_registry_call(entry, registry)
+                        )
                     ):
                         # Fast entry-only audit found nothing, but the file
                         # imports project-local modules.  Follow those imports

@@ -398,6 +398,7 @@ class DefensiveCapabilityAnalysis:
         library_paths: Iterable[str | Path] = (),
         import_level: int = -1,
         analyze_all_scopes: bool | None = None,
+        max_iterations: int | None = None,
     ) -> CapabilityAnalysisResult:
         pointer_result = PointerAnalysis.from_project(
             entry_file,
@@ -407,7 +408,7 @@ class DefensiveCapabilityAnalysis:
             context_policy=self.context_policy,
             native_effects=self._pointer_effects(),
             import_level=import_level,
-            max_iterations=self.max_iterations,
+            max_iterations=(self.max_iterations if max_iterations is None else max_iterations),
             analyze_all_scopes=(
                 self.analyze_all_scopes if analyze_all_scopes is None else analyze_all_scopes
             ),
