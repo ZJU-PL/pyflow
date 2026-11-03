@@ -586,6 +586,14 @@ class DefensiveCapabilityAnalysis:
         patterns = self._filter_sensitive_read(
             access_path, operation, self.registry.match(access_path, operation)
         )
+        if (
+            operation is CapabilityOperation.READ
+            and access_path.endswith((".__getitem__", ".__setitem__", "__delitem__"))
+            and self.registry.match(access_path, CapabilityOperation.CALL)
+        ):
+            # The call event for the same item protocol already reports the
+            # capability; emitting both read and call duplicates it.
+            patterns = ()
         patterns = self._filter_network_data_use(access_path, operation, patterns)
         if patterns or ".<return>" not in access_path:
             return patterns

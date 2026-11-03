@@ -396,3 +396,10 @@ def test_nested_response_data_access_is_not_network_io() -> None:
     }
     assert network_paths
     assert not any("json" in path or path.count(".<return>") >= 2 for path in network_paths)
+
+
+def test_environment_item_access_reports_one_operation() -> None:
+    result = _result('import os\nos.environ["X"] = "y"\nvalue = os.environ["Y"]\n')
+    paths = [finding.access_path for finding in result.findings]
+    assert paths.count("os.environ.__setitem__") == 1
+    assert paths.count("os.environ.__getitem__") == 1
