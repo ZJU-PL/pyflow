@@ -2976,15 +2976,15 @@ class StaticTypeInferenceEngine:
                             selected.return_type if selected is not None else typ.return_type
                         )
                     )
-        return (
-            join_all(
+        if results:
+            return join_all(
                 results,
                 self.type_system,
                 max_union_size=self.options.max_union_size,
             )
-            if results
-            else AbstractTypeValue.unresolved()
-        )
+        if self._contains_any(callee):
+            return AbstractTypeValue.from_type(ANY)
+        return AbstractTypeValue.unresolved()
 
     def _model_external_call(
         self,
@@ -7356,6 +7356,8 @@ class StaticTypeInferenceEngine:
         self._pending_parameter_evidence[key] = self._join(old, value)
 
     def _attribute_value(self, base: AbstractTypeValue, attribute: str) -> AbstractTypeValue:
+        if self._contains_any(base):
+            return AbstractTypeValue.from_type(ANY)
         values: list[AbstractTypeValue] = []
         for typ in base.types:
             if attribute == "__class__":
@@ -7751,6 +7753,8 @@ class StaticTypeInferenceEngine:
         )
 
     def _subscript_value(self, base: AbstractTypeValue, slice_node: ast.expr) -> AbstractTypeValue:
+        if self._contains_any(base):
+            return AbstractTypeValue.from_type(ANY)
         if base.class_targets:
             for target in base.class_targets:
                 class_info = self._classes.get(target)

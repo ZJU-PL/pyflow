@@ -719,3 +719,18 @@ def test_subprocess_shutil_logging_and_tempfile_models() -> None:
     assert raw_types(result.type_of("path")) == {str}
     assert raw_types(result.type_of("temporary_name")) == {str}
     assert raw_types(result.type_of("temporary_data")) == {bytes}
+
+
+def test_any_calls_members_and_subscripts_stay_any() -> None:
+    result = infer(
+        "from typing import Any\n"
+        "def f(x: Any) -> None:\n"
+        "    called = x()\n"
+        "    member = x.foo\n"
+        "    indexed = x[0]\n"
+    )
+    for line, column in ((3, 13), (4, 13), (5, 14)):
+        span = next(
+            span for span in result.expressions if span.lineno == line and span.col_offset == column
+        )
+        assert str(result.expressions[span].runtime_type()) == "Any"
