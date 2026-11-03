@@ -338,3 +338,32 @@ def test_unknown_names_in_string_annotations_are_not_diagnostics(tmp_path: Path)
     path.write_text(source)
     index = SourceIndex({str(path): source}, (tmp_path,))
     assert document_diagnostics(index, path.as_uri()) == []
+
+
+def test_symlinked_source_tree_is_indexed_without_cycles(tmp_path: Path):
+    from pyflow.frontend.file_selection import discover_python_files
+    from pyflow.lsp import AnalysisManager
+
+    real = tmp_path / "shared" / "pkg"
+    real.mkdir(parents=True)
+    (real / "__init__.py").write_text("class Shared:\n    pass\n")
+    (tmp_path / "linkedpkg").symlink_to(real, target_is_directory=True)
+    (tmp_path / "main.py").write_text(
+        "from linkedpkg import Shared\n\ndef use(x: Shared) -> None:\n    pass\n"
+    )
+    (tmp_path / "cycle").symlink_to(tmp_path, target_is_directory=True)
+
+    manager = AnalysisManager()
+    manager.load_source_workspaces([str(tmp_path)])
+    index = manager.current_snapshot().source_index
+    assert any(symbol.qualified_name == "linkedpkg.Shared" for symbol in index.symbols)
+    definitions = index.definitions_at(path_to_uri(tmp_path / "main.py"), 0, 23)
+    assert [item.uri for item in definitions] == [
+        path_to_uri(tmp_path / "linkedpkg" / "__init__.py")
+    ]
+
+    # A self-referencing directory must not recurse forever.
+    discovered = discover_python_files(
+        tmp_path, recursive=True, exclude=("cycle",), follow_symlinks=True
+    )
+    assert any(path.name == "main.py" for path in discovered)

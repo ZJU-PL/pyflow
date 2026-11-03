@@ -217,6 +217,8 @@ class AnalysisManager:
                     "__pycache__",
                     "venv",
                 ),
+                # Editor workspaces commonly contain symlinked source trees.
+                follow_symlinks=True,
             )
         )
 

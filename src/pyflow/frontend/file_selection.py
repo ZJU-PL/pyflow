@@ -54,12 +54,27 @@ def path_is_excluded(path: str | Path, patterns: Iterable[str], root: str | Path
 
 
 def discover_python_files(
-    root: Path, *, recursive: bool, exclude: Iterable[str] = ()
+    root: Path,
+    *,
+    recursive: bool,
+    exclude: Iterable[str] = (),
+    follow_symlinks: bool = False,
 ) -> list[Path]:
     import os
 
     files = []
-    for current, directories, names in os.walk(root):
+    # Only real ancestor cycles are pruned.  Two symlink aliases of the same
+    # directory are both indexed because either may be a valid import path.
+    ancestor_reals: dict[str, frozenset[str]] = {}
+    for current, directories, names in os.walk(root, followlinks=follow_symlinks):
+        if follow_symlinks:
+            parent = os.path.dirname(current)
+            chain = ancestor_reals.get(parent, frozenset())
+            real = os.path.realpath(current)
+            if real in chain:
+                directories[:] = []
+                continue
+            ancestor_reals[current] = chain | {real}
         directories[:] = (
             sorted(
                 name
