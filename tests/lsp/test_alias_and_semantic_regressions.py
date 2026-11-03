@@ -559,3 +559,26 @@ def test_pydantic_model_fields_follow_constructor_keywords(tmp_path: Path):
         (4, 4),
         (6, 22),
     }
+
+
+def test_attrs_decorated_fields_follow_constructor_keywords(tmp_path: Path):
+    source = (
+        "import attrs\n"
+        "\n"
+        "@attrs.define\n"
+        "class User:\n"
+        "    name: str\n"
+        "    age: int = 0\n"
+        "\n"
+        'user = User(name="a", age=2)\n'
+    )
+    path = tmp_path / "attrs_model.py"
+    path.write_text(source)
+    index = SourceIndex({str(path): source}, (tmp_path,))
+    uri = path.as_uri()
+    assert {
+        (item.start_line, item.start_character) for item in index.rename_ranges_at(uri, 4, 6)
+    } == {
+        (4, 4),
+        (7, 12),
+    }

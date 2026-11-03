@@ -2642,6 +2642,13 @@ class _IndexVisitor(ast.NodeVisitor):
             if self._qualified_expression_name(head) in {
                 "dataclasses.dataclass",
                 "pydantic.dataclasses.dataclass",
+                "attrs.define",
+                "attrs.frozen",
+                "attrs.mutable",
+                "attr.s",
+                "attr.attrs",
+                "attr.dataclass",
+                "attr.frozen",
             }:
                 options = decorator.keywords if isinstance(decorator, ast.Call) else ()
                 generated = not any(
