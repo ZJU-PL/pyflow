@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `file.write`, rather than being recorded as write-only.
 - Environment item access no longer emits duplicate read and call findings for
   `os.environ.__getitem__`/`__setitem__`.
+- Single-file fast paths now cover any absolute-import module with no
+  registry capability call and no capability-module import, not only
+  re-export-only files; relative imports remain fully analyzed.
 - Re-export-only modules with no calls and no capability-module imports skip
   the full local import graph, avoiding multi-second scans for package
   `__init__` files.
