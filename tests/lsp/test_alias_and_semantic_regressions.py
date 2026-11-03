@@ -367,3 +367,42 @@ def test_symlinked_source_tree_is_indexed_without_cycles(tmp_path: Path):
         tmp_path, recursive=True, exclude=("cycle",), follow_symlinks=True
     )
     assert any(path.name == "main.py" for path in discovered)
+
+
+def test_handler_barrier_waits_for_pending_index_rebuild(tmp_path: Path):
+    import asyncio
+
+    from pyflow.lsp import AnalysisManager, LspHandler
+
+    path = tmp_path / "app.py"
+    path.write_text("def alpha() -> int:\n    return 1\n")
+    manager = AnalysisManager()
+    manager.load_files([path], run_pipeline=False)
+    handler = LspHandler(manager)
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_ensure(uri):
+            started.set()
+            await release.wait()
+
+        handler._ensure_index = fake_ensure
+        change = asyncio.create_task(
+            handler._handle_did_change(
+                {
+                    "textDocument": {"uri": path.as_uri(), "version": 2},
+                    "contentChanges": [{"text": "def beta() -> int:\n    return 2\n"}],
+                }
+            )
+        )
+        await started.wait()
+        waiter = asyncio.create_task(handler._wait_pending_index())
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        release.set()
+        await asyncio.gather(change, waiter)
+        assert handler._pending_index == {}
+
+    asyncio.run(scenario())

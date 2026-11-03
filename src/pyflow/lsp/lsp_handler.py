@@ -34,6 +34,7 @@ class LspHandler:
         self._publish_tasks = {}
         self._publish_epochs = {}
         self._index_locks = {}
+        self._pending_index = {}
 
     def register_on(self, rpc: JsonRpcServer) -> None:
         self._rpc = rpc
@@ -84,6 +85,8 @@ class LspHandler:
         rpc.register("pyflow/getCallgraph", self._handle_pyflow_callgraph)
         rpc.register("pyflow/getType", self._handle_pyflow_type)
         rpc.register("pyflow/getAliases", self._handle_pyflow_aliases)
+        if hasattr(rpc, "set_request_barrier"):
+            rpc.set_request_barrier(self._wait_pending_index)
 
     async def _handle_initialize(self, params: Any) -> dict[str, Any]:
         if self._shutdown:
@@ -250,7 +253,14 @@ class LspHandler:
         except ValueError as exc:
             raise JsonRpcError(ErrorCodes.InvalidParams, str(exc)) from exc
         if changed:
-            await self._ensure_index(document["uri"])
+            task = asyncio.current_task()
+            if task is not None:
+                self._pending_index[document["uri"]] = task
+            try:
+                await self._ensure_index(document["uri"])
+            finally:
+                if self._pending_index.get(document["uri"]) is task:
+                    self._pending_index.pop(document["uri"], None)
         if changed and document["uri"] in self._open_documents:
             self._open_documents[document["uri"]] = document.get("version")
             self._schedule_publish(document["uri"])
@@ -286,6 +296,16 @@ class LspHandler:
         if previous is not None:
             previous.cancel()
         self._publish_tasks[uri] = asyncio.create_task(self._publish_document(uri, epoch))
+
+    async def _wait_pending_index(self):
+        """Wait for index publications started by earlier notifications."""
+        tasks = [
+            task
+            for task in tuple(self._pending_index.values())
+            if task is not None and not task.done()
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _ensure_index(self, uri):
         """Publish the latest overlay for *uri* without blocking the event loop."""

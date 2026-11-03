@@ -111,6 +111,7 @@ class JsonRpcServer:
         self._in_flight = asyncio.Semaphore(max_in_flight)
         self._send_lock: Optional[asyncio.Lock] = None
         self._request_tasks: dict[Any, asyncio.Task[Any]] = {}
+        self._request_barrier = None
 
     # ------------------------------------------------------------------
     # Registration
@@ -128,6 +129,15 @@ class JsonRpcServer:
     def register_notification(self, method: str, handler: Callable[[Any], Any]) -> None:
         """Register a notification handler (no response sent)."""
         self._handlers[method] = handler
+
+    def set_request_barrier(self, barrier: Callable[[], Any]) -> None:
+        """Await *barrier* before dispatching each request.
+
+        Notifications and requests arrive on separate tasks.  A barrier lets an
+        adapter ensure a request observes all earlier notifications (for
+        example, a document change whose index rebuild runs in a worker).
+        """
+        self._request_barrier = barrier
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -289,6 +299,9 @@ class JsonRpcServer:
             if task is not None and task is not asyncio.current_task():
                 task.cancel()
             return None
+
+        if has_id and self._request_barrier is not None:
+            await self._request_barrier()
 
         handler = self._handlers.get(method)
         if handler is None:

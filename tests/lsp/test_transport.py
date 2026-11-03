@@ -357,3 +357,47 @@ def test_json_line_transport_reads_mcp_message():
         return await JsonLineRpcServer()._read_message(reader)
 
     assert _run(read())["method"] == "initialize"
+
+
+def test_request_barrier_runs_before_request_dispatch():
+    order = []
+
+    async def scenario():
+        rpc = JsonRpcServer()
+
+        async def barrier():
+            order.append("barrier-start")
+            await asyncio.sleep(0)
+            order.append("barrier-end")
+
+        rpc.set_request_barrier(barrier)
+
+        def handler(params):
+            order.append("handler")
+            return "ok"
+
+        rpc.register("probe", handler)
+        return await rpc._dispatch_one(
+            {"jsonrpc": "2.0", "id": 1, "method": "probe", "params": {}}, strict=True
+        )
+
+    response = asyncio.run(scenario())
+    assert order == ["barrier-start", "barrier-end", "handler"]
+    assert response["result"] == "ok"
+
+
+def test_notifications_do_not_wait_for_request_barrier():
+    order = []
+
+    async def scenario():
+        rpc = JsonRpcServer()
+
+        async def barrier():
+            order.append("barrier")
+
+        rpc.set_request_barrier(barrier)
+        rpc.register_notification("note", lambda params: order.append("handler"))
+        await rpc._dispatch_one({"jsonrpc": "2.0", "method": "note", "params": {}}, strict=True)
+
+    asyncio.run(scenario())
+    assert order == ["handler"]
