@@ -92,6 +92,68 @@ from pyflow.language.modules.project_resolution import ProjectContext
 # Runtime names such as ``types.MappingProxyType`` are aliases for classes
 # whose ``__name__`` differs (``mappingproxy``).  Class-object detection must
 # compare against the actual runtime class name, not the imported alias.
+_UNION_JOIN_METHODS = frozenset(
+    {
+        "copy",
+        "count",
+        "index",
+        "get",
+        "keys",
+        "values",
+        "items",
+        "union",
+        "intersection",
+        "difference",
+        "symmetric_difference",
+        "issubset",
+        "issuperset",
+        "isdisjoint",
+        "decode",
+        "encode",
+        "hex",
+        "upper",
+        "lower",
+        "strip",
+        "lstrip",
+        "rstrip",
+        "split",
+        "rsplit",
+        "splitlines",
+        "replace",
+        "startswith",
+        "endswith",
+        "find",
+        "rfind",
+        "join",
+        "format",
+        "title",
+        "capitalize",
+        "casefold",
+        "center",
+        "ljust",
+        "rjust",
+        "zfill",
+        "removeprefix",
+        "removesuffix",
+        "partition",
+        "rpartition",
+        "swapcase",
+        "translate",
+        "expandtabs",
+        "isalnum",
+        "isalpha",
+        "isdecimal",
+        "isdigit",
+        "isidentifier",
+        "islower",
+        "isnumeric",
+        "isprintable",
+        "isspace",
+        "istitle",
+        "isupper",
+    }
+)
+
 _STDLIB_CLASS_ALIASES = {
     name: f"{value.__module__}.{value.__name__}"
     for name, value in vars(types).items()
@@ -135,6 +197,7 @@ class _FunctionInfo:
     parameter_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
     closure_evidence: dict[str, AbstractTypeValue] = field(default_factory=dict)
     mutated_closure_names: set[str] = field(default_factory=set)
+    extra_keywords: dict[str, AbstractTypeValue] = field(default_factory=dict)
     specializations: dict[_SpecializationKey, FunctionSpecialization] = field(default_factory=dict)
     widened_parameters: dict[str, AbstractTypeValue] = field(default_factory=dict)
     summary: FunctionSummary | None = None
@@ -2936,7 +2999,7 @@ class StaticTypeInferenceEngine:
         ):
             elements = [self._iterable_element(argument) for argument in arguments]
             element = join_all(elements, self.type_system).public_type() or ANY
-            return self._instance(cabc.Iterator, TupleType((element,), unknown_size=True))
+            return self._instance(zip, TupleType((element,), unknown_size=True))
         if qualified_callee is not None:
             modelled = self._model_external_call(qualified_callee, arguments, keywords, node)
             if modelled is not None:
@@ -4049,7 +4112,7 @@ class StaticTypeInferenceEngine:
             elements = tuple(
                 self._iterable_element(argument).public_type() or ANY for argument in arguments
             )
-            return self._instance(cabc.Iterator, TupleType(elements))
+            return self._instance(zip, TupleType(elements))
         if name == "map":
             mapped_element = AbstractTypeValue.unresolved()
             if arguments:
@@ -4141,6 +4204,28 @@ class StaticTypeInferenceEngine:
         for target in base.callable_targets:
             if node.attr == "__call__":
                 return self._apply_function(target, arguments, keywords, node=call_node or node)
+
+        union_parts = self._flatten_union_parts(base)
+        if len(union_parts) > 1 and node.attr in _UNION_JOIN_METHODS:
+            results: list[AbstractTypeValue] = []
+            for part in union_parts:
+                result = self._call_attribute(
+                    node,
+                    AbstractTypeValue.from_type(part),
+                    arguments,
+                    keywords,
+                    environment,
+                    call_node=call_node,
+                )
+                if result is not None:
+                    results.append(result)
+            if results:
+                joined = join_all(
+                    results,
+                    self.type_system,
+                    max_union_size=self.options.max_union_size,
+                )
+                return replace(joined, unknown=joined.unknown or base.unknown)
 
         for typ in base.types:
             pathlib_class: Instance | None = None
@@ -5188,34 +5273,7 @@ class StaticTypeInferenceEngine:
             # arguments a possible result of the operation.
             return AbstractTypeValue.unresolved()
         if isinstance(operator, ast.BitOr):
-            parts = (*left.types, *right.types)
-            for raw, arity in ((dict, 2), (set, 1), (frozenset, 1)):
-                if (
-                    left.types
-                    and right.types
-                    and all(
-                        isinstance(part, Instance) and part.type.raw_type is raw for part in parts
-                    )
-                ):
-                    arguments = [
-                        join_all(
-                            (
-                                AbstractTypeValue.from_type(
-                                    part.args[position] if position < len(part.args) else ANY
-                                )
-                                for part in parts
-                            ),
-                            self.type_system,
-                        ).public_type()
-                        or ANY
-                        for position in range(arity)
-                    ]
-                    value = self._instance(raw, *arguments)
-                    return (
-                        value.join(AbstractTypeValue.unresolved(), self.type_system)
-                        if left.unknown or right.unknown
-                        else value
-                    )
+            return self._bit_or_result(left, right)
         if isinstance(operator, ast.Div):
             if len(left.types) == 1:
                 left_part = next(iter(left.types))
@@ -5255,55 +5313,11 @@ class StaticTypeInferenceEngine:
         if isinstance(operator, ast.MatMult):
             return AbstractTypeValue.unresolved()
         if isinstance(operator, ast.Add):
-            raw_pairs = {
-                (datetime.datetime, datetime.timedelta): datetime.datetime,
-                (datetime.timedelta, datetime.datetime): datetime.datetime,
-                (datetime.date, datetime.timedelta): datetime.date,
-                (datetime.timedelta, datetime.date): datetime.date,
-                (datetime.timedelta, datetime.timedelta): datetime.timedelta,
-            }
-            if len(left.types) == 1 and len(right.types) == 1:
-                left_part = next(iter(left.types))
-                right_part = next(iter(right.types))
-                if isinstance(left_part, Instance) and isinstance(right_part, Instance):
-                    result = raw_pairs.get((left_part.type.raw_type, right_part.type.raw_type))
-                    if result is not None:
-                        return self._instance(result)
-            if len(left.types) == 1 and len(right.types) == 1:
-                left_tuple = next(iter(left.types))
-                right_tuple = next(iter(right.types))
-                if isinstance(left_tuple, TupleType) and isinstance(right_tuple, TupleType):
-                    return AbstractTypeValue.from_type(
-                        TupleType(
-                            (*left_tuple.args, *right_tuple.args),
-                            unknown_size=left_tuple.unknown_size or right_tuple.unknown_size,
-                        )
-                    )
-            for raw in (str, bytes, list, tuple):
-                if self._contains_raw(left, raw) and self._contains_raw(right, raw):
-                    if raw is tuple:
-                        if len(left.types) == 1 and len(right.types) == 1:
-                            left_tuple = next(iter(left.types))
-                            right_tuple = next(iter(right.types))
-                            if isinstance(left_tuple, TupleType) and isinstance(
-                                right_tuple, TupleType
-                            ):
-                                return AbstractTypeValue.from_type(
-                                    TupleType(
-                                        (*left_tuple.args, *right_tuple.args),
-                                        unknown_size=(
-                                            left_tuple.unknown_size or right_tuple.unknown_size
-                                        ),
-                                    )
-                                )
-                        return self._join(left, right)
-                    if raw is list:
-                        element = self._join(
-                            self._iterable_element(left), self._iterable_element(right)
-                        )
-                        return self._instance(list, element.public_type() or ANY)
-                    return self._instance(raw)
+            return self._add_result(left, right)
         if isinstance(operator, ast.Sub):
+            set_result = self._set_difference_result(left, right)
+            if set_result is not None:
+                return set_result
             raw_pairs = {
                 (datetime.datetime, datetime.datetime): datetime.timedelta,
                 (datetime.date, datetime.date): datetime.timedelta,
@@ -5320,6 +5334,8 @@ class StaticTypeInferenceEngine:
                         return self._instance(result)
         if isinstance(operator, ast.Mult):
             return self._mult_result(left, right)
+        if isinstance(operator, (ast.BitAnd, ast.BitXor)):
+            return self._set_bitwise_result(left, right)
         if isinstance(operator, ast.Pow):
             return self._pow_result(left, right)
         if self._contains_any(left) or self._contains_any(right):
@@ -5337,7 +5353,28 @@ class StaticTypeInferenceEngine:
         ):
             return self._instance(int)
         numeric = self._numeric_join((left, right))
-        if numeric.public_type() is not None:
+        numeric_type = numeric.public_type()
+        if numeric_type is not None:
+            if (
+                isinstance(numeric_type, Instance)
+                and numeric_type.type.raw_type is bool
+                and isinstance(
+                    operator,
+                    (
+                        ast.Add,
+                        ast.Sub,
+                        ast.Mult,
+                        ast.FloorDiv,
+                        ast.Mod,
+                        ast.Pow,
+                        ast.LShift,
+                        ast.RShift,
+                    ),
+                )
+            ):
+                # bool arithmetic produces int even when another union
+                # alternative is non-numeric (for example ``bool | None``).
+                return self._instance(int)
             return numeric
         return self._join(left, right).join(
             AbstractTypeValue.unresolved(),
@@ -5354,6 +5391,267 @@ class StaticTypeInferenceEngine:
             else:
                 parts.append(typ)
         return parts
+
+    def _add_result(
+        self,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> AbstractTypeValue:
+        """Add each pair of alternatives without dropping union branches."""
+        if self._contains_any(left) or self._contains_any(right):
+            return AbstractTypeValue.from_type(ANY)
+        raw_pairs = {
+            (datetime.datetime, datetime.timedelta): datetime.datetime,
+            (datetime.timedelta, datetime.datetime): datetime.datetime,
+            (datetime.date, datetime.timedelta): datetime.date,
+            (datetime.timedelta, datetime.date): datetime.date,
+            (datetime.timedelta, datetime.timedelta): datetime.timedelta,
+        }
+        numeric = {bool, int, float, complex}
+        results: list[ProperType] = []
+        unknown = left.unknown or right.unknown
+        for left_part in self._flatten_union_parts(left):
+            for right_part in self._flatten_union_parts(right):
+                if isinstance(left_part, TupleType) and isinstance(right_part, TupleType):
+                    if left_part.unknown_size or right_part.unknown_size:
+                        element = join_all(
+                            (
+                                AbstractTypeValue.from_type(item)
+                                for item in (*left_part.args, *right_part.args)
+                            ),
+                            self.type_system,
+                            max_union_size=self.options.max_union_size,
+                        )
+                        results.append(
+                            TupleType((element.public_type() or ANY,), unknown_size=True)
+                        )
+                    else:
+                        results.append(
+                            TupleType(
+                                (*left_part.args, *right_part.args),
+                                unknown_size=False,
+                            )
+                        )
+                    continue
+                if not isinstance(left_part, Instance) or not isinstance(right_part, Instance):
+                    unknown = True
+                    continue
+                left_raw = left_part.type.raw_type
+                right_raw = right_part.type.raw_type
+                mapped = raw_pairs.get((left_raw, right_raw))
+                if mapped is not None:
+                    results.append(self._proper_instance(mapped))
+                    continue
+                if left_raw in {str, bytes} and right_raw is left_raw:
+                    results.append(left_part)
+                    continue
+                if left_raw is list and right_raw is list:
+                    element = join_all(
+                        (
+                            AbstractTypeValue.from_type(
+                                left_part.args[0] if left_part.args else ANY
+                            ),
+                            AbstractTypeValue.from_type(
+                                right_part.args[0] if right_part.args else ANY
+                            ),
+                        ),
+                        self.type_system,
+                        max_union_size=self.options.max_union_size,
+                    )
+                    results.append(self._proper_instance(list, element.public_type() or ANY))
+                    continue
+                if left_raw in numeric and right_raw in numeric:
+                    if left_raw is bool and right_raw is bool:
+                        results.append(self._proper_instance(int))
+                    else:
+                        joined = self._numeric_join(
+                            (
+                                AbstractTypeValue.from_type(left_part),
+                                AbstractTypeValue.from_type(right_part),
+                            )
+                        )
+                        if joined.public_type() is not None:
+                            results.append(joined.public_type())
+                        else:
+                            unknown = True
+                    continue
+                unknown = True
+        if not results:
+            return AbstractTypeValue.unresolved() if unknown else AbstractTypeValue.bottom()
+        joined = join_all(
+            (AbstractTypeValue.from_type(item) for item in results),
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+        return replace(joined, unknown=joined.unknown or unknown)
+
+    def _set_difference_result(
+        self,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> AbstractTypeValue | None:
+        """Model set/frozenset subtraction; return None for non-set operands."""
+        left_parts = self._flatten_union_parts(left)
+        right_parts = self._flatten_union_parts(right)
+        has_set = any(
+            isinstance(part, Instance) and part.type.raw_type in {set, frozenset}
+            for part in (*left_parts, *right_parts)
+        )
+        if not has_set:
+            return None
+        results: list[ProperType] = []
+        unknown = left.unknown or right.unknown
+        for left_part in left_parts:
+            for right_part in right_parts:
+                if not isinstance(left_part, Instance) or not isinstance(right_part, Instance):
+                    unknown = True
+                    continue
+                left_raw = left_part.type.raw_type
+                right_raw = right_part.type.raw_type
+                if left_raw in {set, frozenset} and right_raw in {set, frozenset}:
+                    element = join_all(
+                        (
+                            AbstractTypeValue.from_type(
+                                left_part.args[0] if left_part.args else ANY
+                            ),
+                            AbstractTypeValue.from_type(
+                                right_part.args[0] if right_part.args else ANY
+                            ),
+                        ),
+                        self.type_system,
+                        max_union_size=self.options.max_union_size,
+                    )
+                    results.append(self._proper_instance(left_raw, element.public_type() or ANY))
+                    continue
+                unknown = True
+        if not results:
+            return AbstractTypeValue.unresolved()
+        joined = join_all(
+            (AbstractTypeValue.from_type(item) for item in results),
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+        return replace(joined, unknown=joined.unknown or unknown)
+
+    def _set_bitwise_result(
+        self,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> AbstractTypeValue:
+        """Model set/frozenset ``&`` and ``^`` without dropping unions."""
+        if self._contains_any(left) or self._contains_any(right):
+            return AbstractTypeValue.from_type(ANY)
+        results: list[ProperType] = []
+        unknown = left.unknown or right.unknown
+        for left_part in self._flatten_union_parts(left):
+            for right_part in self._flatten_union_parts(right):
+                if not isinstance(left_part, Instance) or not isinstance(right_part, Instance):
+                    unknown = True
+                    continue
+                left_raw = left_part.type.raw_type
+                right_raw = right_part.type.raw_type
+                if left_raw in {set, frozenset} and right_raw in {set, frozenset}:
+                    element = join_all(
+                        (
+                            AbstractTypeValue.from_type(
+                                left_part.args[0] if left_part.args else ANY
+                            ),
+                            AbstractTypeValue.from_type(
+                                right_part.args[0] if right_part.args else ANY
+                            ),
+                        ),
+                        self.type_system,
+                        max_union_size=self.options.max_union_size,
+                    )
+                    results.append(self._proper_instance(left_raw, element.public_type() or ANY))
+                    continue
+                if left_raw in {bool, int} and right_raw in {bool, int}:
+                    results.append(
+                        self._proper_instance(
+                            bool if left_raw is bool and right_raw is bool else int
+                        )
+                    )
+                    continue
+                unknown = True
+        if not results:
+            return AbstractTypeValue.unresolved() if unknown else AbstractTypeValue.bottom()
+        joined = join_all(
+            (AbstractTypeValue.from_type(item) for item in results),
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+        return replace(joined, unknown=joined.unknown or unknown)
+
+    def _bit_or_result(
+        self,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> AbstractTypeValue:
+        """Bitwise-or each pair of alternatives (sets, mappings, integers)."""
+        if self._contains_any(left) or self._contains_any(right):
+            return AbstractTypeValue.from_type(ANY)
+        results: list[ProperType] = []
+        unknown = left.unknown or right.unknown
+        for left_part in self._flatten_union_parts(left):
+            for right_part in self._flatten_union_parts(right):
+                if not isinstance(left_part, Instance) or not isinstance(right_part, Instance):
+                    unknown = True
+                    continue
+                left_raw = left_part.type.raw_type
+                right_raw = right_part.type.raw_type
+                if left_raw in {set, frozenset} and right_raw in {set, frozenset}:
+                    result_raw = set if left_raw is set else frozenset
+                    element = join_all(
+                        (
+                            (
+                                AbstractTypeValue.from_type(left_part.args[0])
+                                if left_part.args
+                                else AbstractTypeValue.from_type(ANY)
+                            ),
+                            (
+                                AbstractTypeValue.from_type(right_part.args[0])
+                                if right_part.args
+                                else AbstractTypeValue.from_type(ANY)
+                            ),
+                        ),
+                        self.type_system,
+                        max_union_size=self.options.max_union_size,
+                    )
+                    results.append(self._proper_instance(result_raw, element.public_type() or ANY))
+                    continue
+                if left_raw is dict and right_raw is dict:
+                    parts = (left_part, right_part)
+                    arguments = [
+                        join_all(
+                            (
+                                AbstractTypeValue.from_type(
+                                    part.args[position] if position < len(part.args) else ANY
+                                )
+                                for part in parts
+                            ),
+                            self.type_system,
+                        ).public_type()
+                        or ANY
+                        for position in range(2)
+                    ]
+                    results.append(self._proper_instance(dict, *arguments))
+                    continue
+                if left_raw in {bool, int} and right_raw in {bool, int}:
+                    results.append(
+                        self._proper_instance(
+                            bool if left_raw is bool and right_raw is bool else int
+                        )
+                    )
+                    continue
+                unknown = True
+        if not results:
+            return AbstractTypeValue.unresolved() if unknown else AbstractTypeValue.bottom()
+        joined = join_all(
+            (AbstractTypeValue.from_type(item) for item in results),
+            self.type_system,
+            max_union_size=self.options.max_union_size,
+        )
+        return replace(joined, unknown=joined.unknown or unknown)
 
     def _mult_result(
         self,
@@ -6981,6 +7279,56 @@ class StaticTypeInferenceEngine:
             )
             if computed is not None:
                 function.effective_return = computed
+            extras = self._decorator_extra_keywords(
+                function.node,
+                function.qualified_name.rpartition(".")[0],
+            )
+            if extras:
+                function.extra_keywords.update(extras)
+
+    def _decorator_extra_keywords(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        parent: str,
+    ) -> dict[str, AbstractTypeValue]:
+        """Collect keyword-only parameters added by a decorator wrapper."""
+        original = {argument.arg for argument in _all_arguments(node.args)}
+        extras: dict[str, AbstractTypeValue] = {}
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            name = self._qualified_callee_name(target)
+            if name is None:
+                continue
+            local = self._resolve_lexical_function(name, parent)
+            if local is None:
+                local = self._resolve_lexical_function(name.rsplit(".", 1)[-1], parent)
+            if local is None:
+                candidate = f"{parent}.{name}"
+                if candidate in self._functions:
+                    local = candidate
+            if local is None:
+                continue
+            for wrapper in self._functions.values():
+                if not wrapper.qualified_name.startswith(f"{local}."):
+                    continue
+                if not isinstance(wrapper.node, ast.FunctionDef):
+                    continue
+                short = wrapper.qualified_name.rsplit(".", 1)[-1]
+                if short not in {"wrapper", "inner", "decorated"}:
+                    continue
+                arguments = wrapper.node.args
+                if arguments.vararg is None and arguments.kwarg is None:
+                    continue
+                for argument in arguments.kwonlyargs:
+                    if argument.arg in original:
+                        continue
+                    annotation = (
+                        self._annotation_value(argument.annotation)
+                        if argument.annotation is not None
+                        else AbstractTypeValue.unresolved()
+                    )
+                    extras.setdefault(argument.arg, annotation)
+        return extras
 
     def _decorator_effective_return(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef, parent: str
@@ -7112,6 +7460,7 @@ class StaticTypeInferenceEngine:
             )
         positional_only = {argument.arg for argument in arguments_node.posonlyargs}
         known = {argument.arg for argument in (*positional, *arguments_node.kwonlyargs)}
+        known.update(function.extra_keywords)
         for name in keywords:
             if name in positional_only:
                 self._add_diagnostic(
@@ -7195,11 +7544,11 @@ class StaticTypeInferenceEngine:
             )
         for name, value in bound_arguments.items():
             self._queue_parameter_evidence(target, name, value)
-        specialization = (
-            self._register_specialization(function, bound_arguments)
-            if self._collect_specializations
-            else None
-        )
+        if self._collect_specializations:
+            specialization = self._register_specialization(function, bound_arguments)
+        else:
+            key, _ = self._specialization_key(function, bound_arguments)
+            specialization = function.specializations.get(key)
         if specialization is not None and function.owner is None and isinstance(node, ast.Call):
             for name, final in specialization.mutated_parameters:
                 argument_node = self._call_argument_node(node, function, name)
@@ -7417,15 +7766,23 @@ class StaticTypeInferenceEngine:
             return self._instance(cabc.Coroutine, ANY, ANY, result)
         return returned
 
+    def _specialization_key(
+        self,
+        function: _FunctionInfo,
+        bound_arguments: dict[str, AbstractTypeValue],
+    ) -> tuple[_SpecializationKey, dict[str, AbstractTypeValue]]:
+        parameters = self._call_context_parameters(function, bound_arguments)
+        key = _SpecializationKey(
+            tuple((name, parameters[name]) for name in function.parameter_names)
+        )
+        return key, parameters
+
     def _register_specialization(
         self,
         function: _FunctionInfo,
         bound_arguments: dict[str, AbstractTypeValue],
     ) -> FunctionSpecialization:
-        parameters = self._call_context_parameters(function, bound_arguments)
-        key = _SpecializationKey(
-            tuple((name, parameters[name]) for name in function.parameter_names)
-        )
+        key, parameters = self._specialization_key(function, bound_arguments)
         existing = function.specializations.get(key)
         if existing is not None:
             return existing
@@ -7543,6 +7900,8 @@ class StaticTypeInferenceEngine:
 
         unmatched_keywords: list[AbstractTypeValue] = []
         for name, value in keywords.items():
+            if name in function.extra_keywords:
+                continue
             if name in positional_names and name not in positional_only:
                 bound[name] = value
             elif name in keyword_only:
@@ -7596,6 +7955,7 @@ class StaticTypeInferenceEngine:
                     return frozenset((name,))
             return frozenset()
         dependencies: set[str] = set()
+        mutated: set[str] = set()
         saw_return = False
         invalid = False
 
@@ -7605,6 +7965,15 @@ class StaticTypeInferenceEngine:
                 return
             if not root and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 return
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                if node.id in function.parameter_names:
+                    mutated.add(node.id)
+            elif (
+                isinstance(node, ast.ExceptHandler)
+                and node.name is not None
+                and node.name in function.parameter_names
+            ):
+                mutated.add(node.name)
             if isinstance(node, ast.Return):
                 saw_return = True
                 if isinstance(node.value, ast.Name) and node.value.id in function.parameter_names:
@@ -7616,7 +7985,11 @@ class StaticTypeInferenceEngine:
                 visit(child)
 
         visit(function.node, root=True)
-        return frozenset(dependencies) if saw_return and not invalid else frozenset()
+        if not saw_return or invalid:
+            return frozenset()
+        # A parameter that is reassigned or mutated no longer carries its
+        # call-site type through to the return value.
+        return frozenset(dependencies - mutated)
 
     def _generic_constructor_args(
         self,
@@ -8568,6 +8941,7 @@ class StaticTypeInferenceEngine:
                         cabc.Iterable,
                         cabc.Iterator,
                         cabc.Generator,
+                        zip,
                         cabc.AsyncIterable,
                         cabc.AsyncIterator,
                         cabc.AsyncGenerator,

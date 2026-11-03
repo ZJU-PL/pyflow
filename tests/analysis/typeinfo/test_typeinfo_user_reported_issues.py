@@ -340,3 +340,116 @@ def test_enum_inheritance_through_imported_base(tmp_path) -> None:
     assert _mismatches(result.modules["app"]) == []
     assert str(result.modules["app"].type_of("member")) == "app.Sub"
     assert str(result.modules["app"].type_of("value")) == "str"
+
+
+def test_bool_arithmetic_with_non_numeric_union_member_returns_int() -> None:
+    result = _infer(
+        "def f(value: bool | None):\n"
+        "    value += True\n"
+        "    return value\n"
+        "result = f(True)\n"
+    )
+    assert str(result.functions["sample.f"].return_type) == "int"
+    assert str(result.type_of("result")) == "int"
+
+
+def test_union_bitwise_and_set_operations() -> None:
+    result = _infer(
+        "def f(a: set[int], b: set[int] | int):\n"
+        "    union = a | b\n"
+        "    intersection = a & b\n"
+        "    difference = a - b\n"
+        "    symmetric = a ^ b\n"
+        "    return union, intersection, difference, symmetric\n"
+        "result = f({1}, {2})\n"
+    )
+    assert str(result.functions["sample.f"].return_type) == (
+        "tuple[set[int], set[int], set[int], set[int]]"
+    )
+    assert str(result.type_of("result")).startswith("tuple[set[int]")
+
+
+def test_union_mapping_or_and_mutated_parameter_return() -> None:
+    result = _infer(
+        "def merge(a: dict[str, int], b: dict[str, int] | int):\n"
+        "    return a | b\n"
+        "merged = merge({'a': 1}, {'b': 2})\n"
+        "def keep(value: int | str):\n"
+        "    return value\n"
+        "def bump(value: bool | None):\n"
+        "    return value + 1\n"
+        "kept = keep(1)\n"
+        "bumped = bump(True)\n"
+    )
+    assert str(result.functions["sample.merge"].return_type) == "dict[str, int]"
+    assert str(result.type_of("merged")) == "dict[str, int]"
+    assert str(result.type_of("kept")) == "int"
+    assert str(result.type_of("bumped")) == "int"
+
+
+def test_union_receiver_methods_join_alternatives() -> None:
+    result = _infer(
+        "def copy_value(value: list[str] | set[int]):\n"
+        "    return value.copy()\n"
+        "def lookup(value: dict[str, int] | dict[str, None]):\n"
+        "    return value.get('a')\n"
+        "copied = copy_value(['a'])\n"
+        "found = lookup({'a': 1})\n"
+    )
+    assert str(result.type_of("copied")) == "list[str] | set[int]"
+    assert str(result.type_of("found")) == "None | int"
+
+
+def test_return_dependency_ignores_reassigned_parameter() -> None:
+    result = _infer(
+        "def identity(value):\n"
+        "    return value\n"
+        "def reassigned(value):\n"
+        "    value = 1\n"
+        "    return value\n"
+        "same = identity(True)\n"
+        "changed = reassigned(True)\n"
+    )
+    assert str(result.type_of("same")) == "bool"
+    assert str(result.type_of("changed")) == "int"
+
+
+def test_zip_keeps_concrete_zip_type_and_iterates() -> None:
+    result = _infer(
+        "from typing import Iterator\n"
+        "def use(value: Iterator[tuple[int, str]]) -> None: ...\n"
+        "zipped = zip([1], ['a'])\n"
+        "use(zipped)\n"
+        "items = list(zipped)\n"
+        "for number, text in zip([1], ['a']):\n"
+        "    first = number\n"
+        "    second = text\n"
+    )
+    assert str(result.type_of("zipped")) == "zip[tuple[int, str]]"
+    assert str(result.type_of("items")) == "list[tuple[int, str]]"
+    assert str(result.type_of("first")) == "int"
+    assert str(result.type_of("second")) == "str"
+    assert _mismatches(result) == []
+
+
+def test_decorator_added_keyword_only_parameter_is_accepted() -> None:
+    result = _infer(
+        "from functools import wraps\n"
+        "class C:\n"
+        "    def triggers_refresh(func):\n"
+        "        @wraps(func)\n"
+        "        def wrapper(self, *args, refresh=True, **kwargs):\n"
+        "            return func(self, *args, **kwargs)\n"
+        "        return wrapper\n"
+        "    @triggers_refresh\n"
+        "    def set_points(self, points):\n"
+        "        return self\n"
+        "c = C()\n"
+        "c.set_points([1], refresh=False)\n"
+        "c.set_points([1])\n"
+    )
+    assert [
+        diagnostic.message
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "call-arity-mismatch"
+    ] == []

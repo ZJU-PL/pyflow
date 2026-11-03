@@ -596,7 +596,7 @@ filtered = filter(None, [1])
 
     zipped = result.type_of("zipped")
     assert isinstance(zipped, Instance)
-    assert zipped.type.raw_type is cabc.Iterator
+    assert zipped.type.raw_type is zip
     assert isinstance(zipped.args[0], TupleType)
     assert [_raw_types(item) for item in zipped.args[0].args] == [{int}, {str}]
 
