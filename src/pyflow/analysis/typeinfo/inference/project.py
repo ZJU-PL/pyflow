@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import tokenize
 from pathlib import Path
 from typing import Iterable
 
@@ -56,11 +57,14 @@ class ProjectTypeInferenceEngine:
             entry_modules, discover_imports=discover_imports
         )
         results: dict[str, ModuleInferenceResult] = {}
+        failed_modules: set[str] = set()
         converged = False
         iterations = 0
         for iterations in range(1, self.max_project_iterations + 1):
             before = self._fingerprint(results)
             for module_name in sorted(sources):
+                if module_name in failed_modules:
+                    continue
                 engine = StaticTypeInferenceEngine(
                     self.project_context,
                     type_system=self.type_system,
@@ -68,11 +72,24 @@ class ProjectTypeInferenceEngine:
                     call_model_providers=self.call_model_providers,
                     options=self.options,
                 )
-                results[module_name] = engine.infer_source(
-                    module_name,
-                    sources[module_name],
-                    filename=paths[module_name],
-                )
+                try:
+                    results[module_name] = engine.infer_source(
+                        module_name,
+                        sources[module_name],
+                        filename=paths[module_name],
+                    )
+                except Exception as exc:
+                    failed_modules.add(module_name)
+                    diagnostic = InferenceDiagnostic(
+                        code="module-inference-error",
+                        message=f"{module_name}: {type(exc).__name__}: {exc}",
+                        severity="error",
+                    )
+                    results[module_name] = ModuleInferenceResult(
+                        module_name,
+                        diagnostics=[diagnostic],
+                        converged=False,
+                    )
             if self._fingerprint(results) == before:
                 converged = True
                 break
@@ -154,8 +171,9 @@ class ProjectTypeInferenceEngine:
             source = self.project_context.source_files.get(path)
             if source is None:
                 try:
-                    source = Path(path).read_text(encoding="utf-8")
-                except OSError as exc:
+                    with tokenize.open(path) as source_file:
+                        source = source_file.read()
+                except (OSError, UnicodeError, SyntaxError) as exc:
                     diagnostics.append(
                         InferenceDiagnostic(
                             code="module-read-error",

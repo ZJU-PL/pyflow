@@ -69,6 +69,15 @@ def test_pretty_query_default_report_is_parseable_json(query_parser, tmp_path, c
     assert "begin [ extraction ]" not in captured.out
 
 
+def test_query_get_type_uses_character_columns_for_unicode_source(query_parser, tmp_path, capsys):
+    source = tmp_path / "unicode_sample.py"
+    source.write_text('msg = "中文"; x = msg.upper()\n', encoding="utf-8")
+    run_query(
+        query_parser.parse_args(["query", str(source), "--get-type", "unicode_sample", "1", "12"])
+    )
+    assert json.loads(capsys.readouterr().out) == {"type": "str"}
+
+
 def test_listed_method_names_and_unique_suffixes_work_for_cfg(query_parser, tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("class Flask:\n    def dispatch_request(self):\n        return 1\n")

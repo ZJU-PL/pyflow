@@ -88,6 +88,7 @@ class TypeInfoService:
         self._module_sources: dict[str, tuple[str, str | None]] = {}
         self._module_all: dict[str, frozenset[str] | None] = {}
         self._refreshing_inference = False
+        self._refreshing_import_facts = False
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._failed_modules: set[str] = set()
@@ -146,6 +147,10 @@ class TypeInfoService:
             if not self._collecting_modules:
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
+                if self._refresh_import_facts() and self.enable_static_inference:
+                    cached = self._module_sources.get(module_name)
+                    if cached is not None:
+                        self._collect_inferred_source_facts(module_name, *cached)
             # Inference may replace the result while recursively resolving a
             # dependency. Attach collection diagnostics to the final result.
             for diagnostic in self._collection_diagnostics:
@@ -162,6 +167,39 @@ class TypeInfoService:
                 )
                 if item not in result.diagnostics:
                     result.diagnostics.append(item)
+
+    def _refresh_import_facts(self) -> bool:
+        """Resolve stub import aliases after cyclic stub collections finish."""
+        if self._refreshing_import_facts:
+            return False
+        self._refreshing_import_facts = True
+        changed_any = False
+        try:
+            for _ in range(3):
+                changed = False
+                for facts in self._module_facts.values():
+                    for name, fact in list(facts.items()):
+                        if fact.source != "import" or not fact.raw_annotation:
+                            continue
+                        resolved = self._lookup_project_type(
+                            fact.raw_annotation,
+                            allow_synthetic=False,
+                        )
+                        if resolved is not None and resolved != fact.typ:
+                            facts[name] = TypeFact(
+                                name=fact.name,
+                                typ=resolved,
+                                raw_annotation=fact.raw_annotation,
+                                source=fact.source,
+                                kind=fact.kind,
+                            )
+                            changed = True
+                            changed_any = True
+                if not changed:
+                    break
+        finally:
+            self._refreshing_import_facts = False
+        return changed_any
 
     def _record_collection_failure(
         self, module_name: str, code: str, exc: Exception, path: str | None
@@ -479,9 +517,12 @@ class TypeInfoService:
         for local_name, qualified_name in imports.items():
             if local_name in facts:
                 continue
-            imported_type = BuiltinTypeLookup()(qualified_name)
+            imported_type = self._lookup_project_type(
+                qualified_name,
+                allow_synthetic=False,
+            )
             if imported_type is None:
-                imported_type = self._lookup_project_type(qualified_name, allow_synthetic=False)
+                imported_type = BuiltinTypeLookup()(qualified_name)
             if imported_type is None:
                 continue
             facts[local_name] = TypeFact(
@@ -493,6 +534,7 @@ class TypeInfoService:
             )
 
         if self.enable_static_inference:
+            self._refresh_import_facts()
             self._collect_inferred_source_facts(module_name, source, path)
 
     def _collect_inferred_source_facts(
@@ -716,6 +758,27 @@ class TypeInfoService:
                 kind="variable",
             )
 
+        # Stub packages commonly re-export definitions from submodules.  Their
+        # names still need value facts, not just annotation aliases.
+        for local_name, qualified_name in imports.items():
+            if local_name in facts:
+                continue
+            imported_type = self._lookup_project_type(
+                qualified_name,
+                allow_synthetic=False,
+            )
+            if imported_type is None:
+                imported_type = BuiltinTypeLookup()(qualified_name)
+            if imported_type is None:
+                continue
+            facts[local_name] = TypeFact(
+                name=local_name,
+                typ=imported_type,
+                raw_annotation=qualified_name,
+                source="import",
+                kind="import",
+            )
+
     def _collect_import_aliases(
         self,
         module_name: str,
@@ -778,6 +841,16 @@ class TypeInfoService:
                 continue
             for imported_name, asname in item.names:
                 if imported_name == "*":
+                    self.collect_module(source_module)
+                    exported_names = self._module_all.get(source_module)
+                    if exported_names is None:
+                        exported_names = frozenset(
+                            name
+                            for name in self._module_facts.get(source_module, {})
+                            if not name.startswith("_")
+                        )
+                    for exported_name in exported_names:
+                        imports[exported_name] = f"{source_module}.{exported_name}"
                     continue
                 local = asname or imported_name
                 imports[local] = f"{source_module}.{imported_name}"
@@ -1102,15 +1175,19 @@ class TypeInfoService:
     ) -> ProperType | None:
         imported = self._resolve_imported_type_name(name, imports)
         if imported is not None:
-            builtin = BuiltinTypeLookup()(imported)
-            if builtin is not None:
-                return builtin
             resolved = self._lookup_project_type(
                 imported,
                 allow_synthetic=True,
             )
             if resolved is not None:
                 return resolved
+            builtin = BuiltinTypeLookup()(imported)
+            if builtin is not None:
+                resolved = self._lookup_project_type(
+                    imported,
+                    allow_synthetic=True,
+                )
+                return resolved if resolved is not None else builtin
 
         normalized = name.rsplit(".", 1)[-1]
         if module_name is not None:

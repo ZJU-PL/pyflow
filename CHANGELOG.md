@@ -14,6 +14,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Typeinfo now preserves `Any` through operators, keeps unresolved external
+  annotation alternatives instead of replacing them with parameter defaults,
+  treats `AnyStr` as a constrained type variable, and models `Literal` values
+  through display, container checks, `TypedDict` fields, and overload
+  selection.  This removes several false `annotation-mismatch` diagnostics on
+  Flask, Rich, and FastAPI-style code.
+- Typeinfo builtin and container models now handle `dict.copy()`, `dict(mapping)`,
+  `list.sort()`/`reverse()`, `frozenset` methods, `max`/`min(default=)`,
+  `sum(start=)`, `round(ndigits=)`, `dict.fromkeys(value=)`, negative powers,
+  complex `abs`, and `pathlib.Path` division/home/cwd without losing types or
+  truncating following statements.
+- Typeinfo query results now record assignment/parameter targets, prefer the
+  identifier at the start of attribute/operator expressions, honor `type:
+  ignore` on return statements, and accept character columns for `pyflow query
+  --get-type`.  `--include-diagnostics` is filtered to the queried module.
+- Project-level type inference now reads files using PEP 263 encodings and
+  isolates per-module failures such as `RecursionError` instead of aborting the
+  whole project.
+- Typeinfo stub loading now follows the standard typeshed third-party layout,
+  resolves stub re-exports and star imports, and substitutes type arguments for
+  generic stub methods.  Walrus, match-pattern, starred-unpacking, and nested
+  class bindings are also narrowed or registered correctly.
+
 - Deeply nested expressions no longer exhaust the Python stack while generating
   IR: the scope/name collectors, source-span scan, nested-code discovery,
   yield probe, comprehension capture probe, semantic-fact builders, catalog

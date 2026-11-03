@@ -246,7 +246,7 @@ def add_query_parser(subparsers):
         metavar=("MODULE", "LINE", "COL"),
         help=(
             "Get type at source position (MODULE is a module name such as "
-            "'pkg.mod'; LINE is 1-based; COL is a 0-based column)"
+            "'pkg.mod'; LINE is 1-based; COL is a 0-based character column)"
         ),
     )
     p.add_argument(
@@ -422,9 +422,25 @@ def _dispatch_query(server: AnalysisManager, args) -> object:
         return snapshot.queries.call_graph.get_callgraph_data()
     if args.get_type:
         module, line, col = args.get_type
-        result = snapshot.queries.type_info.get_expression_type(module, int(line), int(col))
+        line_number = int(line)
+        column = int(col)
+        source_index = getattr(snapshot, "source_index", None)
+        module_paths = getattr(source_index, "_module_paths", {})
+        path = module_paths.get(module)
+        if path is not None:
+            source_text = None
+            source_files = getattr(snapshot, "source_files", None)
+            if source_files is not None:
+                source_text = source_files.get(str(path))
+            if source_text is None:
+                source_text = getattr(source_index, "source_files", {}).get(str(path))
+            if source_text is not None:
+                lines = source_text.splitlines()
+                if 1 <= line_number <= len(lines):
+                    column = len(lines[line_number - 1][:column].encode("utf-8"))
+        result = snapshot.queries.type_info.get_expression_type(module, line_number, column)
         status = snapshot.queries.type_info.get_analysis_status(module)
-        diagnostics = snapshot.queries.type_info.get_diagnostics()
+        diagnostics = snapshot.queries.type_info.get_diagnostics(module)
         if getattr(args, "include_diagnostics", False):
             from dataclasses import asdict
 

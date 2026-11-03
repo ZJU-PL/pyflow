@@ -74,7 +74,7 @@ integer = 1 / 2
 floating = 1.5 / 2
 """)
 
-    assert result.type_of("sample.path") is None
+    assert "pathlib" in str(result.type_of("sample.path"))
     assert result.type_of("sample.amount") is None
     assert _raw_types(result.type_of("sample.integer")) == {float}
     assert _raw_types(result.type_of("sample.floating")) == {float}

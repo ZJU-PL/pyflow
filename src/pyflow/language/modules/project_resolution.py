@@ -399,7 +399,7 @@ class ProjectContext:
             package_parts = package_parts[:-1]
             is_package_module = True
         elif current_path is not None:
-            is_package_module = os.path.basename(str(current_path)) == "__init__.py"
+            is_package_module = Path(current_path).stem == "__init__"
         elif "." not in effective_module and effective_module != "main":
             is_package_module = True
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
 
 from pyflow.analysis.typeinfo.core.typesystem import ProperType
@@ -110,6 +111,7 @@ class ModuleInferenceResult:
     symbols: dict[str, InferredSymbol] = field(default_factory=dict)
     functions: dict[str, FunctionSummary] = field(default_factory=dict)
     expressions: dict[SourceSpan, AbstractTypeValue] = field(default_factory=dict)
+    expression_kinds: dict[SourceSpan, type] = field(default_factory=dict, repr=False)
     diagnostics: list[InferenceDiagnostic] = field(default_factory=list)
     iterations: int = 0
     converged: bool = True
@@ -186,14 +188,25 @@ class ModuleInferenceResult:
         with_type = [item for item in matches if item[1].runtime_type() is not None]
         if with_type:
             matches = with_type
-        _, value = max(
+        widest = max(
             matches,
             key=lambda item: (
                 item[0].end_lineno or item[0].lineno,
                 item[0].end_col_offset or item[0].col_offset,
             ),
         )
-        return value
+        if len(matches) > 1 and self.expression_kinds.get(widest[0]) is not ast.Call:
+            # At the start of ``a.x`` or ``x + 1`` the identifier and the
+            # enclosing expression share a position.  Prefer the identifier;
+            # keep call-result behavior for ``f(...)``.
+            return min(
+                matches,
+                key=lambda item: (
+                    item[0].end_lineno or item[0].lineno,
+                    item[0].end_col_offset or item[0].col_offset,
+                ),
+            )[1]
+        return widest[1]
 
 
 @dataclass

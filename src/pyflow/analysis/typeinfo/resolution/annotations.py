@@ -119,11 +119,20 @@ class BuiltinTypeLookup:
             NONE_TYPE,
             Instance,
             TupleType,
+            TypeVarType,
             ClassDescriptor,
         )
 
         if qualified_name in {"Any", "typing.Any"}:
             return ANY
+        if qualified_name in {"AnyStr", "typing.AnyStr", "typing_extensions.AnyStr"}:
+            return TypeVarType(
+                "AnyStr",
+                constraints=(
+                    Instance(ClassDescriptor(str)),
+                    Instance(ClassDescriptor(bytes)),
+                ),
+            )
         from pyflow.analysis.typeinfo.core import typesystem
 
         if "." not in qualified_name or qualified_name.startswith("pyflow.analysis.typeinfo."):

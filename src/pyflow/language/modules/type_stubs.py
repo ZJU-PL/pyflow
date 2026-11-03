@@ -73,8 +73,12 @@ def build_stub_map(
         if not path.is_dir():
             continue
 
-        # Scan the directory directly for .pyi files
-        _scan_directory(map_, path, is_third_party=False)
+        # Scan directly for a flat stub directory.  A real typeshed root is
+        # laid out as stdlib/ and stubs/; scanning it recursively would also
+        # create bogus ``stubs.<distribution>`` import names.
+        looks_like_typeshed = (path / stdlib_subdir).is_dir() or (path / stubs_subdir).is_dir()
+        if not looks_like_typeshed:
+            _scan_directory(map_, path, is_third_party=False)
 
         # If this looks like a typeshed root, scan stdlib/ and stubs/
         stdlib_path = path / stdlib_subdir
@@ -90,13 +94,16 @@ def build_stub_map(
         stubs_path = path / stubs_subdir
         if stubs_path.is_dir():
             for entry in sorted(stubs_path.iterdir()):
-                if entry.is_dir():
-                    _scan_directory(
-                        map_,
-                        entry,
-                        is_third_party=True,
-                        prefix=entry.name,
-                    )
+                if not entry.is_dir():
+                    continue
+                init_pyi = entry / "__init__.pyi"
+                if init_pyi.is_file():
+                    # Flat stub layout: stubs/<distribution>/__init__.pyi
+                    map_[entry.name] = str(init_pyi)
+                # Standard typeshed layout:
+                # stubs/<distribution>/<package>/...
+                # The distribution directory is not an import component.
+                _scan_directory(map_, entry, is_third_party=True)
 
     return map_
 

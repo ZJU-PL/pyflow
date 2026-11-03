@@ -56,5 +56,10 @@ class TypeInfoQueries:
         result = self._service.inference_result(module_name)
         return result.status if result is not None else "unavailable"
 
-    def get_diagnostics(self) -> list[StubDiagnostic]:
-        return self._service.diagnostics() if self._service is not None else []
+    def get_diagnostics(self, module_name: Optional[str] = None) -> list[StubDiagnostic]:
+        if self._service is None:
+            return []
+        diagnostics = self._service.diagnostics()
+        if module_name is None:
+            return diagnostics
+        return [item for item in diagnostics if item.module_name == module_name]

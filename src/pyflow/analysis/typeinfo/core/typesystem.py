@@ -800,6 +800,8 @@ class TypeStringVisitor(TypeVisitor[str]):
         return "Never"
 
     def visit_instance(self, left: Instance) -> str:  # noqa: D102
+        if isinstance(left, LiteralType):
+            return f"Literal[{left.value!r}]"
         rep = left.type.name if left.type.module == "builtins" else left.type.full_name
         if len(left.args) > 0:
             rep += "[" + self._sequence_str(left.args) + "]"
@@ -1084,8 +1086,11 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             if target in {cabc.MutableSequence, cabc.MutableSet} and self.right.args:
                 elements = left.args[:1] or (ANY,)
                 return all(
-                    self.sub_type_check(element, self.right.args[0])
-                    and self.sub_type_check(self.right.args[0], element)
+                    isinstance(element, NeverType)
+                    or (
+                        self.sub_type_check(element, self.right.args[0])
+                        and self.sub_type_check(self.right.args[0], element)
+                    )
                     for element in elements
                 )
             if target in {cabc.Mapping, cabc.MutableMapping} and self.right.args:
@@ -1102,6 +1107,10 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     for index, (actual, expected) in enumerate(zip(arguments, self.right.args))
                 )
             if left.type == self.right.type and (left.args or self.right.args):
+                # A bare generic is an Any-parameterized instance, not an
+                # incompatible zero-argument specialization.
+                if self.right.args and not left.args:
+                    return True
                 # TODO(fk) handle generics properly :(
                 # Until variance metadata exists, same-origin generics are invariant.
                 if len(left.args) != len(self.right.args):
@@ -1204,7 +1213,10 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                         self.sub_type_check(expected, actual)
                         for expected, actual in zip(self.right.arg_types, ctor_args)
                     )
-                return not self.right.arg_types
+                # Builtin and stub classes often have no modelled constructor
+                # signature.  Their class objects are still callable; do not
+                # reject them merely because the signature is unavailable.
+                return True
             return self.sub_type_check(left.item, self.right.return_type)
         # type[T] is a subtype of the builtin type (and object, Callable).
         return isinstance(self.right, Instance) and self.right.type.raw_type in {
