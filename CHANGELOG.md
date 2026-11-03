@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return-only calls (`copy.copy`, `typing.cast`) as unanalysed escape
   boundaries.  Handle methods returned by `Path.open()` and
   `tempfile.NamedTemporaryFile()` are now reported.
+- Single-file capability audits retry with project imports when the fast
+  entry-only pass finds nothing but the file imports project-local modules;
+  this avoids empty reports for clients that delegate through local helpers.
 - Native helper chains such as `im = im.convert(...)` now collapse repeated
   `method.<return>` cycles instead of growing an unbounded access path and
   exhausting the solver budget.  This restores findings for files that

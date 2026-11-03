@@ -94,6 +94,14 @@ def _absolute_import_roots(path: Path) -> set[str]:
     return names
 
 
+def _has_local_absolute_import(path: Path, root: Path) -> bool:
+    """Return True when a file imports a module living under ``root``."""
+    return any(
+        (root / name).is_dir() or (root / f"{name}.py").is_file()
+        for name in _absolute_import_roots(path)
+    )
+
+
 def _resolved_import_count(root: Path, names: set[str]) -> int:
     """Count imported top-level names that exist as a package or module."""
     return sum(1 for name in names if (root / name).is_dir() or (root / f"{name}.py").is_file())
@@ -314,6 +322,18 @@ def run_capabilities(args) -> int:
                     analyzed = analysis.analyze_project(
                         entry, project_path=project_root, import_level=import_level
                     )
+                    if (
+                        target.is_file()
+                        and import_level == 0
+                        and not analyzed.findings
+                        and _has_local_absolute_import(entry, project_root)
+                    ):
+                        # Fast entry-only audit found nothing, but the file
+                        # imports project-local modules.  Follow those imports
+                        # once rather than leaving a false-negative report.
+                        analyzed = analysis.analyze_project(
+                            entry, project_path=project_root, import_level=-1
+                        )
                 except (
                     OSError,
                     SyntaxError,
