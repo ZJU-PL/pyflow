@@ -309,6 +309,7 @@ class StaticTypeInferenceEngine:
             self._expression_kinds.clear()
             self._pending_parameter_evidence.clear()
             self._pending_attributes.clear()
+            self.type_system.invalidate_subtype_caches()
 
             initial = self._declaration_environment()
             outcome = self._execute_block(
@@ -1003,11 +1004,15 @@ class StaticTypeInferenceEngine:
         return variables
 
     def _annotation_value(self, node: ast.expr) -> AbstractTypeValue:
-        if isinstance(node, ast.Subscript) and self._qualified_callee_name(node.value) in {
-            "Unpack",
-            "typing.Unpack",
-            "typing_extensions.Unpack",
-        }:
+        if isinstance(node, ast.Starred) or (
+            isinstance(node, ast.Subscript)
+            and self._qualified_callee_name(node.value)
+            in {
+                "Unpack",
+                "typing.Unpack",
+                "typing_extensions.Unpack",
+            }
+        ):
             # Variadic parameter annotations are not fully modelled yet.
             # Treat them as gradual evidence instead of re-specializing the
             # same call until project inference hits its iteration limit.
@@ -1205,6 +1210,7 @@ class StaticTypeInferenceEngine:
                         signature.arg_types[1:] if signature.arg_types else (),
                         signature.return_type,
                     )
+        self.type_system.invalidate_subtype_caches()
 
     def _analyse_function(self, function: _FunctionInfo) -> None:
         for key in sorted(
@@ -1302,6 +1308,12 @@ class StaticTypeInferenceEngine:
                 # argument tuple; wrapping it again produces
                 # tuple[tuple[...], ...] and corrupts forwarded calls.
                 return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
+            if any(
+                isinstance(typ, TupleType)
+                or (isinstance(typ, Instance) and typ.type.raw_type is tuple)
+                for typ in value.types
+            ):
+                return value
             return AbstractTypeValue.from_type(
                 TupleType((value.public_type() or ANY,), unknown_size=True)
             )
@@ -1309,6 +1321,8 @@ class StaticTypeInferenceEngine:
             annotation = arguments.kwarg.annotation
             if isinstance(annotation, ast.Attribute) and annotation.attr == "kwargs":
                 return self._instance(dict, self._proper_instance(str), ANY)
+            if any(isinstance(typ, Instance) and typ.type.raw_type is dict for typ in value.types):
+                return value
             return self._instance(dict, self._proper_instance(str), value.public_type() or ANY)
         return value
 
@@ -1366,10 +1380,22 @@ class StaticTypeInferenceEngine:
             and statement.value.value is Ellipsis
             for statement in node.body
         )
+        is_stub_file = bool(getattr(self, "_filename", "").endswith(".pyi"))
+        has_docstring_only = bool(
+            node.body
+            and all(
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str)
+                for statement in node.body
+            )
+        )
         # An ellipsis body is the conventional in-source stub form.  It is
         # common outside protocols and overloads (generic classes, interfaces
         # awaiting implementation), and must not be treated as ``return None``.
-        return all(empty(statement) for statement in node.body) and (marked or has_ellipsis)
+        return all(empty(statement) for statement in node.body) and (
+            marked or has_ellipsis or is_stub_file or has_docstring_only
+        )
 
     def _class_is_metaclass(self, class_info: _ClassInfo) -> bool:
         return any(
@@ -1414,7 +1440,23 @@ class StaticTypeInferenceEngine:
                     # A partially unresolved annotation is still useful evidence.
                     # Keep its known alternatives and the default/call-site
                     # evidence, but never let the default replace the annotation.
-                    types = frozenset(set(types) | set(actual.types))
+                    is_vararg = bool(
+                        function.node.args.vararg and function.node.args.vararg.arg == name
+                    )
+                    is_kwarg = bool(
+                        function.node.args.kwarg and function.node.args.kwarg.arg == name
+                    )
+                    if is_vararg:
+                        elem_types = self._iterable_element(actual).types
+                        types = frozenset(set(types) | set(elem_types))
+                    elif is_kwarg:
+                        kw_val_types = set()
+                        for typ in actual.types:
+                            if isinstance(typ, Instance) and len(typ.args) > 1:
+                                kw_val_types.add(typ.args[1])
+                        types = frozenset(set(types) | kw_val_types)
+                    else:
+                        types = frozenset(set(types) | set(actual.types))
                     unknown = True
                 value = AbstractTypeValue(
                     types=types,
@@ -1627,6 +1669,7 @@ class StaticTypeInferenceEngine:
             class_info.instance.type.members[attribute] = (
                 class_info.attributes[attribute].public_type() or ANY
             )
+            self.type_system.invalidate_subtype_caches()
 
     def _fingerprint(self) -> tuple[object, ...]:
         functions = tuple(
@@ -2629,9 +2672,13 @@ class StaticTypeInferenceEngine:
             contributions = []
             branch = environment
             for position, item in enumerate(node.values):
+                before_keys = set(branch)
                 operand = self._evaluate_expression(
                     item, branch, scope=scope, current_function=current_function
                 )
+                for k in list(branch.keys()):
+                    if k not in before_keys or branch[k] != environment.get(k):
+                        environment[k] = branch[k]
                 if self._is_never_value(operand):
                     contributions.append(operand)
                     break
@@ -2730,7 +2777,10 @@ class StaticTypeInferenceEngine:
             value = (
                 AbstractTypeValue.from_type(NEVER)
                 if self._is_never_value(base) or self._is_never_value(index)
-                else environment.get(ast.unparse(node), self._subscript_value(base, node.slice))
+                else environment.get(
+                    ast.unparse(node),
+                    self._subscript_value(base, node.slice, index_value=index),
+                )
             )
             if (
                 not base.types
@@ -2831,6 +2881,22 @@ class StaticTypeInferenceEngine:
             # not the yielded object.
             value = AbstractTypeValue.unresolved()
         elif isinstance(node, ast.JoinedStr):
+            for part in node.values:
+                if isinstance(part, ast.FormattedValue):
+                    self._evaluate_expression(
+                        part.value, environment, scope=scope, current_function=current_function
+                    )
+                    if part.format_spec is not None:
+                        self._evaluate_expression(
+                            part.format_spec,
+                            environment,
+                            scope=scope,
+                            current_function=current_function,
+                        )
+                else:
+                    self._evaluate_expression(
+                        part, environment, scope=scope, current_function=current_function
+                    )
             value = self._instance(str)
         else:
             value = AbstractTypeValue.unresolved()
@@ -7113,6 +7179,11 @@ class StaticTypeInferenceEngine:
                     actual, wanted
                 ):
                     continue
+            if isinstance(actual, TupleType) and isinstance(wanted, TupleType):
+                if wanted.unknown_size and wanted.args == (ANY,):
+                    continue
+                if actual.unknown_size and actual.args == (ANY,):
+                    continue
             if not (
                 self.type_system.is_subtype(actual, wanted)
                 and self.type_system.is_subtype(wanted, actual)
@@ -8311,8 +8382,15 @@ class StaticTypeInferenceEngine:
                     if isinstance(typ, Instance):
                         receiver_info = self._classes.get(typ.type.full_name)
                         if receiver_info is not None:
-                            substitutions.update(receiver_info.type_var_bindings)
-                            fixed.update(receiver_info.type_var_bindings)
+                            if (
+                                function.owner != typ.type.full_name
+                                and getattr(function.node, "name", "") != "__init__"
+                            ):
+                                substitutions.update(receiver_info.type_var_bindings)
+                            for k, v in receiver_info.type_var_bindings.items():
+                                if not isinstance(v, TypeVarType):
+                                    substitutions[k] = v
+                                    fixed.add(k)
                         for parameter, argument in zip(typ.type.type_parameters, typ.args):
                             self._match_type_variables(parameter, argument, substitutions, fixed)
         vararg_name = (
@@ -8348,6 +8426,11 @@ class StaticTypeInferenceEngine:
                 actual_type = TypeType(actual_type)
             if actual_type is not None:
                 self._match_type_variables(formal, actual_type, substitutions, fixed)
+        if substitutions:
+            chained = {}
+            for k, v in substitutions.items():
+                chained[k] = substitute_type_vars(v, substitutions)
+            return chained
         return substitutions
 
     def _match_type_variables(
@@ -8362,7 +8445,7 @@ class StaticTypeInferenceEngine:
             if formal.name in fixed:
                 return
             existing = substitutions.get(formal.name)
-            if existing is None:
+            if existing is None or isinstance(existing, TypeVarType):
                 substitutions[formal.name] = actual
             else:
                 joined = self._join(
@@ -8824,7 +8907,12 @@ class StaticTypeInferenceEngine:
             )
         )
 
-    def _subscript_value(self, base: AbstractTypeValue, slice_node: ast.expr) -> AbstractTypeValue:
+    def _subscript_value(
+        self,
+        base: AbstractTypeValue,
+        slice_node: ast.expr,
+        index_value: AbstractTypeValue | None = None,
+    ) -> AbstractTypeValue:
         if self._contains_any(base):
             return AbstractTypeValue.from_type(ANY)
         if base.class_targets:
@@ -8854,7 +8942,9 @@ class StaticTypeInferenceEngine:
         for typ in base.types:
             if isinstance(typ, UnionType):
                 values.extend(
-                    self._subscript_value(AbstractTypeValue.from_type(item), slice_node)
+                    self._subscript_value(
+                        AbstractTypeValue.from_type(item), slice_node, index_value=index_value
+                    )
                     for item in typ.items
                 )
                 continue
@@ -8916,11 +9006,20 @@ class StaticTypeInferenceEngine:
                     values.append(AbstractTypeValue.from_type(typ.args[0]))
                     continue
                 if typ.type.typed_dict_fields is not None:
-                    if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
+                    field_key = (
+                        slice_node.value
+                        if isinstance(slice_node, ast.Constant)
+                        and isinstance(slice_node.value, str)
+                        else None
+                    )
+                    if field_key is None and index_value is not None and index_value.literal_values:
+                        for lit in index_value.literal_values:
+                            if isinstance(lit, str) and lit in typ.type.typed_dict_fields:
+                                field_key = lit
+                                break
+                    if field_key is not None and field_key in typ.type.typed_dict_fields:
                         values.append(
-                            AbstractTypeValue.from_type(
-                                typ.type.typed_dict_fields.get(slice_node.value)
-                            )
+                            AbstractTypeValue.from_type(typ.type.typed_dict_fields.get(field_key))
                         )
                     else:
                         values.append(AbstractTypeValue.unresolved())
@@ -10214,8 +10313,7 @@ class StaticTypeInferenceEngine:
     ) -> None:
         span = None if node is None else _span(node)
         if (
-            code == "annotation-mismatch"
-            and span is not None
+            span is not None
             and 0 < span.lineno <= len(self._source_lines)
             and (
                 "# type: ignore" in self._source_lines[span.lineno - 1]

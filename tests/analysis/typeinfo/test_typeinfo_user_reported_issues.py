@@ -583,3 +583,158 @@ def test_empty_dict_is_compatible_with_mapping_annotations() -> None:
         "consume({})\n"
     )
     assert _mismatches(result) == []
+
+
+def test_variadic_unresolved_annotation_converges() -> None:
+    result = _infer(
+        "def variadic[*Ts](*args: *Ts) -> tuple[*Ts]:\n"
+        "    return args\n"
+        'x = variadic(1, "a")\n'
+    )
+    assert not any(d.code == "inference-did-not-converge" for d in result.diagnostics)
+    assert "tuple[tuple[tuple" not in str(result.diagnostics)
+
+
+def test_walrus_bindings_in_boolean_conditions_and_comprehensions() -> None:
+    result = _infer('if (a := 1) and (b := "hello"):\n' "    x = a\n" "    y = b\n")
+    assert str(result.type_of("b")) == "str"
+    assert str(result.type_of("y")) == "str"
+
+    result_comp = _infer(
+        'words = ["hello", "world", "abc"]\n'
+        "long_words = [w for word in words if (n := len(word)) > 3 and (w := word.upper())]\n"
+    )
+    assert str(result_comp.type_of("w")) == "str"
+    assert str(result_comp.type_of("long_words")) == "list[str]"
+
+
+def test_protocol_satisfaction_with_init_instance_attributes() -> None:
+    result = _infer(
+        "from typing import Protocol\n"
+        "class HasName(Protocol):\n"
+        "    name: str\n"
+        "class Person:\n"
+        "    def __init__(self, name: str):\n"
+        "        self.name = name\n"
+        "def get_name(item: HasName) -> str:\n"
+        "    return item.name\n"
+        'x = get_name(Person("Alice"))\n'
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+    assert str(result.type_of("x")) == "str"
+
+
+def test_stub_docstring_only_and_pyi_not_implicit_none() -> None:
+    engine = StaticTypeInferenceEngine()
+    result_pyi = engine.infer_source(
+        "sample",
+        'def is_valid(obj: object) -> bool:\n    """Doc"""\n',
+        filename="sample.pyi",
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result_pyi.diagnostics)
+
+    result_py = engine.infer_source(
+        "sample",
+        'def is_valid(obj: object) -> bool:\n    """Doc"""\n',
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result_py.diagnostics)
+
+
+def test_bare_tuple_in_generic_list_accepts_tuples() -> None:
+    result = _infer(
+        "from typing import List\n"
+        "def run_rep(boxes: List[tuple]) -> bool:\n"
+        "    return True\n"
+        "run_rep([(1, 2, 3, 4)])\n"
+    )
+    assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+
+
+def test_generic_subclass_constructor_typevar_binding_and_method_chaining() -> None:
+    result = _infer(
+        "from typing import Generic, TypeVar\n"
+        'K = TypeVar("K")\n'
+        'V = TypeVar("V")\n'
+        "class Pair(Generic[K, V]):\n"
+        "    def __init__(self, first: K, second: V):\n"
+        "        self.first = first\n"
+        "        self.second = second\n"
+        "    def get_first(self) -> K:\n"
+        "        return self.first\n"
+        "    def get_second(self) -> V:\n"
+        "        return self.second\n"
+        'A = TypeVar("A")\n'
+        'B = TypeVar("B")\n'
+        "class Swapped(Pair[B, A]):\n"
+        "    def __init__(self, first: B, second: A):\n"
+        "        super().__init__(second, first)\n"
+        'p = Swapped("hello", 123)\n'
+        "f = p.get_first()\n"
+        "s = p.get_second()\n"
+    )
+    assert str(result.type_of("p")) == "sample.Swapped[str, int]"
+    assert str(result.type_of("f")) == "str"
+    assert str(result.type_of("s")) == "int"
+
+
+def test_inherited_generic_method_call_substitutes_subclass_args() -> None:
+    result = _infer(
+        "from typing import Generic, TypeVar\n"
+        'T = TypeVar("T")\n'
+        "class Buffer(Generic[T]):\n"
+        "    def __init__(self, item: T):\n"
+        "        self.item = item\n"
+        "    def read(self) -> T:\n"
+        "        return self.item\n"
+        "class SpecialBuffer(Buffer[T]):\n"
+        "    pass\n"
+        'sbuf = SpecialBuffer("hello")\n'
+        "res = sbuf.read()\n"
+    )
+    assert str(result.type_of("res")) == "str"
+
+
+def test_type_ignore_suppresses_call_arity_mismatch() -> None:
+    result = _infer("def f(x: int): pass\n" "f(1, 2)  # type: ignore[call-arg]\n")
+    assert not any(d.code == "call-arity-mismatch" for d in result.diagnostics)
+
+
+def test_typeddict_variable_literal_subscript() -> None:
+    result = _infer(
+        "from typing import TypedDict\n"
+        "class Movie(TypedDict):\n"
+        "    title: str\n"
+        "    year: int\n"
+        'm: Movie = {"title": "Inception", "year": 2010}\n'
+        'k = "title"\n'
+        "val = m[k]\n"
+    )
+    assert str(result.type_of("val")) == "str"
+
+
+def test_fstring_formatted_values_are_indexed() -> None:
+    result = _infer("def compute() -> int: return 42\n" 'msg = f"Value: {compute()}"\n')
+    found = any(
+        v.public_type() and str(v.public_type()) == "int" for v in result.expressions.values()
+    )
+    assert found
+
+
+def test_validate_observed_types_rejects_non_callable_classes_for_callable() -> None:
+    result = _infer("def f(): pass\n")
+    violations = validate_observed_types(result, [ObservedType(int, symbol="f")])
+    assert len(violations) == 1
+    assert violations[0].observation.raw_type is int
+
+
+def test_subtype_distance_for_virtual_abc() -> None:
+    from pyflow.analysis.typeinfo.resolution.annotations import (
+        BuiltinTypeLookup,
+        resolve_annotation,
+    )
+
+    ts = TypeSystem()
+    lookup = BuiltinTypeLookup()
+    t_seq = resolve_annotation("typing.Sequence[int]", lookup)
+    t_list = resolve_annotation("list[int]", lookup)
+    assert ts.subtype_distance(t_seq, t_list) == 1

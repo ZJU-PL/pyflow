@@ -108,7 +108,9 @@ def _admits_runtime_type(inferred: ProperType, observed: type) -> bool:
         # and cannot be recovered from ``observed`` alone.
         return isinstance(observed, type)
     if isinstance(inferred, CallableType):
-        return callable(observed)
+        import collections.abc as cabc
+
+        return issubclass(observed, cabc.Callable)
     if isinstance(inferred, StringSubtype):
         return observed is str
     if isinstance(inferred, Instance):

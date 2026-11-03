@@ -2634,7 +2634,9 @@ class TypeSystem:  # noqa: PLR0904
         try:
             if not issubclass(end.raw_type, start.raw_type):
                 return None
-            return end.raw_type.__mro__.index(start.raw_type)
+            if start.raw_type in end.raw_type.__mro__:
+                return end.raw_type.__mro__.index(start.raw_type)
+            return 1
         except (AttributeError, TypeError, ValueError):
             return None
 

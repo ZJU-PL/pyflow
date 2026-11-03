@@ -87,6 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capability source reading honors UTF-8 BOM and PEP 263 coding cookies, and a
   `RecursionError` on deeply nested expressions is reported as an unsupported
   entry instead of crashing the CLI.  Recursive diagnostics are deduplicated.
+- Typeinfo fixed-point iteration now guards `*args` and `**kwargs` against
+  recursive container re-wrapping on unresolved annotations, propagates walrus
+  `:=` bindings across non-first `BoolOp` operands and comprehensions, invalidates
+  stale `is_subtype` LRU caches across fixed-point iterations and member assignments,
+  treats `.pyi` declarations and docstring-only functions as stubs rather than
+  implicit `None` returns, resolves re-exported package classes without synthesizing
+  incompatible nominal types, accepts `TupleType` in `list[tuple]` container checks,
+  chains generic type parameter substitutions for inherited methods and constructors,
+  resolves TypedDict subscripts with literal key variables, indexes expressions
+  inside f-strings, fixes subtype distance for virtual ABCs, checks
+  `issubclass(observed, Callable)` in `validate_observed_types`, and honors
+  `# type: ignore` across all type-checking diagnostics.
 - Typeinfo now preserves `Any` through operators, keeps unresolved external
   annotation alternatives instead of replacing them with parameter defaults,
   treats `AnyStr` as a constrained type variable, and models `Literal` values

@@ -523,15 +523,18 @@ class TypeInfoService:
             )
             if imported_type is None:
                 imported_type = BuiltinTypeLookup()(qualified_name)
-            if imported_type is None:
-                continue
-            facts[local_name] = TypeFact(
-                name=local_name,
-                typ=imported_type,
-                raw_annotation=qualified_name,
-                source="import",
-                kind="import",
-            )
+            target_mod = qualified_name.rsplit(".", 1)[0]
+            if (
+                imported_type is not None
+                or self.project_context.find_module(target_mod) is not None
+            ):
+                facts[local_name] = TypeFact(
+                    name=local_name,
+                    typ=imported_type or ANY,
+                    raw_annotation=qualified_name,
+                    source="import",
+                    kind="import",
+                )
 
         if self.enable_static_inference:
             self._refresh_import_facts()
@@ -1323,6 +1326,12 @@ class TypeInfoService:
         *,
         allow_synthetic: bool,
     ) -> ProperType | None:
+        class_alias = self._class_aliases.get(qualified_name)
+        if class_alias and class_alias != qualified_name:
+            aliased = self._lookup_project_type(class_alias, allow_synthetic=allow_synthetic)
+            if aliased is not None:
+                return aliased
+
         class_info = self._classes.get(qualified_name)
         if class_info is not None:
             return class_info.typ

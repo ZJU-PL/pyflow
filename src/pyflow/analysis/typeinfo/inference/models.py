@@ -179,8 +179,14 @@ class ModuleInferenceResult:
             return min(
                 matches,
                 key=lambda item: (
-                    (item[0].end_lineno or item[0].lineno) - item[0].lineno,
-                    (item[0].end_col_offset or item[0].col_offset) - item[0].col_offset,
+                    (item[0].end_lineno if item[0].end_lineno is not None else item[0].lineno)
+                    - item[0].lineno,
+                    (
+                        item[0].end_col_offset
+                        if item[0].end_col_offset is not None
+                        else item[0].col_offset
+                    )
+                    - item[0].col_offset,
                 ),
             )[1]
         # A call and its callee commonly start at the same position.  Prefer
@@ -191,8 +197,12 @@ class ModuleInferenceResult:
         widest = max(
             matches,
             key=lambda item: (
-                item[0].end_lineno or item[0].lineno,
-                item[0].end_col_offset or item[0].col_offset,
+                item[0].end_lineno if item[0].end_lineno is not None else item[0].lineno,
+                (
+                    item[0].end_col_offset
+                    if item[0].end_col_offset is not None
+                    else item[0].col_offset
+                ),
             ),
         )
         if len(matches) > 1 and self.expression_kinds.get(widest[0]) is not ast.Call:
@@ -202,8 +212,12 @@ class ModuleInferenceResult:
             return min(
                 matches,
                 key=lambda item: (
-                    item[0].end_lineno or item[0].lineno,
-                    item[0].end_col_offset or item[0].col_offset,
+                    item[0].end_lineno if item[0].end_lineno is not None else item[0].lineno,
+                    (
+                        item[0].end_col_offset
+                        if item[0].end_col_offset is not None
+                        else item[0].col_offset
+                    ),
                 ),
             )[1]
         return widest[1]
