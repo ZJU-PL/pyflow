@@ -3894,6 +3894,21 @@ class PointerSolver:
         # logger.info(f"Handling class instantiation: {call.call_site} -> {class_obj.alloc_site.stmt}")
 
         cls_scope = self.state.get_internal_scope(class_obj)
+        if cls_scope is None:
+            # A class whose body was never lowered (e.g. a synthesized or
+            # opaque class object) cannot run __new__/__init__.  Yield a fresh
+            # instance and report the gap instead of crashing.
+            alloc_site = AllocSite(call.call_site.statement, AllocKind.INSTANCE)
+            instance = InstanceObject(context, alloc_site, class_obj)
+            if call.target is not None:
+                target = self.state.get_variable(scope, context, call.target)
+                self.handle_new_points_to(target, scope, PointsToSet.singleton(instance))
+                self.mark_semantic_incomplete(
+                    variables=(target,),
+                    kind="class_body_unavailable",
+                    message=(f"class {class_obj.ir.get_qualname()} has no analyzed body"),
+                )
+            return True
         constructor_owners = [class_obj]
         if self.class_hierarchy is not None:
             try:

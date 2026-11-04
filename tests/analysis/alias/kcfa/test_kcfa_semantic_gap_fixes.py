@@ -716,3 +716,27 @@ def test_class_and_function_metadata_are_constants() -> None:
     assert any("AllocKind.CONSTANT" in point for point in _points(result, "a"))
     assert any("AllocKind.CONSTANT" in point for point in _points(result, "b"))
     assert any("AllocKind.CONSTANT" in point for point in _points(result, "c"))
+
+
+def test_class_instantiation_without_internal_scope_does_not_crash(monkeypatch) -> None:
+    from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.state import (
+        PointerAnalysisState,
+    )
+
+    original = PointerAnalysisState.get_internal_scope
+
+    def patched(self, obj):
+        ir = getattr(obj, "ir", None)
+        qualname = getattr(ir, "get_qualname", lambda: "")() if ir is not None else ""
+        if qualname.endswith("C"):
+            return None
+        return original(self, obj)
+
+    monkeypatch.setattr(PointerAnalysisState, "get_internal_scope", patched)
+    result = PointerAnalysis(
+        "class C:\n    def __init__(self):\n        self.x = [1]\n\nr = C()\n",
+        k=1,
+    ).run()
+
+    assert result.points_to_name_union("r")
+    assert any(reason["kind"] == "class_body_unavailable" for reason in result.incomplete_reasons())
