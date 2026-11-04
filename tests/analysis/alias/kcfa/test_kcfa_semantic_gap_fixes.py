@@ -476,3 +476,37 @@ def test_dict_subclass_getitem_uses_missing_hook() -> None:
 
     assert result.complete
     assert _has_list(_points(result, "r"))
+
+
+def test_collections_namedtuple_fields_are_distinct() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            from collections import namedtuple
+
+            P = namedtuple("P", ["x", "y"])
+            p = P([1], [2])
+            r = p.x
+            s = p.y
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+    assert _has_list(_points(result, "s"))
+    assert _points(result, "r") != _points(result, "s")
+
+
+def test_collections_namedtuple_string_field_spec() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            from collections import namedtuple
+
+            P = namedtuple("P", "cb")
+            p = P([1])
+            r = p.cb
+            """),
+        k=1,
+    ).run()
+
+    assert _has_list(_points(result, "r"))

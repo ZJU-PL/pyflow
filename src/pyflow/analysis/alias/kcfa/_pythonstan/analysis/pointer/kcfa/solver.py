@@ -206,6 +206,7 @@ class PointerSolver:
         "vars",
         "globals",
         "locals",
+        "_namedtuple_init",
         "callable",
         "super",
         "print",

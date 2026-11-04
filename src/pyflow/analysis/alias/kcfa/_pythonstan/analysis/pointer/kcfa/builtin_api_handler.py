@@ -10,6 +10,7 @@ Design:
 """
 
 import ast
+import re
 from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
 import logging
 
@@ -627,6 +628,7 @@ class BuiltinAPIHandler:
             "hasattr": self._handle_hasattr,
             "delattr": self._handle_delattr,
             "vars": self._handle_vars,
+            "_namedtuple_init": self._handle_namedtuple_init,
             "globals": self._handle_globals,
             "locals": self._handle_locals,
             # Object-oriented functions
@@ -2602,6 +2604,69 @@ class BuiltinAPIHandler:
         self.state.dependencies.subscribe(("sum-source", scope, context, call), (source_ctx,), emit)
         self.state.dependencies.subscribe(("sum-target", scope, context, call), (target_ctx,), emit)
         emit()
+        return constraints
+
+    def _namedtuple_field_names(
+        self, scope: "Scope", context: "AbstractContext", fields_var: "Variable"
+    ) -> List[str]:
+        fields_ctx = self.state.get_variable(scope, context, fields_var)
+        for obj in self.state.get_points_to(fields_ctx):
+            if isinstance(obj, ConstantObject) and isinstance(obj.value, str):
+                names = [name for name in re.split(r"[,\s]+", obj.value.strip()) if name]
+                if names:
+                    return names
+            stmt = getattr(getattr(obj, "alloc_site", None), "stmt", None)
+            rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
+            if not isinstance(rval, (ast.List, ast.Tuple)):
+                continue
+            names = [
+                element.value
+                for element in rval.elts
+                if isinstance(element, ast.Constant) and isinstance(element.value, str)
+            ]
+            if len(names) == len(rval.elts) and names:
+                return names
+            # Three-address lowering replaces string literals with constant
+            # temporaries; recover the ordered names from the precise key(i)
+            # cells instead.
+            scope_obj = self.state.get_internal_scope(obj) or scope
+            ordered = []
+            for index in range(len(rval.elts)):
+                field_ctx = self.state.raw_field(scope_obj, obj.context, obj, key(index))
+                values = [
+                    value.value
+                    for value in self.state.get_points_to(field_ctx)
+                    if isinstance(value, ConstantObject) and isinstance(value.value, str)
+                ]
+                if len(values) != 1:
+                    ordered = []
+                    break
+                ordered.append(values[0])
+            if len(ordered) == len(rval.elts):
+                return ordered
+        return []
+
+    def _handle_namedtuple_init(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Populate a namedtuple instance field-by-field."""
+        constraints = []
+        if len(call.args) < 3:
+            return constraints
+        obj_var, fields_var, args_var = call.args[0], call.args[1], call.args[2]
+        kwargs_var = call.args[3] if len(call.args) > 3 else None
+        names = self._namedtuple_field_names(scope, context, fields_var)
+        if not names:
+            return constraints
+        for index, name in enumerate(names):
+            value_var = self._make_temp_var(f"namedtuple_value_{index}", call)
+            constraints.append(LoadConstraint(base=args_var, field=key(index), target=value_var))
+            constraints.append(StoreConstraint(base=obj_var, field=attr(name), source=value_var))
+        if kwargs_var is not None:
+            for name in names:
+                kw_var = self._make_temp_var(f"namedtuple_kw_{name}", call)
+                constraints.append(LoadConstraint(base=kwargs_var, field=key(name), target=kw_var))
+                constraints.append(StoreConstraint(base=obj_var, field=attr(name), source=kw_var))
         return constraints
 
     def _handle_generic_precise(

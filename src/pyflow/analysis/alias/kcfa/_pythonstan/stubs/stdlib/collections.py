@@ -207,11 +207,10 @@ def namedtuple(typename, field_names, *, rename=False, defaults=None, module=Non
 
         def __new__(cls, *args, **kwargs):
             obj = object.__new__(cls)
-            for name, value in zip(fields, args):
-                setattr(obj, name, value)
-            for name in fields:
-                if name in kwargs:
-                    setattr(obj, name, kwargs[name])
+            # The pointer solver models this helper field-by-field; a loop of
+            # dynamic ``setattr`` calls collapsed every field into the generic
+            # dynamic-attribute cell.
+            _namedtuple_init(obj, field_names, args, kwargs)
             return obj
 
         def __iter__(self):
