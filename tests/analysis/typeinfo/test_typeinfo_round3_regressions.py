@@ -719,8 +719,7 @@ arguments = typing.get_args(dict[str, int])
 
 
 def test_except_star_handlers_bind_exception_types() -> None:
-    result = _infer(
-        """
+    result = _infer("""
 def handle():
     try:
         raise ValueError("x")
@@ -728,8 +727,41 @@ def handle():
         return error
     except* TypeError as error:
         return error
-"""
-    )
+""")
 
     assert not [d for d in result.diagnostics if d.code == "unsupported-statement"]
     assert str(result.functions["sample.handle"].return_type) == "TypeError | ValueError"
+
+
+def test_mutually_recursive_functions_are_detected() -> None:
+    engine = StaticTypeInferenceEngine()
+    result = engine.infer_source(
+        "sample",
+        """
+def first(value):
+    return second(value)
+
+def second(value):
+    return first(value)
+""",
+    )
+
+    assert result.converged
+    assert engine._is_recursive_function(engine._functions["sample.first"])
+    assert engine._is_recursive_function(engine._functions["sample.second"])
+
+
+def test_nested_mutual_recursion_converges() -> None:
+    result = _infer("""
+def outer(value):
+    def inner_a(item):
+        return inner_b(item)
+
+    def inner_b(item):
+        return inner_a(item)
+
+    return inner_a(value)
+""")
+
+    assert result.converged
+    assert result.iterations <= 10

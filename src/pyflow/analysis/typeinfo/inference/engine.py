@@ -332,6 +332,7 @@ class StaticTypeInferenceEngine:
 
             # Function bodies may discover lambda callables. Analyze a stable
             # snapshot; newly registered functions participate next iteration.
+            self._refresh_mutual_recursion()
             for function in list(self._functions.values()):
                 self._analyse_function(function)
 
@@ -462,6 +463,8 @@ class StaticTypeInferenceEngine:
         self._current_function_info: _FunctionInfo | None = None
         self._mro_cache: dict[str, list[str]] = {}
         self._recursive_functions: dict[str, bool] = {}
+        self._mutual_recursion: set[str] = set()
+        self._recursion_graph_size = -1
         self._collect_specializations = True
 
     # ------------------------------------------------------------------
@@ -1392,7 +1395,46 @@ class StaticTypeInferenceEngine:
             overloads=tuple(overload_signatures),
         )
 
+    def _refresh_mutual_recursion(self) -> None:
+        """Mark functions that participate in any recursion cycle."""
+        if self._recursion_graph_size == len(self._functions):
+            return
+        graph: dict[str, set[str]] = {}
+        for name, info in self._functions.items():
+            callees: set[str] = set()
+            for node in ast.walk(info.node):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = _expression_name(node.func)
+                if callee is None:
+                    continue
+                # ``self.method(...)`` / ``cls.method(...)``
+                if isinstance(node.func, ast.Attribute) and info.owner is not None:
+                    method = self._class_method(info.owner, node.func.attr)
+                    if method is not None and method != name:
+                        callees.add(method)
+                    continue
+                target = self._resolve_lexical_function(callee, info.qualified_name)
+                if target is not None and target != name:
+                    callees.add(target)
+            graph[name] = callees
+        for start, callees in graph.items():
+            stack = list(callees)
+            seen: set[str] = set()
+            while stack:
+                current = stack.pop()
+                if current == start:
+                    self._mutual_recursion.add(start)
+                    break
+                if current in seen:
+                    continue
+                seen.add(current)
+                stack.extend(graph.get(current, ()))
+        self._recursion_graph_size = len(self._functions)
+
     def _is_recursive_function(self, function: _FunctionInfo) -> bool:
+        if function.qualified_name in self._mutual_recursion:
+            return True
         cached = self._recursive_functions.get(function.qualified_name)
         if cached is not None:
             return cached
@@ -2268,9 +2310,7 @@ class StaticTypeInferenceEngine:
                 current_function=current_function,
             )
 
-        if isinstance(node, ast.Try) or (
-            hasattr(ast, "TryStar") and isinstance(node, ast.TryStar)
-        ):
+        if isinstance(node, ast.Try) or (hasattr(ast, "TryStar") and isinstance(node, ast.TryStar)):
             outcomes = [
                 self._execute_block(
                     node.body,
