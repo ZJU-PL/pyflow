@@ -593,3 +593,53 @@ positive = +IntFlag.X
     assert str(result.type_of("inverted_int_flag")) == "sample.IntFlag"
     assert str(result.type_of("negated")) == "int"
     assert str(result.type_of("positive")) == "int"
+
+
+def test_weakref_ref_and_proxy_types() -> None:
+    result = _infer("""
+import weakref
+
+class Item: ...
+
+item = Item()
+reference = weakref.ref(item)
+dereferenced = reference()
+proxy = weakref.proxy(item)
+""")
+
+    assert str(result.type_of("reference")) == "weakref.ReferenceType[sample.Item]"
+    assert str(result.type_of("dereferenced")) == "None | sample.Item"
+    assert str(result.type_of("proxy")) == "sample.Item"
+
+
+def test_asyncio_as_completed_keeps_the_awaited_type() -> None:
+    result = _infer("""
+import asyncio
+
+async def work() -> int:
+    return 1
+
+async def collect() -> int:
+    total = 0
+    for future in asyncio.as_completed([work(), work()]):
+        total += await future
+    return total
+""")
+
+    assert str(result.functions["sample.collect"].return_type) == "int"
+
+
+def test_logging_adapter_methods_and_logger_attribute() -> None:
+    result = _infer("""
+import logging
+
+logger = logging.getLogger(__name__)
+adapter = logging.LoggerAdapter(logger, {})
+emitted = adapter.info("hello")
+enabled = adapter.isEnabledFor(20)
+underlying = adapter.logger
+""")
+
+    assert str(result.type_of("emitted")) == "None"
+    assert str(result.type_of("enabled")) == "bool"
+    assert str(result.type_of("underlying")) == "logging.Logger"

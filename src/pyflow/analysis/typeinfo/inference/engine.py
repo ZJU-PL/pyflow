@@ -33,6 +33,7 @@ import subprocess
 import logging
 import tempfile
 import re
+import weakref
 import threading
 import time
 import datetime
@@ -3419,6 +3420,19 @@ class StaticTypeInferenceEngine:
                             selected.return_type if selected is not None else typ.return_type
                         )
                     )
+                elif (
+                    isinstance(typ, Instance)
+                    and typ.type.raw_type is weakref.ReferenceType
+                    and typ.args
+                ):
+                    # ``weakref.ref(obj)()`` returns the target or None when
+                    # the referent has been collected.
+                    results.append(
+                        self._join(
+                            AbstractTypeValue.from_type(typ.args[0]),
+                            AbstractTypeValue.from_type(NONE_TYPE),
+                        )
+                    )
         if results:
             return join_all(
                 results,
@@ -4013,6 +4027,11 @@ class StaticTypeInferenceEngine:
                     cabc.Iterator,
                     TupleType((item, self._proper_instance(cabc.Iterator, item))),
                 )
+        if qualified_name in {"weakref.ref", "weakref.WeakMethod"} and arguments:
+            return self._instance(weakref.ReferenceType, arguments[0].public_type() or ANY)
+        if qualified_name == "weakref.proxy" and arguments:
+            # A proxy forwards attribute access to the target object.
+            return arguments[0]
         if qualified_name in {"os.getcwd", "os.getcwdb"}:
             return self._instance(bytes if qualified_name.endswith("b") else str)
         if qualified_name in {"os.getpid", "os.getppid"}:
@@ -4184,6 +4203,17 @@ class StaticTypeInferenceEngine:
                     ANY,
                     ANY,
                     self._callable_return_type(arguments[0]).public_type() or ANY,
+                )
+            if qualified_name == "asyncio.as_completed" and arguments:
+                item = self._iterable_element(arguments[0])
+                awaited = (
+                    self._await_result(item)
+                    if self._is_awaitable_value(item)
+                    else AbstractTypeValue.from_type(ANY)
+                )
+                return self._instance(
+                    cabc.Iterator,
+                    self._proper_instance(cabc.Awaitable, awaited.public_type() or ANY),
                 )
             if qualified_name in {"asyncio.timeout", "asyncio.timeout_at"}:
                 return self._instance(asyncio.Timeout)
@@ -5341,7 +5371,7 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr in {"__enter__"}:
                     return AbstractTypeValue.from_type(typ)
-            if raw is logging.Logger:
+            if raw in {logging.Logger, logging.LoggerAdapter}:
                 if node.attr in {
                     "debug",
                     "info",
@@ -9703,6 +9733,13 @@ class StaticTypeInferenceEngine:
                         continue
                     if attribute == "level":
                         values.append(self._instance(int))
+                        continue
+                if typ.type.raw_type is logging.LoggerAdapter:
+                    if attribute == "logger":
+                        values.append(self._instance(logging.Logger))
+                        continue
+                    if attribute == "extra":
+                        values.append(self._instance(dict, self._proper_instance(str), ANY))
                         continue
                 if typ.type.raw_type is threading.Thread:
                     if attribute == "name":
