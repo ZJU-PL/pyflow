@@ -716,3 +716,20 @@ arguments = typing.get_args(dict[str, int])
     assert str(result.type_of("first_name")) == "str"
     assert str(result.type_of("hints")) == "dict[str, Any]"
     assert str(result.type_of("arguments")) == "tuple[Any, ...]"
+
+
+def test_except_star_handlers_bind_exception_types() -> None:
+    result = _infer(
+        """
+def handle():
+    try:
+        raise ValueError("x")
+    except* ValueError as error:
+        return error
+    except* TypeError as error:
+        return error
+"""
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "unsupported-statement"]
+    assert str(result.functions["sample.handle"].return_type) == "TypeError | ValueError"

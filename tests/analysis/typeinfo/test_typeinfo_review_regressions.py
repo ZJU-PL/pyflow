@@ -214,13 +214,13 @@ def test_service_does_not_swallow_cancellation(monkeypatch):
 
 
 @pytest.mark.skipif(not hasattr(ast, "TryStar"), reason="except* requires Python 3.11")
-def test_unsupported_statement_invalidates_written_bindings_and_reports_partial():
+def test_exception_group_handlers_join_written_bindings():
     result = StaticTypeInferenceEngine().infer_source(
         "sample", "value = 1\ntry:\n    value = 'changed'\nexcept* ValueError:\n    pass\n"
     )
-    assert result.type_of("value") is None
-    assert result.status == "partial"
-    assert any(d.code == "unsupported-statement" for d in result.diagnostics)
+    assert result.status == "complete"
+    assert raw_types(result.type_of("value")) == {int, str}
+    assert not any(d.code == "unsupported-statement" for d in result.diagnostics)
 
 
 def test_starred_sequence_literal_preserves_element_type():

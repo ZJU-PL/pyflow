@@ -2268,7 +2268,9 @@ class StaticTypeInferenceEngine:
                 current_function=current_function,
             )
 
-        if isinstance(node, ast.Try):
+        if isinstance(node, ast.Try) or (
+            hasattr(ast, "TryStar") and isinstance(node, ast.TryStar)
+        ):
             outcomes = [
                 self._execute_block(
                     node.body,
