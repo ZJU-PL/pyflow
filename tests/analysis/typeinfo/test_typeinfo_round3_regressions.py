@@ -693,3 +693,26 @@ inherited = Child.make()
 
     assert str(result.type_of("direct")) == "sample.Factory"
     assert str(result.type_of("inherited")) == "sample.Factory"
+
+
+def test_dataclasses_fields_and_typing_helpers() -> None:
+    result = _infer("""
+import typing
+from dataclasses import dataclass, fields
+
+@dataclass
+class Item:
+    name: str
+    count: int
+
+defined = fields(Item)
+first_name = defined[0].name
+hints = typing.get_type_hints(Item)
+origin = typing.get_origin(list[int])
+arguments = typing.get_args(dict[str, int])
+""")
+
+    assert str(result.type_of("defined")) == "tuple[dataclasses.Field, ...]"
+    assert str(result.type_of("first_name")) == "str"
+    assert str(result.type_of("hints")) == "dict[str, Any]"
+    assert str(result.type_of("arguments")) == "tuple[Any, ...]"

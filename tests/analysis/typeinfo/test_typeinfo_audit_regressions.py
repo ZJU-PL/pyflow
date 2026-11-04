@@ -1075,7 +1075,7 @@ def test_dataclass_helper_functions_preserve_meaningful_types() -> None:
     assert _instance_name(result.type_of("sample.copy")) == "sample.Point"
     assert str(result.type_of("sample.mapping")) == "dict[str, Any]"
     assert str(result.type_of("sample.values")) == "tuple[Any, ...]"
-    assert str(result.type_of("sample.field_list")) == "tuple[Any, ...]"
+    assert str(result.type_of("sample.field_list")) == "tuple[dataclasses.Field, ...]"
     assert _raw_types(result.type_of("sample.is_struct")) == {bool}
 
 

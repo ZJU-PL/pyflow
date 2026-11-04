@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import logging
 import csv
+import dataclasses
 import zipfile
 import tempfile
 import re
@@ -3569,6 +3570,17 @@ class StaticTypeInferenceEngine:
         if qualified_name == "dataclasses.astuple":
             return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
         if qualified_name == "dataclasses.fields":
+            return AbstractTypeValue.from_type(
+                TupleType((self._proper_instance(dataclasses.Field),), unknown_size=True)
+            )
+        if qualified_name in {
+            "typing.get_type_hints",
+            "typing_extensions.get_type_hints",
+        }:
+            return self._instance(dict, self._proper_instance(str), ANY)
+        if qualified_name in {"typing.get_origin", "typing_extensions.get_origin"}:
+            return AbstractTypeValue.from_type(ANY)
+        if qualified_name in {"typing.get_args", "typing_extensions.get_args"}:
             return AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
         if qualified_name == "dataclasses.is_dataclass":
             return self._instance(bool)
@@ -9773,6 +9785,16 @@ class StaticTypeInferenceEngine:
                         continue
                     if attribute == "extra":
                         values.append(self._instance(dict, self._proper_instance(str), ANY))
+                        continue
+                if typ.type.raw_type is dataclasses.Field:
+                    if attribute in {"name"}:
+                        values.append(self._instance(str))
+                        continue
+                    if attribute in {"type", "default", "default_factory"}:
+                        values.append(AbstractTypeValue.from_type(ANY))
+                        continue
+                    if attribute in {"metadata"}:
+                        values.append(self._instance(dict, ANY, ANY))
                         continue
                 if typ.type.raw_type is os.stat_result:
                     if attribute in {
