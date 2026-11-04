@@ -837,3 +837,39 @@ register(tuple[int, str, bool])
     )
 
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_function_satisfies_callable_protocol() -> None:
+    valid = _infer(
+        """
+from typing import Protocol
+
+class Notify(Protocol):
+    def __call__(self, progress: float | None, text: list[str] | None) -> None: ...
+
+def use(callback: Notify) -> None: ...
+
+def handler(progress: float | None, text: list[str] | None) -> None: ...
+
+use(handler)
+""",
+        strict=True,
+    )
+    assert not [d for d in valid.diagnostics if d.code == "annotation-mismatch"]
+
+    invalid = _infer(
+        """
+from typing import Protocol
+
+class Notify(Protocol):
+    def __call__(self, progress: float | None) -> None: ...
+
+def use(callback: Notify) -> None: ...
+
+def wrong(progress: str) -> None: ...
+
+use(wrong)
+""",
+        strict=True,
+    )
+    assert [d for d in invalid.diagnostics if d.code == "annotation-mismatch"]

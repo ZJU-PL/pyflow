@@ -1187,10 +1187,17 @@ class _SubtypeVisitor(TypeVisitor[bool]):
 
     def visit_callable_type(self, left: CallableType) -> bool:
         if isinstance(self.right, Instance):
-            return self.right.type.raw_type is object or (
+            if self.right.type.raw_type is object or (
                 self.right.type.raw_type is cabc.Callable
                 and all(isinstance(argument, AnyType) for argument in self.right.args)
-            )
+            ):
+                return True
+            if self.right.type.is_protocol:
+                # A plain function satisfies a ``__call__`` protocol.
+                member = self.graph.get_members(self.right.type).get("__call__")
+                if isinstance(member, CallableType):
+                    return self.sub_type_check(left, member)
+            return False
         if not isinstance(self.right, CallableType):
             return False
         if not self.sub_type_check(left.return_type, self.right.return_type):
