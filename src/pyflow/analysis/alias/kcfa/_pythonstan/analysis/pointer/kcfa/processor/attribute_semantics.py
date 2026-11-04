@@ -135,6 +135,20 @@ class AttributeResolver(Processor):
             return True
         if isinstance(base_obj, ClassObject):
             self._install_class_lookup(solver, scope, base_obj, field, target_ctx)
+            if field.kind is FieldKind.ATTRIBUTE and field.name:
+                # A metaclass may intercept missing (or all) class attributes.
+                # Report the gap rather than returning an empty "complete" set.
+                intercepted = self._metaclass_declares(solver, base_obj, "__getattribute__") or (
+                    not self._class_mro_declares(solver, base_obj, field.name)
+                    and self._metaclass_declares(solver, base_obj, "__getattr__")
+                )
+                if intercepted:
+                    solver.mark_semantic_incomplete(
+                        variables=(target_ctx,),
+                        scopes=(scope,),
+                        kind="metaclass_getattr_unmodeled",
+                        message=("metaclass __getattr__/__getattribute__ is not modeled"),
+                    )
             if field.kind is FieldKind.ATTRIBUTE and field.name == "__getitem__":
                 # ``Box[int]`` invokes ``Box.__class_getitem__`` (a
                 # classmethod) rather than the class's own ``__getitem__``.
@@ -164,6 +178,18 @@ class AttributeResolver(Processor):
             return name in class_obj.ir.get_definitely_declared_names()
         except Exception:
             return False
+
+    def _class_mro_declares(
+        self, solver: "PointerSolver", class_obj: ClassObject, name: str
+    ) -> bool:
+        for type_ref in solver.state.types.mro(solver.state.types.ref(class_obj)):
+            if (
+                type_ref.kind is TypeRefKind.USER
+                and isinstance(type_ref.target, ClassObject)
+                and self._class_declares(type_ref.target, name)
+            ):
+                return True
+        return False
 
     def _metaclass_declares(
         self, solver: "PointerSolver", class_obj: ClassObject, name: str

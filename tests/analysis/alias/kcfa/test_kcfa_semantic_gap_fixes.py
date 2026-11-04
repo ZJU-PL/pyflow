@@ -510,3 +510,25 @@ def test_collections_namedtuple_string_field_spec() -> None:
     ).run()
 
     assert _has_list(_points(result, "r"))
+
+
+def test_metaclass_getattr_is_reported_incomplete() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class Meta(type):
+                def __getattr__(cls, name):
+                    return [1]
+
+            class C(metaclass=Meta):
+                pass
+
+            r = C.anything
+            """),
+        k=1,
+    ).run()
+
+    query = result.points_to_query("r")
+    assert query.complete is False
+    assert any(
+        reason["kind"] == "metaclass_getattr_unmodeled" for reason in result.incomplete_reasons()
+    )
