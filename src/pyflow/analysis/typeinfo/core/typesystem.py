@@ -2434,12 +2434,21 @@ class TypeSystem:  # noqa: PLR0904
         Returns:
             True, if left is a subtype of right.
         """
+        if left == right:
+            # Reflexivity: also short-circuits protocol structural checks,
+            # which otherwise reject a protocol compared with itself when a
+            # member signature contains the protocol recursively.
+            return True
         if isinstance(right, AnyType):
             # trivial case
             return True
         if isinstance(left, LiteralType):
             if isinstance(right, LiteralType):
                 return left.value == right.value
+            if isinstance(right, UnionType):
+                # ``Literal["a"] <: Literal["a"] | Literal["b"]``; comparing
+                # the literal's base type would reject every literal union.
+                return any(self.is_subtype(left, item) for item in right.items)
             return self.is_subtype(left.base, right)
         if isinstance(right, LiteralType):
             return False

@@ -10,6 +10,12 @@ from pyflow.analysis.typeinfo import (
     ProjectTypeInferenceEngine,
     StaticTypeInferenceEngine,
 )
+from pyflow.analysis.typeinfo.core.typesystem import (
+    Instance,
+    LiteralType,
+    TypeSystem,
+    UnionType,
+)
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -367,3 +373,52 @@ def hash_params(params: Any):
 
     assert result.converged
     assert result.iterations <= 10
+
+
+def test_protocol_instances_are_reflexive() -> None:
+    engine = StaticTypeInferenceEngine()
+    result = engine.infer_source(
+        "sample",
+        """
+from typing import Optional, Protocol
+
+class Provider(Protocol):
+    def handle(self, value: int) -> "Provider": ...
+
+current: Optional[Provider] = None
+""",
+    )
+
+    provider = result.type_of("current")
+    assert provider is not None
+    assert engine.type_system.is_subtype(provider, provider)
+
+
+def test_literal_member_is_a_subtype_of_its_literal_union() -> None:
+    system = TypeSystem()
+    string = Instance(system.to_class_descriptor(str))
+    user = LiteralType("user", string)
+    assistant = LiteralType("assistant", string)
+
+    assert system.is_subtype(user, UnionType((user, assistant)))
+    assert system.is_subtype(
+        UnionType((user, assistant)),
+        UnionType((LiteralType("user", string), LiteralType("assistant", string))),
+    )
+
+
+def test_typeddict_with_literal_union_is_a_subtype_of_itself() -> None:
+    result = _infer(
+        """
+from typing import Literal, TypedDict
+
+class Message(TypedDict):
+    role: Literal["user", "assistant", "system", "tool"]
+    content: str
+
+message: Message = {"role": "user", "content": "hi"}
+""",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
