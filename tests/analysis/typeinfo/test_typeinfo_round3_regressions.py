@@ -907,3 +907,15 @@ for entry in os.scandir("."):
     assert str(result.type_of("during_walk")) == "list[tuple[str, list[str], list[str]]]"
     assert str(result.type_of("entry_name")) == "str"
     assert str(result.type_of("is_directory")) == "bool"
+
+
+def test_project_inference_reaches_a_fixed_point(tmp_path: Path) -> None:
+    (tmp_path / "base.py").write_text("def value() -> int:\n    return 1\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("from base import value\nresult = value()\n", encoding="utf-8")
+
+    engine = ProjectTypeInferenceEngine(ProjectContext(tmp_path))
+    result = engine.infer_project(["app"])
+
+    assert result.converged
+    assert str(result.modules["app"].type_of("result")) == "int"
+    assert result.modules["base"].functions["base.value"].return_type is not None

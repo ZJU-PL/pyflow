@@ -60,9 +60,14 @@ class ProjectTypeInferenceEngine:
         failed_modules: set[str] = set()
         converged = False
         iterations = 0
+        importers: dict[str, set[str]] = {}
+        for module_name, source in sources.items():
+            for dependency in self._project_imports(module_name, source, paths[module_name] or ""):
+                importers.setdefault(dependency, set()).add(module_name)
+        previous: dict[str, tuple[object, ...]] = {}
+        targets = set(sources)
         for iterations in range(1, self.max_project_iterations + 1):
-            before = self._fingerprint(results)
-            for module_name in sorted(sources):
+            for module_name in sorted(targets):
                 if module_name in failed_modules:
                     continue
                 engine = StaticTypeInferenceEngine(
@@ -90,9 +95,22 @@ class ProjectTypeInferenceEngine:
                         diagnostics=[diagnostic],
                         converged=False,
                     )
-            if self._fingerprint(results) == before:
+            current = {
+                module_name: self._module_fingerprint(result)
+                for module_name, result in results.items()
+            }
+            if current == previous:
                 converged = True
                 break
+            changed = {
+                module_name
+                for module_name, fingerprint in current.items()
+                if previous.get(module_name) != fingerprint
+            }
+            previous = current
+            # Only changed modules and their transitive importers can observe
+            # different external facts on the next pass.
+            targets = self._dependent_modules(changed, importers)
 
         if not converged:
             diagnostics.append(
@@ -273,16 +291,33 @@ class ProjectTypeInferenceEngine:
         return None
 
     @staticmethod
+    def _module_fingerprint(result: ModuleInferenceResult) -> tuple[object, ...]:
+        return (
+            tuple((name, repr(symbol.value)) for name, symbol in sorted(result.symbols.items())),
+            tuple((name, repr(summary)) for name, summary in sorted(result.functions.items())),
+        )
+
+    @classmethod
     def _fingerprint(
+        cls,
         results: dict[str, ModuleInferenceResult],
     ) -> tuple[object, ...]:
         return tuple(
-            (
-                module_name,
-                tuple(
-                    (name, repr(symbol.value)) for name, symbol in sorted(result.symbols.items())
-                ),
-                tuple((name, repr(summary)) for name, summary in sorted(result.functions.items())),
-            )
+            (module_name, cls._module_fingerprint(result))
             for module_name, result in sorted(results.items())
         )
+
+    @staticmethod
+    def _dependent_modules(
+        changed: set[str],
+        importers: dict[str, set[str]],
+    ) -> set[str]:
+        targets = set(changed)
+        stack = list(changed)
+        while stack:
+            module_name = stack.pop()
+            for importer in importers.get(module_name, ()):
+                if importer not in targets:
+                    targets.add(importer)
+                    stack.append(importer)
+        return targets
