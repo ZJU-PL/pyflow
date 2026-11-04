@@ -203,3 +203,90 @@ def test_reexported_overload_decorator_selects_the_right_overload() -> None:
 
         assert str(module.functions["app.Selector.matches"].return_type) == "int"
         assert not [d for d in module.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_generic_context_managers_substitute_the_yield_type() -> None:
+    result = _infer("""
+import contextlib
+from typing import AsyncIterator, Iterator, TypeVar
+
+T = TypeVar("T")
+
+@contextlib.contextmanager
+def managed(value: T) -> Iterator[T]:
+    yield value
+
+@contextlib.asynccontextmanager
+async def async_managed(value: T) -> AsyncIterator[T]:
+    yield value
+
+def read_number() -> int:
+    with managed(1) as value:
+        return value
+
+def read_text() -> str:
+    with managed("s") as value:
+        return value
+
+async def read_async() -> int:
+    async with async_managed(1) as value:
+        return value
+""")
+
+    assert str(result.functions["sample.read_number"].return_type) == "int"
+    assert str(result.functions["sample.read_text"].return_type) == "str"
+    assert str(result.functions["sample.read_async"].return_type) == "int"
+
+
+def test_self_properties_use_the_receiver_type() -> None:
+    result = _infer("""
+from typing import Self
+
+class Base:
+    @property
+    def clone(self) -> Self: ...
+
+class Child(Base): ...
+
+def read(child: Child) -> Child:
+    return child.clone
+""")
+
+    assert str(result.functions["sample.read"].return_type) == "sample.Child"
+
+
+def test_generic_iterables_substitute_the_element_type() -> None:
+    result = _infer("""
+from typing import Generic, Iterator, TypeVar
+
+T = TypeVar("T")
+
+class Bag(Generic[T]):
+    def __init__(self, items: list[T]) -> None:
+        self.items = items
+
+    def __iter__(self) -> Iterator[T]:
+        return iter(self.items)
+
+def read() -> list[int]:
+    return list(Bag([1, 2]))
+
+def total() -> int:
+    return sum(Bag([1, 2]))
+""")
+
+    assert str(result.functions["sample.read"].return_type) == "list[int]"
+    assert str(result.functions["sample.total"].return_type) == "int"
+
+
+def test_asyncio_timeout_is_a_context_manager() -> None:
+    result = _infer("""
+import asyncio
+
+async def run() -> int:
+    async with asyncio.timeout(1) as timeout:
+        return 1
+""")
+
+    assert not [d for d in result.diagnostics if d.code == "unmodeled-context-manager"]
+    assert str(result.functions["sample.run"].return_type) == "int"

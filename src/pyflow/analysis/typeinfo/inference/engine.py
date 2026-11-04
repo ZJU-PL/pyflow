@@ -4104,6 +4104,8 @@ class StaticTypeInferenceEngine:
                     ANY,
                     self._callable_return_type(arguments[0]).public_type() or ANY,
                 )
+            if qualified_name in {"asyncio.timeout", "asyncio.timeout_at"}:
+                return self._instance(asyncio.Timeout)
             if qualified_name in {"asyncio.get_running_loop", "asyncio.get_event_loop"}:
                 return self._instance(asyncio.AbstractEventLoop)
         if qualified_name in {"subprocess.run", "subprocess.Popen"}:
@@ -5082,6 +5084,11 @@ class StaticTypeInferenceEngine:
                     return async_bool
                 if node.attr == "locked":
                     return self._instance(bool)
+            if raw is asyncio.Timeout:
+                if node.attr == "__aenter__":
+                    return self._instance(cabc.Coroutine, ANY, ANY, typ)
+                if node.attr == "__aexit__":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is asyncio.TaskGroup:
                 if node.attr == "__aenter__":
                     return self._instance(cabc.Coroutine, ANY, ANY, typ)
@@ -8499,29 +8506,42 @@ class StaticTypeInferenceEngine:
         ):
             dependency = next(iter(function.summary.return_dependencies))
             if dependency in bound_arguments:
-                return self._wrap_call_result(function, bound_arguments[dependency])
+                return self._wrap_call_result(
+                    function, bound_arguments[dependency], substitutions=substitutions
+                )
         if function.effective_return is not None:
             returned = function.effective_return.public_type() or ANY
             if substitutions:
                 returned = substitute_type_vars(returned, substitutions)
-            return self._wrap_call_result(function, AbstractTypeValue.from_type(returned))
+            return self._wrap_call_result(
+                function, AbstractTypeValue.from_type(returned), substitutions=substitutions
+            )
         if function.explicit_return is not None:
             substitutions = self._generic_substitutions(function, bound_arguments)
             returned = function.explicit_return.public_type()
             if returned is not None and substitutions:
                 returned = substitute_type_vars(returned, substitutions)
-                return self._wrap_call_result(function, AbstractTypeValue.from_type(returned))
-            return self._wrap_call_result(function, function.explicit_return)
+                return self._wrap_call_result(
+                    function, AbstractTypeValue.from_type(returned), substitutions=substitutions
+                )
+            return self._wrap_call_result(
+                function, function.explicit_return, substitutions=substitutions
+            )
         if specialization is not None:
             return self._wrap_call_result(
                 function,
                 specialization.return_value,
                 yield_value=specialization.yield_value,
+                substitutions=substitutions,
             )
         if function.summary is not None:
-            return self._wrap_call_result(function, function.summary.return_value)
+            return self._wrap_call_result(
+                function, function.summary.return_value, substitutions=substitutions
+            )
         if function.documented_return is not None:
-            return self._wrap_call_result(function, function.documented_return)
+            return self._wrap_call_result(
+                function, function.documented_return, substitutions=substitutions
+            )
         return AbstractTypeValue.unresolved()
 
     def _apply_union_overloads(
@@ -8749,7 +8769,7 @@ class StaticTypeInferenceEngine:
         if returned_type is not None and substitutions:
             returned_type = substitute_type_vars(returned_type, substitutions)
             returned = AbstractTypeValue.from_type(returned_type)
-        return self._wrap_call_result(overload, returned)
+        return self._wrap_call_result(overload, returned, substitutions=substitutions)
 
     def _wrap_call_result(
         self,
@@ -8757,15 +8777,19 @@ class StaticTypeInferenceEngine:
         returned: AbstractTypeValue,
         *,
         yield_value: AbstractTypeValue | None = None,
+        substitutions: dict[str, ProperType] | None = None,
     ) -> AbstractTypeValue:
         if function.effective_return is not None:
-            return function.effective_return
+            # Callers pass the (already substituted) effective return.
+            return returned
         summary = function.summary
         effective_yield = yield_value
         if effective_yield is None and summary is not None and summary.is_generator:
             effective_yield = summary.yield_value
         if effective_yield is not None and not effective_yield.is_bottom:
             element = effective_yield.public_type() or ANY
+            if substitutions:
+                element = substitute_type_vars(element, substitutions)
             decorators = {
                 self._qualified_callee_name(decorator)
                 for decorator in getattr(function.node, "decorator_list", ())
@@ -9409,6 +9433,7 @@ class StaticTypeInferenceEngine:
                         for parameter, argument in zip(typ.type.type_parameters, typ.args)
                     }
                     substitutions.update(class_info.type_var_bindings)
+                    substitutions.setdefault("Self", typ)
                     if substitutions and property_value.types:
                         property_value = replace(
                             property_value,
@@ -9589,6 +9614,7 @@ class StaticTypeInferenceEngine:
                     asyncio.Semaphore,
                     asyncio.BoundedSemaphore,
                     asyncio.TaskGroup,
+                    asyncio.Timeout,
                 }:
                     if attribute == "__aenter__":
                         values.append(self._instance(cabc.Coroutine, ANY, ANY, typ))
@@ -10201,6 +10227,11 @@ class StaticTypeInferenceEngine:
                     if info is not None and self._is_enum_class_info(info):
                         elements.append(AbstractTypeValue.from_type(info.instance))
                     elif info is not None:
+                        receiver_substitutions = {
+                            parameter.name: argument
+                            for parameter, argument in zip(typ.type.type_parameters, typ.args)
+                        }
+                        receiver_substitutions.update(info.type_var_bindings)
                         iter_method = self._class_method(info.qualified_name, "__iter__")
                         next_method = self._class_method(info.qualified_name, "__next__")
                         getitem_method = self._class_method(info.qualified_name, "__getitem__")
@@ -10252,6 +10283,10 @@ class StaticTypeInferenceEngine:
                                     else:
                                         returned_type = None
                                 if returned_type is not None:
+                                    if receiver_substitutions:
+                                        returned_type = substitute_type_vars(
+                                            returned_type, receiver_substitutions
+                                        )
                                     if used_anext:
                                         elements.append(AbstractTypeValue.from_type(returned_type))
                                     else:
@@ -10290,6 +10325,10 @@ class StaticTypeInferenceEngine:
                                     ):
                                         returned_type = next_signature.return_type
                                         used_next_method = True
+                                if receiver_substitutions:
+                                    returned_type = substitute_type_vars(
+                                        returned_type, receiver_substitutions
+                                    )
                                 returned = AbstractTypeValue.from_type(returned_type)
                                 if iter_method is not None and not used_next_method:
                                     if not (
