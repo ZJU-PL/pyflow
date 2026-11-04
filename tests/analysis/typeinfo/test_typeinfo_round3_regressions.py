@@ -889,3 +889,21 @@ ratio = (5).as_integer_ratio()
     assert str(result.type_of("integral")) == "bool"
     assert str(result.type_of("encoded")) == "str"
     assert str(result.type_of("ratio")) == "tuple[int, int]"
+
+
+def test_filesystem_iteration_helpers() -> None:
+    result = _infer("""
+import glob
+import os
+
+matches = glob.glob("*.py")
+during_walk = [item for item in os.walk(".")]
+for entry in os.scandir("."):
+    entry_name = entry.name
+    is_directory = entry.is_dir()
+""")
+
+    assert str(result.type_of("matches")) == "list[str]"
+    assert str(result.type_of("during_walk")) == "list[tuple[str, list[str], list[str]]]"
+    assert str(result.type_of("entry_name")) == "str"
+    assert str(result.type_of("is_directory")) == "bool"

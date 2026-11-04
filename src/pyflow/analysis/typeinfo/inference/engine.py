@@ -4103,6 +4103,23 @@ class StaticTypeInferenceEngine:
         if qualified_name == "weakref.proxy" and arguments:
             # A proxy forwards attribute access to the target object.
             return arguments[0]
+        if qualified_name in {"glob.glob", "glob.iglob"} and arguments:
+            if qualified_name == "glob.glob":
+                return self._instance(list, self._proper_instance(str))
+            return self._instance(cabc.Iterator, self._proper_instance(str))
+        if qualified_name == "os.scandir":
+            return self._instance(cabc.Iterator, self._proper_instance(os.DirEntry))
+        if qualified_name == "os.walk":
+            return self._instance(
+                cabc.Iterator,
+                TupleType(
+                    (
+                        self._proper_instance(str),
+                        self._proper_instance(list, self._proper_instance(str)),
+                        self._proper_instance(list, self._proper_instance(str)),
+                    )
+                ),
+            )
         if qualified_name in {"os.getcwd", "os.getcwdb"}:
             return self._instance(bytes if qualified_name.endswith("b") else str)
         if qualified_name in {"os.getpid", "os.getppid"}:
@@ -5471,6 +5488,13 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr == "isEnabledFor":
                     return self._instance(bool)
+            if raw is os.DirEntry:
+                if node.attr in {"is_dir", "is_file", "is_symlink", "is_junction"}:
+                    return self._instance(bool)
+                if node.attr == "stat":
+                    return self._instance(os.stat_result)
+                if node.attr == "__fspath__":
+                    return self._instance(str)
             if raw is zipfile.ZipFile:
                 if node.attr in {"__enter__"}:
                     return AbstractTypeValue.from_type(typ)
@@ -9935,6 +9959,10 @@ class StaticTypeInferenceEngine:
                         continue
                     if attribute == "extra":
                         values.append(self._instance(dict, self._proper_instance(str), ANY))
+                        continue
+                if typ.type.raw_type is os.DirEntry:
+                    if attribute in {"name", "path"}:
+                        values.append(self._instance(str))
                         continue
                 if typ.type.raw_type is dataclasses.Field:
                     if attribute in {"name"}:
