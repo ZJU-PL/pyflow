@@ -61,13 +61,19 @@ class ProjectTypeInferenceEngine:
         converged = False
         iterations = 0
         importers: dict[str, set[str]] = {}
+        imports: dict[str, set[str]] = {}
         for module_name, source in sources.items():
-            for dependency in self._project_imports(module_name, source, paths[module_name] or ""):
+            dependencies = set(self._project_imports(module_name, source, paths[module_name] or ""))
+            imports[module_name] = dependencies
+            for dependency in dependencies:
                 importers.setdefault(dependency, set()).add(module_name)
+        # Analysing dependencies before their importers means most modules see
+        # final external facts on the second pass instead of the fifth.
+        analysis_order = self._analysis_order(sources, imports)
         previous: dict[str, tuple[object, ...]] = {}
         targets = set(sources)
         for iterations in range(1, self.max_project_iterations + 1):
-            for module_name in sorted(targets):
+            for module_name in [name for name in analysis_order if name in targets]:
                 if module_name in failed_modules:
                     continue
                 engine = StaticTypeInferenceEngine(
@@ -289,6 +295,33 @@ class ProjectTypeInferenceEngine:
                             if member is not None:
                                 return member
         return None
+
+    @staticmethod
+    def _analysis_order(
+        modules: Iterable[str],
+        imports: dict[str, set[str]],
+    ) -> list[str]:
+        """Order modules so that local dependencies are analysed first."""
+        module_set = set(modules)
+        remaining = {
+            module: {
+                dependency for dependency in imports.get(module, ()) if dependency in module_set
+            }
+            for module in module_set
+        }
+        ordered: list[str] = []
+        while remaining:
+            ready = sorted(module for module, deps in remaining.items() if not deps)
+            if not ready:
+                # Import cycles: fall back to a stable alphabetical order.
+                ordered.extend(sorted(remaining))
+                break
+            for module in ready:
+                ordered.append(module)
+                del remaining[module]
+            for deps in remaining.values():
+                deps.difference_update(ready)
+        return ordered
 
     @staticmethod
     def _module_fingerprint(result: ModuleInferenceResult) -> tuple[object, ...]:
