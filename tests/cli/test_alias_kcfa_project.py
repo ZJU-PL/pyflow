@@ -29,3 +29,9 @@ def test_kcfa_cli_resolves_project_imports(tmp_path, capsys):
     assert any("A()" in item for item in variables["instance"]["points_to"])
     assert variables["aa"]["points_to"] == variables["a"]["points_to"]
     assert not any("<native" in item for item in variables["instance"]["points_to"])
+
+
+def test_kcfa_import_depth_defaults_to_one_and_accepts_unlimited():
+    assert _args("input.py").import_depth == 1
+    assert _args("input.py", "--import-depth", "0").import_depth == 0
+    assert _args("input.py", "--import-depth", "-1").import_depth == -1

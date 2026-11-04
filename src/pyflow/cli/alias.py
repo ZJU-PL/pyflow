@@ -32,6 +32,13 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _import_depth(value: str) -> int:
+    parsed = int(value)
+    if parsed < -1:
+        raise argparse.ArgumentTypeError("must be >= -1 (-1 means unlimited)")
+    return parsed
+
+
 def add_alias_parser(subparsers):
     """Add the alias subcommand parser."""
     parser = subparsers.add_parser(
@@ -67,11 +74,11 @@ def add_alias_parser(subparsers):
     )
     parser.add_argument(
         "--import-depth",
-        type=_non_negative_int,
-        default=None,
+        type=_import_depth,
+        default=1,
         help=(
             "Maximum transitive import depth for kcfa "
-            "(default: unlimited; 0 analyzes only the entry module)"
+            "(default: 1; 0 analyzes only the entry module, -1 means unlimited)"
         ),
     )
     parser.add_argument(

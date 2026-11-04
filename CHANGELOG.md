@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of
+  unlimited, so analyses of large projects no longer hang on the full import
+  graph; `--import-depth -1` explicitly requests unlimited depth.
+- k-CFA no longer crashes when instantiating a class object whose body was
+  never lowered (`class_body_unavailable` is reported instead).
 - Starred unpacking in list, tuple, and set displays is preserved: `[*a, b]`
   used to lower to `BuildList([a, b])`, which made the iterable itself an
   element and lost the spread.  Displays with a spread now lower to the

@@ -204,7 +204,7 @@ Key options:
   (default: inferred from the entry file's enclosing packages). A package
   directory is accepted and normalised to its enclosing import root.
 - `--import-depth N`: Maximum transitive import depth for kcfa
-  (default: unlimited; `0` analyzes only the entry module)
+  (default: 1; `0` analyzes only the entry module, `-1` means unlimited)
 - `--all-scopes`: kcfa engine only. Analyze every function and method body,
   not just code reachable from the entry module. Required to see anything in
   a library module that has no module-level execution.
