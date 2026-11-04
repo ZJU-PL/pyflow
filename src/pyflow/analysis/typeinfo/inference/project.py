@@ -266,11 +266,12 @@ class ProjectTypeInferenceEngine:
         qualified_name: str,
         results: dict[str, ModuleInferenceResult],
     ) -> ProperType | None:
-        for module_name in sorted(results, key=len, reverse=True):
-            prefix = f"{module_name}."
-            if qualified_name.startswith(prefix):
-                remainder = qualified_name.removeprefix(prefix)
-                result = results[module_name]
+        parts = qualified_name.split(".")
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            result = results.get(module_name)
+            if result is not None:
+                remainder = ".".join(parts[index:])
                 typ = result.type_of(qualified_name) or result.type_of(remainder)
                 if typ is not None:
                     return typ
