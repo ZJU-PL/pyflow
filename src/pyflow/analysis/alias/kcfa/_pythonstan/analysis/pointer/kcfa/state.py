@@ -1149,7 +1149,9 @@ class PointerAnalysisState:
             objects.update(pts.objects)
 
         return {
-            "num_variables": len(self._env),
+            # ``_env`` also stores pointer-flow nodes, so counting its raw
+            # length over-reports the number of program variables.
+            "num_variables": sum(1 for var in self._env if isinstance(var, Ctx)),
             "num_objects": len(objects),
             "num_heap_locations": len(self._heap.objects),
             "num_call_edges": self._call_graph.num_plain_edges(),
@@ -1210,7 +1212,7 @@ class PointerAnalysisState:
                 obj_by_kind[obj.kind.value] += 1
 
         return {
-            "num_variables": len(self._env),
+            "num_variables": sum(1 for var in self._env if isinstance(var, Ctx)),
             "num_heap_locations": len(self._heap.objects),
             "num_call_edges": self._call_graph.get_number_of_edges(),
             "num_pfg_nodes": len(self._pointer_flow_graph.get_nodes()),

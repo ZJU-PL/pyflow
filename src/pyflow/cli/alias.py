@@ -25,6 +25,13 @@ def _non_negative_int(value: str) -> int:
     return parsed
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def add_alias_parser(subparsers):
     """Add the alias subcommand parser."""
     parser = subparsers.add_parser(
@@ -72,6 +79,21 @@ def add_alias_parser(subparsers):
         type=positive_seconds,
         default=30.0,
         help="Wall-clock budget for the entire analysis (default: 30; reports partial)",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=_positive_int,
+        default=None,
+        help=("kcfa engine only: solver work-item budget " "(default: backend default, 100000)"),
+    )
+    parser.add_argument(
+        "--max-points-to-size",
+        type=_positive_int,
+        default=200,
+        help=(
+            "kcfa engine only: widen points-to sets at this size "
+            "(default: 200; widened queries are reported incomplete)"
+        ),
     )
     parser.add_argument(
         "--all-scopes",
@@ -351,6 +373,8 @@ def _analyze_file_kcfa(
     project_root: Path | None = None,
     import_depth: int | None = None,
     analyze_all_scopes: bool = False,
+    max_iterations: int | None = None,
+    max_points_to_size: int | None = None,
 ) -> None:
     source = filepath.read_text()
 
@@ -358,12 +382,18 @@ def _analyze_file_kcfa(
     print()
 
     try:
+        solver_options = {}
+        if max_iterations is not None:
+            solver_options["max_iterations"] = max_iterations
+        if max_points_to_size is not None:
+            solver_options["max_points_to_size"] = max_points_to_size
         analysis = PointerAnalysis.from_project(
             filepath,
             project_path=project_root,
             k=k,
             max_import_depth=import_depth if import_depth is not None else -1,
             analyze_all_scopes=analyze_all_scopes,
+            **solver_options,
         )
         result = analysis.run()
     except Exception as exc:
@@ -441,6 +471,8 @@ def _analyze_file_kcfa_json(
     project_root: Path | None = None,
     import_depth: int | None = None,
     analyze_all_scopes: bool = False,
+    max_iterations: int | None = None,
+    max_points_to_size: int | None = None,
 ) -> dict:
     source = filepath.read_text()
     result_data: dict = {
@@ -451,12 +483,18 @@ def _analyze_file_kcfa_json(
     }
 
     try:
+        solver_options = {}
+        if max_iterations is not None:
+            solver_options["max_iterations"] = max_iterations
+        if max_points_to_size is not None:
+            solver_options["max_points_to_size"] = max_points_to_size
         analysis = PointerAnalysis.from_project(
             filepath,
             project_path=project_root,
             k=k,
             max_import_depth=import_depth if import_depth is not None else -1,
             analyze_all_scopes=analyze_all_scopes,
+            **solver_options,
         )
         result = analysis.run()
     except Exception as exc:
@@ -515,6 +553,8 @@ def run_alias_analysis(input_path: str, args) -> int:
     project_root = _resolve_project_root(getattr(args, "project_root", None))
     import_depth = getattr(args, "import_depth", None)
     analyze_all_scopes = bool(getattr(args, "all_scopes", False))
+    max_iterations = getattr(args, "max_iterations", None)
+    max_points_to_size = getattr(args, "max_points_to_size", None)
 
     all_results = []
     text_results = []
@@ -535,6 +575,8 @@ def run_alias_analysis(input_path: str, args) -> int:
                                     project_root=project_root,
                                     import_depth=import_depth,
                                     analyze_all_scopes=analyze_all_scopes,
+                                    max_iterations=max_iterations,
+                                    max_points_to_size=max_points_to_size,
                                 )
                                 if engine == "kcfa"
                                 else _analyze_file_flow_sensitive_json(filepath)
@@ -551,6 +593,8 @@ def run_alias_analysis(input_path: str, args) -> int:
                                     project_root=project_root,
                                     import_depth=import_depth,
                                     analyze_all_scopes=analyze_all_scopes,
+                                    max_iterations=max_iterations,
+                                    max_points_to_size=max_points_to_size,
                                 )
                             else:
                                 _analyze_file_flow_sensitive(filepath, verbose)

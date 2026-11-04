@@ -33,6 +33,7 @@ from .heap_model import (
     dict_keys,
     dynamic_attr,
     elem,
+    elem_only,
     is_dunder_name,
     key,
 )
@@ -334,6 +335,7 @@ class PointerSolver:
         self._class_object_variables = {}
         self._installed_class_variant_hooks = set()
         self._installed_class_owner_hooks = set()
+        self._published_type_new = set()
         self._scheduled_optional_calls = set()
         self._installed_slot_descriptors = set()
         self._expanded_dynamic_code = set()
@@ -933,6 +935,7 @@ class PointerSolver:
         )
 
     def _apply_static(self, scope: "Scope", context: "AbstractContext", constraint: "Constraint"):
+        self._stats["constraints_applied"] += 1
         if isinstance(constraint, AllocConstraint):
             self._apply_alloc(scope, context, constraint)
         elif isinstance(constraint, CopyConstraint):
@@ -941,6 +944,7 @@ class PointerSolver:
     def _apply_constraint(
         self, scope: "Scope", variable: Ctx[Any], constraint: "Constraint", diff: "PointsToSet"
     ) -> bool:
+        self._stats["constraints_applied"] += 1
         self.processor.handle_constraint(self, variable, scope, constraint, diff)
 
         # Here shoud add supports for Imports
@@ -1716,7 +1720,22 @@ class PointerSolver:
             result_ctx = self.state.get_variable(scope, context, result_var)
 
             def install_type_new_hooks() -> None:
-                if class_obj in self.state.get_points_to(result_ctx):
+                points = self.state.get_points_to(result_ctx)
+                if class_obj in points:
+                    self._install_class_owner_hooks(scope, context, class_obj)
+                    return
+                # ``type.__new__(...)`` is the standard way for a metaclass
+                # ``__new__`` to delegate.  Substitute the class object the
+                # construction machinery is publishing for its marker; a
+                # metaclass that returns an unrelated sentinel is unaffected.
+                if any(isinstance(obj, TypeNewObject) for obj in points):
+                    if class_obj not in self._published_type_new:
+                        self._published_type_new.add(class_obj)
+                        self.handle_new_points_to(
+                            result_ctx,
+                            scope,
+                            PointsToSet.singleton(class_obj),
+                        )
                     self._install_class_owner_hooks(scope, context, class_obj)
 
             self.state.dependencies.subscribe(
@@ -2358,6 +2377,17 @@ class PointerSolver:
             c.target.add_edge(edge, c.index)
             self.state._add_points_flow_edge(edge)
 
+    @staticmethod
+    def _dict_view_field(field: Optional["Field"]) -> "Field":
+        """Map a ``__dict__`` view field to the owning instance's field."""
+        if field is None:
+            return dynamic_attr()
+        if field.kind in (FieldKind.KEY, FieldKind.ATTRIBUTE) and field.name:
+            return attr(field.name)
+        # elem()/elem_only()/dict_keys()/value() describe unknown or
+        # enumerated positions; route them through the dynamic attribute cell.
+        return dynamic_attr()
+
     def _apply_load(self, scope: "Scope", variable: "Ctx", c: "LoadConstraint", pts: "PointsToSet"):
         """Apply load constraint: target = base.field or target = base[index]."""
         context = scope.context
@@ -2380,6 +2410,32 @@ class PointerSolver:
                 # config/ORM models) lost every field it was given.
                 dynamic_field = self.state.get_field(scope, context, base_obj, dynamic_attr())
                 self.state._add_var_points_flow(dynamic_field, target_var)
+
+            if isinstance(base_obj, DictViewObject):
+                if (
+                    c.field is not None
+                    and c.field.kind is FieldKind.ATTRIBUTE
+                    and c.field.name
+                    and c.field.name in self.state._get_builtin_methods_for_type("dict")
+                ):
+                    method_obj = BuiltinMethodObject(
+                        context=context,
+                        alloc_site=AllocSite(
+                            stmt=f"<builtin_method:{c.field.name}>",
+                            kind=AllocKind.BUILTIN,
+                        ),
+                        method_name=c.field.name,
+                        receiver=base_obj,
+                        receiver_var=c.base,
+                    )
+                    self.state._worklist.add(
+                        (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                    )
+                    continue
+                view_field = self._dict_view_field(c.field)
+                field_access = self.state.raw_field(scope, context, base_obj.instance, view_field)
+                self.state._add_var_points_flow(field_access, target_var)
+                continue
 
             if isinstance(base_obj, NativeObject):
                 if c.field is None:
@@ -2545,6 +2601,11 @@ class PointerSolver:
                     )
                     self.state._add_var_points_flow(source_var, module_var)
                     continue
+            if isinstance(base_obj, DictViewObject):
+                view_field = self._dict_view_field(c.field)
+                field_access = self.state.raw_field(scope, context, base_obj.instance, view_field)
+                self.state._add_var_points_flow(source_var, field_access)
+                continue
             field_access = self.state.raw_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(source_var, field_access)
 
@@ -3682,6 +3743,33 @@ class PointerSolver:
         )
         self.state.set_internal_scope(instance_obj, instance_scope)
 
+        # A subclass of ``tuple``/``list``/``set`` is constructed with the
+        # builtin base's initial contents.  Without copying them, indexing the
+        # instance returned nothing even though the base builtin would have
+        # been populated by its own constructor.
+        builtin_base = self.state.builtin_base_name(class_obj)
+        if builtin_base in {"tuple", "list", "set"} and call.args and call.target is not None:
+            source_var = call.args[0]
+            base_elem_var = self.variable_factory.make_variable(
+                f"$builtin_base_elem@{call.call_site.short_id()}",
+                VariableKind.TEMPORARY,
+            )
+            self.add_constraint(
+                scope,
+                context,
+                LoadConstraint(base=source_var, field=elem(), target=base_elem_var),
+            )
+            self.add_constraint(
+                scope,
+                context,
+                StoreConstraint(base=call.target, field=elem(), source=base_elem_var),
+            )
+            self.add_constraint(
+                scope,
+                context,
+                StoreConstraint(base=call.target, field=elem_only(), source=base_elem_var),
+            )
+
         if (
             not has_custom_new
             and (self._is_dataclass_class(class_obj) or self._is_namedtuple_class(class_obj))
@@ -3916,10 +4004,13 @@ class PointerSolver:
             "__init__",
         }:
             receiver = getattr(builtin_obj, "receiver", None)
-            if isinstance(receiver, BuiltinFunctionObject) and receiver.function_name == "object":
-                if builtin_obj.method_name == "__new__":
-                    return self._handle_object_new_call(scope, context, call)
-                return True
+            if isinstance(receiver, BuiltinFunctionObject):
+                if receiver.function_name == "object":
+                    if builtin_obj.method_name == "__new__":
+                        return self._handle_object_new_call(scope, context, call)
+                    return True
+                if receiver.function_name == "type" and builtin_obj.method_name == "__new__":
+                    return self._handle_type_new_call(scope, context, call)
 
         builtin_name = getattr(builtin_obj, "function_name", None) or getattr(
             builtin_obj, "builtin_name", None
@@ -3984,6 +4075,29 @@ class PointerSolver:
         allocate()
         return True
 
+    def _handle_type_new_call(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+    ) -> bool:
+        """Model ``type.__new__(mcls, name, bases, ns)``.
+
+        The concrete class is owned by the class-construction machinery, so
+        publish a marker and let that machinery substitute the class object it
+        is currently building.  This keeps ``super().__new__(...)`` working in
+        metaclasses without inventing a fresh class identity.
+        """
+        if call.target is None:
+            return True
+        target = self.state.get_variable(scope, context, call.target)
+        marker = TypeNewObject(
+            context=context,
+            alloc_site=AllocSite(call.call_site.statement, AllocKind.CLASS),
+        )
+        self.handle_new_points_to(target, scope, PointsToSet.singleton(marker))
+        return True
+
     def _handle_dynamic_code_builtin(
         self,
         scope: "Scope",
@@ -3994,6 +4108,24 @@ class PointerSolver:
         """Parse and lower constant-string ``exec``/``eval`` in place."""
         if not call.args:
             return False
+        if len(call.args) > 1:
+            # ``exec(code, ns)`` / ``eval(expr, ns)`` write or read through an
+            # explicit namespace.  Lowering into the current scope would be
+            # wrong, so report the gap instead of silently binding names in
+            # the wrong scope.
+            target = (
+                self.state.get_variable(scope, context, call.target)
+                if call.target is not None
+                else None
+            )
+            self.mark_semantic_incomplete(
+                variables=(target,) if target is not None else (),
+                scopes=(scope,),
+                kind="dynamic_code_namespace",
+                message=f"{builtin_name} namespace argument is not modeled",
+            )
+            if builtin_name == "exec":
+                return True
         source_ctx = self.state.get_variable(scope, context, call.args[0])
 
         def expand() -> None:

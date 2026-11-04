@@ -25,6 +25,9 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.analysis impor
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.config import (
     DEFAULT_MAX_ITERATIONS,
 )
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
+    TypeNewObject,
+)
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 
 _LOGGER = logging.getLogger(__name__)
@@ -206,6 +209,11 @@ class PointerAnalysisResult:
         self._query = inner.query()
 
     @staticmethod
+    def _visible_objects(pts) -> set[str]:
+        """Return printable targets, hiding internal construction markers."""
+        return {str(obj) for obj in pts if not isinstance(obj, TypeNewObject)}
+
+    @staticmethod
     def _scope_label(scope) -> str:
         stmt = getattr(scope, "stmt", None)
         if stmt is None:
@@ -273,7 +281,7 @@ class PointerAnalysisResult:
         if isinstance(binding, BindingId):
             return set().union(
                 *(
-                    {str(obj) for obj in pts}
+                    PointerAnalysisResult._visible_objects(pts)
                     for binding_id, _, pts in self._iter_named_bindings(binding.name)
                     if binding_id == binding
                 )
@@ -294,7 +302,7 @@ class PointerAnalysisResult:
                 continue
             if context is not None and binding_id.context != context:
                 continue
-            result.update(str(obj) for obj in pts)
+            result.update(PointerAnalysisResult._visible_objects(pts))
         return result
 
     def binding_ids_for_name(self, var_name: str) -> list[BindingId]:
@@ -311,7 +319,7 @@ class PointerAnalysisResult:
         for cvar, pts in self._state._env.items():
             content = getattr(cvar, "content", cvar)
             if getattr(content, "name", None) == var_name:
-                bindings.append((str(cvar), {str(obj) for obj in pts}))
+                bindings.append((str(cvar), PointerAnalysisResult._visible_objects(pts)))
         return bindings
 
     def points_to_query(

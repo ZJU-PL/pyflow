@@ -120,7 +120,7 @@ class ClassSemantics:
                         owner=owner,
                         effective_bases=(),
                         metaclass=metaclass,
-                        mro=(TypeRef.user(owner),),
+                        mro=(TypeRef.user(owner), TypeRef.builtin("object")),
                     )
                 )
             return

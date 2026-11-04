@@ -1160,8 +1160,14 @@ class PythonCallService(Processor):
                 positional_params.extend(func_args.args)
 
             arg_vars = []
+            # Parallel to ``arg_vars``: True when the value is a speculative
+            # expansion of an ``*args`` source whose length is unknown.  Such a
+            # value may occupy the slot, but it must not preempt a known
+            # ``**kwargs`` binding for the same parameter.
+            arg_uncertain = []
             if self_var is not None:
                 arg_vars.append(self_var)
+                arg_uncertain.append(False)
             starred_sources = []
             uncertain_star_values = []
             plain_after_uncertain_star = []
@@ -1171,6 +1177,7 @@ class PythonCallService(Processor):
                 source_var = state.get_variable(scope, context, source)
                 if not is_starred:
                     arg_vars.append(source_var)
+                    arg_uncertain.append(saw_uncertain_star)
                     if saw_uncertain_star:
                         plain_after_uncertain_star.append(source_var)
                     continue
@@ -1204,6 +1211,7 @@ class PythonCallService(Processor):
                             fields,
                         )
                     )
+                    arg_uncertain.append(known_lengths is None)
                 starred_sources.append((source_index, source, known_lengths))
 
                 if known_lengths is None:
@@ -1306,6 +1314,8 @@ class PythonCallService(Processor):
                     if arg_index < len(arg_vars):
                         # Bind positional argument to parameter
                         state._add_var_points_flow(arg_vars[arg_index], param_var)
+                        if arg_uncertain[arg_index] and param_name in kwarg_vars:
+                            state._add_var_points_flow(kwarg_vars[param_name], param_var)
                         arg_index += 1
                     else:
                         default_entry = positional_defaults.get(param_name)
@@ -1347,6 +1357,11 @@ class PythonCallService(Processor):
                     if arg_index < len(arg_vars):
                         # Bind positional argument to parameter
                         state._add_var_points_flow(arg_vars[arg_index], param_var)
+                        if arg_uncertain[arg_index] and param_name in kwarg_vars:
+                            # An unknown-length ``*args`` may or may not reach
+                            # this slot; the explicit keyword remains feasible.
+                            state._add_var_points_flow(kwarg_vars[param_name], param_var)
+                            consumed_kwargs.add(param_name)
                         arg_index += 1
                     elif param_name in kwarg_vars:
                         # Bind keyword argument to parameter

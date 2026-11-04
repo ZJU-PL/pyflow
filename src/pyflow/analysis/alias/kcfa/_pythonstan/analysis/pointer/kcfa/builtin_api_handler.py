@@ -53,6 +53,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     BuiltinMethodObject,
     ClassObject,
     ConstantObject,
+    DictViewObject,
     GeneratorObject,
     InstanceObject,
     ListObject,
@@ -63,6 +64,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import 
     ObjectFactory,
 )
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.type_ref import TypeRefKind
+from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.stable_key import stable_token
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.pointer_flow_graph import (
     NormalNode,
 )
@@ -404,7 +406,7 @@ class BuiltinAPIHandler:
             return self.state.builtin_base_name(receiver.class_obj)
         if isinstance(receiver, ListObject):
             return "list"
-        if isinstance(receiver, DictObject):
+        if isinstance(receiver, (DictObject, DictViewObject)):
             return "dict"
         if isinstance(receiver, TupleObject):
             return "tuple"
@@ -596,7 +598,7 @@ class BuiltinAPIHandler:
             # Side-effect-only functions whose result carries no capability
             "print": self._handle_print,
             # Scalar helpers whose results never carry a capability
-            "sum": self._handle_generic_precise,
+            "sum": self._handle_sum,
             "min": self._handle_min_max,
             "max": self._handle_min_max,
             "bytes": self._handle_generic_precise,
@@ -2529,6 +2531,79 @@ class BuiltinAPIHandler:
         """Handle print(*args): its result is ``None`` and carries no capability."""
         return self._handle_generic_builtin(scope, context, call, "print")
 
+    def _handle_sum(
+        self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
+    ) -> List["Constraint"]:
+        """Model ``sum(iterable, start)``.
+
+        ``sum`` is usually scalar, but ``sum(list_of_lists, [])`` is the
+        idiomatic flattening idiom.  Seed the result with the start value and
+        copy the iterable's elements onto it.  A container start keeps its
+        identity and elements; a scalar start is left untouched.
+        """
+        constraints = []
+        if not call.target:
+            return constraints
+        if len(call.args) > 1:
+            constraints.append(CopyConstraint(source=call.args[1], target=call.target))
+        else:
+            constraints.append(
+                AllocConstraint(
+                    target=call.target,
+                    alloc_site=AllocSite(stmt=call.stmt, kind=AllocKind.INTEGER),
+                )
+            )
+        solver = self._solver
+        if solver is None or not call.args:
+            return constraints
+
+        source_var = call.args[0]
+        target_var = call.target
+        last: set = set()
+
+        def emit() -> None:
+            target_ctx = self.state.get_variable(scope, context, target_var)
+            target_points = self.state.get_points_to(target_ctx)
+            if not any(
+                isinstance(obj, (ListObject, TupleObject, SetObject)) for obj in target_points
+            ):
+                return
+            source_ctx = self.state.get_variable(scope, context, source_var)
+            points = self.state.get_points_to(source_ctx)
+            fields = tuple(
+                (field, suffix)
+                for field, suffix in ((elem(), "elem"), (dict_keys(), "key"))
+                if field in self._iteration_fields(points)
+            )
+            signature = (frozenset(points), frozenset(field for field, _ in fields))
+            if signature in last:
+                return
+            last.add(signature)
+            for field, suffix in fields:
+                tmp_var = self._make_temp_var(f"sum_{suffix}", call)
+                solver.add_constraint(
+                    scope,
+                    context,
+                    LoadConstraint(base=source_var, field=field, target=tmp_var),
+                )
+                solver.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(base=target_var, field=elem(), source=tmp_var),
+                )
+                solver.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(base=target_var, field=elem_only(), source=tmp_var),
+                )
+
+        source_ctx = self.state.get_variable(scope, context, source_var)
+        target_ctx = self.state.get_variable(scope, context, target_var)
+        self.state.dependencies.subscribe(("sum-source", scope, context, call), (source_ctx,), emit)
+        self.state.dependencies.subscribe(("sum-target", scope, context, call), (target_ctx,), emit)
+        emit()
+        return constraints
+
     def _handle_generic_precise(
         self, scope: "Scope", context: "AbstractContext", call: "CallConstraint"
     ) -> List["Constraint"]:
@@ -2792,6 +2867,32 @@ class BuiltinAPIHandler:
         base_var = call.args[0]
         alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.DICT)
         constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
+
+        solver = self._solver
+        if solver is not None:
+            # ``vars(obj)`` is a live view of an instance's namespace.  Keep
+            # the plain dict for non-instance objects, and add a view for every
+            # instance the base may hold so writes through ``vars(obj)`` reach
+            # the instance's attribute cells.
+            def emit_view() -> None:
+                base_ctx = self.state.get_variable(scope, context, base_var)
+                target_ctx = self.state.get_variable(scope, context, call.target)
+                for obj in self.state.get_points_to(base_ctx):
+                    if not isinstance(obj, InstanceObject):
+                        continue
+                    view = DictViewObject(
+                        context=context,
+                        alloc_site=AllocSite(f"<dict-view:{stable_token(obj)}>", AllocKind.DICT),
+                        instance=obj,
+                    )
+                    solver.handle_new_points_to(target_ctx, scope, PointsToSet.singleton(view))
+
+            self.state.dependencies.subscribe(
+                ("vars-view", scope, context, call),
+                (self.state.get_variable(scope, context, base_var),),
+                emit_view,
+            )
+            emit_view()
 
         attr_names = self._collect_known_attr_names(scope, context, base_var)
         for idx, name in enumerate(sorted(attr_names)):

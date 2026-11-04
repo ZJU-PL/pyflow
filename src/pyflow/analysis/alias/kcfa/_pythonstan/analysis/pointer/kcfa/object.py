@@ -34,6 +34,8 @@ __all__ = [
     "BuiltinInstanceObject",
     "BuiltinMethodObject",
     "BuiltinFunctionObject",
+    "TypeNewObject",
+    "DictViewObject",
     "SuperObject",
     "GeneratorObject",
     "CoroutineObject",
@@ -260,15 +262,51 @@ class ModuleObject(AbstractObject):
 #: conservative: all deeper native values are represented by one object.
 MAX_NATIVE_ACCESS_PATH_DEPTH = 10
 
+#: How many attribute segments to retain after the last method-call boundary.
+#: Attribute-only chains branch combinatorially; method chains (which carry the
+#: capability paths users query) are preserved.
+MAX_NATIVE_TRAILING_ATTRIBUTES = 4
+
+#: How many method-call boundaries to retain.  Recursive native call chains
+#: grow one ``<return>`` per loop iteration; capability paths are short.
+MAX_NATIVE_CALL_SEGMENTS = 2
+
 _DEEP_NATIVE_SEGMENT = "<deep>"
 
 
 def canonicalize_native_access_path(path: str) -> str:
-    """Bound unresolved-native access paths so the solver can converge."""
+    """Bound unresolved-native access paths so the solver can converge.
+
+    Keeping a long prefix of a varying attribute path yields one object per
+    distinct prefix, which is exponential in the number of branches
+    (``x.a0.a1`` vs ``x.a1.a0`` ...).  Preserve the method-call chain (every
+    segment through the last ``<return>``) plus a couple of trailing
+    attributes, and summarize attribute-only tails.  This keeps capability
+    paths such as ``httpx.AsyncClient.<return>.get`` intact while bounding the
+    number of abstract native objects.
+    """
     segments = path.split(".")
-    if len(segments) <= MAX_NATIVE_ACCESS_PATH_DEPTH:
+    if _DEEP_NATIVE_SEGMENT in segments:
+        # Everything after the summary marker is already subsumed; this also
+        # makes repeated canonicalization idempotent.
+        return ".".join(segments[: segments.index(_DEEP_NATIVE_SEGMENT) + 1])
+    return_indices = [
+        index for index, segment in enumerate(segments) if segment == "<return>"
+    ]
+    if len(return_indices) > MAX_NATIVE_CALL_SEGMENTS:
+        # Recursive native chains grow one call boundary per iteration.
+        # Keep a bounded call prefix plus a couple of trailing attributes.
+        keep = return_indices[MAX_NATIVE_CALL_SEGMENTS - 1] + 1 + 2
+    elif return_indices:
+        keep = return_indices[-1] + 1 + 2
+    else:
+        keep = MAX_NATIVE_TRAILING_ATTRIBUTES
+    if keep >= len(segments) and len(segments) <= MAX_NATIVE_ACCESS_PATH_DEPTH:
         return path
-    return ".".join(segments[:MAX_NATIVE_ACCESS_PATH_DEPTH] + [_DEEP_NATIVE_SEGMENT])
+    keep = min(max(keep, 1), MAX_NATIVE_ACCESS_PATH_DEPTH)
+    if keep >= len(segments):
+        return path
+    return ".".join(segments[:keep] + [_DEEP_NATIVE_SEGMENT])
 
 
 @dataclass(frozen=True)
@@ -410,6 +448,35 @@ class BuiltinFunctionObject(AbstractObject):
 
     def __str__(self) -> str:
         return f"<builtin_function '{self.function_name}'>"
+
+
+@dataclass(frozen=True)
+class DictViewObject(AbstractObject):
+    """A view of an instance's attribute namespace (``obj.__dict__``).
+
+    Reads and writes through the view are redirected to the owning
+    instance's attribute cells, so ``obj.__dict__["x"] = v`` and
+    ``obj.x = v`` are the same operation.
+    """
+
+    instance: "InstanceObject"
+
+    def __str__(self) -> str:
+        return f"<__dict__ of {self.instance}>"
+
+
+@dataclass(frozen=True)
+class TypeNewObject(AbstractObject):
+    """Result of ``type.__new__(...)`` before the concrete class is known.
+
+    A metaclass ``__new__`` commonly delegates to ``type.__new__`` and
+    returns its result.  The class-construction machinery substitutes the
+    class object it is currently publishing for this marker, so a metaclass
+    that returns an arbitrary sentinel still does not acquire the class.
+    """
+
+    def __str__(self) -> str:
+        return "<type.__new__ result>"
 
 
 @dataclass(frozen=True)

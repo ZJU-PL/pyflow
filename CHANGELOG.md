@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- k-CFA now resolves `super().__new__(cls)` and metaclass `type.__new__`
+  delegation, so `abc.ABC` subclasses, singleton `__new__` patterns, and
+  metaclasses with a custom `__new__` publish their classes and instances
+  instead of silently disappearing.  `*args/**kwargs` forwarding preserves
+  keyword values, `obj.__dict__`/`vars(obj)` are live attribute views,
+  `sum(list_of_lists, [])` keeps its elements, builtin container subclasses
+  keep their constructor contents, and `exec(code, ns)` is reported
+  incomplete.  Native access paths are collapsed to a short prefix, so a
+  12-line native-branch program no longer takes minutes, and `pyflow alias`
+  exposes `--max-iterations`/`--max-points-to-size`.
 - Type inference now preserves mutable alias invariance inside fresh container
   literals and comprehensions, while still contextually typing nested literals.
 - k-CFA now handles starred class bases (`class C(*bases)`), `yield from`,

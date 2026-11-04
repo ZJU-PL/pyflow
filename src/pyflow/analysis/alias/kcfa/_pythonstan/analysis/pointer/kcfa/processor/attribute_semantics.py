@@ -33,6 +33,8 @@ from ..object import (
     AllocSite,
     BuiltinMethodObject,
     ClassObject,
+    DictViewObject,
+    ObjectFactory,
     InstanceObject,
     MethodObject,
     SlotDescriptorObject,
@@ -73,8 +75,9 @@ class AttributeResolver(Processor):
     _READ_INTERCEPT_SKIP = {"__getattribute__", "__getattr__"}
     _WRITE_INTERCEPT_SKIP = {"__setattr__"}
 
-    #: Builtin metamethods that ``super()`` may reach through ``type``.
-    _BUILTIN_METAMETHODS = {"__call__"}
+    #: Builtin metamethods that ``super()`` may reach through ``type`` or
+    #: the implicit ``object`` base.
+    _BUILTIN_METAMETHODS = {"__call__", "__new__", "__init__"}
 
     def __init__(self) -> None:
         self._const_alloc_sites: Dict[str, AllocSite] = {}
@@ -97,6 +100,18 @@ class AttributeResolver(Processor):
         target_ctx = (
             target if isinstance(target, Ctx) else state.get_variable(scope, context, target)
         )
+        if isinstance(base_obj, InstanceObject) and field.name == "__dict__":
+            # ``obj.__dict__`` is a live view over the instance's attribute
+            # cells, not an independent dictionary.  Redirecting reads and
+            # writes through this view keeps ``obj.__dict__[k] = v`` and
+            # ``obj.k = v`` consistent.
+            view = DictViewObject(
+                context=base_obj.context,
+                alloc_site=AllocSite(f"<dict-view:{stable_token(base_obj)}>", AllocKind.DICT),
+                instance=base_obj,
+            )
+            solver.handle_new_points_to(target_ctx, scope, PointsToSet.singleton(view))
+            return True
         if isinstance(base_obj, InstanceObject):
             raw_instance = state.raw_field(scope, context, base_obj, field)
             # Plain functions stored on the instance (``obj.m = f``) are bound
@@ -379,20 +394,33 @@ class AttributeResolver(Processor):
         selector: SelectorNode,
         scope: "Scope",
     ) -> bool:
-        """Expose ``type.__call__`` for a metaclass ``super()`` delegation.
+        """Expose builtin ``super()`` candidates that have no PFG cells.
 
-        ``class M(type): def __call__(cls, ...): return super().__call__(...)``
-        is the standard way to extend construction.  The builtin ``type`` base
-        has no PFG attribute cells, so install the bound builtin method
-        explicitly; ``_handle_type_call`` then performs the default
-        instantiation of the receiver class.
+        ``type.__call__`` covers metaclass delegation, while
+        ``object.__new__`` / ``object.__init__`` cover the implicit ``object``
+        base every class has.  Without the latter, ``super().__new__(cls)``
+        (the idiomatic form used by singletons and metaclasses) left the
+        constructed instance unbound.
         """
         if field.kind is not FieldKind.ATTRIBUTE or field.name not in self._BUILTIN_METAMETHODS:
             return False
-        if type_ref.kind is not TypeRefKind.BUILTIN or type_ref.name != "type":
+        if type_ref.kind is not TypeRefKind.BUILTIN:
             return False
         receiver = super_obj.receiver
         if not isinstance(receiver, ClassObject):
+            return False
+        if type_ref.name == "type":
+            if field.name == "__call__":
+                method_receiver = receiver
+            elif field.name in {"__new__", "__init__"}:
+                method_receiver = ObjectFactory.create_builtin_function("type", super_obj.context)
+            else:
+                return False
+        elif type_ref.name == "object":
+            if field.name not in {"__new__", "__init__"}:
+                return False
+            method_receiver = ObjectFactory.create_builtin_function("object", super_obj.context)
+        else:
             return False
         key = (super_obj, field, type_ref)
         if key in self._installed_builtin_super:
@@ -403,7 +431,7 @@ class AttributeResolver(Processor):
             context=super_obj.context,
             alloc_site=AllocSite(stmt=f"<builtin_method:{field.name}>", kind=AllocKind.BUILTIN),
             method_name=field.name,
-            receiver=receiver,
+            receiver=method_receiver,
         )
         method_var = Variable(f"$super_builtin@{stable_token(key)}", VariableKind.TEMPORARY)
         method_ctx = state.get_variable(scope, scope.context, method_var)
@@ -571,6 +599,18 @@ class AttributeResolver(Processor):
                     PointsToSet.singleton(class_obj),
                 )
             )
+            return
+        if attr_name == "__dict__":
+            # ``obj.__dict__`` is a live view over the instance's attribute
+            # cells, not an independent dictionary.  Redirecting reads and
+            # writes through this view keeps ``obj.__dict__[k] = v`` and
+            # ``obj.k = v`` consistent.
+            view = DictViewObject(
+                context=base_obj.context,
+                alloc_site=AllocSite(f"<dict-view:{stable_token(base_obj)}>", AllocKind.DICT),
+                instance=base_obj,
+            )
+            state._worklist.add((scope, NormalNode(target_ctx), PointsToSet.singleton(view)))
             return
         attr_token = self._attr_token(attr_name)
 
