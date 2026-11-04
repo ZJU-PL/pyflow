@@ -1621,6 +1621,10 @@ class ClassDescriptor:
 
         module = ClassDescriptor.get_dunder_value_from_type(typ, "module")
         qualname = ClassDescriptor.get_dunder_value_from_type(typ, "qualname")
+        # CPython 3.13 moved ``pathlib`` into ``pathlib._local``.  Expose the
+        # public module name so type strings stay stable across versions.
+        if module in {"pathlib._local", "pathlib._abc"}:
+            module = "pathlib"
         return f"{module}.{qualname}"
 
     @staticmethod

@@ -50,7 +50,6 @@ from pyflow.analysis.typeinfo.resolution.docstrings import (
     search_return_in_docstr,
 )
 from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_documented_type
-from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -88,6 +87,7 @@ class TypeInfoService:
         self._inference_results: dict[str, ModuleInferenceResult] = {}
         self._module_sources: dict[str, tuple[str, str | None]] = {}
         self._module_all: dict[str, frozenset[str] | None] = {}
+        self._module_imports: dict[str, dict[str, str]] = {}
         self._refreshing_inference = False
         self._refreshing_import_facts = False
         self._needs_refresh = False
@@ -258,6 +258,14 @@ class TypeInfoService:
         function = self._functions.get(module_name, {}).get(name)
         if function is not None:
             return function
+        reexported = self._resolve_reexported_member(module_name, name)
+        if reexported is not None and reexported != (module_name, name):
+            module_name, name = reexported
+            self._ensure_collected(module_name)
+            self._ensure_refreshed()
+            function = self._functions.get(module_name, {}).get(name)
+            if function is not None:
+                return function
         if "." not in name:
             return None
         class_name, _, method_name = name.rpartition(".")
@@ -268,6 +276,11 @@ class TypeInfoService:
         )
         if qualified_class not in self._classes:
             self._lookup_project_type(qualified_class, allow_synthetic=False)
+        if qualified_class not in self._classes:
+            owner_module, _, owner_name = qualified_class.rpartition(".")
+            reexported = self._resolve_reexported_member(owner_module, owner_name)
+            if reexported is not None:
+                qualified_class = f"{reexported[0]}.{reexported[1]}"
         return self._class_method_info(qualified_class, method_name)
 
     def members_of(self, qualified_name: str) -> dict[str, TypeFact]:
@@ -286,8 +299,47 @@ class TypeInfoService:
                     break
         if qualified_name in self._classes:
             return self._class_members_with_inheritance(qualified_name)
+        module_name, _, attribute = qualified_name.rpartition(".")
+        if module_name:
+            # ``pkg.Client`` is often only an alias created by ``from .core
+            # import Client``; follow the alias to the defining class.
+            reexported = self._resolve_reexported_member(module_name, attribute)
+            if reexported is not None:
+                target = f"{reexported[0]}.{reexported[1]}"
+                if target in self._classes:
+                    return self._class_members_with_inheritance(target)
         self._ensure_collected(qualified_name)
         return dict(self._module_facts.get(qualified_name, {}))
+
+    def _resolve_reexported_member(
+        self,
+        module_name: str,
+        name: str,
+        seen: set[tuple[str, str]] | None = None,
+    ) -> tuple[str, str] | None:
+        """Follow ``from x import y`` aliases to the defining module member."""
+        seen = set() if seen is None else seen
+        key = (module_name, name)
+        if key in seen:
+            return None
+        seen.add(key)
+        self._ensure_collected(module_name)
+        target = self._module_imports.get(module_name, {}).get(name)
+        if target is None:
+            fact = self._module_facts.get(module_name, {}).get(name)
+            if (
+                fact is not None
+                and fact.kind == "import"
+                and fact.raw_annotation
+                and "." in fact.raw_annotation
+                and all(part.isidentifier() for part in fact.raw_annotation.split("."))
+            ):
+                target = fact.raw_annotation
+        if not target or "." not in target:
+            return None
+        target_module, _, target_name = target.rpartition(".")
+        nested = self._resolve_reexported_member(target_module, target_name, seen)
+        return nested or (target_module, target_name)
 
     def _class_members_with_inheritance(
         self, class_name: str, seen: set[str] | None = None
@@ -444,7 +496,8 @@ class TypeInfoService:
         local_classes: set[str] = set()
         imports = self._collect_import_aliases(module_name, tree, path)
         module_aliases = self._module_class_aliases.setdefault(module_name, {})
-        for node in iter_module_imports(tree.body):
+        self._module_imports[module_name] = imports
+        for node in tree.body:
             if isinstance(node, ast.ClassDef):
                 qualified_name = f"{module_name}.{node.name}"
                 self._class_aliases[node.name] = qualified_name
@@ -691,6 +744,7 @@ class TypeInfoService:
         facts = self._module_facts.setdefault(module_name, {})
         module_functions = self._functions.setdefault(module_name, {})
         imports = self._stub_import_aliases(module_name, path, imports_raw)
+        self._module_imports[module_name] = imports
         module_aliases = self._module_class_aliases.setdefault(module_name, {})
 
         for cls in classes:

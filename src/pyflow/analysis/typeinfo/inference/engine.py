@@ -3607,10 +3607,7 @@ class StaticTypeInferenceEngine:
         ):
             name = node.args[0].value
             fields: dict[str, ProperType] = {}
-            for key_node, value_node in zip(node.args[1].keys, node.args[1].values):
-                if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
-                    continue
-                fields[key_node.value] = self._annotation_value(value_node).public_type() or ANY
+            required_fields: set[str] = set()
             total = not any(
                 isinstance(keyword, ast.keyword)
                 and keyword.arg == "total"
@@ -3618,12 +3615,26 @@ class StaticTypeInferenceEngine:
                 and keyword.value.value is False
                 for keyword in node.keywords
             )
+            for key_node, value_node in zip(node.args[1].keys, node.args[1].values):
+                if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
+                    continue
+                key = key_node.value
+                fields[key] = self._annotation_value(value_node).public_type() or ANY
+                wrapper = (
+                    self._qualified_callee_name(value_node.value)
+                    if isinstance(value_node, ast.Subscript)
+                    else ""
+                ) or ""
+                if wrapper.endswith("NotRequired"):
+                    continue
+                if wrapper.endswith("Required") or total:
+                    required_fields.add(key)
             qualified = f"{self._module_name}.{name}"
             raw = type(name, (dict,), {"__module__": self._module_name})
             instance = self._proper_instance(raw)
             descriptor = instance.type
             descriptor.typed_dict_fields = fields
-            descriptor.required_keys = frozenset(fields) if total else frozenset()
+            descriptor.required_keys = frozenset(required_fields)
             self._classes[qualified] = _ClassInfo(
                 qualified,
                 instance,
@@ -4013,15 +4024,38 @@ class StaticTypeInferenceEngine:
                     result_types[0].public_type() or ANY,
                 )
             if qualified_name == "asyncio.gather" and result_types:
-                gathered = (
-                    join_all(
-                        result_types,
-                        self.type_system,
-                        max_union_size=self.options.max_union_size,
-                    ).public_type()
-                    or ANY
+                # typeshed models ``gather`` with a fixed arity up to six
+                # arguments as ``tuple[T1, ..., Tn]`` and the variadic form as
+                # ``list[T]``.  Collapsing the fixed form to a list loses each
+                # position's type (``gather(f(), g())[0]`` becomes ``int|str``).
+                return_exceptions = any(
+                    keyword.arg == "return_exceptions"
+                    and not (
+                        isinstance(keyword.value, ast.Constant) and keyword.value.value is False
+                    )
+                    for keyword in node.keywords
                 )
-                return self._instance(asyncio.Future, self._proper_instance(list, gathered))
+                exception_type = self._proper_instance(BaseException)
+                item_types: list[ProperType] = []
+                for result in result_types:
+                    item_type = result.public_type() or ANY
+                    item_types.append(
+                        UnionType((item_type, exception_type)) if return_exceptions else item_type
+                    )
+                gathered: ProperType
+                if len(item_types) <= 6:
+                    gathered = TupleType(tuple(item_types))
+                else:
+                    gathered = self._proper_instance(
+                        list,
+                        join_all(
+                            result_types,
+                            self.type_system,
+                            max_union_size=self.options.max_union_size,
+                        ).public_type()
+                        or ANY,
+                    )
+                return self._instance(asyncio.Future, gathered)
             if qualified_name == "asyncio.to_thread" and arguments:
                 return self._instance(
                     cabc.Coroutine,
@@ -4572,9 +4606,9 @@ class StaticTypeInferenceEngine:
         text_results = [
             result
             for typ in base.types
-            if isinstance(typ, Instance) and typ.type.raw_type in {str, bytes}
-            if (result := self._model_text_method(cast(type, typ.type.raw_type), node.attr))
-            is not None
+            if isinstance(typ, Instance)
+            if (text_base := self._text_base(typ)) is not None
+            if (result := self._model_text_method(text_base, node.attr)) is not None
         ]
         if text_results:
             return join_all(
@@ -5177,10 +5211,10 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr == "isEnabledFor":
                     return self._instance(bool)
-            if raw is contextlib.ExitStack:
-                if node.attr in {"__enter__", "pop_all"}:
+            if raw in {contextlib.ExitStack, contextlib.AsyncExitStack}:
+                if node.attr in {"__enter__", "__aenter__", "pop_all"}:
                     return AbstractTypeValue.from_type(typ)
-                if node.attr == "enter_context" and arguments:
+                if node.attr in {"enter_context", "enter_async_context"} and arguments:
                     entered: ProperType = ANY
                     for item in arguments[0].types:
                         if (
@@ -5195,7 +5229,17 @@ class StaticTypeInferenceEngine:
                             entered = item.args[0]
                             break
                     return AbstractTypeValue.from_type(entered)
-                if node.attr in {"__exit__", "close", "callback", "push", "push_async"}:
+                if node.attr in {
+                    "__exit__",
+                    "__aexit__",
+                    "close",
+                    "aclose",
+                    "callback",
+                    "push",
+                    "push_async",
+                    "push_async_exit",
+                    "push_async_callback",
+                }:
                     return AbstractTypeValue.from_type(NONE_TYPE)
             if raw is contextvars.ContextVar:
                 item = args[0] if args else ANY
@@ -5509,6 +5553,10 @@ class StaticTypeInferenceEngine:
             left = left.join(AbstractTypeValue.bottom(), self.type_system)
         if any(isinstance(part, UnionType) for part in right.types):
             right = right.join(AbstractTypeValue.bottom(), self.type_system)
+        # ``enum.IntEnum``/``enum.StrEnum`` members (and plain subclasses of
+        # ``int``/``str``) behave like their scalar base for operators.
+        left = self._project_scalar_subclass(left)
+        right = self._project_scalar_subclass(right)
         if isinstance(operator, ast.Mod):
             if self._contains_raw(left, str) or self._contains_raw(left, bytes):
                 values = [
@@ -6006,6 +6054,42 @@ class StaticTypeInferenceEngine:
             max_union_size=self.options.max_union_size,
         )
         return replace(joined, unknown=joined.unknown or unknown)
+
+    def _text_base(self, typ: Instance) -> type | None:
+        """Return the builtin text type a ``str``/``bytes`` subclass behaves as."""
+        raw = typ.type.raw_type
+        if raw in {str, bytes}:
+            return raw
+        if not isinstance(raw, type):
+            return None
+        if self.type_system.is_subtype(typ, self._proper_instance(str)):
+            return str
+        if self.type_system.is_subtype(typ, self._proper_instance(bytes)):
+            return bytes
+        return None
+
+    def _project_scalar_subclass(self, value: AbstractTypeValue) -> AbstractTypeValue:
+        """Project scalar subclasses (including enums) onto their builtin base."""
+        projected: set[ProperType] = set()
+        changed = False
+        for typ in value.types:
+            replacement = typ
+            if isinstance(typ, Instance) and isinstance(typ.type.raw_type, type):
+                raw = typ.type.raw_type
+                if raw not in {bool, int, float, complex, str, bytes}:
+                    for base in (bool, int, float, complex, str, bytes):
+                        target = Instance(self.type_system.to_class_descriptor(base))
+                        # Source classes are synthetic (their declared bases
+                        # live in the type system's subclass graph), so
+                        # ``issubclass`` is not sufficient here.
+                        if self.type_system.is_subtype(typ, target):
+                            replacement = target
+                            changed = True
+                            break
+            projected.add(replacement)
+        if not changed:
+            return value
+        return replace(value, types=frozenset(projected))
 
     @staticmethod
     def _binary_protocol_names(operator: ast.operator) -> tuple[str | None, str | None]:
@@ -7777,7 +7861,69 @@ class StaticTypeInferenceEngine:
             return AbstractTypeValue.from_type(
                 self._proper_instance(builtin), class_target=f"builtins.{name}"
             )
+        if builtin is not None and callable(builtin):
+            value = self._builtin_callable_value(name)
+            if value is not None:
+                return value
         return AbstractTypeValue.unresolved()
+
+    def _builtin_callable_value(self, name: str) -> AbstractTypeValue | None:
+        """Model builtin functions used as values (``f = len; f(x)``)."""
+        int_type = self._proper_instance(int)
+        str_type = self._proper_instance(str)
+        bool_type = self._proper_instance(bool)
+        iterator = self._proper_instance(cabc.Iterator, ANY)
+        table: dict[str, CallableType] = {
+            "len": CallableType((self._proper_instance(cabc.Sized),), int_type),
+            "abs": CallableType((ANY,), ANY),
+            "repr": CallableType((ANY,), str_type),
+            "ascii": CallableType((ANY,), str_type),
+            "format": CallableType((ANY, str_type), str_type),
+            "print": CallableType(None, NONE_TYPE),
+            "isinstance": CallableType((ANY, ANY), bool_type),
+            "issubclass": CallableType((ANY, ANY), bool_type),
+            "callable": CallableType((ANY,), bool_type),
+            "hasattr": CallableType((ANY, str_type), bool_type),
+            "getattr": CallableType((ANY, str_type), ANY),
+            "setattr": CallableType((ANY, str_type, ANY), NONE_TYPE),
+            "delattr": CallableType((ANY, str_type), NONE_TYPE),
+            "hash": CallableType((ANY,), int_type),
+            "id": CallableType((ANY,), int_type),
+            "ord": CallableType((str_type,), int_type),
+            "chr": CallableType((int_type,), str_type),
+            "bin": CallableType((int_type,), str_type),
+            "hex": CallableType((int_type,), str_type),
+            "oct": CallableType((int_type,), str_type),
+            "input": CallableType((str_type,), str_type),
+            "open": CallableType(None, self._proper_instance(io.TextIOWrapper)),
+            "iter": CallableType((ANY,), iterator),
+            "next": CallableType((ANY,), ANY),
+            "reversed": CallableType((ANY,), iterator),
+            "enumerate": CallableType(
+                None, self._proper_instance(cabc.Iterator, TupleType((int_type, ANY)))
+            ),
+            "zip": CallableType(
+                None,
+                self._proper_instance(cabc.Iterator, TupleType((ANY,), unknown_size=True)),
+            ),
+            "map": CallableType(None, iterator),
+            "filter": CallableType(None, iterator),
+            "sum": CallableType((ANY,), ANY),
+            "min": CallableType(None, ANY),
+            "max": CallableType(None, ANY),
+            "any": CallableType((ANY,), bool_type),
+            "all": CallableType((ANY,), bool_type),
+            "round": CallableType(None, ANY),
+            "divmod": CallableType((ANY, ANY), TupleType((ANY, ANY))),
+            "pow": CallableType(None, ANY),
+            "vars": CallableType((ANY,), self._proper_instance(dict, str_type, ANY)),
+            "dir": CallableType((ANY,), self._proper_instance(list, str_type)),
+            "sorted": CallableType((ANY,), self._proper_instance(list, ANY)),
+            "slice": CallableType(None, ANY),
+            "breakpoint": CallableType(None, NONE_TYPE),
+        }
+        signature = table.get(name)
+        return None if signature is None else AbstractTypeValue.from_type(signature)
 
     _ENUM_KIND_NAMES = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
 
@@ -7990,6 +8136,11 @@ class StaticTypeInferenceEngine:
             local = self._resolve_lexical_function(name, parent)
             if local is None:
                 local = self._resolve_lexical_function(name.rsplit(".", 1)[-1], parent)
+            if local is not None and self._decorator_preserves_signature(self._functions[local]):
+                # ``functools.wraps`` copies ``__wrapped__`` metadata, so the
+                # decorated callable keeps its own signature.  Using the
+                # wrapper's ``Callable[..., Any]`` would erase it.
+                continue
             decorator_type: ProperType | None
             if local is not None:
                 decorator_type = self._function_value(self._functions[local]).public_type()
@@ -8041,6 +8192,29 @@ class StaticTypeInferenceEngine:
             if value is not None and not self._contains_type_var(value):
                 return AbstractTypeValue.from_type(value)
         return None
+
+    def _decorator_preserves_signature(self, function: _FunctionInfo) -> bool:
+        """Detect the ``functools.wraps`` passthrough decorator pattern."""
+        node = function.node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return False
+        positional = [*node.args.posonlyargs, *node.args.args]
+        if len(positional) != 1:
+            return False
+        parameter = positional[0].arg
+        for statement in node.body:
+            if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in statement.decorator_list:
+                if not isinstance(decorator, ast.Call) or not decorator.args:
+                    continue
+                name = self._qualified_callee_name(decorator.func) or ""
+                if not name.endswith("wraps"):
+                    continue
+                first = decorator.args[0]
+                if isinstance(first, ast.Name) and first.id == parameter:
+                    return True
+        return False
 
     def _function_value(self, function: _FunctionInfo) -> AbstractTypeValue:
         parameters: list[ProperType] = []
@@ -8880,6 +9054,19 @@ class StaticTypeInferenceEngine:
                 # Class objects are represented internally as Instance +
                 # class_targets; ``type[T]`` matching needs the explicit form.
                 actual_type = TypeType(actual_type)
+            if (
+                actual_type is not None
+                and isinstance(formal, CallableType)
+                and actual.class_targets
+            ):
+                # ``apply(str)`` passes a class object where a ``Callable``
+                # is expected; without a constructor signature the type
+                # variables that only appear in the callable's return type
+                # stay unbound and leak into the result.
+                constructor = self._constructor_callable_type(actual_type)
+                if constructor is not None:
+                    self._match_type_variables(formal, constructor, substitutions, fixed)
+                    continue
             if actual_type is not None:
                 self._match_type_variables(formal, actual_type, substitutions, fixed)
         if substitutions:
@@ -8930,6 +9117,36 @@ class StaticTypeInferenceEngine:
                 for formal_arg, actual_arg in zip(formal.arg_types, actual.arg_types):
                     self._match_type_variables(formal_arg, actual_arg, substitutions, fixed)
             return
+        if isinstance(formal, Instance) and isinstance(actual, TupleType):
+            # ``tuple`` is a dedicated type, so the Instance/Instance projection
+            # below never runs for ``Sequence[T]`` parameters bound to tuple
+            # arguments.
+            target = formal.type.raw_type
+            if (
+                target
+                in {
+                    cabc.Iterable,
+                    cabc.Iterator,
+                    cabc.Collection,
+                    cabc.Sequence,
+                    cabc.Reversible,
+                    cabc.Container,
+                    cabc.Set,
+                    cabc.AsyncIterable,
+                    cabc.AsyncIterator,
+                }
+                and formal.args
+            ):
+                items = actual.args
+                element: ProperType
+                if len(items) > 1:
+                    element = UnionType(tuple(items))
+                elif items:
+                    element = items[0]
+                else:
+                    element = ANY
+                self._match_type_variables(formal.args[0], element, substitutions, fixed)
+            return
         if isinstance(formal, Instance) and isinstance(actual, Instance):
             if formal.type.raw_type is actual.type.raw_type:
                 for formal_arg, actual_arg in zip(formal.args, actual.args):
@@ -8974,6 +9191,30 @@ class StaticTypeInferenceEngine:
             for formal_arg, actual_arg in zip(formal.args, actual.args):
                 self._match_type_variables(formal_arg, actual_arg, substitutions, fixed)
 
+    def _constructor_callable_type(self, instance: ProperType) -> CallableType | None:
+        """Project a class object onto the callable shape of its constructor."""
+        if isinstance(instance, TypeType):
+            instance = instance.item
+        if not isinstance(instance, Instance):
+            return None
+        class_info = self._classes.get(instance.type.full_name)
+        if class_info is None:
+            # Builtins and unanalysed classes: keep the result type and accept
+            # any arguments rather than guessing a signature.
+            return CallableType(None, instance)
+        target = self._class_method(class_info.qualified_name, "__init__")
+        if target is None:
+            target = self._class_method(class_info.qualified_name, "__new__")
+        if target is None:
+            return CallableType(None, instance)
+        signature = self._function_value(self._functions[target]).public_type()
+        if not isinstance(signature, CallableType):
+            return CallableType(None, instance)
+        parameters = signature.arg_types
+        if parameters:
+            parameters = parameters[1:]
+        return CallableType(parameters, instance)
+
     def _queue_parameter_evidence(
         self, target: str, parameter: str, value: AbstractTypeValue
     ) -> None:
@@ -9010,6 +9251,11 @@ class StaticTypeInferenceEngine:
             if member is not None:
                 found = member
                 break
+        if found is None:
+            # ``get_superclasses`` only knows classes registered with this
+            # type system.  Builtins such as ``BaseException`` are not, so
+            # consult the real MRO members (``args``, ``errno``, ...).
+            found = self.type_system.get_members(descriptor).get(attribute)
         self._inherited_members[cache_key] = found
         return None if found is None else AbstractTypeValue.from_type(found)
 
@@ -9158,6 +9404,38 @@ class StaticTypeInferenceEngine:
                     if inherited is not None:
                         values.append(inherited)
             else:
+                if isinstance(typ.type.raw_type, type) and issubclass(
+                    typ.type.raw_type, BaseException
+                ):
+                    if attribute == "args":
+                        values.append(
+                            AbstractTypeValue.from_type(TupleType((ANY,), unknown_size=True))
+                        )
+                        continue
+                    if attribute in {"__cause__", "__context__"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(BaseException)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                    if attribute in {"errno", "winerror"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(int)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
+                    if attribute in {"filename", "filename2", "strerror"}:
+                        values.append(
+                            self._join(
+                                AbstractTypeValue.from_type(self._proper_instance(str)),
+                                AbstractTypeValue.from_type(NONE_TYPE),
+                            )
+                        )
+                        continue
                 if typ.type.raw_type is subprocess.CompletedProcess:
                     text = typ.args[0] if typ.args else ANY
                     if attribute in {"stdout", "stderr"}:
@@ -9358,6 +9636,13 @@ class StaticTypeInferenceEngine:
                 except (AttributeError, TypeError, ValueError):
                     returned = ANY
                 values.append(AbstractTypeValue.from_type(CallableType(None, returned)))
+            elif member is not None:
+                # Data descriptors on builtins (``BaseException.args``,
+                # ``OSError.errno``) are not callable, but they are still
+                # typed members and should not degrade to unknown.
+                inherited = self._inherited_member(typ, attribute)
+                if inherited is not None:
+                    values.append(inherited)
         return (
             join_all(
                 values,
@@ -9945,6 +10230,19 @@ class StaticTypeInferenceEngine:
         if info is None or info.builtin_base is None:
             return None
         raw, args = info.builtin_base
+        substitutions: dict[str, ProperType] = {
+            name: value
+            for name, value in info.type_var_bindings.items()
+            if not isinstance(value, TypeVarType)
+        }
+        template = list(info.type_variables)
+        if template and typ.args:
+            substitutions.update(zip(template, typ.args))
+        if substitutions:
+            # ``class MyList(list[T])`` projects to ``list[T]``; when the
+            # receiver is ``MyList[int]`` the element type must be substituted
+            # instead of leaking ``T`` into indexing results.
+            args = tuple(substitute_type_vars(arg, substitutions) for arg in args)
         return Instance(self.type_system.to_class_descriptor(raw), args)
 
     @staticmethod
@@ -10587,7 +10885,17 @@ class StaticTypeInferenceEngine:
         for typ in value.types:
             if isinstance(typ, Instance) and typ.args:
                 values.append(AbstractTypeValue.from_type(typ.args[-1]))
-        return join_all(values, self.type_system) if values else AbstractTypeValue.unresolved()
+        if values:
+            return join_all(values, self.type_system)
+        if any(
+            isinstance(typ, Instance)
+            and typ.type.raw_type in {cabc.Coroutine, cabc.Awaitable, asyncio.Future, asyncio.Task}
+            for typ in value.types
+        ):
+            return AbstractTypeValue.from_type(ANY)
+        # ``__aenter__`` may return a plain ``Self`` instance rather than an
+        # awaitable; unwrapping must not discard that known type.
+        return value if value.types else AbstractTypeValue.unresolved()
 
     def _resolve_lexical_function(self, name: str, scope: str) -> str | None:
         current = scope
