@@ -452,6 +452,7 @@ class StaticTypeInferenceEngine:
         self._call_unknown_keywords = False
         self._current_function_info: _FunctionInfo | None = None
         self._mro_cache: dict[str, list[str]] = {}
+        self._recursive_functions: dict[str, bool] = {}
         self._collect_specializations = True
 
     # ------------------------------------------------------------------
@@ -1337,6 +1338,16 @@ class StaticTypeInferenceEngine:
             if function.effective_return is not None
             else fallback.return_value
         )
+        if (
+            function.effective_return is None
+            and function.summary is not None
+            and self._is_recursive_function(function)
+        ):
+            # Recursive summaries must be monotone across fixed-point
+            # iterations.  Otherwise a branch that consumes the function's own
+            # previous summary can alternate between a narrow and a widened
+            # result and never converge (ansible.playbook.role).
+            summary_return = self._join(summary_return, function.summary.return_value)
         overload_signatures: list[CallableType] = []
         for overload in function.overloads:
             signature = self._function_value(overload).public_type()
@@ -1353,6 +1364,26 @@ class StaticTypeInferenceEngine:
             specializations=ordered_specializations,
             overloads=tuple(overload_signatures),
         )
+
+    def _is_recursive_function(self, function: _FunctionInfo) -> bool:
+        cached = self._recursive_functions.get(function.qualified_name)
+        if cached is not None:
+            return cached
+        short_name = getattr(function.node, "name", "")
+        recursive = False
+        if short_name:
+            for node in ast.walk(function.node):
+                if not isinstance(node, ast.Call):
+                    continue
+                target = node.func
+                if isinstance(target, ast.Name) and target.id == short_name:
+                    recursive = True
+                    break
+                if isinstance(target, ast.Attribute) and target.attr == short_name:
+                    recursive = True
+                    break
+        self._recursive_functions[function.qualified_name] = recursive
+        return recursive
 
     def _fallback_parameters(self, function: _FunctionInfo) -> dict[str, AbstractTypeValue]:
         parameters: dict[str, AbstractTypeValue] = {}
@@ -8082,6 +8113,10 @@ class StaticTypeInferenceEngine:
             for superclass in self.type_system.get_superclasses(info.instance.type):
                 if superclass.full_name in {info.instance.type.full_name, "builtins.object"}:
                     continue
+                if superclass.raw_type is tuple:
+                    # ``tuple`` is represented by ``TupleType``; constructing
+                    # an ``Instance`` for it is rejected by the type system.
+                    return AbstractTypeValue.from_type(TupleType(()))
                 return AbstractTypeValue.from_type(Instance(superclass))
         return None
 

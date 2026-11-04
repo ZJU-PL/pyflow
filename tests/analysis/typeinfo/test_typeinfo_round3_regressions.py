@@ -334,3 +334,36 @@ bad = use(Wrong())
     messages = [d.message for d in result.diagnostics if d.code == "annotation-mismatch"]
     assert len(messages) == 1
     assert "Wrong" in messages[0]
+
+
+def test_super_in_namedtuple_subclass_does_not_crash() -> None:
+    result = _infer("""
+from collections import namedtuple
+
+Requirement = namedtuple("Requirement", "name version")
+
+class RoleRequirement(Requirement):
+    def __init__(self, *args, **kwargs):
+        super(RoleRequirement, self).__init__()
+
+requirement = RoleRequirement("a", "1.0")
+""")
+
+    assert str(result.type_of("requirement")) == "sample.RoleRequirement"
+
+
+def test_recursive_function_reaches_a_fixed_point() -> None:
+    result = _infer("""
+from typing import Any
+
+def hash_params(params: Any):
+    if isinstance(params, dict):
+        try:
+            return frozenset(params.items())
+        except TypeError:
+            return frozenset(hash_params(value) for value in params.values())
+    return frozenset((params,))
+""")
+
+    assert result.converged
+    assert result.iterations <= 10
