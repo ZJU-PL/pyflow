@@ -33,7 +33,9 @@ from ..object import (
     AllocSite,
     BuiltinMethodObject,
     ClassObject,
+    ConstantObject,
     DictViewObject,
+    FunctionObject,
     ObjectFactory,
     InstanceObject,
     MethodObject,
@@ -134,6 +136,10 @@ class AttributeResolver(Processor):
             )
             return True
         if isinstance(base_obj, ClassObject):
+            if field.kind is FieldKind.ATTRIBUTE and self._install_metadata(
+                solver, scope, base_obj, field, target_ctx
+            ):
+                return True
             if field.kind is FieldKind.ATTRIBUTE and field.name == "__class__":
                 # ``Cls.__class__`` is the metaclass, not the class itself.
                 state = solver.state
@@ -199,7 +205,52 @@ class AttributeResolver(Processor):
         if isinstance(base_obj, SuperObject):
             self._install_super_lookup(solver, scope, base_obj, field, target_ctx)
             return True
+        if isinstance(base_obj, FunctionObject):
+            if field.kind is FieldKind.ATTRIBUTE and self._install_metadata(
+                solver, scope, base_obj, field, target_ctx
+            ):
+                return True
         return False
+
+    _METADATA_NAMES = {"__name__", "__qualname__", "__module__", "__doc__"}
+
+    def _install_metadata(
+        self,
+        solver: "PointerSolver",
+        scope: "Scope",
+        base_obj,
+        field: Field,
+        target_ctx: "Ctx[Any]",
+    ) -> bool:
+        """Expose constant ``__name__``/``__qualname__``/``__module__``/``__doc__``."""
+        if field.name not in self._METADATA_NAMES:
+            return False
+        ir = getattr(base_obj, "ir", None)
+        if ir is None or not hasattr(ir, "get_qualname"):
+            return False
+        qualname = ir.get_qualname()
+        if field.name == "__name__":
+            value = ir.name if hasattr(ir, "name") else qualname.rsplit(".", 1)[-1]
+        elif field.name == "__qualname__":
+            value = qualname
+        elif field.name == "__module__":
+            module = getattr(getattr(base_obj, "container_scope", None), "module", None)
+            value = module.stmt.get_qualname() if module is not None else None
+        else:
+            ast_node = ir.get_ast() if hasattr(ir, "get_ast") else None
+            value = ast.get_docstring(ast_node) if ast_node is not None else None
+        if value is None:
+            return True
+        const = ConstantObject(
+            base_obj.context,
+            AllocSite(
+                f"<{type(base_obj).__name__}-{field.name}:{stable_token(base_obj)}>",
+                AllocKind.CONSTANT,
+            ),
+            value,
+        )
+        solver.handle_new_points_to(target_ctx, scope, PointsToSet.singleton(const))
+        return True
 
     @staticmethod
     def _class_declares(class_obj: ClassObject, name: str) -> bool:

@@ -694,3 +694,25 @@ def test_class_dunder_class_resolves_metaclass() -> None:
 
     assert result.complete
     assert any("Meta" in point for point in _points(result, "r"))
+
+
+def test_class_and_function_metadata_are_constants() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class C:
+                pass
+
+            def f():
+                pass
+
+            a = C.__name__
+            b = f.__name__
+            c = C.__module__
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert any("AllocKind.CONSTANT" in point for point in _points(result, "a"))
+    assert any("AllocKind.CONSTANT" in point for point in _points(result, "b"))
+    assert any("AllocKind.CONSTANT" in point for point in _points(result, "c"))
