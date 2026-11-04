@@ -89,7 +89,6 @@
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Type Information System</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#package-layout">Package Layout</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#usage">Usage</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
 </li>
@@ -176,9 +175,30 @@ optional external providers, usage tracing, and string specialization</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">TypeEvidenceIndex</span></code> stores source-level evidence.  <code class="docutils literal notranslate"><span class="pre">ClassDescriptor</span></code> is the
 separate core representation of a runtime Python class.</p>
+<section id="vendored-typeshed">
+<h3>Vendored typeshed<a class="headerlink" href="#vendored-typeshed" title="Link to this heading"></a></h3>
+<p>PyFlow ships a snapshot of mypy’s typeshed under
+<code class="docutils literal notranslate"><span class="pre">pyflow/stubs/typeshed</span></code> and uses it by default:</p>
+<ul class="simple">
+<li><p>stdlib modules and bundled third-party stubs resolve through
+<code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> without passing <code class="docutils literal notranslate"><span class="pre">typeshed_roots</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">StaticTypeInferenceEngine</span></code> installs a shared typeshed-backed external
+symbol resolver when no explicit resolver is supplied;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ProjectTypeInferenceEngine</span></code> consults project results first, then typeshed.</p></li>
+</ul>
+<p>The stub parser understands version-gated declarations
+(<code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">sys.version_info</span></code>), <code class="docutils literal notranslate"><span class="pre">&#64;overload</span></code>, <code class="docutils literal notranslate"><span class="pre">TypeVar</span></code>/<code class="docutils literal notranslate"><span class="pre">ParamSpec</span></code>,
+<code class="docutils literal notranslate"><span class="pre">TypeAlias</span></code>, module-level value aliases (<code class="docutils literal notranslate"><span class="pre">random</span> <span class="pre">=</span> <span class="pre">_inst.random</span></code>),
+<code class="docutils literal notranslate"><span class="pre">__all__</span></code>, and <code class="docutils literal notranslate"><span class="pre">Self</span></code> substitution.  <code class="docutils literal notranslate"><span class="pre">StubResolver</span></code> defaults
+<code class="docutils literal notranslate"><span class="pre">python_version</span></code> to the running interpreter; pass <code class="docutils literal notranslate"><span class="pre">python_version=(3,</span> <span class="pre">12)</span></code>
+to <code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> to analyse another version.</p>
+<p>Typeshed is the declaration source for the whole stdlib surface.  A small
+receiver-aware call/member layer still overrides it where declarations cannot
+express the result (for example <code class="docutils literal notranslate"><span class="pre">collections.Counter.copy()</span></code>,
+<code class="docutils literal notranslate"><span class="pre">asyncio.TaskGroup.create_task()</span></code>, <code class="docutils literal notranslate"><span class="pre">queue.Queue[int].get()</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pathlib.Path.open()</span></code>, and the <code class="docutils literal notranslate"><span class="pre">os.environ</span></code> mapping shape).  Callers can
+replace the vendored snapshot with <code class="docutils literal notranslate"><span class="pre">typeshed_roots=[...]</span></code>.</p>
 </section>
-<section id="usage">
-<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
 <section id="evidence-collection">
 <h3>Evidence Collection<a class="headerlink" href="#evidence-collection" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">collect_pyflow_type_info</span>
