@@ -2029,9 +2029,10 @@ class StaticTypeInferenceEngine:
             ):
                 alias_val = self._annotation_value(node.value)
                 if not alias_val.is_bottom and alias_val.types:
+                    # ``Alias = SomeClass`` / ``Alias = list[int]`` are both
+                    # typing aliases and runtime class-object values.
+                    class_targets: frozenset[str] = frozenset()
                     if isinstance(node.value, (ast.Name, ast.Attribute)):
-                        # ``Alias = SomeClass`` is both a typing alias and a
-                        # runtime class-object assignment.
                         runtime = self._evaluate_expression(
                             node.value,
                             result,
@@ -2046,10 +2047,24 @@ class StaticTypeInferenceEngine:
                             and isinstance(proxy.type.raw_type, type)
                         ):
                             class_targets = frozenset((proxy.type.full_name,))
-                        alias_val = replace(
-                            alias_val,
-                            class_targets=class_targets,
-                        )
+                    elif isinstance(node.value, ast.Subscript) and isinstance(
+                        node.value.value, ast.Name
+                    ):
+                        # ``list[int]`` / ``MyGeneric[int]`` used as a value is
+                        # a class object; typing forms such as ``Union[...]``
+                        # have no class target and must not be evaluated as
+                        # runtime subscripts.
+                        base_value = self._name_value(node.value.value.id, result, scope)
+                        if base_value.class_targets:
+                            runtime = self._evaluate_expression(
+                                node.value,
+                                result,
+                                scope=scope,
+                                current_function=current_function,
+                            )
+                            class_targets = runtime.class_targets
+                    if class_targets:
+                        alias_val = replace(alias_val, class_targets=class_targets)
                     self._assign_target(target, alias_val, result, current_function)
                     return _Outcome(result)
             value = self._evaluate_expression(
@@ -7758,7 +7773,7 @@ class StaticTypeInferenceEngine:
             ):
                 continue
             if (
-                isinstance(candidate, Instance)
+                isinstance(candidate, (Instance, TupleType))
                 and inferred.class_targets
                 and any(
                     isinstance(part, (TypeType, CallableType))
@@ -10153,6 +10168,10 @@ class StaticTypeInferenceEngine:
             parameters = tuple(
                 self._annotation_value(item).public_type() or ANY for item in arguments
             )
+            if "builtins.tuple" in base.class_targets:
+                # ``tuple[int, str]`` as a value is a generic alias over the
+                # special TupleType representation.
+                return replace(base, types=frozenset((TupleType(parameters),)))
             return replace(
                 base,
                 types=frozenset(

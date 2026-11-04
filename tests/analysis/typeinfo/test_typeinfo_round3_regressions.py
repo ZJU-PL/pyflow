@@ -819,3 +819,21 @@ value = Dynamic.missing
     )
 
     assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_generic_alias_values_are_class_objects() -> None:
+    result = _infer(
+        """
+def register(item_type: type) -> None: ...
+
+item_type = list[int]
+register(item_type)
+register(list[int])
+tuple_type = tuple[int, str]
+register(tuple_type)
+register(tuple[int, str, bool])
+""",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
