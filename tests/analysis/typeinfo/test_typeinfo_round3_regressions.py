@@ -525,3 +525,27 @@ standalone = concurrent.futures.ThreadPoolExecutor().submit(work).result()
 
     assert str(result.type_of("outcome")) == "int"
     assert str(result.type_of("standalone")) == "int"
+
+
+def test_flag_bitwise_operators_keep_the_enum_class() -> None:
+    result = _infer("""
+import enum
+
+class Permission(enum.Flag):
+    READ = enum.auto()
+    WRITE = enum.auto()
+
+class Mask(enum.IntFlag):
+    A = 1
+    B = 2
+
+combined = Permission.READ | Permission.WRITE
+intersection = Permission.READ & Permission.WRITE
+masked = Mask.A | Mask.B
+arithmetic = Mask.A + 1
+""")
+
+    assert str(result.type_of("combined")) == "sample.Permission"
+    assert str(result.type_of("intersection")) == "sample.Permission"
+    assert str(result.type_of("masked")) == "sample.Mask"
+    assert str(result.type_of("arithmetic")) == "int"

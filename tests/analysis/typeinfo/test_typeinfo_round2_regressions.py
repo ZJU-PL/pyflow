@@ -225,7 +225,7 @@ upper = Text.WORD.upper()
 """)
 
     assert _name(result.type_of("added")) == "int"
-    assert _name(result.type_of("combined")) == "int"
+    assert _name(result.type_of("combined")) == "sample.Flag"
     assert _name(result.type_of("joined")) == "str"
     assert _name(result.type_of("upper")) == "str"
 

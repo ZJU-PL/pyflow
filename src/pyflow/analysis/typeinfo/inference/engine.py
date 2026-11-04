@@ -5685,6 +5685,10 @@ class StaticTypeInferenceEngine:
             left = left.join(AbstractTypeValue.bottom(), self.type_system)
         if any(isinstance(part, UnionType) for part in right.types):
             right = right.join(AbstractTypeValue.bottom(), self.type_system)
+        if isinstance(operator, (ast.BitOr, ast.BitAnd, ast.BitXor)):
+            flag_result = self._flag_bitwise_result(left, right)
+            if flag_result is not None:
+                return flag_result
         # ``enum.IntEnum``/``enum.StrEnum`` members (and plain subclasses of
         # ``int``/``str``) behave like their scalar base for operators.
         left = self._project_scalar_subclass(left)
@@ -6198,6 +6202,21 @@ class StaticTypeInferenceEngine:
             return str
         if self.type_system.is_subtype(typ, self._proper_instance(bytes)):
             return bytes
+        return None
+
+    def _flag_bitwise_result(
+        self, left: AbstractTypeValue, right: AbstractTypeValue
+    ) -> AbstractTypeValue | None:
+        """``Flag``/``IntFlag`` bitwise operators return the enum class."""
+        for value in (left, right):
+            for typ in value.types:
+                if not isinstance(typ, Instance):
+                    continue
+                info = self._classes.get(typ.type.full_name)
+                if info is None:
+                    continue
+                if any(self._enum_base_kind(base) in {"Flag", "IntFlag"} for base in info.bases):
+                    return AbstractTypeValue.from_type(info.instance)
         return None
 
     def _project_scalar_subclass(self, value: AbstractTypeValue) -> AbstractTypeValue:
