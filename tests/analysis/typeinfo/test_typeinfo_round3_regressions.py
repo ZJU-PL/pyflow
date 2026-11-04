@@ -765,3 +765,39 @@ def outer(value):
 
     assert result.converged
     assert result.iterations <= 10
+
+
+def test_typeddict_update_checks_keys_and_values() -> None:
+    valid = _infer(
+        """
+from typing import TypedDict
+
+class Item(TypedDict):
+    name: str
+    count: int
+
+item: Item = {"name": "a", "count": 1}
+item.update({"count": 2})
+item.update(name="b")
+""",
+        strict=True,
+    )
+    assert not [d for d in valid.diagnostics if d.code == "annotation-mismatch"]
+
+    invalid = _infer(
+        """
+from typing import TypedDict
+
+class Item(TypedDict):
+    name: str
+    count: int
+
+item: Item = {"name": "a", "count": 1}
+item.update({"count": "bad"})
+item.update(missing=1)
+""",
+        strict=True,
+    )
+    messages = [d.message for d in invalid.diagnostics if d.code == "annotation-mismatch"]
+    assert any("TypedDict key count" in message for message in messages)
+    assert any("unexpected key 'missing'" in message for message in messages)

@@ -5590,10 +5590,16 @@ class StaticTypeInferenceEngine:
                         return self._instance(cabc.ValuesView, item)
                     if node.attr == "items":
                         return self._instance(cabc.ItemsView, key, item)
-                    if node.attr in {"update", "clear"}:
+                    if node.attr == "update":
                         # TypedDict keys and their types are fixed by the
                         # declaration; mutating methods must not project the
                         # receiver to an anonymous dict.
+                        if call_node is not None:
+                            self._check_typed_dict_update(
+                                typ, fields, arguments, keywords, call_node
+                            )
+                        return AbstractTypeValue.from_type(NONE_TYPE)
+                    if node.attr == "clear":
                         return AbstractTypeValue.from_type(NONE_TYPE)
                 else:
                     key = args[0] if len(args) > 0 else ANY
@@ -7421,6 +7427,54 @@ class StaticTypeInferenceEngine:
         if not self._is_type_variable_annotation(node, type_variables):
             return False
         return not isinstance(value.public_type(), TypeVarType)
+
+    def _check_typed_dict_update(
+        self,
+        typ: Instance,
+        fields: dict[str, ProperType],
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+        call_node: ast.Call,
+    ) -> None:
+        """Validate ``TypedDict.update`` keys and values against the declaration."""
+        severity = "error" if self.options.strict_annotations else "warning"
+
+        def literal_child(name: str) -> ast.expr | None:
+            if not call_node.args or not isinstance(call_node.args[0], ast.Dict):
+                return None
+            for key_node, value_node in zip(call_node.args[0].keys, call_node.args[0].values):
+                if isinstance(key_node, ast.Constant) and key_node.value == name:
+                    return value_node
+            return None
+
+        def check(name: object, value: AbstractTypeValue, node: ast.AST) -> None:
+            if not isinstance(name, str):
+                return
+            if name not in fields:
+                self._add_diagnostic(
+                    "annotation-mismatch",
+                    f"TypedDict {typ} has unexpected key {name!r}",
+                    node=node,
+                    severity=severity,
+                )
+                return
+            self._check_annotation_compatibility(
+                value,
+                AbstractTypeValue.from_type(fields[name]),
+                node,
+                context=f"TypedDict key {name}",
+            )
+
+        for argument in arguments:
+            for shape in argument.dict_shapes or ():
+                for name, value_type in shape:
+                    check(
+                        name,
+                        AbstractTypeValue.from_type(value_type),
+                        literal_child(name) if isinstance(name, str) else call_node,
+                    )
+        for name, value in keywords.items():
+            check(name, value, call_node)
 
     def _check_annotation_compatibility(
         self,
