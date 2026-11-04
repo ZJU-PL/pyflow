@@ -291,6 +291,10 @@ class IRTranslator:
         elif isinstance(self._current_scope, IRModule):
             kind = VariableKind.GLOBAL
         elif isinstance(self._current_scope, IRFunc):
+            if name == "__class__" and isinstance(
+                self.scope_manager.father.get(self._current_scope), IRClass
+            ):
+                return self._var_factory.make_variable(name=name, kind=VariableKind.CELL)
             locals_in_scope = self._local_vars.get(self._current_scope, set())
             if name in self._current_scope.get_nonlocal_vars():
                 kind = VariableKind.NONLOCAL
@@ -530,6 +534,23 @@ class IRTranslator:
         target_var = self._make_variable(lval)
         source_var = self._make_variable(rval)
         constraints.append(CopyConstraint(source=source_var, target=target_var))
+        if (
+            rval == "__class__"
+            and isinstance(self._current_scope, IRFunc)
+            and self._current_scope.args.args
+        ):
+            self_var = self._make_variable(self._current_scope.args.args[0].arg)
+            constraints.append(
+                AttrReadConstraint(
+                    base=self_var,
+                    attr="__class__",
+                    target=target_var,
+                    call_site=CallSite(
+                        statement=stmt,
+                        scope_name=self._get_current_scope_label(),
+                    ),
+                )
+            )
 
         # for fields of class, we need to store the value to the class
         if (
@@ -666,6 +687,27 @@ class IRTranslator:
                 "$caught_exception" if rval.id == "@caught_except" else rval.id
             )
             constraints.append(CopyConstraint(source=source_var, target=target_var))
+            if (
+                rval.id == "__class__"
+                and isinstance(self._current_scope, IRFunc)
+                and self._current_scope.args.args
+            ):
+                # A bare ``__class__`` read inside a method denotes the
+                # defining class.  Without this it resolved to an empty module
+                # global; ``self.__class__`` is a sound over-approximation
+                # (it may be a subclass at runtime).
+                self_var = self._make_variable(self._current_scope.args.args[0].arg)
+                constraints.append(
+                    AttrReadConstraint(
+                        base=self_var,
+                        attr="__class__",
+                        target=target_var,
+                        call_site=CallSite(
+                            statement=stmt,
+                            scope_name=self._get_current_scope_label(),
+                        ),
+                    )
+                )
 
         elif isinstance(rval, ast.BinOp):
             lvar = self._make_variable(rval.left.id)
@@ -1023,6 +1065,25 @@ class IRTranslator:
         rval = stmt.get_value()
         constraints = []
         source_var = self._make_variable(rval) if rval else None
+        if (
+            getattr(rval, "id", rval) == "__class__"
+            and source_var is not None
+            and isinstance(self._current_scope, IRFunc)
+            and self._current_scope.args.args
+        ):
+            # ``return __class__`` in a method denotes the defining class.
+            self_var = self._make_variable(self._current_scope.args.args[0].arg)
+            constraints.append(
+                AttrReadConstraint(
+                    base=self_var,
+                    attr="__class__",
+                    target=source_var,
+                    call_site=CallSite(
+                        statement=stmt,
+                        scope_name=self._get_current_scope_label(),
+                    ),
+                )
+            )
 
         is_generator = False
         if isinstance(self._current_scope, IRFunc):

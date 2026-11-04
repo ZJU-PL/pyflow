@@ -660,3 +660,37 @@ def test_literal_tuple_unpack_is_deterministic() -> None:
     results = [PointerAnalysis(source, k=1).run() for _ in range(5)]
     baseline = results[0].points_to_name_union("r")
     assert all(result.points_to_name_union("r") == baseline for result in results)
+
+
+def test_bare_class_cell_in_method_resolves_defining_class() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class C:
+                def m(self):
+                    return __class__
+
+            r = C().m()
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert any("AllocKind.CLASS" in point for point in _points(result, "r"))
+
+
+def test_class_dunder_class_resolves_metaclass() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class Meta(type):
+                pass
+
+            class A(metaclass=Meta):
+                pass
+
+            r = A.__class__
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert any("Meta" in point for point in _points(result, "r"))

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 from .processor import Processor
 from ..constraints import AllocConstraint, SuperResolveConstraint
-from ..object import AllocKind, MethodObject, SuperObject
+from ..object import AllocKind, ClassObject, MethodObject, SuperObject
 from ..points_to_set import PointsToSet
 from ..type_ref import TypeRef
 from ..variable import Variable, VariableKind
@@ -189,7 +189,10 @@ class SuperResolveProcessor(Processor):
             if scope.obj.instance_obj is not None:
                 receivers.append(scope.obj.instance_obj)
         cells = tuple(self._implicit_source_cells(solver, scope))
-        starts.extend(state.get_points_to(cells[0]))
+        # The ``__class__`` cell may also carry the builtin ``type`` from a
+        # ``cls.__class__`` read; only user classes are valid ``super()``
+        # start types in this model.
+        starts.extend(obj for obj in state.get_points_to(cells[0]) if isinstance(obj, ClassObject))
         if len(cells) > 1:
             receivers.extend(state.get_points_to(cells[1]))
         return tuple(dict.fromkeys(starts)), tuple(dict.fromkeys(receivers))

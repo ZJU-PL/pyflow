@@ -134,6 +134,17 @@ class AttributeResolver(Processor):
             )
             return True
         if isinstance(base_obj, ClassObject):
+            if field.kind is FieldKind.ATTRIBUTE and field.name == "__class__":
+                # ``Cls.__class__`` is the metaclass, not the class itself.
+                state = solver.state
+                class_scope = base_obj.container_scope
+                for meta_var in base_obj.metaclass_variables:
+                    meta_ctx = state.get_variable(class_scope, class_scope.context, meta_var)
+                    for meta_obj in state.get_points_to(meta_ctx):
+                        solver.handle_new_points_to(
+                            target_ctx, scope, PointsToSet.singleton(meta_obj)
+                        )
+                return True
             self._install_class_lookup(solver, scope, base_obj, field, target_ctx)
             if field.kind is FieldKind.ATTRIBUTE and field.name:
                 # A metaclass may intercept missing (or all) class attributes.
