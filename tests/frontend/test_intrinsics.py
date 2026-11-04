@@ -112,6 +112,33 @@ class TestIntrinsicManager(unittest.TestCase):
             {"key": "mapping"},
         )
 
+    def test_sequence_display_dynamic_fold_preserves_spread_order(self):
+        exports = self.intrinsic_manager.stubs.exports
+
+        folded = exports["interpreter_build_list"].annotation.dynamicFold(
+            [("item", 1), ("spread", [2, 3]), ("item", 4)]
+        )
+        self.assertEqual(folded, [1, 2, 3, 4])
+
+        folded = exports["interpreter_build_tuple"].annotation.dynamicFold(
+            [("spread", (1, 2)), ("item", 3)]
+        )
+        self.assertEqual(folded, (1, 2, 3))
+
+        folded = exports["interpreter_build_set"].annotation.dynamicFold(
+            [("spread", [1, 1]), ("item", 2)]
+        )
+        self.assertEqual(folded, {1, 2})
+
+    def test_sequence_display_stub_accepts_one_items_argument(self):
+        for name in ("interpreter_build_list", "interpreter_build_tuple"):
+            code = self.intrinsic_manager.stubs.exports[name]
+            self.assertEqual(
+                [param.name for param in code.codeparameters.params],
+                ["items"],
+                name,
+            )
+
     def test_matrix_multiplication_dynamic_fold(self):
         class Matrix:
             def __matmul__(self, other):

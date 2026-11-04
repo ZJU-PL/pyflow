@@ -360,6 +360,40 @@ while x > 0:
         self.assertEqual(slice2.start.object.pyobj, 2)
         self.assertEqual(slice2.stop.object.pyobj, 8)
 
+    def test_convert_starred_list_display_preserves_spread(self):
+        """``[*a, b]`` must keep the spread, not insert ``a`` as one element."""
+        node = python_ast.parse("[*a, b]").body[0].value
+        result = self.converter._convert_expression(node)
+
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_build_list")
+        items = result.args[0]
+        self.assertIsInstance(items, pyflow_ast.BuildList)
+        self.assertEqual(len(items.args), 2)
+        tags = [item.args[0].object.pyobj for item in items.args]
+        self.assertEqual(tags, ["spread", "item"])
+        self.assertIsInstance(items.args[0].args[1], pyflow_ast.Local)
+        self.assertEqual(items.args[0].args[1].name, "a")
+        self.assertEqual(items.args[1].args[1].name, "b")
+
+    def test_convert_starred_tuple_and_set_display_preserve_spread(self):
+        for source, helper in (
+            ("(*a, 0)", "interpreter_build_tuple"),
+            ("{*a, 7}", "interpreter_build_set"),
+        ):
+            node = python_ast.parse(source).body[0].value
+            result = self.converter._convert_expression(node)
+            self.assertIsInstance(result, pyflow_ast.Call, source)
+            self.assertEqual(result.expr.object.pyobj, helper)
+            tags = [item.args[0].object.pyobj for item in result.args[0].args]
+            self.assertEqual(tags, ["spread", "item"], source)
+
+    def test_convert_plain_list_display_stays_build_list(self):
+        node = python_ast.parse("[a, b]").body[0].value
+        result = self.converter._convert_expression(node)
+        self.assertIsInstance(result, pyflow_ast.BuildList)
+        self.assertEqual([e.name for e in result.args], ["a", "b"])
+
     def test_convert_boolop_and(self):
         """Boolean AND operations should use ShortCircutAnd for proper short-circuit semantics."""
         tree = python_ast.parse("a and b and c", mode="eval")

@@ -141,6 +141,13 @@ class IntrinsicManager:
                     ]
                 )
 
+            if op_name in (
+                "interpreter_build_list",
+                "interpreter_build_tuple",
+                "interpreter_build_set",
+            ):
+                return make_params([pyflow_ast.Local("items")])
+
             return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
 
         def _safe_merge_varargs(a, b):
@@ -226,6 +233,42 @@ class IntrinsicManager:
 
             return out
 
+        def _safe_build_sequence(items, factory):
+            """Build a list/tuple/set from tagged display items.
+
+            ``items`` follows the same protocol as ``interpreter_build_map``:
+            ``("item", value)`` appends one element and ``("spread", iterable)``
+            extends with the iterable's elements, in source order.  Untagged
+            values are accepted as plain elements for compatibility.
+            """
+            elements = []
+            try:
+                for item in items:
+                    if isinstance(item, (list, tuple)) and len(item) == 2 and item[0] == "spread":
+                        elements.extend(list(item[1]))
+                    elif isinstance(item, (list, tuple)) and len(item) == 2 and item[0] == "item":
+                        elements.append(item[1])
+                    else:
+                        elements.append(item)
+            except Exception:
+                pass
+            return factory(elements)
+
+        def _safe_build_list(items):
+            return _safe_build_sequence(items, list)
+
+        def _safe_build_tuple(items):
+            return _safe_build_sequence(items, tuple)
+
+        def _safe_build_set(*args):
+            # Accept the tagged-item display form as well as legacy varargs.
+            if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                try:
+                    return _safe_build_sequence(args[0], set)
+                except Exception:
+                    return set()
+            return set(args)
+
         # Map stub names to simple Python callables used for dynamic folding.
         dynfold = {
             "interpreter_getattribute": getattr,
@@ -276,9 +319,11 @@ class IntrinsicManager:
             "interpreter_format": _safe_format,
             "interpreter_join_str": lambda parts: "".join(str(p) for p in parts),
             "interpreter_build_map": _safe_build_map,
+            "interpreter_build_list": _safe_build_list,
+            "interpreter_build_tuple": _safe_build_tuple,
             # Container helpers
             "interpreter_list_append": lambda lst, item: lst.append(item),
-            "interpreter_build_set": lambda *args: set(args),
+            "interpreter_build_set": _safe_build_set,
             # Pattern matching helpers (no simple Python equivalent)
             "interpreter_match_sequence_len": lambda seq, n: bool(
                 _is_match_sequence(seq) and len(seq) == n
@@ -406,6 +451,8 @@ class IntrinsicManager:
                     "interpreter_format": create_stub_code("interpreter_format"),
                     "interpreter_join_str": create_stub_code("interpreter_join_str"),
                     "interpreter_build_map": create_stub_code("interpreter_build_map"),
+                    "interpreter_build_list": create_stub_code("interpreter_build_list"),
+                    "interpreter_build_tuple": create_stub_code("interpreter_build_tuple"),
                     # Container helper stubs
                     "interpreter_list_append": create_stub_code("interpreter_list_append"),
                     "interpreter_build_set": create_stub_code("interpreter_build_set"),

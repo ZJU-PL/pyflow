@@ -121,6 +121,8 @@ _PYTHON_SEMANTIC_CALL_MODELS = CallModelRegistry(
                 "interpreter_format",
                 "interpreter_join_str",
                 "interpreter_build_map",
+                "interpreter_build_list",
+                "interpreter_build_tuple",
                 "interpreter_build_set",
             )
         ),

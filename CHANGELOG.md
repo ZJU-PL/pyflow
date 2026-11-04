@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Starred unpacking in list, tuple, and set displays is preserved: `[*a, b]`
+  used to lower to `BuildList([a, b])`, which made the iterable itself an
+  element and lost the spread.  Displays with a spread now lower to the
+  `interpreter_build_list` / `interpreter_build_tuple` /
+  `interpreter_build_set` tagged-item helpers, matching the protocol already
+  used for `{**mapping}` displays.
 - k-CFA now resolves `super().__new__(cls)` and metaclass `type.__new__`
   delegation, so `abc.ABC` subclasses, singleton `__new__` patterns, and
   metaclasses with a custom `__new__` publish their classes and instances

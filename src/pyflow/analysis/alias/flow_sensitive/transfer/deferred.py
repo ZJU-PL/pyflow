@@ -216,6 +216,9 @@ class _DeferredTransferMixin:
             "zip",
             "builtins.zip",
             "interpreter_build_map",
+            "interpreter_build_list",
+            "interpreter_build_tuple",
+            "interpreter_build_set",
             "interpreter_merge_varargs",
             "interpreter_merge_kwargs",
         }

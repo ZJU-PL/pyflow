@@ -759,6 +759,40 @@ class ASTConverter:
             )
         return result
 
+    def _convert_sequence_display(self, elts, *, kind: str) -> PythonASTNode:
+        """Lower a list/tuple/set display, preserving starred unpacking.
+
+        ``BuildList``/``BuildTuple``/``BuildSet`` hold *elements*, so they cannot
+        express a spread such as ``[*a, b]``.  Previously each ``Starred``
+        element was rewritten to the bare iterable, which silently produced the
+        wrong container (``[*a]`` became ``[a]``).
+
+        Displays without a spread keep the direct node construction.  Displays
+        with at least one spread are lowered to the same tagged-item helper
+        protocol used for ``{**mapping, ...}``::
+
+            interpreter_build_list([('item', x), ('spread', a)])
+        """
+        if not any(isinstance(elt, python_ast.Starred) for elt in elts):
+            builder = {
+                "list": pyflow_ast.BuildList,
+                "tuple": pyflow_ast.BuildTuple,
+                "set": pyflow_ast.BuildSet,
+            }[kind]
+            return builder([self._convert_expression(elt) for elt in elts])
+
+        items: List[PythonASTNode] = []
+        for elt in elts:
+            if isinstance(elt, python_ast.Starred):
+                tag, operand = "spread", self._convert_expression_safe(elt.value)
+            else:
+                tag, operand = "item", self._convert_expression_safe(elt)
+            items.append(pyflow_ast.BuildTuple([pyflow_ast.Existing(Object(tag)), operand]))
+        return self._call_named(
+            f"interpreter_build_{kind}",
+            [pyflow_ast.BuildList(items)],
+        )
+
     def _convert_subscript_chain(self, node) -> PythonASTNode:
         spine = []
         current = node
@@ -875,8 +909,11 @@ class ASTConverter:
             return self._convert_call_chain(node)
 
         elif isinstance(node, python_ast.Starred):
-            # Starred expressions are only valid in certain contexts (call args, unpacking).
-            # When encountered directly, approximate by returning the underlying value.
+            # Displays (``[*a]``), call arguments, and assignment targets lower
+            # starred operands themselves.  Reaching here means a context this
+            # converter does not model: reporting the approximation is better
+            # than silently emitting the bare value.
+            self._warn_approx(node, "starred expression outside a handled context")
             return self._convert_expression_safe(node.value)
 
         elif isinstance(node, python_ast.UnaryOp):
@@ -941,13 +978,11 @@ class ASTConverter:
 
         elif isinstance(node, python_ast.Tuple):
             # Handle tuple creation: (a, b, c)
-            elts = [self._convert_expression(elt) for elt in node.elts]
-            return pyflow_ast.BuildTuple(elts)
+            return self._convert_sequence_display(node.elts, kind="tuple")
 
         elif isinstance(node, python_ast.List):
             # Handle list creation: [a, b, c]
-            elts = [self._convert_expression(elt) for elt in node.elts]
-            return pyflow_ast.BuildList(elts)
+            return self._convert_sequence_display(node.elts, kind="list")
 
         elif isinstance(node, python_ast.Dict):
             # Prefer literal evaluation when possible to keep constant dicts precise.
@@ -1000,8 +1035,7 @@ class ASTConverter:
                 value = python_ast.literal_eval(node)
                 return pyflow_ast.Existing(Object(value))
             except Exception:
-                elts = [self._convert_expression(elt) for elt in node.elts]
-                return pyflow_ast.BuildSet(elts)
+                return self._convert_sequence_display(node.elts, kind="set")
 
         elif isinstance(node, python_ast.Attribute):
             return self._convert_attribute_chain(node)

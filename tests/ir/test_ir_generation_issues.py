@@ -1026,6 +1026,51 @@ def f(get_list, get_idx):
     assert text.count("Call(Local(%get_idx)") == 1, text
 
 
+def test_starred_display_is_not_silently_dropped_in_cfg():
+    """A spread element lowers to a tagged item instead of the bare iterable.
+
+    Regression: ``[*a, b]`` used to become ``BuildList([a, b])``, i.e. the
+    iterable itself was inserted as a single element.
+    """
+    source = """
+def f(a, b):
+    xs = [*a, 1, *b]
+    ys = (*a, 2)
+    zs = {*a, 3}
+    return xs, ys, zs
+"""
+    conv = ASTConverter(verbose=False)
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    text = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+
+    assert "interpreter_build_list" in text
+    assert "interpreter_build_tuple" in text
+    assert "interpreter_build_set" in text
+    for tag in ("'spread'", "'item'"):
+        assert tag in text
+    # The spread operands are distinct tagged items, so ``a`` cannot be
+    # collapsed into a bare element of the display.
+    assert text.count("Existing(Object('spread')), Local(%a)") == 3, text
+    assert conv.approximation_warnings == []
+
+
+def test_plain_display_keeps_direct_build_nodes_in_cfg():
+    source = """
+def f(a, b):
+    return [a, b], (a, b), {a, b}
+"""
+    conv = ASTConverter(verbose=False)
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    text = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+
+    assert "interpreter_build_list" not in text
+    assert "interpreter_build_tuple" not in text
+    assert "interpreter_build_set" not in text
+    assert "BuildList" in text and "BuildTuple" in text and "BuildSet" in text
+
+
 def _blocks_reachable_from(block):
     seen = set()
     pending = [block]
