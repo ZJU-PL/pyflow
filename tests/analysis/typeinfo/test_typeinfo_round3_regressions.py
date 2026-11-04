@@ -873,3 +873,19 @@ use(wrong)
         strict=True,
     )
     assert [d for d in invalid.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_numeric_methods_have_result_types() -> None:
+    result = _infer("""
+bits = (5).bit_length()
+payload = (5).to_bytes(2, "big")
+integral = (1.5).is_integer()
+encoded = (1.5).hex()
+ratio = (5).as_integer_ratio()
+""")
+
+    assert str(result.type_of("bits")) == "int"
+    assert str(result.type_of("payload")) == "bytes"
+    assert str(result.type_of("integral")) == "bool"
+    assert str(result.type_of("encoded")) == "str"
+    assert str(result.type_of("ratio")) == "tuple[int, int]"

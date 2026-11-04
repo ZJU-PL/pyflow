@@ -4842,6 +4842,20 @@ class StaticTypeInferenceEngine:
                 max_union_size=self.options.max_union_size,
             )
 
+        numeric_results = [
+            result
+            for typ in base.types
+            if isinstance(typ, Instance)
+            if typ.type.raw_type in {int, float}
+            if (result := self._model_numeric_method(typ.type.raw_type, node.attr)) is not None
+        ]
+        if numeric_results:
+            return join_all(
+                numeric_results,
+                self.type_system,
+                max_union_size=self.options.max_union_size,
+            )
+
         for typ in base.types:
             if not isinstance(typ, Instance):
                 continue
@@ -5710,6 +5724,29 @@ class StaticTypeInferenceEngine:
             )
             return [receiver, *arguments]
         return arguments if base.class_targets else [base, *arguments]
+
+    def _model_numeric_method(self, receiver: type, attribute: str) -> AbstractTypeValue | None:
+        """Model common ``int``/``float`` methods."""
+        pair = TupleType((self._proper_instance(int), self._proper_instance(int)))
+        if receiver is int:
+            if attribute in {"bit_length", "bit_count"}:
+                return self._instance(int)
+            if attribute == "to_bytes":
+                return self._instance(bytes)
+            if attribute in {"as_integer_ratio"}:
+                return AbstractTypeValue.from_type(pair)
+            if attribute in {"conjugate", "real", "imag"}:
+                return self._instance(int)
+        if receiver is float:
+            if attribute == "is_integer":
+                return self._instance(bool)
+            if attribute == "as_integer_ratio":
+                return AbstractTypeValue.from_type(pair)
+            if attribute in {"hex"}:
+                return self._instance(str)
+            if attribute in {"conjugate", "real", "imag"}:
+                return self._instance(float)
+        return None
 
     def _model_text_method(self, receiver: type, attribute: str) -> AbstractTypeValue | None:
         """Model one ``str`` or ``bytes`` receiver alternative."""
