@@ -2851,7 +2851,12 @@ class StaticTypeInferenceEngine:
             value = (
                 AbstractTypeValue.from_type(NEVER)
                 if self._is_never_value(left) or self._is_never_value(right)
-                else self._operator_result(
+                else (
+                    self._type_union_value(left, right)
+                    if isinstance(node.op, ast.BitOr)
+                    else None
+                )
+                or self._operator_result(
                     node,
                     left,
                     right,
@@ -6415,6 +6420,22 @@ class StaticTypeInferenceEngine:
                 if any(self._enum_base_kind(base) in {"Flag", "IntFlag"} for base in info.bases):
                     return AbstractTypeValue.from_type(info.instance)
         return None
+
+    @staticmethod
+    def _type_union_value(
+        left: AbstractTypeValue, right: AbstractTypeValue
+    ) -> AbstractTypeValue | None:
+        """``SomeClass | OtherClass`` builds a runtime type union."""
+        if not left.class_targets or not right.class_targets:
+            return None
+        items: list[ProperType] = []
+        for value in (left, right):
+            for typ in value.types:
+                if isinstance(typ, Instance):
+                    items.append(typ)
+        if not items:
+            return None
+        return AbstractTypeValue.from_type(UnionType(tuple(items)))
 
     def _project_scalar_subclass(self, value: AbstractTypeValue) -> AbstractTypeValue:
         """Project scalar subclasses (including enums) onto their builtin base."""
