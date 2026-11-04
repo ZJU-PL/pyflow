@@ -76,6 +76,7 @@ from pyflow.analysis.typeinfo.inference.models import (
 from pyflow.analysis.typeinfo.resolution.annotations import (
     BuiltinTypeLookup,
     TypeLookup,
+    _is_typing_surface_name,
     resolve_annotation,
 )
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
@@ -741,8 +742,12 @@ class StaticTypeInferenceEngine:
                                 guard_target,
                                 guard_short == "TypeIs",
                             )
-                is_overload = bool(
-                    decorators & {"overload", "typing.overload", "typing_extensions.overload"}
+                # ``overload`` is frequently re-exported from a project
+                # module (``from ._types import overload``), so match the
+                # short decorator name as well.
+                is_overload = any(
+                    name is not None and name.rsplit(".", 1)[-1] == "overload"
+                    for name in decorators
                 )
                 if is_overload:
                     self._overloads.setdefault(qualified, []).append(info)
@@ -1099,12 +1104,22 @@ class StaticTypeInferenceEngine:
         return AbstractTypeValue.from_type(resolved, unknown=uncertain)
 
     def _annotation_aliases(self):
-        return {
-            name: target
-            for name, target in self._imports.items()
-            if name not in self._class_aliases
-            and f"{self._module_name}.{name}" not in self._functions
-        }
+        aliases = {}
+        for name, target in self._imports.items():
+            if name in self._class_aliases or f"{self._module_name}.{name}" in self._functions:
+                continue
+            aliases[name] = self._typing_reexport_alias(target) or target
+        return aliases
+
+    def _typing_reexport_alias(self, target: str) -> str | None:
+        """Map ``from ._types import Union`` back to ``typing.Union``."""
+        module_name, _, attribute = target.rpartition(".")
+        if not module_name or not _is_typing_surface_name(attribute):
+            return None
+        resolution = self.project_context.find_module(module_name)
+        if resolution is None or resolution.path is None:
+            return None
+        return f"typing.{attribute}"
 
     @staticmethod
     def _has_unresolved_annotation(typ):
@@ -1215,6 +1230,18 @@ class StaticTypeInferenceEngine:
                         external = external.arg_types[0]
                     return external
                 return builtin
+            # ``from ._types import Pattern`` style re-exports resolve to a
+            # synthetic placeholder otherwise; retry the typing spelling so
+            # stdlib typing/collections names keep their real types.
+            target_module, _, attribute = imported.rpartition(".")
+            if (
+                target_module
+                and _is_typing_surface_name(attribute)
+                and self.project_context.find_module(target_module) is not None
+            ):
+                typing_builtin = BuiltinTypeLookup()(f"typing.{attribute}")
+                if typing_builtin is not None:
+                    return typing_builtin
             return self._synthetic_instance(imported, unresolved=True)
 
         external = self._external_type(name)
@@ -1265,9 +1292,17 @@ class StaticTypeInferenceEngine:
                 elif function.method_kind == "static":
                     class_info.instance.type.members[name] = signature
                 else:
+                    overloads = tuple(
+                        CallableType(
+                            overload.arg_types[1:] if overload.arg_types else (),
+                            overload.return_type,
+                        )
+                        for overload in signature.overloads
+                    )
                     class_info.instance.type.members[name] = CallableType(
                         signature.arg_types[1:] if signature.arg_types else (),
                         signature.return_type,
+                        overloads=overloads,
                     )
         self.type_system.invalidate_subtype_caches()
 
@@ -1302,6 +1337,11 @@ class StaticTypeInferenceEngine:
             if function.effective_return is not None
             else fallback.return_value
         )
+        overload_signatures: list[CallableType] = []
+        for overload in function.overloads:
+            signature = self._function_value(overload).public_type()
+            if isinstance(signature, CallableType):
+                overload_signatures.append(signature)
         function.summary = FunctionSummary(
             qualified_name=function.qualified_name,
             parameters=fallback.parameter_map,
@@ -1311,6 +1351,7 @@ class StaticTypeInferenceEngine:
             is_async=isinstance(function.node, ast.AsyncFunctionDef),
             is_generator=function.is_generator_source or not fallback.yield_value.is_bottom,
             specializations=ordered_specializations,
+            overloads=tuple(overload_signatures),
         )
 
     def _fallback_parameters(self, function: _FunctionInfo) -> dict[str, AbstractTypeValue]:
@@ -5041,6 +5082,18 @@ class StaticTypeInferenceEngine:
                     return async_bool
                 if node.attr == "locked":
                     return self._instance(bool)
+            if raw is asyncio.TaskGroup:
+                if node.attr == "__aenter__":
+                    return self._instance(cabc.Coroutine, ANY, ANY, typ)
+                if node.attr == "__aexit__":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr == "create_task" and arguments:
+                    awaited = (
+                        self._await_result(arguments[0])
+                        if self._is_awaitable_value(arguments[0])
+                        else AbstractTypeValue.unresolved()
+                    )
+                    return self._instance(asyncio.Task, awaited.public_type() or ANY)
             if raw in {
                 queue.Queue,
                 queue.SimpleQueue,
@@ -8282,8 +8335,21 @@ class StaticTypeInferenceEngine:
             # ``Callable[[...], R]`` cannot encode *args, **kwargs, or
             # keyword-only parameters.  Ellipsis is the honest projection.
             parameters = None
+        signature = CallableType(None if parameters is None else tuple(parameters), returns)
+        if function.overloads:
+            overload_signatures = []
+            for overload in function.overloads:
+                overload_signature = self._function_value(overload).public_type()
+                if isinstance(overload_signature, CallableType):
+                    overload_signatures.append(overload_signature)
+            if overload_signatures:
+                signature = CallableType(
+                    signature.arg_types,
+                    signature.return_type,
+                    overloads=tuple(overload_signatures),
+                )
         return AbstractTypeValue.from_type(
-            CallableType(None if parameters is None else tuple(parameters), returns),
+            signature,
             callable_target=function.qualified_name,
         )
 
@@ -9333,14 +9399,25 @@ class StaticTypeInferenceEngine:
                 getter = self._class_property(class_info.qualified_name, attribute)
                 if getter is not None:
                     function = self._functions[getter]
-                    values.append(
-                        function.explicit_return
-                        or (
-                            function.summary.return_value
-                            if function.summary
-                            else AbstractTypeValue.unresolved()
-                        )
+                    property_value = function.explicit_return or (
+                        function.summary.return_value
+                        if function.summary
+                        else AbstractTypeValue.unresolved()
                     )
+                    substitutions = {
+                        parameter.name: argument
+                        for parameter, argument in zip(typ.type.type_parameters, typ.args)
+                    }
+                    substitutions.update(class_info.type_var_bindings)
+                    if substitutions and property_value.types:
+                        property_value = replace(
+                            property_value,
+                            types=frozenset(
+                                substitute_type_vars(item, substitutions)
+                                for item in property_value.types
+                            ),
+                        )
+                    values.append(property_value)
                     continue
                 has_known_attribute = False
                 member = self._class_attribute(class_info.qualified_name, attribute)
@@ -9511,6 +9588,7 @@ class StaticTypeInferenceEngine:
                     asyncio.Event,
                     asyncio.Semaphore,
                     asyncio.BoundedSemaphore,
+                    asyncio.TaskGroup,
                 }:
                     if attribute == "__aenter__":
                         values.append(self._instance(cabc.Coroutine, ANY, ANY, typ))
@@ -9671,7 +9749,16 @@ class StaticTypeInferenceEngine:
         if not isinstance(signature, CallableType) or function.method_kind == "static":
             return value
         if signature.arg_types is None:
-            return value
+            if function.method_kind == "instance" and base.class_targets:
+                # Unbound access through the class: keep the raw function
+                # target so ``C.m(obj, ...)`` still passes ``self``.
+                return value
+            # The parameter list is projected to ``...`` (keyword-only or
+            # variadic parameters), so ``self``/``cls`` cannot be sliced off.
+            # The value is still bound, though: dropping the raw target
+            # prevents a later call from binding an explicit argument to
+            # ``self`` and reporting a spurious arity mismatch.
+            return AbstractTypeValue.from_type(CallableType(None, signature.return_type))
         if function.method_kind == "instance" and base.class_targets:
             return value
         arguments = signature.arg_types

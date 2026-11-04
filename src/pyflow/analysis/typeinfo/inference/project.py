@@ -255,7 +255,11 @@ class ProjectTypeInferenceEngine:
                     parameters = tuple(
                         value.public_type() or ANY for value in summary.parameters.values()
                     )
-                    return CallableType(parameters, summary.return_type or ANY)
+                    return CallableType(
+                        parameters,
+                        summary.return_type or ANY,
+                        overloads=summary.overloads,
+                    )
                 if "." in remainder:
                     class_name, _, attribute = remainder.partition(".")
                     class_type = result.type_of(class_name)

@@ -62,6 +62,9 @@ from typing import TYPE_CHECKING, Protocol, Mapping
 
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     IGNORE_ANNOTATION_PARTS,
+    PROXY_CLASS_TYPES,
+    PROXY_TYPES,
+    TYPE_ALIAS_TYPES,
     resolve_type_alias,
 )
 
@@ -697,6 +700,28 @@ def _get_qualified_name(node: ast.expr) -> str:
     if isinstance(node, ast.Attribute):
         return f"{_get_qualified_name(node.value)}.{node.attr}"
     return ""
+
+
+def _is_typing_surface_name(name: str) -> bool:
+    """Whether *name* is a ``typing``/``collections.abc`` construct."""
+    if name in TYPE_ALIAS_TYPES or name in PROXY_CLASS_TYPES or name in PROXY_TYPES:
+        return True
+    if name in IGNORE_ANNOTATION_PARTS:
+        return True
+    if name in {
+        "Any",
+        "Never",
+        "NoReturn",
+        "Literal",
+        "Self",
+        "TypeGuard",
+        "TypeIs",
+        "Unpack",
+        "Concatenate",
+        "ParamSpec",
+    }:
+        return True
+    return BuiltinTypeLookup()(f"typing.{name}") is not None
 
 
 def _normalize_typing_name(name: str, lookup=None) -> str:

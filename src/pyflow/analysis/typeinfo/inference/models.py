@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 
-from pyflow.analysis.typeinfo.core.typesystem import ProperType
+from pyflow.analysis.typeinfo.core.typesystem import CallableType, ProperType
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
 
 
@@ -96,6 +96,7 @@ class FunctionSummary:
     is_async: bool = False
     is_generator: bool = False
     specializations: tuple[FunctionSpecialization, ...] = ()
+    overloads: tuple[CallableType, ...] = ()
 
     @property
     def return_type(self) -> ProperType | None:
