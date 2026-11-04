@@ -549,3 +549,47 @@ arithmetic = Mask.A + 1
     assert str(result.type_of("intersection")) == "sample.Permission"
     assert str(result.type_of("masked")) == "sample.Mask"
     assert str(result.type_of("arithmetic")) == "int"
+
+
+def test_functools_partial_of_classes_and_builtins() -> None:
+    result = _infer("""
+import functools
+
+class Item:
+    def __init__(self, name: str, count: int) -> None: ...
+
+make_item = functools.partial(Item, "x")
+item = make_item(1)
+
+parse_binary = functools.partial(int, base=2)
+number = parse_binary("10")
+
+to_text = functools.partial(str)
+text = to_text(1)
+""")
+
+    assert str(result.type_of("item")) == "sample.Item"
+    assert str(result.type_of("number")) == "int"
+    assert str(result.type_of("text")) == "str"
+
+
+def test_flag_unary_operators() -> None:
+    result = _infer("""
+import enum
+
+class Flag(enum.Flag):
+    A = enum.auto()
+
+class IntFlag(enum.IntFlag):
+    X = 1
+
+inverted_flag = ~Flag.A
+inverted_int_flag = ~IntFlag.X
+negated = -IntFlag.X
+positive = +IntFlag.X
+""")
+
+    assert str(result.type_of("inverted_flag")) == "sample.Flag"
+    assert str(result.type_of("inverted_int_flag")) == "sample.IntFlag"
+    assert str(result.type_of("negated")) == "int"
+    assert str(result.type_of("positive")) == "int"

@@ -2837,6 +2837,9 @@ class StaticTypeInferenceEngine:
                     value = self._instance(int)
                 elif value is None:
                     value = operand
+                if isinstance(node.op, (ast.UAdd, ast.USub)) and value is not None:
+                    # ``-IntFlag.X`` is a plain int (``~X`` keeps the flag).
+                    value = self._project_scalar_subclass(value)
                 if isinstance(node.op, (ast.UAdd, ast.USub, ast.Invert)) and operand.literal_values:
                     transformed: set[object] = set()
                     for literal in operand.literal_values:
@@ -3843,11 +3846,19 @@ class StaticTypeInferenceEngine:
             )
             return self._instance(raw, key_type, value_type)
         if qualified_name == "functools.partial" and arguments:
-            for typ in arguments[0].types:
-                if not isinstance(typ, CallableType):
-                    continue
-                if typ.arg_types is None:
-                    return AbstractTypeValue.from_type(typ)
+            signatures: list[CallableType] = [
+                typ for typ in arguments[0].types if isinstance(typ, CallableType)
+            ]
+            if not signatures and arguments[0].class_targets:
+                # ``functools.partial(int, base=2)``/``partial(SomeClass, x)``
+                # bind constructor arguments like any other callable.
+                for typ in arguments[0].types:
+                    constructor = self._constructor_callable_type(typ)
+                    if isinstance(constructor, CallableType):
+                        signatures.append(constructor)
+            for signature in signatures:
+                if signature.arg_types is None:
+                    return AbstractTypeValue.from_type(signature)
                 bound_positions = set(range(len(arguments) - 1))
                 target_name = next(iter(arguments[0].callable_targets), None)
                 target = self._functions.get(target_name) if target_name else None
@@ -3856,12 +3867,14 @@ class StaticTypeInferenceEngine:
                     bound_positions.update(
                         names.index(name)
                         for name in keywords
-                        if name in names and names.index(name) < len(typ.arg_types)
+                        if name in names and names.index(name) < len(signature.arg_types)
                     )
                 remaining = tuple(
-                    item for index, item in enumerate(typ.arg_types) if index not in bound_positions
+                    item
+                    for index, item in enumerate(signature.arg_types)
+                    if index not in bound_positions
                 )
-                return AbstractTypeValue.from_type(CallableType(remaining, typ.return_type))
+                return AbstractTypeValue.from_type(CallableType(remaining, signature.return_type))
             return AbstractTypeValue.unresolved()
         if qualified_name == "functools.reduce" and len(arguments) >= 2:
             reduced = element(arguments[1])
