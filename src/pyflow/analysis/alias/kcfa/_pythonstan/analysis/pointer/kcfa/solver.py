@@ -3079,6 +3079,63 @@ class PointerSolver:
                 for argument in self._native_effect_variables(call, effect):
                     source = self.state.get_variable(scope, context, argument)
                     self.state._add_var_points_flow(source, target)
+            elif kind == "await_sequence" and call.target is not None:
+                # ``asyncio.gather(*coros)`` awaits every coroutine and
+                # produces a sequence of their results.  Model the target as
+                # an awaitable whose ``$await_result`` is a list of results.
+                self.add_constraint(
+                    scope,
+                    context,
+                    AllocConstraint(
+                        target=call.target,
+                        alloc_site=AllocSite(call.call_site.statement, AllocKind.COROUTINE),
+                    ),
+                )
+                results_var = self.variable_factory.make_variable(
+                    f"$await_seq_results@{call.call_site.short_id()}",
+                    VariableKind.TEMPORARY,
+                )
+                self.add_constraint(
+                    scope,
+                    context,
+                    AllocConstraint(
+                        target=results_var,
+                        alloc_site=AllocSite(call.call_site.statement, AllocKind.LIST),
+                    ),
+                )
+                for index, argument in enumerate(self._native_effect_variables(call, effect)):
+                    elem_var = self.variable_factory.make_variable(
+                        f"$await_seq@{call.call_site.short_id()}@{index}",
+                        VariableKind.TEMPORARY,
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(
+                            base=argument,
+                            field=attr("$await_result"),
+                            target=elem_var,
+                        ),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(base=argument, field=elem(), target=elem_var),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        StoreConstraint(base=results_var, field=elem(), source=elem_var),
+                    )
+                self.add_constraint(
+                    scope,
+                    context,
+                    StoreConstraint(
+                        base=call.target,
+                        field=attr("$await_result"),
+                        source=results_var,
+                    ),
+                )
             elif kind == "await_argument" and target is not None:
                 # ``asyncio.run(coro)`` returns the awaited coroutine value.
                 for argument in self._native_effect_variables(call, effect):

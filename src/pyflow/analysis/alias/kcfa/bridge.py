@@ -110,6 +110,22 @@ _DEFAULT_NATIVE_EFFECTS = (
         "arguments": [0],
         "exhaustive": True,
     },
+    {
+        # A task wraps the coroutine; awaiting the task yields the coroutine's
+        # result.  Keeping the coroutine as the task value is a sound
+        # over-approximation for a may-analysis.
+        "access_path": "asyncio.create_task",
+        "kind": "return_argument",
+        "arguments": [0],
+    },
+    {
+        # ``asyncio.gather(*coros)`` awaits every coroutine and yields their
+        # results in order.
+        "access_path": "asyncio.gather",
+        "kind": "await_sequence",
+        "arguments": ["*"],
+        "exhaustive": True,
+    },
 )
 
 __all__ = [

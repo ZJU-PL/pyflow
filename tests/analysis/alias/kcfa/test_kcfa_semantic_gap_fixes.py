@@ -572,3 +572,44 @@ def test_asyncio_run_with_asynccontextmanager() -> None:
 
     assert result.complete
     assert _has_list(_points(result, "r"))
+
+
+def test_asyncio_create_task_await_returns_value() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import asyncio
+
+            async def f():
+                return [1]
+
+            async def main():
+                task = asyncio.create_task(f())
+                return await task
+
+            r = asyncio.run(main())
+            """),
+        k=1,
+    ).run()
+
+    assert _has_list(_points(result, "r"))
+
+
+def test_asyncio_gather_returns_coroutine_results() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import asyncio
+
+            async def f(x):
+                return x
+
+            async def main():
+                a, b = await asyncio.gather(f([1]), f([2]))
+                return b
+
+            r = asyncio.run(main())
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
