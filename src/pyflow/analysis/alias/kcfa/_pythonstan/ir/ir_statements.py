@@ -1451,10 +1451,10 @@ class IRFunc(IRScope, IRStatement):
             elif isinstance(decr, ast.Attribute):
                 if decr.attr == "setter":
                     self.is_setter = True
-        if fn.name == "__class_getitem__":
-            # CPython treats ``__class_getitem__`` as an implicit classmethod
-            # even without the decorator; otherwise ``Box[int]`` was bound as
-            # an instance method and produced an empty points-to set.
+        if fn.name in {"__class_getitem__", "__init_subclass__"}:
+            # CPython treats these as implicit classmethods even without the
+            # decorator.  Otherwise ``Box[int]`` and subclass registration
+            # through ``__init_subclass__`` were bound as instance methods.
             self.is_class_method = True
         self.is_instance_method = (
             is_method and not self.is_static_method and not self.is_class_method

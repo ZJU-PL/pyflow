@@ -328,3 +328,62 @@ def test_class_subscription_without_class_getitem_is_incomplete() -> None:
     query = result.points_to_query("r")
     assert query.complete is False
     assert any(reason["kind"] == "class_subscription" for reason in result.incomplete_reasons())
+
+
+def test_abc_subclass_with_class_keyword_and_init_subclass() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            from abc import ABC
+
+            class Base(ABC):
+                registry = {}
+
+                def __init_subclass__(cls, name=None, **kwargs):
+                    Base.registry[name] = cls
+
+            class A(Base, name="a"):
+                def m(self):
+                    return [1]
+
+            r = Base.registry["a"]().m()
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_metaclass_new_receives_non_colliding_class_keywords() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class Meta(type):
+                def __new__(mcls, name, bases, namespace, **kwargs):
+                    cls = super().__new__(mcls, name, bases, namespace)
+                    cls.tag = kwargs.get("tag")
+                    return cls
+
+            class A(metaclass=Meta, tag=[1]):
+                pass
+
+            r = A.tag
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_module_level_getattr_supplies_missing_attributes(tmp_path) -> None:
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "lazy.py").write_text("def __getattr__(name):\n    return [1]\n", encoding="utf-8")
+    entry = pkg / "main.py"
+    entry.write_text("from pkg import lazy\nr = lazy.anything\n", encoding="utf-8")
+
+    result = PointerAnalysis.from_project(entry, k=1, max_import_depth=-1).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))

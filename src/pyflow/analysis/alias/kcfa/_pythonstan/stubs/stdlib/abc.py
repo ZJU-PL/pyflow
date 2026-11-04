@@ -1,6 +1,6 @@
 class ABCMeta(type):
-    def __new__(mcs, name, bases, namespace):
-        cls = super().__new__(mcs, name, bases, namespace)
+    def __new__(mcs, name, bases, namespace, **kwargs):
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         cls.__abstractmethods__ = frozenset(
             name
             for name, value in namespace.items()

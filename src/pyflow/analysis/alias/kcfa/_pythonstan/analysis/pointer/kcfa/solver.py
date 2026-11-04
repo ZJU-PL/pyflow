@@ -1644,6 +1644,46 @@ class PointerSolver:
                 self._dispatched_class_factories.add(key_)
                 self._dispatch_class_factory(scope, context, class_obj, result_var, meta_obj)
 
+    def _metaclass_keyword_arguments(
+        self,
+        meta_obj: "ClassObject",
+        method_name: str,
+        class_obj: "ClassObject",
+    ):
+        """Class keywords safe to forward to a metaclass method.
+
+        ``type.__new__`` receives class keywords through ``**kwds`` and does
+        not bind them to its ``name``/``bases``/``namespace`` parameters.  The
+        generic argument binder cannot express that, so omit keywords that
+        collide with the resolved method's parameter names.
+        """
+        params = self._metaclass_parameter_names(meta_obj, method_name)
+        return tuple(
+            (name, var)
+            for name, var in class_obj.class_keyword_variables
+            if name is None or name not in params
+        )
+
+    def _metaclass_parameter_names(self, meta_obj: "ClassObject", method_name: str) -> set:
+        state = self.state
+        for type_ref in state.types.mro(state.types.ref(meta_obj)):
+            if type_ref.kind is not TypeRefKind.USER:
+                continue
+            target = type_ref.target
+            if not isinstance(target, ClassObject):
+                continue
+            ir = self.ir_translator.scope_manager.get_subscope(target.ir, method_name)
+            if isinstance(ir, IRFunc):
+                return {
+                    arg.arg
+                    for arg in (
+                        *ir.args.posonlyargs,
+                        *ir.args.args,
+                        *ir.args.kwonlyargs,
+                    )
+                }
+        return set()
+
     def _install_class_variant_hooks(
         self,
         scope: "Scope",
@@ -1709,7 +1749,12 @@ class PointerSolver:
                 field=attr("__new__"),
                 key_=("class-metaclass-new", class_obj, variant),
                 args_factory=lambda _callee: (meta_var, name_var, bases_var, prepare_result),
-                kwargs=class_obj.class_keyword_variables,
+                # Class keywords are also passed to ``__init_subclass__``.
+                # Forward them to ``__new__`` only when they do not collide
+                # with its positional parameter names: a class keyword such as
+                # ``name=...`` otherwise looked like a duplicate argument and
+                # dropped the class entirely.
+                kwargs=self._metaclass_keyword_arguments(meta_obj, "__new__", class_obj),
                 target=result_var,
                 call_site=CallSite(
                     statement=class_obj.ir,
@@ -1752,7 +1797,7 @@ class PointerSolver:
             field=attr("__init__"),
             key_=("class-metaclass-init", class_obj, variant),
             args_factory=lambda _callee: (created_class_var, name_var, bases_var, prepare_result),
-            kwargs=class_obj.class_keyword_variables,
+            kwargs=self._metaclass_keyword_arguments(meta_obj, "__init__", class_obj),
             target=None,
             call_site=CallSite(
                 statement=class_obj.ir,
@@ -2388,6 +2433,67 @@ class PointerSolver:
         # enumerated positions; route them through the dynamic attribute cell.
         return dynamic_attr()
 
+    def _install_module_getattr(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        module_obj: "ModuleObject",
+        module_scope: "Scope",
+        attr_name: str,
+        target: "Variable",
+    ) -> None:
+        """Model PEP 562 module-level ``__getattr__(name)`` fallbacks."""
+        getattr_var = Variable(name="__getattr__", kind=VariableKind.GLOBAL)
+        getattr_ctx = self.state.get_variable(module_scope, module_scope.context, getattr_var)
+        token = stable_token(module_obj)
+        installed: set = set()
+
+        def emit() -> None:
+            if self.state.get_points_to(getattr_ctx).is_empty():
+                return
+            if attr_name in installed:
+                return
+            installed.add(attr_name)
+            name_var = Variable(
+                name=f"$module_getattr_name@{token}:{attr_name}",
+                kind=VariableKind.TEMPORARY,
+            )
+            name_ctx = self.state.get_variable(scope, context, name_var)
+            const = ConstantObject(
+                context,
+                AllocSite(f"<module-getattr-name:{token}:{attr_name}>", AllocKind.CONSTANT),
+                attr_name,
+            )
+            self.handle_new_points_to(name_ctx, scope, PointsToSet.singleton(const))
+            callee_var = Variable(
+                name=f"$module_getattr_callee@{token}:{attr_name}",
+                kind=VariableKind.TEMPORARY,
+            )
+            callee_ctx = self.state.get_variable(scope, context, callee_var)
+            self.state._add_var_points_flow(getattr_ctx, callee_ctx)
+            self.add_constraint(
+                scope,
+                context,
+                CallConstraint(
+                    callee=callee_var,
+                    args=(name_var,),
+                    kwargs=(),
+                    target=target,
+                    call_site=CallSite(
+                        statement=module_scope.stmt,
+                        scope_name=module_scope.stmt.get_qualname(),
+                        index=60,
+                    ),
+                ),
+            )
+
+        self.state.dependencies.subscribe(
+            ("module-getattr", module_obj, attr_name, target),
+            (getattr_ctx,),
+            emit,
+        )
+        emit()
+
     def _apply_load(self, scope: "Scope", variable: "Ctx", c: "LoadConstraint", pts: "PointsToSet"):
         """Apply load constraint: target = base.field or target = base[index]."""
         context = scope.context
@@ -2469,6 +2575,19 @@ class PointerSolver:
                     )
                     # Direct copy: module.var -> local.var (bypass field mechanism)
                     self.state._add_var_points_flow(module_var, target_var)
+                    if c.field.name != "__getattr__":
+                        # PEP 562: a module-level ``__getattr__`` supplies
+                        # attributes that are not defined as globals.  A may
+                        # analysis cannot prove absence, so always route the
+                        # read through it when the module defines one.
+                        self._install_module_getattr(
+                            scope,
+                            context,
+                            base_obj,
+                            module_scope,
+                            c.field.name,
+                            c.target,
+                        )
                     continue
 
             # Special handling for builtin methods on container objects
