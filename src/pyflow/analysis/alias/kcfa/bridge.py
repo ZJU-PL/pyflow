@@ -103,6 +103,13 @@ _DEFAULT_NATIVE_EFFECTS = (
         "arguments": [0],
         "exhaustive": True,
     },
+    {
+        # ``asyncio.run(coro)`` returns the awaited coroutine value.
+        "access_path": "asyncio.run",
+        "kind": "await_argument",
+        "arguments": [0],
+        "exhaustive": True,
+    },
 )
 
 __all__ = [

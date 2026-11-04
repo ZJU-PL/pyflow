@@ -3079,6 +3079,23 @@ class PointerSolver:
                 for argument in self._native_effect_variables(call, effect):
                     source = self.state.get_variable(scope, context, argument)
                     self.state._add_var_points_flow(source, target)
+            elif kind == "await_argument" and target is not None:
+                # ``asyncio.run(coro)`` returns the awaited coroutine value.
+                for argument in self._native_effect_variables(call, effect):
+                    self.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(
+                            base=argument,
+                            field=attr("$await_result"),
+                            target=call.target,
+                        ),
+                    )
+                    self.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(base=argument, field=elem(), target=call.target),
+                    )
             elif kind == "return_receiver" and target is not None:
                 receiver = self._configured_receiver(callee_obj, context)
                 if receiver is not None:

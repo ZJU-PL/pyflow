@@ -532,3 +532,43 @@ def test_metaclass_getattr_is_reported_incomplete() -> None:
     assert any(
         reason["kind"] == "metaclass_getattr_unmodeled" for reason in result.incomplete_reasons()
     )
+
+
+def test_asyncio_run_returns_awaited_value() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import asyncio
+
+            async def f():
+                return [1]
+
+            r = asyncio.run(f())
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_asyncio_run_with_asynccontextmanager() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import asyncio
+            import contextlib
+
+            @contextlib.asynccontextmanager
+            async def cm():
+                yield [1]
+
+            async def main():
+                async with cm() as x:
+                    return x
+
+            r = asyncio.run(main())
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
