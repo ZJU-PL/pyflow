@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `interpreter_build_list` / `interpreter_build_tuple` /
   `interpreter_build_set` tagged-item helpers, matching the protocol already
   used for `{**mapping}` displays.
+- SSA construction resolves phi arguments that reference the placeholder of
+  a merge whose phi was dropped, so `--dump-ssa` no longer fails with
+  "phi argument has no SSA value" (for example on
+  `tests/test_xpu.py` in pytorch).
+- `verify_ssa` treats `AnnAssign.target` as a definition, so two
+  structurally identical annotated assignments no longer make it report
+  "definition ... does not dominate its use" for unrelated blocks in
+  module bodies.
 - k-CFA now resolves `super().__new__(cls)` and metaclass `type.__new__`
   delegation, so `abc.ABC` subclasses, singleton `__new__` patterns, and
   metaclasses with a custom `__new__` publish their classes and instances

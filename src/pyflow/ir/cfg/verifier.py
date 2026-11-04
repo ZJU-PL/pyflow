@@ -186,6 +186,10 @@ def _defined_references(block):
                 references = getattr(operation, field, None)
                 if references:
                     yield from references
+            # ``AnnAssign`` binds its single ``target`` rather than a list.
+            target = getattr(operation, "target", None)
+            if isinstance(target, ast.Local):
+                yield target
             # ``Delete.lcl`` and ``InputBlock.inputs`` also bind fresh values.
             local = getattr(operation, "lcl", None)
             if local is not None:

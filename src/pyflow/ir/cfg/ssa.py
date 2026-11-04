@@ -303,6 +303,10 @@ class SSARename(TypeDispatcher):
         self.read = set()
 
         self.fixup = []
+        # Merge-masking installs a placeholder local that is bound only when
+        # that merge's own phi is emitted.  Track them so unbound leftovers can
+        # be resolved after fixup without touching unrelated references.
+        self.placeholders = []
 
     def clone(self, lcl, frame, definition=None, *, allocate_value=True, undefined=False):
         """Clone a local variable and add it to the frame.
@@ -527,7 +531,10 @@ class SSARename(TypeDispatcher):
         # Mask variables that need to be merged.
         if node in self.merge:
             for name in self.merge[node]:
-                frame[name] = self.clone(self.locals_by_key[name], frame, allocate_value=False)
+                placeholder = self.clone(self.locals_by_key[name], frame, allocate_value=False)
+                frame[name] = placeholder
+                if placeholder is not None:
+                    self.placeholders.append(placeholder)
 
             self.fixup.append(node)
 
@@ -853,6 +860,28 @@ class SSARename(TypeDispatcher):
                     defer.append((merge, name))
 
             merges = defer
+
+        # Placeholders installed when a merge masks its variables are bound
+        # only once that merge's own phi is emitted.  A merge whose phi is
+        # dropped (no argument ever flows) leaves its placeholder unbound, and
+        # downstream phis may still reference it.  Resolve exactly those edges
+        # to ``None`` ("nothing flows here") so every phi argument is either a
+        # live SSA value or absent.
+        placeholder_ids = {id(placeholder) for placeholder in self.placeholders}
+        for merge in self.fixup:
+            for phi in merge.phi:
+                phi.arguments = [
+                    (
+                        None
+                        if (
+                            argument is not None
+                            and id(argument) in placeholder_ids
+                            and not self.catalog.has_value(argument, self.code)
+                        )
+                        else argument
+                    )
+                    for argument in phi.arguments
+                ]
 
 
 def _lower_function_definitions(g, catalog):

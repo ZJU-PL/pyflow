@@ -55,6 +55,42 @@ def test_inner_iterator_uses_outer_body_binding(initial):
     verify_ssa(cfg)
 
 
+def test_annassign_targets_are_recorded_as_ssa_definitions():
+    """Annotated assignments define their target for dominance checking.
+
+    Class/module bodies keep ``AnnAssign`` nodes.  Two ``value: int = ...``
+    statements in different branches can have identical reprs, so a definition
+    lookup that misses ``AnnAssign.target`` falls back to structural matching
+    and may pick a non-dominating block.
+    """
+    from pyflow.ir.cfg import verifier
+
+    code, cfg = lower("""
+        def f(cond, a):
+            class C:
+                if cond:
+                    value: int = a
+                else:
+                    value: int = a
+            return C
+    """)
+    defined = [
+        reference for block in blocks(cfg) for reference in verifier._defined_references(block)
+    ]
+    targets = [
+        operation.target
+        for block in blocks(cfg)
+        for operation in getattr(block, "ops", ())
+        if isinstance(operation, ast.AnnAssign)
+    ]
+    assert len(targets) == 2
+    for target in targets:
+        assert any(reference is target for reference in defined)
+
+    ssa.evaluate(None, cfg)
+    verify_ssa(cfg)
+
+
 def test_named_copy_and_phi_preserve_lexical_symbol():
     code, cfg = lower("""
         def f(cond, x):

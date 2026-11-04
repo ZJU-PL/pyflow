@@ -258,6 +258,57 @@ class TestCFGRegressions(unittest.TestCase):
         self.assertEqual(len(merge.phi), 1)
         self.assertEqual(merge.phi[0].arguments, [arg, None])
 
+    def test_phi_argument_from_dropped_merge_is_not_left_unbound(self):
+        """A merge whose phi is dropped must not leak its placeholder.
+
+        Merge blocks install a placeholder reference for every value that may
+        need a phi.  When nothing flows into that merge the phi is dropped and
+        the placeholder is never bound; a downstream phi that took the
+        placeholder as an edge argument must record ``None`` instead.
+        """
+        prev_a = cfg_graph.Suite(None)
+        prev_b = cfg_graph.Suite(None)
+        mid = cfg_graph.Merge(None)
+        prev_c = cfg_graph.Suite(None)
+        tail = cfg_graph.Merge(None)
+
+        prev_a.setExit("normal", mid)
+        prev_b.setExit("normal", mid)
+        mid.setExit("normal", tail)
+        prev_c.setExit("normal", tail)
+
+        original = pyflow_ast.Local("x")
+        placeholder = pyflow_ast.Local("x_1")
+        target = pyflow_ast.Local("x_2")
+        bound = pyflow_ast.Local("x_3")
+
+        catalog, graph, code = _ssa_fixture((original, placeholder, target, bound))
+        key = ssa.local_key(catalog, code, original)
+        value = catalog.values.define(catalog.symbol_id(bound, code), None)
+        catalog.bind_value(code, bound, value.id)
+
+        renamer = ssa.SSARename(graph, set(), {mid: {key}, tail: {key}}, {key: original}, catalog)
+        renamer.frames = {
+            mid: {key: placeholder},
+            tail: {key: target},
+            prev_a: {},
+            prev_b: {},
+            prev_c: {key: bound},
+        }
+        renamer.read = {placeholder, target}
+        renamer.fixup = [mid, tail]
+        renamer.placeholders = [placeholder]
+
+        renamer.doFixup()
+
+        # ``mid`` has no incoming value on either edge, so its phi is dropped.
+        self.assertEqual(mid.phi, [])
+        self.assertEqual(len(tail.phi), 1)
+        self.assertEqual(tail.phi[0].arguments, [None, bound])
+        for argument in tail.phi[0].arguments:
+            if argument is not None:
+                self.assertTrue(catalog.has_value(argument, code))
+
     def test_merge_redirect_entries_preserves_labelled_edge_invariants(self):
         switch = cfg_graph.Switch(None, pyflow_ast.Local("condition"))
         merge = cfg_graph.Merge(None)
