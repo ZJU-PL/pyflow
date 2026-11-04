@@ -643,3 +643,53 @@ underlying = adapter.logger
     assert str(result.type_of("emitted")) == "None"
     assert str(result.type_of("enabled")) == "bool"
     assert str(result.type_of("underlying")) == "logging.Logger"
+
+
+def test_os_stat_result_attributes_are_ints() -> None:
+    result = _infer("""
+import os
+
+stat = os.stat("x")
+size = stat.st_size
+modified = stat.st_mtime
+""")
+
+    assert str(result.type_of("size")) == "int"
+    assert str(result.type_of("modified")) == "int"
+
+
+def test_zipfile_and_csv_models() -> None:
+    result = _infer("""
+import csv
+import zipfile
+
+with zipfile.ZipFile("x.zip") as archive:
+    names = archive.namelist()
+    payload = archive.read("a.txt")
+
+with open("x.csv") as handle:
+    for row in csv.DictReader(handle):
+        value = row["a"]
+""")
+
+    assert str(result.type_of("names")) == "list[str]"
+    assert str(result.type_of("payload")) == "bytes"
+    assert str(result.type_of("value")) == "str"
+
+
+def test_staticmethod_self_binds_to_the_declaring_class() -> None:
+    result = _infer("""
+from typing import Self
+
+class Factory:
+    @staticmethod
+    def make() -> Self: ...
+
+class Child(Factory): ...
+
+direct = Factory.make()
+inherited = Child.make()
+""")
+
+    assert str(result.type_of("direct")) == "sample.Factory"
+    assert str(result.type_of("inherited")) == "sample.Factory"

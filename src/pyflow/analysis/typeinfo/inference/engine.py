@@ -31,6 +31,8 @@ import asyncio
 import shutil
 import subprocess
 import logging
+import csv
+import zipfile
 import tempfile
 import re
 import weakref
@@ -5386,6 +5388,22 @@ class StaticTypeInferenceEngine:
                     return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr == "isEnabledFor":
                     return self._instance(bool)
+            if raw is zipfile.ZipFile:
+                if node.attr in {"__enter__"}:
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr in {"__exit__", "close", "write", "extract", "extractall", "printdir"}:
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+                if node.attr in {"namelist"}:
+                    return self._instance(list, self._proper_instance(str))
+                if node.attr in {"read"}:
+                    return self._instance(bytes)
+                if node.attr in {"open", "infolist", "getinfo"}:
+                    return AbstractTypeValue.from_type(ANY)
+                if node.attr == "testzip":
+                    return self._join(
+                        AbstractTypeValue.from_type(self._proper_instance(str)),
+                        AbstractTypeValue.from_type(NONE_TYPE),
+                    )
             if raw in {contextlib.ExitStack, contextlib.AsyncExitStack}:
                 if node.attr in {"__enter__", "__aenter__", "pop_all"}:
                     return AbstractTypeValue.from_type(typ)
@@ -8491,6 +8509,15 @@ class StaticTypeInferenceEngine:
         if isinstance(function.node, ast.AsyncFunctionDef) and not generator:
             if not (isinstance(returns, Instance) and returns.type.raw_type is cabc.Coroutine):
                 returns = self._proper_instance(cabc.Coroutine, ANY, ANY, returns)
+        if function.method_kind == "static" and function.owner is not None:
+            # A static method has no receiver, so ``Self`` is bound to the
+            # class that declares it.
+            owner_info = self._classes.get(function.owner)
+            if owner_info is not None:
+                self_binding = {"Self": owner_info.instance}
+                returns = substitute_type_vars(returns, self_binding)
+                if parameters is not None:
+                    parameters = [substitute_type_vars(item, self_binding) for item in parameters]
         arguments = getattr(function.node, "args", None)
         if arguments is not None and (
             arguments.vararg is not None or arguments.kwarg is not None or arguments.kwonlyargs
@@ -9248,6 +9275,12 @@ class StaticTypeInferenceEngine:
     ) -> dict[str, ProperType]:
         substitutions: dict[str, ProperType] = {}
         fixed: set[str] = set()
+        if function.method_kind == "static" and function.owner is not None:
+            # A static method has no receiver; ``Self`` is the declaring class.
+            owner_info = self._classes.get(function.owner)
+            if owner_info is not None:
+                substitutions["Self"] = owner_info.instance
+                fixed.add("Self")
         if function.owner and function.method_kind != "static" and function.parameter_names:
             receiver = actuals.get(function.parameter_names[0])
             if receiver is not None:
@@ -9740,6 +9773,24 @@ class StaticTypeInferenceEngine:
                         continue
                     if attribute == "extra":
                         values.append(self._instance(dict, self._proper_instance(str), ANY))
+                        continue
+                if typ.type.raw_type is os.stat_result:
+                    if attribute in {
+                        "st_size",
+                        "st_mode",
+                        "st_ino",
+                        "st_dev",
+                        "st_nlink",
+                        "st_uid",
+                        "st_gid",
+                        "st_atime",
+                        "st_mtime",
+                        "st_ctime",
+                        "st_atime_ns",
+                        "st_mtime_ns",
+                        "st_ctime_ns",
+                    }:
+                        values.append(self._instance(int))
                         continue
                 if typ.type.raw_type is threading.Thread:
                     if attribute == "name":
@@ -10377,6 +10428,12 @@ class StaticTypeInferenceEngine:
                     elements.append(
                         AbstractTypeValue.from_type(TupleType((typ.args[0], typ.args[1])))
                     )
+                elif raw is csv.DictReader:
+                    elements.append(
+                        self._instance(dict, self._proper_instance(str), self._proper_instance(str))
+                    )
+                elif raw is csv.reader:
+                    elements.append(self._instance(list, self._proper_instance(str)))
                 elif raw is str:
                     elements.append(self._instance(str))
                 elif raw is bytes:
