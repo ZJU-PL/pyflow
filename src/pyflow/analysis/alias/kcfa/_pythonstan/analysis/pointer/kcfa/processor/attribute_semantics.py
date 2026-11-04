@@ -135,10 +135,53 @@ class AttributeResolver(Processor):
             return True
         if isinstance(base_obj, ClassObject):
             self._install_class_lookup(solver, scope, base_obj, field, target_ctx)
+            if field.kind is FieldKind.ATTRIBUTE and field.name == "__getitem__":
+                # ``Box[int]`` invokes ``Box.__class_getitem__`` (a
+                # classmethod) rather than the class's own ``__getitem__``.
+                # Without this fallback every generic user class subscription
+                # produced an empty, "complete" points-to set.
+                self._install_class_lookup(
+                    solver, scope, base_obj, attr("__class_getitem__"), target_ctx
+                )
+                if not self._class_declares(base_obj, "__class_getitem__"):
+                    solver.mark_semantic_incomplete(
+                        variables=(target_ctx,),
+                        scopes=(scope,),
+                        kind="class_subscription",
+                        message=(
+                            "class subscription has no modeled " "__class_getitem__/__getitem__"
+                        ),
+                    )
             return True
         if isinstance(base_obj, SuperObject):
             self._install_super_lookup(solver, scope, base_obj, field, target_ctx)
             return True
+        return False
+
+    @staticmethod
+    def _class_declares(class_obj: ClassObject, name: str) -> bool:
+        try:
+            return name in class_obj.ir.get_definitely_declared_names()
+        except Exception:
+            return False
+
+    def _metaclass_declares(
+        self, solver: "PointerSolver", class_obj: ClassObject, name: str
+    ) -> bool:
+        state = solver.state
+        scope = class_obj.container_scope
+        for meta_var in class_obj.metaclass_variables:
+            meta_ctx = state.get_variable(scope, scope.context, meta_var)
+            for meta_obj in state.get_points_to(meta_ctx):
+                if not isinstance(meta_obj, ClassObject):
+                    continue
+                for type_ref in state.types.mro(state.types.ref(meta_obj)):
+                    if (
+                        type_ref.kind is TypeRefKind.USER
+                        and isinstance(type_ref.target, ClassObject)
+                        and self._class_declares(type_ref.target, name)
+                    ):
+                        return True
         return False
 
     def _install_class_lookup(

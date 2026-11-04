@@ -279,3 +279,52 @@ def test_native_access_paths_do_not_explode_with_varying_branches() -> None:
     # Before the short-prefix summary this reached ~175k objects and did not
     # finish in under a minute.
     assert len(_points(result, "x")) < 200
+
+
+def test_class_getitem_is_resolved_as_implicit_classmethod() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class Box:
+                @classmethod
+                def __class_getitem__(cls, item):
+                    return cls
+
+            r = Box[int]
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert any("AllocKind.CLASS" in point for point in _points(result, "r"))
+
+
+def test_undecorated_class_getitem_is_treated_as_classmethod() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class Box:
+                def __class_getitem__(cls, item):
+                    return [1]
+
+            r = Box[int]
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_class_subscription_without_class_getitem_is_incomplete() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class C:
+                pass
+
+            r = C[int]
+            """),
+        k=1,
+    ).run()
+
+    query = result.points_to_query("r")
+    assert query.complete is False
+    assert any(reason["kind"] == "class_subscription" for reason in result.incomplete_reasons())
