@@ -984,17 +984,18 @@ class _SubtypeVisitor(TypeVisitor[bool]):
                     active.remove(pair)
             if self.right.type.is_protocol:
                 required = self.graph.get_members(self.right.type)
-                if self.right.args and self.right.type.type_parameters:
-                    from pyflow.analysis.typeinfo.resolution.typing_syntax import (
-                        substitute_type_vars,
-                    )
+                from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+                    substitute_type_vars,
+                )
 
-                    parameters = {
-                        parameter.name: argument
-                        for parameter, argument in zip(
-                            self.right.type.type_parameters, self.right.args
-                        )
-                    }
+                parameters = {
+                    parameter.name: argument
+                    for parameter, argument in zip(self.right.type.type_parameters, self.right.args)
+                }
+                # ``Self`` inside a protocol method refers to the concrete
+                # implementing type, not the protocol itself.
+                parameters["Self"] = left
+                if parameters:
                     required = {
                         name: substitute_type_vars(member, parameters)
                         for name, member in required.items()

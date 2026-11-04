@@ -290,3 +290,47 @@ async def run() -> int:
 
     assert not [d for d in result.diagnostics if d.code == "unmodeled-context-manager"]
     assert str(result.functions["sample.run"].return_type) == "int"
+
+
+def test_assert_never_terminates_the_branch() -> None:
+    result = _infer("""
+from typing import Literal, assert_never
+
+def choose(value: Literal[1, 2]) -> int:
+    if value == 1:
+        return 1
+    elif value == 2:
+        return 2
+    else:
+        assert_never(value)
+""")
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert str(result.functions["sample.choose"].return_type) == "int"
+
+
+def test_protocol_self_member_accepts_the_implementing_type() -> None:
+    result = _infer("""
+from typing import Protocol, Self
+
+class Cloneable(Protocol):
+    def clone(self) -> Self: ...
+
+class Item:
+    def clone(self) -> "Item":
+        return self
+
+class Wrong:
+    def clone(self) -> int:
+        return 1
+
+def use(value: Cloneable) -> Cloneable:
+    return value.clone()
+
+good = use(Item())
+bad = use(Wrong())
+""")
+
+    messages = [d.message for d in result.diagnostics if d.code == "annotation-mismatch"]
+    assert len(messages) == 1
+    assert "Wrong" in messages[0]

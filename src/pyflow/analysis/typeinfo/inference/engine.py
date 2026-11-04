@@ -2450,6 +2450,8 @@ class StaticTypeInferenceEngine:
                 if qualified in {
                     "sys.exit",
                     "os._exit",
+                    "typing.assert_never",
+                    "typing_extensions.assert_never",
                     "pytest.fail",
                     "pytest.skip",
                     "pytest.xfail",
@@ -3210,6 +3212,8 @@ class StaticTypeInferenceEngine:
             in {
                 "sys.exit",
                 "os._exit",
+                "typing.assert_never",
+                "typing_extensions.assert_never",
                 "pytest.fail",
                 "pytest.skip",
                 "pytest.xfail",
