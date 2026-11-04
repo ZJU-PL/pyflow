@@ -4316,6 +4316,16 @@ class PointerSolver:
             logger.debug("Builtin handler not initialized")
             return False
 
+        if (
+            isinstance(builtin_obj, BuiltinMethodObject)
+            and builtin_obj.method_name == "__class_getitem__"
+        ):
+            receiver = getattr(builtin_obj, "receiver", None)
+            if isinstance(receiver, ClassObject) and call.target is not None:
+                target = self.state.get_variable(scope, context, call.target)
+                self.handle_new_points_to(target, scope, PointsToSet.singleton(receiver))
+                return True
+
         if isinstance(builtin_obj, BuiltinMethodObject) and builtin_obj.method_name in {
             "__new__",
             "__init__",

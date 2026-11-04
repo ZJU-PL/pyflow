@@ -613,3 +613,26 @@ def test_asyncio_gather_returns_coroutine_results() -> None:
 
     assert result.complete
     assert _has_list(_points(result, "r"))
+
+
+def test_generic_alias_construction_resolves_members() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            from typing import Generic, TypeVar
+
+            T = TypeVar("T")
+
+            class Box(Generic[T]):
+                def __init__(self, value: T):
+                    self.value = value
+
+            b = Box[int]([1])
+            r = b.value
+            """),
+        k=1,
+    ).run()
+
+    # The alias result is a sound over-approximation of the class, so the
+    # query is intentionally incomplete.
+    assert _has_list(_points(result, "r"))
+    assert result.points_to_query("r").complete is False

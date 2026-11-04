@@ -158,6 +158,24 @@ class AttributeResolver(Processor):
                     solver, scope, base_obj, attr("__class_getitem__"), target_ctx
                 )
                 if not self._class_declares(base_obj, "__class_getitem__"):
+                    # ``typing.Generic`` / PEP 585 aliases are native.  A
+                    # sound over-approximation of ``Box[int]`` is ``Box``;
+                    # otherwise generic-alias construction produced nothing.
+                    solver.handle_new_points_to(
+                        target_ctx,
+                        scope,
+                        PointsToSet.singleton(
+                            BuiltinMethodObject(
+                                context=base_obj.context,
+                                alloc_site=AllocSite(
+                                    stmt="<builtin_method:__class_getitem__>",
+                                    kind=AllocKind.BUILTIN,
+                                ),
+                                method_name="__class_getitem__",
+                                receiver=base_obj,
+                            )
+                        ),
+                    )
                     solver.mark_semantic_incomplete(
                         variables=(target_ctx,),
                         scopes=(scope,),
