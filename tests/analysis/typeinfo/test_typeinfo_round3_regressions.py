@@ -442,3 +442,20 @@ class Child(Middle):
     )
 
     assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_itertools_product_honours_repeat_and_starmap() -> None:
+    result = _infer(
+        """
+import itertools
+import string
+
+pairs = list(itertools.product(string.ascii_lowercase, repeat=2))
+joined = list(itertools.starmap(lambda a, b: a + b, itertools.product("ab", repeat=2)))
+""",
+        strict=True,
+    )
+
+    assert str(result.type_of("pairs")) == "list[tuple[str, str]]"
+    assert str(result.type_of("joined")) == "list[str]"
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]

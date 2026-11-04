@@ -3881,6 +3881,11 @@ class StaticTypeInferenceEngine:
             if qualified_name == "itertools.starmap" and len(arguments) >= 2:
                 tuple_element = element(arguments[1])
                 callable_targets = arguments[0].callable_targets
+                if isinstance(tuple_element, TupleType) and tuple_element.unknown_size:
+                    # ``itertools.product`` yields variadic tuples whose arity
+                    # is unknown; applying the callable with the single known
+                    # element type would fabricate an arity error.
+                    return self._instance(cabc.Iterator, ANY)
                 if callable_targets and isinstance(tuple_element, TupleType):
                     return self._instance(
                         cabc.Iterator,
@@ -3950,10 +3955,15 @@ class StaticTypeInferenceEngine:
                     )
                 )
             if qualified_name in {"itertools.product", "itertools.zip_longest"}:
-                return self._instance(
-                    cabc.Iterator,
-                    TupleType(tuple(element(argument) for argument in arguments)),
-                )
+                elements = [element(argument) for argument in arguments]
+                if qualified_name == "itertools.product":
+                    repeat = keywords.get("repeat")
+                    literal_repeat = (
+                        next(iter(repeat.literal_values), None) if repeat is not None else None
+                    )
+                    if isinstance(literal_repeat, int) and literal_repeat >= 0:
+                        elements = elements * literal_repeat
+                return self._instance(cabc.Iterator, TupleType(tuple(elements)))
             if qualified_name in {"itertools.combinations", "itertools.permutations"} and arguments:
                 return self._instance(
                     cabc.Iterator,
