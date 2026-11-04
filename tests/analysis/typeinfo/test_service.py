@@ -376,7 +376,7 @@ def test_service_stub_overrides_source_signature() -> None:
         assert service.members_of("lib.Client")["ping"].source == "stub"
 
 
-def test_service_skips_stdlib_implementation_without_stub() -> None:
+def test_service_prefers_vendored_typeshed_for_stdlib() -> None:
     path = Path(sysconfig.get_paths()["stdlib"]) / "argparse.py"
     if not path.is_file():
         return
@@ -384,8 +384,9 @@ def test_service_skips_stdlib_implementation_without_stub() -> None:
     service = TypeInfoService(ProjectContext(None))
     source, loaded_path = service._load_module_source("argparse", str(path))
 
-    assert source is None
-    assert loaded_path == str(path)
+    assert source is not None
+    assert loaded_path is not None and loaded_path.endswith(".pyi")
+    assert "__all__" in source
 
 
 def test_service_reads_python_source_encoding_cookie() -> None:

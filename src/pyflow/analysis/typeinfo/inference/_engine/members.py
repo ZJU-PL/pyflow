@@ -306,9 +306,13 @@ class MemberInference(InferenceComponent):
         """Return the defining class name when an external symbol is a class."""
         if not isinstance(external, Instance):
             return None
-        if not builtin_class and not self._looks_like_class(name):
-            return None
         raw = external.type.raw_type
+        # Stdlib class names are not always capitalized (``datetime.date``,
+        # ``pathlib.path``).  The runtime class name is the authoritative
+        # signal that an external symbol denotes a class object.
+        raw_name = getattr(raw, "__name__", None)
+        if not builtin_class and not (self._looks_like_class(name) or raw_name == name):
+            return None
         module = getattr(raw, "__module__", "")
         if not builtin_class and module in {"builtins", "typing", "typing_extensions"}:
             return None
@@ -823,12 +827,26 @@ class MemberInference(InferenceComponent):
                     continue
                 external = self._external_type(f"{typ.type.full_name}.{attribute}")
                 if external is not None:
+                    substitutions = {
+                        parameter.name: argument
+                        for parameter, argument in zip(typ.type.type_parameters, typ.args)
+                    }
+                    if substitutions:
+                        external = substitute_type_vars(external, substitutions)
                     if (
                         isinstance(external, CallableType)
                         and not base.class_targets
                         and external.arg_types
                     ):
-                        external = CallableType(external.arg_types[1:], external.return_type)
+                        returned = external.return_type
+                        if (
+                            isinstance(returned, Instance)
+                            and returned.type.full_name == typ.type.full_name
+                        ):
+                            # ``copy``/``replace``-style methods return the
+                            # receiver; keep its type arguments.
+                            returned = typ
+                        external = CallableType(external.arg_types[1:], returned)
                     values.append(AbstractTypeValue.from_type(external))
                     continue
             raw = typ.type.raw_type

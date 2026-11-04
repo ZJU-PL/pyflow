@@ -8,6 +8,8 @@ preserving raw annotation text for diagnostics and display.
 from __future__ import annotations
 
 import ast
+import importlib
+import sys
 import sysconfig
 import tokenize
 from dataclasses import replace
@@ -25,11 +27,14 @@ from pyflow.analysis.typeinfo.query.models import (
     TypeFact,
 )
 from pyflow.language.modules.type_stubs import (
+    StubAliasInfo,
     StubClassInfo,
     StubDiagnostic,
     StubFunctionInfo,
     StubImportInfo,
+    StubInfo,
     StubResolver,
+    StubTypeVarInfo,
 )
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
@@ -40,6 +45,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TupleType,
     TypeType,
     TypeSystem,
+    TypeVarType,
     UnionType,
 )
 from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
@@ -61,6 +67,7 @@ class TypeInfoService:
         project_context: ProjectContext | None = None,
         *,
         typeshed_roots: list[str | Path] | None = None,
+        python_version: tuple[int, int] | None = None,
         enable_static_inference: bool = True,
         call_model_providers: Iterable[CallModelProvider] = (),
     ) -> None:
@@ -70,6 +77,7 @@ class TypeInfoService:
         self.stub_resolver = StubResolver(
             self.project_context,
             typeshed_roots=typeshed_roots,
+            python_version=python_version,
         )
         self._module_facts: dict[str, dict[str, TypeFact]] = {}
         self._functions: dict[str, dict[str, FunctionTypeInfo]] = {}
@@ -88,6 +96,10 @@ class TypeInfoService:
         self._module_sources: dict[str, tuple[str, str | None]] = {}
         self._module_all: dict[str, frozenset[str] | None] = {}
         self._module_imports: dict[str, dict[str, str]] = {}
+        self._module_stub_type_vars: dict[str, dict[str, StubTypeVarInfo]] = {}
+        self._module_stub_aliases: dict[str, dict[str, StubAliasInfo]] = {}
+        self._module_type_aliases: dict[str, dict[str, ProperType]] = {}
+        self._resolving_stub_aliases: set[tuple[str, str]] = set()
         self._refreshing_inference = False
         self._refreshing_import_facts = False
         self._needs_refresh = False
@@ -105,6 +117,23 @@ class TypeInfoService:
         path: str | None = None,
     ) -> None:
         """Collect source and stub facts for a module."""
+        if (
+            module_name in {"builtins", "typing", "typing_extensions", "_typeshed"}
+            and source is None
+            and path is None
+        ):
+            # The engine owns builtins and typing special forms; re-reading
+            # their stubs would shadow TupleType/Union/Optional handling.
+            # A project-local module with the same name is still analyzed.
+            resolution = self.project_context.find_module(module_name)
+            if (
+                resolution is None
+                or resolution.path is None
+                or self._is_stdlib_source(resolution.path)
+                or resolution.path.endswith(".pyi")
+            ):
+                self._collected_modules.add(module_name)
+                return
         if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
         if not self._collecting_modules:
@@ -115,7 +144,11 @@ class TypeInfoService:
             try:
                 if source is None:
                     source, path = self._load_module_source(module_name, path)
-                if source is not None:
+                if source is not None and not (path is not None and str(path).endswith(".pyi")):
+                    # Stubs are declarations, not implementation source.  The
+                    # resolver parses them below; treating a .pyi as ordinary
+                    # Python would run the full inference engine on every
+                    # typeshed module and mark their dependencies partial.
                     self._collect_source_module(module_name, source, path)
             except Exception as exc:
                 self._record_collection_failure(module_name, "type_source_failed", exc, path)
@@ -128,10 +161,7 @@ class TypeInfoService:
                     self._collect_stub_module(
                         module_name,
                         resolved_stub.path,
-                        resolved_stub.info.functions,
-                        resolved_stub.info.classes,
-                        resolved_stub.info.variables,
-                        resolved_stub.info.imports,
+                        resolved_stub.info,
                     )
             except Exception as exc:
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
@@ -538,13 +568,47 @@ class TypeInfoService:
         for node in tree.body:
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 raw_annotation = _annotation_to_str(node.annotation)
-                facts[node.target.id] = TypeFact(
-                    name=node.target.id,
-                    typ=self._resolve_annotation(
+                head = raw_annotation.split("[", 1)[0].rsplit(".", 1)[-1]
+                member_type: ProperType | None = None
+                if head in {"TypeAlias", "TypeAliasType"} and node.value is not None:
+                    raw_annotation = _annotation_to_str(node.value)
+                    member_type = self._resolve_annotation(
                         raw_annotation,
                         module_name=module_name,
                         imports=imports,
-                    ),
+                    )
+                elif head in {"Final", "ClassVar"}:
+                    inner = _strip_annotation_wrapper(raw_annotation, head)
+                    if inner not in {None, "", "Any"}:
+                        member_type = self._resolve_annotation(
+                            inner,
+                            module_name=module_name,
+                            imports=imports,
+                        )
+                        raw_annotation = inner
+                    elif node.value is not None:
+                        member_type = self._infer_expr_type(
+                            node.value,
+                            module_name,
+                            local_classes,
+                            imports,
+                        )
+                else:
+                    member_type = self._resolve_annotation(
+                        raw_annotation,
+                        module_name=module_name,
+                        imports=imports,
+                    )
+                if member_type is None and node.value is not None:
+                    member_type = self._infer_expr_type(
+                        node.value,
+                        module_name,
+                        local_classes,
+                        imports,
+                    )
+                facts[node.target.id] = TypeFact(
+                    name=node.target.id,
+                    typ=member_type,
                     raw_annotation=raw_annotation,
                     source="annotation",
                     kind="variable",
@@ -736,24 +800,42 @@ class TypeInfoService:
         self,
         module_name: str,
         path: str,
-        functions: list[StubFunctionInfo],
-        classes: list[StubClassInfo],
-        variables: list[tuple[str, str]],
-        imports_raw: list[StubImportInfo],
+        info: StubInfo,
     ) -> None:
         facts = self._module_facts.setdefault(module_name, {})
         module_functions = self._functions.setdefault(module_name, {})
-        imports = self._stub_import_aliases(module_name, path, imports_raw)
+        imports = self._stub_import_aliases(module_name, path, info.imports)
         self._module_imports[module_name] = imports
-        module_aliases = self._module_class_aliases.setdefault(module_name, {})
+        if info.exports is not None:
+            self._module_all[module_name] = info.exports
 
-        for cls in classes:
+        module_aliases = self._module_class_aliases.setdefault(module_name, {})
+        for cls in info.classes:
             qualified_name = f"{module_name}.{cls.name}"
             self._class_aliases[cls.name] = qualified_name
             module_aliases[cls.name] = qualified_name
 
+        self._module_stub_type_vars[module_name] = {
+            declaration.name: declaration for declaration in info.type_vars
+        }
+        self._module_stub_aliases[module_name] = {alias.name: alias for alias in info.aliases}
+        self._module_type_aliases.setdefault(module_name, {})
+
+        # Build class shapes before functions/variables: value aliases such as
+        # ``random = _inst.random`` need both the class and the ``_inst`` fact.
+        for cls in info.classes:
+            class_info = self._class_info_from_stub(module_name, cls, imports)
+            self._classes[class_info.name] = class_info
+            facts[cls.name] = TypeFact(
+                name=cls.name,
+                typ=class_info.typ,
+                raw_annotation=class_info.name,
+                source="stub",
+                kind="class",
+            )
+
         functions_by_name: dict[str, list[StubFunctionInfo]] = {}
-        for function in functions:
+        for function in info.functions:
             functions_by_name.setdefault(function.name, []).append(function)
         for name, declarations in functions_by_name.items():
             infos = [
@@ -766,10 +848,10 @@ class TypeInfoService:
             ]
             module_functions[name] = infos[0]
             returns: list[ProperType] = []
-            for info in infos:
-                if info.returns is None or info.returns in returns:
+            for info_item in infos:
+                if info_item.returns is None or info_item.returns in returns:
                     continue
-                returns.append(info.returns)
+                returns.append(info_item.returns)
             if len(returns) > 1:
                 # Stub overloads are declarations of one callable.  Keep a
                 # union of their result types instead of silently keeping only
@@ -778,7 +860,7 @@ class TypeInfoService:
                 callable_type: ProperType = CallableType(
                     None,
                     UnionType(tuple(returns)),
-                    overloads=tuple(self._callable_type(info) for info in infos),
+                    overloads=tuple(self._callable_type(item) for item in infos),
                 )
                 raw_annotation = "overload"
             else:
@@ -792,18 +874,7 @@ class TypeInfoService:
                 kind="function",
             )
 
-        for cls in classes:
-            class_info = self._class_info_from_stub(module_name, cls, imports)
-            self._classes[class_info.name] = class_info
-            facts[cls.name] = TypeFact(
-                name=cls.name,
-                typ=class_info.typ,
-                raw_annotation=class_info.name,
-                source="stub",
-                kind="class",
-            )
-
-        for name, annotation in variables:
+        for name, annotation in info.variables:
             facts[name] = TypeFact(
                 name=name,
                 typ=self._resolve_annotation(
@@ -814,6 +885,20 @@ class TypeInfoService:
                 raw_annotation=annotation,
                 source="stub",
                 kind="variable",
+            )
+
+        # Resolve module-level aliases after variables exist.  This covers
+        # value aliases (``random = _inst.random``) as well as type aliases.
+        for alias in info.aliases:
+            alias_type = self._resolve_stub_definition(module_name, alias.name)
+            if alias_type is None:
+                continue
+            facts[alias.name] = TypeFact(
+                name=alias.name,
+                typ=alias_type,
+                raw_annotation=alias.value,
+                source="stub",
+                kind="function" if isinstance(alias_type, CallableType) else "variable",
             )
 
         # Stub packages commonly re-export definitions from submodules.  Their
@@ -836,6 +921,171 @@ class TypeInfoService:
                 source="import",
                 kind="import",
             )
+
+    def _resolve_stub_definition(self, module_name: str, name: str) -> ProperType | None:
+        """Resolve a module-local stub TypeVar or alias, with cycle protection."""
+        cached = self._module_type_aliases.get(module_name, {}).get(name)
+        if cached is not None:
+            return cached
+        key = (module_name, name)
+        if key in self._resolving_stub_aliases:
+            return None
+        declaration = self._module_stub_type_vars.get(module_name, {}).get(name)
+        alias = self._module_stub_aliases.get(module_name, {}).get(name)
+        if declaration is None and alias is None:
+            return None
+        self._resolving_stub_aliases.add(key)
+        try:
+            if declaration is not None:
+                resolved = self._resolve_stub_type_var(module_name, declaration)
+            else:
+                assert alias is not None
+                resolved = self._resolve_stub_alias_type(module_name, alias)
+            if resolved is not None:
+                self._module_type_aliases.setdefault(module_name, {})[name] = resolved
+            return resolved
+        finally:
+            self._resolving_stub_aliases.discard(key)
+
+    def _resolve_stub_type_var(
+        self,
+        module_name: str,
+        declaration: StubTypeVarInfo,
+    ) -> ProperType | None:
+        imports = self._module_imports.get(module_name, {})
+        if declaration.kind != "typevar":
+            # ParamSpec/TypeVarTuple are not value types.
+            return ANY
+        if declaration.default is not None:
+            resolved = self._resolve_annotation(
+                declaration.default,
+                module_name=module_name,
+                imports=imports,
+            )
+            if resolved is not None:
+                return resolved
+        constraints = [
+            resolved
+            for constraint in declaration.constraints
+            if (
+                resolved := self._resolve_annotation(
+                    constraint,
+                    module_name=module_name,
+                    imports=imports,
+                )
+            )
+            is not None
+        ]
+        if constraints:
+            unique = tuple(dict.fromkeys(constraints))
+            return unique[0] if len(unique) == 1 else UnionType(unique)
+        if declaration.bound is not None:
+            return self._resolve_annotation(
+                declaration.bound,
+                module_name=module_name,
+                imports=imports,
+            )
+        return TypeVarType(declaration.name)
+
+    def _resolve_stub_alias_type(
+        self,
+        module_name: str,
+        alias: StubAliasInfo,
+    ) -> ProperType | None:
+        value = alias.value.strip()
+        if not value or value == "...":
+            return None
+        imports = self._module_imports.get(module_name, {})
+        resolved = self._resolve_annotation(
+            value,
+            module_name=module_name,
+            imports=imports,
+        )
+        if resolved is not None:
+            return resolved
+        return self._resolve_stub_value_expression(module_name, value, imports)
+
+    def _resolve_stub_value_expression(
+        self,
+        module_name: str,
+        expression: str,
+        imports: dict[str, str],
+    ) -> ProperType | None:
+        try:
+            node = ast.parse(expression, mode="eval").body
+        except (SyntaxError, ValueError):
+            return None
+        return self._resolve_stub_expression_node(module_name, node, imports)
+
+    def _resolve_stub_expression_node(
+        self,
+        module_name: str,
+        node: ast.expr,
+        imports: dict[str, str],
+    ) -> ProperType | None:
+        if isinstance(node, ast.Name):
+            fact = self._module_facts.get(module_name, {}).get(node.id)
+            if fact is not None and fact.typ is not None:
+                return fact.typ
+            return self._lookup_type(node.id, module_name=module_name, imports=imports)
+        if isinstance(node, ast.Attribute):
+            base = self._resolve_stub_expression_node(module_name, node.value, imports)
+            return self._stub_member_type(base, node.attr)
+        if isinstance(node, ast.Constant):
+            value = node.value
+            if value is None:
+                return NONE_TYPE
+            raw = {bool: bool, int: int, float: float, complex: complex, str: str, bytes: bytes}
+            for raw_type, annotation in raw.items():
+                if isinstance(value, raw_type) and not (
+                    raw_type is int and isinstance(value, bool)
+                ):
+                    return self._synthetic_builtin(annotation)
+            return None
+        if isinstance(node, ast.Subscript):
+            return self._resolve_annotation(
+                _annotation_to_str(node),
+                module_name=module_name,
+                imports=imports,
+            )
+        if isinstance(node, ast.Call):
+            name = _annotation_to_str(node.func).rsplit(".", 1)[-1]
+            if name in {"NewType", "TypeAliasType"} and len(node.args) >= 2:
+                return self._resolve_annotation(
+                    _annotation_to_str(node.args[1]),
+                    module_name=module_name,
+                    imports=imports,
+                )
+            return None
+        return None
+
+    def _stub_member_type(self, base: ProperType | None, attribute: str) -> ProperType | None:
+        if isinstance(base, TypeType):
+            base = base.item
+        if not isinstance(base, Instance):
+            return None
+        class_info = self._classes.get(base.type.full_name)
+        if class_info is None:
+            return self._class_member_type(base.type.full_name, attribute)
+        member = class_info.typ.type.members.get(attribute)
+        if member is None:
+            member = self._class_member_type(base.type.full_name, attribute)
+        method = class_info.methods.get(attribute)
+        if isinstance(member, CallableType):
+            arguments = member.arg_types
+            if method is not None and method.method_kind != "static" and arguments:
+                arguments = tuple(arguments[1:])
+            return CallableType(
+                arguments,
+                member.return_type,
+                overloads=member.overloads,
+            )
+        return member
+
+    def _synthetic_builtin(self, raw_type: type) -> ProperType:
+        return Instance(
+            self.type_system.to_class_descriptor(raw_type),
+        )
 
     def _collect_import_aliases(
         self,
@@ -1148,6 +1398,17 @@ class TypeInfoService:
             for name, annotation in cls.class_vars
         }
         class_typ = self._synthetic_instance(qualified_name)
+        type_parameters: list[TypeVarType] = []
+        for base in cls.bases:
+            head, _, rest = base.partition("[")
+            if head.rsplit(".", 1)[-1] not in {"Generic", "Protocol"} or not rest:
+                continue
+            for parameter in _split_annotation_arguments(rest[:-1]):
+                resolved = self._resolve_stub_definition(module_name, parameter.strip())
+                if isinstance(resolved, TypeVarType):
+                    type_parameters.append(resolved)
+        if type_parameters:
+            class_typ.type.type_parameters = tuple(type_parameters)
         grouped_methods: dict[str, list[FunctionTypeInfo]] = {}
         for method in cls.methods:
             method_info = self._specialize_self_method(
@@ -1247,8 +1508,12 @@ class TypeInfoService:
         module_name: str | None = None,
         imports: dict[str, str],
     ) -> ProperType | None:
+        if name in {"Self", "typing.Self", "typing_extensions.Self"}:
+            return self._synthetic_instance("typing_extensions.Self")
         imported = self._resolve_imported_type_name(name, imports)
         if imported is not None:
+            if imported in {"typing.Self", "typing_extensions.Self"}:
+                return self._synthetic_instance("typing_extensions.Self")
             resolved = self._lookup_project_type(
                 imported,
                 allow_synthetic=True,
@@ -1279,6 +1544,10 @@ class TypeInfoService:
             for class_name, class_info in self._classes.items():
                 if name == class_name or normalized == class_name.rsplit(".", 1)[-1]:
                     return class_info.typ
+        else:
+            stub_definition = self._resolve_stub_definition(module_name, name)
+            if stub_definition is not None:
+                return stub_definition
 
         builtin = BuiltinTypeLookup()(name)
         if builtin is not None:
@@ -1325,21 +1594,58 @@ class TypeInfoService:
             return CallableType(parameters, summary.return_type or ANY)
         return None
 
+    def _replace_self_type(self, typ: ProperType | None, class_type: Instance) -> ProperType | None:
+        """Recursively replace ``Self`` inside a stub type."""
+        if typ is None:
+            return None
+        if isinstance(typ, Instance):
+            if typ.type.full_name in {"Self", "typing.Self", "typing_extensions.Self"}:
+                return class_type
+            if not typ.args:
+                return typ
+            args = tuple(self._replace_self_type(item, class_type) or ANY for item in typ.args)
+            return typ if args == typ.args else Instance(typ.type, args)
+        if isinstance(typ, UnionType):
+            items = tuple(self._replace_self_type(item, class_type) or ANY for item in typ.items)
+            return typ if items == typ.items else UnionType(items)
+        if isinstance(typ, TupleType):
+            args = tuple(self._replace_self_type(item, class_type) or ANY for item in typ.args)
+            return typ if args == typ.args else TupleType(args, unknown_size=typ.unknown_size)
+        if isinstance(typ, TypeType):
+            item = self._replace_self_type(typ.item, class_type) or ANY
+            return typ if item == typ.item else TypeType(item)
+        if isinstance(typ, CallableType):
+            arguments = typ.arg_types
+            replaced_arguments = (
+                tuple(self._replace_self_type(item, class_type) or ANY for item in arguments)
+                if arguments is not None
+                else None
+            )
+            replaced_return = self._replace_self_type(typ.return_type, class_type) or ANY
+            if replaced_arguments == arguments and replaced_return == typ.return_type:
+                return typ
+            return CallableType(replaced_arguments, replaced_return, overloads=typ.overloads)
+        return typ
+
+    _SELF_ANNOTATIONS = frozenset({"Self", "typing.Self", "typing_extensions.Self"})
+
     def _specialize_self_method(
         self, method: FunctionTypeInfo, class_type: Instance
     ) -> FunctionTypeInfo:
-        aliases = {"Self", "typing.Self", "typing_extensions.Self"}
-        returns = method.returns
-        if method.raw_returns in aliases:
-            returns = class_type
-        params = dict(method.params)
-        raw_params = dict(method.raw_params)
-        changed = returns is not method.returns
-        for name, raw in raw_params.items():
-            if raw in aliases:
-                params[name] = class_type
-                changed = True
-        if not changed:
+        returns = (
+            class_type
+            if method.raw_returns in self._SELF_ANNOTATIONS
+            else self._replace_self_type(method.returns, class_type)
+        )
+        params: dict[str, ProperType | None] = {}
+        for name, value in method.params.items():
+            raw = method.raw_params.get(name)
+            params[name] = (
+                class_type
+                if raw in self._SELF_ANNOTATIONS
+                else self._replace_self_type(value, class_type)
+            )
+        if returns == method.returns and params == method.params:
             return method
         return replace(method, params=params, returns=returns)
 
@@ -1361,14 +1667,23 @@ class TypeInfoService:
             return None
         method = info.methods.get(member)
         if method is not None:
-            returns = method.returns
-            if method.raw_returns in {"Self", "typing.Self", "typing_extensions.Self"}:
-                receiver = self._classes.get(receiver_class)
-                if receiver is not None:
-                    returns = receiver.typ
+            receiver = self._classes.get(receiver_class)
+            receiver_type = receiver.typ if receiver is not None else None
+            if method.raw_returns in self._SELF_ANNOTATIONS and receiver_type is not None:
+                returns = receiver_type
+            else:
+                returns = (
+                    self._replace_self_type(method.returns, receiver_type)
+                    if receiver_type is not None
+                    else method.returns
+                )
             if method.is_property:
                 return returns
-            parameters = tuple(parameter or ANY for parameter in method.params.values())
+            parameters = tuple(
+                (self._replace_self_type(parameter, receiver_type) if receiver_type else parameter)
+                or ANY
+                for parameter in method.params.values()
+            )
             if method.method_kind == "static":
                 return CallableType(None, returns or ANY)
             return CallableType(parameters, returns or ANY)
@@ -1444,6 +1759,20 @@ class TypeInfoService:
         for index in range(len(parts) - 1, 0, -1):
             class_prefix = ".".join(parts[:index])
             if class_prefix not in self._classes:
+                prefix_module, _, prefix_name = class_prefix.rpartition(".")
+                if prefix_module and prefix_name:
+                    reexported = self._resolve_reexported_member(prefix_module, prefix_name)
+                    if reexported is not None:
+                        target = f"{reexported[0]}.{reexported[1]}"
+                        remainder = ".".join(parts[index:])
+                        if target != class_prefix:
+                            target_name = f"{target}.{remainder}" if remainder else target
+                            resolved = self._lookup_project_type(
+                                target_name,
+                                allow_synthetic=allow_synthetic,
+                            )
+                            if resolved is not None:
+                                return resolved
                 continue
             member = ".".join(parts[index:])
             found = self._class_member_type(class_prefix, member)
@@ -1499,9 +1828,15 @@ class TypeInfoService:
     def _synthetic_instance(self, full_name: str) -> Instance:
         raw_type = self._synthetic_types.get(full_name)
         if raw_type is None:
+            raw_type = _runtime_stdlib_class(full_name)
+        if raw_type is tuple:
+            # ``tuple`` must be represented by ``TupleType``; keep a private
+            # placeholder if a stub class named tuple is ever collected.
+            raw_type = None
+        if raw_type is None:
             module_name, _, class_name = full_name.rpartition(".")
             raw_type = type(class_name, (), {"__module__": module_name})
-            self._synthetic_types[full_name] = raw_type
+        self._synthetic_types[full_name] = raw_type
         return Instance(self.type_system.to_class_descriptor(raw_type))
 
     def _infer_expr_type(
@@ -1626,3 +1961,58 @@ def _expr_name(node: ast.expr) -> str | None:
         base = _expr_name(node.value)
         return f"{base}.{node.attr}" if base else node.attr
     return None
+
+
+def _split_annotation_arguments(annotation: str) -> list[str]:
+    """Split top-level comma-separated annotation arguments."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for index, character in enumerate(annotation):
+        if character in "[(":
+            depth += 1
+        elif character in "])":
+            depth = max(0, depth - 1)
+        elif character == "," and depth == 0:
+            parts.append(annotation[start:index])
+            start = index + 1
+    tail = annotation[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _strip_annotation_wrapper(annotation: str, wrapper: str) -> str | None:
+    """Return ``T`` from ``Wrapper[T]`` or ``None`` when unwrapped is absent."""
+    head, _, rest = annotation.partition("[")
+    if head.rsplit(".", 1)[-1] != wrapper or not rest:
+        return None
+    return rest[:-1].strip() or None
+
+
+def _runtime_stdlib_class(full_name: str) -> type | None:
+    """Return the real stdlib class named by *full_name*, when safely available.
+
+    Typeshed describes runtime classes.  Using the actual class object keeps
+    stub-derived instances interchangeable with PyFlow's builtin/stdlib models
+    (``datetime.date``, ``types.MappingProxyType``, ...).  Third-party modules
+    are left synthetic so analysis never imports arbitrary project code.
+    """
+    module_name, _, class_name = full_name.rpartition(".")
+    if not module_name or not class_name:
+        return None
+    if module_name.split(".", 1)[0] not in sys.stdlib_module_names:
+        return None
+    try:
+        module = importlib.import_module(module_name)
+    except Exception:
+        return None
+    candidate = vars(module).get(class_name)
+    if not isinstance(candidate, type):
+        return None
+    # Runtime aliases are common (``urllib.parse._ParseResultBase`` is
+    # ``ParseResult``; ``_csv.Reader`` is ``_csv.reader``).  Only reuse the
+    # class when its identity matches the stub declaration.
+    if candidate.__name__ != class_name or candidate.__qualname__ != class_name:
+        return None
+    return candidate

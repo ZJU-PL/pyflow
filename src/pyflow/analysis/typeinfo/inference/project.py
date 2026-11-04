@@ -25,6 +25,7 @@ from pyflow.analysis.typeinfo.inference.models import (
     ModuleInferenceResult,
     ProjectInferenceResult,
 )
+from pyflow.analysis.typeinfo.resolution.typeshed_resolver import resolve_typeshed_symbol
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -295,7 +296,7 @@ class ProjectTypeInferenceEngine:
                             member = superclass.members.get(attribute)
                             if member is not None:
                                 return member
-        return None
+        return resolve_typeshed_symbol(qualified_name)
 
     @staticmethod
     def _analysis_order(

@@ -433,6 +433,10 @@ class BuiltinInference(InferenceComponent):
                     target, arguments, keywords, node=call_node or node
                 )
 
+        native_override = self._native_call_attribute(node, base, arguments, keywords, call_node)
+        if native_override is not None:
+            return native_override
+
         union_parts = self.engine._operator_rules._flatten_union_parts(base)
         if len(union_parts) > 1 and node.attr in _UNION_JOIN_METHODS:
             results: list[AbstractTypeValue] = []
@@ -640,6 +644,26 @@ class BuiltinInference(InferenceComponent):
                 if node.attr in {"readinto", "write"}:
                     return self.engine._value_rules._instance(int if node.attr == "write" else int)
             if self.engine._value_rules._is_pathlib_type(typ):
+                if node.attr == "open":
+                    mode = "r"
+                    if call_node is not None:
+                        mode_node = (
+                            call_node.args[0]
+                            if call_node.args
+                            else next(
+                                (
+                                    keyword.value
+                                    for keyword in call_node.keywords
+                                    if keyword.arg == "mode"
+                                ),
+                                None,
+                            )
+                        )
+                        if isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+                            mode = mode_node.value
+                    return self.engine._value_rules._instance(
+                        io.BufferedIOBase if "b" in mode else io.TextIOWrapper
+                    )
                 if node.attr == "read_text":
                     return self.engine._value_rules._instance(str)
                 if node.attr == "read_bytes":
@@ -1556,6 +1580,66 @@ class BuiltinInference(InferenceComponent):
                 return self.engine._value_rules._instance(str)
             if attribute in {"conjugate", "real", "imag"}:
                 return self.engine._value_rules._instance(float)
+        return None
+
+    def _native_call_attribute(
+        self,
+        node: ast.Attribute,
+        base: AbstractTypeValue,
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+        call_node: ast.Call | None,
+    ) -> AbstractTypeValue | None:
+        """Receiver-aware overrides that typeshed declarations cannot express."""
+        for typ in base.types:
+            if not isinstance(typ, Instance):
+                continue
+            raw = typ.type.raw_type
+            if raw is asyncio.TaskGroup and node.attr == "create_task" and arguments:
+                awaited = (
+                    self.engine._value_rules._await_result(arguments[0])
+                    if self.engine._value_rules._is_awaitable_value(arguments[0])
+                    else AbstractTypeValue.unresolved()
+                )
+                return self.engine._value_rules._instance(
+                    asyncio.Task, awaited.public_type() or ANY
+                )
+            if raw is contextvars.ContextVar:
+                item = AbstractTypeValue.from_type(typ.args[0]) if typ.args else ANY
+                if node.attr == "get":
+                    return item
+                if node.attr == "set":
+                    return self.engine._value_rules._instance(
+                        contextvars.Token, item.public_type() or ANY
+                    )
+                if node.attr == "reset":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
+            if (
+                node.attr == "copy"
+                and isinstance(raw, type)
+                and raw.__module__.startswith("collections")
+            ):
+                return AbstractTypeValue.from_type(typ)
+            if self.engine._value_rules._is_pathlib_type(typ) and node.attr == "open":
+                mode = "r"
+                if call_node is not None:
+                    mode_node = (
+                        call_node.args[0]
+                        if call_node.args
+                        else next(
+                            (
+                                keyword.value
+                                for keyword in call_node.keywords
+                                if keyword.arg == "mode"
+                            ),
+                            None,
+                        )
+                    )
+                    if isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+                        mode = mode_node.value
+                return self.engine._value_rules._instance(
+                    io.BufferedIOBase if "b" in mode else io.TextIOWrapper
+                )
         return None
 
     def _model_text_method(self, receiver: type, attribute: str) -> AbstractTypeValue | None:

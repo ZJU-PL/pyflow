@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyflow supply-chain audit --reachability-source` separates application code
   from an installed package tree during vulnerability reachability annotation.
 
+- Type inference now ships and uses mypy's bundled typeshed snapshot under
+  `pyflow/stubs/typeshed` by default.  Stdlib functions, classes, attributes,
+  and overloads that PyFlow previously left unknown (`hashlib`, `base64`,
+  `struct`, `sqlite3`, `urllib.parse`, `random`, `csv`, `os.read`, ...) now
+  resolve from stubs in `TypeInfoService`, `StaticTypeInferenceEngine`, and
+  `ProjectTypeInferenceEngine`.  The stub parser handles version-gated
+  declarations, `TypeVar`/`ParamSpec`, type and value aliases, `__all__`,
+  overloads, `Self`, and generic stub classes.  A small receiver-aware
+  call/member layer overrides typeshed only where declarations cannot express
+  the result (`Counter.copy()`, `TaskGroup.create_task()`, `Queue[int].get()`,
+  `Path.open()`, `os.environ`).  The legacy `pyflow/stubs/std` generators were
+  removed; executable intrinsic semantics live in
+  `pyflow.frontend.runtime.intrinsics`.
 ### Fixed
 
 - `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of

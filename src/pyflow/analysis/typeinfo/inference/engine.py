@@ -34,6 +34,7 @@ from pyflow.analysis.typeinfo.inference._engine.stdlib import StdlibInference
 from pyflow.analysis.typeinfo.inference._engine.values import ValueInference
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
+from pyflow.analysis.typeinfo.resolution.typeshed_resolver import resolve_typeshed_symbol
 from pyflow.analysis.typeinfo.inference.models import (
     InferenceDiagnostic,
     InferenceProvenance,
@@ -117,7 +118,11 @@ class StaticTypeInferenceEngine:
         self.project_context = project_context or ProjectContext(None)
         self.type_system = type_system or TypeSystem()
         self.type_system.enable_numeric_tower()
-        self.external_symbol_resolver = external_symbol_resolver
+        self.external_symbol_resolver = (
+            external_symbol_resolver
+            if external_symbol_resolver is not None
+            else resolve_typeshed_symbol
+        )
         self.call_model_providers = tuple(call_model_providers)
         self.options = options or InferenceOptions()
         self._synthetic_types: dict[str, type] = {}

@@ -125,6 +125,7 @@ extend-exclude = '''
   | build
   | dist
   | third-party
+  | .*stubs/typeshed
 )/
 '''
 

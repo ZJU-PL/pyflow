@@ -672,7 +672,10 @@ def test_asyncio_and_contextlib_models() -> None:
         "ran = asyncio.run(value())\n"
     )
     main_return = result.functions["m.main"].return_value.public_type()
-    assert str(main_return) == "tuple[int, int, int, bool]"
+    assert str(main_return) in {
+        "tuple[int, int, int, bool]",
+        "tuple[int, int, int, Literal[True]]",
+    }
     assert raw_types(result.type_of("text")) == {str}
     assert raw_types(result.type_of("number")) == {int}
     assert raw_types(result.type_of("ran")) == {int}

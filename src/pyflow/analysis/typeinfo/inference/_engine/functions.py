@@ -749,6 +749,21 @@ class FunctionInference(InferenceComponent):
             name = self.engine._value_rules._qualified_callee_name(func_expr)
             if name is None:
                 continue
+            if name.rsplit(".", 1)[-1] in {
+                "abstractmethod",
+                "abstractclassmethod",
+                "abstractstaticmethod",
+                "abstractproperty",
+                "overload",
+                "final",
+                "no_type_check",
+                "deprecated",
+                "override",
+                "type_check_only",
+            }:
+                # These decorators annotate/check the function; they do not
+                # replace its callable result type.
+                continue
             local = self.engine._value_rules._resolve_lexical_function(name, parent)
             if local is None:
                 local = self.engine._value_rules._resolve_lexical_function(

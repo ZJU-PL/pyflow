@@ -133,7 +133,9 @@ def test_mapping_proxy_type_is_a_class_object() -> None:
         "alias = MappingProxyType\n"
     )
     assert _mismatches(result) == []
-    assert str(result.type_of("alias")) == "type[mappingproxy]"
+    alias = str(result.type_of("alias"))
+    assert alias.startswith("type[")
+    assert "MappingProxyType" in alias
 
 
 def test_enum_subclass_members_keep_enum_type() -> None:

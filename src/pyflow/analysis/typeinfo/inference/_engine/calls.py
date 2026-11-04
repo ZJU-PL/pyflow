@@ -127,6 +127,12 @@ class CallInference(InferenceComponent):
 
         qualified_callee = self.engine._value_rules._qualified_callee_name(node.func)
         root = (_expression_name(node.func) or "").split(".", 1)[0]
+        root_shadowed = (
+            root in self.engine._value_assignments
+            or root in self.engine._class_aliases
+            or root in self.engine._function_names
+            or (current_function is not None and root in environment)
+        )
         if root not in environment:
             if (
                 qualified_callee in {"typing.cast", "typing_extensions.cast"}
@@ -175,11 +181,15 @@ class CallInference(InferenceComponent):
             ]
             element = join_all(elements, self.engine.type_system).public_type() or ANY
             return self.engine._value_rules._instance(zip, TupleType((element,), unknown_size=True))
-        if qualified_callee is not None:
+        if qualified_callee is not None and not root_shadowed:
             modelled = self._model_external_call(qualified_callee, arguments, keywords, node)
             if modelled is not None:
                 return modelled
-        if isinstance(node.func, ast.Attribute) and qualified_callee is not None:
+        if (
+            isinstance(node.func, ast.Attribute)
+            and qualified_callee is not None
+            and not root_shadowed
+        ):
             # Attribute-style module access (import pathlib;
             # pathlib.Path(...)) or imported names (from pathlib import Path; Path(...))
             # are common and should construct the class when a builtin annotation lookup

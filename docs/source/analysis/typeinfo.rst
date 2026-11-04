@@ -35,8 +35,31 @@ Package Layout
 ``TypeEvidenceIndex`` stores source-level evidence.  ``ClassDescriptor`` is the
 separate core representation of a runtime Python class.
 
-Usage
------
+Vendored typeshed
+~~~~~~~~~~~~~~~~
+
+PyFlow ships a snapshot of mypy's typeshed under
+``pyflow/stubs/typeshed`` and uses it by default:
+
+- stdlib modules and bundled third-party stubs resolve through
+  ``TypeInfoService`` without passing ``typeshed_roots``;
+- ``StaticTypeInferenceEngine`` installs a shared typeshed-backed external
+  symbol resolver when no explicit resolver is supplied;
+- ``ProjectTypeInferenceEngine`` consults project results first, then typeshed.
+
+The stub parser understands version-gated declarations
+(``if sys.version_info``), ``@overload``, ``TypeVar``/``ParamSpec``,
+``TypeAlias``, module-level value aliases (``random = _inst.random``),
+``__all__``, and ``Self`` substitution.  ``StubResolver`` defaults
+``python_version`` to the running interpreter; pass ``python_version=(3, 12)``
+to ``TypeInfoService`` to analyse another version.
+
+Typeshed is the declaration source for the whole stdlib surface.  A small
+receiver-aware call/member layer still overrides it where declarations cannot
+express the result (for example ``collections.Counter.copy()``,
+``asyncio.TaskGroup.create_task()``, ``queue.Queue[int].get()``,
+``pathlib.Path.open()``, and the ``os.environ`` mapping shape).  Callers can
+replace the vendored snapshot with ``typeshed_roots=[...]``.
 
 Evidence Collection
 ~~~~~~~~~~~~~~~~~~~

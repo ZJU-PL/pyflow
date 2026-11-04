@@ -75,7 +75,9 @@ floating = 1.5 / 2
 """)
 
     assert "pathlib" in str(result.type_of("sample.path"))
-    assert result.type_of("sample.amount") is None
+    # ``Decimal`` resolves from typeshed now; the key assertion is that the
+    # non-numeric receiver is not coerced to ``float``.
+    assert "decimal.Decimal" in str(result.type_of("sample.amount"))
     assert _raw_types(result.type_of("sample.integer")) == {float}
     assert _raw_types(result.type_of("sample.floating")) == {float}
 
@@ -97,7 +99,7 @@ computed = math.sqrt(2)
 """,
     )
 
-    assert service.fact_of("sample", "computed") is None
+    assert _raw_types(service.type_of("sample", "computed")) == {float}
     assert str(service.type_of("sample", "loaded")) == "Any"
     assert str(service.type_of("sample", "cwd")) == "str"
     pattern = service.type_of("sample", "pattern")

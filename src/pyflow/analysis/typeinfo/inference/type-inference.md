@@ -104,7 +104,18 @@ Inference currently models:
 - expression-level, symbol-level, and function-summary queries;
 - annotation consistency, convergence, and precision-budget diagnostics.
 
-External modules may supply types through the `external_symbol_resolver`
+## Vendored typeshed
+
+Engines use PyFlow's vendored typeshed snapshot by default.  `hashlib`,
+`base64`, `struct`, `sqlite3`, `urllib.parse`, `random`, `csv`, and the rest of
+the stdlib surface resolve through it.  A small receiver-aware call/member
+layer overrides typeshed where declarations cannot express the result
+(`Counter.copy()`, `TaskGroup.create_task()`, `Queue[int].get()`,
+`Path.open()`).  `TypeInfoService(typeshed_roots=...)` replaces the snapshot
+and `python_version=` selects version-gated declarations.  Stub facts are
+parsed lazily and shared across engines.
+
+External modules may also supply types through the `external_symbol_resolver`
 callback. Argument-sensitive library behavior can be added without modifying
 the solver:
 

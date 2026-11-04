@@ -646,6 +646,44 @@ class ValueInference(InferenceComponent):
                                             returned, _depth=_depth + 1
                                         )
                                 elements.append(returned)
+                    else:
+                        # External classes (for example ``_csv.Reader``) are
+                        # described by stubs rather than source class infos.
+                        external_iter = self.engine._member_rules._external_type(
+                            f"{typ.type.full_name}.__iter__"
+                        )
+                        if (
+                            isinstance(external_iter, CallableType)
+                            and external_iter.return_type is not None
+                        ):
+                            returned_type = external_iter.return_type
+                            substitutions = {
+                                parameter.name: argument
+                                for parameter, argument in zip(typ.type.type_parameters, typ.args)
+                            }
+                            if substitutions:
+                                returned_type = substitute_type_vars(returned_type, substitutions)
+                            used_next = False
+                            if (
+                                isinstance(returned_type, Instance)
+                                and returned_type.type.full_name == typ.type.full_name
+                            ):
+                                external_next = self.engine._member_rules._external_type(
+                                    f"{typ.type.full_name}.__next__"
+                                )
+                                if (
+                                    isinstance(external_next, CallableType)
+                                    and external_next.return_type is not None
+                                ):
+                                    returned_type = external_next.return_type
+                                    used_next = True
+                                else:
+                                    returned_type = None
+                            if returned_type is not None:
+                                returned = AbstractTypeValue.from_type(returned_type)
+                                if not used_next:
+                                    returned = self._iterable_element(returned, _depth=_depth + 1)
+                                elements.append(returned)
         return (
             join_all(
                 elements,
