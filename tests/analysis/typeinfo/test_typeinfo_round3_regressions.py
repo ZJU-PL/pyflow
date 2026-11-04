@@ -801,3 +801,21 @@ item.update(missing=1)
     messages = [d.message for d in invalid.diagnostics if d.code == "annotation-mismatch"]
     assert any("TypedDict key count" in message for message in messages)
     assert any("unexpected key 'missing'" in message for message in messages)
+
+
+def test_instance_getattr_is_not_invoked_on_class_objects() -> None:
+    result = _infer(
+        """
+class Dynamic:
+    def __getattr__(self, name):
+        return self._helper(name)
+
+    def _helper(self, name: str) -> int:
+        return 1
+
+value = Dynamic.missing
+""",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]

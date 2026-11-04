@@ -9783,7 +9783,9 @@ class StaticTypeInferenceEngine:
                 if method is not None:
                     values.append(self._bound_method_value(self._functions[method], base))
                     has_known_attribute = True
-                if not has_known_attribute:
+                if not has_known_attribute and not base.class_targets:
+                    # ``__getattr__`` is an instance protocol; on a class
+                    # object the lookup goes through the metaclass instead.
                     dynamic_getter = self._class_method(class_info.qualified_name, "__getattr__")
                     key = (class_info.qualified_name, attribute)
                     if dynamic_getter is not None and key not in self._resolving_attributes:
