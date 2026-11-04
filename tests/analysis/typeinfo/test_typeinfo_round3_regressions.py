@@ -459,3 +459,23 @@ joined = list(itertools.starmap(lambda a, b: a + b, itertools.product("ab", repe
     assert str(result.type_of("pairs")) == "list[tuple[str, str]]"
     assert str(result.type_of("joined")) == "list[str]"
     assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]
+
+
+def test_unannotated_iter_satisfies_the_iterable_protocol() -> None:
+    result = _infer(
+        """
+from collections.abc import Iterable
+
+class Bag:
+    def __iter__(self):
+        return iter([1])
+
+def total(values: Iterable[int]) -> int:
+    return sum(values)
+
+value = total(Bag())
+""",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

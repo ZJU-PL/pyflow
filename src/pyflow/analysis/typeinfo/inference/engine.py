@@ -333,6 +333,11 @@ class StaticTypeInferenceEngine:
 
             self._commit_pending_evidence()
             self._refresh_effective_returns()
+            # Protocol/container checks read the descriptor member table, so
+            # refresh it before the next fixed-point pass uses this iteration's
+            # summaries (unannotated ``__iter__``/property methods otherwise
+            # look like ``Callable[..., Any]`` during the checks).
+            self._refresh_class_member_signatures()
             if self._fingerprint() == before:
                 converged = True
                 break
