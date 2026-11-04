@@ -422,3 +422,23 @@ message: Message = {"role": "user", "content": "hi"}
     )
 
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_explicit_super_class_starts_after_that_class() -> None:
+    result = _infer(
+        """
+class Base:
+    def __init__(self, value: int, *, extra: int = 0) -> None: ...
+
+class Middle(Base):
+    def __init__(self, value: int) -> None:
+        super().__init__(value)
+
+class Child(Middle):
+    def __init__(self) -> None:
+        super(Middle, self).__init__(1, extra=2)
+""",
+        strict=True,
+    )
+
+    assert not [d for d in result.diagnostics if d.code == "call-arity-mismatch"]

@@ -8098,13 +8098,31 @@ class StaticTypeInferenceEngine:
                     if isinstance(typ, Instance):
                         receiver_class = typ.type.full_name
                         break
+        # ``super(SomeBase, self)`` starts the MRO after ``SomeBase`` rather
+        # than after the enclosing class.
+        start_class = owner
+        if len(node.args) >= 2:
+            start_value = self._evaluate_expression(
+                node.args[0],
+                environment,
+                scope=owner,
+                current_function=current_function,
+            )
+            explicit = next(iter(start_value.class_targets), None)
+            if explicit is None:
+                for typ in start_value.types:
+                    if isinstance(typ, Instance):
+                        explicit = typ.type.full_name
+                        break
+            if explicit is not None:
+                start_class = explicit
         mro = self._mro_names(receiver_class or owner)
-        if owner in mro:
-            for candidate in mro[mro.index(owner) + 1 :]:
+        if start_class in mro:
+            for candidate in mro[mro.index(start_class) + 1 :]:
                 info = self._classes.get(candidate)
                 if info is not None:
                     return AbstractTypeValue.from_type(info.instance)
-        info = self._classes.get(owner)
+        info = self._classes.get(start_class)
         if info is not None:
             for base in info.bases:
                 base_info = self._classes.get(base)
