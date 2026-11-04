@@ -435,3 +435,44 @@ def test_enum_member_new_is_reported_incomplete() -> None:
     assert any(
         reason["kind"] == "enum_member_new_unmodeled" for reason in result.incomplete_reasons()
     )
+
+
+def test_singledispatchmethod_registered_implementation() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            from functools import singledispatchmethod
+
+            class C:
+                @singledispatchmethod
+                def f(self, x):
+                    return "base"
+
+                @f.register
+                def _(self, x: int):
+                    return [1]
+
+            c = C()
+            r = c.f(1)
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_dict_subclass_getitem_uses_missing_hook() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            class D(dict):
+                def __missing__(self, key):
+                    return [1]
+
+            d = D()
+            r = d["x"]
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))

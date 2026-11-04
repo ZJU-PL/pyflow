@@ -643,6 +643,19 @@ class AttributeResolver(Processor):
                 )
             )
             return
+        if attr_name == "__getitem__":
+            # ``dict.__getitem__`` raises for a missing key; a dict subclass
+            # that defines ``__missing__`` then calls it.  Add it as a second
+            # callee candidate (a may-over-approximation), otherwise
+            # ``D()["x"]`` silently returned an empty, "complete" set.
+            self._install_class_lookup(
+                solver,
+                scope,
+                class_obj,
+                attr("__missing__"),
+                target_ctx,
+                instance_obj=base_obj,
+            )
         if attr_name == "__dict__":
             # ``obj.__dict__`` is a live view over the instance's attribute
             # cells, not an independent dictionary.  Redirecting reads and

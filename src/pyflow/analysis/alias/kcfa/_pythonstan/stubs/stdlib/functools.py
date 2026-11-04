@@ -105,3 +105,34 @@ def cmp_to_key(mycmp):
 
 def total_ordering(cls):
     return cls
+
+
+class singledispatchmethod:
+    """Descriptor wrapper matching ``functools.singledispatchmethod``."""
+
+    def __init__(self, func):
+        self.func = func
+        self.registered = []
+
+    def register(self, arg):
+        if callable(arg):
+            self.registered.append(arg)
+            return arg
+
+        def decorator(implementation):
+            self.registered.append(implementation)
+            return implementation
+
+        return decorator
+
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+
+        def wrapper(*args, **kwargs):
+            result = self.func(obj, *args, **kwargs)
+            for implementation in self.registered:
+                result = implementation(obj, *args, **kwargs)
+            return result
+
+        return wrapper
