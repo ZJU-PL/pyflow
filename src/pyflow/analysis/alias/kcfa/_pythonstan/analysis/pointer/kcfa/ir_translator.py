@@ -71,6 +71,7 @@ class IRTranslator:
         self._class_keyword_variables: Dict[
             IRClass, Tuple[Tuple[Optional[str], "Variable"], ...]
         ] = {}
+        self._enum_value_variables: Dict[Tuple[IRClass, str], str] = {}
         self._import_aliases: Dict[str, str] = {}
 
         from pyflow.analysis.alias.kcfa._pythonstan.world import World
@@ -240,6 +241,18 @@ class IRTranslator:
                         # Enum members are created by the solver's enum
                         # model; keeping the raw class-body value in the class
                         # namespace makes ``E.A`` also point to ``1``.
+                        # Translate the value into a synthetic variable so the
+                        # enum model can still pass it to __init__/__new__.
+                        synthetic = f"$enum_value@{stable_token(cls_stmt)}:{member_name}"
+                        original = stmt.get_ast()
+                        renamed = ast.Assign(
+                            targets=[ast.Name(id=synthetic, ctx=ast.Store())],
+                            value=original.value,
+                        )
+                        class_statements.append(
+                            IRAssign(renamed) if isinstance(stmt, IRAssign) else IRCopy(renamed)
+                        )
+                        self._enum_value_variables[(cls_stmt, member_name)] = synthetic
                         continue
                 class_statements.append(stmt)
             self._translate_statements(class_statements, constraints)
@@ -250,6 +263,9 @@ class IRTranslator:
             self._scope_constraints[cls_stmt] = constraints
 
         return constraints
+
+    def get_enum_value_variable(self, cls_stmt: IRClass, member_name: str) -> Optional[str]:
+        return self._enum_value_variables.get((cls_stmt, member_name))
 
     def get_class_used_variables(self, cls_stmt: IRClass) -> List["Variable"]:
         return self._class_used_variables.get(cls_stmt, [])

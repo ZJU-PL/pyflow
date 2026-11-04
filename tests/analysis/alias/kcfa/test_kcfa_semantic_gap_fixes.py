@@ -387,3 +387,51 @@ def test_module_level_getattr_supplies_missing_attributes(tmp_path) -> None:
 
     assert result.complete
     assert _has_list(_points(result, "r"))
+
+
+def test_enum_member_init_payload_is_modeled() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import enum
+
+            class Color(enum.Enum):
+                RED = (1, [1])
+                BLUE = (2, [2])
+
+                def __init__(self, code, payload):
+                    self.code = code
+                    self.payload = payload
+
+            r = Color.RED.payload
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert _has_list(_points(result, "r"))
+
+
+def test_enum_member_new_is_reported_incomplete() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            import enum
+
+            class Color(enum.Enum):
+                RED = 1
+
+                def __new__(cls, value):
+                    obj = object.__new__(cls)
+                    obj._value_ = value
+                    obj.extra = [value]
+                    return obj
+
+            r = Color.RED.extra
+            """),
+        k=1,
+    ).run()
+
+    query = result.points_to_query("r")
+    assert query.complete is False
+    assert any(
+        reason["kind"] == "enum_member_new_unmodeled" for reason in result.incomplete_reasons()
+    )

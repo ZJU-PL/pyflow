@@ -1424,6 +1424,17 @@ class PointerSolver:
             run_initial=True,
         )
 
+    def _enum_class_defines_new(self, class_obj: "ClassObject") -> bool:
+        for type_ref in self.state.types.mro(self.state.types.ref(class_obj)):
+            if type_ref.kind is not TypeRefKind.USER:
+                continue
+            target = type_ref.target
+            if isinstance(target, ClassObject) and "__new__" in (
+                target.ir.get_definitely_declared_names()
+            ):
+                return True
+        return False
+
     def _install_enum_members(
         self,
         class_obj: ClassObject,
@@ -1453,6 +1464,7 @@ class PointerSolver:
                 name = target.id
                 class_field = state.raw_field(class_scope, class_context, class_obj, attr(name))
                 values = list(state.get_points_to(class_field))
+                source_ctx = None
                 if not values:
                     source = copies.get(name)
                     if source is not None:
@@ -1460,6 +1472,14 @@ class PointerSolver:
                             source, VariableKind.TEMPORARY
                         )
                         source_ctx = state.get_variable(class_scope, class_context, source_var)
+                        values = list(state.get_points_to(source_ctx))
+                if not values:
+                    enum_value_name = self.ir_translator.get_enum_value_variable(class_obj.ir, name)
+                    if enum_value_name is not None:
+                        enum_var = self.variable_factory.make_variable(
+                            enum_value_name, VariableKind.TEMPORARY
+                        )
+                        source_ctx = state.get_variable(class_scope, class_context, enum_var)
                         values = list(state.get_points_to(source_ctx))
                 if not values:
                     value_node = getattr(node, "value", None)
@@ -1474,16 +1494,6 @@ class PointerSolver:
                                 value_node.value,
                             )
                         ]
-                if not values:
-                    values = [
-                        AbstractObject(
-                            class_context,
-                            AllocSite(
-                                f"<enum-value:{class_obj.ir.get_qualname()}:{name}>",
-                                AllocKind.UNKNOWN,
-                            ),
-                        )
-                    ]
                 member = InstanceObject(
                     class_context,
                     AllocSite(
@@ -1493,10 +1503,51 @@ class PointerSolver:
                     class_obj,
                 )
                 value_field = state.get_field(class_scope, class_context, member, attr("_value_"))
-                self.handle_new_points_to(
-                    value_field,
+                if self._enum_class_defines_new(class_obj):
+                    # The synthesized member bypasses a user-defined
+                    # ``__new__``; make the resulting attributes incomplete
+                    # instead of silently empty.
+                    self.mark_semantic_incomplete(
+                        variables=(class_field,),
+                        kind="enum_member_new_unmodeled",
+                        message="enum member __new__ is not modeled",
+                    )
+                if values:
+                    self.handle_new_points_to(
+                        value_field,
+                        class_scope,
+                        PointsToSet.from_objects(values, arena=state.arena),
+                    )
+                else:
+                    # The class body may not have allocated the member value
+                    # yet.  Pinning an UNKNOWN object here made enum __init__
+                    # payloads permanently empty; wait for the real value.
+                    value_source = source_ctx if source_ctx is not None else class_field
+                    state.dependencies.subscribe(
+                        ("enum-member-value", class_obj, name),
+                        (value_source,),
+                        lambda value_field=value_field, value_source=value_source: (
+                            self.handle_new_points_to(
+                                value_field,
+                                class_scope,
+                                PointsToSet.from_objects(
+                                    (
+                                        obj
+                                        for obj in state.get_points_to(value_source)
+                                        if obj != member
+                                    ),
+                                    arena=state.arena,
+                                ),
+                            )
+                        ),
+                    )
+                self._install_enum_member_init(
+                    class_obj,
+                    member,
                     class_scope,
-                    PointsToSet.from_objects(values, arena=state.arena),
+                    class_context,
+                    getattr(node, "value", None),
+                    value_field,
                 )
                 name_field = state.get_field(class_scope, class_context, member, attr("_name_"))
                 name_obj = ConstantObject(
@@ -1518,6 +1569,78 @@ class PointerSolver:
                     class_scope,
                     PointsToSet.singleton(member, state.arena),
                 )
+
+    def _install_enum_member_init(
+        self,
+        class_obj: "ClassObject",
+        member: "InstanceObject",
+        class_scope: "Scope",
+        class_context: "AbstractContext",
+        value_node,
+        value_field,
+    ) -> None:
+        """Run a user-defined enum ``__init__`` on a synthesized member.
+
+        ``class Color(Enum): RED = (1, [1]); def __init__(self, code, payload)``
+        stores per-member payloads.  Without this call, attributes set by an
+        enum ``__init__`` were empty while the query still claimed to be
+        complete.
+        """
+        init_ir = None
+        for type_ref in self.state.types.mro(self.state.types.ref(class_obj)):
+            if type_ref.kind is not TypeRefKind.USER:
+                continue
+            target = type_ref.target
+            if not isinstance(target, ClassObject):
+                continue
+            ir = self.ir_translator.scope_manager.get_subscope(target.ir, "__init__")
+            if isinstance(ir, IRFunc):
+                init_ir = ir
+                break
+        if init_ir is None:
+            return
+        token = stable_token(member)
+        method_obj = MethodObject(
+            context=class_context,
+            alloc_site=AllocSite(init_ir, AllocKind.METHOD),
+            container_scope=class_scope,
+            ir=init_ir,
+            class_obj=class_obj,
+            instance_obj=member,
+        )
+        callee_var = Variable(name=f"$enum_init@{token}", kind=VariableKind.TEMPORARY)
+        callee_ctx = self.state.get_variable(class_scope, class_context, callee_var)
+        self.handle_new_points_to(callee_ctx, class_scope, PointsToSet.singleton(method_obj))
+        value_var = Variable(name=f"$enum_value@{token}", kind=VariableKind.TEMPORARY)
+        value_ctx = self.state.get_variable(class_scope, class_context, value_var)
+        self.state._add_var_points_flow(value_field, value_ctx)
+        arg_vars = []
+        if isinstance(value_node, ast.Tuple):
+            for index in range(len(value_node.elts)):
+                arg_var = Variable(name=f"$enum_arg@{token}:{index}", kind=VariableKind.TEMPORARY)
+                self.add_constraint(
+                    class_scope,
+                    class_context,
+                    LoadConstraint(base=value_var, field=key(index), target=arg_var),
+                )
+                arg_vars.append(arg_var)
+        else:
+            arg_vars.append(value_var)
+        self.add_constraint(
+            class_scope,
+            class_context,
+            CallConstraint(
+                callee=callee_var,
+                args=tuple(arg_vars),
+                kwargs=(),
+                target=None,
+                call_site=CallSite(
+                    statement=class_obj.ir,
+                    scope_name=class_obj.ir.get_qualname(),
+                    index=70,
+                ),
+            ),
+        )
 
     def _install_class_slots(
         self,
