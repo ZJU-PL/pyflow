@@ -479,3 +479,49 @@ value = total(Bag())
     )
 
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_singledispatchmethod_dispatches_on_argument_types() -> None:
+    result = _infer("""
+from functools import singledispatchmethod
+
+class Handler:
+    @singledispatchmethod
+    def handle(self, value: object) -> int:
+        return 0
+
+    @handle.register
+    def _(self, value: int) -> str:
+        return "int"
+
+    @handle.register
+    def _(self, value: str) -> float:
+        return 1.0
+
+handler = Handler()
+as_int = handler.handle(1)
+as_str = handler.handle("s")
+as_float = handler.handle(1.5)
+""")
+
+    assert str(result.type_of("as_int")) == "str"
+    assert str(result.type_of("as_str")) == "float"
+    assert str(result.type_of("as_float")) == "int"
+
+
+def test_executor_context_manager_and_submit_results() -> None:
+    result = _infer("""
+import concurrent.futures
+
+def work() -> int:
+    return 1
+
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    future = executor.submit(work)
+    outcome = future.result()
+
+standalone = concurrent.futures.ThreadPoolExecutor().submit(work).result()
+""")
+
+    assert str(result.type_of("outcome")) == "int"
+    assert str(result.type_of("standalone")) == "int"

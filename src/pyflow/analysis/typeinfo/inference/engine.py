@@ -773,8 +773,18 @@ class StaticTypeInferenceEngine:
                     if base_name is None:
                         continue
                     base = self._resolve_lexical_function(base_name, parent)
+                    if base is None:
+                        # ``@dispatcher.register`` on a method resolves to the
+                        # class-qualified method, which lexical lookup skips
+                        # because it belongs to an owner.
+                        method_candidate = f"{parent}.{base_name}"
+                        if method_candidate in self._functions:
+                            base = method_candidate
                     if base is not None and base != qualified:
                         self._functions[base].overloads.append(info)
+                        # Several registrations commonly share the ``_``
+                        # placeholder name; keep each one analysable.
+                        self._functions.setdefault(f"{qualified}@{node.lineno}", info)
                 info.effective_return = self._decorator_effective_return(node, parent)
                 self._function_names.add(node.name)
                 self._function_nodes[id(node)] = qualified
@@ -1289,6 +1299,14 @@ class StaticTypeInferenceEngine:
             for name, target in class_info.methods.items():
                 function = self._functions.get(target)
                 if function is None:
+                    continue
+                if function.explicit_return is not None and all(
+                    parameter in function.explicit_parameters
+                    for parameter in function.parameter_names
+                ):
+                    # Fully annotated signatures are deterministic; only
+                    # methods whose member type depends on inferred summaries
+                    # need a refresh on every fixed-point pass.
                     continue
                 signature = self._function_value(function).public_type()
                 if not isinstance(signature, CallableType):
@@ -5192,6 +5210,10 @@ class StaticTypeInferenceEngine:
                 concurrent.futures.ThreadPoolExecutor,
                 concurrent.futures.ProcessPoolExecutor,
             }:
+                if node.attr == "__enter__":
+                    return AbstractTypeValue.from_type(typ)
+                if node.attr == "__exit__":
+                    return AbstractTypeValue.from_type(NONE_TYPE)
                 if node.attr == "submit" and arguments:
                     return self._instance(
                         concurrent.futures.Future,
