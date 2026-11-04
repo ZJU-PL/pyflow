@@ -636,3 +636,27 @@ def test_generic_alias_construction_resolves_members() -> None:
     # query is intentionally incomplete.
     assert _has_list(_points(result, "r"))
     assert result.points_to_query("r").complete is False
+
+
+def test_literal_tuple_unpack_preserves_positions() -> None:
+    result = PointerAnalysis(
+        textwrap.dedent("""
+            t = (1, [1])
+            a, b = t
+            r = b
+            s = a
+            """),
+        k=1,
+    ).run()
+
+    assert result.complete
+    assert any("AllocKind.LIST" in point for point in _points(result, "r"))
+    assert any("AllocKind.CONSTANT" in point for point in _points(result, "s"))
+    assert _points(result, "r") != _points(result, "s")
+
+
+def test_literal_tuple_unpack_is_deterministic() -> None:
+    source = "t = (1, [1])\na, b = t\nr = b\n"
+    results = [PointerAnalysis(source, k=1).run() for _ in range(5)]
+    baseline = results[0].points_to_name_union("r")
+    assert all(result.points_to_name_union("r") == baseline for result in results)

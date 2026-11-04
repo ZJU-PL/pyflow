@@ -722,15 +722,105 @@ class BuiltinAPIHandler:
         if not call.target:
             return constraints
 
-        alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.LIST)
-        constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
+        solver = self._solver
+        if solver is None:
+            alloc_site = AllocSite(stmt=call.stmt, kind=AllocKind.LIST)
+            constraints.append(AllocConstraint(target=call.target, alloc_site=alloc_site))
+            if len(call.args) > 0:
+                constraints.extend(
+                    self._copy_iteration_values(scope, context, call, call.args[0], "list_ctor")
+                )
+            return constraints
+
+        # Allocate synchronously so an ordered, literal source can be marked
+        # precise before the following unpacking subscripts are applied.
+        target_ctx = self.state.get_variable(scope, context, call.target)
+        list_obj = ListObject(context, AllocSite(stmt=call.stmt, kind=AllocKind.LIST))
+        solver.handle_new_points_to(target_ctx, scope, PointsToSet.singleton(list_obj))
 
         if len(call.args) > 0:
             constraints.extend(
                 self._copy_iteration_values(scope, context, call, call.args[0], "list_ctor")
             )
+            if self._source_is_positional(scope, context, call.args[0]):
+                self.state._precise_container_objects.add(list_obj)
+                constraints.extend(self._copy_positional_keys(scope, context, call, call.args[0]))
 
         return constraints
+
+    @staticmethod
+    def _literal_sequence_source(scope: "Scope", var: "Variable") -> bool:
+        name = getattr(var, "name", None)
+        if not name:
+            return False
+        ast_scope = scope.stmt.get_ast()
+        for node in ast.walk(ast_scope):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == name
+            ):
+                return isinstance(node.value, (ast.Tuple, ast.List))
+        return False
+
+    def _source_is_positional(
+        self, scope: "Scope", context: "AbstractContext", var: "Variable"
+    ) -> bool:
+        # Only literal sources are marked precise.  Deciding from the current
+        # points-to set raced with the unpacking load and made results
+        # order-dependent, so non-literal tuples stay conservatively joined.
+        return self._literal_sequence_source(scope, var)
+
+    def _copy_positional_keys(
+        self,
+        scope: "Scope",
+        context: "AbstractContext",
+        call: "CallConstraint",
+        source_var: "Variable",
+    ) -> List["Constraint"]:
+        """Copy positional ``key(i)`` cells from a literal sequence source."""
+        solver = self._solver
+        if solver is None:
+            return []
+        done: set = set()
+
+        def emit() -> None:
+            source_ctx = self.state.get_variable(scope, context, source_var)
+            points = self.state.get_points_to(source_ctx)
+            signature = frozenset(points)
+            if signature in done:
+                return
+            done.add(signature)
+            for obj in points:
+                stmt = getattr(getattr(obj, "alloc_site", None), "stmt", None)
+                rval = stmt.get_rval() if hasattr(stmt, "get_rval") else None
+                if not isinstance(rval, (ast.Tuple, ast.List)):
+                    continue
+                if any(isinstance(element, ast.Starred) for element in rval.elts):
+                    continue
+                length = len(rval.elts)
+                for index in range(length):
+                    tmp_var = self._make_temp_var(f"list_ctor_key_{index}", call)
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        LoadConstraint(base=source_var, field=key(index), target=tmp_var),
+                    )
+                    solver.add_constraint(
+                        scope,
+                        context,
+                        StoreConstraint(base=call.target, field=key(index), source=tmp_var),
+                    )
+
+        self._defer_on_source(
+            ("list-ctor-positional", scope, context, call),
+            scope,
+            context,
+            source_var,
+            emit,
+        )
+        return []
 
     def _copy_iteration_values(
         self,
