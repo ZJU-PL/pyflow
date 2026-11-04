@@ -62,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native call chains are bounded while preserving capability access paths.
   `functools.singledispatch` registered implementations now contribute return
   values instead of silently falling back to the base function alone.
+- Type inference no longer crashes on `pathlib.Path.walk()`, keeps property
+  setters from replacing the getter's member type, and models file-object
+  iteration, `io.open`, text/binary `tempfile` modes, and `io.IOBase.read`
+  without narrowing it to text.  Positional `match` patterns honor
+  `__match_args__`, abstract/stub method bodies no longer infer `None`, and
+  nested typing aliases such as `dict[str, Union[int, str]]` no longer emit
+  spurious unsupported-expression diagnostics.
 - k-CFA pointer analysis no longer diverges on same-name imports
   (`from datetime import datetime`), grows unbounded native access paths, or
   loses positional-only/default argument flow.  It now models dataclass and

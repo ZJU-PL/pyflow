@@ -95,6 +95,42 @@ from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_document
 from pyflow.analysis.typeinfo.resolution.imports import iter_module_imports
 from pyflow.language.modules.project_resolution import ProjectContext
 
+# Typing constructs are resolved by the annotation paths rather than as
+# runtime values.  Nested subscripts such as ``Iterable[Union[A, B]]`` must not
+# be reported as unsupported dynamic subscripting when the inner base is one of
+# these special forms.
+_TYPING_SPECIAL_FORM_NAMES = frozenset(
+    {
+        "Annotated",
+        "Any",
+        "AnyStr",
+        "Callable",
+        "ClassVar",
+        "Concatenate",
+        "Final",
+        "Generic",
+        "Literal",
+        "LiteralString",
+        "NamedTuple",
+        "Never",
+        "NewType",
+        "NoReturn",
+        "NotRequired",
+        "Optional",
+        "ParamSpec",
+        "Protocol",
+        "Required",
+        "Self",
+        "Type",
+        "TypeAlias",
+        "TypeGuard",
+        "TypeIs",
+        "TypedDict",
+        "TypeVar",
+        "Union",
+    }
+)
+
 # Runtime names such as ``types.MappingProxyType`` are aliases for classes
 # whose ``__name__`` differs (``mappingproxy``).  Class-object detection must
 # compare against the actual runtime class name, not the imported alias.
@@ -230,6 +266,7 @@ class _ClassInfo:
     builtin_base: tuple[type, tuple[ProperType, ...]] | None = None
     attribute_templates: dict[str, AbstractTypeValue] = field(default_factory=dict)
     enum_values: dict[str, AbstractTypeValue] = field(default_factory=dict)
+    match_args: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -837,6 +874,30 @@ class StaticTypeInferenceEngine:
         name = _expression_name(base) or ""
         return name.rsplit(".", 1)[-1] in {"KW_ONLY", "InitVar"}
 
+    @staticmethod
+    def _extract_match_args(node: ast.ClassDef) -> tuple[str, ...] | None:
+        """Return a literal ``__match_args__`` declaration from a class body."""
+        for item in node.body:
+            target: ast.expr | None = None
+            value: ast.expr | None = None
+            if isinstance(item, ast.Assign) and len(item.targets) == 1:
+                target = item.targets[0]
+                value = item.value
+            elif isinstance(item, ast.AnnAssign):
+                target = item.target
+                value = item.value
+            if (
+                isinstance(target, ast.Name)
+                and target.id == "__match_args__"
+                and isinstance(value, (ast.Tuple, ast.List))
+                and all(
+                    isinstance(element, ast.Constant) and isinstance(element.value, str)
+                    for element in value.elts
+                )
+            ):
+                return tuple(element.value for element in value.elts)
+        return None
+
     def _precollect_classes(
         self,
         statements: Iterable[ast.stmt],
@@ -859,6 +920,7 @@ class StaticTypeInferenceEngine:
                 qualified,
                 self._synthetic_instance(qualified),
                 bases=bases,
+                match_args=self._extract_match_args(node),
             )
             self._class_aliases[node.name] = qualified
             descriptor = self._classes[qualified].instance.type
@@ -1699,6 +1761,7 @@ class StaticTypeInferenceEngine:
         self._annotation_owner = function.owner
         self._collect_specializations = collect_specializations
         self._observed_yields = []
+        interface_stub = self._interface_stub(function)
         try:
             if isinstance(node, ast.Lambda):
                 return_value = self._evaluate_expression(
@@ -1718,7 +1781,12 @@ class StaticTypeInferenceEngine:
                 body_environment = outcome.environment
                 returns = list(outcome.returns)
                 if not outcome.terminated:
-                    returns.append(AbstractTypeValue.from_type(NONE_TYPE))
+                    # An abstract/protocol/stub body (``...``) carries no
+                    # runtime return value.  Treating it as ``None`` makes
+                    # callers appear to return None and produces bogus
+                    # annotation mismatches; leave the result unknown instead.
+                    if not interface_stub:
+                        returns.append(AbstractTypeValue.from_type(NONE_TYPE))
                 elif not returns:
                     returns.append(AbstractTypeValue.from_type(NEVER))
                 return_value = join_all(
@@ -1745,7 +1813,7 @@ class StaticTypeInferenceEngine:
                 explicit_return = AbstractTypeValue.from_type(
                     substitute_type_vars(returned_type, substitutions)
                 )
-            if self._interface_stub(function):
+            if interface_stub:
                 return_value = explicit_return
             elif function.is_generator_source and yields.is_bottom:
                 # A path-insensitive pass may miss a yield inside a branch or
@@ -3063,6 +3131,7 @@ class StaticTypeInferenceEngine:
                 and base.unknown
                 and value.unknown
                 and isinstance(node.slice, (ast.Slice, ast.Tuple))
+                and not self._is_typing_special_form(node.value)
             ):
                 self._add_diagnostic(
                     "unsupported-expression",
@@ -3611,6 +3680,9 @@ class StaticTypeInferenceEngine:
         def element(value: AbstractTypeValue) -> ProperType:
             return self._iterable_element(value).public_type() or ANY
 
+        if qualified_name == "io.open":
+            # ``io.open`` is an alias of the builtin with the same signature.
+            return self._call_builtin("open", arguments, keywords, call_node=node)
         if qualified_name == "collections.deque":
             return self._instance(collections.deque, element(arguments[0]) if arguments else ANY)
         if qualified_name in {"datetime.datetime", "datetime.date", "datetime.timedelta"}:
@@ -4401,8 +4473,17 @@ class StaticTypeInferenceEngine:
             )
         if qualified_name == "tempfile.gettempdir":
             return self._instance(str)
-        if qualified_name == "tempfile.NamedTemporaryFile":
-            return self._instance(io.BufferedIOBase)
+        if qualified_name in {"tempfile.NamedTemporaryFile", "tempfile.TemporaryFile"}:
+            # ``mode`` is the first positional parameter of these factories,
+            # unlike the builtin ``open(file, mode)``.  The default is binary.
+            mode = "w+b"
+            if node is not None:
+                mode_node: ast.expr | None = node.args[0] if node.args else None
+                if mode_node is None:
+                    mode_node = next((kw.value for kw in node.keywords if kw.arg == "mode"), None)
+                if isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+                    mode = mode_node.value
+            return self._instance(io.BufferedIOBase if "b" in mode else io.TextIOWrapper)
         if qualified_name == "tempfile.TemporaryDirectory":
             return self._instance(contextlib.AbstractContextManager, self._proper_instance(str))
         if qualified_name == "json.dumps":
@@ -4919,13 +5000,25 @@ class StaticTypeInferenceEngine:
                         AbstractTypeValue.from_type(self._instance(str)),
                         AbstractTypeValue.from_type(NONE_TYPE),
                     )
-                binary = issubclass(raw, io.BufferedIOBase) or issubclass(raw, io.RawIOBase)
-                if not issubclass(raw, io.TextIOBase) and not binary:
-                    binary = False
+                is_binary = issubclass(raw, (io.BufferedIOBase, io.RawIOBase))
+                is_text = issubclass(raw, io.TextIOBase)
                 if node.attr in {"read", "readline"}:
-                    return self._instance(bytes if binary else str)
+                    if is_binary:
+                        return self._instance(bytes)
+                    if is_text:
+                        return self._instance(str)
+                    # ``io.IOBase.read`` is overridden by both text and binary
+                    # subclasses, so typeshed leaves it unconstrained.  The
+                    # line-oriented methods default to binary on the base.
+                    if node.attr == "read":
+                        return AbstractTypeValue.from_type(ANY)
+                    return self._instance(bytes)
                 if node.attr == "readlines":
-                    return self._instance(list, self._proper_instance(bytes if binary else str))
+                    if is_text:
+                        element = self._proper_instance(str)
+                    else:
+                        element = self._proper_instance(bytes)
+                    return self._instance(list, element)
                 if node.attr in {"readinto", "write"}:
                     return self._instance(int if node.attr == "write" else int)
             if self._is_pathlib_type(typ):
@@ -4965,8 +5058,8 @@ class StaticTypeInferenceEngine:
                         TupleType(
                             (
                                 typ,
-                                self._instance(list, self._proper_instance(str)),
-                                self._instance(list, self._proper_instance(str)),
+                                self._proper_instance(list, self._proper_instance(str)),
+                                self._proper_instance(list, self._proper_instance(str)),
                             )
                         ),
                     )
@@ -7287,26 +7380,50 @@ class StaticTypeInferenceEngine:
             unknown=old.unknown,
         )
 
+    def _inherited_match_args(self, info: _ClassInfo, seen: set[str]) -> tuple[str, ...] | None:
+        if info.qualified_name in seen:
+            return None
+        seen.add(info.qualified_name)
+        if info.match_args is not None:
+            return info.match_args
+        for base in info.bases:
+            base_info = self._classes.get(base)
+            if base_info is not None:
+                found = self._inherited_match_args(base_info, seen)
+                if found is not None:
+                    return found
+        return None
+
     def _class_pattern_fields(
         self, class_type: AbstractTypeValue
     ) -> tuple[dict[str, AbstractTypeValue], list[str]]:
         """Return field types and positional ``__match_args__`` order."""
         fields: dict[str, AbstractTypeValue] = {}
         order: list[str] = []
+        match_args: tuple[str, ...] | None = None
         for typ in class_type.types:
             if not isinstance(typ, Instance):
                 continue
             info = self._classes.get(typ.type.full_name)
             if info is not None:
                 for name, value in info.attributes.items():
-                    if name not in fields:
-                        fields[name] = value
-                        order.append(name)
+                    # ``__match_args__`` and other dunder declarations are not
+                    # match fields; single-underscore dataclass fields are.
+                    if name.startswith("__") or name in fields:
+                        continue
+                    fields[name] = value
+                    order.append(name)
+                if match_args is None:
+                    match_args = self._inherited_match_args(info, set())
             for name, value in typ.type.members.items():
                 if name.startswith("_") or name in fields:
                     continue
                 fields[name] = AbstractTypeValue.from_type(value)
                 order.append(name)
+        # ``__match_args__`` is the authority for positional class patterns;
+        # it is a plain declaration and must never appear as a match field.
+        if match_args is not None:
+            order = list(match_args)
         return fields, order
 
     def _narrow_pattern(
@@ -7331,7 +7448,9 @@ class StaticTypeInferenceEngine:
             for index, child in enumerate(pattern.patterns):
                 field_name = field_order[index] if index < len(field_order) else None
                 child_value = (
-                    fields[field_name] if field_name is not None else AbstractTypeValue.unresolved()
+                    fields.get(field_name, AbstractTypeValue.unresolved())
+                    if field_name is not None
+                    else AbstractTypeValue.unresolved()
                 )
                 result = self._narrow_pattern(
                     child,
@@ -10633,6 +10752,12 @@ class StaticTypeInferenceEngine:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
                 elif raw in {list, set, frozenset, collections.deque} and typ.args:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
+                elif isinstance(raw, type) and issubclass(raw, io.IOBase):
+                    # Iterating a file object yields its lines: text for
+                    # ``TextIOBase`` streams, bytes for everything else.
+                    elements.append(
+                        self._instance(str if issubclass(raw, io.TextIOBase) else bytes)
+                    )
                 elif (
                     raw
                     in {
@@ -11483,6 +11608,20 @@ class StaticTypeInferenceEngine:
             current = current.rpartition(".")[0]
         candidate = f"{self._module_name}.{name}"
         return candidate if candidate in self._functions else None
+
+    def _is_typing_special_form(self, node: ast.expr) -> bool:
+        """Whether ``node`` names a typing construct resolved by annotations."""
+        name = _expression_name(node)
+        if name is None:
+            return False
+        resolved = self._resolve_import_name(name) or name
+        if resolved.split(".", 1)[0] in {"typing", "typing_extensions"}:
+            return True
+        if name.rsplit(".", 1)[-1] not in _TYPING_SPECIAL_FORM_NAMES:
+            return False
+        if name in self._imports:
+            return True
+        return any(module in {"typing", "typing_extensions"} for module in self._star_imports)
 
     def _resolve_import_name(self, name: str) -> str | None:
         direct = self._imports.get(name)

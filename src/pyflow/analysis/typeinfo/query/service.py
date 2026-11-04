@@ -943,6 +943,18 @@ class TypeInfoService:
                     kind="class_var",
                 )
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                decorator_names = {
+                    ast.unparse(decorator).rsplit(".", 1)[-1] for decorator in stmt.decorator_list
+                }
+                if (
+                    decorator_names & {"setter", "deleter"}
+                    and stmt.name in methods
+                    and methods[stmt.name].is_property
+                ):
+                    # ``@prop.setter``/``@prop.deleter`` define an accessor for
+                    # the property above.  Keep the getter's read type instead
+                    # of replacing the property with a callable returning None.
+                    continue
                 method_info = self._specialize_self_method(
                     self._function_info_from_source(
                         stmt,
@@ -966,7 +978,7 @@ class TypeInfoService:
                         method_info.raw_returns if method_info.is_property else str(member_type)
                     ),
                     source=method_info.source,
-                    kind="method",
+                    kind="property" if method_info.is_property else "method",
                 )
         raw_bases = tuple(_annotation_to_str(base) for base in node.bases)
         return ClassTypeInfo(
