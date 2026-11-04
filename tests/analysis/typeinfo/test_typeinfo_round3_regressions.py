@@ -747,8 +747,8 @@ def second(value):
     )
 
     assert result.converged
-    assert engine._is_recursive_function(engine._functions["sample.first"])
-    assert engine._is_recursive_function(engine._functions["sample.second"])
+    assert engine._function_rules._is_recursive_function(engine._functions["sample.first"])
+    assert engine._function_rules._is_recursive_function(engine._functions["sample.second"])
 
 
 def test_nested_mutual_recursion_converges() -> None:

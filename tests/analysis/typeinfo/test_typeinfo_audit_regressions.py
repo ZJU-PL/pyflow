@@ -871,7 +871,7 @@ def test_functional_enum_creates_nominal_members() -> None:
 
 def test_synthetic_builtin_tuple_does_not_hit_the_nominal_tuple_assertion() -> None:
     engine = StaticTypeInferenceEngine()
-    value = engine._synthetic_instance("builtins.tuple", unresolved=True)
+    value = engine._value_rules._synthetic_instance("builtins.tuple", unresolved=True)
     assert isinstance(value, TupleType)
 
 

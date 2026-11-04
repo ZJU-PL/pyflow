@@ -167,3 +167,41 @@ will make container and instance mutation alias-aware without consuming CPA
 results. Later layers include Python data-model protocol dispatch, modern
 overload and generic constraint solving, CFG-based flow refinement, and
 incremental project-summary invalidation.
+
+## Implementation layout
+
+`engine.py` owns initialization, per-module state reset, the module fixed-point
+loop, diagnostics, and result assembly. `InferenceOptions` is defined there.
+Inference rules live in `_engine/`:
+
+| Module | Responsibility |
+| --- | --- |
+| `declarations.py` | Imports, class/function discovery, type aliases, annotations |
+| `functions.py` | Function bodies, recursion, summaries, decorators |
+| `flow.py` | Statements, loops, assignments, comprehension bindings |
+| `expressions.py` | Expression evaluation and argument expansion |
+| `calls.py` | Call resolution, argument binding, overloads, specialization, generics |
+| `stdlib.py` | Standard-library globals and function models |
+| `builtins.py` | Builtin calls and methods on builtin values |
+| `operators.py` | Arithmetic, comparisons, overloaded operators |
+| `narrowing.py` | Guards, membership tests, structural patterns |
+| `compatibility.py` | Annotation compatibility and literal/container checks |
+| `members.py` | Name lookup, MRO, attributes, properties, constructors |
+| `values.py` | Abstract-value joins, projections, containers, iteration, awaiting |
+| `state.py` | Shared declaration records, flow outcomes, AST helpers |
+| `component.py` | Typed reference from a rule component to its owning engine |
+
+The engine constructs rule components once. Each component holds a reference to
+its engine; it does not copy the environment or maintain an independent solver.
+Rules in the same component call each other directly. Cross-component calls use
+the owning engine's explicit rule references (for example,
+`self.engine._value_rules._join(...)`). Shared state is declared on the engine
+and reset before each `infer_source()` call, including cached hierarchy and
+specialization information. Components therefore survive module resets without
+retaining stale analysis state.
+
+Place new rules with the behavior they implement. Keep single-component
+constants beside those rules and shared records in `state.py`. Components may
+import the engine for type checking only; runtime imports flow from the engine
+to its components, preventing import cycles. There is no method forwarding or
+compatibility layer for the former monolithic implementation.

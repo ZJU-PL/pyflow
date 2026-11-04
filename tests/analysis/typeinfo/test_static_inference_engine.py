@@ -535,7 +535,9 @@ def test_nested_tuple_widening_bounds_type_structure_depth() -> None:
     for _ in range(20):
         nested = TupleType((nested,))
 
-    bounded = engine._bound_type_depth(AbstractTypeValue.from_type(nested)).public_type()
+    bounded = engine._value_rules._bound_type_depth(
+        AbstractTypeValue.from_type(nested)
+    ).public_type()
     assert isinstance(bounded, TupleType)
 
     def depth(typ) -> int:
