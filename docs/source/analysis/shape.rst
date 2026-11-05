@@ -14,12 +14,14 @@ data structure have, and how many references point to each field?"**
 Pipeline Position
 -----------------
 
-Shape analysis runs late in the analysis pipeline, after CPA and IPA::
+Shape analysis consumes CPA's points-to results and the store graph's region
+information::
 
-    AST → Store Graph → CPA + IPA → Shape Analysis → Lifetime Analysis
+    AST → Store Graph → CPA + IPA → Shape Analysis
 
-It consumes CPA's points-to results and the store graph's region information,
-then feeds its own results into :doc:`lifetimeanalysis`.
+Unlike IPA, CPA, and lifetime analysis it is not part of the default
+``pyflow optimize`` pipeline. Run it explicitly through
+``pyflow.analysis.shape.evaluate`` when shape results are needed.
 
 How It Works
 ------------
@@ -61,7 +63,7 @@ Constraint Solving
 Analysis Pipeline
 -----------------
 
-The :func:`pyflow.analysis.shape.evaluate` function orchestrates the full shape
+The ``pyflow.analysis.shape.evaluate`` function orchestrates the full shape
 analysis:
 
 1. **Region analysis** — groups aliasing objects into regions
@@ -70,6 +72,15 @@ analysis:
 4. **Entry point analysis** — binds self/args and solves per entry point
 5. **Allocation handling** — processes object allocation sites
 6. **Result reporting** — outputs reference counts, field shares, statistics
+
+.. note::
+
+   Shape analysis is a legacy subsystem. Its constraint builder covers the
+   operations exercised by the constraint-level tests, but it does not yet
+   lower every statement in the modern IR; in particular, module-level
+   ``def`` and ``class`` statements are not handled, so ``evaluate`` fails on
+   ordinary source files that define functions at module scope. No other
+   analysis depends on shape results.
 
 Key Classes
 -----------
@@ -94,8 +105,8 @@ Relationship to Other Modules
      - Points-to results and canonical objects
      - —
    * - ``lifetimeanalysis``
+     - — (a separate subsystem)
      - —
-     - Reference-count data
    * - ``alias/flow_sensitive``
      - — (a separate subsystem)
      - —

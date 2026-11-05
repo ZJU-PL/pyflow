@@ -34,7 +34,6 @@ unambiguous; otherwise the candidates are reported and can be resolved with
   pyflow callgraph /path/to/project/ --entry src/app.py         # explicit entry
   pyflow callgraph /path/to/project/ --dry-run                  # print entry only
 
-Options:
 Entry discovery includes root/nested ``__main__.py``, conventional names
 under ``src``/``lib``, and unique scripts with a main guard at an import root.
 Nested guarded scripts are candidates requiring explicit selection. Metadata remains
@@ -42,6 +41,8 @@ the strongest evidence, and ambiguous roots require selection.
 Main guards take priority over legacy filename conventions. Names such as
 ``train.py`` or ``server.py`` alone do not establish an executable entry;
 metadata, a main guard, or an explicit ``--entry`` can select these files.
+
+Options:
 
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
@@ -55,6 +56,7 @@ metadata, a main guard, or an explicit ``--entry`` can select these files.
 - ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
+- ``--max-import-depth``: Maximum local import hops for the ``pycg`` and ``pycg-mir`` algorithms (default: 3; ``0`` inspects only the entry)
 - ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
 - ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
@@ -81,8 +83,10 @@ Visualize intermediate representations and analysis results.
   pyflow ir input.py --dump-mir input.main --dump-format text
 
 Options:
+
 - ``--dump-mir [SCOPE]``: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
 - ``--mir-view {source,full}``: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to ``source``; JSON defaults to ``full`` for compatibility. Explicit ``source`` JSON is an inspection view with ``view`` and ``omitted_runtime_cfgs`` metadata, not a standalone executable MIR program
+- ``--mir-follow-imports`` / ``--no-mir-follow-imports``: Force or suppress following local imports when dumping MIR. The default follows imports only for ``--mir-import-policy strict``, which requires them
 - ``--mir-import-policy {strict,opaque}``: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit ``--mir-view full`` follows local imports, and ``strict`` follows imports while rejecting unmodeled semantics
 - ``--dump-ast FUNCTION``: Dump AST for a named function
 - ``--dump-cfg FUNCTION``: Dump CFG using a qualified name or a unique short name (for example ``Class.method``). Ambiguous or missing names report candidates
@@ -129,6 +133,7 @@ is ``main``. Requires the optional ``z3-solver`` dependency
   pyflow concolic target.py --emit-pytest tests/test_target_gen.py
 
 Options:
+
 - ``--entry NAME``: Function to explore (default: ``main``)
 - ``--inputs JSON_ARRAY``: Initial arguments as a JSON array (default: zero for each parameter)
 - ``--max-iterations N``: Maximum concrete executions (default: 50)
@@ -138,6 +143,13 @@ Options:
 - ``--scan-project``: Discover and measure functions beneath the input path (with ``--max-functions``, ``--input-complexity``, ``--function-timeout``, ``--allow-side-effects``, ``--include-private``, ``--json-output PATH``)
 - ``--emit-pytest PATH``: Write a minimized, CPython-replay-validated pytest module
 - ``--search-strategy``: Pending-state selection (``fifo``, ``breadth_first``, ``coverage``; default: ``coverage``)
+- ``--max-pending-states``: Maximum queued exploration states (default: 10000)
+- ``--max-uninteresting-iterations``: Stop after this many executions without new AST coverage
+- ``--max-symbolic-container-size``: Maximum synthesized length for symbolic input containers (default: 3)
+- ``--max-resume-steps``: Maximum iterator/generator resume operations (default: 1000)
+- ``--scheduler``: Async task scheduling policy (``fifo`` or ``nondeterministic``; default: ``fifo``)
+- ``--max-task-switches`` / ``--max-schedule-states``: Async scheduling limits (defaults: 1000 each)
+- ``--max-opaque-refinements``: Maximum distinct CPython observations for opaque calls (default: 1000)
 - ``--total-timeout`` / ``--per-run-timeout`` / ``--solver-timeout`` / ``--solver-rlimit`` / ``--max-solver-calls``: Wall-clock and solver budgets
 - ``--json``: Emit generated inputs and execution results as JSON
 
@@ -157,14 +169,15 @@ Apply optimization passes to Python code.
   pyflow optimize input.py --analysis cpa
 
 Options:
-- ``--analysis, -a``: Analysis type (``all``, ``cpa``, ``ipa``, ``shape``, ``lifetime``; default: ``all``)
+
+- ``--analysis, -a``: Analysis type (``all``, ``cpa``, ``ipa``, ``shape``, ``lifetime``; default: ``all``). ``shape`` prepares the standard pipeline but shape analysis itself is not one of its passes
 - ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
 - ``--output, -o``: Output path for dumped results (a directory for ``--dump``/``--dump-ipa``; a file for ``--dump-shape``)
 - ``--dump, -d``: Dump analysis results
 - ``--dump-ipa``: Dump IPA analysis results
-- ``--dump-shape``: Dump Shape analysis results
+- ``--dump-shape``: Dump Shape analysis results when a shape analysis has run; shape analysis is not part of the default pipeline
 - ``--suggest-only``: Generate suggestions without running transforming passes
 - ``--apply-optimizations``: Explicitly run optimization passes (also the default)
 - ``--no-opt-passes``: Run analysis without optimization passes
@@ -200,6 +213,7 @@ Run security analysis on Python code using one of the available engines.
   pyflow security input.py --engine cpg --framework flask
 
 Options:
+
 - ``--engine``: Analysis engine (``ast-scanner``, ``ast-dataflow``, ``ifds``, or ``cpg``)
 - ``--config``: JSON config file for IFDS parameters; defaults to ``pyflow.json`` in the target directory (or the parent of a file target)
 - ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
@@ -211,6 +225,7 @@ Options:
 - ``--ifds-max-path-edges`` / ``--ifds-max-queue-size``: Solver work budgets
 - ``--ifds-max-incoming-records`` / ``--ifds-max-summary-entries``: Interprocedural table budgets
 - ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
+- ``--ifds-callgraph-max-iterations``: Constraint-callgraph worklist states before retaining partial edges and using the direct-call fallback (default: 256)
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
 - ``--ifds-unknown-call-policy``: Handle unresolved calls with ``drop``, ``preserve`` (the CLI default), or ``havoc`` semantics
@@ -223,8 +238,10 @@ Options:
 - ``--ifds-total-max-seconds``: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted
 - ``--framework``: Framework rule packs for taint sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds`` engines)
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``. The ``ifds`` and ``cpg`` engines support ``text``, ``json``, ``sarif``, and ``custom``; requesting another format is an error rather than a silent text fallback.
+- ``--custom-template``: Template string for ``--format custom`` (for example ``'{abspath}:{line}: {test_id} [{severity}] {msg}'``)
 - ``--output``: Output file path
 - ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis
+- ``--require-complete``: Return 3 for partial or cancelled analysis even with ``--exit-code-policy report``
 - ``-r, --recursive``: Directory targets automatically enable recursive scanning; IFDS retains entry discovery/selection
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
@@ -294,6 +311,7 @@ configured values. For example::
     "unknown_call_policy": "preserve",
     "solver_options": {"max_seconds": 30, "max_path_edges": 100000}
   }
+
 IFDS text output includes normalized rule IDs, severity, and primary source
 locations. CPG reports and SARIF retain source filenames and line numbers from
 the IR's source origins. Missing source information is reported explicitly.
@@ -322,6 +340,8 @@ Subcommands:
   Generate CycloneDX 1.7, SPDX 2.3, or requirements output. ``--deterministic``
   derives document IDs from content and uses ``SOURCE_DATE_EPOCH``.
   ``--schema`` validates JSON output against a pinned local official schema.
+  ``--include-scopes`` emits build, optional, test, and development
+  requirements as active lines instead of omitting them.
   Generated inventories return 0 by default, including incomplete inventories
   and unpinned dependencies. Completeness stays visible in document metadata
   and stderr. ``--exit-code-policy strict`` / ``--require-complete`` return 2
@@ -354,6 +374,11 @@ Audit format:
   by trusted CI configuration; colocated checksum sidecars alone do not prove
   database origin
 - ``--vex``: apply CycloneDX VEX or OpenVEX status
+- ``--show-suppressed``: include policy-suppressed findings in JSON/SARIF output
+- ``--protected-package PACKAGE``: treat a package name as internal or
+  high-value for typosquatting checks (repeatable)
+- ``--license-policy FILE``: JSON license allowlist applied to dependency
+  metadata
 - ``--policy`` / ``--baseline`` / ``--write-baseline``: manage reviewed,
   expiring finding exceptions
 - ``--attestation`` / ``--trusted-builder`` / ``--require-provenance``:
@@ -396,15 +421,23 @@ Options:
 - ``--k N``: k-CFA context sensitivity depth (kcfa engine only, default: 1)
 - ``--all-scopes``: kcfa only; analyze every function/method body instead of
   only code reachable from the entry module
+- ``--import-depth N``: kcfa only; maximum transitive import depth (default: 1;
+  ``0`` analyzes only the entry module and ``-1`` means unlimited)
+- ``--project-root PATH``: kcfa only; project source root for imports
+  (default: inferred from the entry file)
+- ``--max-iterations N``: kcfa only; solver work-item budget
+  (default: 100000)
+- ``--max-points-to-size N``: kcfa only; widen points-to sets at this size
+  (default: 200; widened queries are reported incomplete)
 - ``--max-seconds N``: Time budget across all files (default: 30); exhaustion
   reports partial coverage and retains completed files
+- ``--recursive, -r``: Recursively analyze Python files in a directory
+- ``--json``: Output machine-readable JSON instead of human-friendly text
+- ``--verbose, -v``: Include per-entry details
 
 The kcfa report includes solver coverage (``complete``/``stop_reason``), both
 in text and JSON form. Files skipped after a budget expiry appear in JSON with
 ``"status": "skipped"``.
-- ``--recursive, -r``: Recursively analyze Python files in a directory
-- ``--json``: Output machine-readable JSON instead of human-friendly text
-- ``--verbose, -v``: Include per-entry details
 
 Capability Commands
 -------------------
@@ -427,14 +460,26 @@ Options:
 
 - ``--entry``: Entry file relative to project root
 - ``--recursive, -r``: Analyze all project Python files instead of selecting one entry
+- ``--reachable-only``: Analyze only functions reachable from the entry call graph. By default
+  every function and method scope in the analyzed files is audited, so uncalled library
+  functions and framework handlers are reported
+- ``--import-depth N``: Maximum transitive import depth (``-1`` means unlimited, ``0`` means
+  the entry only). The default is ``0`` for ``-r`` and for absolute-import file targets,
+  and unlimited for package-relative files and project entries
+- ``--include-imports``: For a single-file target, also report findings from transitively
+  imported project modules (default: report only the target file)
 - ``--max-iterations N``: Pointer work-item budget per entry (default: 20000)
-- ``--max-seconds N``: Time budget across all entries (default: 30)
+- ``--max-seconds N``: Wall-clock budget for the whole analysis (default: 120 for a single
+  entry, 60 with ``-r``); exhaustion reports partial coverage
 - ``--context-depth {0,1,2,3}``: Context sensitivity depth (default: 1)
 - ``--context-policy POLICY``: Specific context policy (e.g. ``1-cfa``, ``2-cfa``, ``1c1o``, ``1-param``)
 - ``--capability-model PATH``: Custom capability model JSON file (repeatable)
 - ``--no-public-exports``: Do not report capabilities exposed as public module globals
 - ``--report-callable-boundaries``: Include potential transfers through returns, yields, and exceptions (default: off)
 - ``--format {text,json,sarif}``: Output format (default: ``text``)
+- ``--exit-code-policy {report,findings}``: ``report`` (default) returns 0 for completed reports;
+  ``findings`` returns 1 when findings exist or the analysis is partial
+- ``--verbose, -v``: Show individual resolver diagnostics
 - ``--output, -o PATH``: Write output to file
 
 Capability reports return 0 by default, including reports with findings or
@@ -505,8 +550,8 @@ server.
   pyflow typeinfo app.py
   pyflow typeinfo app.py --symbol Client.fetch --json --pretty
   pyflow typeinfo app.py --line 42 --column 8 --json
-  pyflow typeinfo app.py --diagnostics --json
-  pyflow typeinfo src/ --module package.module --diagnostics --max-modules 20
+  pyflow typeinfo app.py --mode diagnostics --json
+  pyflow typeinfo src/ --module package.module --mode diagnostics --max-modules 20
 
 For a single file, the import-qualified module name is inferred.  For a project
 directory, use ``--module`` for symbol/expression queries.  ``--line`` is

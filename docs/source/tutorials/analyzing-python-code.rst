@@ -52,24 +52,30 @@ Output:
 
 .. code-block:: text
 
-   CFG for fibonacci:
-   ───────────────────────────────────────
+   CFG for function: fibonacci
+   ==================================================
 
-   Block 0 (Entry):
-     n: Parameter
-     if n <= 1
+   CFG:
 
-   Block 1 (True - Return):
-     return n
+   B0:
+     [ENTRY]
+     Succs (entry -> B1)
 
-   Block 2 (False - Recursive):
-     temp1 = fibonacci(n - 1)
-     temp2 = fibonacci(n - 2)
-     return temp1 + temp2
+   B1:
+     [Suite]
+       Discard(Existing(Object('Calculate the nth Fibonacci number.')))
+     Succs (normal -> B2)
 
-   Edges:
-     Block 0 → Block 1 (n <= 1 is True)
-     Block 0 → Block 2 (n <= 1 is False)
+   B2:
+     [Switch]
+       Condition: Call(Existing(Object('interpreter__le__')), [...])
+     Succs (error -> B3, true -> B4, false -> B5)
+   ...
+
+   B5:
+     [Suite]
+       Return([Call(Existing(Object('interpreter__add__')), [...])])
+     Succs (error -> B3, normal -> B7)
 
 Understanding Basic Blocks
 ---------------------------
@@ -97,26 +103,29 @@ Running Data Flow Analysis
 
    pyflow optimize example.py --analysis cpa
 
-This runs forward and backward data flow analysis, computing:
+This runs the constraint-based analysis, which computes points-to facts and
+analysis contexts for every function:
 
-- **Reaching Definitions**: Which assignments can reach a given program point
-- **Live Variables**: Which variables are live (will be used) at each point
-- **Available Expressions**: Which expressions have been computed and available
+- **Points-to relations**: which objects each variable, field, or slot may
+  reference
+- **Analysis contexts**: which calling situations a function body is analyzed
+  under
+- **Call constraints**: which targets a call site may invoke
 
-Example output for reaching definitions:
+Progress output looks like this; pass ``--dump --output DIR`` to write the
+analysis reports to disk:
 
 .. code-block:: text
 
-   Data Flow Analysis Results:
-   ───────────────────────────────────────
-
-   Block 0:
-     n: {n := @parameter}
-     result: {}
-
-   Block 1:
-     n: {n := @parameter}
-     result: {result := n}
+   begin [ analysis | cpa analysis | solve ]
+     Found 15 unresolved call(s). Use --verbose for details.
+     Constraints:   32
+     Contexts:      4
+     Code:          4
+     Contexts/Code: 1.0
+   end   [ analysis | cpa analysis | solve ]
+   end   [ analysis ]
+   Analysis complete!
 
 Inter-procedural Analysis
 =========================
@@ -177,16 +186,15 @@ Example CPA output:
 
 .. code-block:: text
 
-   CPA Results for example.py:
-   ───────────────────────────────────────
-
-   fibonacci(10):
-     n: {10} (constant)
-     return: PointsTo{Integer}
-
-   fibonacci(n - 1):
-     n: PointsTo{Integer}
-     return: PointsTo{Integer}
+   begin [ analysis | cpa analysis | solve ]
+     Found 15 unresolved call(s). Use --verbose for details.
+     Constraints:   32
+     Contexts:      4
+     Code:          4
+     Contexts/Code: 1.0
+   end   [ analysis | cpa analysis | solve ]
+   end   [ analysis ]
+   Analysis complete!
 
 Shape Analysis
 ==============
@@ -197,9 +205,16 @@ dictionaries, and custom objects.
 Running Shape Analysis
 ----------------------
 
-.. code-block:: bash
+Shape analysis is a standalone subsystem: it is not part of the default
+``pyflow optimize`` pipeline, and ``--analysis shape`` only prepares the
+standard pipeline. Run it through the Python API on an extracted program:
 
-   pyflow optimize example.py --analysis shape
+.. code-block:: python
+
+   from pyflow.analysis import shape
+
+   compiler.program = program
+   shape_analysis = shape.evaluate(compiler)
 
 Shape analysis identifies:
 
@@ -224,20 +239,22 @@ Output:
 
 .. code-block:: text
 
-   Call Graph for example.py:
-   ───────────────────────────────────────
+   Call Graph Analysis
+   ==================================================
 
-   Nodes:
-     fibonacci: fibonacci(n)
-     factorial: factorial(n)
-     main: main()
+   Functions (5):
+     - <builtin>.print
+     - example (from example)
+     - example.factorial (from example)
+     - example.fibonacci (from example)
+     - example.main (from example)
 
-   Edges:
-     main → fibonacci (line 21)
-     main → factorial (line 22)
-     main → print (line 20)
-     fibonacci → fibonacci (line 16, recursive)
-     factorial → factorial (line 10, recursive)
+   Call Relationships:
+     <builtin>.print -> (no calls)
+     example -> example.main
+     example.factorial -> example.factorial
+     example.fibonacci -> example.fibonacci
+     example.main -> <builtin>.print, example.factorial, example.fibonacci
 
 Call Graph Formats
 ------------------

@@ -40,7 +40,7 @@ Shape and Object Analysis
 -------------------------
 
 * :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
-* :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
+* :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking over CPA results)
 
 .. seealso::
 

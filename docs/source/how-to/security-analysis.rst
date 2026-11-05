@@ -439,7 +439,7 @@ native CPG exports use line 1. CLI exit policy, report completion status,
 JSON/YAML Issue fields, and engine-specific evidence are preserved.
 
 IFDS project defaults and multiple entries
------------------------------------------
+------------------------------------------
 
 Analyze a project without selecting a function:
 

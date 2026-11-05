@@ -116,7 +116,7 @@ What Gets Folded
 - Arithmetic operations on constants: ``2 + 3`` → ``5``
 - String concatenations: ``"Hello" + "World"`` → ``"HelloWorld"``
 - Boolean operations: ``True and x`` → ``x``
-- Function calls on constants (when the function is pure)
+- Calls to modeled side-effect-free intrinsics during IR-level folding; the source-level emitter stays conservative and leaves ordinary calls in place
 
 Dead Code Elimination
 =====================
@@ -127,8 +127,9 @@ Types of Dead Code
 ------------------
 
 1. **Unreachable code**: Code after unconditional return/break/continue
-2. **Unused variables**: Variables that are assigned but never read
-3. **Dead branches**: Code in if-else that can never be executed
+2. **Dead branches**: Code in if-else that can never be executed
+3. **Unused assignments**: Assignments that the IR passes prove dead; the
+   source-level emitter is conservative and may keep an unused local
 
 Example transformation:
 
@@ -141,9 +142,10 @@ Example transformation:
        print("This is unreachable")  # After return
 
 .. code-block:: python
-   :caption: After optimization
+   :caption: After optimization (the unreachable call is removed)
 
    def example():
+       x = 10
        return 5
 
 Running Dead Code Elimination

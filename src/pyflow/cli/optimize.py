@@ -459,12 +459,19 @@ def run_analysis_passes(compiler, program, analysis_type):
         print(f"Unknown analysis type: {analysis_type}")
         return
 
-    # For IPA and Shape analysis, run the full pipeline to ensure proper setup
-    if analysis_type in ["ipa", "shape"]:
+    # Lifetime analysis consumes CPA context facts, so it needs the same
+    # preparation as IPA and shape analysis.
+    if analysis_type in ["ipa", "shape", "lifetime"]:
         from pyflow.application.pipeline import Pipeline
 
         Pipeline().run(program, compiler=compiler, name=f"dummy_{analysis_type}")
-        print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
+        if analysis_type == "shape":
+            print(
+                "Standard pipeline completed; shape analysis is not one of its passes, "
+                "so no shape results were produced"
+            )
+        else:
+            print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
 
         if analysis_type == "ipa" and program.session.get_result("ipa") is None:
             print("Warning: IPA analysis results not available from pipeline run")
@@ -568,7 +575,9 @@ def dump_results(compiler, program, input_path, output_file):
         from pyflow.analysis.dump import dumpreport
         from pyflow.ir.core import Capabilities
 
-        if not program.ir.facts.has(Capabilities.CONTEXTS):
+        if not program.ir.facts.has(Capabilities.CONTEXTS) or not program.ir.facts.has(
+            Capabilities.LIFETIME_CODE_READS
+        ):
             Pipeline().run_custom_pipeline(
                 compiler, program, ["ipa_refresh", "cpa_path_sensitive", "lifetime_refresh"]
             )

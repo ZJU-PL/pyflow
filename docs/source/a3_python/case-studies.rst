@@ -83,7 +83,7 @@ exist: the same low-level pattern can mean very different things in a local CLI
 tool, a library API, or a network-facing service.
 
 Precision improvements that came directly from the notes
--------------------------------------------------------
+--------------------------------------------------------
 
 Several original docs correspond directly to detector improvements or
 documentation-worthy analysis heuristics:

@@ -92,7 +92,7 @@ reduction. Several examples are worth carrying forward because they explain why
 the subsystem contains many narrowly targeted detectors.
 
 Safe subscript detection
-~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 The ``SAFE_SUBSCRIPT_DETECTION`` notes document a semantic distinction that
 matters a lot for Python:
@@ -108,7 +108,7 @@ This is why the codebase distinguishes:
 * dictionary-style access that should not be reported as a ``BOUNDS`` bug
 
 Type-based sanitizers
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 The original ``type_based_sanitizers`` notes describe an important precision
 improvement for taint analysis: conversions and validators can sanitize not by

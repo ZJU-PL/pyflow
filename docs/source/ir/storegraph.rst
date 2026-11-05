@@ -54,7 +54,7 @@ Relationship to Other Modules
    * - ``shape``
      - Region-based shape inference using CPA results
    * - ``lifetimeanalysis``
-     - Read/modify tracking using shape and CPA results
+     - Read/modify tracking using CPA results over the store graph
    * - ``alias/flow_sensitive``
      - Independent subsystem operating on the CFG supergraph; it does not use
        the store graph

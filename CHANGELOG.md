@@ -225,6 +225,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `pyflow optimize --analysis lifetime` now prepares the standard pipeline
+  first, so lifetime analysis receives the CPA context facts it consumes
+  instead of failing with `analysis.contexts: missing analysis.contexts`.
+  `--dump` also refreshes lifetime facts when an earlier
+  `--analysis cpa`/`--analysis ipa` run left them missing, so the report is
+  written instead of skipped with a warning. `pyflow optimize --analysis shape`
+  no longer claims that shape analysis ran: it reports that shape analysis is
+  not part of the standard pipeline.
 - Type inference now respects gradual and container semantics in several
   corpus-wide failure modes: `typing.Dict`/`typing.List` member lookup uses the
   typeshed signature instead of leaking `_T`, indexing a declared `list[T]`

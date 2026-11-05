@@ -494,3 +494,83 @@ def test_dump_ipa_handles_async_and_walrus(tmp_path, capsys):
     assert "Could not dump IPA results" not in captured.out
     assert "IPA analysis results dumped to" in captured.out
     assert (output / "index.html").exists()
+
+
+def test_lifetime_analysis_prepares_the_standard_pipeline(monkeypatch, capsys):
+    from pyflow.application.pipeline import Pipeline
+
+    calls = []
+    monkeypatch.setattr(
+        Pipeline,
+        "run",
+        lambda self, program, compiler=None, name="main", **kwargs: calls.append(name),
+    )
+
+    optimize.run_analysis_passes(_Compiler(), object(), "lifetime")
+
+    assert calls == ["dummy_lifetime"]
+    assert "LIFETIME analysis completed" in capsys.readouterr().out
+
+
+def test_dump_results_refreshes_cpa_facts_before_reporting(monkeypatch, tmp_path, capsys):
+    from pyflow.application.pipeline import Pipeline
+    from pyflow.ir.core import Capabilities
+
+    refreshed = []
+    dumped = []
+
+    monkeypatch.setattr(
+        Pipeline,
+        "run_custom_pipeline",
+        lambda self, compiler, program, names: refreshed.append(tuple(names)),
+    )
+
+    import pyflow.analysis.dump as dump_module
+
+    monkeypatch.setattr(
+        dump_module.dumpreport, "evaluate", lambda compiler, program, path: dumped.append(path)
+    )
+
+    class _IR:
+        def __init__(self, present):
+            self.facts = self
+            self._present = present
+
+        def has(self, capability):
+            return capability in self._present
+
+    class _Program:
+        def __init__(self, present):
+            self.ir = _IR(present)
+
+    output = tmp_path / "report"
+    cpa_only = _Program({Capabilities.CONTEXTS})
+    optimize.dump_results(_Compiler(), cpa_only, tmp_path / "input.py", str(output))
+    assert refreshed == [("ipa_refresh", "cpa_path_sensitive", "lifetime_refresh")]
+    assert dumped == [str(output)]
+
+    refreshed.clear()
+    dumped.clear()
+    complete = _Program({Capabilities.CONTEXTS, Capabilities.LIFETIME_CODE_READS})
+    optimize.dump_results(_Compiler(), complete, tmp_path / "input.py", str(output))
+    assert refreshed == []
+    assert dumped == [str(output)]
+    assert "Warning" not in capsys.readouterr().out
+
+
+def test_shape_analysis_does_not_claim_shape_results(monkeypatch, capsys):
+    from pyflow.application.pipeline import Pipeline
+
+    calls = []
+    monkeypatch.setattr(
+        Pipeline,
+        "run",
+        lambda self, program, compiler=None, name="main", **kwargs: calls.append(name),
+    )
+
+    optimize.run_analysis_passes(_Compiler(), object(), "shape")
+
+    assert calls == ["dummy_shape"]
+    output = capsys.readouterr().out
+    assert "shape analysis is not one of its passes" in output
+    assert "SHAPE analysis completed" not in output

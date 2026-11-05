@@ -53,10 +53,14 @@ slots are consumed by subsequent operations.
 
 .. code-block:: python
 
-   from pyflow.ir.dataflow.convert import CodeToDataflow
+   from pyflow.ir.dataflow.convert import CodeToDataflow, evaluateCode
 
-   converter = CodeToDataflow()
-   dataflow_graph = converter.convert(cfg_block)
+   # Build a graph from a language-level Code object.
+   dataflow_graph = evaluateCode(compiler, code)
+
+   # Or drive the converter directly.
+   converter = CodeToDataflow(code)
+   dataflow_graph = converter.processCode()
 
 Usage
 -----

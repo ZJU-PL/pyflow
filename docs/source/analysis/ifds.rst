@@ -151,10 +151,11 @@ Run these checks before publishing model changes:
    make ifds-validate-rules
    make ifds-benchmark
 
-The benchmark emits one JSON object containing the requested graph size,
-elapsed time, completion status, termination reason, and solver statistics.
-The IFDS test suite also includes a small concrete reference solver and
-randomized differential tests for regression detection.
+``make ifds-benchmark`` runs the IFDS solver test suite; it no longer emits a
+standalone benchmark report. The suite includes a small concrete reference
+solver and randomized differential tests for regression detection. Use
+``SolverOptions`` statistics on a solved problem for timing and convergence
+numbers.
 
 IR semantics and facts
 ----------------------

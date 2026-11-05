@@ -39,7 +39,7 @@ Converts Python's AST into PyFlow's internal representation:
    from pyflow.frontend.conversion.ast import ASTConverter
 
    converter = ASTConverter()
-   pyflow_ir = converter.convert_python_ast_to_pyflow(python_ast)
+   pyflow_ir = converter.convert_python_ast_to_pyflow(python_ast.body)
 
 Key responsibilities:
 

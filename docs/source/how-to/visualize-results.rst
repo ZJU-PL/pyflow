@@ -37,66 +37,66 @@ Visualizing Call Graphs
 Basic call graph
 ----------------
 
+The callgraph command writes text or JSON. To get DOT, export it through the
+Python API:
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   from pyflow.analysis.callgraph import extract_call_graph_constraint
+   from pyflow.analysis.callgraph.formats import generate_dot_output
+
+   source = Path("input.py").read_text(encoding="utf-8")
+   dot = generate_dot_output(extract_call_graph_constraint(source), None)
+   Path("callgraph.dot").write_text(dot, encoding="utf-8")
+
+Then render it:
+
 .. code-block:: bash
 
-   pyflow callgraph input.py --output callgraph.txt
+   dot -Tpng callgraph.dot -o callgraph.png
 
 Custom styling
 --------------
 
-Create a custom style file:
+Graphviz attributes are part of the DOT text, so style the exported graph before
+writing it:
 
-.. code-block:: css
-   :caption: callgraph_style.css
+.. code-block:: python
 
-   .node {
-       shape: box;
-       style: "rounded,filled";
-       fillcolor: lightblue;
-       fontname: "Arial";
-   }
+   styled = dot.replace(
+       "node [shape=box, style=filled, fillcolor=lightblue];",
+       'node [shape=box, style="rounded,filled", fillcolor=lightblue, fontname="Arial"];',
+   )
+   # Highlight one node by editing its attribute list.
+   styled = styled.replace(
+       '"main" [label="main"];',
+       '"main" [label="main", fillcolor=lightgreen, penwidth=2];',
+   )
+   Path("callgraph_styled.dot").write_text(styled, encoding="utf-8")
 
-   .recursive {
-       fillcolor: lightyellow;
-   }
-
-   .entry {
-       fillcolor: lightgreen;
-   }
-
-   .edge {
-       fontname: "Arial";
-       fontsize: 10;
-   }
-
-Apply custom style:
+Render the styled file the same way:
 
 .. code-block:: bash
 
-   dot -Tpng callgraph.dot -o callgraph.png -C
+   dot -Tpng callgraph_styled.dot -o callgraph_styled.png
 
 Interactive visualization
 -------------------------
 
-Use pygraphviz for interactive graphs:
+Use pygraphviz to lay out and render the DOT file:
 
 .. code-block:: python
 
    import pygraphviz as pgv
 
-   # Load DOT file
    G = pgv.AGraph("callgraph.dot")
-
-   # Add layout options
    G.graph_attr["rankdir"] = "TB"
    G.node_attr["shape"] = "box"
    G.node_attr["style"] = "rounded,filled"
-
-   # Highlight specific nodes
    G.get_node("main").attr["fillcolor"] = "lightgreen"
-   G.get_node("recursive_func").attr["fillcolor"] = "lightyellow"
 
-   # Render
    G.layout(prog="dot")
    G.draw("callgraph.png")
 
@@ -116,30 +116,30 @@ Complex CFG visualization
 
 For complex functions with many blocks:
 
+.. code-block:: bash
+
+   pyflow ir input.py --dump-cfg function_name --dump-format json --dump-output out
+
 .. code-block:: python
 
+   import json
+
    import pygraphviz as pgv
+
+   with open("out/function_name_cfg.json", encoding="utf-8") as f:
+       cfg = json.load(f)["cfg"]
 
    G = pgv.AGraph(directed=True)
 
    # Add blocks as nodes
-   for block in cfg.blocks:
-       label = f"Block {block.id}\n"
-       for stmt in block.statements:
-           label += f"{stmt}\n"
+   for block in cfg["blocks"]:
+       label = f"Block {block['id']}\n" + "\n".join(block["ops"])
+       G.add_node(block["id"], label=label, shape="box")
 
-       G.add_node(block.id, label=label, shape="box")
-
-   # Add edges
-   for edge in cfg.edges:
-       G.add_edge(edge.from_block, edge.to_block)
-
-   # Add cluster for loops
-   if loop_blocks:
-       with G.subgraph() as s:
-           s.add_nodes_from(loop_blocks)
-           s.attr("color", "blue")
-           s.attr("style", "dashed")
+   # Add edges, labelled with the exit kind
+   for block in cfg["blocks"]:
+       for succ in block["successors"]:
+           G.add_edge(block["id"], succ["target"], label=succ["exit"])
 
    G.layout(prog="dot")
    G.draw("cfg.png")
