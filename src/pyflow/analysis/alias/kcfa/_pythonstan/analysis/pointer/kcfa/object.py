@@ -290,9 +290,7 @@ def canonicalize_native_access_path(path: str) -> str:
         # Everything after the summary marker is already subsumed; this also
         # makes repeated canonicalization idempotent.
         return ".".join(segments[: segments.index(_DEEP_NATIVE_SEGMENT) + 1])
-    return_indices = [
-        index for index, segment in enumerate(segments) if segment == "<return>"
-    ]
+    return_indices = [index for index, segment in enumerate(segments) if segment == "<return>"]
     if len(return_indices) > MAX_NATIVE_CALL_SEGMENTS:
         # Recursive native chains grow one call boundary per iteration.
         # Keep a bounded call prefix plus a couple of trailing attributes.

@@ -201,6 +201,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "name"`), matching mypy instead of an `attr-defined` on an arbitrary
   instance from the union.
 
+- A branch whose narrowed environment contains a `Never` variable is no
+  longer treated as entirely dead: the variable is dropped and the block is
+  analysed.  Previously a single uninhabited variable erased every following
+  statement, losing attribute evidence (Django's `Func.__init__` never
+  recorded `self.extra`).
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

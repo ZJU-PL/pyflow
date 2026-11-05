@@ -141,6 +141,7 @@ class StaticTypeInferenceEngine:
     _inherited_members: dict[tuple[str, str], ProperType | None]
     _external_type_parameters: dict[str, tuple[str, ...]]
     _protocol_match_stack: set[tuple[str, str]]
+    _diagnostic_suppression: int
     _declared_annotations: dict[str, tuple[int, ProperType]]
     _last_argument_mutations: list[tuple[ast.expr, AbstractTypeValue]]
     _observed_yields: list[AbstractTypeValue]
@@ -630,6 +631,7 @@ class StaticTypeInferenceEngine:
         self._inherited_members = {}
         self._external_type_parameters = {}
         self._protocol_match_stack = set()
+        self._diagnostic_suppression = 0
         # Explicit annotations of ``name: T`` declarations, keyed by scope.
         # Later plain assignments to that name are checked against them.
         self._declared_annotations = {}
@@ -703,6 +705,8 @@ class StaticTypeInferenceEngine:
                 or "# pyright: ignore" in self._source_lines[span.lineno - 1]
             )
         ):
+            return
+        if self._diagnostic_suppression:
             return
         if code in self.options.disabled_diagnostics:
             return

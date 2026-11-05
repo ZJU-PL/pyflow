@@ -337,26 +337,41 @@ class FlowInference(InferenceComponent):
             false_env = self.engine._narrowing_rules._narrow_environment(
                 node.test, result, truthy=False
             )
-            true_outcome = (
-                _Outcome(true_env, terminated=True)
-                if any(value.is_bottom for value in true_env.values())
-                else self._execute_block(
-                    node.body,
-                    true_env,
-                    scope=scope,
-                    current_function=current_function,
-                )
-            )
-            false_outcome = (
-                _Outcome(false_env, terminated=True)
-                if any(value.is_bottom for value in false_env.values())
-                else self._execute_block(
-                    node.orelse,
-                    false_env,
-                    scope=scope,
-                    current_function=current_function,
-                )
-            )
+
+            def _live_environment(environment: dict[str, AbstractTypeValue]):
+                # A variable narrowed to ``Never`` in one branch means that
+                # variable is uninhabited on this path; it does not mean the
+                # whole branch is dead.  Dropping it keeps the rest of the
+                # block analysable (losing a branch here erased every following
+                # attribute assignment for real projects, e.g. Django's
+                # ``Func.__init__``).
+                return {name: value for name, value in environment.items() if not value.is_bottom}
+
+            def _run_block(block, environment):
+                had_bottom = any(value.is_bottom for value in environment.values())
+                if had_bottom:
+                    # The block is partly unreachable; keep collecting
+                    # attribute evidence but do not report type errors from it.
+                    self.engine._diagnostic_suppression += 1
+                try:
+                    outcome = self._execute_block(
+                        block,
+                        _live_environment(environment),
+                        scope=scope,
+                        current_function=current_function,
+                    )
+                finally:
+                    if had_bottom:
+                        self.engine._diagnostic_suppression -= 1
+                if had_bottom:
+                    # Values from a partly unreachable block must not reach
+                    # the function's return/yield checks; attribute evidence
+                    # is already recorded in the environment.
+                    outcome = _Outcome(outcome.environment, terminated=outcome.terminated)
+                return outcome
+
+            true_outcome = _run_block(node.body, true_env)
+            false_outcome = _run_block(node.orelse, false_env)
             self.engine._value_rules._fill_missing_attribute_joins(
                 result, true_outcome.environment, false_outcome.environment
             )
