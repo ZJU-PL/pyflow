@@ -7,6 +7,7 @@ import collections.abc as cabc
 import contextlib
 import itertools
 import weakref
+from dataclasses import replace
 
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
@@ -252,13 +253,7 @@ class CallInference(InferenceComponent):
             if isinstance(external_class, Instance):
                 return AbstractTypeValue.from_type(external_class)
             if isinstance(external_class, CallableType):
-                selected = self._select_callable_overload(external_class, arguments)
-                return AbstractTypeValue.from_type(
-                    self._specialize_callable_return(
-                        selected if selected is not None else external_class,
-                        arguments,
-                    )
-                )
+                return self._call_external_callable(external_class, arguments, qualified_callee)
         if isinstance(node.func, ast.Name) and not self.engine._member_rules._name_is_shadowed(
             node.func.id, environment, scope
         ):
@@ -360,15 +355,7 @@ class CallInference(InferenceComponent):
         if not callee.callable_targets and not callee.class_targets:
             for typ in callee.types:
                 if isinstance(typ, CallableType):
-                    selected = self._select_callable_overload(typ, arguments)
-                    results.append(
-                        AbstractTypeValue.from_type(
-                            self._specialize_callable_return(
-                                selected if selected is not None else typ,
-                                arguments,
-                            )
-                        )
-                    )
+                    results.append(self._call_external_callable(typ, arguments, qualified_callee))
                 elif (
                     isinstance(typ, Instance)
                     and typ.type.raw_type is weakref.ReferenceType
@@ -391,6 +378,34 @@ class CallInference(InferenceComponent):
         if self.engine._operator_rules._contains_any(callee):
             return AbstractTypeValue.from_type(ANY)
         return AbstractTypeValue.unresolved()
+
+    def _call_external_callable(
+        self,
+        callable_type: CallableType,
+        arguments: list[AbstractTypeValue],
+        qualified_callee: str | None,
+    ) -> AbstractTypeValue:
+        """Call a callable resolved from outside the module under analysis."""
+        selected = self._select_callable_overload(callable_type, arguments)
+        value = AbstractTypeValue.from_type(
+            self._specialize_callable_return(
+                selected if selected is not None else callable_type,
+                arguments,
+            )
+        )
+        if qualified_callee is not None and self._external_return_is_inferred(qualified_callee):
+            # mypy treats a function without annotations as returning ``Any``.
+            value = replace(value, unknown=True)
+        return value
+
+    def _external_return_is_inferred(self, qualified_name: str) -> bool:
+        resolver = self.engine.external_declared_return
+        if resolver is None:
+            return False
+        try:
+            return resolver(qualified_name) is False
+        except (ImportError, LookupError, OSError, RuntimeError):
+            return False
 
     def _specialize_callable_return(
         self,
@@ -558,9 +573,7 @@ class CallInference(InferenceComponent):
         if function is None:
             external = self.engine._member_rules._external_type(target)
             if isinstance(external, CallableType):
-                return AbstractTypeValue.from_type(
-                    self._specialize_callable_return(external, arguments)
-                )
+                return self._call_external_callable(external, arguments, target)
             return AbstractTypeValue.unresolved()
         selected = self._select_overload(function, arguments, keywords)
         if selected is not None:

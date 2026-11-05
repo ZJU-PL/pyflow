@@ -164,6 +164,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   imports (import cycles are condensed).  A warm `rich.console` run drops from
   11.9 s to 4.1 s with 69/69 modules served from the cache.
 
+- Calls to functions without a return annotation are gradual at the call site
+  (mypy returns `Any` there), and annotation checks skip inferred values that
+  still have unknown alternatives.  sklearn sample: matched mypy errors 9 ->
+  13, missed 9 -> 5.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

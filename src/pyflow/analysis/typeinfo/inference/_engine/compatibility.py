@@ -141,6 +141,7 @@ class CompatibilityInference(InferenceComponent):
         if (
             expected is None
             or not inferred.types
+            or inferred.unknown
             or annotated.unknown
             or self.engine._declaration_rules._has_unresolved_annotation(expected)
             or self.engine._declaration_rules._contains_type_var(expected)

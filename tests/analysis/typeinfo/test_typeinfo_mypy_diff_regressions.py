@@ -819,3 +819,17 @@ def test_project_inference_cache_handles_import_cycles(tmp_path: Path) -> None:
     assert cache.hits == 2
     assert str(first.modules["a"].type_of("use")) == "Callable[[], int]"
     assert str(second.modules["a"].type_of("use")) == "Callable[[], int]"
+
+
+def test_unannotated_cross_module_callee_result_is_gradual(tmp_path: Path) -> None:
+    (tmp_path / "helpers.py").write_text("def make():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "use.py").write_text(
+        "from helpers import make\n\ndef f() -> str:\n    return make()\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["use"])
+    module = result.modules["use"]
+
+    # mypy treats calls to unannotated functions as ``Any``.
+    assert not [item for item in module.diagnostics if item.code == "annotation-mismatch"]
