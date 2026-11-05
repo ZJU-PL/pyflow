@@ -58,6 +58,11 @@ _SPECS: tuple[DiagnosticSpec, ...] = (
         "str.format or printf-style field does not match its arguments.",
     ),
     DiagnosticSpec(
+        "assignment",
+        "type",
+        "A variable is rebound to an incompatible type in the same block.",
+    ),
+    DiagnosticSpec(
         "override",
         "type",
         "Method signature is incompatible with the overridden supertype method.",

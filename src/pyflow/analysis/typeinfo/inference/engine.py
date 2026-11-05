@@ -21,6 +21,8 @@ from typing import Callable, Iterable
 from pyflow.analysis.typeinfo.core.typesystem import (
     AnyType,
     Instance,
+    NeverType,
+    NoneType,
     ProperType,
     TypeSystem,
     TypeVarType,
@@ -81,6 +83,7 @@ class InferenceOptions:
     # inferred type would flag code that mypy accepts.
     check_member_access: bool = True
     check_overrides: bool = True
+    check_assignments: bool = True
     # mypy-style ``--disable-error-code``: diagnostic codes that are never
     # emitted, and per-code severity overrides ("error" marks the module
     # partial, "warning"/"info" do not).
@@ -280,6 +283,8 @@ class StaticTypeInferenceEngine:
             )
 
         self._declaration_rules._refresh_class_member_signatures()
+        if self.options.check_assignments:
+            self._check_assignments()
         if self.options.check_overrides:
             self._member_rules.check_overrides()
         if self.options.check_member_access:
@@ -345,6 +350,63 @@ class StaticTypeInferenceEngine:
                     converged=False,
                 )
         return self.infer_source(module_name, source, filename=path)
+
+    def _check_assignments(self) -> None:
+        """Report ``assignment`` for incompatible rebindings in one block.
+
+        mypy infers a variable's type from its first assignment in a scope and
+        rejects incompatible later ones.  PyFlow's solver joins types instead,
+        so this is a checker-only pass: assignments are compared within the
+        same statement block (no branch joins), and gradual or ``None``
+        alternatives are ignored to avoid reporting on flow-merged values.
+        """
+
+        def assignable(typ: ProperType) -> bool:
+            if isinstance(typ, (AnyType, TypeVarType, NeverType, NoneType)):
+                return False
+            if isinstance(typ, Instance) and typ.args:
+                # Generic containers are the noisiest case when the inferred
+                # element type is over-specific; scalars are reliable.
+                return False
+            if not isinstance(typ, Instance):
+                return False
+            return True
+
+        def compatible(left: ProperType, right: ProperType) -> bool:
+            system = self.type_system
+            return system.is_subtype(left, right) or system.is_subtype(right, left)
+
+        def scan(statements: list[ast.stmt]) -> None:
+            seen: dict[str, ProperType] = {}
+            for statement in statements:
+                if (
+                    isinstance(statement, ast.Assign)
+                    and len(statement.targets) == 1
+                    and isinstance(statement.targets[0], ast.Name)
+                ):
+                    name = statement.targets[0].id
+                    recorded = self._expressions.get(_span(statement.value))
+                    typ = None if recorded is None else recorded.runtime_type()
+                    if typ is not None and assignable(typ):
+                        previous = seen.get(name)
+                        if previous is not None and not compatible(previous, typ):
+                            self._add_diagnostic(
+                                "assignment",
+                                f"Incompatible types in assignment (expression has "
+                                f'type "{typ}", variable has type "{previous}")',
+                                node=statement,
+                            )
+                        seen[name] = typ
+                for field_name in ("body", "orelse", "finalbody"):
+                    block = getattr(statement, field_name, None)
+                    if isinstance(block, list) and block and isinstance(block[0], ast.stmt):
+                        scan(block)
+                for handler in getattr(statement, "handlers", []) or []:
+                    scan(handler.body)
+
+        for statement in self._tree.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scan(statement.body)
 
     def _check_member_access(self) -> None:
         """Post-convergence union-attr/attr-defined pass.

@@ -124,6 +124,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value is unresolved (unannotated properties, attributes assigned from
   untyped calls), and functional `namedtuple` bases expose their fields.
 
+- New `assignment` diagnostic for scalar rebindings in the same statement
+  block (`x = 1; x = "text"`), mirroring mypy's first-assignment inference.
+  Generic containers, `None`, and gradual values are skipped so the check does
+  not report on PyFlow's joined or over-specific inferred types.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

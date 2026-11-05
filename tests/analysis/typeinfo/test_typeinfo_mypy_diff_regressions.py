@@ -628,3 +628,29 @@ def use(pair: Pair) -> None:
 
     messages = [item.message for item in result.diagnostics if item.code == "attr-defined"]
     assert len(messages) == 1 and "absent" in messages[0]
+
+
+def test_assignment_check_reports_scalar_rebinding() -> None:
+    result = infer("""
+def use(flag: bool) -> None:
+    value = 1
+    value = "text"
+    items = []
+    items = {}
+    data = value
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "assignment"]
+    assert len(messages) == 1 and '"str"' in messages[0]
+    # Generic containers are skipped: their inferred element type is noisy.
+    assert not [item for item in result.diagnostics if "list[" in item.message]
+
+
+def test_assignment_check_is_quiet_on_gradual_values() -> None:
+    result = infer("""
+def use(raw) -> None:
+    value = raw
+    value = "text"
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "assignment"]
