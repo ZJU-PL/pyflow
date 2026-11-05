@@ -118,7 +118,7 @@ class TypeInfoService:
     ) -> None:
         """Collect source and stub facts for a module."""
         if (
-            module_name in {"builtins", "typing", "typing_extensions", "_typeshed"}
+            module_name in {"builtins", "typing", "typing_extensions"}
             and source is None
             and path is None
         ):
@@ -1068,12 +1068,20 @@ class TypeInfoService:
         if class_info is None:
             return self._class_member_type(base.type.full_name, attribute)
         member = class_info.typ.type.members.get(attribute)
+        from_members = member is not None
         if member is None:
             member = self._class_member_type(base.type.full_name, attribute)
         method = class_info.methods.get(attribute)
         if isinstance(member, CallableType):
             arguments = member.arg_types
-            if method is not None and method.method_kind != "static" and arguments:
+            # Class member callables already have the receiver removed;
+            # ``_class_member_type`` returns the unbound signature.
+            if (
+                not from_members
+                and method is not None
+                and method.method_kind != "static"
+                and arguments
+            ):
                 arguments = tuple(arguments[1:])
             return CallableType(
                 arguments,
@@ -2013,6 +2021,12 @@ def _runtime_stdlib_class(full_name: str) -> type | None:
     # Runtime aliases are common (``urllib.parse._ParseResultBase`` is
     # ``ParseResult``; ``_csv.Reader`` is ``_csv.reader``).  Only reuse the
     # class when its identity matches the stub declaration.
-    if candidate.__name__ != class_name or candidate.__qualname__ != class_name:
+    # A few stdlib aliases intentionally expose a different runtime class
+    # name (``types.TracebackType`` is ``traceback``).
+    runtime_aliases = {
+        "TracebackType": "traceback",
+    }
+    expected_name = runtime_aliases.get(class_name, class_name)
+    if candidate.__name__ != expected_name or candidate.__qualname__ != expected_name:
         return None
     return candidate

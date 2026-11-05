@@ -999,8 +999,25 @@ class MemberInference(InferenceComponent):
             if inferred_args is not None:
                 specialized = Instance(class_info.instance.type, inferred_args)
                 instance = AbstractTypeValue.from_type(specialized)
+        tuple_fields = class_info.instance.type.tuple_fields
+        if tuple_fields is not None and initializer is None:
+            field_names = list(tuple_fields)
+            if len(arguments) > len(field_names):
+                self.engine._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Too many positional arguments for {class_target}",
+                    node=node,
+                )
+            unknown_keywords = [name for name in keywords if name not in field_names]
+            if unknown_keywords:
+                self.engine._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Unexpected keyword arguments for {class_target}: {sorted(unknown_keywords)}",
+                    node=node,
+                )
         if class_info.instance.type.typed_dict_fields is not None:
-            for name, expected in class_info.instance.type.typed_dict_fields.items():
+            fields = class_info.instance.type.typed_dict_fields
+            for name, expected in fields.items():
                 if name in keywords:
                     self.engine._compatibility_rules._check_annotation_compatibility(
                         keywords[name],
@@ -1008,6 +1025,22 @@ class MemberInference(InferenceComponent):
                         node,
                         context=f"TypedDict key {name}",
                     )
+            provided = set(keywords)
+            required = set(class_info.instance.type.required_keys)
+            missing = required - provided
+            if missing:
+                self.engine._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Missing required TypedDict keys for {class_target}: {sorted(missing)}",
+                    node=node,
+                )
+            unexpected = provided - set(fields)
+            if unexpected:
+                self.engine._add_diagnostic(
+                    "typed-dict-key",
+                    f"TypedDict {class_target} has unexpected keys: {sorted(unexpected)}",
+                    node=node,
+                )
         if initializer is not None:
             self.engine._call_rules._apply_function(
                 initializer, [instance, *arguments], keywords, node=node

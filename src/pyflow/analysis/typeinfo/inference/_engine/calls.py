@@ -35,6 +35,27 @@ from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     substitute_type_vars,
 )
 
+_ELEMENT_PROTOCOLS = frozenset(
+    {
+        "_typeshed.SupportsLenAndGetItem",
+        "_typeshed.SupportsGetItem",
+        "collections.abc.Iterable",
+        "collections.abc.Iterator",
+        "collections.abc.Sequence",
+        "collections.abc.Collection",
+        "collections.abc.Container",
+        "collections.abc.Reversible",
+        "collections.abc.Set",
+        "typing.Iterable",
+        "typing.Iterator",
+        "typing.Sequence",
+        "typing.Collection",
+        "typing.Container",
+        "typing.Reversible",
+        "typing.Set",
+    }
+)
+
 
 class CallInference(InferenceComponent):
     """Resolve calls, bind arguments, specialize functions, and substitute generics."""
@@ -204,7 +225,10 @@ class CallInference(InferenceComponent):
             if isinstance(external_class, CallableType):
                 selected = self._select_callable_overload(external_class, arguments)
                 return AbstractTypeValue.from_type(
-                    selected.return_type if selected is not None else external_class.return_type
+                    self._specialize_callable_return(
+                        selected if selected is not None else external_class,
+                        arguments,
+                    )
                 )
         if isinstance(node.func, ast.Name) and not self.engine._member_rules._name_is_shadowed(
             node.func.id, environment, scope
@@ -310,7 +334,10 @@ class CallInference(InferenceComponent):
                     selected = self._select_callable_overload(typ, arguments)
                     results.append(
                         AbstractTypeValue.from_type(
-                            selected.return_type if selected is not None else typ.return_type
+                            self._specialize_callable_return(
+                                selected if selected is not None else typ,
+                                arguments,
+                            )
                         )
                     )
                 elif (
@@ -335,6 +362,23 @@ class CallInference(InferenceComponent):
         if self.engine._operator_rules._contains_any(callee):
             return AbstractTypeValue.from_type(ANY)
         return AbstractTypeValue.unresolved()
+
+    def _specialize_callable_return(
+        self,
+        signature: CallableType,
+        arguments: list[AbstractTypeValue],
+    ) -> ProperType:
+        """Bind method/function type variables for an external callable."""
+        substitutions: dict[str, ProperType] = {}
+        fixed: set[str] = set()
+        if signature.arg_types is not None:
+            for formal, actual in zip(signature.arg_types, arguments):
+                actual_type = actual.public_type()
+                if actual_type is not None:
+                    self._match_type_variables(formal, actual_type, substitutions, fixed)
+        if substitutions:
+            return substitute_type_vars(signature.return_type, substitutions)
+        return signature.return_type
 
     def _model_external_call(
         self,
@@ -435,7 +479,9 @@ class CallInference(InferenceComponent):
         if function is None:
             external = self.engine._member_rules._external_type(target)
             if isinstance(external, CallableType):
-                return AbstractTypeValue.from_type(external.return_type)
+                return AbstractTypeValue.from_type(
+                    self._specialize_callable_return(external, arguments)
+                )
             return AbstractTypeValue.unresolved()
         selected = self._select_overload(function, arguments, keywords)
         if selected is not None:
@@ -1199,13 +1245,25 @@ class CallInference(InferenceComponent):
         if isinstance(formal, TypeVarType):
             if formal.name in fixed:
                 return
+            value = actual
+            if formal.constraints:
+                matched = [
+                    constraint
+                    for constraint in formal.constraints
+                    if self.engine.type_system.is_subtype(actual, constraint)
+                ]
+                value = matched[0] if matched else ANY
+            elif formal.bound is not None and not self.engine.type_system.is_subtype(
+                actual, formal.bound
+            ):
+                value = ANY
             existing = substitutions.get(formal.name)
             if existing is None or isinstance(existing, TypeVarType):
-                substitutions[formal.name] = actual
+                substitutions[formal.name] = value
             else:
                 joined = self.engine._value_rules._join(
                     AbstractTypeValue.from_type(existing),
-                    AbstractTypeValue.from_type(actual),
+                    AbstractTypeValue.from_type(value),
                 ).public_type()
                 if joined is not None:
                     substitutions[formal.name] = joined
@@ -1259,6 +1317,15 @@ class CallInference(InferenceComponent):
                     element = ANY
                 self._match_type_variables(formal.args[0], element, substitutions, fixed)
             return
+        if (
+            isinstance(formal, Instance)
+            and formal.args
+            and isinstance(actual, (Instance, TupleType))
+        ):
+            if formal.type.full_name in _ELEMENT_PROTOCOLS:
+                element = self._iterable_protocol_element(actual)
+                self._match_type_variables(formal.args[0], element, substitutions, fixed)
+                return
         if isinstance(formal, Instance) and isinstance(actual, Instance):
             if formal.type.raw_type is actual.type.raw_type:
                 for formal_arg, actual_arg in zip(formal.args, actual.args):
@@ -1302,6 +1369,25 @@ class CallInference(InferenceComponent):
         elif isinstance(formal, TupleType) and isinstance(actual, TupleType):
             for formal_arg, actual_arg in zip(formal.args, actual.args):
                 self._match_type_variables(formal_arg, actual_arg, substitutions, fixed)
+
+    def _iterable_protocol_element(self, actual: ProperType) -> ProperType:
+        """Project the element type used by sequence-like protocols."""
+        if isinstance(actual, TupleType):
+            if not actual.args:
+                return ANY
+            return actual.args[0] if len(actual.args) == 1 else UnionType(actual.args)
+        if not isinstance(actual, Instance):
+            return ANY
+        raw = actual.type.raw_type
+        if raw is str:
+            return actual
+        if raw in {bytes, range}:
+            return self.engine._value_rules._proper_instance(int)
+        if raw is dict and len(actual.args) >= 2:
+            return actual.args[0]
+        if actual.args:
+            return actual.args[0]
+        return ANY
 
     def _constructor_callable_type(self, instance: ProperType) -> CallableType | None:
         """Project a class object onto the callable shape of its constructor."""

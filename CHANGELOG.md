@@ -35,6 +35,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Path.open()`, `os.environ`).  The legacy `pyflow/stubs/std` generators were
   removed; executable intrinsic semantics live in
   `pyflow.frontend.runtime.intrinsics`.
+- `pyflow stubgen` wraps mypy's stub generator as an optional CLI tool
+  (install with `pyflow-analysis[stubs]`) so projects can generate `.pyi`
+  files for third-party dependencies before type inference.
+- Type inference now solves constrained type variables and binds type
+  variables through structural protocols such as
+  `_typeshed.SupportsLenAndGetItem`, fixing `random.choice([1, 2]) -> int`,
+  `random.choices(...) -> list[int]`, and similar generic stdlib calls.
+- Parsed stubs are cached in SQLite keyed by path, mtime, size, target Python
+  version, and parser format, avoiding repeated typeshed parsing across runs.
+- TypedDict reads, writes, deletions, and constructor calls now validate
+  literal keys and required keys; NamedTuple constructors reject extra
+  positional and unknown keyword arguments.
+- Match statements subtract previously matched alternatives, so
+  `case None` followed by a wildcard no longer reports the exhausted `None`
+  alternative, and `case int()` followed by a capture binds the remaining
+  branch type.
+
 ### Fixed
 
 - `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of

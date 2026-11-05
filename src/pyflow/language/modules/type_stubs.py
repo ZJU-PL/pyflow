@@ -396,11 +396,18 @@ class StubResolver:
         *,
         typeshed_roots: list[str | Path] | None = None,
         python_version: tuple[int, int] | None = None,
+        stub_cache_dir: str | Path | None = None,
+        enable_cache: bool = True,
     ) -> None:
         self.project_context = project_context or ProjectContext(None)
         roots = default_typeshed_roots() if typeshed_roots is None else typeshed_roots
         self.typeshed_roots = [Path(root) for root in roots]
         self.python_version = python_version or (sys.version_info.major, sys.version_info.minor)
+        # Imported lazily: stub_cache imports the StubInfo dataclasses from
+        # this module.
+        from pyflow.analysis.typeinfo.resolution.stub_cache import StubCache
+
+        self._stub_cache = StubCache(stub_cache_dir, enabled=enable_cache)
         self._path_cache: dict[tuple[str, str | None], tuple[str, str] | None] = {}
         self._info_cache: dict[str, ResolvedStub | None] = {}
         self._diagnostics: list[StubDiagnostic] = []
@@ -448,6 +455,17 @@ class StubResolver:
         if path in self._info_cache:
             return None
 
+        cached_info = self._stub_cache.get(path, self.python_version)
+        if cached_info is not None:
+            resolved = ResolvedStub(
+                module_name=module_name,
+                path=path,
+                info=cached_info,
+                source=source,
+            )
+            self._info_cache[path] = resolved
+            return resolved
+
         try:
             source_text = self.project_context.source_files.get(path)
             if source_text is not None:
@@ -473,6 +491,7 @@ class StubResolver:
             self._info_cache[path] = None
             return None
 
+        self._stub_cache.put(path, self.python_version, info)
         resolved = ResolvedStub(
             module_name=module_name,
             path=path,

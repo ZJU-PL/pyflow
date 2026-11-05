@@ -57,7 +57,6 @@ def _resolve_typeshed_symbol(qualified_name: str) -> ProperType | None:
         if module_name in {
             "typing",
             "typing_extensions",
-            "_typeshed",
             "__future__",
         }:
             # The engine models typing special forms itself; resolving them as

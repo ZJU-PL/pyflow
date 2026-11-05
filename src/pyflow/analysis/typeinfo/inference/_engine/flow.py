@@ -71,6 +71,47 @@ class FlowInference(InferenceComponent):
             continue_envs=continue_envs,
         )
 
+    def _subtract_match_exclusions(
+        self,
+        subject: AbstractTypeValue,
+        excluded: list[ProperType],
+    ) -> AbstractTypeValue:
+        if not excluded:
+            return subject
+        parts = self.engine._operator_rules._flatten_union_parts(subject)
+        remaining = frozenset(
+            typ
+            for typ in parts
+            if not any(
+                typ == item or self.engine.type_system.is_subtype(typ, item) for item in excluded
+            )
+        )
+        if remaining == subject.types:
+            return subject
+        return AbstractTypeValue(
+            types=remaining,
+            unknown=subject.unknown,
+            callable_targets=subject.callable_targets,
+            class_targets=subject.class_targets,
+            dict_shapes=subject.dict_shapes,
+            literal_values=subject.literal_values,
+        )
+
+    def _match_excluded_types(self, pattern: ast.pattern) -> list[ProperType]:
+        if isinstance(pattern, ast.MatchSingleton):
+            return [NONE_TYPE] if pattern.value is None else []
+        if isinstance(pattern, ast.MatchClass):
+            narrowed = self.engine._expression_rules._evaluate_type_expression(pattern.cls)
+            return list(narrowed.types)
+        if isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
+            return self._match_excluded_types(pattern.pattern)
+        if isinstance(pattern, ast.MatchOr):
+            excluded: list[ProperType] = []
+            for child in pattern.patterns:
+                excluded.extend(self._match_excluded_types(child))
+            return list(dict.fromkeys(excluded))
+        return []
+
     def _execute_statement(
         self,
         node: ast.stmt,
@@ -500,14 +541,19 @@ class FlowInference(InferenceComponent):
             if self.engine._value_rules._is_never_value(subject):
                 return _Outcome(result, terminated=True)
             match_outcomes: list[_Outcome] = []
+            excluded: list[ProperType] = []
             for case in node.cases:
+                case_subject = self._subtract_match_exclusions(subject, excluded)
                 case_environment = self.engine._narrowing_rules._narrow_pattern(
                     case.pattern,
                     node.subject,
-                    subject,
+                    case_subject,
                     result,
                     current_function,
                 )
+                if isinstance(node.subject, ast.Name) and case_subject is not subject:
+                    case_environment[node.subject.id] = case_subject
+                excluded.extend(self._match_excluded_types(case.pattern))
                 if case.guard is not None:
                     self.engine._expression_rules._evaluate_expression(
                         case.guard,
@@ -618,6 +664,26 @@ class FlowInference(InferenceComponent):
         if isinstance(node, ast.Delete):
             for target in node.targets:
                 self._invalidate_refinements(result, target)
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                ):
+                    base = result.get(target.value.id)
+                    if base is not None:
+                        for typ in base.types:
+                            if (
+                                isinstance(typ, Instance)
+                                and typ.type.typed_dict_fields is not None
+                                and target.slice.value in typ.type.required_keys
+                            ):
+                                self.engine._add_diagnostic(
+                                    "typed-dict-key",
+                                    "Cannot delete required TypedDict key "
+                                    f"{target.slice.value!r}",
+                                    node=target,
+                                )
                 if isinstance(target, ast.Name):
                     result.pop(target.id, None)
                 else:
@@ -1018,6 +1084,21 @@ class FlowInference(InferenceComponent):
             base = environment.get(name, AbstractTypeValue.unresolved())
             updated: list[AbstractTypeValue] = []
             for typ in base.types:
+                if isinstance(typ, Instance) and typ.type.typed_dict_fields is not None:
+                    key_name = (
+                        target.slice.value
+                        if isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, str)
+                        else None
+                    )
+                    if key_name is not None and key_name not in typ.type.typed_dict_fields:
+                        self.engine._add_diagnostic(
+                            "typed-dict-key",
+                            f"TypedDict {typ.type.full_name} has no key {key_name!r}",
+                            node=target,
+                        )
+                    updated.append(AbstractTypeValue.from_type(typ))
+                    continue
                 if isinstance(typ, Instance) and typ.type.raw_type is dict:
                     key_type = typ.args[0] if typ.args else ANY
                     old_value = typ.args[1] if len(typ.args) > 1 else ANY

@@ -186,6 +186,12 @@ class ValueInference(InferenceComponent):
                             AbstractTypeValue.from_type(typ.type.typed_dict_fields.get(field_key))
                         )
                     else:
+                        if field_key is not None:
+                            self.engine._add_diagnostic(
+                                "typed-dict-key",
+                                f"TypedDict {typ.type.full_name} has no key {field_key!r}",
+                                node=slice_node,
+                            )
                         values.append(AbstractTypeValue.unresolved())
                     continue
                 getitem = self.engine._member_rules._class_method(typ.type.full_name, "__getitem__")

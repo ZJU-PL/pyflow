@@ -464,6 +464,25 @@ Options:
 - ``--audit-log PATH``: Write observed audit events to JSON log
 - ``--observe-only``: Record classified events without denying operations
 
+Stub Generation
+---------------
+
+**pyflow stubgen**
+~~~~~~~~~~~~~~~~~~
+
+Generate ``.pyi`` type stubs for source packages or runtime C modules using
+mypy's stub generator.  This is optional:
+
+::
+
+  pip install 'pyflow-analysis[stubs]'
+  pyflow stubgen -o stubs/ src/package/
+  pyflow stubgen -m numpy -o stubs/
+
+The command forwards mypy ``stubgen`` arguments.  Generated stubs can be placed
+under ``stubs/`` or beside the analyzed module, where ``ProjectContext`` and
+``TypeInfoService`` pick them up automatically.
+
 Server and Query Commands
 -------------------------
 

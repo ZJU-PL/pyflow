@@ -34,6 +34,7 @@ from .supply_chain import add_supply_chain_parser, run_supply_chain
 from .capabilities import add_capabilities_parser, run_capabilities
 from .capability_run import add_capability_run_parser, run_capability_guard
 from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_mcp, run_query
+from .stubgen import add_stubgen_parser, run_stubgen
 
 
 def main():
@@ -105,10 +106,19 @@ def _main():
     add_lsp_parser(subparsers)
     add_mcp_parser(subparsers)
     add_query_parser(subparsers)
+    add_stubgen_parser(subparsers)
+
+    # ``stubgen`` forwards its native option syntax (including options before
+    # positional paths) verbatim, so capture the raw tail instead of letting
+    # argparse reorder or split it.
+    raw_arguments = sys.argv[1:]
+    if raw_arguments and raw_arguments[0] == "stubgen":
+        return run_stubgen(raw_arguments[1:])
 
     args = parser.parse_args()
 
     # Handle special commands that don't require input
+
     if args.command == "optimize" and hasattr(args, "list_opt_passes") and args.list_opt_passes:
         list_optimization_passes()
         return 0

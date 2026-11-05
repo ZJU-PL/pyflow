@@ -63,6 +63,9 @@ test = [
 callgraph = [
     "pycg==0.0.6",
 ]
+stubs = [
+    "mypy>=1.10",
+]
 concolic = [
     "z3-solver",
 ]

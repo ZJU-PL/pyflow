@@ -16,6 +16,7 @@ This document matches the current `pyflow` command surface.
 - `lsp`: Run pyflow as a Language Server Protocol server
 - `mcp`: Run pyflow as a Model Context Protocol server
 - `query`: Query pyflow analysis results (one-shot)
+- `stubgen`: Generate `.pyi` stubs with mypy stubgen (optional extra)
 
 ## Optimize
 
@@ -283,6 +284,17 @@ With `--check-contracts`, a single-line PEP 316 clause such as
 `__return__` are available to the clause; discovered violations are emitted as
 structured counterexamples. Snapshot values such as `__old__` are not yet
 supported.
+
+## Stub Generation
+
+```bash
+pip install 'pyflow-analysis[stubs]'
+pyflow stubgen -o stubs/ path/to/package/
+```
+
+`pyflow stubgen` forwards mypy `stubgen` arguments. Generated stubs are picked
+up by `ProjectContext`/`TypeInfoService` when placed beside the module or in a
+project `stubs/` directory.
 
 ## Supply Chain
 
