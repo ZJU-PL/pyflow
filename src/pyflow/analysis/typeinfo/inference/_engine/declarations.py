@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from typing import Iterable, cast
 
 from pyflow.analysis.typeinfo.core.typesystem import (
@@ -847,6 +848,18 @@ class DeclarationInference(InferenceComponent):
                 for name, parameters in self.engine._alias_type_variables.items()
             },
         )
+        if resolved is None:
+            # A bare, dotted annotation name that resolves to nothing at all is
+            # the mypy ``name-defined`` case (undefined class/alias).  Nested
+            # forms stay silent: partial resolution is common for typing
+            # constructs PyFlow does not model yet.
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", text):
+                self.engine._add_diagnostic(
+                    "name-defined",
+                    f'Name "{text}" is not defined',
+                    node=node,
+                )
+            return AbstractTypeValue.unresolved()
         missing_external, unresolved_project = self._unresolved_annotation_kinds(resolved)
         if missing_external:
             # A dependency that is not installed is a gradual type, exactly

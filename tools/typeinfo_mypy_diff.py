@@ -678,6 +678,9 @@ def _query_expression(module_result, candidate: Candidate):
     return module_result.expression_value(candidate.lineno, candidate.col_offset)
 
 
+MEMBER_CHECKS = False
+
+
 def run_pyflow(
     project_root: Path,
     modules: list[tuple[str, Path]],
@@ -708,7 +711,13 @@ def run_pyflow(
         remaining = remaining[len(batch) :]
         entry = [name for name, _ in batch]
         try:
-            engine = ProjectTypeInferenceEngine(ctx, max_project_iterations=max_iterations)
+            from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+            engine = ProjectTypeInferenceEngine(
+                ctx,
+                max_project_iterations=max_iterations,
+                options=InferenceOptions(check_member_access=MEMBER_CHECKS),
+            )
             result = engine.infer_project(entry)
         except Exception as exc:  # pragma: no cover - defensive
             for name, _ in batch:
@@ -923,6 +932,10 @@ _PYFLOW_TYPE_CODES = {
     "call-arity-mismatch": "arity",
     "typed-dict-key": "typed-dict",
     "format-string-mismatch": "format",
+    "union-attr": "union-attr",
+    "attr-defined": "attr-defined",
+    "index": "index",
+    "name-defined": "name-defined",
 }
 _PYFLOW_COMPLETENESS_CODES = {
     "missing-external-type",
@@ -1126,7 +1139,8 @@ def diagnostics_project(
                 compatible = [
                     error
                     for error in candidates
-                    if mypy_error_category(error["code"]) in {category, "unmodeled"}
+                    if error["code"] == diag.code
+                    or mypy_error_category(error["code"]) in {category, "unmodeled"}
                 ]
                 if compatible:
                     stats["matched"] = int(stats["matched"]) + 1
@@ -1370,6 +1384,11 @@ def main() -> None:
     parser.add_argument("--per-package", type=int, default=None)
     parser.add_argument("--module-filter", default=None)
     parser.add_argument(
+        "--member-checks",
+        action="store_true",
+        help="Enable PyFlow's opt-in union-attr/attr-defined checks",
+    )
+    parser.add_argument(
         "--diagnostics",
         action="store_true",
         help="Compare PyFlow diagnostics with mypy errors instead of revealed types",
@@ -1380,6 +1399,8 @@ def main() -> None:
     parser.add_argument("--summary-out", default=None)
     args = parser.parse_args()
 
+    global MEMBER_CHECKS
+    MEMBER_CHECKS = bool(args.member_checks)
     corpus = Path(args.corpus).expanduser()
     if args.list_projects:
         for entry in sorted(corpus.iterdir()):

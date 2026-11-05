@@ -330,11 +330,10 @@ class ExpressionInference(InferenceComponent):
                 )
                 value = environment.get(ast.unparse(node))
                 if value is None:
-                    value = (
-                        base
-                        if self.engine._value_rules._is_never_value(base)
-                        else self.engine._member_rules._attribute_value(base, node.attr)
-                    )
+                    if self.engine._value_rules._is_never_value(base):
+                        value = base
+                    else:
+                        value = self.engine._member_rules._attribute_value(base, node.attr)
         elif isinstance(node, ast.Slice):
             self._evaluate_many(
                 [value for value in (node.lower, node.upper, node.step) if value is not None],

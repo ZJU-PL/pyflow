@@ -14,6 +14,7 @@ from typing import Iterable, cast
 
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
+    AnyType,
     NEVER,
     CallableType,
     Instance,
@@ -120,6 +121,14 @@ class ValueInference(InferenceComponent):
                 typ = TupleType(
                     tuple(typ.type.members.get(name, ANY) for name in typ.type.tuple_fields)
                 )
+            if (
+                isinstance(typ, Instance)
+                and typ.args
+                and index_value is not None
+                and not isinstance(slice_node, ast.Slice)
+                and typ.type.typed_dict_fields is None
+            ):
+                self._check_subscript_index(typ, index_value, slice_node)
             if isinstance(slice_node, ast.Slice):
                 if isinstance(typ, TupleType):
                     try:
@@ -266,6 +275,60 @@ class ValueInference(InferenceComponent):
             )
             if values
             else AbstractTypeValue.unresolved()
+        )
+
+    _MAPPING_LIKE = frozenset(
+        {
+            dict,
+            cabc.Mapping,
+            cabc.MutableMapping,
+            collections.defaultdict,
+            collections.OrderedDict,
+            collections.ChainMap,
+            collections.Counter,
+        }
+    )
+    _INT_INDEX = frozenset(
+        {
+            list,
+            tuple,
+            str,
+            bytes,
+            bytearray,
+            range,
+            memoryview,
+            collections.deque,
+            cabc.Sequence,
+            cabc.MutableSequence,
+        }
+    )
+
+    def _check_subscript_index(
+        self,
+        typ: Instance,
+        index_value: AbstractTypeValue,
+        node: ast.expr,
+    ) -> None:
+        """Report ``index`` when a known container is indexed with a wrong key."""
+        actual = index_value.public_type()
+        if actual is None or index_value.unknown:
+            return
+        if isinstance(actual, (AnyType, TypeVarType)):
+            return
+        raw = typ.type.raw_type
+        expected: ProperType | None = None
+        if raw in self._MAPPING_LIKE and typ.args:
+            expected = typ.args[0]
+        elif raw in self._INT_INDEX:
+            expected = self._proper_instance(int)
+        if expected is None or isinstance(expected, AnyType):
+            return
+        if self.engine.type_system.is_subtype(actual, expected):
+            return
+        self.engine._add_diagnostic(
+            "index",
+            f'Invalid index type "{actual}" for "{typ}"',
+            node=node,
         )
 
     def _is_widened_container(self, original: AbstractTypeValue, final: AbstractTypeValue) -> bool:

@@ -22,8 +22,10 @@ from typing import Iterable
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     NONE_TYPE,
+    AnyType,
     CallableType,
     Instance,
+    NoneType,
     ProperType,
     TupleType,
     TypeType,
@@ -1192,6 +1194,87 @@ class MemberInference(InferenceComponent):
             return resolver(qualified_name)
         except (ImportError, LookupError, OSError, RuntimeError):
             return None
+
+    def report_missing_member(
+        self,
+        base: AbstractTypeValue,
+        attribute: str,
+        node: ast.expr,
+    ) -> None:
+        """Report attribute access on ``None`` or a definitely unknown member.
+
+        Follows mypy's ``union-attr``/``attr-defined`` checks, but only when
+        the receiver's shape is fully known: gradual receivers, protocols,
+        classes with unresolved bases, and ``__getattr__`` fallbacks are
+        skipped so the diagnostic stays trustworthy.
+        """
+        if not self.engine.options.check_member_access:
+            return
+        if attribute.startswith("__") and attribute.endswith("__"):
+            return
+        if base.unknown or not base.types:
+            return
+        if any(isinstance(item, AnyType) for item in base.types):
+            return
+        if any(
+            item.type.full_name == "builtins.super"
+            for item in base.types
+            if isinstance(item, Instance)
+        ):
+            return
+        for typ in base.types:
+            items = typ.items if isinstance(typ, UnionType) else (typ,)
+            if any(isinstance(item, NoneType) for item in items):
+                self.engine._add_diagnostic(
+                    "union-attr",
+                    f'Item "None" of "{typ}" has no attribute "{attribute}"',
+                    node=node,
+                )
+                return
+            if not any(self._definitely_missing(item, attribute) for item in items):
+                continue
+            receiver = next(
+                (item for item in items if isinstance(item, Instance)),
+                None,
+            )
+            if receiver is not None:
+                self.engine._add_diagnostic(
+                    "attr-defined",
+                    f'"{receiver}" has no attribute "{attribute}"',
+                    node=node,
+                )
+            return
+
+    def _definitely_missing(self, typ: ProperType, attribute: str) -> bool:
+        if not isinstance(typ, Instance):
+            return False
+        descriptor = typ.type
+        raw = descriptor.raw_type
+        if getattr(raw, "__pyflow_unresolved_external__", False):
+            return False
+        if descriptor.is_protocol or descriptor.has_unresolved_bases:
+            return False
+        class_info = self.engine._classes.get(descriptor.full_name)
+        if class_info is None and not descriptor.members and not isinstance(raw, type):
+            return False
+        if any(isinstance(argument, AnyType) for argument in typ.args):
+            # ``dict[Any, Any]`` is usually an over-approximation of an
+            # untyped value; mypy would have kept it ``Any``.
+            return False
+        if (
+            class_info is not None
+            and self._class_method(descriptor.full_name, "__getattr__") is not None
+        ):
+            return False
+        if "__getattr__" in descriptor.members:
+            return False
+        found = self._attribute_value(AbstractTypeValue.from_type(typ), attribute)
+        return (
+            found.unknown
+            and not found.types
+            and not found.callable_targets
+            and not found.class_targets
+        )
 
     def _external_member_type(self, qualified_name: str) -> ProperType | None:
         """Resolve ``mod.Class.member`` with classmethod binding applied.

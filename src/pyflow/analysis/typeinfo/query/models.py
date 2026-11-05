@@ -29,6 +29,7 @@ class FunctionTypeInfo:
     raw_returns: str | None
     source: str
     is_property: bool = False
+    is_overload: bool = False
     method_kind: str = "instance"
 
 

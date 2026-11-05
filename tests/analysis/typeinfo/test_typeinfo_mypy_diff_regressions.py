@@ -242,3 +242,101 @@ def test_inherited_member_uses_base_type_arguments() -> None:
     rendered = str(keys)
     assert "_KT" not in rendered and "_VT" not in rendered
     assert "str" in rendered and "int" in rendered
+
+
+def _site_packages(tmp_path: Path) -> Path:
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    return site
+
+
+def test_pep561_typed_package_reexport_resolves(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo import TypeInfoService
+
+    site = _site_packages(tmp_path)
+    package = site / "typedpkg"
+    package.mkdir()
+    (package / "py.typed").write_text("", encoding="utf-8")
+    (package / "core.py").write_text(
+        "class Widget:\n    def render(self) -> str:\n        return 'x'\n",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING\n" "if TYPE_CHECKING:\n" "    from .core import *\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(project_context=ProjectContext(tmp_path, sys_path=[str(site)]))
+
+    widget = service.type_of("typedpkg", "Widget")
+    assert isinstance(widget, Instance)
+    assert widget.type.full_name == "typedpkg.core.Widget"
+
+
+def test_untyped_installed_package_is_not_analysed(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo import TypeInfoService
+
+    site = _site_packages(tmp_path)
+    package = site / "untypedpkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("class Thing:\n    pass\n", encoding="utf-8")
+
+    service = TypeInfoService(project_context=ProjectContext(tmp_path, sys_path=[str(site)]))
+
+    assert service.type_of("untypedpkg", "Thing") is None
+    assert not [d for d in service.diagnostics() if d.code == "type_dependency_partial"]
+
+
+def _infer_checked(source: str):
+    from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+    return StaticTypeInferenceEngine(
+        options=InferenceOptions(check_member_access=True)
+    ).infer_source("m", source)
+
+
+def test_member_access_checks_match_mypy_codes() -> None:
+    result = _infer_checked("""
+class C:
+    def __init__(self) -> None:
+        self.value = 1
+
+def use(c: C, maybe: int | None) -> None:
+    missing = c.absent
+    on_none = maybe.absent
+    if maybe is not None:
+        fine = maybe.bit_length()
+""")
+
+    codes = [item.code for item in result.diagnostics]
+    assert "attr-defined" in codes
+    assert "union-attr" in codes
+    assert len([item for item in result.diagnostics if item.code == "union-attr"]) == 1
+    # The narrowed branch must not be reported.
+    assert not [item for item in result.diagnostics if "bit_length" in item.message]
+    assert result.status == "complete"
+
+
+def test_member_access_checks_skip_gradual_receivers() -> None:
+    result = _infer_checked("""
+def use(value):
+    return value.anything
+""")
+
+    assert not [item for item in result.diagnostics if item.code in {"attr-defined", "union-attr"}]
+
+
+def test_subscript_index_checks_match_mypy() -> None:
+    result = infer("""
+def use(values: list[int], table: dict[str, int]) -> None:
+    first = values[0]
+    by_name = table["key"]
+    wrong_list = values["x"]
+    wrong_dict = table[1]
+    sliced = values[0:2]
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "index"]
+    assert any("list[int]" in message for message in messages)
+    assert any("dict[str, int]" in message for message in messages)
+    assert len(messages) == 2

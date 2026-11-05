@@ -216,6 +216,28 @@ def _normalize_types(
     values: Iterable[ProperType],
     type_system: TypeSystem,
 ) -> frozenset[ProperType]:
+    """Normalize a union, memoized per type-system generation.
+
+    ``join`` runs on every merge point of the fixed-point solver and the
+    subtype-based reduction dominates its cost.  The result is a pure function
+    of the input types and the class graph; the cache is cleared whenever the
+    graph is invalidated (``TypeSystem.invalidate_subtype_caches``).
+    """
+    cache = type_system._normalize_cache
+    key = frozenset(values)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    result = _compute_normalized_types(key, type_system)
+    if len(cache) < 100_000:
+        cache[key] = result
+    return result
+
+
+def _compute_normalized_types(
+    values: Iterable[ProperType],
+    type_system: TypeSystem,
+) -> frozenset[ProperType]:
     flattened: set[ProperType] = set()
     for value in values:
         if isinstance(value, UnionType):

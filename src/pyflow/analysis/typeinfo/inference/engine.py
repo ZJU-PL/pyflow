@@ -59,6 +59,10 @@ class InferenceOptions:
     max_loop_iterations: int = 12
     max_union_size: int = 16
     strict_annotations: bool = False
+    # Opt-in until receiver *provenance* can be gated: checking types that
+    # were inferred (rather than annotated) reports valid code when inference
+    # is over-specific, which mypy never does because it starts from annotations.
+    check_member_access: bool = False
     max_specializations_per_function: int = 32
     max_type_depth: int = 12
 
@@ -242,6 +246,12 @@ class StaticTypeInferenceEngine:
             )
 
         self._declaration_rules._refresh_class_member_signatures()
+        if self.options.check_member_access:
+            # Checking must happen after the fixed point: during the first pass
+            # ``self.attr`` assignments from ``__init__`` are not committed yet
+            # and every receiver would look incomplete.  mypy also types first
+            # and checks the final symbol table.
+            self._check_member_access()
 
         symbols = self._build_symbols(module_environment)
         return ModuleInferenceResult(
@@ -299,6 +309,17 @@ class StaticTypeInferenceEngine:
                     converged=False,
                 )
         return self.infer_source(module_name, source, filename=path)
+
+    def _check_member_access(self) -> None:
+        for node in ast.walk(self._tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            if not isinstance(node.ctx, ast.Load):
+                continue
+            base = self._expressions.get(_span(node.value))
+            if base is None:
+                continue
+            self._member_rules.report_missing_member(base, node.attr, node)
 
     def _reset(self) -> None:
         for full_name in self._synthetic_types:

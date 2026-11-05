@@ -108,6 +108,9 @@ class TypeInfoService:
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._failed_modules: set[str] = set()
+        # PEP 561 classification cache: module name -> "typed"/"untyped"
+        # third-party source (``None`` for project/stub/stdlib modules).
+        self._third_party_kind: dict[str, str | None] = {}
         self._known_class_cache: dict[str, bool] = {}
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
@@ -503,6 +506,10 @@ class TypeInfoService:
         # of recursively interpreting large implementation modules.
         if self._is_stdlib_source(path):
             return None, path
+        if self._third_party_typed(module_name) is False:
+            # mypy only reads inline annotations from packages that declare
+            # ``py.typed``; an untyped dependency behaves like ``Any``.
+            return None, path
         if path in self.project_context.source_files:
             return self.project_context.source_files[path], path
         try:
@@ -554,13 +561,14 @@ class TypeInfoService:
         imports = self._collect_import_aliases(module_name, tree, path)
         module_aliases = self._module_class_aliases.setdefault(module_name, {})
         self._module_imports[module_name] = imports
-        for node in tree.body:
+        for node in _module_statements(tree):
             if isinstance(node, ast.ClassDef):
                 qualified_name = f"{module_name}.{node.name}"
                 self._class_aliases[node.name] = qualified_name
                 module_aliases[node.name] = qualified_name
 
-        for node in tree.body:
+        grouped_functions: dict[str, list[FunctionTypeInfo]] = {}
+        for node in _module_statements(tree):
             if isinstance(node, ast.ClassDef):
                 local_classes.add(node.name)
                 class_info = self._class_info_from_source(
@@ -577,22 +585,40 @@ class TypeInfoService:
                     kind="class",
                 )
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                functions[node.name] = self._function_info_from_source(
-                    node,
-                    module_name=module_name,
-                    imports=imports,
-                    source="annotation",
+                grouped_functions.setdefault(node.name, []).append(
+                    self._function_info_from_source(
+                        node,
+                        module_name=module_name,
+                        imports=imports,
+                        source="annotation",
+                    )
                 )
-                function_info = functions[node.name]
-                facts[node.name] = TypeFact(
-                    name=node.name,
-                    typ=self._callable_type(function_info),
-                    raw_annotation=node.name,
-                    source=function_info.source,
-                    kind="function",
+        for function_name, infos in grouped_functions.items():
+            overloads = [item for item in infos if item.is_overload]
+            implementation = next((item for item in reversed(infos) if not item.is_overload), None)
+            chosen = implementation or infos[-1]
+            functions[function_name] = chosen
+            if overloads:
+                # Typed source packages use ``@overload`` heavily (pydantic's
+                # ``Field``); mypy dispatches on those declarations instead of
+                # the implementation body.
+                callables = tuple(self._callable_type(item) for item in overloads)
+                returns = list(dict.fromkeys(call.return_type for call in callables))
+                combined: ProperType = (
+                    returns[0] if len(returns) == 1 else UnionType(tuple(returns))
                 )
+                member_type: ProperType = CallableType(None, combined, overloads=callables)
+            else:
+                member_type = self._callable_type(chosen)
+            facts[function_name] = TypeFact(
+                name=function_name,
+                typ=member_type,
+                raw_annotation=function_name,
+                source=chosen.source,
+                kind="function",
+            )
 
-        for node in tree.body:
+        for node in _module_statements(tree):
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 raw_annotation = _annotation_to_str(node.annotation)
                 head = raw_annotation.split("[", 1)[0].rsplit(".", 1)[-1]
@@ -683,7 +709,11 @@ class TypeInfoService:
 
         if self.enable_static_inference:
             self._refresh_import_facts()
-            self._collect_inferred_source_facts(module_name, source, path)
+            # Library annotations are authoritative; running the full
+            # intra-module engine over third-party bodies is slow and only
+            # adds inferred locals that callers cannot observe.
+            if self._third_party_typed(module_name) is not True:
+                self._collect_inferred_source_facts(module_name, source, path)
 
     def _collect_inferred_source_facts(
         self,
@@ -1004,15 +1034,28 @@ class TypeInfoService:
             is not None
         ]
         if constraints:
-            unique = tuple(dict.fromkeys(constraints))
-            return unique[0] if len(unique) == 1 else UnionType(unique)
+            # Keep the type variable instead of collapsing it to a union of
+            # its constraints: generic substitution (``Generic[_T]``,
+            # ``list[_T]``, method receivers) needs the variable identity.
+            # Unsolved variables widen to their constraints in
+            # ``_default_unsolved_type_vars``/``_match_type_variables``.
+            return TypeVarType(
+                declaration.name,
+                constraints=tuple(dict.fromkeys(constraints)),
+                variance=_stub_variance(declaration),
+            )
         if declaration.bound is not None:
-            return self._resolve_annotation(
+            bound = self._resolve_annotation(
                 declaration.bound,
                 module_name=module_name,
                 imports=imports,
             )
-        return TypeVarType(declaration.name)
+            return TypeVarType(
+                declaration.name,
+                bound=bound,
+                variance=_stub_variance(declaration),
+            )
+        return TypeVarType(declaration.name, variance=_stub_variance(declaration))
 
     def _resolve_stub_alias_type(
         self,
@@ -1129,7 +1172,7 @@ class TypeInfoService:
         path: str | None,
     ) -> dict[str, str]:
         imports: dict[str, str] = {}
-        for node in tree.body:
+        for node in _module_statements(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local = alias.asname or alias.name.split(".")[0]
@@ -1369,6 +1412,7 @@ class TypeInfoService:
             raw_returns=raw_returns,
             source="docstring" if used_documentation else source,
             is_property=bool(decorators & {"property", "cached_property"}),
+            is_overload="overload" in decorators,
             method_kind=(
                 "static"
                 if "staticmethod" in decorators
@@ -1631,10 +1675,47 @@ class TypeInfoService:
         return f"{imported_prefix}.{rest}"
 
     def _module_should_be_collected(self, module_name: str) -> bool:
-        """Whether a name can be cheaply and safely loaded as a type source."""
+        """Whether a name can be safely loaded as a type source.
+
+        Mirrors mypy's module finder: project sources, ``.pyi`` stubs, and
+        PEP 561 packages that ship a ``py.typed`` marker are typed sources.
+        Installed packages without ``py.typed`` are treated as untyped
+        (``Any``) instead of being parsed and half-analysed.
+        """
         if self._module_may_be_project(module_name):
             return True
-        return self.stub_resolver.resolve_path(module_name) is not None
+        if self.stub_resolver.resolve_path(module_name) is not None:
+            return True
+        return self._third_party_typed(module_name) is True
+
+    def _third_party_typed(self, module_name: str) -> bool | None:
+        """Whether an installed module is a PEP 561 typed package.
+
+        ``None`` means the module is not third-party (project, stub, stdlib,
+        or unresolved).  Cached per module; the marker file is only checked
+        for the top-level package directory.
+        """
+        if module_name in self._third_party_kind:
+            kind = self._third_party_kind[module_name]
+            return None if kind is None else kind == "typed"
+        resolution = self.project_context.find_module(module_name)
+        if resolution is None or resolution.path is None:
+            self._third_party_kind[module_name] = None
+            return None
+        path = Path(resolution.path)
+        if self._is_stdlib_source(str(path)):
+            self._third_party_kind[module_name] = None
+            return None
+        if self._module_may_be_project(module_name):
+            self._third_party_kind[module_name] = None
+            return None
+        package_root = _top_level_package_dir(path)
+        if package_root is None:
+            self._third_party_kind[module_name] = "untyped"
+            return False
+        kind = "typed" if (package_root / "py.typed").is_file() else "untyped"
+        self._third_party_kind[module_name] = kind
+        return kind == "typed"
 
     def _summary_type(self, qualified_name: str) -> ProperType | None:
         for result in self._inference_results.values():
@@ -1999,6 +2080,51 @@ class TypeInfoService:
             if (src_path / first).is_dir() or (src_path / f"{first}.py").is_file():
                 return True
         return False
+
+
+_TYPE_CHECKING_NAMES = frozenset(
+    {"TYPE_CHECKING", "typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
+)
+
+
+def _module_statements(tree: ast.Module | list[ast.stmt]) -> list[ast.stmt]:
+    """Flatten ``if TYPE_CHECKING:`` blocks, which mypy always analyses.
+
+    Libraries re-export their public API inside a ``TYPE_CHECKING`` guard so
+    runtime imports stay lazy; ignoring those statements made names such as
+    ``pydantic.BaseModel`` invisible even though the annotation exists.
+    """
+    statements = tree.body if isinstance(tree, ast.Module) else list(tree)
+    result: list[ast.stmt] = []
+    for statement in statements:
+        result.append(statement)
+        if isinstance(statement, ast.If) and _expr_name(statement.test) in _TYPE_CHECKING_NAMES:
+            result.extend(_module_statements(statement.body))
+    return result
+
+
+def _stub_variance(declaration) -> "Variance":
+    from pyflow.analysis.typeinfo.core.typesystem import Variance
+
+    if declaration.covariant:
+        return Variance.COVARIANT
+    if declaration.contravariant:
+        return Variance.CONTRAVARIANT
+    return Variance.INVARIANT
+
+
+def _top_level_package_dir(path: Path) -> Path | None:
+    """Return the top-level package directory of an installed module."""
+    try:
+        parts = path.resolve().parts
+    except OSError:
+        return None
+    for index, part in enumerate(parts):
+        if part in {"site-packages", "dist-packages"}:
+            if index + 1 < len(parts):
+                return Path(*parts[: index + 2])
+            return None
+    return None
 
 
 def _iter_arguments(args: ast.arguments) -> Iterator[ast.arg]:

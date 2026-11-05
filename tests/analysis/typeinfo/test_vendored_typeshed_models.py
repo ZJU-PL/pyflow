@@ -67,9 +67,10 @@ def test_typeshed_models_urllib_urlparse_attributes() -> None:
     )
 
     assert "ParseResult" in str(result.type_of("parsed"))
-    netloc = str(result.type_of("netloc"))
-    assert "str" in netloc and "None" in netloc
-    assert "str" in str(result.type_of("path"))
+    # ``ParseResult`` specializes ``_ResultComponentT`` to ``str``; the old
+    # behaviour reported the type variable's full constraint set.
+    assert str(result.type_of("netloc")) == "str"
+    assert str(result.type_of("path")) == "str"
 
 
 def test_typeshed_models_sqlite_and_random_aliases() -> None:

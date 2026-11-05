@@ -2337,6 +2337,9 @@ class TypeSystem:  # noqa: PLR0904
 
     def __init__(self):  # noqa: D107
         self._structural_checks: set[tuple[ProperType, ProperType]] = set()
+        # Memo for ``domain._normalize_types``; cleared with the subtype
+        # caches so class-graph mutations cannot produce stale unions.
+        self._normalize_cache: dict[frozenset[ProperType], frozenset[ProperType]] = {}
         self._graph: nx.DiGraph[ClassDescriptor] = nx.DiGraph()
         # Maps all known types from their full name to their type info.
         self._types: dict[str, ClassDescriptor] = {}
@@ -2392,6 +2395,7 @@ class TypeSystem:  # noqa: PLR0904
         type(self).subtype_distance.cache_clear()
         type(self).is_subtype.cache_clear()
         type(self).is_maybe_subtype.cache_clear()
+        self._normalize_cache.clear()
 
     @functools.lru_cache(maxsize=1024)
     def get_subclasses(self, klass: ClassDescriptor) -> OrderedSet[ClassDescriptor]:
@@ -2558,6 +2562,7 @@ class TypeSystem:  # noqa: PLR0904
 
         type(self).is_subtype.cache_clear()
         type(self).is_maybe_subtype.cache_clear()
+        self._normalize_cache.clear()
 
     def class_descriptor(self, full_name: str) -> ClassDescriptor | None:
         """Return the descriptor registered for a fully qualified class name."""
