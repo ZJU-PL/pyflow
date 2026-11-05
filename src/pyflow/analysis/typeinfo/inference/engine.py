@@ -14,6 +14,7 @@ uncertainty and provenance instead of reporting every typing-language error.
 from __future__ import annotations
 
 import ast
+import functools
 import tokenize
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
@@ -68,6 +69,12 @@ from pyflow.language.modules.project_resolution import ProjectContext
 ExternalSymbolResolver = Callable[[str], ProperType | None]
 MethodKindResolver = Callable[[str], str | None]
 DeclaredReturnResolver = Callable[[str], bool | None]
+
+
+@functools.lru_cache(maxsize=256)
+def _cached_parse(source: str, filename: str) -> ast.Module:
+    """Parse a module once per process; inference never mutates the tree."""
+    return ast.parse(source, filename=filename)
 
 
 @dataclass(frozen=True)
@@ -206,7 +213,7 @@ class StaticTypeInferenceEngine:
         self._module_name = module_name
         self._filename = filename or f"<{module_name}>"
         try:
-            self._tree = ast.parse(source, filename=self._filename)
+            self._tree = _cached_parse(source, self._filename)
         except SyntaxError as exc:
             return ModuleInferenceResult(
                 module_name=module_name,

@@ -20,6 +20,7 @@ from pyflow.analysis.typeinfo.inference.project_config import load_inference_opt
 from pyflow.analysis.typeinfo.inference.engine import (
     InferenceOptions,
     StaticTypeInferenceEngine,
+    _cached_parse,
 )
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.models import (
@@ -243,7 +244,7 @@ class ProjectTypeInferenceEngine:
         path: str,
     ) -> list[str]:
         try:
-            tree = ast.parse(source, filename=path)
+            tree = _cached_parse(source, path)
         except SyntaxError:
             return []
         imports: list[str] = []

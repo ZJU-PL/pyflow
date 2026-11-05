@@ -2627,6 +2627,27 @@ class ASTConverter:
         for gen in generators:
             comprehension_locals.update(self._pattern_names(gen.target))
 
+        # CPython evaluates the *outermost* iterable in the enclosing scope,
+        # before the comprehension frame exists; later iterables run lazily
+        # inside it.  Passing the first iterable as an explicit capture keeps
+        # that ordering (observable for lazy generator expressions:
+        # ``g = (i for i in make())`` must call ``make()`` at creation time).
+        # Skip the special case when the iterable binds a walrus: that needs
+        # the enclosing cell stores and is lowered inside the comprehension.
+        outer_iter_name: Optional[str] = None
+        first_generator = generators[0] if generators else None
+        if first_generator is not None and not self._walrus_target_names(first_generator.iter):
+            outer_iter_name = "__pyflow_outer_iter"
+            while outer_iter_name in comprehension_locals:
+                outer_iter_name += "_"
+            outer_iter_actual = self._convert_expression_safe(first_generator.iter)
+            if getattr(first_generator, "is_async", 0):
+                outer_iter_actual = self._call_named("interpreter_aiter", [outer_iter_actual])
+            comprehension_locals.add(outer_iter_name)
+            capture_names.append(outer_iter_name)
+            capture_formals.append(pyflow_ast.Local(outer_iter_name))
+            capture_actuals.append(outer_iter_actual)
+
         enclosing = self._enclosing_function_scope()
         closure_cells: tuple = ()
         cell_targets: dict = {}
@@ -2663,6 +2684,7 @@ class ASTConverter:
                 capture_actuals,
                 closure_cells,
                 cell_targets,
+                outer_iter_name,
             )
         finally:
             self._pop_scope()
@@ -2676,6 +2698,7 @@ class ASTConverter:
         capture_actuals,
         closure_cells,
         cell_targets,
+        outer_iter_name: Optional[str] = None,
     ) -> PythonASTNode:
         generators = node.generators
 
@@ -2755,11 +2778,17 @@ class ASTConverter:
             unique_stores.append(store)
         inner_body: PythonASTNode = pyflow_ast.Suite([make_add_stmt(result_local), *unique_stores])
 
-        for gen in reversed(generators):
-            iter_expr = self._convert_expression_safe(gen.iter)
-            if getattr(gen, "is_async", 0):
-                iter_expr = self._call_named("interpreter_aiter", [iter_expr])
-            body_preamble = pyflow_ast.Suite([*cell_stores(gen.iter)])
+        for position in range(len(generators) - 1, -1, -1):
+            gen = generators[position]
+            if position == 0 and outer_iter_name is not None:
+                # Evaluated by the caller in the enclosing scope.
+                iter_expr = pyflow_ast.Local(outer_iter_name)
+                body_preamble = pyflow_ast.Suite([])
+            else:
+                iter_expr = self._convert_expression_safe(gen.iter)
+                if getattr(gen, "is_async", 0):
+                    iter_expr = self._call_named("interpreter_aiter", [iter_expr])
+                body_preamble = pyflow_ast.Suite([*cell_stores(gen.iter)])
 
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)

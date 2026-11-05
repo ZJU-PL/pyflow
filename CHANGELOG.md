@@ -155,6 +155,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `union-attr`/`attr-defined` treat a union containing `Any` (`Any | None`) as
   gradual, matching mypy; the gradual member absorbs the check.
 
+- Module ASTs are parsed once per process (keyed by source and filename);
+  fixed-point iterations and repeated analyses of the same module reuse the
+  tree.  Inference never mutates the AST.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
