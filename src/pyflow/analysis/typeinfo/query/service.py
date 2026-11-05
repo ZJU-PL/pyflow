@@ -52,6 +52,7 @@ from pyflow.analysis.typeinfo.inference.engine import (
     InferenceOptions,
     StaticTypeInferenceEngine,
 )
+from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.models import InferenceDiagnostic, ModuleInferenceResult
 from pyflow.analysis.typeinfo.resolution.docstrings import (
@@ -98,7 +99,11 @@ class TypeInfoService:
         self._max_collection_depth = 32
         self._depth_limit_warning_emitted = False
         self.enable_static_inference = enable_static_inference
-        self.inference_options = inference_options
+        self.inference_options = (
+            inference_options
+            if inference_options is not None
+            else load_inference_options(self.project_context.path)
+        )
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
         self._module_sources: dict[str, tuple[str, str | None]] = {}

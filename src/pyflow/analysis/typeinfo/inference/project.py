@@ -15,6 +15,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TypeSystem,
     TypeType,
 )
+from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
 from pyflow.analysis.typeinfo.inference.engine import (
     InferenceOptions,
     StaticTypeInferenceEngine,
@@ -46,7 +47,9 @@ class ProjectTypeInferenceEngine:
     ) -> None:
         self.project_context = project_context
         self.type_system = type_system or TypeSystem()
-        self.options = options or InferenceOptions()
+        # Project configuration (``[tool.pyflow.typeinfo]``) applies unless
+        # the caller supplies explicit options.
+        self.options = options or load_inference_options(project_context.path)
         self.call_model_providers = tuple(call_model_providers)
         self.max_project_iterations = max_project_iterations
 

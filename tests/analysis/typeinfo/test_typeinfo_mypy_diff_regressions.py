@@ -487,3 +487,35 @@ def use() -> None:
 """)
 
     assert not [item for item in result.diagnostics if item.code == "index"]
+
+
+def test_project_configuration_disables_diagnostics(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.pyflow.typeinfo]\ndisabled_diagnostics = ["index"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "m.py").write_text(
+        "def f(values: list[int]) -> None:\n    x = values['bad']\n", encoding="utf-8"
+    )
+
+    configured = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["m"])
+    assert not [d for d in configured.modules["m"].diagnostics if d.code == "index"]
+
+    explicit = ProjectTypeInferenceEngine(
+        ProjectContext(tmp_path), options=InferenceOptions()
+    ).infer_project(["m"])
+    assert [d for d in explicit.modules["m"].diagnostics if d.code == "index"]
+
+
+def test_pyflow_toml_typeinfo_section_is_read(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
+
+    (tmp_path / "pyflow.toml").write_text(
+        '[typeinfo]\ndiagnostic_severity = { override = "error" }\ncheck_overrides = false\n',
+        encoding="utf-8",
+    )
+    options = load_inference_options(tmp_path)
+    assert options.diagnostic_severity == {"override": "error"}
+    assert options.check_overrides is False

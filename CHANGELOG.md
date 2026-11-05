@@ -104,6 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Indexing an empty container literal (`{}["key"]`, `list[Never]`) no longer
   reports `index`; unknown element types stay gradual.
 
+- Type inference reads repository configuration from `[tool.pyflow.typeinfo]`
+  in `pyproject.toml` (or `[typeinfo]` in `pyflow.toml`): strictness, member
+  and override checks, `disabled_diagnostics`, `diagnostic_severity`, and the
+  iteration/union limits.  Explicit `InferenceOptions` still win over the file.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
