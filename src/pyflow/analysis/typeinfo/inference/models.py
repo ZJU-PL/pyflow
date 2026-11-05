@@ -95,6 +95,7 @@ class FunctionSummary:
     return_dependencies: frozenset[str] = field(default_factory=frozenset)
     is_async: bool = False
     is_generator: bool = False
+    method_kind: str = "instance"
     specializations: tuple[FunctionSpecialization, ...] = ()
     overloads: tuple[CallableType, ...] = ()
 

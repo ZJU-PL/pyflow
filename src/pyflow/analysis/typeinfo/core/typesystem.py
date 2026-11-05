@@ -21,6 +21,7 @@ import functools
 import inspect
 import logging
 import re
+import sys
 import types
 import typing
 from abc import ABC, abstractmethod
@@ -1511,6 +1512,38 @@ class _PrimitiveTypeVisitor(TypeVisitor[bool]):
 is_primitive_type = _PrimitiveTypeVisitor()
 
 
+@functools.lru_cache(maxsize=4096)
+def _typeshed_class_members(full_name: str) -> dict[str, ProperType]:
+    """Return bound typeshed member types for a stdlib class, if stubbed."""
+    if "." not in full_name:
+        return {}
+    module_name = full_name.rpartition(".")[0]
+    if module_name.split(".", 1)[0] not in _STDLIB_ROOT_MODULES:
+        return {}
+    try:
+        from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
+            resolve_typeshed_class_members,
+        )
+
+        return resolve_typeshed_class_members(full_name)
+    except Exception:
+        return {}
+
+
+_STDLIB_ROOT_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) | {"builtins"}
+
+
+def _is_signatureless_member(member: ProperType) -> bool:
+    """Whether a member type carries no information worth keeping."""
+    if member == ANY:
+        return True
+    if not isinstance(member, CallableType):
+        return False
+    if member.return_type != ANY:
+        return False
+    return not member.arg_types or all(argument == ANY for argument in member.arg_types)
+
+
 class ClassDescriptor:
     """A small wrapper around type, i.e., classes.
 
@@ -2638,6 +2671,16 @@ class TypeSystem:  # noqa: PLR0904
         for parent in self.get_superclasses(descriptor):
             members.update(parent.members)
         members.update(descriptor.members)
+        # Runtime introspection loses most stdlib signatures (``inspect``
+        # cannot read builtin methods) and reports ``Callable[..., Any]``.
+        # Fill those gaps from the vendored typeshed snapshot so builtin and
+        # stdlib members keep the signatures mypy checks against.
+        stub_members = _typeshed_class_members(descriptor.full_name)
+        if stub_members:
+            for name, member in stub_members.items():
+                existing = members.get(name)
+                if existing is None or _is_signatureless_member(existing):
+                    members[name] = member
         return members
 
     def find_by_attribute(self, attr: str) -> OrderedSet[ClassDescriptor]:

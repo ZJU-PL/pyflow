@@ -296,7 +296,7 @@ class ExpressionInference(InferenceComponent):
             if qualified is not None and root is not None and root not in environment:
                 imported = self.engine._value_rules._resolve_import_name(qualified)
                 if imported is not None and root in self.engine._imports:
-                    external = self.engine._member_rules._external_type(imported)
+                    external = self.engine._member_rules._external_member_type(imported)
                     builtin_class = False
                     if external is None and "." in imported:
                         # Stdlib class members are resolved without importing

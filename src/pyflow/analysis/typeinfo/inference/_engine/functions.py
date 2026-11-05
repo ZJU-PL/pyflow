@@ -89,6 +89,7 @@ class FunctionInference(InferenceComponent):
             return_dependencies=self.engine._call_rules._return_dependencies(function),
             is_async=isinstance(function.node, ast.AsyncFunctionDef),
             is_generator=function.is_generator_source or not fallback.yield_value.is_bottom,
+            method_kind=function.method_kind,
             specializations=ordered_specializations,
             overloads=tuple(overload_signatures),
         )

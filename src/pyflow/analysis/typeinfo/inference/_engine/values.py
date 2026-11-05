@@ -208,9 +208,18 @@ class ValueInference(InferenceComponent):
                     continue
                 member = typ.type.members.get("__getitem__")
                 if isinstance(member, CallableType):
+                    substitutions = {
+                        parameter.name: argument
+                        for parameter, argument in zip(typ.type.type_parameters, typ.args)
+                    }
+                    returned = (
+                        substitute_type_vars(member.return_type, substitutions)
+                        if substitutions
+                        else member.return_type
+                    )
                     values.append(
                         self._filter_subscript_result(
-                            AbstractTypeValue.from_type(member.return_type),
+                            AbstractTypeValue.from_type(returned),
                             slice_node,
                         )
                     )

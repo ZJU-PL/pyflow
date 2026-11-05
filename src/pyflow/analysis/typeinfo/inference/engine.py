@@ -34,7 +34,10 @@ from pyflow.analysis.typeinfo.inference._engine.stdlib import StdlibInference
 from pyflow.analysis.typeinfo.inference._engine.values import ValueInference
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
-from pyflow.analysis.typeinfo.resolution.typeshed_resolver import resolve_typeshed_symbol
+from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
+    resolve_typeshed_method_kind,
+    resolve_typeshed_symbol,
+)
 from pyflow.analysis.typeinfo.inference.models import (
     InferenceDiagnostic,
     InferenceProvenance,
@@ -45,6 +48,7 @@ from pyflow.analysis.typeinfo.inference.models import (
 from pyflow.language.modules.project_resolution import ProjectContext
 
 ExternalSymbolResolver = Callable[[str], ProperType | None]
+MethodKindResolver = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,8 @@ class StaticTypeInferenceEngine:
     _pending_attributes: dict[tuple[str, str], AbstractTypeValue]
     _module_environment: dict[str, AbstractTypeValue]
     _inherited_members: dict[tuple[str, str], ProperType | None]
+    _external_type_parameters: dict[str, tuple[str, ...]]
+    _protocol_match_stack: set[tuple[str, str]]
     _declared_annotations: dict[str, tuple[int, ProperType]]
     _last_argument_mutations: list[tuple[ast.expr, AbstractTypeValue]]
     _observed_yields: list[AbstractTypeValue]
@@ -112,6 +118,7 @@ class StaticTypeInferenceEngine:
         *,
         type_system: TypeSystem | None = None,
         external_symbol_resolver: ExternalSymbolResolver | None = None,
+        external_method_kind: MethodKindResolver | None = None,
         call_model_providers: Iterable[CallModelProvider] = (),
         options: InferenceOptions | None = None,
     ) -> None:
@@ -122,6 +129,11 @@ class StaticTypeInferenceEngine:
             external_symbol_resolver
             if external_symbol_resolver is not None
             else resolve_typeshed_symbol
+        )
+        self.external_method_kind = (
+            external_method_kind
+            if external_method_kind is not None
+            else resolve_typeshed_method_kind
         )
         self.call_model_providers = tuple(call_model_providers)
         self.options = options or InferenceOptions()
@@ -328,6 +340,8 @@ class StaticTypeInferenceEngine:
         self._pending_attributes = {}
         self._module_environment = {}
         self._inherited_members = {}
+        self._external_type_parameters = {}
+        self._protocol_match_stack = set()
         # Explicit annotations of ``name: T`` declarations, keyed by scope.
         # Later plain assignments to that name are checked against them.
         self._declared_annotations = {}

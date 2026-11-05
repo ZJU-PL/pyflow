@@ -78,3 +78,82 @@ def reset_typeshed_service() -> None:
     global _service
     with _service_lock:
         _service = None
+
+
+def resolve_typeshed_method_kind(qualified_name: str) -> str | None:
+    """Return ``instance``/``class``/``static`` for a stubbed method.
+
+    Attribute lookup on a class object normally keeps an instance method's
+    ``self`` parameter (an unbound function) but must drop a classmethod's
+    ``cls``.  ``TypeInfoService`` knows the decorator, so expose it to the
+    inference engine instead of guessing from the parameter list.
+    """
+    if "." not in qualified_name:
+        return None
+    parts = qualified_name.split(".")
+    with _resolve_lock:
+        service = _get_service()
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            if module_name in {"typing", "typing_extensions", "__future__"}:
+                return None
+            if service.stub_resolver.resolve_path(module_name) is None:
+                continue
+            name = ".".join(parts[index:])
+            try:
+                info = service.signature_of(module_name, name)
+            except Exception:
+                return None
+            return None if info is None else info.method_kind
+    return None
+
+
+def resolve_typeshed_type_parameter_names(qualified_class: str) -> tuple[str, ...]:
+    """Return the stub class's type-parameter names in declaration order."""
+    if "." not in qualified_class:
+        return ()
+    parts = qualified_class.split(".")
+    with _resolve_lock:
+        service = _get_service()
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            if service.stub_resolver.resolve_path(module_name) is None:
+                continue
+            name = ".".join(parts[index:])
+            try:
+                class_info = service.class_info(f"{module_name}.{name}")
+            except Exception:
+                return ()
+            if class_info is None:
+                return ()
+            return tuple(parameter.name for parameter in class_info.typ.type.type_parameters)
+    return ()
+
+
+def resolve_typeshed_class_members(full_name: str) -> dict[str, ProperType]:
+    """Return the bound member types a stub declares for a class.
+
+    ``full_name`` uses the runtime naming (``builtins.list``,
+    ``pathlib.Path``).  Members are already receiver-bound, matching the
+    representation used by ``ClassDescriptor.members``.
+    """
+    if "." not in full_name:
+        return {}
+    parts = full_name.split(".")
+    with _resolve_lock:
+        service = _get_service()
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            if module_name in {"typing", "typing_extensions", "__future__"}:
+                return {}
+            if service.stub_resolver.resolve_path(module_name) is None:
+                continue
+            name = ".".join(parts[index:])
+            try:
+                class_info = service.class_info(f"{module_name}.{name}")
+            except Exception:
+                return {}
+            if class_info is None:
+                return {}
+            return dict(class_info.typ.type.members)
+    return {}

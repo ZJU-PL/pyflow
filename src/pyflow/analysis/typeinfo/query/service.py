@@ -117,11 +117,7 @@ class TypeInfoService:
         path: str | None = None,
     ) -> None:
         """Collect source and stub facts for a module."""
-        if (
-            module_name in {"builtins", "typing", "typing_extensions"}
-            and source is None
-            and path is None
-        ):
+        if module_name in {"typing", "typing_extensions"} and source is None and path is None:
             # The engine owns builtins and typing special forms; re-reading
             # their stubs would shadow TupleType/Union/Optional handling.
             # A project-local module with the same name is still analyzed.
@@ -312,6 +308,17 @@ class TypeInfoService:
             if reexported is not None:
                 qualified_class = f"{reexported[0]}.{reexported[1]}"
         return self._class_method_info(qualified_class, method_name)
+
+    def class_info(self, qualified_name: str) -> ClassTypeInfo | None:
+        """Return collected class information for ``qualified_name``."""
+        self._ensure_refreshed()
+        if qualified_name not in self._classes:
+            module_name, _, class_name = qualified_name.rpartition(".")
+            if module_name and class_name:
+                self._ensure_collected(module_name)
+                if qualified_name not in self._classes:
+                    self._lookup_project_type(qualified_name, allow_synthetic=False)
+        return self._classes.get(qualified_name)
 
     def members_of(self, qualified_name: str) -> dict[str, TypeFact]:
         """Return known members for a module or class."""
@@ -1406,15 +1413,29 @@ class TypeInfoService:
             for name, annotation in cls.class_vars
         }
         class_typ = self._synthetic_instance(qualified_name)
+        if any(base.rsplit(".", 1)[-1].partition("[")[0] == "Protocol" for base in cls.bases):
+            # Stub protocols must stay structural: nominal subtype checks
+            # against the synthetic placeholder class would reject every
+            # implementer (``math.ceil``'s ``_SupportsCeil`` overload).
+            class_typ.type.is_protocol = True
         type_parameters: list[TypeVarType] = []
         for base in cls.bases:
             head, _, rest = base.partition("[")
-            if head.rsplit(".", 1)[-1] not in {"Generic", "Protocol"} or not rest:
+            if not rest:
                 continue
-            for parameter in _split_annotation_arguments(rest[:-1]):
+            generic_base = head.rsplit(".", 1)[-1] in {"Generic", "Protocol"}
+            parameters = (
+                _split_annotation_arguments(rest.rsplit("]", 1)[0]) if rest.endswith("]") else []
+            )
+            # ``class list(MutableSequence[_T])`` is generic over every type
+            # variable that appears in its bases, not only over explicit
+            # ``Generic[...]`` parameters (mypy's ``semanal_classprop``).
+            for parameter in parameters:
                 resolved = self._resolve_stub_definition(module_name, parameter.strip())
-                if isinstance(resolved, TypeVarType):
+                if isinstance(resolved, TypeVarType) and resolved not in type_parameters:
                     type_parameters.append(resolved)
+            if generic_base:
+                continue
         if type_parameters:
             class_typ.type.type_parameters = tuple(type_parameters)
         grouped_methods: dict[str, list[FunctionTypeInfo]] = {}

@@ -394,9 +394,59 @@ class CallInference(InferenceComponent):
                 actual_type = actual.public_type()
                 if actual_type is not None:
                     self._match_type_variables(formal, actual_type, substitutions, fixed)
-        if substitutions:
-            return substitute_type_vars(signature.return_type, substitutions)
-        return signature.return_type
+        returned = (
+            substitute_type_vars(signature.return_type, substitutions)
+            if substitutions
+            else signature.return_type
+        )
+        return self._default_unsolved_type_vars(returned, substitutions)
+
+    def _default_unsolved_type_vars(
+        self,
+        typ: ProperType,
+        substitutions: dict[str, ProperType],
+    ) -> ProperType:
+        """Replace type variables that argument matching could not solve.
+
+        A leaked ``_T`` is not a usable type: mypy erases unsolved variables
+        to their value restriction (or ``Any``).  Keep the inferred parts and
+        erase only the variables that remain free.
+        """
+        if isinstance(typ, TypeVarType):
+            if typ.name in substitutions:
+                return typ
+            if typ.bound is not None:
+                return typ.bound
+            if typ.constraints:
+                return UnionType(tuple(typ.constraints))
+            return ANY
+        if isinstance(typ, Instance) and typ.args:
+            args = tuple(self._default_unsolved_type_vars(item, substitutions) for item in typ.args)
+            return typ if args == typ.args else Instance(typ.type, args)
+        if isinstance(typ, UnionType):
+            items = tuple(
+                self._default_unsolved_type_vars(item, substitutions) for item in typ.items
+            )
+            return typ if items == typ.items else UnionType(items)
+        if isinstance(typ, TupleType):
+            args = tuple(self._default_unsolved_type_vars(item, substitutions) for item in typ.args)
+            return typ if args == typ.args else TupleType(args, unknown_size=typ.unknown_size)
+        if isinstance(typ, TypeType):
+            item = self._default_unsolved_type_vars(typ.item, substitutions)
+            return typ if item == typ.item else TypeType(item)
+        if isinstance(typ, CallableType):
+            args = (
+                tuple(
+                    self._default_unsolved_type_vars(item, substitutions) for item in typ.arg_types
+                )
+                if typ.arg_types is not None
+                else None
+            )
+            returned = self._default_unsolved_type_vars(typ.return_type, substitutions)
+            if args == typ.arg_types and returned == typ.return_type:
+                return typ
+            return CallableType(args, returned, overloads=typ.overloads)
+        return typ
 
     def _model_external_call(
         self,
@@ -717,8 +767,17 @@ class CallInference(InferenceComponent):
                 actual_type = actual.public_type()
                 if expected is None or actual_type is None:
                     continue
-                if self._is_unresolved_external_type(expected):
+                if self._is_unresolved_external_type(expected) and not isinstance(
+                    expected, Instance
+                ):
                     continue
+                if self._is_unresolved_external_type(expected):
+                    # Protocol parameters from stubs carry type variables and
+                    # unknown module names.  When the protocol's members are
+                    # known, check structurally instead of accepting every
+                    # actual type (which selects the wrong overload).
+                    if not self._protocol_is_checkable(expected):
+                        continue
                 # An overload must accept every possible value of a union
                 # argument.  ``is_maybe_subtype`` deliberately accepts a
                 # union when any member matches, which can select one narrow
@@ -771,8 +830,17 @@ class CallInference(InferenceComponent):
                 actual_type = actual.public_type()
                 if actual_type is None or actual.unknown:
                     continue
-                if self._is_unresolved_external_type(expected):
+                if self._is_unresolved_external_type(expected) and not isinstance(
+                    expected, Instance
+                ):
                     continue
+                if self._is_unresolved_external_type(expected):
+                    # Protocol parameters from stubs carry type variables and
+                    # unknown module names.  When the protocol's members are
+                    # known, check structurally instead of accepting every
+                    # actual type (which selects the wrong overload).
+                    if not self._protocol_is_checkable(expected):
+                        continue
                 if self.engine.type_system.is_subtype(actual_type, expected):
                     continue
                 expected_literals = self.engine._compatibility_rules._literal_expected_values(
@@ -789,6 +857,22 @@ class CallInference(InferenceComponent):
             if accepted:
                 return overload
         return None
+
+    def _protocol_is_checkable(self, typ: ProperType) -> bool:
+        """Whether ``typ`` is a protocol whose full member shape is known."""
+        if not isinstance(typ, Instance) or not typ.type.is_protocol:
+            return False
+        members = self.engine.type_system.get_members(typ.type)
+        if not members:
+            return False
+        from pyflow.analysis.typeinfo.core.typesystem import ANY as _ANY
+
+        for name, member in members.items():
+            if name.startswith("__") and name.endswith("__") and member == _ANY:
+                continue
+            if member == _ANY:
+                return False
+        return True
 
     @staticmethod
     def _is_unresolved_external_type(typ: ProperType) -> bool:
@@ -1351,6 +1435,8 @@ class CallInference(InferenceComponent):
                 self._match_type_variables(formal.args[0], element, substitutions, fixed)
                 return
         if isinstance(formal, Instance) and isinstance(actual, Instance):
+            if formal.type.is_protocol and formal.args and formal.type is not actual.type:
+                self._match_protocol_type_variables(formal, actual, substitutions, fixed)
             if formal.type.raw_type is actual.type.raw_type:
                 for formal_arg, actual_arg in zip(formal.args, actual.args):
                     self._match_type_variables(formal_arg, actual_arg, substitutions, fixed)
@@ -1393,6 +1479,47 @@ class CallInference(InferenceComponent):
         elif isinstance(formal, TupleType) and isinstance(actual, TupleType):
             for formal_arg, actual_arg in zip(formal.args, actual.args):
                 self._match_type_variables(formal_arg, actual_arg, substitutions, fixed)
+
+    def _match_protocol_type_variables(
+        self,
+        formal: Instance,
+        actual: Instance,
+        substitutions: dict[str, ProperType],
+        fixed: set[str],
+    ) -> None:
+        """Solve protocol type variables from the protocol's members.
+
+        mypy derives constraints structurally (``constraints.py``): matching
+        ``_SupportsCeil[_T]`` against ``float`` binds ``_T`` from
+        ``float.__ceil__() -> int``.  Without this, overloads whose parameter
+        is a generic protocol return a leaked type variable.
+        """
+        parameters = formal.type.type_parameters
+        if not parameters:
+            return
+        pair = (formal.type.full_name, actual.type.full_name)
+        stack = self.engine._protocol_match_stack
+        if pair in stack:
+            return
+        stack.add(pair)
+        try:
+            formal_members = self.engine.type_system.get_members(formal.type)
+            actual_members = self.engine.type_system.get_members(actual.type)
+            member_substitutions: dict[str, ProperType] = {}
+            for name, formal_member in formal_members.items():
+                actual_member = actual_members.get(name)
+                if actual_member is None:
+                    continue
+                self._match_type_variables(
+                    formal_member, actual_member, member_substitutions, fixed
+                )
+            for parameter, argument in zip(parameters, formal.args):
+                value = member_substitutions.get(parameter.name)
+                if value is None or isinstance(value, TypeVarType):
+                    continue
+                self._match_type_variables(argument, value, substitutions, fixed)
+        finally:
+            stack.discard(pair)
 
     def _iterable_protocol_element(self, actual: ProperType) -> ProperType:
         """Project the element type used by sequence-like protocols."""

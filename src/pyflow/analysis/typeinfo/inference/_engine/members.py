@@ -831,22 +831,39 @@ class MemberInference(InferenceComponent):
                         parameter.name: argument
                         for parameter, argument in zip(typ.type.type_parameters, typ.args)
                     }
+                    if typ.args and not typ.type.type_parameters:
+                        # Instances created from runtime builtins carry their
+                        # type arguments but the engine descriptor has no
+                        # declaration of the class's type parameters.  Recover
+                        # the order from the typeshed stub so ``list[int]``
+                        # methods mention ``int`` instead of leaking ``_T``.
+                        parameter_names = self._external_type_parameters(typ.type.full_name)
+                        substitutions = {
+                            name: argument for name, argument in zip(parameter_names, typ.args)
+                        }
                     if substitutions:
                         external = substitute_type_vars(external, substitutions)
-                    if (
-                        isinstance(external, CallableType)
-                        and not base.class_targets
-                        and external.arg_types
-                    ):
-                        returned = external.return_type
-                        if (
-                            isinstance(returned, Instance)
-                            and returned.type.full_name == typ.type.full_name
-                        ):
-                            # ``copy``/``replace``-style methods return the
-                            # receiver; keep its type arguments.
-                            returned = typ
-                        external = CallableType(external.arg_types[1:], returned)
+                    if isinstance(external, CallableType) and external.arg_types:
+                        method_kind = self._external_method_kind(
+                            f"{typ.type.full_name}.{attribute}"
+                        )
+                        # A classmethod is bound whichever object the lookup
+                        # starts from; an instance method is bound only when
+                        # read from an instance.  ``staticmethod`` keeps its
+                        # declared parameters in both cases.
+                        drop_receiver = method_kind == "class" or (
+                            method_kind != "static" and not base.class_targets
+                        )
+                        if drop_receiver:
+                            returned = external.return_type
+                            if (
+                                isinstance(returned, Instance)
+                                and returned.type.full_name == typ.type.full_name
+                            ):
+                                # ``copy``/``replace``-style methods return the
+                                # receiver; keep its type arguments.
+                                returned = typ
+                            external = CallableType(external.arg_types[1:], returned)
                     values.append(AbstractTypeValue.from_type(external))
                     continue
             raw = typ.type.raw_type
@@ -1158,6 +1175,48 @@ class MemberInference(InferenceComponent):
             return self.engine.external_symbol_resolver(qualified_name)
         except (ImportError, LookupError, OSError, RuntimeError):
             return None
+
+    def _external_method_kind(self, qualified_name: str) -> str | None:
+        """Return the decorator kind of an external method, if known."""
+        resolver = self.engine.external_method_kind
+        if resolver is None:
+            return None
+        try:
+            return resolver(qualified_name)
+        except (ImportError, LookupError, OSError, RuntimeError):
+            return None
+
+    def _external_member_type(self, qualified_name: str) -> ProperType | None:
+        """Resolve ``mod.Class.member`` with classmethod binding applied.
+
+        Called for dotted names whose root is an imported module, where the
+        receiver is always a class object.  Instance methods stay unbound so
+        ``Class.method(obj, ...)`` keeps working; classmethods drop ``cls``.
+        """
+        external = self._external_type(qualified_name)
+        if (
+            isinstance(external, CallableType)
+            and external.arg_types
+            and self._external_method_kind(qualified_name) == "class"
+        ):
+            return CallableType(external.arg_types[1:], external.return_type)
+        return external
+
+    def _external_type_parameters(self, class_full_name: str) -> tuple[str, ...]:
+        """Return the type-parameter order of an external generic class."""
+        cache = self.engine._external_type_parameters
+        if class_full_name in cache:
+            return cache[class_full_name]
+        from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
+            resolve_typeshed_type_parameter_names,
+        )
+
+        try:
+            names = resolve_typeshed_type_parameter_names(class_full_name)
+        except (ImportError, LookupError, OSError, RuntimeError):
+            names = ()
+        cache[class_full_name] = names
+        return names
 
     @staticmethod
     def _looks_like_class(name: str) -> bool:
