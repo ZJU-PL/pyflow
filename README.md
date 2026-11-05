@@ -132,6 +132,9 @@ pyflow mcp --root . --mode full
 # Run a one-shot semantic query
 pyflow query . --get-callers package.module.function --pretty
 
+# Query type information directly
+pyflow typeinfo app.py --symbol Client.fetch --json --pretty
+
 # Generate a CycloneDX SBOM from local package metadata
 pyflow supply-chain sbom package/
 ```

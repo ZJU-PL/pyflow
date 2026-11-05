@@ -36,6 +36,7 @@ from .capability_run import add_capability_run_parser, run_capability_guard
 from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_mcp, run_query
 from .stubgen import add_stubgen_parser, run_stubgen
 from .stubtest import add_stubtest_parser, run_stubtest
+from .typeinfo import add_typeinfo_parser, run_typeinfo
 
 
 def main():
@@ -103,7 +104,8 @@ def _main():
     add_capabilities_parser(subparsers)
     add_capability_run_parser(subparsers)
 
-    # LSP / MCP / Query commands
+    # Type-info, LSP / MCP / Query commands
+    add_typeinfo_parser(subparsers)
     add_lsp_parser(subparsers)
     add_mcp_parser(subparsers)
     add_query_parser(subparsers)
@@ -152,6 +154,8 @@ def _main():
         input_path = Path(args.input_path)
     elif args.command == "capability-run":
         input_path = Path(args.script)
+    elif args.command == "typeinfo":
+        input_path = Path(args.input_path)
     else:
         input_path = None
 
@@ -181,6 +185,8 @@ def _main():
         return run_capabilities(args)
     elif args.command == "capability-run":
         return run_capability_guard(args)
+    elif args.command == "typeinfo":
+        return run_typeinfo(args)
     elif args.command == "lsp":
         run_lsp(args)
         return 0

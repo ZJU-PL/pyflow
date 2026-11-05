@@ -75,6 +75,28 @@ express the result (for example ``collections.Counter.copy()``,
 ``pathlib.Path.open()``, and the ``os.environ`` mapping shape).  Callers can
 replace the vendored snapshot with ``typeshed_roots=[...]``.
 
+Command-line Queries
+~~~~~~~~~~~~~~~~~~~~
+
+``pyflow typeinfo`` is the direct CLI for this subsystem; it does not require
+the LSP or MCP server.  For a single file the module name is inferred, while a
+project directory accepts ``--module`` for focused queries:
+
+.. code-block:: shell
+
+   pyflow typeinfo app.py
+   pyflow typeinfo app.py --symbol Client.fetch --json --pretty
+   pyflow typeinfo app.py --line 42 --column 8 --json
+   pyflow typeinfo app.py --diagnostics --json
+   pyflow typeinfo src/ --module package.module --diagnostics --max-modules 20
+
+``--line`` is 1-based and ``--column`` is a 0-based character offset, matching
+LSP positions.  The default mode prints module status, convergence, symbol,
+function and expression counts, and diagnostic counts.  Every result reports
+``complete``/``partial`` status where applicable; unknown expression facts are
+returned as JSON ``null`` plus ``complete``/``unknown`` flags rather than being
+presented as a definite type.
+
 Evidence Collection
 ~~~~~~~~~~~~~~~~~~~
 
