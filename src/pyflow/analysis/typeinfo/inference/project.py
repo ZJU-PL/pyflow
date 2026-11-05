@@ -14,6 +14,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ProperType,
     TypeSystem,
     TypeType,
+    TypeVarType,
 )
 from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
 from pyflow.analysis.typeinfo.inference.engine import (
@@ -322,6 +323,18 @@ class ProjectTypeInferenceEngine:
                         for superclass in self.type_system.get_superclasses(class_type.type):
                             member = superclass.members.get(attribute)
                             if member is not None:
+                                if (
+                                    isinstance(member, CallableType)
+                                    and isinstance(member.return_type, TypeVarType)
+                                    and member.return_type.name == "Self"
+                                ):
+                                    # ``Self`` in an inherited method binds to
+                                    # the class the caller asked about.
+                                    return CallableType(
+                                        member.arg_types,
+                                        class_type,
+                                        overloads=member.overloads,
+                                    )
                                 return member
         return resolve_typeshed_symbol(qualified_name)
 

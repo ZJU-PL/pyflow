@@ -135,6 +135,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ParseResult | ParseResultBytes`) and produced false
   `annotation-mismatch` errors.
 
+- `Self` in a method inherited from another module binds to the receiver's
+  class when the call is resolved cross-module (`value.copy()` on a `Sub`
+  returns `Sub`, not the defining `Base`), removing false
+  `annotation-mismatch` reports.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

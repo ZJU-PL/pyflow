@@ -681,3 +681,38 @@ parsed = parser("http://example.com/path")
     # Joining the two branches used to rebuild the callable without its
     # overloads, so the call fell back to the union of all overload returns.
     assert str(result.type_of("m.parsed")) == "urllib.parse.ParseResult"
+
+
+def test_self_return_binds_to_receiver_across_modules(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "base.py").write_text(
+        "from typing import Self\n"
+        "class Base:\n"
+        "    def copy(self) -> Self:\n"
+        "        return self\n"
+        "class Sub(Base):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from pkg.base import Sub\n"
+        "def clone(value: Sub) -> None:\n"
+        "    same: Sub = value.copy()\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["pkg.use"])
+    module = result.modules["pkg.use"]
+
+    assert not [item for item in module.diagnostics if item.code == "annotation-mismatch"]
+    copied = [
+        value.runtime_type()
+        for span, value in module.expressions.items()
+        if "value.copy()"
+        in (tmp_path / "pkg/use.py")
+        .read_text()
+        .splitlines()[span.lineno - 1][span.col_offset : span.end_col_offset]
+    ]
+    assert copied and str(copied[0]) == "pkg.base.Sub"

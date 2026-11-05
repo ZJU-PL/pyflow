@@ -874,7 +874,15 @@ class MemberInference(InferenceComponent):
                                 # ``copy``/``replace``-style methods return the
                                 # receiver; keep its type arguments.
                                 returned = typ
-                            external = CallableType(external.arg_types[1:], returned)
+                            if isinstance(returned, TypeVarType) and returned.name == "Self":
+                                # ``Self`` binds to the receiver, not to the
+                                # class that declared the method.
+                                returned = typ
+                            external = CallableType(
+                                external.arg_types[1:],
+                                returned,
+                                overloads=external.overloads,
+                            )
                     values.append(AbstractTypeValue.from_type(external))
                     continue
             raw = typ.type.raw_type
@@ -934,10 +942,18 @@ class MemberInference(InferenceComponent):
         if function.method_kind == "instance" and base.class_targets:
             return value
         arguments = signature.arg_types
+        returned = signature.return_type
+        if isinstance(returned, TypeVarType) and returned.name == "Self":
+            receiver = next(
+                (item for item in base.types if isinstance(item, Instance)),
+                None,
+            )
+            if receiver is not None:
+                returned = receiver
         return AbstractTypeValue.from_type(
             CallableType(
                 arguments[1:] if arguments else (),
-                signature.return_type,
+                returned,
             )
         )
 
