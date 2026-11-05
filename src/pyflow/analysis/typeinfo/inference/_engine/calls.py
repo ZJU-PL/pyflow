@@ -281,7 +281,7 @@ class CallInference(InferenceComponent):
                 call_node=node,
             )
             if method_result is not None:
-                return method_result
+                return replace(method_result, unknown=method_result.unknown or base.unknown)
 
         callee = self.engine._expression_rules._evaluate_expression(
             node.func,
@@ -291,6 +291,41 @@ class CallInference(InferenceComponent):
         )
         if self.engine._value_rules._is_never_value(callee):
             return callee
+        return self._invoke_value(
+            callee,
+            arguments,
+            keywords,
+            node=node,
+            environment=environment,
+            current_function=current_function,
+            qualified_callee=qualified_callee,
+        )
+
+    def _invoke_value(
+        self,
+        callee: AbstractTypeValue,
+        arguments: list[AbstractTypeValue],
+        keywords: dict[str, AbstractTypeValue],
+        *,
+        node: ast.AST,
+        environment: dict[str, AbstractTypeValue],
+        current_function: _FunctionInfo | None,
+        qualified_callee: str | None = None,
+    ) -> AbstractTypeValue:
+        """Apply an already evaluated callable, including implicit decorators."""
+        # Annotated returns may describe class objects as type[T] rather
+        # than the engine's internal instance-plus-class-target value.
+        types = set(callee.types)
+        classes = set(callee.class_targets)
+        for typ in callee.types:
+            if isinstance(typ, TypeType):
+                alternatives = typ.item.items if isinstance(typ.item, UnionType) else (typ.item,)
+                for item in alternatives:
+                    if isinstance(item, Instance):
+                        types.add(item)
+                        classes.add(item.type.full_name)
+        if classes:
+            callee = replace(callee, types=frozenset(types), class_targets=frozenset(classes))
         results: list[AbstractTypeValue] = []
         for class_target in callee.class_targets:
             results.append(
@@ -370,11 +405,12 @@ class CallInference(InferenceComponent):
                         )
                     )
         if results:
-            return join_all(
+            returned = join_all(
                 results,
                 self.engine.type_system,
                 max_union_size=self.engine.options.max_union_size,
             )
+            return replace(returned, unknown=returned.unknown or callee.unknown)
         if self.engine._operator_rules._contains_any(callee):
             return AbstractTypeValue.from_type(ANY)
         return AbstractTypeValue.unresolved()
@@ -628,6 +664,14 @@ class CallInference(InferenceComponent):
                 argument_node or node or function.node,
                 context=f"argument {name} of {target}",
             )
+        for name, default in function.default_parameters.items():
+            if name not in bound_arguments:
+                bound_arguments[name] = self.engine._expression_rules._evaluate_expression(
+                    default,
+                    self.engine._module_environment,
+                    scope=function.qualified_name,
+                    current_function=None,
+                )
         for name, value in bound_arguments.items():
             self._queue_parameter_evidence(target, name, value)
         if self.engine._collect_specializations:
@@ -1010,8 +1054,32 @@ class CallInference(InferenceComponent):
         bound_arguments: dict[str, AbstractTypeValue],
     ) -> tuple[_SpecializationKey, dict[str, AbstractTypeValue]]:
         parameters = self._call_context_parameters(function, bound_arguments)
+        # Only specialize scalar literals that control an element lookup.
+        # Other arguments retain type-based contexts and the existing budget.
+        selectors = {
+            part.id
+            for node in ast.walk(function.node)
+            if isinstance(node, ast.Subscript)
+            for part in ast.walk(node.slice)
+            if isinstance(part, ast.Name)
+        }
+        selectors.update(
+            part.id
+            for node in ast.walk(function.node)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"get", "pop", "setdefault"}
+            and node.args
+            for part in ast.walk(node.args[0])
+            if isinstance(part, ast.Name)
+        )
         key = _SpecializationKey(
-            tuple((name, parameters[name]) for name in function.parameter_names)
+            tuple((name, parameters[name]) for name in function.parameter_names),
+            literal_arguments=tuple(
+                (name, parameters[name].literal_values)
+                for name in function.parameter_names
+                if name in selectors
+            ),
         )
         return key, parameters
 
@@ -1117,8 +1185,16 @@ class CallInference(InferenceComponent):
             if value.sequence_items is not None
             else None
         )
+        mapping = (
+            tuple(
+                (key, CallInference._normalize_context_value(item))
+                for key, item in value.mapping_items
+            )
+            if value.mapping_items is not None
+            else None
+        )
         if not value.callable_targets:
-            return replace(value, sequence_items=items)
+            return replace(value, sequence_items=items, mapping_items=mapping)
         return AbstractTypeValue(
             types=frozenset(typ for typ in value.types if not isinstance(typ, CallableType)),
             unknown=value.unknown,
@@ -1126,6 +1202,8 @@ class CallInference(InferenceComponent):
             class_targets=value.class_targets,
             dict_shapes=value.dict_shapes,
             sequence_items=items,
+            mapping_items=mapping,
+            literal_values=value.literal_values,
         )
 
     def _bind_call_arguments(

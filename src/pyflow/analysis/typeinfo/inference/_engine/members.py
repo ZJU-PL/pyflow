@@ -386,6 +386,10 @@ class MemberInference(InferenceComponent):
         return None if found is None else AbstractTypeValue.from_type(found)
 
     def _attribute_value(self, base: AbstractTypeValue, attribute: str) -> AbstractTypeValue:
+        if base.unknown:
+            return replace(
+                self._attribute_value(replace(base, unknown=False), attribute), unknown=True
+            )
         if self.engine._operator_rules._contains_any(base):
             return AbstractTypeValue.from_type(ANY)
         values: list[AbstractTypeValue] = []

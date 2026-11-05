@@ -80,7 +80,7 @@ c = d['b']
     result = infer(source)
     assert raw_types(result.type_of("a")) == {int, str}
     assert raw_types(result.type_of("b")) == {int, str}
-    assert raw_types(result.type_of("c")) == {int, str}
+    assert raw_types(result.type_of("c")) == {str}
 
 
 def test_alias_mutation_widens_all_equal_bindings() -> None:
@@ -533,7 +533,7 @@ z = d['b']
     d_type = result.type_of("d")
     assert isinstance(d_type, Instance)
     assert [str(arg) for arg in d_type.args] == ["str", "int | str"]
-    assert raw_types(result.type_of("z")) == {int, str}
+    assert raw_types(result.type_of("z")) == {str}
 
 
 def test_rebinding_parameter_does_not_mutate_caller() -> None:
@@ -992,7 +992,7 @@ item = d.popitem()
 """
     result = infer(source, strict=True)
     assert str(result.type_of("v1")) == "None | int"
-    assert str(result.type_of("v2")) == "int | str"
+    assert str(result.type_of("v2")) == "str"
     assert str(result.type_of("item")) == "tuple[str, int]"
 
 

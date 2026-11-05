@@ -416,6 +416,91 @@ class BuiltinInference(InferenceComponent):
             return self.engine._value_rules._instance(_io.TextIOWrapper)
         return None
 
+    def _call_mapping_layout(self, node, base, arguments, keywords, environment, call_node):
+        if base.mapping_items is None or not all(
+            isinstance(typ, Instance)
+            and typ.type.raw_type is dict
+            and typ.type.typed_dict_fields is None
+            for typ in base.types
+        ):
+            return None
+        fields = dict(base.mapping_items)
+
+        def publish(entries):
+            keys = (
+                join_all(
+                    (self.engine._value_rules._instance(type(key)) for key in entries),
+                    self.engine.type_system,
+                ).runtime_type()
+                or NEVER
+            )
+            values = join_all(entries.values(), self.engine.type_system)
+            value_type = ANY if values.unknown else values.runtime_type() or NEVER
+            updated = self.engine._value_rules._with_mapping_items(
+                self.engine._value_rules._instance(dict, keys, value_type), tuple(entries.items())
+            )
+            self.engine._flow_rules._update_environment_receiver(
+                environment, node.value, updated, old_value=base
+            )
+
+        if node.attr == "copy":
+            return replace(base)
+        if node.attr == "clear":
+            publish({})
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if node.attr == "update":
+            if self.engine._call_unknown_positional or self.engine._call_unknown_keywords:
+                self.engine._flow_rules._update_environment_receiver(
+                    environment,
+                    node.value,
+                    self.engine._value_rules._instance(dict, ANY, ANY),
+                    old_value=base,
+                )
+                return AbstractTypeValue.from_type(NONE_TYPE)
+            if len(arguments) > 1 or arguments and arguments[0].mapping_items is None:
+                return None
+            if arguments:
+                fields.update(arguments[0].mapping_items)
+            fields.update(keywords)
+            publish(fields)
+            return AbstractTypeValue.from_type(NONE_TYPE)
+        if (
+            node.attr in {"get", "pop", "setdefault"}
+            and arguments
+            and call_node is not None
+            and call_node.args
+        ):
+            keys = self.engine._value_rules._literal_keys(call_node.args[0], arguments[0])
+            if keys is None:
+                return None
+            default = (
+                arguments[1]
+                if len(arguments) > 1
+                else (
+                    AbstractTypeValue.unresolved()
+                    if node.attr == "pop"
+                    else AbstractTypeValue.from_type(NONE_TYPE)
+                )
+            )
+            if node.attr == "get":
+                selected = [fields.get(key, default) for key in keys]
+                return (
+                    selected[0]
+                    if len(selected) == 1
+                    else join_all(selected, self.engine.type_system)
+                )
+            if len(keys) != 1:
+                return None
+            key = next(iter(keys))
+            result = fields.get(key, default)
+            if node.attr == "pop":
+                fields.pop(key, None)
+            else:
+                fields.setdefault(key, default)
+            publish(fields)
+            return result
+        return None
+
     def _call_attribute(
         self,
         node: ast.Attribute,
@@ -441,6 +526,26 @@ class BuiltinInference(InferenceComponent):
         }:
             self.engine._flow_rules._update_environment_receiver(
                 environment, node.value, replace(base, sequence_items=None)
+            )
+        mapping_result = self._call_mapping_layout(
+            node, base, arguments, keywords, environment, call_node
+        )
+        if mapping_result is not None:
+            return mapping_result
+        if base.mapping_items is not None and node.attr in {
+            "update",
+            "pop",
+            "popitem",
+            "setdefault",
+            "__setitem__",
+            "__delitem__",
+            "__ior__",
+        }:
+            self.engine._flow_rules._update_environment_receiver(
+                environment,
+                node.value,
+                replace(base, mapping_items=None, dict_shapes=None),
+                old_value=base,
             )
         for target in base.callable_targets:
             if node.attr == "__call__":
@@ -1558,8 +1663,16 @@ class BuiltinInference(InferenceComponent):
                                     node.value,
                                     self.engine._value_rules._instance(
                                         dict,
-                                        widened_key.public_type() or ANY,
-                                        widened_item.public_type() or ANY,
+                                        (
+                                            ANY
+                                            if widened_key.unknown
+                                            else widened_key.public_type() or ANY
+                                        ),
+                                        (
+                                            ANY
+                                            if widened_item.unknown
+                                            else widened_item.public_type() or ANY
+                                        ),
                                     ),
                                 )
                         return AbstractTypeValue.from_type(NONE_TYPE)

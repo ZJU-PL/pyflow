@@ -57,6 +57,11 @@ class AbstractTypeValue:
     # homogeneous element type, these retain callable targets and nesting.
     sequence_items: tuple[AbstractTypeValue, ...] | None = field(default=None, repr=False)
 
+    # Exact dictionary values, including callable identities and nested layouts.
+    mapping_items: tuple[tuple[object, AbstractTypeValue], ...] | None = field(
+        default=None, repr=False
+    )
+
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
         """Return the least element of the inference lattice."""
@@ -150,6 +155,22 @@ class AbstractTypeValue:
             )
         else:
             items = None
+        if self.is_bottom:
+            mapping = other.mapping_items
+        elif other.is_bottom:
+            mapping = self.mapping_items
+        elif self.mapping_items is not None and other.mapping_items is not None:
+            left, right = dict(self.mapping_items), dict(other.mapping_items)
+            mapping = (
+                tuple(
+                    (key, item.join(right[key], type_system, max_union_size=max_union_size))
+                    for key, item in self.mapping_items
+                )
+                if left.keys() == right.keys()
+                else None
+            )
+        else:
+            mapping = None
         return AbstractTypeValue(
             candidates,
             unknown=unknown,
@@ -159,6 +180,7 @@ class AbstractTypeValue:
             element_dict_shapes=self.element_dict_shapes | other.element_dict_shapes,
             literal_values=self.literal_values | other.literal_values,
             sequence_items=items,
+            mapping_items=mapping,
         )
 
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:

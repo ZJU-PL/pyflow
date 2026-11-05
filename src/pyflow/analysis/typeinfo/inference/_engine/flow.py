@@ -616,6 +616,40 @@ class FlowInference(InferenceComponent):
             qualified = f"{scope}.{node.name}"
             class_info = self.engine._classes.get(qualified)
             if class_info is not None:
+                # Decorator expressions are evaluated top-down, then the
+                # class object is passed through them in reverse order.
+                decorators = []
+                for decorator in node.decorator_list:
+                    head = decorator.func if isinstance(decorator, ast.Call) else decorator
+                    name = self.engine._value_rules._qualified_callee_name(head)
+                    if name in {
+                        "dataclasses.dataclass",
+                        "pydantic.dataclasses.dataclass",
+                        "typing.final",
+                        "typing.runtime_checkable",
+                        "typing_extensions.final",
+                        "typing_extensions.runtime_checkable",
+                        "attrs.define",
+                        "attrs.frozen",
+                        "attrs.mutable",
+                        "attrs.s",
+                        "attr.s",
+                        "attr.attrs",
+                    }:
+                        # Their class/constructor transforms are modeled by
+                        # declaration collection. They retain class identity.
+                        continue
+                    decorators.append(
+                        (
+                            decorator,
+                            self.engine._expression_rules._evaluate_expression(
+                                decorator,
+                                result,
+                                scope=scope,
+                                current_function=current_function,
+                            ),
+                        )
+                    )
                 class_environment = dict(result)
                 class_environment.update(class_info.attributes)
                 enum_class = self.engine._member_rules._is_enum_class_info(class_info)
@@ -674,9 +708,17 @@ class FlowInference(InferenceComponent):
                         class_info.instance.type.members[item.target.id] = (
                             member.public_type() or ANY
                         )
-                result[node.name] = AbstractTypeValue.from_type(
-                    class_info.instance, class_target=qualified
-                )
+                value = AbstractTypeValue.from_type(class_info.instance, class_target=qualified)
+                for decorator, callee in reversed(decorators):
+                    value = self.engine._call_rules._invoke_value(
+                        callee,
+                        [value],
+                        {},
+                        node=decorator,
+                        environment=result,
+                        current_function=current_function,
+                    )
+                result[node.name] = value
             return _Outcome(result)
 
         if isinstance(node, ast.Delete):
@@ -702,6 +744,24 @@ class FlowInference(InferenceComponent):
                                     f"{target.slice.value!r}",
                                     node=target,
                                 )
+                if isinstance(target, ast.Subscript):
+                    base = self.engine._expression_rules._evaluate_expression(
+                        target.value, result, scope=scope, current_function=current_function
+                    )
+                    if base.mapping_items is not None:
+                        fields = dict(base.mapping_items)
+                        keys = self.engine._value_rules._literal_keys(target.slice)
+                        if keys is not None:
+                            for key in keys:
+                                fields.pop(key, None)
+                        replacement = replace(
+                            base,
+                            mapping_items=tuple(fields.items()) if keys is not None else None,
+                            dict_shapes=None,
+                        )
+                        self._update_environment_receiver(
+                            result, target.value, replacement, old_value=base
+                        )
                 if isinstance(target, ast.Name):
                     result.pop(target.id, None)
                 else:
@@ -916,10 +976,17 @@ class FlowInference(InferenceComponent):
         environment: dict[str, AbstractTypeValue],
         receiver: ast.expr,
         new_value: AbstractTypeValue,
+        *,
+        old_value: AbstractTypeValue | None = None,
     ) -> None:
         """Widen a mutated container and every environment name aliasing it."""
         key = receiver.id if isinstance(receiver, ast.Name) else ast.unparse(receiver)
-        old = environment.get(key)
+        old = old_value if old_value is not None else environment.get(key)
+        if old is not None and old.mapping_items is not None:
+            aliases = [name for name, value in environment.items() if value is old]
+            for name in tuple(environment):
+                if any(name.startswith(alias + "[") for alias in aliases):
+                    environment.pop(name, None)
         environment[key] = new_value
         if isinstance(receiver, ast.Name):
             current = self.engine._current_function_info
@@ -950,25 +1017,42 @@ class FlowInference(InferenceComponent):
             if cached is not None:
                 return cached
             items = value.sequence_items
-            if items is None:
+            mapping = value.mapping_items
+            updated = tuple(update_nested(item) for item in items) if items is not None else None
+            entries = (
+                tuple((key, update_nested(item)) for key, item in mapping)
+                if mapping is not None
+                else None
+            )
+            if (items is None or all(left is right for left, right in zip(items, updated))) and (
+                mapping is None or all(left[1] is right[1] for left, right in zip(mapping, entries))
+            ):
                 return value
-            updated = tuple(update_nested(item) for item in items)
-            if all(left is right for left, right in zip(items, updated)):
-                return value
-            element = self.engine._value_rules._join_many_values(list(updated)).public_type() or ANY
+            members = [*(updated or ()), *(item for _, item in (entries or ()))]
+            element = self.engine._value_rules._join_many_values(members).runtime_type() or ANY
             types = frozenset(
                 (
                     TupleType(tuple(item.runtime_type() or ANY for item in updated))
-                    if isinstance(typ, TupleType)
+                    if isinstance(typ, TupleType) and updated is not None
                     else (
                         Instance(typ.type, (element,))
                         if isinstance(typ, Instance) and typ.type.raw_type is list
-                        else typ
+                        else (
+                            Instance(typ.type, (typ.args[0] if typ.args else ANY, element))
+                            if isinstance(typ, Instance) and typ.type.raw_type is dict
+                            else typ
+                        )
                     )
                 )
                 for typ in value.types
             )
-            result = replace(value, types=types, sequence_items=updated)
+            result = replace(
+                value,
+                types=types,
+                sequence_items=updated,
+                mapping_items=entries,
+                dict_shapes=None if mapping is not None else value.dict_shapes,
+            )
             replacements[id(value)] = result
             return result
 
@@ -1203,13 +1287,29 @@ class FlowInference(InferenceComponent):
             if not isinstance(target.slice, ast.Slice):
                 environment[ast.unparse(target)] = value
             self.engine._record_expression(target, value)
-            if not isinstance(target.value, ast.Name):
-                return
             self._check_subscript_assignment(target, value, current_function)
             if isinstance(target.slice, ast.Slice):
                 value = self.engine._value_rules._iterable_element(value)
-            name = target.value.id
-            base = environment.get(name, AbstractTypeValue.unresolved())
+            base = self.engine._expression_rules._evaluate_expression(
+                target.value,
+                environment,
+                scope=(
+                    current_function.qualified_name
+                    if current_function
+                    else self.engine._module_name
+                ),
+                current_function=current_function,
+            )
+            selector = self.engine._expression_rules._evaluate_expression(
+                target.slice,
+                environment,
+                scope=(
+                    current_function.qualified_name
+                    if current_function
+                    else self.engine._module_name
+                ),
+                current_function=current_function,
+            )
             updated: list[AbstractTypeValue] = []
             for typ in base.types:
                 if isinstance(typ, Instance) and typ.type.typed_dict_fields is not None:
@@ -1230,14 +1330,11 @@ class FlowInference(InferenceComponent):
                 if isinstance(typ, Instance) and typ.type.raw_type is dict:
                     key_type = typ.args[0] if typ.args else ANY
                     old_value = typ.args[1] if len(typ.args) > 1 else ANY
-                    if isinstance(target.slice, ast.Constant):
-                        key_value = AbstractTypeValue.from_type(
-                            self.engine._value_rules._proper_instance(type(target.slice.value))
-                        )
-                    else:
-                        key_value = environment.get(ast.unparse(target.slice))
-                    if key_value is not None and (key_value.types or not key_value.unknown):
-                        new_key = key_value.public_type() or ANY
+                    key_value = selector
+                    if key_value.unknown:
+                        key_type = ANY
+                    elif key_value.types:
+                        new_key = key_value.runtime_type() or ANY
                         if isinstance(key_type, AnyType):
                             # Any absorbs new evidence; narrowing it to the
                             # literal key would make the container definite.
@@ -1262,7 +1359,7 @@ class FlowInference(InferenceComponent):
                         )
                     updated.append(
                         self.engine._value_rules._instance(
-                            dict, key_type, joined.public_type() or ANY
+                            dict, key_type, ANY if joined.unknown else joined.runtime_type() or ANY
                         )
                     )
                 elif isinstance(typ, Instance) and typ.type.raw_type is list:
@@ -1276,7 +1373,9 @@ class FlowInference(InferenceComponent):
                             AbstractTypeValue.from_type(old_value), value
                         )
                     updated.append(
-                        self.engine._value_rules._instance(list, joined.public_type() or ANY)
+                        self.engine._value_rules._instance(
+                            list, ANY if joined.unknown else joined.runtime_type() or ANY
+                        )
                     )
             if updated:
                 replacement = join_all(
@@ -1284,7 +1383,17 @@ class FlowInference(InferenceComponent):
                     self.engine.type_system,
                     max_union_size=self.engine.options.max_union_size,
                 )
-                self._update_environment_receiver(environment, target.value, replacement)
+                if base.mapping_items is not None:
+                    keys = self.engine._value_rules._literal_keys(target.slice, selector)
+                    if keys is not None and len(keys) == 1:
+                        fields = dict(base.mapping_items)
+                        fields[next(iter(keys))] = value
+                        replacement = self.engine._value_rules._with_mapping_items(
+                            replacement, tuple(fields.items())
+                        )
+                self._update_environment_receiver(
+                    environment, target.value, replacement, old_value=base
+                )
 
     def _property_assignment_value(
         self,

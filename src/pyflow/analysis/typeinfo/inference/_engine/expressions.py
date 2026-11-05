@@ -209,6 +209,21 @@ class ExpressionInference(InferenceComponent):
                         value,
                         dict_shapes=frozenset((tuple(sorted(fields.items())),)),
                     )
+            entries = {}
+            for key_node, key_value, item in zip(node.keys, evaluated_keys, evaluated_values):
+                if key_node is None:
+                    if item.mapping_items is None:
+                        entries = None
+                        break
+                    entries.update(item.mapping_items)
+                else:
+                    literal_keys = self.engine._value_rules._literal_keys(key_node, key_value)
+                    if literal_keys is None or len(literal_keys) != 1:
+                        entries = None
+                        break
+                    entries[next(iter(literal_keys))] = item
+            if entries is not None:
+                value = self.engine._value_rules._with_mapping_items(value, tuple(entries.items()))
         elif isinstance(node, ast.BinOp):
             left = self._evaluate_expression(
                 node.left, environment, scope=scope, current_function=current_function

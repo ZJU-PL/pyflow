@@ -81,23 +81,62 @@ def _contains_gradual(typ: ProperType) -> bool:
 class ValueInference(InferenceComponent):
     """Project and join abstract values, containers, iterables, and awaitables."""
 
-    def _with_sequence_items(self, value, items):
-        # Bound both width and depth so recursive builders cannot grow an
-        # unbounded abstract heap. Widen only the layout, keeping public types.
-        def trim(item, depth):
-            if item.sequence_items is None:
-                return item
-            if depth == 0:
-                return replace(item, sequence_items=None)
-            children = tuple(trim(child, depth - 1) for child in item.sequence_items)
-            if all(left is right for left, right in zip(item.sequence_items, children)):
-                return item
-            return replace(item, sequence_items=children)
+    @staticmethod
+    def _trim_layout(value, depth):
+        if depth == 0:
+            if value.sequence_items is None and value.mapping_items is None:
+                return value
+            return replace(value, sequence_items=None, mapping_items=None)
+        items = value.sequence_items
+        mapping = value.mapping_items
+        if items is not None:
+            children = tuple(ValueInference._trim_layout(item, depth - 1) for item in items)
+        else:
+            children = None
+        if mapping is not None:
+            entries = tuple(
+                (key, ValueInference._trim_layout(item, depth - 1)) for key, item in mapping
+            )
+        else:
+            entries = None
+        if (items is None or all(a is b for a, b in zip(items, children))) and (
+            mapping is None or all(a[1] is b[1] for a, b in zip(mapping, entries))
+        ):
+            return value
+        return replace(value, sequence_items=children, mapping_items=entries)
 
+    def _with_sequence_items(self, value, items):
+        """Bound literal layout width/depth without changing its public type."""
         return replace(
             value,
-            sequence_items=(tuple(trim(item, 3) for item in items) if len(items) <= 64 else None),
+            sequence_items=(
+                tuple(self._trim_layout(item, 3) for item in items) if len(items) <= 64 else None
+            ),
         )
+
+    def _with_mapping_items(self, value, items):
+        return replace(
+            value,
+            mapping_items=(
+                tuple((key, self._trim_layout(item, 3)) for key, item in items)
+                if len(items) <= 64
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _literal_keys(node, value=None):
+        """Known runtime dictionary keys; None denotes an unknown selector."""
+        if value is not None and value.unknown:
+            return None
+        if value is not None and value.literal_values:
+            return value.literal_values
+        try:
+            key = ast.literal_eval(node)
+            hash(key)
+        except (ValueError, TypeError, SyntaxError):
+            return None
+        return frozenset((key,))
 
     def _subscript_value(
         self,
@@ -105,6 +144,23 @@ class ValueInference(InferenceComponent):
         slice_node: ast.expr,
         index_value: AbstractTypeValue | None = None,
     ) -> AbstractTypeValue:
+        if base.unknown:
+            return replace(
+                self._subscript_value(replace(base, unknown=False), slice_node, index_value),
+                unknown=True,
+            )
+        if base.mapping_items is not None and not base.unknown:
+            if index_value is not None:
+                for typ in base.types:
+                    if isinstance(typ, Instance) and typ.type.typed_dict_fields is None:
+                        self._check_subscript_index(typ, index_value, slice_node)
+            keys = self._literal_keys(slice_node, index_value)
+            if keys is not None:
+                fields = dict(base.mapping_items)
+                selected = [fields.get(key, AbstractTypeValue.unresolved()) for key in keys]
+                return selected[0] if len(selected) == 1 else self._join_many_values(selected)
+            if base.mapping_items:
+                return self._join_many_values([item for _, item in base.mapping_items])
         if base.sequence_items is not None and not base.unknown:
             items = base.sequence_items
             if isinstance(slice_node, ast.Slice):

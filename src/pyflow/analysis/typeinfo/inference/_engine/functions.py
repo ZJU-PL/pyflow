@@ -369,11 +369,42 @@ class FunctionInference(InferenceComponent):
                     else:
                         types = frozenset(set(types) | set(actual.types))
                     unknown = True
+                compatible = (
+                    not actual.unknown
+                    and explicit_type is not None
+                    and actual.public_type() is not None
+                    and self.engine.type_system.is_subtype(actual.public_type(), explicit_type)
+                )
+                actual_type = actual.public_type()
+                if (
+                    not actual.unknown
+                    and isinstance(actual_type, Instance)
+                    and isinstance(explicit_type, Instance)
+                    and actual_type.type == explicit_type.type
+                    and len(actual_type.args) == len(explicit_type.args)
+                    and (
+                        actual_type.type.raw_type is dict
+                        and actual.mapping_items is not None
+                        or actual_type.type.raw_type is list
+                        and actual.sequence_items is not None
+                    )
+                ):
+                    # Prove that the known contents fit on entry. This retains
+                    # flow evidence without making mutable generics covariant
+                    # in the assignment/annotation compatibility relation.
+                    compatible = all(
+                        self.engine.type_system.is_subtype(item, expected)
+                        for item, expected in zip(actual_type.args, explicit_type.args)
+                    )
                 value = AbstractTypeValue(
                     types=types,
                     unknown=unknown,
                     callable_targets=actual.callable_targets,
                     class_targets=actual.class_targets,
+                    literal_values=actual.literal_values if compatible else frozenset(),
+                    sequence_items=actual.sequence_items if compatible else None,
+                    mapping_items=actual.mapping_items if compatible else None,
+                    dict_shapes=actual.dict_shapes if compatible else None,
                 )
                 value = self._body_parameter_value(function, name, value)
             else:
@@ -649,6 +680,14 @@ class FunctionInference(InferenceComponent):
                     for item in (value.sequence_items or ())
                 ),
             ),
+            (
+                value.mapping_items is not None,
+                tuple(
+                    (type(key).__name__, repr(key), FunctionInference._value_fingerprint(item))
+                    for key, item in (value.mapping_items or ())
+                ),
+            ),
+            tuple(sorted((type(item).__name__, repr(item)) for item in value.literal_values)),
             tuple(sorted(value.callable_targets)),
             tuple(sorted(value.class_targets)),
             (
