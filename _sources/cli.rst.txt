@@ -494,6 +494,36 @@ The command forwards mypy ``stubgen`` arguments.  Generated stubs can be placed
 under ``stubs/`` or beside the analyzed module, where ``ProjectContext`` and
 ``TypeInfoService`` pick them up automatically.
 
+**pyflow typeinfo**
+~~~~~~~~~~~~~~~~~~~
+
+Query the type-information engine directly, without starting an LSP or MCP
+server.
+
+::
+
+  pyflow typeinfo app.py
+  pyflow typeinfo app.py --symbol Client.fetch --json --pretty
+  pyflow typeinfo app.py --line 42 --column 8 --json
+  pyflow typeinfo app.py --diagnostics --json
+  pyflow typeinfo src/ --module package.module --diagnostics --max-modules 20
+
+For a single file, the import-qualified module name is inferred.  For a project
+directory, use ``--module`` for symbol/expression queries.  ``--line`` is
+1-based and ``--column`` is a 0-based character offset.  ``--mode signatures``
+(default) lists function and method signatures, ``--mode types`` lists all
+symbols, ``--mode summary`` prints counts, and ``--mode diagnostics`` prints
+structured diagnostics.
+
+Options:
+
+- ``--module MODULE``: Import-qualified module name
+- ``--symbol NAME``: Type of a module symbol or ``Class.member``
+- ``--line LINE`` / ``--column COLUMN``: Expression query position
+- ``--mode {signatures,types,summary,diagnostics}``: Select report content
+- ``--max-modules N``: Limit directory-wide analysis
+- ``--json`` / ``--pretty``: Machine-readable output
+
 Server and Query Commands
 -------------------------
 

@@ -211,6 +211,28 @@ express the result (for example <code class="docutils literal notranslate"><span
 <code class="docutils literal notranslate"><span class="pre">pathlib.Path.open()</span></code>, and the <code class="docutils literal notranslate"><span class="pre">os.environ</span></code> mapping shape).  Callers can
 replace the vendored snapshot with <code class="docutils literal notranslate"><span class="pre">typeshed_roots=[...]</span></code>.</p>
 </section>
+<section id="command-line-queries">
+<h3>Command-line Queries<a class="headerlink" href="#command-line-queries" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">typeinfo</span></code> is the direct CLI for this subsystem; it does not require
+the LSP or MCP server.  For a single file the module name is inferred, while a
+project directory accepts <code class="docutils literal notranslate"><span class="pre">--module</span></code> for focused queries:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--symbol<span class="w"> </span>Client.fetch<span class="w"> </span>--json<span class="w"> </span>--pretty
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--line<span class="w"> </span><span class="m">42</span><span class="w"> </span>--column<span class="w"> </span><span class="m">8</span><span class="w"> </span>--json
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--diagnostics<span class="w"> </span>--json
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>src/<span class="w"> </span>--module<span class="w"> </span>package.module<span class="w"> </span>--diagnostics<span class="w"> </span>--max-modules<span class="w"> </span><span class="m">20</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--line</span></code> is 1-based and <code class="docutils literal notranslate"><span class="pre">--column</span></code> is a 0-based character offset, matching
+LSP positions.  <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">signatures</span></code> (default) lists function and method
+signatures; <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">types</span></code> lists all queryable symbols; <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">summary</span></code>
+prints symbol/function/expression and diagnostic counts; and
+<code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">diagnostics</span></code> prints structured diagnostics.  The default signature
+mode keeps normal output focused, while <code class="docutils literal notranslate"><span class="pre">types</span></code> mode intentionally shows all
+queryable symbols.  Every result reports <code class="docutils literal notranslate"><span class="pre">complete</span></code>/<code class="docutils literal notranslate"><span class="pre">partial</span></code> status where
+applicable; unknown expression facts are returned as JSON <code class="docutils literal notranslate"><span class="pre">null</span></code> plus
+<code class="docutils literal notranslate"><span class="pre">complete</span></code>/<code class="docutils literal notranslate"><span class="pre">unknown</span></code> flags rather than being presented as a definite type.</p>
+</section>
 <section id="evidence-collection">
 <h3>Evidence Collection<a class="headerlink" href="#evidence-collection" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">collect_pyflow_type_info</span>

@@ -92,6 +92,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#stub-generation">Stub Generation</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-stubtest"><strong>pyflow stubtest</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-stubgen"><strong>pyflow stubgen</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-typeinfo"><strong>pyflow typeinfo</strong></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#server-and-query-commands">Server and Query Commands</a><ul>
@@ -619,6 +620,33 @@ mypy’s stub generator.  This is optional:</p>
 <p>The command forwards mypy <code class="docutils literal notranslate"><span class="pre">stubgen</span></code> arguments.  Generated stubs can be placed
 under <code class="docutils literal notranslate"><span class="pre">stubs/</span></code> or beside the analyzed module, where <code class="docutils literal notranslate"><span class="pre">ProjectContext</span></code> and
 <code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> pick them up automatically.</p>
+</section>
+<section id="pyflow-typeinfo">
+<h3><strong>pyflow typeinfo</strong><a class="headerlink" href="#pyflow-typeinfo" title="Link to this heading"></a></h3>
+<p>Query the type-information engine directly, without starting an LSP or MCP
+server.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">symbol</span> <span class="n">Client</span><span class="o">.</span><span class="n">fetch</span> <span class="o">--</span><span class="n">json</span> <span class="o">--</span><span class="n">pretty</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">line</span> <span class="mi">42</span> <span class="o">--</span><span class="n">column</span> <span class="mi">8</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">diagnostics</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">module</span> <span class="n">package</span><span class="o">.</span><span class="n">module</span> <span class="o">--</span><span class="n">diagnostics</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">modules</span> <span class="mi">20</span>
+</pre></div>
+</div>
+<p>For a single file, the import-qualified module name is inferred.  For a project
+directory, use <code class="docutils literal notranslate"><span class="pre">--module</span></code> for symbol/expression queries.  <code class="docutils literal notranslate"><span class="pre">--line</span></code> is
+1-based and <code class="docutils literal notranslate"><span class="pre">--column</span></code> is a 0-based character offset.  <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">signatures</span></code>
+(default) lists function and method signatures, <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">types</span></code> lists all
+symbols, <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">summary</span></code> prints counts, and <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">diagnostics</span></code> prints
+structured diagnostics.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--module</span> <span class="pre">MODULE</span></code>: Import-qualified module name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--symbol</span> <span class="pre">NAME</span></code>: Type of a module symbol or <code class="docutils literal notranslate"><span class="pre">Class.member</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--line</span> <span class="pre">LINE</span></code> / <code class="docutils literal notranslate"><span class="pre">--column</span> <span class="pre">COLUMN</span></code>: Expression query position</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">{signatures,types,summary,diagnostics}</span></code>: Select report content</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-modules</span> <span class="pre">N</span></code>: Limit directory-wide analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code> / <code class="docutils literal notranslate"><span class="pre">--pretty</span></code>: Machine-readable output</p></li>
+</ul>
 </section>
 </section>
 <section id="server-and-query-commands">
