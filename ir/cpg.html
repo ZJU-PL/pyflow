@@ -229,7 +229,7 @@ and policy model every Python behavior.</p>
 </section>
 <section id="programmatic-usage">
 <h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodePropertyGraph</span><span class="p">,</span> <span class="n">CPGEdgeKind</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodePropertyGraph</span><span class="p">,</span> <span class="n">CPGEdgeKind</span><span class="p">,</span> <span class="n">to_dot</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.pdg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_pdg</span>
 
 <span class="n">cpg</span> <span class="o">=</span> <span class="n">CodePropertyGraph</span><span class="p">()</span>
@@ -242,11 +242,11 @@ and policy model every Python behavior.</p>
     <span class="nb">print</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">"node_type"</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"lineno"</span><span class="p">])</span>
 
 <span class="c1"># Traverse edges</span>
-<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">all_edges</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">node_id</span><span class="p">,</span> <span class="s2">"-&gt;"</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">node_id</span><span class="p">)</span>
 
 <span class="c1"># Export</span>
-<span class="n">dot</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">to_dot</span><span class="p">()</span>
+<span class="n">dot</span> <span class="o">=</span> <span class="n">to_dot</span><span class="p">(</span><span class="n">cpg</span><span class="p">)</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -321,7 +321,7 @@ sanitizer policy is complete for every third-party library.</p>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpg
 </pre></div>
 </div>
-<p>Programmatic exports use <code class="docutils literal notranslate"><span class="pre">cpg.to_dot()</span></code> or <code class="docutils literal notranslate"><span class="pre">cpg.to_dict()</span></code>.</p>
+<p>Programmatic exports use <code class="docutils literal notranslate"><span class="pre">pyflow.ir.cpg.to_dot(cpg)</span></code> or <code class="docutils literal notranslate"><span class="pre">cpg.to_dict()</span></code>.</p>
 </section>
 <section id="related-modules">
 <h2>Related Modules<a class="headerlink" href="#related-modules" title="Link to this heading"></a></h2>

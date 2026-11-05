@@ -206,8 +206,12 @@ exist or the analysis is partial.
 Soundness Boundary
 ------------------
 
-Static coverage depends on source reachability from the entrypoint, import
-depth, solver semantics, and registry coverage. Access-path prefix reachability
+Static coverage depends on which scopes are analyzed, import depth, solver
+semantics, and registry coverage. The CLI audits every function and method scope
+in the analyzed files by default, so uncalled library functions and framework
+handlers are included; ``--reachable-only`` narrows the audit to code reachable
+from the entry call graph. The programmatic API defaults to the reachable-only
+scope unless ``analyze_all_scopes=True`` is passed. Access-path prefix reachability
 is conservative and can overestimate authority obtainable from an object.
 It does not prove member accessibility. Unmodeled external calls report relevant
 arguments as potential transfers. Runtime observation does not establish

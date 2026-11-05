@@ -24,7 +24,7 @@ To analyze your own file, pass its path:
    python examples/ifds_plugin.py your_program.py
 
 Read the example from top to bottom
-----------------------------------
+-----------------------------------
 
 ``VisitedFunctions`` defines the analysis. Its domain consists of immutable,
 hashable function-name strings and a separate ``ZERO`` sentinel. The domain is
@@ -50,7 +50,7 @@ them, excluding ``ZERO``. This separation lets tests run the analysis without
 using its command-line interface.
 
 Add the analysis to a pass pipeline
-----------------------------------
+-----------------------------------
 
 Once the standalone analysis is clear, wrap it in an ``AnalysisPass``. With
 ``VisitedFunctions`` imported from your plugin module:

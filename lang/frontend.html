@@ -180,7 +180,7 @@ imports should use the canonical locations shown below.</p>
 <span class="n">source</span> <span class="o">=</span> <span class="s2">"def add(x, y): return x + y"</span>
 <span class="n">tree</span> <span class="o">=</span> <span class="n">python_ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
 <span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
-<span class="n">pyflow_ast</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">([</span><span class="n">tree</span><span class="p">])</span>
+<span class="n">pyflow_ast</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">(</span><span class="n">tree</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

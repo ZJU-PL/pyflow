@@ -50,12 +50,12 @@ For scripts and automation:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --output callgraph.txt
+   pyflow callgraph input.py --format json --output callgraph.json
 
-Text output
-^^^^^^^^^^^
+Text output to a file
+^^^^^^^^^^^^^^^^^^^^^
 
-For quick inspection:
+For a saved report:
 
 .. code-block:: bash
 
@@ -148,43 +148,31 @@ Use the JSON output for programmatic analysis:
    print("Recursive functions:", results["recursive"])
 
 Visualizing Call Graphs
-========================
+=======================
 
-Create professional visualizations using DOT format:
+``pyflow callgraph`` emits text or JSON. To render a diagram, build the graph
+through the Python API and use the DOT exporter:
 
-Basic visualization
-----------------------------------------
+.. code-block:: python
 
-.. code-block:: bash
+   from pathlib import Path
 
-   pyflow callgraph input.py --output callgraph.txt
-   # Re-run with constraint algorithm for JSON output
-   pyflow callgraph input.py --algorithm constraint --as-graph-output callgraph.json
+   from pyflow.analysis.callgraph import extract_call_graph_constraint
+   from pyflow.analysis.callgraph.formats import generate_dot_output
 
-Customized visualization
-------------------------
+   source = Path("input.py").read_text(encoding="utf-8")
+   graph = extract_call_graph_constraint(source)
+   Path("callgraph.dot").write_text(generate_dot_output(graph, None), encoding="utf-8")
 
-Create a custom layout script:
-
-.. code-block:: text
-
-   # custom_layout.gv
-   graph [rankdir=TB, nodesep=0.5, ranksep=0.5]
-   node [shape=box, style="rounded,filled", fontname="Arial"]
-   edge [fontname="Arial", fontsize=10]
-
-   # Color recursive functions
-   "fibonacci" [fillcolor=yellow]
-   "factorial" [fillcolor=yellow]
-
-   # Highlight main entry point
-   "main" [fillcolor=lightblue, penwidth=2]
-
-Then apply it:
+Then render the DOT file with Graphviz:
 
 .. code-block:: bash
 
-   dot -Tpng callgraph.dot -o callgraph.png -Gstylesheet=custom_layout.gv
+   dot -Tpng callgraph.dot -o callgraph.png
+   dot -Tsvg callgraph.dot -o callgraph.svg
+
+For CFG, CDG, DDG, and MIR diagrams use ``pyflow ir --dump-format dot``; see
+:doc:`/cli` for the dump options.
 
 Common Analysis Tasks
 =====================
@@ -241,9 +229,24 @@ Find functions that are deeply nested in the call hierarchy:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --algorithm constraint --as-graph-output callgraph.json
+   pyflow callgraph input.py --format json --output callgraph.json
 
-Then analyze the maximum depth programmatically.
+Then measure path depth from the adjacency map:
+
+.. code-block:: python
+
+   import json
+
+   with open("callgraph.json") as f:
+       adj = json.load(f)
+
+   def depth(func, seen=()):
+       if func in seen or not adj.get(func):
+           return 0
+       return 1 + max(depth(callee, seen + (func,)) for callee in adj[func])
+
+   deepest = sorted(((depth(func), func) for func in adj), reverse=True)[:5]
+   print(deepest)
 
 Troubleshooting
 ===============

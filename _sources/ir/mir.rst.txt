@@ -164,7 +164,7 @@ objects from the analyzed project. A scoped dump is an inspection view of that
 CFG; references to other CFGs may point outside the selected view.
 
 Reloading and Analyzing MIR JSON
--------------------------------
+--------------------------------
 
 ``program_from_dict`` and ``program_from_json`` reconstruct a program without
 access to its Python source. For example, after producing a whole-program JSON
@@ -233,7 +233,7 @@ interpreter for the core MIR language, not a replacement for CPython or an
 implicit implementation of all Python builtins.
 
 PyCG Analysis Over MIR
----------------------
+----------------------
 
 The native engine follows the assignment-graph approach described by PyCG:
 collect value-flow relationships, repeatedly propagate possible definitions

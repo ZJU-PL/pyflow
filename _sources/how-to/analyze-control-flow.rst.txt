@@ -237,12 +237,40 @@ Analyze loop nesting depth:
        cfg = data.get("cfg", data)
        blocks = cfg.get("blocks", [])
 
-       # Count loop/back edges among block successors
-       loop_edges = []
+       # A loop back edge targets a block that dominates its source. Exit
+       # kinds describe edge semantics ("true", "false", "body", "error", ...),
+       # not loop membership, and block order is not a reliable guide because
+       # handler bodies are laid out after their merge points.
+       nodes = {block["id"] for block in blocks}
+       predecessors = {node: set() for node in nodes}
        for block in blocks:
            for succ in block.get("successors", []):
-               if succ.get("exit") == "loop":
-                   loop_edges.append((block["id"], succ.get("target")))
+               if succ.get("target") in nodes:
+                   predecessors[succ["target"]].add(block["id"])
+
+       entry = cfg.get("entry")
+       dominators = {node: set(nodes) for node in nodes}
+       dominators[entry] = {entry}
+       changed = True
+       while changed:
+           changed = False
+           for node in nodes:
+               if node == entry:
+                   continue
+               incoming = [dominators[p] for p in predecessors[node]]
+               common = set.intersection(*incoming) if incoming else set()
+               updated = {node} | common
+               if updated != dominators[node]:
+                   dominators[node] = updated
+                   changed = True
+
+       loop_edges = [
+           (block["id"], succ["target"])
+           for block in blocks
+           for succ in block.get("successors", [])
+           if succ.get("target") in nodes
+           and succ["target"] in dominators[block["id"]]
+       ]
 
        return {
            "num_loops": len(loop_edges),

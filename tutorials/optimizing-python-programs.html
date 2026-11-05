@@ -268,7 +268,7 @@ with their computed values.</p>
 <li><p>Arithmetic operations on constants: <code class="docutils literal notranslate"><span class="pre">2</span> <span class="pre">+</span> <span class="pre">3</span></code> → <code class="docutils literal notranslate"><span class="pre">5</span></code></p></li>
 <li><p>String concatenations: <code class="docutils literal notranslate"><span class="pre">&quot;Hello&quot;</span> <span class="pre">+</span> <span class="pre">&quot;World&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;HelloWorld&quot;</span></code></p></li>
 <li><p>Boolean operations: <code class="docutils literal notranslate"><span class="pre">True</span> <span class="pre">and</span> <span class="pre">x</span></code> → <code class="docutils literal notranslate"><span class="pre">x</span></code></p></li>
-<li><p>Function calls on constants (when the function is pure)</p></li>
+<li><p>Calls to modeled side-effect-free intrinsics during IR-level folding; the source-level emitter stays conservative and leaves ordinary calls in place</p></li>
 </ul>
 </section>
 </section>
@@ -279,8 +279,9 @@ with their computed values.</p>
 <h3>Types of Dead Code<a class="headerlink" href="#types-of-dead-code" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
 <li><p><strong>Unreachable code</strong>: Code after unconditional return/break/continue</p></li>
-<li><p><strong>Unused variables</strong>: Variables that are assigned but never read</p></li>
 <li><p><strong>Dead branches</strong>: Code in if-else that can never be executed</p></li>
+<li><p><strong>Unused assignments</strong>: Assignments that the IR passes prove dead; the
+source-level emitter is conservative and may keep an unused local</p></li>
 </ol>
 <p>Example transformation:</p>
 <div class="literal-block-wrapper docutils container" id="id3">
@@ -293,8 +294,9 @@ with their computed values.</p>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id4">
-<div class="code-block-caption"><span class="caption-text">After optimization</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
+<div class="code-block-caption"><span class="caption-text">After optimization (the unreachable call is removed)</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">example</span><span class="p">():</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="mi">10</span>
     <span class="k">return</span> <span class="mi">5</span>
 </pre></div>
 </div>

@@ -103,7 +103,7 @@ Programmatic Usage
 
 .. code-block:: python
 
-    from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
+    from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind, to_dot
     from pyflow.ir.pdg import construct_pdg
 
     cpg = CodePropertyGraph()
@@ -116,11 +116,11 @@ Programmatic Usage
         print(meta["node_type"], meta["lineno"])
 
     # Traverse edges
-    for edge in cpg.edges():
+    for edge in cpg.all_edges():
         print(edge.kind, edge.source.node_id, "->", edge.target.node_id)
 
     # Export
-    dot = cpg.to_dot()
+    dot = to_dot(cpg)
     data = cpg.to_dict()
 
 Taint Analysis
@@ -203,7 +203,7 @@ The CPG can be built from the command line:
     # Build CPG from a Python file and run CPG-backed security analysis
     pyflow security input.py --engine cpg
 
-Programmatic exports use ``cpg.to_dot()`` or ``cpg.to_dict()``.
+Programmatic exports use ``pyflow.ir.cpg.to_dot(cpg)`` or ``cpg.to_dict()``.
 
 
 Related Modules

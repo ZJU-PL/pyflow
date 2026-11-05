@@ -155,12 +155,14 @@ analysis answers a different question: <strong>“what structural properties doe
 data structure have, and how many references point to each field?”</strong></p>
 <section id="pipeline-position">
 <h2>Pipeline Position<a class="headerlink" href="#pipeline-position" title="Link to this heading"></a></h2>
-<p>Shape analysis runs late in the analysis pipeline, after CPA and IPA:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>AST → Store Graph → CPA + IPA → Shape Analysis → Lifetime Analysis
+<p>Shape analysis consumes CPA’s points-to results and the store graph’s region
+information:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>AST → Store Graph → CPA + IPA → Shape Analysis
 </pre></div>
 </div>
-<p>It consumes CPA’s points-to results and the store graph’s region information,
-then feeds its own results into <a class="reference internal" href="lifetimeanalysis.html"><span class="doc">Variable Lifetime Analysis</span></a>.</p>
+<p>Unlike IPA, CPA, and lifetime analysis it is not part of the default
+<code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">optimize</span></code> pipeline. Run it explicitly through
+<code class="docutils literal notranslate"><span class="pre">pyflow.analysis.shape.evaluate</span></code> when shape results are needed.</p>
 </section>
 <section id="how-it-works">
 <h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading"></a></h2>
@@ -204,7 +206,7 @@ program operation affects object shapes:</p>
 </section>
 <section id="analysis-pipeline">
 <h2>Analysis Pipeline<a class="headerlink" href="#analysis-pipeline" title="Link to this heading"></a></h2>
-<p>The <code class="xref py py-func docutils literal notranslate"><span class="pre">pyflow.analysis.shape.evaluate()</span></code> function orchestrates the full shape
+<p>The <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.shape.evaluate</span></code> function orchestrates the full shape
 analysis:</p>
 <ol class="arabic simple">
 <li><p><strong>Region analysis</strong> — groups aliasing objects into regions</p></li>
@@ -214,6 +216,15 @@ analysis:</p>
 <li><p><strong>Allocation handling</strong> — processes object allocation sites</p></li>
 <li><p><strong>Result reporting</strong> — outputs reference counts, field shares, statistics</p></li>
 </ol>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Shape analysis is a legacy subsystem. Its constraint builder covers the
+operations exercised by the constraint-level tests, but it does not yet
+lower every statement in the modern IR; in particular, module-level
+<code class="docutils literal notranslate"><span class="pre">def</span></code> and <code class="docutils literal notranslate"><span class="pre">class</span></code> statements are not handled, so <code class="docutils literal notranslate"><span class="pre">evaluate</span></code> fails on
+ordinary source files that define functions at module scope. No other
+analysis depends on shape results.</p>
+</div>
 </section>
 <section id="key-classes">
 <h2>Key Classes<a class="headerlink" href="#key-classes" title="Link to this heading"></a></h2>
@@ -242,8 +253,8 @@ analysis:</p>
 <td><p>—</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifetimeanalysis</span></code></p></td>
+<td><p>— (a separate subsystem)</p></td>
 <td><p>—</p></td>
-<td><p>Reference-count data</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">alias/flow_sensitive</span></code></p></td>
 <td><p>— (a separate subsystem)</p></td>

@@ -183,7 +183,7 @@ distinct layers:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.ast</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
 
 <span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
-<span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">(</span><span class="n">python_ast</span><span class="p">)</span>
+<span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">(</span><span class="n">python_ast</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>

@@ -194,24 +194,30 @@ The CFG shows the basic blocks of your program and how control flows between the
 </pre></div>
 </div>
 <p>Output:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for fibonacci:
-───────────────────────────────────────
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for function: fibonacci
+==================================================
 
-Block 0 (Entry):
-  n: Parameter
-  if n &lt;= 1
+CFG:
 
-Block 1 (True - Return):
-  return n
+B0:
+  [ENTRY]
+  Succs (entry -&gt; B1)
 
-Block 2 (False - Recursive):
-  temp1 = fibonacci(n - 1)
-  temp2 = fibonacci(n - 2)
-  return temp1 + temp2
+B1:
+  [Suite]
+    Discard(Existing(Object('Calculate the nth Fibonacci number.')))
+  Succs (normal -&gt; B2)
 
-Edges:
-  Block 0 → Block 1 (n &lt;= 1 is True)
-  Block 0 → Block 2 (n &lt;= 1 is False)
+B2:
+  [Switch]
+    Condition: Call(Existing(Object('interpreter__le__')), [...])
+  Succs (error -&gt; B3, true -&gt; B4, false -&gt; B5)
+...
+
+B5:
+  [Suite]
+    Return([Call(Existing(Object('interpreter__add__')), [...])])
+  Succs (error -&gt; B3, normal -&gt; B7)
 </pre></div>
 </div>
 </section>
@@ -237,23 +243,26 @@ provides several data flow analyses.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
 </pre></div>
 </div>
-<p>This runs forward and backward data flow analysis, computing:</p>
+<p>This runs the constraint-based analysis, which computes points-to facts and
+analysis contexts for every function:</p>
 <ul class="simple">
-<li><p><strong>Reaching Definitions</strong>: Which assignments can reach a given program point</p></li>
-<li><p><strong>Live Variables</strong>: Which variables are live (will be used) at each point</p></li>
-<li><p><strong>Available Expressions</strong>: Which expressions have been computed and available</p></li>
+<li><p><strong>Points-to relations</strong>: which objects each variable, field, or slot may
+reference</p></li>
+<li><p><strong>Analysis contexts</strong>: which calling situations a function body is analyzed
+under</p></li>
+<li><p><strong>Call constraints</strong>: which targets a call site may invoke</p></li>
 </ul>
-<p>Example output for reaching definitions:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Data Flow Analysis Results:
-───────────────────────────────────────
-
-Block 0:
-  n: {n := @parameter}
-  result: {}
-
-Block 1:
-  n: {n := @parameter}
-  result: {result := n}
+<p>Progress output looks like this; pass <code class="docutils literal notranslate"><span class="pre">--dump</span> <span class="pre">--output</span> <span class="pre">DIR</span></code> to write the
+analysis reports to disk:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>begin [ analysis | cpa analysis | solve ]
+  Found 15 unresolved call(s). Use --verbose for details.
+  Constraints:   32
+  Contexts:      4
+  Code:          4
+  Contexts/Code: 1.0
+end   [ analysis | cpa analysis | solve ]
+end   [ analysis ]
+Analysis complete!
 </pre></div>
 </div>
 </section>
@@ -305,16 +314,15 @@ types, and their relationships.</p>
 <li><p><strong>Object relationships</strong>: How objects are related through fields and aliases</p></li>
 </ul>
 <p>Example CPA output:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CPA Results for example.py:
-───────────────────────────────────────
-
-fibonacci(10):
-  n: {10} (constant)
-  return: PointsTo{Integer}
-
-fibonacci(n - 1):
-  n: PointsTo{Integer}
-  return: PointsTo{Integer}
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>begin [ analysis | cpa analysis | solve ]
+  Found 15 unresolved call(s). Use --verbose for details.
+  Constraints:   32
+  Contexts:      4
+  Code:          4
+  Contexts/Code: 1.0
+end   [ analysis | cpa analysis | solve ]
+end   [ analysis ]
+Analysis complete!
 </pre></div>
 </div>
 </section>
@@ -325,7 +333,13 @@ fibonacci(n - 1):
 dictionaries, and custom objects.</p>
 <section id="running-shape-analysis">
 <h3>Running Shape Analysis<a class="headerlink" href="#running-shape-analysis" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>shape
+<p>Shape analysis is a standalone subsystem: it is not part of the default
+<code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">optimize</span></code> pipeline, and <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">shape</span></code> only prepares the
+standard pipeline. Run it through the Python API on an extracted program:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">shape</span>
+
+<span class="n">compiler</span><span class="o">.</span><span class="n">program</span> <span class="o">=</span> <span class="n">program</span>
+<span class="n">shape_analysis</span> <span class="o">=</span> <span class="n">shape</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Shape analysis identifies:</p>
@@ -346,20 +360,22 @@ functions.</p>
 </pre></div>
 </div>
 <p>Output:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
-───────────────────────────────────────
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph Analysis
+==================================================
 
-Nodes:
-  fibonacci: fibonacci(n)
-  factorial: factorial(n)
-  main: main()
+Functions (5):
+  - &lt;builtin&gt;.print
+  - example (from example)
+  - example.factorial (from example)
+  - example.fibonacci (from example)
+  - example.main (from example)
 
-Edges:
-  main → fibonacci (line 21)
-  main → factorial (line 22)
-  main → print (line 20)
-  fibonacci → fibonacci (line 16, recursive)
-  factorial → factorial (line 10, recursive)
+Call Relationships:
+  &lt;builtin&gt;.print -&gt; (no calls)
+  example -&gt; example.main
+  example.factorial -&gt; example.factorial
+  example.fibonacci -&gt; example.fibonacci
+  example.main -&gt; &lt;builtin&gt;.print, example.factorial, example.fibonacci
 </pre></div>
 </div>
 </section>

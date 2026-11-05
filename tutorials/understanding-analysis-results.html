@@ -188,17 +188,22 @@ various analyses.</p>
 </pre></div>
 </div>
 <p>Output:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
-───────────────────────────────────────
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph Analysis
+==================================================
 
-Nodes:
-  fibonacci: fibonacci(n)
-  factorial: factorial(n)
-  main: main()
+Functions (5):
+  - &lt;builtin&gt;.print
+  - example (from example)
+  - example.factorial (from example)
+  - example.fibonacci (from example)
+  - example.main (from example)
 
-Edges:
-  main → fibonacci (line 21)
-  main → factorial (line 22)
+Call Relationships:
+  &lt;builtin&gt;.print -&gt; (no calls)
+  example -&gt; example.main
+  example.factorial -&gt; example.factorial
+  example.fibonacci -&gt; example.fibonacci
+  example.main -&gt; &lt;builtin&gt;.print, example.factorial, example.fibonacci
 </pre></div>
 </div>
 </section>
@@ -487,13 +492,13 @@ config: Dict[Fixed(keys={str}, values={str, int})]
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png<span class="w"> </span>-Gdpi<span class="o">=</span><span class="m">300</span>
 </pre></div>
 </div>
-<p>Or create an HTML visualization:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use pygraphviz for more control</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+<p>Or adjust the DOT file with pygraphviz before rendering:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
 
-<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">"callgraph.dot"</span><span class="p">)</span>
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">"out/main_cfg.dot"</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">"dpi"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"300"</span>
 <span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">"dot"</span><span class="p">)</span>
-<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">"callgraph.png"</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">"cfg.png"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

@@ -270,7 +270,7 @@ LLM Integration
 
 - ``BugReportJudge`` — Analyzes checker issues to determine whether they are genuine security vulnerabilities, assigning severity, CWE ID, confidence, and remediation guidance
 - ``BugJudgment`` — Result dataclass (is_security_issue, severity, CWE ID, confidence, category, explanation, remediation)
-- ``is_false_positive`` — Quick false-positive detection using configurable confidence thresholds
+- ``BugReportJudge.is_false_positive`` — Quick false-positive detection using configurable confidence thresholds
 
 **llm/exploit.py**: Exploit generation and testing
 - Generates potential exploit payloads
@@ -379,7 +379,7 @@ Checker Reference
 
 
 Stable rule identities and precision
------------------------------------
+------------------------------------
 
 Security rules now have unique fixed IDs, including separation from the dynamic
 blacklist ID ranges. Registry collisions are rejected and reported as incomplete
@@ -463,7 +463,7 @@ reported as unlicensed distributions. Actual package metadata and root projects
 remain subject to license checks, and root SPDX declarations survive lock merges.
 
 Taint engine coverage and input policy
--------------------------------------
+--------------------------------------
 
 ``ast-dataflow`` keeps file identity in summaries when function or class names
 collide, resolves local and imported calls against those definitions, and scans

@@ -306,8 +306,12 @@ exist or the analysis is partial.</p>
 </section>
 <section id="soundness-boundary">
 <h2>Soundness Boundary<a class="headerlink" href="#soundness-boundary" title="Link to this heading"></a></h2>
-<p>Static coverage depends on source reachability from the entrypoint, import
-depth, solver semantics, and registry coverage. Access-path prefix reachability
+<p>Static coverage depends on which scopes are analyzed, import depth, solver
+semantics, and registry coverage. The CLI audits every function and method scope
+in the analyzed files by default, so uncalled library functions and framework
+handlers are included; <code class="docutils literal notranslate"><span class="pre">--reachable-only</span></code> narrows the audit to code reachable
+from the entry call graph. The programmatic API defaults to the reachable-only
+scope unless <code class="docutils literal notranslate"><span class="pre">analyze_all_scopes=True</span></code> is passed. Access-path prefix reachability
 is conservative and can overestimate authority obtainable from an object.
 It does not prove member accessibility. Unmodeled external calls report relevant
 arguments as potential transfers. Runtime observation does not establish

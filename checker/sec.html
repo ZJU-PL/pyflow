@@ -374,7 +374,7 @@ subsystems directly and import shared types from <code class="docutils literal n
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">BugReportJudge</span></code> — Analyzes checker issues to determine whether they are genuine security vulnerabilities, assigning severity, CWE ID, confidence, and remediation guidance</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">BugJudgment</span></code> — Result dataclass (is_security_issue, severity, CWE ID, confidence, category, explanation, remediation)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">is_false_positive</span></code> — Quick false-positive detection using configurable confidence thresholds</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">BugReportJudge.is_false_positive</span></code> — Quick false-positive detection using configurable confidence thresholds</p></li>
 </ul>
 <p><strong>llm/exploit.py</strong>: Exploit generation and testing
 - Generates potential exploit payloads

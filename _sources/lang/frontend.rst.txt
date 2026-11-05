@@ -51,7 +51,7 @@ The ``ASTConverter`` class converts Python's standard AST to PyFlow's internal A
    source = "def add(x, y): return x + y"
    tree = python_ast.parse(source)
    converter = ASTConverter()
-   pyflow_ast = converter.convert_python_ast_to_pyflow([tree])
+   pyflow_ast = converter.convert_python_ast_to_pyflow(tree.body)
 
 Program Extractor
 -----------------

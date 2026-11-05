@@ -286,10 +286,11 @@ Run these checks before publishing model changes:</p>
 make<span class="w"> </span>ifds-benchmark
 </pre></div>
 </div>
-<p>The benchmark emits one JSON object containing the requested graph size,
-elapsed time, completion status, termination reason, and solver statistics.
-The IFDS test suite also includes a small concrete reference solver and
-randomized differential tests for regression detection.</p>
+<p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">ifds-benchmark</span></code> runs the IFDS solver test suite; it no longer emits a
+standalone benchmark report. The suite includes a small concrete reference
+solver and randomized differential tests for regression detection. Use
+<code class="docutils literal notranslate"><span class="pre">SolverOptions</span></code> statistics on a solved problem for timing and convergence
+numbers.</p>
 </section>
 <section id="ir-semantics-and-facts">
 <h2>IR semantics and facts<a class="headerlink" href="#ir-semantics-and-facts" title="Link to this heading"></a></h2>

@@ -36,7 +36,7 @@ Package Layout
 separate core representation of a runtime Python class.
 
 Vendored typeshed
-~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
 
 PyFlow ships a snapshot of mypy's typeshed under
 ``pyflow/stubs/typeshed`` and uses it by default:
@@ -65,8 +65,9 @@ printf-style format strings report type/arity mismatches.
 
 Parsed stubs can be persisted through a SQLite cache keyed by path,
 modification time, size, target Python version, and parser format.  The cache
-lives under ``PYFLOW_CACHE_DIR`` (default ``~/.cache/pyflow``) and can be
-disabled with ``StubResolver(..., enable_cache=False)``.
+lives under ``PYFLOW_CACHE_DIR`` (default ``$XDG_CACHE_HOME/pyflow``, or
+``~/.cache/pyflow`` when ``XDG_CACHE_HOME`` is unset) and can be disabled with
+``StubResolver(..., enable_cache=False)``.
 
 Typeshed is the declaration source for the whole stdlib surface.  A small
 receiver-aware call/member layer still overrides it where declarations cannot
@@ -87,8 +88,8 @@ project directory accepts ``--module`` for focused queries:
    pyflow typeinfo app.py
    pyflow typeinfo app.py --symbol Client.fetch --json --pretty
    pyflow typeinfo app.py --line 42 --column 8 --json
-   pyflow typeinfo app.py --diagnostics --json
-   pyflow typeinfo src/ --module package.module --diagnostics --max-modules 20
+   pyflow typeinfo app.py --mode diagnostics --json
+   pyflow typeinfo src/ --module package.module --mode diagnostics --max-modules 20
 
 ``--line`` is 1-based and ``--column`` is a 0-based character offset, matching
 LSP positions.  ``--mode signatures`` (default) lists function and method
@@ -135,9 +136,9 @@ and observed calls/body results take priority over documentation fallbacks.
 Unresolved documented alternatives are not reduced to a definite partial union.
 
 Source inference models parameterized generic constructors, receiver-bound
-``typing.Self``, ``typing.cast``, and ``NewType`` identity constructors. ``NewType``
-values currently project to their underlying type rather than a distinct nominal
-type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
+``typing.Self``, ``typing.cast``, and ``NewType`` identity constructors.
+``NewType`` values keep a distinct nominal type while remaining assignable to
+the wrapped type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
 and function/class type parameters. ParamSpec, variadic type parameters, and
 recursive alias expansion are not fully modeled. Module-level PEP 484 and 613
 aliases, including ``Name: TypeAlias = ...``, are also resolved.

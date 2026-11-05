@@ -412,7 +412,7 @@ Start with Verbose Output
 
 .. code-block:: bash
 
-   pyflow optimize input.py --verbose --debug
+   pyflow optimize input.py --verbose
 
 Reproduce with Minimal Example
 -------------------------------

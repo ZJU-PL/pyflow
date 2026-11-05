@@ -4,15 +4,23 @@ Call Graph Analysis
 PyFlow provides multiple algorithms for call graph construction.
 
 Call graphs can be built from a single Python file or an entire project
-directory.  When given a directory, PyFlow auto-detects the entry point by
-checking (in order):
+directory.  When given a directory, PyFlow auto-detects the entry point from the
+strongest evidence tier that is present (in order):
 
-1. ``pyproject.toml`` (``[project.scripts]`` or ``[tool.poetry.scripts]``)
-2. ``setup.py`` (``console_scripts`` entry points)
-3. ``__main__.py`` inside the first non-hidden, non-test subdirectory
-4. Well-known filenames: ``main.py``, ``app.py``, ``cli.py``, ``run.py``, ``launch.py``
+1. Project metadata: ``[project.scripts]``, ``[project.gui-scripts]``, and
+   ``[project.entry-points.*]`` in ``pyproject.toml``, ``[tool.poetry.scripts]``,
+   ``console_scripts`` in ``setup.py``, and ``[options.entry_points]`` in
+   ``setup.cfg``
+2. Package ``__main__.py`` files outside ignored test/example/benchmark roots
+3. Scripts with an ``if __name__ == "__main__":`` guard at an import root
+   (root, ``src``, ``lib``, and configured package roots)
+4. Filename conventions: ``main.py``, ``app.py``, ``manage.py``, ``cli.py``,
+   ``run.py``, ``launch.py``
 
-A manual entry point can be specified with ``--entry``.
+A tier is used only when no stronger tier produced candidates, and a candidate
+is selected only when the tier yields exactly one entry. Guarded scripts in
+nested subdirectories are reported as candidates but are never selected
+implicitly. A manual entry point can be specified with ``--entry``.
 
 For a library or full repository, use ``pyflow callgraph . -r -a constraint``.
 Recursive scans use the requested directory as the project root and recognize
@@ -178,7 +186,7 @@ AST-Based Analysis
 - **Conservative**: May include spurious edges
 
 Native MIR-Based PyCG Analysis
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``pycg-mir`` lowers Python source into the seven-instruction MIR and performs
 flow-, path-, and context-insensitive assignment-graph propagation to a fixed
@@ -210,7 +218,7 @@ MIR's supported import graph. The native backend does not change the existing
 public API default or the ``constraint`` CLI default.
 
 Upstream PyCG Adapter
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 - **Framework Support**: Better handling of popular Python frameworks
 - **Comprehensive**: Captures more call relationships than pure AST analysis

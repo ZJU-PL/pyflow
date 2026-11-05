@@ -37,17 +37,22 @@ Output:
 
 .. code-block:: text
 
-   Call Graph for example.py:
-   ───────────────────────────────────────
+   Call Graph Analysis
+   ==================================================
 
-   Nodes:
-     fibonacci: fibonacci(n)
-     factorial: factorial(n)
-     main: main()
+   Functions (5):
+     - <builtin>.print
+     - example (from example)
+     - example.factorial (from example)
+     - example.fibonacci (from example)
+     - example.main (from example)
 
-   Edges:
-     main → fibonacci (line 21)
-     main → factorial (line 22)
+   Call Relationships:
+     <builtin>.print -> (no calls)
+     example -> example.main
+     example.factorial -> example.factorial
+     example.fibonacci -> example.fibonacci
+     example.main -> <builtin>.print, example.factorial, example.fibonacci
 
 JSON Format
 -----------
@@ -385,16 +390,16 @@ Render the visualization with Graphviz:
 
    dot -Tpng out/main_cfg.dot -o cfg.png -Gdpi=300
 
-Or create an HTML visualization:
+Or adjust the DOT file with pygraphviz before rendering:
 
 .. code-block:: python
 
-   # Use pygraphviz for more control
    import pygraphviz as pgv
 
-   G = pgv.AGraph("callgraph.dot")
+   G = pgv.AGraph("out/main_cfg.dot")
+   G.graph_attr["dpi"] = "300"
    G.layout(prog="dot")
-   G.draw("callgraph.png")
+   G.draw("cfg.png")
 
 Best Practices
 ==============

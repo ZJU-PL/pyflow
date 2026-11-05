@@ -187,60 +187,55 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span cl
 <h2>Visualizing Call Graphs<a class="headerlink" href="#visualizing-call-graphs" title="Link to this heading"></a></h2>
 <section id="basic-call-graph">
 <h3>Basic call graph<a class="headerlink" href="#basic-call-graph" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
+<p>The callgraph command writes text or JSON. To get DOT, export it through the
+Python API:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.formats</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_dot_output</span>
+
+<span class="n">source</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+<span class="n">dot</span> <span class="o">=</span> <span class="n">generate_dot_output</span><span class="p">(</span><span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="n">source</span><span class="p">),</span> <span class="kc">None</span><span class="p">)</span>
+<span class="n">Path</span><span class="p">(</span><span class="s2">"callgraph.dot"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">dot</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Then render it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png
 </pre></div>
 </div>
 </section>
 <section id="custom-styling">
 <h3>Custom styling<a class="headerlink" href="#custom-styling" title="Link to this heading"></a></h3>
-<p>Create a custom style file:</p>
-<div class="literal-block-wrapper docutils container" id="id2">
-<div class="code-block-caption"><span class="caption-text">callgraph_style.css</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
-<div class="highlight-css notranslate"><div class="highlight"><pre><span></span><span class="p">.</span><span class="nc">node</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">shape</span><span class="p">:</span><span class="w"> </span><span class="n">box</span><span class="p">;</span>
-<span class="w">    </span><span class="n">style</span><span class="p">:</span><span class="w"> </span><span class="s2">"rounded,filled"</span><span class="p">;</span>
-<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightblue</span><span class="p">;</span>
-<span class="w">    </span><span class="n">fontname</span><span class="p">:</span><span class="w"> </span><span class="s2">"Arial"</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="p">.</span><span class="nc">recursive</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightyellow</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="p">.</span><span class="nc">entry</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightgreen</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="p">.</span><span class="nc">edge</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">fontname</span><span class="p">:</span><span class="w"> </span><span class="s2">"Arial"</span><span class="p">;</span>
-<span class="w">    </span><span class="n">fontsize</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
-<span class="p">}</span>
+<p>Graphviz attributes are part of the DOT text, so style the exported graph before
+writing it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">styled</span> <span class="o">=</span> <span class="n">dot</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+    <span class="s2">"node [shape=box, style=filled, fillcolor=lightblue];"</span><span class="p">,</span>
+    <span class="s1">'node [shape=box, style="rounded,filled", fillcolor=lightblue, fontname="Arial"];'</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1"># Highlight one node by editing its attribute list.</span>
+<span class="n">styled</span> <span class="o">=</span> <span class="n">styled</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+    <span class="s1">'"main" [label="main"];'</span><span class="p">,</span>
+    <span class="s1">'"main" [label="main", fillcolor=lightgreen, penwidth=2];'</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">Path</span><span class="p">(</span><span class="s2">"callgraph_styled.dot"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">styled</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
 </pre></div>
 </div>
-</div>
-<p>Apply custom style:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-C
+<p>Render the styled file the same way:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph_styled.dot<span class="w"> </span>-o<span class="w"> </span>callgraph_styled.png
 </pre></div>
 </div>
 </section>
 <section id="interactive-visualization">
 <h3>Interactive visualization<a class="headerlink" href="#interactive-visualization" title="Link to this heading"></a></h3>
-<p>Use pygraphviz for interactive graphs:</p>
+<p>Use pygraphviz to lay out and render the DOT file:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
 
-<span class="c1"># Load DOT file</span>
 <span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">"callgraph.dot"</span><span class="p">)</span>
-
-<span class="c1"># Add layout options</span>
 <span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">"rankdir"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"TB"</span>
 <span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">"shape"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"box"</span>
 <span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">"style"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"rounded,filled"</span>
-
-<span class="c1"># Highlight specific nodes</span>
 <span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">"main"</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">"fillcolor"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"lightgreen"</span>
-<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">"recursive_func"</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">"fillcolor"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"lightyellow"</span>
 
-<span class="c1"># Render</span>
 <span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">"dot"</span><span class="p">)</span>
 <span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">"callgraph.png"</span><span class="p">)</span>
 </pre></div>
@@ -259,28 +254,27 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/function_name_cfg.do
 <section id="complex-cfg-visualization">
 <h3>Complex CFG visualization<a class="headerlink" href="#complex-cfg-visualization" title="Link to this heading"></a></h3>
 <p>For complex functions with many blocks:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--dump-output<span class="w"> </span>out
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"out/function_name_cfg.json"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)[</span><span class="s2">"cfg"</span><span class="p">]</span>
 
 <span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="n">directed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="c1"># Add blocks as nodes</span>
-<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">cfg</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
-    <span class="n">label</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Block </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
-    <span class="k">for</span> <span class="n">stmt</span> <span class="ow">in</span> <span class="n">block</span><span class="o">.</span><span class="n">statements</span><span class="p">:</span>
-        <span class="n">label</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">stmt</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
+<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]:</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Block </span><span class="si">{</span><span class="n">block</span><span class="p">[</span><span class="s1">'id'</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">block</span><span class="p">[</span><span class="s2">"ops"</span><span class="p">])</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">block</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="s2">"box"</span><span class="p">)</span>
 
-    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="s2">"box"</span><span class="p">)</span>
-
-<span class="c1"># Add edges</span>
-<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cfg</span><span class="o">.</span><span class="n">edges</span><span class="p">:</span>
-    <span class="n">G</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">from_block</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">to_block</span><span class="p">)</span>
-
-<span class="c1"># Add cluster for loops</span>
-<span class="k">if</span> <span class="n">loop_blocks</span><span class="p">:</span>
-    <span class="k">with</span> <span class="n">G</span><span class="o">.</span><span class="n">subgraph</span><span class="p">()</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
-        <span class="n">s</span><span class="o">.</span><span class="n">add_nodes_from</span><span class="p">(</span><span class="n">loop_blocks</span><span class="p">)</span>
-        <span class="n">s</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">"color"</span><span class="p">,</span> <span class="s2">"blue"</span><span class="p">)</span>
-        <span class="n">s</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">"style"</span><span class="p">,</span> <span class="s2">"dashed"</span><span class="p">)</span>
+<span class="c1"># Add edges, labelled with the exit kind</span>
+<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"blocks"</span><span class="p">]:</span>
+    <span class="k">for</span> <span class="n">succ</span> <span class="ow">in</span> <span class="n">block</span><span class="p">[</span><span class="s2">"successors"</span><span class="p">]:</span>
+        <span class="n">G</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">block</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="n">succ</span><span class="p">[</span><span class="s2">"target"</span><span class="p">],</span> <span class="n">label</span><span class="o">=</span><span class="n">succ</span><span class="p">[</span><span class="s2">"exit"</span><span class="p">])</span>
 
 <span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">"dot"</span><span class="p">)</span>
 <span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">"cfg.png"</span><span class="p">)</span>
@@ -385,8 +379,8 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>out/main_cfg.dot<span cl
 <section id="interactive-web-visualizations">
 <h3>Interactive web visualizations<a class="headerlink" href="#interactive-web-visualizations" title="Link to this heading"></a></h3>
 <p>Use D3.js for interactive web visualizations:</p>
-<div class="literal-block-wrapper docutils container" id="id3">
-<div class="code-block-caption"><span class="caption-text">visualize.js</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">visualize.js</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
 <div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="c1">// Export PyFlow results to D3.js format</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">nodes</span><span class="o">:</span><span class="w"> </span><span class="nx">callgraph</span><span class="p">.</span><span class="nx">nodes</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>

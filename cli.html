@@ -189,14 +189,14 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">dry</span><span class="o">-</span><span class="n">run</span>                  <span class="c1"># print entry only</span>
 </pre></div>
 </div>
-<p>Options:
-Entry discovery includes root/nested <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code>, conventional names
+<p>Entry discovery includes root/nested <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code>, conventional names
 under <code class="docutils literal notranslate"><span class="pre">src</span></code>/<code class="docutils literal notranslate"><span class="pre">lib</span></code>, and unique scripts with a main guard at an import root.
 Nested guarded scripts are candidates requiring explicit selection. Metadata remains
 the strongest evidence, and ambiguous roots require selection.
 Main guards take priority over legacy filename conventions. Names such as
 <code class="docutils literal notranslate"><span class="pre">train.py</span></code> or <code class="docutils literal notranslate"><span class="pre">server.py</span></code> alone do not establish an executable entry;
 metadata, a main guard, or an explicit <code class="docutils literal notranslate"><span class="pre">--entry</span></code> can select these files.</p>
+<p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis</p></li>
@@ -210,6 +210,7 @@ metadata, a main guard, or an explicit <code class="docutils literal notranslate
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-import-depth</span></code>: Maximum local import hops for the <code class="docutils literal notranslate"><span class="pre">pycg</span></code> and <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> algorithms (default: 3; <code class="docutils literal notranslate"><span class="pre">0</span></code> inspects only the entry)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)</p></li>
@@ -232,21 +233,20 @@ See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal I
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="nb">input</span><span class="o">.</span><span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 </pre></div>
 </div>
-<p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
-- <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">{source,full}</span></code>: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to <code class="docutils literal notranslate"><span class="pre">source</span></code>; JSON defaults to <code class="docutils literal notranslate"><span class="pre">full</span></code> for compatibility. Explicit <code class="docutils literal notranslate"><span class="pre">source</span></code> JSON is an inspection view with <code class="docutils literal notranslate"><span class="pre">view</span></code> and <code class="docutils literal notranslate"><span class="pre">omitted_runtime_cfgs</span></code> metadata, not a standalone executable MIR program
-- <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">full</span></code> follows local imports, and <code class="docutils literal notranslate"><span class="pre">strict</span></code> follows imports while rejecting unmodeled semantics
-- <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates
-- <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function
-- <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function</p>
-<blockquote>
-<div><p>using the cyclic CFG dependence model. Bulk DDG output to an interactive
-terminal requires a function filter or <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>; redirected output
-keeps the existing all-functions behavior</p>
-</div></blockquote>
+<p>Options:</p>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">{source,full}</span></code>: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to <code class="docutils literal notranslate"><span class="pre">source</span></code>; JSON defaults to <code class="docutils literal notranslate"><span class="pre">full</span></code> for compatibility. Explicit <code class="docutils literal notranslate"><span class="pre">source</span></code> JSON is an inspection view with <code class="docutils literal notranslate"><span class="pre">view</span></code> and <code class="docutils literal notranslate"><span class="pre">omitted_runtime_cfgs</span></code> metadata, not a standalone executable MIR program</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mir-follow-imports</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-mir-follow-imports</span></code>: Force or suppress following local imports when dumping MIR. The default follows imports only for <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">strict</span></code>, which requires them</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">full</span></code> follows local imports, and <code class="docutils literal notranslate"><span class="pre">strict</span></code> follows imports while rejecting unmodeled semantics</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function
+using the cyclic CFG dependence model. Bulk DDG output to an interactive
+terminal requires a function filter or <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>; redirected output
+keeps the existing all-functions behavior</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--conservative-dependencies</span></code>: For DDG/CDG dumps, restore unknown effects
 for arbitrary Python protocols, allow parameter bases to alias, and include
 implicit exceptional control flow. Defaults assume primitive intrinsics and
@@ -279,18 +279,27 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 <span class="n">pyflow</span> <span class="n">concolic</span> <span class="n">target</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">emit</span><span class="o">-</span><span class="n">pytest</span> <span class="n">tests</span><span class="o">/</span><span class="n">test_target_gen</span><span class="o">.</span><span class="n">py</span>
 </pre></div>
 </div>
-<p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--entry</span> <span class="pre">NAME</span></code>: Function to explore (default: <code class="docutils literal notranslate"><span class="pre">main</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--inputs</span> <span class="pre">JSON_ARRAY</span></code>: Initial arguments as a JSON array (default: zero for each parameter)
-- <code class="docutils literal notranslate"><span class="pre">--max-iterations</span> <span class="pre">N</span></code>: Maximum concrete executions (default: 50)
-- <code class="docutils literal notranslate"><span class="pre">--max-loop-iterations</span> <span class="pre">N</span></code>: Concrete loop cap per <code class="docutils literal notranslate"><span class="pre">while</span></code> statement (default: 100)
-- <code class="docutils literal notranslate"><span class="pre">--check-contracts</span></code>: Solve supported PEP 316 <code class="docutils literal notranslate"><span class="pre">post:</span></code> clauses for a counterexample
-- <code class="docutils literal notranslate"><span class="pre">--refine-opaque-calls</span></code>: Execute safe unsupported library calls concretely and refine symbolic relations from observations
-- <code class="docutils literal notranslate"><span class="pre">--scan-project</span></code>: Discover and measure functions beneath the input path (with <code class="docutils literal notranslate"><span class="pre">--max-functions</span></code>, <code class="docutils literal notranslate"><span class="pre">--input-complexity</span></code>, <code class="docutils literal notranslate"><span class="pre">--function-timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">--allow-side-effects</span></code>, <code class="docutils literal notranslate"><span class="pre">--include-private</span></code>, <code class="docutils literal notranslate"><span class="pre">--json-output</span> <span class="pre">PATH</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--emit-pytest</span> <span class="pre">PATH</span></code>: Write a minimized, CPython-replay-validated pytest module
-- <code class="docutils literal notranslate"><span class="pre">--search-strategy</span></code>: Pending-state selection (<code class="docutils literal notranslate"><span class="pre">fifo</span></code>, <code class="docutils literal notranslate"><span class="pre">breadth_first</span></code>, <code class="docutils literal notranslate"><span class="pre">coverage</span></code>; default: <code class="docutils literal notranslate"><span class="pre">coverage</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--total-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--per-run-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-rlimit</span></code> / <code class="docutils literal notranslate"><span class="pre">--max-solver-calls</span></code>: Wall-clock and solver budgets
-- <code class="docutils literal notranslate"><span class="pre">--json</span></code>: Emit generated inputs and execution results as JSON</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--entry</span> <span class="pre">NAME</span></code>: Function to explore (default: <code class="docutils literal notranslate"><span class="pre">main</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--inputs</span> <span class="pre">JSON_ARRAY</span></code>: Initial arguments as a JSON array (default: zero for each parameter)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-iterations</span> <span class="pre">N</span></code>: Maximum concrete executions (default: 50)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-loop-iterations</span> <span class="pre">N</span></code>: Concrete loop cap per <code class="docutils literal notranslate"><span class="pre">while</span></code> statement (default: 100)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--check-contracts</span></code>: Solve supported PEP 316 <code class="docutils literal notranslate"><span class="pre">post:</span></code> clauses for a counterexample</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--refine-opaque-calls</span></code>: Execute safe unsupported library calls concretely and refine symbolic relations from observations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--scan-project</span></code>: Discover and measure functions beneath the input path (with <code class="docutils literal notranslate"><span class="pre">--max-functions</span></code>, <code class="docutils literal notranslate"><span class="pre">--input-complexity</span></code>, <code class="docutils literal notranslate"><span class="pre">--function-timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">--allow-side-effects</span></code>, <code class="docutils literal notranslate"><span class="pre">--include-private</span></code>, <code class="docutils literal notranslate"><span class="pre">--json-output</span> <span class="pre">PATH</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--emit-pytest</span> <span class="pre">PATH</span></code>: Write a minimized, CPython-replay-validated pytest module</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--search-strategy</span></code>: Pending-state selection (<code class="docutils literal notranslate"><span class="pre">fifo</span></code>, <code class="docutils literal notranslate"><span class="pre">breadth_first</span></code>, <code class="docutils literal notranslate"><span class="pre">coverage</span></code>; default: <code class="docutils literal notranslate"><span class="pre">coverage</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-pending-states</span></code>: Maximum queued exploration states (default: 10000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-uninteresting-iterations</span></code>: Stop after this many executions without new AST coverage</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-symbolic-container-size</span></code>: Maximum synthesized length for symbolic input containers (default: 3)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-resume-steps</span></code>: Maximum iterator/generator resume operations (default: 1000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--scheduler</span></code>: Async task scheduling policy (<code class="docutils literal notranslate"><span class="pre">fifo</span></code> or <code class="docutils literal notranslate"><span class="pre">nondeterministic</span></code>; default: <code class="docutils literal notranslate"><span class="pre">fifo</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-task-switches</span></code> / <code class="docutils literal notranslate"><span class="pre">--max-schedule-states</span></code>: Async scheduling limits (defaults: 1000 each)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-opaque-refinements</span></code>: Maximum distinct CPython observations for opaque calls (default: 1000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--total-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--per-run-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-timeout</span></code> / <code class="docutils literal notranslate"><span class="pre">--solver-rlimit</span></code> / <code class="docutils literal notranslate"><span class="pre">--max-solver-calls</span></code>: Wall-clock and solver budgets</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Emit generated inputs and execution results as JSON</p></li>
+</ul>
 </section>
 </section>
 <section id="optimization-commands">
@@ -304,25 +313,27 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 <span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">analysis</span> <span class="n">cpa</span>
 </pre></div>
 </div>
-<p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--analysis,</span> <span class="pre">-a</span></code>: Analysis type (<code class="docutils literal notranslate"><span class="pre">all</span></code>, <code class="docutils literal notranslate"><span class="pre">cpa</span></code>, <code class="docutils literal notranslate"><span class="pre">ipa</span></code>, <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">lifetime</span></code>; default: <code class="docutils literal notranslate"><span class="pre">all</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories
-- <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude
-- <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output path for dumped results (a directory for <code class="docutils literal notranslate"><span class="pre">--dump</span></code>/<code class="docutils literal notranslate"><span class="pre">--dump-ipa</span></code>; a file for <code class="docutils literal notranslate"><span class="pre">--dump-shape</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--dump,</span> <span class="pre">-d</span></code>: Dump analysis results
-- <code class="docutils literal notranslate"><span class="pre">--dump-ipa</span></code>: Dump IPA analysis results
-- <code class="docutils literal notranslate"><span class="pre">--dump-shape</span></code>: Dump Shape analysis results
-- <code class="docutils literal notranslate"><span class="pre">--suggest-only</span></code>: Generate suggestions without running transforming passes
-- <code class="docutils literal notranslate"><span class="pre">--apply-optimizations</span></code>: Explicitly run optimization passes (also the default)
-- <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--experimental-inlining</span></code>: Enable experimental inlining pass
-- <code class="docutils literal notranslate"><span class="pre">--emit-optimized</span> <span class="pre">PATH</span></code>: Write a syntax-valid optimized Python copy to PATH (output directory for directory input)
-- <code class="docutils literal notranslate"><span class="pre">--opt-level</span> <span class="pre">{0,1,2}</span></code>: Source optimization level (0=format only, 1=safe local rewrites, 2=guarded propagation; default: 1)
-- <code class="docutils literal notranslate"><span class="pre">--report-optimizations</span> <span class="pre">PATH</span></code>: Write JSON source-optimization report to PATH (requires <code class="docutils literal notranslate"><span class="pre">--emit-optimized</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--opt-passes</span></code>: Space-separated list of optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--list-opt-passes</span></code>: List available optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--analysis,</span> <span class="pre">-a</span></code>: Analysis type (<code class="docutils literal notranslate"><span class="pre">all</span></code>, <code class="docutils literal notranslate"><span class="pre">cpa</span></code>, <code class="docutils literal notranslate"><span class="pre">ipa</span></code>, <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">lifetime</span></code>; default: <code class="docutils literal notranslate"><span class="pre">all</span></code>). <code class="docutils literal notranslate"><span class="pre">shape</span></code> prepares the standard pipeline but shape analysis itself is not one of its passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output path for dumped results (a directory for <code class="docutils literal notranslate"><span class="pre">--dump</span></code>/<code class="docutils literal notranslate"><span class="pre">--dump-ipa</span></code>; a file for <code class="docutils literal notranslate"><span class="pre">--dump-shape</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump,</span> <span class="pre">-d</span></code>: Dump analysis results</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-ipa</span></code>: Dump IPA analysis results</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dump-shape</span></code>: Dump Shape analysis results when a shape analysis has run; shape analysis is not part of the default pipeline</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--suggest-only</span></code>: Generate suggestions without running transforming passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--apply-optimizations</span></code>: Explicitly run optimization passes (also the default)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--experimental-inlining</span></code>: Enable experimental inlining pass</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--emit-optimized</span> <span class="pre">PATH</span></code>: Write a syntax-valid optimized Python copy to PATH (output directory for directory input)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--opt-level</span> <span class="pre">{0,1,2}</span></code>: Source optimization level (0=format only, 1=safe local rewrites, 2=guarded propagation; default: 1)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--report-optimizations</span> <span class="pre">PATH</span></code>: Write JSON source-optimization report to PATH (requires <code class="docutils literal notranslate"><span class="pre">--emit-optimized</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--opt-passes</span></code>: Space-separated list of optimization passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--list-opt-passes</span></code>: List available optimization passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p></li>
+</ul>
 <p>Available passes include <code class="docutils literal notranslate"><span class="pre">simplify</span></code>, <code class="docutils literal notranslate"><span class="pre">methodcall</span></code>, <code class="docutils literal notranslate"><span class="pre">lifetime</span></code>, <code class="docutils literal notranslate"><span class="pre">clone</span></code>,
 <code class="docutils literal notranslate"><span class="pre">argument_normalization</span></code>, <code class="docutils literal notranslate"><span class="pre">cull_program</span></code>, <code class="docutils literal notranslate"><span class="pre">load_elimination</span></code>,
 <code class="docutils literal notranslate"><span class="pre">store_elimination</span></code>, <code class="docutils literal notranslate"><span class="pre">dce</span></code>, and experimental <code class="docutils literal notranslate"><span class="pre">inlining</span></code>.
@@ -343,35 +354,36 @@ is <code class="docutils literal notranslate"><span class="pre">main</span></cod
 <span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">cpg</span> <span class="o">--</span><span class="n">framework</span> <span class="n">flask</span>
 </pre></div>
 </div>
-<p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--engine</span></code>: Analysis engine (<code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code>, <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code>, <code class="docutils literal notranslate"><span class="pre">ifds</span></code>, or <code class="docutils literal notranslate"><span class="pre">cpg</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--config</span></code>: JSON config file for IFDS parameters; defaults to <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code> in the target directory (or the parent of a file target)
-- <code class="docutils literal notranslate"><span class="pre">--sources</span></code> / <code class="docutils literal notranslate"><span class="pre">--sinks</span></code> / <code class="docutils literal notranslate"><span class="pre">--sanitizers</span></code>: Function names for taint-style dataflow checks
-- <code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry file relative to the project root for IFDS; repeat to select multiple files. All discovered entries are analyzed when omitted
-- <code class="docutils literal notranslate"><span class="pre">--analysis</span></code>: IFDS client (<code class="docutils literal notranslate"><span class="pre">taint</span></code>, <code class="docutils literal notranslate"><span class="pre">nullness</span></code>, <code class="docutils literal notranslate"><span class="pre">typestate</span></code>, or <code class="docutils literal notranslate"><span class="pre">class-pollution</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--registry-path</span></code>: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
-- <code class="docutils literal notranslate"><span class="pre">--typestate-protocol</span></code>: Typestate protocols for <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">typestate</span></code> (repeatable; supports <code class="docutils literal notranslate"><span class="pre">resource</span></code>, <code class="docutils literal notranslate"><span class="pre">python-builtins</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>, <code class="docutils literal notranslate"><span class="pre">socket</span></code>, <code class="docutils literal notranslate"><span class="pre">lock</span></code>, <code class="docutils literal notranslate"><span class="pre">transaction</span></code>)
-- <code class="docutils literal notranslate"><span class="pre">--ifds-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-memory-bytes</span></code>: Solver wall-clock and memory budgets (default: 30 seconds per entry; memory is unbounded). Explicit CLI values override project configuration; exhaustion returns partial results
-- <code class="docutils literal notranslate"><span class="pre">--ifds-max-path-edges</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-queue-size</span></code>: Solver work budgets
-- <code class="docutils literal notranslate"><span class="pre">--ifds-max-incoming-records</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-summary-entries</span></code>: Interprocedural table budgets
-- <code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets
-- <code class="docutils literal notranslate"><span class="pre">--ifds-context-depth</span></code>: Maximum call-string depth
-- <code class="docutils literal notranslate"><span class="pre">--ifds-trace-mode</span></code>: Retain no traces, finding traces, or all traces
-- <code class="docutils literal notranslate"><span class="pre">--ifds-unknown-call-policy</span></code>: Handle unresolved calls with <code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">preserve</span></code> (the CLI default), or <code class="docutils literal notranslate"><span class="pre">havoc</span></code> semantics
-- <code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets</p>
-<blockquote>
-<div><p>(defaults: 30 seconds per target, 50000 states); construction uses the same
-time budget and exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code></p>
-</div></blockquote>
+<p>Options:</p>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--engine</span></code>: Analysis engine (<code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code>, <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code>, <code class="docutils literal notranslate"><span class="pre">ifds</span></code>, or <code class="docutils literal notranslate"><span class="pre">cpg</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--config</span></code>: JSON config file for IFDS parameters; defaults to <code class="docutils literal notranslate"><span class="pre">pyflow.json</span></code> in the target directory (or the parent of a file target)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--sources</span></code> / <code class="docutils literal notranslate"><span class="pre">--sinks</span></code> / <code class="docutils literal notranslate"><span class="pre">--sanitizers</span></code>: Function names for taint-style dataflow checks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry file relative to the project root for IFDS; repeat to select multiple files. All discovered entries are analyzed when omitted</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--analysis</span></code>: IFDS client (<code class="docutils literal notranslate"><span class="pre">taint</span></code>, <code class="docutils literal notranslate"><span class="pre">nullness</span></code>, <code class="docutils literal notranslate"><span class="pre">typestate</span></code>, or <code class="docutils literal notranslate"><span class="pre">class-pollution</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--registry-path</span></code>: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--typestate-protocol</span></code>: Typestate protocols for <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">typestate</span></code> (repeatable; supports <code class="docutils literal notranslate"><span class="pre">resource</span></code>, <code class="docutils literal notranslate"><span class="pre">python-builtins</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>, <code class="docutils literal notranslate"><span class="pre">socket</span></code>, <code class="docutils literal notranslate"><span class="pre">lock</span></code>, <code class="docutils literal notranslate"><span class="pre">transaction</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-memory-bytes</span></code>: Solver wall-clock and memory budgets (default: 30 seconds per entry; memory is unbounded). Explicit CLI values override project configuration; exhaustion returns partial results</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-max-path-edges</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-queue-size</span></code>: Solver work budgets</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-max-incoming-records</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-summary-entries</span></code>: Interprocedural table budgets</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-callgraph-max-iterations</span></code>: Constraint-callgraph worklist states before retaining partial edges and using the direct-call fallback (default: 256)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-context-depth</span></code>: Maximum call-string depth</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-trace-mode</span></code>: Retain no traces, finding traces, or all traces</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ifds-unknown-call-policy</span></code>: Handle unresolved calls with <code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">preserve</span></code> (the CLI default), or <code class="docutils literal notranslate"><span class="pre">havoc</span></code> semantics</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets
+(defaults: 30 seconds per target, 50000 states); construction uses the same
+time budget and exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--cpg-total-max-seconds</span></code>: Total budget across CPG targets, including construction (default: 60 seconds); remaining targets are skipped with a partial-analysis diagnostic when exhausted</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--ast-max-seconds</span></code>: Total AST-dataflow budget including source preparation (default: 30 seconds)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--ifds-total-max-seconds</span></code>: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for taint sources/sinks/sanitizers (shared by the <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code>, <code class="docutils literal notranslate"><span class="pre">cpg</span></code>, and <code class="docutils literal notranslate"><span class="pre">ifds</span></code> engines)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>. The <code class="docutils literal notranslate"><span class="pre">ifds</span></code> and <code class="docutils literal notranslate"><span class="pre">cpg</span></code> engines support <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, and <code class="docutils literal notranslate"><span class="pre">custom</span></code>; requesting another format is an error rather than a silent text fallback.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--custom-template</span></code>: Template string for <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">custom</span></code> (for example <code class="docutils literal notranslate"><span class="pre">'{abspath}:{line}:</span> <span class="pre">{test_id}</span> <span class="pre">[{severity}]</span> <span class="pre">{msg}'</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">report</span></code> (default) returns zero for complete/partial reports; <code class="docutils literal notranslate"><span class="pre">findings</span></code> enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--require-complete</span></code>: Return 3 for partial or cancelled analysis even with <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">report</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Directory targets automatically enable recursive scanning; IFDS retains entry discovery/selection</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output</p></li>
@@ -463,6 +475,8 @@ provenance.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">sbom</span></code></dt><dd><p>Generate CycloneDX 1.7, SPDX 2.3, or requirements output. <code class="docutils literal notranslate"><span class="pre">--deterministic</span></code>
 derives document IDs from content and uses <code class="docutils literal notranslate"><span class="pre">SOURCE_DATE_EPOCH</span></code>.
 <code class="docutils literal notranslate"><span class="pre">--schema</span></code> validates JSON output against a pinned local official schema.
+<code class="docutils literal notranslate"><span class="pre">--include-scopes</span></code> emits build, optional, test, and development
+requirements as active lines instead of omitting them.
 Generated inventories return 0 by default, including incomplete inventories
 and unpinned dependencies. Completeness stays visible in document metadata
 and stderr. <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">strict</span></code> / <code class="docutils literal notranslate"><span class="pre">--require-complete</span></code> return 2
@@ -495,6 +509,11 @@ data</p></li>
 by trusted CI configuration; colocated checksum sidecars alone do not prove
 database origin</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--vex</span></code>: apply CycloneDX VEX or OpenVEX status</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--show-suppressed</span></code>: include policy-suppressed findings in JSON/SARIF output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--protected-package</span> <span class="pre">PACKAGE</span></code>: treat a package name as internal or
+high-value for typosquatting checks (repeatable)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--license-policy</span> <span class="pre">FILE</span></code>: JSON license allowlist applied to dependency
+metadata</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--policy</span></code> / <code class="docutils literal notranslate"><span class="pre">--baseline</span></code> / <code class="docutils literal notranslate"><span class="pre">--write-baseline</span></code>: manage reviewed,
 expiring finding exceptions</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--attestation</span></code> / <code class="docutils literal notranslate"><span class="pre">--trusted-builder</span></code> / <code class="docutils literal notranslate"><span class="pre">--require-provenance</span></code>:
@@ -534,15 +553,23 @@ runtime value information separates them. Python type annotations such as
 <li><p><code class="docutils literal notranslate"><span class="pre">--k</span> <span class="pre">N</span></code>: k-CFA context sensitivity depth (kcfa engine only, default: 1)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--all-scopes</span></code>: kcfa only; analyze every function/method body instead of
 only code reachable from the entry module</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--import-depth</span> <span class="pre">N</span></code>: kcfa only; maximum transitive import depth (default: 1;
+<code class="docutils literal notranslate"><span class="pre">0</span></code> analyzes only the entry module and <code class="docutils literal notranslate"><span class="pre">-1</span></code> means unlimited)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--project-root</span> <span class="pre">PATH</span></code>: kcfa only; project source root for imports
+(default: inferred from the entry file)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-iterations</span> <span class="pre">N</span></code>: kcfa only; solver work-item budget
+(default: 100000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-points-to-size</span> <span class="pre">N</span></code>: kcfa only; widen points-to sets at this size
+(default: 200; widened queries are reported incomplete)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--max-seconds</span> <span class="pre">N</span></code>: Time budget across all files (default: 30); exhaustion
 reports partial coverage and retains completed files</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p></li>
 </ul>
 <p>The kcfa report includes solver coverage (<code class="docutils literal notranslate"><span class="pre">complete</span></code>/<code class="docutils literal notranslate"><span class="pre">stop_reason</span></code>), both
 in text and JSON form. Files skipped after a budget expiry appear in JSON with
-<code class="docutils literal notranslate"><span class="pre">&quot;status&quot;:</span> <span class="pre">&quot;skipped&quot;</span></code>.
-- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory
-- <code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text
-- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p>
+<code class="docutils literal notranslate"><span class="pre">&quot;status&quot;:</span> <span class="pre">&quot;skipped&quot;</span></code>.</p>
 </section>
 </section>
 <section id="capability-commands">
@@ -562,14 +589,26 @@ policy violation.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry file relative to project root</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Analyze all project Python files instead of selecting one entry</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--reachable-only</span></code>: Analyze only functions reachable from the entry call graph. By default
+every function and method scope in the analyzed files is audited, so uncalled library
+functions and framework handlers are reported</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--import-depth</span> <span class="pre">N</span></code>: Maximum transitive import depth (<code class="docutils literal notranslate"><span class="pre">-1</span></code> means unlimited, <code class="docutils literal notranslate"><span class="pre">0</span></code> means
+the entry only). The default is <code class="docutils literal notranslate"><span class="pre">0</span></code> for <code class="docutils literal notranslate"><span class="pre">-r</span></code> and for absolute-import file targets,
+and unlimited for package-relative files and project entries</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--include-imports</span></code>: For a single-file target, also report findings from transitively
+imported project modules (default: report only the target file)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--max-iterations</span> <span class="pre">N</span></code>: Pointer work-item budget per entry (default: 20000)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--max-seconds</span> <span class="pre">N</span></code>: Time budget across all entries (default: 30)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-seconds</span> <span class="pre">N</span></code>: Wall-clock budget for the whole analysis (default: 120 for a single
+entry, 60 with <code class="docutils literal notranslate"><span class="pre">-r</span></code>); exhaustion reports partial coverage</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span> <span class="pre">{0,1,2,3}</span></code>: Context sensitivity depth (default: 1)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-policy</span> <span class="pre">POLICY</span></code>: Specific context policy (e.g. <code class="docutils literal notranslate"><span class="pre">1-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">2-cfa</span></code>, <code class="docutils literal notranslate"><span class="pre">1c1o</span></code>, <code class="docutils literal notranslate"><span class="pre">1-param</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--capability-model</span> <span class="pre">PATH</span></code>: Custom capability model JSON file (repeatable)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-public-exports</span></code>: Do not report capabilities exposed as public module globals</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--report-callable-boundaries</span></code>: Include potential transfers through returns, yields, and exceptions (default: off)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json,sarif}</span></code>: Output format (default: <code class="docutils literal notranslate"><span class="pre">text</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">{report,findings}</span></code>: <code class="docutils literal notranslate"><span class="pre">report</span></code> (default) returns 0 for completed reports;
+<code class="docutils literal notranslate"><span class="pre">findings</span></code> returns 1 when findings exist or the analysis is partial</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Show individual resolver diagnostics</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span> <span class="pre">PATH</span></code>: Write output to file</p></li>
 </ul>
 <p>Capability reports return 0 by default, including reports with findings or
@@ -628,8 +667,8 @@ server.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span>
 <span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">symbol</span> <span class="n">Client</span><span class="o">.</span><span class="n">fetch</span> <span class="o">--</span><span class="n">json</span> <span class="o">--</span><span class="n">pretty</span>
 <span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">line</span> <span class="mi">42</span> <span class="o">--</span><span class="n">column</span> <span class="mi">8</span> <span class="o">--</span><span class="n">json</span>
-<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">diagnostics</span> <span class="o">--</span><span class="n">json</span>
-<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">module</span> <span class="n">package</span><span class="o">.</span><span class="n">module</span> <span class="o">--</span><span class="n">diagnostics</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">modules</span> <span class="mi">20</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">app</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">mode</span> <span class="n">diagnostics</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">typeinfo</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">module</span> <span class="n">package</span><span class="o">.</span><span class="n">module</span> <span class="o">--</span><span class="n">mode</span> <span class="n">diagnostics</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">modules</span> <span class="mi">20</span>
 </pre></div>
 </div>
 <p>For a single file, the import-qualified module name is inferred.  For a project

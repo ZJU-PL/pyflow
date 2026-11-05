@@ -182,10 +182,14 @@ directly from CFGs. See <a class="reference internal" href="ddg.html"><span clas
 <p>The data flow graph represents a function as a sequence of operations connected
 by data dependencies.  Each operation produces a result stored in a slot, and
 slots are consumed by subsequent operations.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.dataflow.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.dataflow.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span><span class="p">,</span> <span class="n">evaluateCode</span>
 
-<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
-<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
+<span class="c1"># Build a graph from a language-level Code object.</span>
+<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">evaluateCode</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+
+<span class="c1"># Or drive the converter directly.</span>
+<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">processCode</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>

@@ -83,7 +83,7 @@ You should see output similar to:
 
 .. code-block:: text
 
-   PyFlow 0.1.0
+   PyFlow 0.1.2
 
 Basic Usage
 ===========
@@ -169,15 +169,30 @@ showing the basic blocks and their relationships:
 
 .. code-block:: text
 
-   CFG for fibonacci:
-   ──────────────────────
+   CFG for function: fibonacci
+   ==================================================
 
-   Block 0 (Entry):
-     if n <= 1
-   Block 1 (True):
-     return n
-   Block 2 (False):
-     return fibonacci(n-1) + fibonacci(n-2)
+   CFG:
+
+   B0:
+     [ENTRY]
+     Succs (entry -> B1)
+
+   B1:
+     [Suite]
+       Discard(Existing(Object('Calculate the nth Fibonacci number.')))
+     Succs (normal -> B2)
+
+   B2:
+     [Switch]
+       Condition: Call(Existing(Object('interpreter__le__')), [...])
+     Succs (error -> B3, true -> B4, false -> B5)
+   ...
+
+   B5:
+     [Suite]
+       Return([Call(Existing(Object('interpreter__add__')), [...])])
+     Succs (error -> B3, normal -> B7)
 
 Visualizing Results
 ===================

@@ -42,4 +42,4 @@ Use ``build_gir`` or ``build_function_gir`` to generate GIR rows programmaticall
    rows = build_function_gir(code_object, module_id="main")
 
    # Format GIR as text representation
-   text_output = dump_gir_content(rows, format="text")
+   text_output = dump_gir_content(rows)

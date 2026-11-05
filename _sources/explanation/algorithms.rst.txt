@@ -36,20 +36,23 @@ A basic block is created for:
 Dominance Analysis
 ^^^^^^^^^^^^^^^^^^
 
-PyFlow uses the Lengauer-Tarjan algorithm for dominance computation:
+PyFlow computes dominators with the reverse-post-order iterative algorithm in
+``pyflow.util.graphalgorithim.dominator``:
 
 .. code-block:: text
 
-   Algorithm: Lengauer-Tarjan Dominance Algorithm
+   Algorithm: Iterative Dominator Computation
    Input: CFG with entry node
-   Output: Dominator tree
+   Output: Dominator tree and immediate dominators
 
-   1. Perform DFS from entry, numbering nodes
-   2. Calculate semi-dominators
-   3. Build dominator tree using union-find
-   4. Optimize with path compression
+   1. Number nodes in reverse post-order by depth-first search from the entry
+   2. Initialize the entry's dominator set to itself and every other set to all nodes
+   3. Repeatedly replace each node's set with the node plus the intersection of
+      its predecessors' sets until no set changes
+   4. Derive immediate dominators and the dominator tree from the fixed point
 
-The algorithm runs in near-linear time: O((V+E) * α(V,E))
+The formulation is simple and predictable; its worst case is quadratic in the
+number of nodes.
 
 Data Flow Analysis
 ==================
@@ -345,7 +348,7 @@ Time Complexity
 +======================+==================+
 | CFG Construction     | O(n)             |
 +----------------------+------------------+
-| Dominance Analysis   | O(n log n)       |
+| Dominance Analysis   | O(n²) worst case |
 +----------------------+------------------+
 | Data Flow (worklist) | O(n²) worst case |
 +----------------------+------------------+

@@ -188,18 +188,21 @@ static analysis and optimization passes.</p>
 </section>
 <section id="dominance-analysis">
 <h4>Dominance Analysis<a class="headerlink" href="#dominance-analysis" title="Link to this heading"></a></h4>
-<p>PyFlow uses the Lengauer-Tarjan algorithm for dominance computation:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Lengauer-Tarjan Dominance Algorithm
+<p>PyFlow computes dominators with the reverse-post-order iterative algorithm in
+<code class="docutils literal notranslate"><span class="pre">pyflow.util.graphalgorithim.dominator</span></code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Iterative Dominator Computation
 Input: CFG with entry node
-Output: Dominator tree
+Output: Dominator tree and immediate dominators
 
-1. Perform DFS from entry, numbering nodes
-2. Calculate semi-dominators
-3. Build dominator tree using union-find
-4. Optimize with path compression
+1. Number nodes in reverse post-order by depth-first search from the entry
+2. Initialize the entry's dominator set to itself and every other set to all nodes
+3. Repeatedly replace each node's set with the node plus the intersection of
+   its predecessors' sets until no set changes
+4. Derive immediate dominators and the dominator tree from the fixed point
 </pre></div>
 </div>
-<p>The algorithm runs in near-linear time: O((V+E) * α(V,E))</p>
+<p>The formulation is simple and predictable; its worst case is quadratic in the
+number of nodes.</p>
 </section>
 </section>
 </section>
@@ -453,7 +456,7 @@ Output: Inlined code
 <td><p>O(n)</p></td>
 </tr>
 <tr class="row-odd"><td><p>Dominance Analysis</p></td>
-<td><p>O(n log n)</p></td>
+<td><p>O(n²) worst case</p></td>
 </tr>
 <tr class="row-even"><td><p>Data Flow (worklist)</p></td>
 <td><p>O(n²) worst case</p></td>

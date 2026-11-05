@@ -202,8 +202,9 @@ negative narrowing; literal equality guards narrow to concrete values; and
 printf-style format strings report type/arity mismatches.</p>
 <p>Parsed stubs can be persisted through a SQLite cache keyed by path,
 modification time, size, target Python version, and parser format.  The cache
-lives under <code class="docutils literal notranslate"><span class="pre">PYFLOW_CACHE_DIR</span></code> (default <code class="docutils literal notranslate"><span class="pre">~/.cache/pyflow</span></code>) and can be
-disabled with <code class="docutils literal notranslate"><span class="pre">StubResolver(...,</span> <span class="pre">enable_cache=False)</span></code>.</p>
+lives under <code class="docutils literal notranslate"><span class="pre">PYFLOW_CACHE_DIR</span></code> (default <code class="docutils literal notranslate"><span class="pre">$XDG_CACHE_HOME/pyflow</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">~/.cache/pyflow</span></code> when <code class="docutils literal notranslate"><span class="pre">XDG_CACHE_HOME</span></code> is unset) and can be disabled with
+<code class="docutils literal notranslate"><span class="pre">StubResolver(...,</span> <span class="pre">enable_cache=False)</span></code>.</p>
 <p>Typeshed is the declaration source for the whole stdlib surface.  A small
 receiver-aware call/member layer still overrides it where declarations cannot
 express the result (for example <code class="docutils literal notranslate"><span class="pre">collections.Counter.copy()</span></code>,
@@ -219,8 +220,8 @@ project directory accepts <code class="docutils literal notranslate"><span class
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py
 pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--symbol<span class="w"> </span>Client.fetch<span class="w"> </span>--json<span class="w"> </span>--pretty
 pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--line<span class="w"> </span><span class="m">42</span><span class="w"> </span>--column<span class="w"> </span><span class="m">8</span><span class="w"> </span>--json
-pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--diagnostics<span class="w"> </span>--json
-pyflow<span class="w"> </span>typeinfo<span class="w"> </span>src/<span class="w"> </span>--module<span class="w"> </span>package.module<span class="w"> </span>--diagnostics<span class="w"> </span>--max-modules<span class="w"> </span><span class="m">20</span>
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>app.py<span class="w"> </span>--mode<span class="w"> </span>diagnostics<span class="w"> </span>--json
+pyflow<span class="w"> </span>typeinfo<span class="w"> </span>src/<span class="w"> </span>--module<span class="w"> </span>package.module<span class="w"> </span>--mode<span class="w"> </span>diagnostics<span class="w"> </span>--max-modules<span class="w"> </span><span class="m">20</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">--line</span></code> is 1-based and <code class="docutils literal notranslate"><span class="pre">--column</span></code> is a 0-based character offset, matching
@@ -262,9 +263,9 @@ without it, those sections provide no hints. Python annotations take priority,
 and observed calls/body results take priority over documentation fallbacks.
 Unresolved documented alternatives are not reduced to a definite partial union.</p>
 <p>Source inference models parameterized generic constructors, receiver-bound
-<code class="docutils literal notranslate"><span class="pre">typing.Self</span></code>, <code class="docutils literal notranslate"><span class="pre">typing.cast</span></code>, and <code class="docutils literal notranslate"><span class="pre">NewType</span></code> identity constructors. <code class="docutils literal notranslate"><span class="pre">NewType</span></code>
-values currently project to their underlying type rather than a distinct nominal
-type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
+<code class="docutils literal notranslate"><span class="pre">typing.Self</span></code>, <code class="docutils literal notranslate"><span class="pre">typing.cast</span></code>, and <code class="docutils literal notranslate"><span class="pre">NewType</span></code> identity constructors.
+<code class="docutils literal notranslate"><span class="pre">NewType</span></code> values keep a distinct nominal type while remaining assignable to
+the wrapped type. On Python 3.12 and later, the host parser also supports PEP 695 type aliases
 and function/class type parameters. ParamSpec, variadic type parameters, and
 recursive alias expansion are not fully modeled. Module-level PEP 484 and 613
 aliases, including <code class="docutils literal notranslate"><span class="pre">Name:</span> <span class="pre">TypeAlias</span> <span class="pre">=</span> <span class="pre">...</span></code>, are also resolved.</p>

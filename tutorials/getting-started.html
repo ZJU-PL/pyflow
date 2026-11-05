@@ -204,7 +204,7 @@ source code will be reflected immediately without reinstallation.</p>
 </pre></div>
 </div>
 <p>You should see output similar to:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>PyFlow 0.1.0
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>PyFlow 0.1.2
 </pre></div>
 </div>
 </section>
@@ -282,15 +282,30 @@ Call Relationships:
 </div>
 <p>This will output the Control Flow Graph (CFG) for the <code class="docutils literal notranslate"><span class="pre">fibonacci</span></code> function,
 showing the basic blocks and their relationships:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for fibonacci:
-──────────────────────
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for function: fibonacci
+==================================================
 
-Block 0 (Entry):
-  if n &lt;= 1
-Block 1 (True):
-  return n
-Block 2 (False):
-  return fibonacci(n-1) + fibonacci(n-2)
+CFG:
+
+B0:
+  [ENTRY]
+  Succs (entry -&gt; B1)
+
+B1:
+  [Suite]
+    Discard(Existing(Object('Calculate the nth Fibonacci number.')))
+  Succs (normal -&gt; B2)
+
+B2:
+  [Switch]
+    Condition: Call(Existing(Object('interpreter__le__')), [...])
+  Succs (error -&gt; B3, true -&gt; B4, false -&gt; B5)
+...
+
+B5:
+  [Suite]
+    Return([Call(Existing(Object('interpreter__add__')), [...])])
+  Succs (error -&gt; B3, normal -&gt; B7)
 </pre></div>
 </div>
 </section>

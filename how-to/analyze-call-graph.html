@@ -72,11 +72,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#basic-visualization">Basic visualization</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#customized-visualization">Customized visualization</a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#common-analysis-tasks">Common Analysis Tasks</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#task-1-find-unused-functions">Task 1: Find unused functions</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#task-2-find-critical-functions">Task 2: Find critical functions</a></li>
@@ -196,13 +192,13 @@ function call structure of your Python programs.</p>
 <section id="json-programmatic-processing">
 <h4>JSON (programmatic processing)<a class="headerlink" href="#json-programmatic-processing" title="Link to this heading"></a></h4>
 <p>For scripts and automation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
 </pre></div>
 </div>
 </section>
-<section id="text-output">
-<h4>Text output<a class="headerlink" href="#text-output" title="Link to this heading"></a></h4>
-<p>For quick inspection:</p>
+<section id="text-output-to-a-file">
+<h4>Text output to a file<a class="headerlink" href="#text-output-to-a-file" title="Link to this heading"></a></h4>
+<p>For a saved report:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 </pre></div>
 </div>
@@ -287,36 +283,25 @@ value-flow graph.</p>
 </section>
 <section id="visualizing-call-graphs">
 <h2>Visualizing Call Graphs<a class="headerlink" href="#visualizing-call-graphs" title="Link to this heading"></a></h2>
-<p>Create professional visualizations using DOT format:</p>
-<section id="basic-visualization">
-<h3>Basic visualization<a class="headerlink" href="#basic-visualization" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
-<span class="c1"># Re-run with constraint algorithm for JSON output</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--as-graph-output<span class="w"> </span>callgraph.json
-</pre></div>
-</div>
-</section>
-<section id="customized-visualization">
-<h3>Customized visualization<a class="headerlink" href="#customized-visualization" title="Link to this heading"></a></h3>
-<p>Create a custom layout script:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># custom_layout.gv
-graph [rankdir=TB, nodesep=0.5, ranksep=0.5]
-node [shape=box, style="rounded,filled", fontname="Arial"]
-edge [fontname="Arial", fontsize=10]
+<p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">callgraph</span></code> emits text or JSON. To render a diagram, build the graph
+through the Python API and use the DOT exporter:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-# Color recursive functions
-"fibonacci" [fillcolor=yellow]
-"factorial" [fillcolor=yellow]
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.formats</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_dot_output</span>
 
-# Highlight main entry point
-"main" [fillcolor=lightblue, penwidth=2]
+<span class="n">source</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"input.py"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+<span class="n">Path</span><span class="p">(</span><span class="s2">"callgraph.dot"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">generate_dot_output</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Then apply it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-Gstylesheet<span class="o">=</span>custom_layout.gv
+<p>Then render the DOT file with Graphviz:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png
+dot<span class="w"> </span>-Tsvg<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.svg
 </pre></div>
 </div>
-</section>
+<p>For CFG, CDG, DDG, and MIR diagrams use <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">ir</span> <span class="pre">--dump-format</span> <span class="pre">dot</span></code>; see
+<a class="reference internal" href="../cli.html"><span class="doc">Main Commands</span></a> for the dump options.</p>
 </section>
 <section id="common-analysis-tasks">
 <h2>Common Analysis Tasks<a class="headerlink" href="#common-analysis-tasks" title="Link to this heading"></a></h2>
@@ -365,10 +350,24 @@ edge [fontname="Arial", fontsize=10]
 <section id="task-3-find-deep-call-chains">
 <h3>Task 3: Find deep call chains<a class="headerlink" href="#task-3-find-deep-call-chains" title="Link to this heading"></a></h3>
 <p>Find functions that are deeply nested in the call hierarchy:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--as-graph-output<span class="w"> </span>callgraph.json
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
 </pre></div>
 </div>
-<p>Then analyze the maximum depth programmatically.</p>
+<p>Then measure path depth from the adjacency map:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"callgraph.json"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">adj</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">depth</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">seen</span><span class="o">=</span><span class="p">()):</span>
+    <span class="k">if</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">seen</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">adj</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="n">depth</span><span class="p">(</span><span class="n">callee</span><span class="p">,</span> <span class="n">seen</span> <span class="o">+</span> <span class="p">(</span><span class="n">func</span><span class="p">,))</span> <span class="k">for</span> <span class="n">callee</span> <span class="ow">in</span> <span class="n">adj</span><span class="p">[</span><span class="n">func</span><span class="p">])</span>
+
+<span class="n">deepest</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(((</span><span class="n">depth</span><span class="p">(</span><span class="n">func</span><span class="p">),</span> <span class="n">func</span><span class="p">)</span> <span class="k">for</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">adj</span><span class="p">),</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)[:</span><span class="mi">5</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">deepest</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 <section id="troubleshooting">
