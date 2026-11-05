@@ -777,3 +777,45 @@ def use(value: Any | None) -> None:
 """)
 
     assert not [item for item in result.diagnostics if item.code in {"union-attr", "attr-defined"}]
+
+
+def test_project_inference_cache_reuses_unchanged_modules(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo import ProjectInferenceCache
+
+    (tmp_path / "a.py").write_text("LIMIT: int = 3\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("from a import LIMIT\ny = LIMIT\n", encoding="utf-8")
+
+    cache = ProjectInferenceCache()
+    first = ProjectTypeInferenceEngine(ProjectContext(tmp_path), cache=cache).infer_project(["b"])
+    assert cache.hits == 0
+    assert str(first.modules["b"].type_of("y")) == "int"
+
+    second = ProjectTypeInferenceEngine(ProjectContext(tmp_path), cache=cache).infer_project(["b"])
+    assert cache.hits == 2
+    assert str(second.modules["b"].type_of("y")) == "int"
+
+    # A dependency change invalidates the whole dependent closure.
+    (tmp_path / "a.py").write_text("LIMIT: str = 'x'\n", encoding="utf-8")
+    third = ProjectTypeInferenceEngine(ProjectContext(tmp_path), cache=cache).infer_project(["b"])
+    assert cache.hits == 2
+    assert str(third.modules["a"].type_of("LIMIT")) == "str"
+    assert str(third.modules["b"].type_of("y")) == "str"
+
+
+def test_project_inference_cache_handles_import_cycles(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo import ProjectInferenceCache
+
+    (tmp_path / "a.py").write_text(
+        "from b import helper\ndef use() -> int:\n    return helper()\n", encoding="utf-8"
+    )
+    (tmp_path / "b.py").write_text(
+        "from a import use\ndef helper() -> int:\n    return 1\n", encoding="utf-8"
+    )
+
+    cache = ProjectInferenceCache()
+    first = ProjectTypeInferenceEngine(ProjectContext(tmp_path), cache=cache).infer_project(["a"])
+    second = ProjectTypeInferenceEngine(ProjectContext(tmp_path), cache=cache).infer_project(["a"])
+
+    assert cache.hits == 2
+    assert str(first.modules["a"].type_of("use")) == "Callable[[], int]"
+    assert str(second.modules["a"].type_of("use")) == "Callable[[], int]"

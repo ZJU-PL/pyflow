@@ -31,6 +31,7 @@ from .inference.models import (
     ProjectInferenceResult,
     SourceSpan,
 )
+from .inference.cache import ProjectInferenceCache
 from .inference.project import ProjectTypeInferenceEngine
 from .inference.validation import (
     ObservedType,

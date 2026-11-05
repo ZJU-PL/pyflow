@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+
+import networkx as nx
 import tokenize
 from pathlib import Path
 from typing import Iterable
@@ -15,6 +18,10 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TypeSystem,
     TypeType,
     TypeVarType,
+)
+from pyflow.analysis.typeinfo.inference.cache import (
+    ProjectInferenceCache,
+    options_fingerprint,
 )
 from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
 from pyflow.analysis.typeinfo.inference.engine import (
@@ -46,9 +53,13 @@ class ProjectTypeInferenceEngine:
         options: InferenceOptions | None = None,
         call_model_providers: Iterable[CallModelProvider] = (),
         max_project_iterations: int = 16,
+        cache: ProjectInferenceCache | None = None,
     ) -> None:
         self.project_context = project_context
-        self.type_system = type_system or TypeSystem()
+        self.cache = cache
+        self.type_system = (
+            type_system or (cache.type_system if cache is not None else None) or TypeSystem()
+        )
         # Project configuration (``[tool.pyflow.typeinfo]``) applies unless
         # the caller supplies explicit options.
         self.options = options or load_inference_options(project_context.path)
@@ -79,8 +90,19 @@ class ProjectTypeInferenceEngine:
         # Analysing dependencies before their importers means most modules see
         # final external facts on the second pass instead of the fifth.
         analysis_order = self._analysis_order(sources, imports)
+        fingerprints = self._module_fingerprints(sources, imports) if self.cache else {}
+        options_key = options_fingerprint(self.options) if self.cache else ""
+        cached_modules: set[str] = set()
+        if self.cache is not None:
+            for module_name, fingerprint in fingerprints.items():
+                if fingerprint is None:
+                    continue
+                cached = self.cache.get(module_name, fingerprint, options_key)
+                if cached is not None:
+                    results[module_name] = cached
+                    cached_modules.add(module_name)
         previous: dict[str, tuple[object, ...]] = {}
-        targets = set(sources)
+        targets = set(sources) - cached_modules
         for iterations in range(1, self.max_project_iterations + 1):
             for module_name in [name for name in analysis_order if name in targets]:
                 if module_name in failed_modules:
@@ -129,6 +151,12 @@ class ProjectTypeInferenceEngine:
             # Only changed modules and their transitive importers can observe
             # different external facts on the next pass.
             targets = self._dependent_modules(changed, importers)
+
+        if self.cache is not None:
+            for module_name, result in results.items():
+                fingerprint = fingerprints.get(module_name)
+                if fingerprint is not None:
+                    self.cache.put(module_name, fingerprint, options_key, result)
 
         if not converged:
             diagnostics.append(
@@ -338,6 +366,43 @@ class ProjectTypeInferenceEngine:
                                     )
                                 return member
         return resolve_typeshed_symbol(qualified_name)
+
+    @staticmethod
+    def _module_fingerprints(
+        sources: dict[str, str],
+        imports: dict[str, set[str]],
+    ) -> dict[str, str | None]:
+        """Merkle fingerprint per module, with import cycles condensed.
+
+        Modules in one strongly connected component share a fingerprint built
+        from all their sources plus the fingerprints of external dependencies,
+        so a change anywhere in a cycle invalidates the whole component.
+        """
+        graph = nx.DiGraph()
+        graph.add_nodes_from(sources)
+        for module, dependencies in imports.items():
+            for dependency in dependencies:
+                if dependency in sources:
+                    graph.add_edge(module, dependency)
+        components = list(nx.strongly_connected_components(graph))
+        component_of = {
+            module: index for index, component in enumerate(components) for module in component
+        }
+        condensed = nx.condensation(graph, components)
+        component_hash: dict[int, str] = {}
+        for component_index in nx.topological_sort(condensed.reverse(copy=False)):
+            members = sorted(components[component_index])
+            payload = "\0".join(sources.get(member, "") for member in members)
+            dependency_hashes = sorted(
+                component_hash[successor]
+                for successor in condensed.successors(component_index)
+                if successor in component_hash
+            )
+            digest = hashlib.sha256(
+                (payload + "\0" + ",".join(dependency_hashes)).encode("utf-8")
+            ).hexdigest()
+            component_hash[component_index] = digest
+        return {module: component_hash[component_of[module]] for module in sources}
 
     @staticmethod
     def _analysis_order(

@@ -1772,9 +1772,7 @@ class ASTConverter:
                         [
                             value,
                             pyflow_ast.Existing(Object(len(elts))),
-                            pyflow_ast.Existing(
-                                Object(-1 if starred_idx is None else starred_idx)
-                            ),
+                            pyflow_ast.Existing(Object(-1 if starred_idx is None else starred_idx)),
                         ],
                     )
                 )

@@ -1311,3 +1311,25 @@ def f(xs):
     ]
     assert check_blocks
     assert any("fail" in block.next or "error" in block.next for block in check_blocks)
+
+
+def test_generator_expression_evaluates_outermost_iterable_eagerly():
+    """``(i for i in make())`` must call ``make`` when the generator is created."""
+    source = """
+def f(x):
+    g = (i for i in make(x))
+    return g
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    outer_operations = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert "make" in outer_operations
+
+    comp_codes = _comprehension_codes(cfg)
+    assert comp_codes
+    inner_operations = "\n".join(
+        str(operation) for operation in _cfg_operations(transform.evaluate(None, comp_codes[0]))
+    )
+    assert "make" not in inner_operations

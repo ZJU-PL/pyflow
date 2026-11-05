@@ -169,7 +169,9 @@ class IntrinsicManager:
             minimum = count - 1 if star_index >= 0 else count
             if length < minimum or (star_index < 0 and length != count):
                 raise ValueError(
-                    "not enough values to unpack" if length < minimum else "too many values to unpack"
+                    "not enough values to unpack"
+                    if length < minimum
+                    else "too many values to unpack"
                 )
             return None
 
