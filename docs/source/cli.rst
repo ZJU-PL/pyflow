@@ -513,8 +513,7 @@ directory, use ``--module`` for symbol/expression queries.  ``--line`` is
 1-based and ``--column`` is a 0-based character offset.  ``--mode signatures``
 (default) lists function and method signatures, ``--mode types`` lists all
 symbols, ``--mode summary`` prints counts, and ``--mode diagnostics`` prints
-structured diagnostics.  Human output is bounded by ``--max-types``; JSON is
-complete.
+structured diagnostics.
 
 Options:
 
@@ -522,7 +521,6 @@ Options:
 - ``--symbol NAME``: Type of a module symbol or ``Class.member``
 - ``--line LINE`` / ``--column COLUMN``: Expression query position
 - ``--mode {signatures,types,summary,diagnostics}``: Select report content
-- ``--max-types N``: Limit type facts per module in human output (default 20; 0 means all)
 - ``--max-modules N``: Limit directory-wide analysis
 - ``--json`` / ``--pretty``: Machine-readable output
 

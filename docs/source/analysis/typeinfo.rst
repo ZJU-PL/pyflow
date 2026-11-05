@@ -94,12 +94,11 @@ project directory accepts ``--module`` for focused queries:
 LSP positions.  ``--mode signatures`` (default) lists function and method
 signatures; ``--mode types`` lists all queryable symbols; ``--mode summary``
 prints symbol/function/expression and diagnostic counts; and
-``--mode diagnostics`` prints structured diagnostics.  Human output limits each
-module to 20 type facts by default to avoid flooding a terminal
-(``--max-types 0`` disables the limit); JSON output is complete.  Every result
-reports ``complete``/``partial`` status where applicable; unknown expression
-facts are returned as JSON ``null`` plus ``complete``/``unknown`` flags rather
-than being presented as a definite type.
+``--mode diagnostics`` prints structured diagnostics.  The default signature
+mode keeps normal output focused, while ``types`` mode intentionally shows all
+queryable symbols.  Every result reports ``complete``/``partial`` status where
+applicable; unknown expression facts are returned as JSON ``null`` plus
+``complete``/``unknown`` flags rather than being presented as a definite type.
 
 Evidence Collection
 ~~~~~~~~~~~~~~~~~~~

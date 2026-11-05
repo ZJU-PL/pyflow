@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a standalone `pyflow typeinfo` command.  It runs `TypeInfoService`
   directly with `--mode signatures` (default), `types`, `summary`, and
   `diagnostics`, plus symbol lookup, expression lookup by 1-based line /
-  0-based column, bounded human output, and complete JSON output.  It does not
+  0-based column, and complete JSON output.  It does not
   start LSP or MCP and does not add a separate type-checking command.
 
 - `pyflow capabilities` now audits every function and method scope in the

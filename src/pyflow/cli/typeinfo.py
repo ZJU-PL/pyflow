@@ -80,13 +80,6 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         help="0-based character column for an expression query",
     )
     parser.add_argument(
-        "--max-types",
-        type=int,
-        default=20,
-        metavar="N",
-        help="Maximum type facts shown per module in human output; 0 means all",
-    )
-    parser.add_argument(
         "--max-modules",
         type=int,
         default=None,
@@ -321,7 +314,7 @@ def _diagnostic_result(
     ]
 
 
-def _print_human(payload: object, *, mode: str, max_types: int | None = None) -> None:
+def _print_human(payload: object, *, mode: str) -> None:
     if mode in {"types", "signatures"}:
         if isinstance(payload, list):
             for item in payload:
@@ -334,16 +327,8 @@ def _print_human(payload: object, *, mode: str, max_types: int | None = None) ->
                     label = "function signatures" if mode == "signatures" else "type facts"
                     print(f"  <no {label}>")
                     continue
-                shown = list(types.items())
-                if max_types is not None and max_types > 0:
-                    shown = shown[:max_types]
-                for name, info in shown:
+                for name, info in types.items():
                     print(f"  {name}: {info['type']}  [{info['source']}]")
-                remaining = len(types) - len(shown)
-                if remaining:
-                    print(
-                        f"  ... {remaining} more type facts; " "use --max-types 0 or --json for all"
-                    )
         return
     if mode == "summary":
         if isinstance(payload, list):
@@ -400,9 +385,6 @@ def run_typeinfo(args) -> int:
     if args.max_modules is not None and args.max_modules < 0:
         print("Error: --max-modules must be non-negative", file=sys.stderr)
         return 2
-    if args.max_types < 0:
-        print("Error: --max-types must be non-negative", file=sys.stderr)
-        return 2
 
     root = _default_root(input_path)
     context = ProjectContext(root)
@@ -446,5 +428,5 @@ def run_typeinfo(args) -> int:
     if args.json or args.pretty:
         print(json.dumps(payload, indent=2 if args.pretty else None, default=str))
     else:
-        _print_human(payload, mode=mode, max_types=args.max_types)
+        _print_human(payload, mode=mode)
     return 0
