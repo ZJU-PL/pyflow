@@ -98,6 +98,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mypy's `--disable-error-code` and severity overrides; `TypeInfoService`
   forwards them to the inference engine.
 
+- Type inference reports `override` for incompatible same-module method
+  overrides (parameter arity and contravariance, return covariance), matching
+  mypy's `override` code.
+- Indexing an empty container literal (`{}["key"]`, `list[Never]`) no longer
+  reports `index`; unknown element types stay gradual.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

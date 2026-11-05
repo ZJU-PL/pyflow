@@ -454,3 +454,36 @@ def use() -> None:
 """)
 
     assert not [item for item in result.diagnostics if item.code in {"attr-defined", "union-attr"}]
+
+
+def test_override_checks_same_module_hierarchy() -> None:
+    result = infer("""
+class Base:
+    def run(self, value: int) -> int:
+        return value
+    def copy(self) -> "Base":
+        return self
+
+class Good(Base):
+    def run(self, value: int) -> int:
+        return value
+    def copy(self) -> "Good":
+        return self
+
+class Bad(Base):
+    def run(self, value: str) -> str:
+        return value
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "override"]
+    assert messages == ['Signature of "run" incompatible with supertype "m.Base"']
+
+
+def test_empty_dict_index_is_not_reported() -> None:
+    result = infer("""
+def use() -> None:
+    empty = {}
+    value = empty["key"]
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "index"]

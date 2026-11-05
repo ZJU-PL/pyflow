@@ -18,6 +18,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     NEVER,
     CallableType,
     Instance,
+    NeverType,
     NoneType,
     ProperType,
     TupleType,
@@ -321,7 +322,8 @@ class ValueInference(InferenceComponent):
             expected = typ.args[0]
         elif raw in self._INT_INDEX:
             expected = self._proper_instance(int)
-        if expected is None or isinstance(expected, AnyType):
+        if expected is None or isinstance(expected, (AnyType, NeverType)):
+            # ``dict[Never, Never]`` is an empty literal: any key is fine.
             return
         if self.engine.type_system.is_subtype(actual, expected):
             return

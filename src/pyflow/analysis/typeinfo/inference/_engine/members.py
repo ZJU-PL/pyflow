@@ -30,6 +30,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ProperType,
     TupleType,
     TypeType,
+    TypeVarType,
     UnionType,
 )
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
@@ -1246,6 +1247,89 @@ class MemberInference(InferenceComponent):
                     node=node,
                 )
             return
+
+    def check_overrides(self) -> None:
+        """Report ``override`` for incompatible same-module method overrides.
+
+        Only classes and bases analysed by this engine are compared: for
+        imported bases the full method signature may be missing.  Variadic,
+        overloaded, unannotated, and dunder methods are skipped, which keeps
+        the check aligned with mypy on the cases it can decide.
+        """
+        for class_name, class_info in self.engine._classes.items():
+            for base_name in class_info.bases:
+                if base_name not in self.engine._classes:
+                    continue
+                for method_name, qualified in class_info.methods.items():
+                    if method_name.startswith("__") and method_name.endswith("__"):
+                        continue
+                    if method_name in class_info.properties:
+                        continue
+                    base_method = self._class_method(base_name, method_name)
+                    if base_method is None or base_method == qualified:
+                        continue
+                    self._check_override(class_name, base_name, method_name, qualified, base_method)
+
+    def _check_override(
+        self,
+        class_name: str,
+        base_name: str,
+        method_name: str,
+        qualified: str,
+        base_method: str,
+    ) -> None:
+        override = self.engine._functions.get(qualified)
+        base = self.engine._functions.get(base_method)
+        if override is None or base is None:
+            return
+        if override.overloads or base.overloads:
+            return
+        override_signature = self.engine._function_rules._function_value(override).public_type()
+        base_signature = self.engine._function_rules._function_value(base).public_type()
+        if not isinstance(override_signature, CallableType) or not isinstance(
+            base_signature, CallableType
+        ):
+            return
+        if override_signature.arg_types is None or base_signature.arg_types is None:
+            return
+        override_args = (
+            override_signature.arg_types
+            if override.method_kind == "static"
+            else override_signature.arg_types[1:]
+        )
+        base_args = (
+            base_signature.arg_types
+            if base.method_kind == "static"
+            else base_signature.arg_types[1:]
+        )
+        if len(override_args) != len(base_args):
+            self._report_override(method_name, base_name, override)
+            return
+        for base_arg, override_arg in zip(base_args, override_args):
+            if isinstance(base_arg, (AnyType, TypeVarType)) or isinstance(
+                override_arg, (AnyType, TypeVarType)
+            ):
+                continue
+            # Parameters are contravariant: the override must accept at least
+            # everything the base accepts.
+            if not self.engine.type_system.is_subtype(base_arg, override_arg):
+                self._report_override(method_name, base_name, override)
+                return
+        returned = override_signature.return_type
+        base_returned = base_signature.return_type
+        if isinstance(returned, (AnyType, TypeVarType)) or isinstance(
+            base_returned, (AnyType, TypeVarType)
+        ):
+            return
+        if not self.engine.type_system.is_subtype(returned, base_returned):
+            self._report_override(method_name, base_name, override)
+
+    def _report_override(self, method_name: str, base_name: str, function) -> None:
+        self.engine._add_diagnostic(
+            "override",
+            f'Signature of "{method_name}" incompatible with supertype "{base_name}"',
+            node=function.node,
+        )
 
     def _definitely_missing(self, typ: ProperType, attribute: str) -> bool:
         if not isinstance(typ, Instance):

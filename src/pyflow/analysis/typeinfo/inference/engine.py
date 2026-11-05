@@ -70,6 +70,7 @@ class InferenceOptions:
     # ``x: T``); inferred receivers are skipped because an over-specific
     # inferred type would flag code that mypy accepts.
     check_member_access: bool = True
+    check_overrides: bool = True
     # mypy-style ``--disable-error-code``: diagnostic codes that are never
     # emitted, and per-code severity overrides ("error" marks the module
     # partial, "warning"/"info" do not).
@@ -264,6 +265,8 @@ class StaticTypeInferenceEngine:
             )
 
         self._declaration_rules._refresh_class_member_signatures()
+        if self.options.check_overrides:
+            self._member_rules.check_overrides()
         if self.options.check_member_access:
             # Checking must happen after the fixed point: during the first pass
             # ``self.attr`` assignments from ``__init__`` are not committed yet
