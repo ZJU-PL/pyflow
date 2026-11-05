@@ -235,3 +235,15 @@ See Also
 
 - :doc:`ipa` — Inter-procedural analysis that consumes type info
 - :doc:`cpa` — Constraint-based analysis that can leverage type information
+
+TypeEvalPy evidence
+------------------
+
+The maintained ``tools/typeinfo_typeevalpy.py`` adapter exports runtime type
+facts and per-fact diagnostics against a configurable local TypeEvalPy checkout.
+See the `TypeEvalPy methodology, results and regression report
+<../../typeevalpy.md>`_ for reproducible commands and scoring limitations.
+Literal sequence facts now preserve bounded positional values and callback
+identities. Named ``map`` callbacks receive argument evidence, ``groupby`` models
+its key callback, modeled iterator factories retain their runtime classes, and
+source member lookup follows C3 order for multiple inheritance.

@@ -90,6 +90,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#package-layout">Package Layout</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#typeevalpy-evidence">TypeEvalPy evidence</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
@@ -356,6 +357,16 @@ in <code class="docutils literal notranslate"><span class="pre">ProjectContext(.
 <li><p><a class="reference internal" href="ipa.html"><span class="doc">Inter-procedural Analysis (IPA)</span></a> — Inter-procedural analysis that consumes type info</p></li>
 <li><p><a class="reference internal" href="cpa.html"><span class="doc">Constraint-based Analysis (CPA)</span></a> — Constraint-based analysis that can leverage type information</p></li>
 </ul>
+</section>
+<section id="typeevalpy-evidence">
+<h2>TypeEvalPy evidence<a class="headerlink" href="#typeevalpy-evidence" title="Link to this heading"></a></h2>
+<p>The maintained <code class="docutils literal notranslate"><span class="pre">tools/typeinfo_typeevalpy.py</span></code> adapter exports runtime type
+facts and per-fact diagnostics against a configurable local TypeEvalPy checkout.
+See the <a class="reference external" href="../../typeevalpy.md">TypeEvalPy methodology, results and regression report</a> for reproducible commands and scoring limitations.
+Literal sequence facts now preserve bounded positional values and callback
+identities. Named <code class="docutils literal notranslate"><span class="pre">map</span></code> callbacks receive argument evidence, <code class="docutils literal notranslate"><span class="pre">groupby</span></code> models
+its key callback, modeled iterator factories retain their runtime classes, and
+source member lookup follows C3 order for multiple inheritance.</p>
 </section>
 </section>
 
