@@ -1235,6 +1235,13 @@ class MemberInference(InferenceComponent):
         if any(isinstance(item, AnyType) for item in base.types):
             return
         if any(
+            isinstance(item, UnionType)
+            and any(isinstance(member, AnyType) for member in item.items)
+            for item in base.types
+        ):
+            # ``Any | None``: the gradual member absorbs the check.
+            return
+        if any(
             item.type.full_name == "builtins.super"
             for item in base.types
             if isinstance(item, Instance)

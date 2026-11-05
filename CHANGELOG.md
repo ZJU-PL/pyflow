@@ -152,6 +152,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `index` check stays gradual for containers whose type arguments are
   `Any`/`Never` (`list[Any]` from untyped code), matching mypy.
 
+- `union-attr`/`attr-defined` treat a union containing `Any` (`Any | None`) as
+  gradual, matching mypy; the gradual member absorbs the check.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

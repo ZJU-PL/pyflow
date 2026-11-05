@@ -766,3 +766,14 @@ def build(flag: bool) -> None | Info:
 """)
 
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_union_with_any_is_gradual_for_member_checks() -> None:
+    result = infer("""
+from typing import Any
+
+def use(value: Any | None) -> None:
+    shape = value.shape
+""")
+
+    assert not [item for item in result.diagnostics if item.code in {"union-attr", "attr-defined"}]

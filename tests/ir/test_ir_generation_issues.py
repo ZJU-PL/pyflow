@@ -1209,3 +1209,105 @@ def f(xs):
         and getattr(operation.cell, "name", None) == "y"
         for operation in _cfg_operations(gen_cfg)
     )
+
+
+def _cfg_blocks(cfg):
+    """Return every reachable CFG block in traversal order."""
+    seen = set()
+    pending = [cfg.entryTerminal]
+    blocks = []
+    while pending:
+        block = pending.pop()
+        if block in seen:
+            continue
+        seen.add(block)
+        blocks.append(block)
+        pending.extend(block.next.values())
+    return blocks
+
+
+def test_yield_suspension_has_exceptional_edges_to_cleanup():
+    """`yield` is an exception point: throw()/close() raise at the suspension.
+
+    The CFG used to give Yield blocks only a "normal" (resume) exit, so the
+    enclosing ``try/finally``/``except``/``with`` cleanup was unreachable when
+    a generator was closed or an exception was thrown into it.
+    """
+    from pyflow.ir.cfg import graph as cfg_graph
+
+    source = """
+def gen(xs):
+    for x in xs:
+        try:
+            yield x
+        finally:
+            cleanup = 1
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+
+    yields = [block for block in _cfg_blocks(cfg) if isinstance(block, cfg_graph.Yield)]
+    assert yields
+    for block in yields:
+        assert "fail" in block.next
+        assert "error" in block.next
+
+    # The finally body must be reachable through the exceptional exits.
+    reachable = set()
+    pending = []
+    for yield_block in yields:
+        for exit_name in ("fail", "error"):
+            target = yield_block.next.get(exit_name)
+            if target is not None:
+                pending.append(target)
+    while pending:
+        block = pending.pop()
+        if block in reachable:
+            continue
+        reachable.add(block)
+        pending.extend(block.next.values())
+    cleanup_ops = [
+        operation
+        for block in reachable
+        for operation in getattr(block, "ops", ())
+        if "cleanup" in repr(operation)
+    ]
+    assert cleanup_ops
+
+
+def test_augassign_uses_inplace_operator():
+    """``x += y`` must dispatch to ``__iadd__``, not ``__add__``."""
+    source = """
+def f(acc, item):
+    acc += item
+    return acc
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    operations = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert "interpreter__iadd__" in operations
+    assert "interpreter__add__(" not in operations
+
+
+def test_sequence_unpack_emits_length_check():
+    """``a, b = xs`` must validate the item count and keep the ValueError edge."""
+    source = """
+def f(xs):
+    a, b = xs
+    return a
+"""
+    conv = ASTConverter()
+    code = conv._convert_function_def(python_ast.parse(source).body[0]).code
+    cfg = transform.evaluate(None, code)
+    operations = "\n".join(str(operation) for operation in _cfg_operations(cfg))
+    assert "interpreter_unpack_check" in operations
+    # The check is a call, so its block keeps the exceptional exits.
+    check_blocks = [
+        block
+        for block in _cfg_blocks(cfg)
+        if any("interpreter_unpack_check" in str(op) for op in getattr(block, "ops", ()))
+    ]
+    assert check_blocks
+    assert any("fail" in block.next or "error" in block.next for block in check_blocks)

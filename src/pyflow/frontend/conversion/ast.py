@@ -1761,6 +1761,24 @@ class ASTConverter:
                 (i for i, e in enumerate(elts) if isinstance(e, python_ast.Starred)),
                 None,
             )
+            # Sequence unpacking validates the item count first and raises
+            # ``ValueError`` on a mismatch.  Emitting the check keeps that
+            # exceptional edge in the CFG instead of silently truncating or
+            # padding the unpacked values.
+            suite.append(
+                pyflow_ast.Discard(
+                    self._call_named(
+                        "interpreter_unpack_check",
+                        [
+                            value,
+                            pyflow_ast.Existing(Object(len(elts))),
+                            pyflow_ast.Existing(
+                                Object(-1 if starred_idx is None else starred_idx)
+                            ),
+                        ],
+                    )
+                )
+            )
 
             if starred_idx is None:
                 # Simple element-wise unpacking: a, b, c = seq

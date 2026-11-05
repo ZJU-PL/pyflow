@@ -97,6 +97,15 @@ class IntrinsicManager:
             if op_name == "interpreter_match_mapping_rest":
                 return make_params([pyflow_ast.Local("subject"), pyflow_ast.Local("keys")])
 
+            if op_name == "interpreter_unpack_check":
+                return make_params(
+                    [
+                        pyflow_ast.Local("value"),
+                        pyflow_ast.Local("count"),
+                        pyflow_ast.Local("star_index"),
+                    ]
+                )
+
             if op_name == "interpreter_setattr":
                 return make_params(
                     [
@@ -149,6 +158,20 @@ class IntrinsicManager:
                 return make_params([pyflow_ast.Local("items")])
 
             return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
+
+        def _checked_unpack(value, count, star_index):
+            """Return None or raise ValueError like CPython's sequence unpack."""
+            try:
+                length = len(value)
+            except TypeError:
+                # Iterators without __len__ cannot be validated statically.
+                return None
+            minimum = count - 1 if star_index >= 0 else count
+            if length < minimum or (star_index < 0 and length != count):
+                raise ValueError(
+                    "not enough values to unpack" if length < minimum else "too many values to unpack"
+                )
+            return None
 
         def _safe_merge_varargs(a, b):
             try:
@@ -313,6 +336,7 @@ class IntrinsicManager:
             "interpreter__pos__": operator.pos,
             "interpreter__invert__": operator.invert,
             "interpreter_getitem": operator.getitem,
+            "interpreter_unpack_check": _checked_unpack,
             "interpreter_setitem": operator.setitem,
             "interpreter_delitem": operator.delitem,
             "interpreter_call": lambda func, *args, **kwargs: func(*args, **kwargs),
@@ -520,6 +544,7 @@ class IntrinsicManager:
                     "interpreter_make_generator": create_stub_code("interpreter_make_generator"),
                     # Generic attribute access helper
                     "interpreter_getattr": create_stub_code("interpreter_getattr"),
+                    "interpreter_unpack_check": create_stub_code("interpreter_unpack_check"),
                     "interpreter_hasattr": create_stub_code("interpreter_hasattr"),
                 }
             },
