@@ -225,3 +225,20 @@ def copy() -> Options:
 
     assert str(result.type_of("m.copy")) == "Callable[[], m.Options]"
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_inherited_member_uses_base_type_arguments() -> None:
+    from pyflow.analysis.typeinfo import TypeInfoService
+
+    service = TypeInfoService()
+    service.collect_module(
+        "sample",
+        source="from collections import OrderedDict\nclass M(OrderedDict[str, int]):\n    pass\n",
+        path="/tmp/sample.py",
+    )
+
+    keys = service.members_of("sample.M")["keys"].typ
+    assert keys is not None
+    rendered = str(keys)
+    assert "_KT" not in rendered and "_VT" not in rendered
+    assert "str" in rendered and "int" in rendered

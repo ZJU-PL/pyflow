@@ -56,6 +56,9 @@ from pyflow.analysis.typeinfo.resolution.docstrings import (
     search_return_in_docstr,
 )
 from pyflow.analysis.typeinfo.resolution.docstring_types import resolve_documented_type
+from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+    substitute_type_vars,
+)
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -391,7 +394,24 @@ class TypeInfoService:
         members: dict[str, TypeFact] = {}
         for base in info.bases:
             if isinstance(base, Instance):
-                members.update(self._class_members_with_inheritance(base.type.full_name, seen))
+                inherited = self._class_members_with_inheritance(base.type.full_name, seen)
+                substitutions = {
+                    parameter.name: argument
+                    for parameter, argument in zip(base.type.type_parameters, base.args)
+                }
+                if substitutions:
+                    inherited = {
+                        name: replace(
+                            fact,
+                            typ=(
+                                substitute_type_vars(fact.typ, substitutions)
+                                if fact.typ is not None
+                                else None
+                            ),
+                        )
+                        for name, fact in inherited.items()
+                    }
+                members.update(inherited)
         members.update(info.members)
         return members
 
@@ -1730,6 +1750,12 @@ class TypeInfoService:
                     receiver_class=receiver_class,
                 )
                 if found is not None:
+                    substitutions = {
+                        parameter.name: argument
+                        for parameter, argument in zip(base.type.type_parameters, base.args)
+                    }
+                    if substitutions:
+                        found = substitute_type_vars(found, substitutions)
                     return found
         return None
 
