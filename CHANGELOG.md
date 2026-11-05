@@ -70,6 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/typeinfo_mypy_diff.py --diagnostics` compares PyFlow diagnostics with
   mypy errors per module (C3 false positives, C4 false negatives).
 
+- Installed PEP 561 packages (`py.typed`) are now a type source, following
+  mypy's module finder: `click`, `jinja2`, and `pydantic` re-exports resolve,
+  while packages without `py.typed` behave like `Any`.  Annotations inside
+  `if TYPE_CHECKING:` blocks are collected, so lazy public APIs such as
+  `pydantic.BaseModel` are visible.
+- Type inference reports `index` for an invalid subscript type
+  (`list[int]["x"]`, `dict[str, int][1]`) and `name-defined` for an
+  unresolvable bare annotation name.
+- `InferenceOptions.check_member_access` enables `union-attr`/`attr-defined`
+  checking as a post-convergence pass (opt-in; the differential harness exposes
+  it as `--member-checks`).
+- Stub type variables keep their constraints and bounds, generic base classes
+  contribute their type parameters, and `@overload` declarations from typed
+  source packages are collected.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
