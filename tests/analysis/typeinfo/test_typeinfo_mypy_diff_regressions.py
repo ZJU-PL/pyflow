@@ -582,3 +582,19 @@ def use(raw) -> None:
 """)
 
     assert not [item for item in result.diagnostics if item.code == "attr-defined"]
+
+
+def test_override_requires_declared_signatures() -> None:
+    result = infer("""
+class Base:
+    def f(self, value: int) -> int:
+        return value
+
+class Sub(Base):
+    def f(self, value):
+        return value
+""")
+
+    # An inferred (unannotated) signature is not a contract the subclass has
+    # to satisfy; mypy also does not report an override error here.
+    assert not [item for item in result.diagnostics if item.code == "override"]

@@ -1305,16 +1305,36 @@ class MemberInference(InferenceComponent):
         if len(override_args) != len(base_args):
             self._report_override(method_name, base_name, override)
             return
-        for base_arg, override_arg in zip(base_args, override_args):
+        for index, (base_arg, override_arg) in enumerate(zip(base_args, override_args)):
             if isinstance(base_arg, (AnyType, TypeVarType)) or isinstance(
                 override_arg, (AnyType, TypeVarType)
             ):
+                continue
+            # Only annotated parameters are evidence: an inferred parameter
+            # type is not a contract the subclass has to satisfy.
+            base_name_at = (
+                base.parameter_names[index + (0 if base.method_kind == "static" else 1)]
+                if index + (0 if base.method_kind == "static" else 1) < len(base.parameter_names)
+                else None
+            )
+            override_name_at = (
+                override.parameter_names[index + (0 if override.method_kind == "static" else 1)]
+                if index + (0 if override.method_kind == "static" else 1)
+                < len(override.parameter_names)
+                else None
+            )
+            if base_name_at not in base.explicit_parameters:
+                continue
+            if override_name_at not in override.explicit_parameters:
                 continue
             # Parameters are contravariant: the override must accept at least
             # everything the base accepts.
             if not self.engine.type_system.is_subtype(base_arg, override_arg):
                 self._report_override(method_name, base_name, override)
                 return
+        if override.explicit_return is None or base.explicit_return is None:
+            # Inferred return types are not an override contract.
+            return
         returned = override_signature.return_type
         base_returned = base_signature.return_type
         if isinstance(returned, (AnyType, TypeVarType)) or isinstance(

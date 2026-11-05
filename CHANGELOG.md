@@ -100,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Type inference reports `override` for incompatible same-module method
   overrides (parameter arity and contravariance, return covariance), matching
-  mypy's `override` code.
+  mypy's `override` code.  Only declared signatures are compared: inferred
+  parameter/return types are not an override contract.
 - Indexing an empty container literal (`{}["key"]`, `list[Never]`) no longer
   reports `index`; unknown element types stay gradual.
 
