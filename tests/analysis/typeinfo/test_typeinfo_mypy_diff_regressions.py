@@ -654,3 +654,12 @@ def use(raw) -> None:
 """)
 
     assert not [item for item in result.diagnostics if item.code == "assignment"]
+
+
+def test_project_config_accepts_check_assignments(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo.inference.project_config import load_inference_options
+
+    (tmp_path / "pyflow.toml").write_text(
+        "[typeinfo]\ncheck_assignments = false\n", encoding="utf-8"
+    )
+    assert load_inference_options(tmp_path).check_assignments is False
