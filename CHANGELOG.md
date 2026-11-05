@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a standalone `pyflow typeinfo` command.  It runs `TypeInfoService`
-  directly and lists declared/inferred symbol and callable types by default,
-  with `--summary`, symbol lookup, expression lookup by 1-based line /
-  0-based column, structured diagnostics, and JSON output.  It does not start
-  LSP or MCP and does not add a separate type-checking command.
+  directly with `--mode signatures` (default), `types`, `summary`, and
+  `diagnostics`, plus symbol lookup, expression lookup by 1-based line /
+  0-based column, bounded human output, and complete JSON output.  It does not
+  start LSP or MCP and does not add a separate type-checking command.
 
 - `pyflow capabilities` now audits every function and method scope in the
   entry module by default, so uncalled library functions and framework

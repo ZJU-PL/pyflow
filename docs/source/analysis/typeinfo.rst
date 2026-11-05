@@ -91,12 +91,15 @@ project directory accepts ``--module`` for focused queries:
    pyflow typeinfo src/ --module package.module --diagnostics --max-modules 20
 
 ``--line`` is 1-based and ``--column`` is a 0-based character offset, matching
-LSP positions.  The default mode prints the module status and every queryable
-module symbol/callable type, so type information is visible without selecting a
-single symbol.  ``--summary`` switches to symbol/function/expression and
-diagnostic counts.  Every result reports ``complete``/``partial`` status where
-applicable; unknown expression facts are returned as JSON ``null`` plus
-``complete``/``unknown`` flags rather than being presented as a definite type.
+LSP positions.  ``--mode signatures`` (default) lists function and method
+signatures; ``--mode types`` lists all queryable symbols; ``--mode summary``
+prints symbol/function/expression and diagnostic counts; and
+``--mode diagnostics`` prints structured diagnostics.  Human output limits each
+module to 20 type facts by default to avoid flooding a terminal
+(``--max-types 0`` disables the limit); JSON output is complete.  Every result
+reports ``complete``/``partial`` status where applicable; unknown expression
+facts are returned as JSON ``null`` plus ``complete``/``unknown`` flags rather
+than being presented as a definite type.
 
 Evidence Collection
 ~~~~~~~~~~~~~~~~~~~

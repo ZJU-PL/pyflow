@@ -38,8 +38,9 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         help="Query PyFlow's type-information engine without LSP/MCP",
         description=(
             "Analyze a Python file or project with TypeInfoService.  The default "
-            "mode lists inferred and declared symbol types.  Use --symbol, "
-            "--line/--column, or --diagnostics for focused queries."
+            "mode lists function and method signatures; --mode types lists all "
+            "symbol types, --mode summary prints counts, and --mode diagnostics "
+            "prints structured diagnostics."
         ),
     )
     parser.add_argument(
@@ -59,15 +60,14 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         metavar="NAME",
         help="Type of a module-level symbol or Class.member",
     )
-    query.add_argument(
-        "--diagnostics",
-        action="store_true",
-        help="Print type-source, inference, and stub diagnostics",
-    )
-    query.add_argument(
-        "--summary",
-        action="store_true",
-        help="Print only per-module analysis counts instead of symbol types",
+    parser.add_argument(
+        "--mode",
+        choices=("signatures", "types", "summary", "diagnostics"),
+        default="signatures",
+        help=(
+            "Output mode for module reports: signatures (default), all types, "
+            "counts, or diagnostics"
+        ),
     )
     parser.add_argument(
         "--line",
@@ -78,6 +78,13 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         "--column",
         type=int,
         help="0-based character column for an expression query",
+    )
+    parser.add_argument(
+        "--max-types",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Maximum type facts shown per module in human output; 0 means all",
     )
     parser.add_argument(
         "--max-modules",
@@ -194,15 +201,22 @@ def _module_types(service: TypeInfoService, module_name: str) -> dict[str, dict[
     return types
 
 
-def _module_report(service: TypeInfoService, module_name: str) -> dict[str, object]:
+def _module_report(
+    service: TypeInfoService, module_name: str, *, mode: str = "types"
+) -> dict[str, object]:
     result = service.inference_result(module_name)
     diagnostics = [item for item in service.diagnostics() if item.module_name == module_name]
+    types = _module_types(service, module_name)
+    if mode == "signatures":
+        types = {
+            name: info for name, info in types.items() if info.get("kind") in {"function", "method"}
+        }
     return {
         "module": module_name,
         "status": "unavailable" if result is None else result.status,
         "converged": False if result is None else result.converged,
         "iterations": 0 if result is None else result.iterations,
-        "types": _module_types(service, module_name),
+        "types": types,
         "diagnostics": len(diagnostics),
     }
 
@@ -307,8 +321,8 @@ def _diagnostic_result(
     ]
 
 
-def _print_human(payload: object, *, mode: str) -> None:
-    if mode == "types":
+def _print_human(payload: object, *, mode: str, max_types: int | None = None) -> None:
+    if mode in {"types", "signatures"}:
         if isinstance(payload, list):
             for item in payload:
                 print(
@@ -317,10 +331,19 @@ def _print_human(payload: object, *, mode: str) -> None:
                 )
                 types = item.get("types", {})
                 if not types:
-                    print("  <no type facts>")
+                    label = "function signatures" if mode == "signatures" else "type facts"
+                    print(f"  <no {label}>")
                     continue
-                for name, info in types.items():
+                shown = list(types.items())
+                if max_types is not None and max_types > 0:
+                    shown = shown[:max_types]
+                for name, info in shown:
                     print(f"  {name}: {info['type']}  [{info['source']}]")
+                remaining = len(types) - len(shown)
+                if remaining:
+                    print(
+                        f"  ... {remaining} more type facts; " "use --max-types 0 or --json for all"
+                    )
         return
     if mode == "summary":
         if isinstance(payload, list):
@@ -371,15 +394,14 @@ def run_typeinfo(args) -> int:
     if (args.line is None) != (args.column is None):
         print("Error: --line and --column must be provided together", file=sys.stderr)
         return 2
-    if args.line is not None and (args.symbol or args.diagnostics or args.summary):
-        print(
-            "Error: expression queries cannot be combined with "
-            "--symbol, --diagnostics, or --summary",
-            file=sys.stderr,
-        )
+    if args.line is not None and args.symbol:
+        print("Error: expression queries cannot be combined with --symbol", file=sys.stderr)
         return 2
     if args.max_modules is not None and args.max_modules < 0:
         print("Error: --max-modules must be non-negative", file=sys.stderr)
+        return 2
+    if args.max_types < 0:
+        print("Error: --max-types must be non-negative", file=sys.stderr)
         return 2
 
     root = _default_root(input_path)
@@ -408,15 +430,15 @@ def run_typeinfo(args) -> int:
         elif args.line is not None:
             payload = _expression_result(service, module_names[0], args.line, args.column)
             mode = "expression"
-        elif args.diagnostics:
+        elif args.mode == "diagnostics":
             payload = _diagnostic_result(service, module_names)
             mode = "diagnostics"
-        elif args.summary:
+        elif args.mode == "summary":
             payload = [_module_summary(service, name) for name in module_names]
             mode = "summary"
         else:
-            payload = [_module_report(service, name) for name in module_names]
-            mode = "types"
+            payload = [_module_report(service, name, mode=args.mode) for name in module_names]
+            mode = args.mode
     except (ValueError, OSError, SyntaxError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -424,5 +446,5 @@ def run_typeinfo(args) -> int:
     if args.json or args.pretty:
         print(json.dumps(payload, indent=2 if args.pretty else None, default=str))
     else:
-        _print_human(payload, mode=mode)
+        _print_human(payload, mode=mode, max_types=args.max_types)
     return 0
