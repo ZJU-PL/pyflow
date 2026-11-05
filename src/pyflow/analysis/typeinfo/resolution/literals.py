@@ -48,4 +48,5 @@ def narrow_to_literal(
         class_targets=literal.class_targets,
         dict_shapes=literal.dict_shapes,
         literal_values=literal.literal_values,
+        literal_values_complete=literal.literal_values_complete and not old.unknown,
     )

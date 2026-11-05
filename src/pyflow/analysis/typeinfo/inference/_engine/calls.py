@@ -1073,8 +1073,17 @@ class CallInference(InferenceComponent):
             for part in ast.walk(node.args[0])
             if isinstance(part, ast.Name)
         )
+        has_match = any(isinstance(node, ast.Match) for node in ast.walk(function.node))
         key = _SpecializationKey(
             tuple((name, parameters[name]) for name in function.parameter_names),
+            match_arguments=(
+                tuple(
+                    (name, self._match_literal_key(parameters[name]))
+                    for name in function.parameter_names
+                )
+                if has_match
+                else ()
+            ),
             literal_arguments=tuple(
                 (name, parameters[name].literal_values)
                 for name in function.parameter_names
@@ -1082,6 +1091,23 @@ class CallInference(InferenceComponent):
             ),
         )
         return key, parameters
+
+    @staticmethod
+    def _match_literal_key(value):
+        """Bounded input evidence relevant to patterns and their guards."""
+        return (
+            value.literal_values_complete,
+            (
+                tuple(sorted((type(item).__name__, repr(item)) for item in value.literal_values))
+                if value.literal_values_complete
+                else ()
+            ),
+            tuple(CallInference._match_literal_key(item) for item in (value.sequence_items or ())),
+            tuple(
+                (type(key).__name__, repr(key), CallInference._match_literal_key(item))
+                for key, item in (value.mapping_items or ())
+            ),
+        )
 
     def _register_specialization(
         self,
@@ -1204,6 +1230,7 @@ class CallInference(InferenceComponent):
             sequence_items=items,
             mapping_items=mapping,
             literal_values=value.literal_values,
+            literal_values_complete=value.literal_values_complete,
         )
 
     def _bind_call_arguments(

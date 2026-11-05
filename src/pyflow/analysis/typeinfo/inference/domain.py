@@ -62,6 +62,10 @@ class AbstractTypeValue:
         default=None, repr=False
     )
 
+    # Literal hints alone need not cover a joined value. Branch pruning may
+    # use them only when every alternative has known finite scalar evidence.
+    literal_values_complete: bool = False
+
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
         """Return the least element of the inference lattice."""
@@ -81,6 +85,7 @@ class AbstractTypeValue:
         callable_target: str | None = None,
         class_target: str | None = None,
         literal_values: frozenset[object] = frozenset(),
+        literal_values_complete: bool | None = None,
     ) -> AbstractTypeValue:
         """Construct a value from a public type and optional semantic target."""
         return cls(
@@ -89,6 +94,10 @@ class AbstractTypeValue:
             callable_targets=frozenset(() if callable_target is None else (callable_target,)),
             class_targets=frozenset(() if class_target is None else (class_target,)),
             literal_values=literal_values,
+            literal_values_complete=(
+                bool(literal_values) if literal_values_complete is None else literal_values_complete
+            )
+            and not (unknown or typ is None),
         )
 
     @property
@@ -171,6 +180,29 @@ class AbstractTypeValue:
             )
         else:
             mapping = None
+        literals = self.literal_values | other.literal_values
+        complete = (
+            other.literal_values_complete
+            if self.is_bottom
+            else (
+                self.literal_values_complete
+                if other.is_bottom
+                else self.literal_values_complete and other.literal_values_complete
+            )
+        ) and not unknown
+        # Python sets equate True with 1 and 1.0. Do not claim a finite
+        # exhaustive value set after a join has lost those runtime identities.
+        if len(
+            {(type(item), item) for item in (*self.literal_values, *other.literal_values)}
+        ) != len(literals):
+            complete = False
+        if len(literals) > max_union_size:
+            literals, complete = frozenset(), False
+        if not complete:
+            # Open/widened scalar evidence is absorbing. Reviving a small
+            # suffix of literals on the next join would cycle at the budget
+            # boundary and could be mistaken for a closed set by clients.
+            literals = frozenset()
         return AbstractTypeValue(
             candidates,
             unknown=unknown,
@@ -178,7 +210,8 @@ class AbstractTypeValue:
             class_targets=self.class_targets | other.class_targets,
             dict_shapes=shapes,
             element_dict_shapes=self.element_dict_shapes | other.element_dict_shapes,
-            literal_values=self.literal_values | other.literal_values,
+            literal_values=literals,
+            literal_values_complete=complete,
             sequence_items=items,
             mapping_items=mapping,
         )

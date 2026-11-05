@@ -308,7 +308,10 @@ class ExpressionInference(InferenceComponent):
                     if transformed:
                         base = value.public_type() or operand.public_type() or ANY
                         value = AbstractTypeValue.from_type(
-                            base, literal_values=frozenset(transformed)
+                            base,
+                            literal_values=frozenset(transformed),
+                            literal_values_complete=operand.literal_values_complete
+                            and not operand.unknown,
                         )
         elif isinstance(node, ast.Compare):
             value = self.engine._operator_rules._comparison_result(

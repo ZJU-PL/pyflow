@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import itertools
+import operator
 import collections.abc as cabc
 from dataclasses import replace
 from typing import Callable
@@ -706,6 +708,400 @@ class NarrowingInference(InferenceComponent):
             order = list(match_args)
         return fields, order
 
+    @staticmethod
+    def _closed_pattern_values(value):
+        """Return exhaustive safe builtin scalars, never mere literal hints."""
+        if value.unknown:
+            return None
+        parts = [
+            part
+            for typ in value.types
+            for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+        ]
+        if value.literal_values_complete:
+            values = tuple(value.literal_values)
+        elif parts and all(isinstance(part, (LiteralType, NoneType)) for part in parts):
+            values = tuple(part.value if isinstance(part, LiteralType) else None for part in parts)
+        elif len(parts) == 1 and isinstance(parts[0], Instance) and parts[0].type.raw_type is bool:
+            values = (False, True)
+        else:
+            return None
+        return (
+            values
+            if all(
+                type(item) in {str, bytes, int, bool, float, complex, type(None)} for item in values
+            )
+            else None
+        )
+
+    def _pattern_literal_value(self, literal):
+        return AbstractTypeValue.from_type(
+            (
+                NONE_TYPE
+                if literal is None
+                else self.engine._value_rules._proper_instance(type(literal))
+            ),
+            literal_values=frozenset((literal,)),
+        )
+
+    @staticmethod
+    def _consensus_truth(values):
+        values = tuple(values)
+        if values and all(item is True for item in values):
+            return True
+        if values and all(item is False for item in values):
+            return False
+        return None
+
+    def _sequence_pattern_items(self, pattern, subject):
+        items = subject.sequence_items
+        if items is None and len(subject.types) == 1:
+            typ = next(iter(subject.types))
+            if isinstance(typ, TupleType) and not typ.unknown_size:
+                items = tuple(AbstractTypeValue.from_type(item) for item in typ.args)
+        star = next(
+            (i for i, item in enumerate(pattern.patterns) if isinstance(item, ast.MatchStar)), None
+        )
+        if items is not None:
+            minimum = len(pattern.patterns) - (star is not None)
+            if len(items) < minimum or star is None and len(items) != minimum:
+                return None
+            if star is None:
+                return list(items)
+            tail = len(pattern.patterns) - star - 1
+            middle = items[star : len(items) - tail if tail else len(items)]
+            element = self.engine._value_rules._join_many_values(list(middle))
+            rest = self.engine._value_rules._with_sequence_items(
+                self.engine._value_rules._instance(list, element.runtime_type() or ANY), middle
+            )
+            return [*items[:star], rest, *(items[-tail:] if tail else ())]
+        element = self.engine._value_rules._iterable_element(subject)
+        return [
+            (
+                self.engine._value_rules._instance(list, element.runtime_type() or ANY)
+                if isinstance(item, ast.MatchStar)
+                else element
+            )
+            for item in pattern.patterns
+        ]
+
+    def _pattern_truth(self, pattern, subject, environment, current_function):
+        """Three-valued reachability proof; unknown tests retain both paths."""
+        if isinstance(pattern, (ast.MatchAs, ast.MatchStar)):
+            return (
+                self._pattern_truth(pattern.pattern, subject, environment, current_function)
+                if isinstance(pattern, ast.MatchAs) and pattern.pattern is not None
+                else True
+            )
+        if isinstance(pattern, ast.MatchOr):
+            answers = [
+                self._pattern_truth(child, subject, environment, current_function)
+                for child in pattern.patterns
+            ]
+            return (
+                True
+                if any(item is True for item in answers)
+                else False if all(item is False for item in answers) else None
+            )
+        if subject.unknown:
+            return None
+        finite = self._closed_pattern_values(subject)
+        if isinstance(pattern, ast.MatchSingleton):
+            if finite is not None:
+                return self._consensus_truth(item is pattern.value for item in finite)
+            parts = self.engine._operator_rules._flatten_union_parts(subject)
+
+            def singleton_match(item):
+                if isinstance(item, TupleType):
+                    return False
+                if isinstance(item, Instance) and (
+                    not item.type.is_protocol
+                    and not item.type.has_unresolved_bases
+                    and not issubclass(type(pattern.value), item.type.raw_type)
+                    # Numeric annotation compatibility also admits bools.
+                    and not (
+                        type(pattern.value) is bool and item.type.raw_type in {int, float, complex}
+                    )
+                ):
+                    return False
+                return None
+
+            return self._consensus_truth(singleton_match(item) for item in parts)
+        if isinstance(pattern, ast.MatchValue):
+            try:
+                expected = ast.literal_eval(pattern.value)
+            except (ValueError, TypeError):
+                return None
+            if finite is not None:
+                return self._consensus_truth(item == expected for item in finite)
+            parts = self.engine._operator_rules._flatten_union_parts(subject)
+            numeric = {bool, int, float, complex}
+
+            def possible(typ):
+                if isinstance(typ, TupleType):
+                    return False
+                if isinstance(typ, Instance) and typ.type.raw_type in {
+                    str,
+                    bytes,
+                    int,
+                    bool,
+                    float,
+                    complex,
+                    list,
+                    dict,
+                    set,
+                }:
+                    raw = typ.type.raw_type
+                    if raw != type(expected) and not (raw in numeric and type(expected) in numeric):
+                        return False
+                return None
+
+            return self._consensus_truth(possible(item) for item in parts)
+        if isinstance(pattern, ast.MatchSequence):
+            if finite is not None:
+                # str/bytes/bytearray never participate in sequence patterns.
+                return False
+            parts = self.engine._operator_rules._flatten_union_parts(subject)
+            if parts and all(
+                isinstance(item, (NoneType, Instance))
+                and (
+                    isinstance(item, NoneType)
+                    or item.type.raw_type in {str, bytes, bytearray, dict, set, frozenset}
+                )
+                for item in parts
+            ):
+                return False
+            if subject.sequence_items is None and not any(
+                isinstance(item, TupleType) and not item.unknown_size for item in parts
+            ):
+                return None
+            items = self._sequence_pattern_items(pattern, subject)
+            if items is None:
+                return False
+            answers = [
+                self._pattern_truth(child, item, environment, current_function)
+                for child, item in zip(pattern.patterns, items)
+            ]
+            return (
+                False
+                if any(item is False for item in answers)
+                else True if all(item is True for item in answers) else None
+            )
+        if isinstance(pattern, ast.MatchMapping):
+            if finite is not None or subject.sequence_items is not None:
+                return False
+            if subject.mapping_items is None:
+                return None
+            fields = dict(subject.mapping_items)
+            answers = []
+            for key, child in zip(pattern.keys, pattern.patterns):
+                try:
+                    literal = ast.literal_eval(key)
+                except (ValueError, TypeError):
+                    return None
+                if literal not in fields:
+                    return False
+                answers.append(
+                    self._pattern_truth(child, fields[literal], environment, current_function)
+                )
+            return (
+                False
+                if any(item is False for item in answers)
+                else True if all(item is True for item in answers) else None
+            )
+        if isinstance(pattern, ast.MatchClass):
+            allowed = self.engine._expression_rules._evaluate_type_expression(pattern.cls)
+            if allowed.unknown or len(allowed.types) != 1:
+                return None
+            expected = next(iter(allowed.types))
+            if not isinstance(expected, Instance):
+                return None
+            if finite is not None and expected.type.raw_type.__module__ == "builtins":
+                answers = [isinstance(item, expected.type.raw_type) for item in finite]
+                if not any(answers):
+                    return False
+                if not pattern.patterns and not pattern.kwd_patterns:
+                    return self._consensus_truth(answers)
+
+            def matches(typ):
+                if not isinstance(typ, Instance):
+                    return None
+                if typ.type.full_name in self.engine._classes:
+                    subtype = expected.type.full_name in self.engine._member_rules._mro_names(
+                        typ.type.full_name
+                    )
+                else:
+                    subtype = issubclass(typ.type.raw_type, expected.type.raw_type)
+                if subtype:
+                    return True if not pattern.patterns and not pattern.kwd_patterns else None
+                numeric_inputs = {float: {int, bool}, complex: {float, int, bool}}
+                if expected.type.raw_type in numeric_inputs.get(typ.type.raw_type, set()):
+                    # A numeric annotation can admit a narrower runtime input.
+                    # Exact literal evidence was checked above; broad evidence
+                    # must keep the subclass-compatible pattern reachable.
+                    return None
+                if typ.type.raw_type.__module__ == expected.type.raw_type.__module__ == "builtins":
+                    return None if issubclass(expected.type.raw_type, typ.type.raw_type) else False
+                return None
+
+            return self._consensus_truth(
+                matches(item) for item in self.engine._operator_rules._flatten_union_parts(subject)
+            )
+        return None
+
+    def _partition_pattern(self, pattern, subject, environment, current_function):
+        """Split matched and fallthrough evidence only when it is provable."""
+        bottom = AbstractTypeValue.bottom()
+        if subject.is_bottom:
+            return bottom, bottom
+        if isinstance(pattern, ast.MatchOr):
+            accepted = bottom
+            remaining = subject
+            for child in pattern.patterns:
+                matched, remaining = self._partition_pattern(
+                    child, remaining, environment, current_function
+                )
+                accepted = self.engine._value_rules._join(accepted, matched)
+            return accepted, remaining
+        truth = self._pattern_truth(pattern, subject, environment, current_function)
+        if truth is True:
+            return subject, bottom
+        if truth is False:
+            return bottom, subject
+        finite = self._closed_pattern_values(subject)
+        if finite is not None:
+            matched, remaining = [], []
+            for item in finite:
+                value = self._pattern_literal_value(item)
+                answer = self._pattern_truth(pattern, value, environment, current_function)
+                if answer is not False:
+                    matched.append(value)
+                if answer is not True:
+                    remaining.append(value)
+            return (
+                self.engine._value_rules._join_many_values(matched),
+                self.engine._value_rules._join_many_values(remaining),
+            )
+        parts = self.engine._operator_rules._flatten_union_parts(subject)
+        if len(parts) > 1:
+            matched, remaining = [], []
+            for typ in parts:
+                value = replace(
+                    subject, types=frozenset((typ,)), unknown=False, literal_values_complete=False
+                )
+                yes, no = self._partition_pattern(pattern, value, environment, current_function)
+                matched.append(yes)
+                remaining.append(no)
+            if subject.unknown:
+                matched.append(AbstractTypeValue.unresolved())
+                remaining.append(AbstractTypeValue.unresolved())
+            return (
+                self.engine._value_rules._join_many_values(matched),
+                self.engine._value_rules._join_many_values(remaining),
+            )
+        if isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
+            return self._partition_pattern(pattern.pattern, subject, environment, current_function)
+        if isinstance(pattern, ast.MatchSingleton):
+            return self._pattern_literal_value(pattern.value), subject
+        if isinstance(pattern, ast.MatchValue) and not subject.unknown:
+            try:
+                literal = ast.literal_eval(pattern.value)
+            except (ValueError, TypeError):
+                pass
+            else:
+                if (
+                    len(parts) == 1
+                    and isinstance(parts[0], Instance)
+                    and parts[0].type.raw_type is type(literal)
+                ):
+                    return (
+                        replace(
+                            subject,
+                            literal_values=frozenset((literal,)),
+                            literal_values_complete=True,
+                        ),
+                        subject,
+                    )
+        return subject, subject
+
+    def _match_guard_truth(self, node, environment, inferred=None):
+        """Evaluate only finite builtin evidence; never execute guard code."""
+        if inferred is not None:
+            finite = self._closed_pattern_values(inferred)
+            if finite is not None:
+                answer = self._consensus_truth(bool(item) for item in finite)
+                if answer is not None:
+                    return answer
+
+        def values(expression):
+            try:
+                return (ast.literal_eval(expression),)
+            except (ValueError, TypeError):
+                if isinstance(expression, ast.Name) and expression.id in environment:
+                    return self._closed_pattern_values(environment[expression.id])
+                return None
+
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            answer = self._match_guard_truth(node.operand, environment)
+            return None if answer is None else not answer
+        if isinstance(node, ast.BoolOp):
+            answers = [self._match_guard_truth(child, environment) for child in node.values]
+            if isinstance(node.op, ast.And):
+                return (
+                    False
+                    if False in answers
+                    else True if all(item is True for item in answers) else None
+                )
+            return (
+                True
+                if True in answers
+                else False if all(item is False for item in answers) else None
+            )
+        if isinstance(node, ast.Compare):
+            operands = [values(item) for item in (node.left, *node.comparators)]
+            if any(item is None for item in operands):
+                return None
+            size = 1
+            for items in operands:
+                size *= len(items)
+            if size > 256:
+                return None
+            operations = {
+                ast.Eq: operator.eq,
+                ast.NotEq: operator.ne,
+                ast.Lt: operator.lt,
+                ast.LtE: operator.le,
+                ast.Gt: operator.gt,
+                ast.GtE: operator.ge,
+                ast.In: lambda a, b: a in b,
+                ast.NotIn: lambda a, b: a not in b,
+            }
+            answers = []
+            for items in itertools.product(*operands):
+                checks = []
+                for left, op, right in zip(items, node.ops, items[1:]):
+                    if isinstance(op, (ast.Is, ast.IsNot)):
+                        if not (
+                            left is None
+                            or right is None
+                            or type(left) is bool
+                            or type(right) is bool
+                        ):
+                            return None
+                        check = left is right
+                        checks.append(not check if isinstance(op, ast.IsNot) else check)
+                    elif type(op) in operations:
+                        try:
+                            checks.append(bool(operations[type(op)](left, right)))
+                        except (TypeError, ValueError):
+                            return None
+                    else:
+                        return None
+                answers.append(all(checks))
+            return self._consensus_truth(answers)
+        finite = values(node)
+        return self._consensus_truth(bool(item) for item in finite) if finite is not None else None
+
     def _narrow_pattern(
         self,
         pattern: ast.pattern,
@@ -721,8 +1117,8 @@ class NarrowingInference(InferenceComponent):
         elif isinstance(pattern, ast.MatchClass):
             narrowed = self.engine._expression_rules._evaluate_type_expression(pattern.cls)
             if isinstance(subject_node, ast.Name) and not narrowed.unknown:
-                old = result.get(subject_node.id, subject)
-                result[subject_node.id] = self._narrow_to_allowed(old, narrowed)
+                value = self._narrow_to_allowed(subject, narrowed)
+                result[subject_node.id] = subject if value.types == subject.types else value
             fields, field_order = self._class_pattern_fields(narrowed)
             dummy = ast.Constant(value=None)
             for index, child in enumerate(pattern.patterns):
@@ -748,131 +1144,72 @@ class NarrowingInference(InferenceComponent):
                     current_function,
                 )
         elif isinstance(pattern, ast.MatchValue):
-            scope = (
-                current_function.qualified_name
-                if current_function is not None
-                else self.engine._module_name
-            )
-            val = self.engine._expression_rules._evaluate_expression(
-                pattern.value, result, scope=scope, current_function=current_function
-            )
-            if isinstance(subject_node, ast.Name) and not val.unknown:
-                old = result.get(subject_node.id, subject)
-                if self._value_may_match(old, val):
-                    result[subject_node.id] = val
-                else:
-                    result[subject_node.id] = AbstractTypeValue.bottom()
+            if isinstance(subject_node, ast.Name):
+                result[subject_node.id] = subject
         elif isinstance(pattern, ast.MatchAs):
-            scope = (
-                current_function.qualified_name
-                if current_function is not None
-                else self.engine._module_name
-            )
-            bound_value = subject
             if pattern.pattern is not None:
                 result = self._narrow_pattern(
-                    pattern.pattern,
-                    subject_node,
-                    subject,
-                    result,
-                    current_function,
+                    pattern.pattern, subject_node, subject, result, current_function
                 )
-                if isinstance(subject_node, ast.Name) and subject_node.id in result:
-                    bound_value = result[subject_node.id]
-                elif isinstance(pattern.pattern, ast.MatchClass):
-                    narrowed = self.engine._expression_rules._evaluate_type_expression(
-                        pattern.pattern.cls
-                    )
-                    if not narrowed.unknown:
-                        bound_value = narrowed
-                elif isinstance(pattern.pattern, ast.MatchValue):
-                    val = self.engine._expression_rules._evaluate_expression(
-                        pattern.pattern.value,
-                        result,
-                        scope=scope,
-                        current_function=current_function,
-                    )
-                    if not val.unknown:
-                        bound_value = val
-                elif isinstance(pattern.pattern, ast.MatchSingleton):
-                    if pattern.pattern.value is None:
-                        bound_value = AbstractTypeValue.from_type(NONE_TYPE)
-                    elif isinstance(pattern.pattern.value, bool):
-                        bound_value = self.engine._value_rules._instance(bool)
+            bound = (
+                result.get(subject_node.id, subject)
+                if isinstance(subject_node, ast.Name)
+                else subject
+            )
             if pattern.name is not None:
-                result[pattern.name] = bound_value
+                result[pattern.name] = replace(bound, unknown=bound.unknown or subject.unknown)
         elif isinstance(pattern, ast.MatchStar):
             if pattern.name is not None:
-                element = self.engine._value_rules._iterable_element(subject)
-                result[pattern.name] = self.engine._value_rules._instance(
-                    list, element.public_type() or ANY
-                )
+                result[pattern.name] = subject
         elif isinstance(pattern, ast.MatchSequence):
-            star_index = next(
-                (
-                    index
-                    for index, child in enumerate(pattern.patterns)
-                    if isinstance(child, ast.MatchStar)
-                ),
-                None,
-            )
-            if star_index is None:
-                unpacked = self.engine._flow_rules._unpack_value(subject, len(pattern.patterns))
-                for child, child_value in zip(pattern.patterns, unpacked):
-                    result = self._narrow_pattern(
-                        child,
-                        subject_node,
-                        child_value,
-                        result,
-                        current_function,
-                    )
-            else:
-                tuple_args: list[ProperType] = []
-                if len(subject.types) == 1:
-                    only = next(iter(subject.types))
-                    if isinstance(only, TupleType) and not only.unknown_size:
-                        tuple_args = list(only.args)
-                element = self.engine._value_rules._iterable_element(subject)
-                for index, child in enumerate(pattern.patterns):
-                    if isinstance(child, ast.MatchStar):
-                        child_value = self.engine._value_rules._instance(
-                            list, element.public_type() or ANY
-                        )
-                    elif tuple_args:
-                        child_value = AbstractTypeValue.from_type(
-                            tuple_args[min(index, len(tuple_args) - 1)]
-                        )
-                    else:
-                        child_value = element
-                    result = self._narrow_pattern(
-                        child,
-                        subject_node,
-                        child_value,
-                        result,
-                        current_function,
-                    )
+            dummy = ast.Constant(value=None)
+            items = self._sequence_pattern_items(pattern, subject)
+            if items is not None:
+                for child, item in zip(pattern.patterns, items):
+                    narrowed, _ = self._partition_pattern(child, item, result, current_function)
+                    result = self._narrow_pattern(child, dummy, narrowed, result, current_function)
         elif isinstance(pattern, ast.MatchMapping):
-            item = self.engine._value_rules._subscript_value(subject, ast.Constant(value=""))
-            for child in pattern.patterns:
-                result = self._narrow_pattern(
-                    child,
-                    subject_node,
-                    item,
-                    result,
-                    current_function,
+            scope = (
+                current_function.qualified_name if current_function else self.engine._module_name
+            )
+            dummy = ast.Constant(value=None)
+            keys = []
+            for key, child in zip(pattern.keys, pattern.patterns):
+                index = self.engine._expression_rules._evaluate_expression(
+                    key, result, scope=scope, current_function=current_function
                 )
+                item = self.engine._value_rules._subscript_value(subject, key, index)
+                matched, _ = self._partition_pattern(child, item, result, current_function)
+                result = self._narrow_pattern(child, dummy, matched, result, current_function)
+                try:
+                    keys.append(ast.literal_eval(key))
+                except (ValueError, TypeError):
+                    pass
             if pattern.rest is not None:
-                result[pattern.rest] = subject
-        elif isinstance(pattern, ast.MatchOr):
-            alternatives = [
-                self._narrow_pattern(
-                    child,
-                    subject_node,
-                    subject,
-                    result,
-                    current_function,
+                key_type, value_type = self.engine._value_rules._mapping_key_value(subject)
+                rest = self.engine._value_rules._instance(
+                    dict, key_type.runtime_type() or ANY, value_type.runtime_type() or ANY
                 )
-                for child in pattern.patterns
-            ]
-            result = self.engine._value_rules._join_many_environments(alternatives)
+                if subject.mapping_items is not None and len(keys) == len(pattern.keys):
+                    rest = self.engine._value_rules._with_mapping_items(
+                        rest,
+                        tuple(
+                            (key, value) for key, value in subject.mapping_items if key not in keys
+                        ),
+                    )
+                result[pattern.rest] = rest
+        elif isinstance(pattern, ast.MatchOr):
+            alternatives = []
+            for child in pattern.patterns:
+                matched, _ = self._partition_pattern(child, subject, result, current_function)
+                if not matched.is_bottom:
+                    alternatives.append(
+                        self._narrow_pattern(child, subject_node, matched, result, current_function)
+                    )
+            if alternatives:
+                result = self.engine._value_rules._join_many_environments(alternatives)
+        if subject.unknown and isinstance(subject_node, ast.Name) and subject_node.id in result:
+            result[subject_node.id] = replace(
+                result[subject_node.id], unknown=True, literal_values_complete=False
+            )
         return result

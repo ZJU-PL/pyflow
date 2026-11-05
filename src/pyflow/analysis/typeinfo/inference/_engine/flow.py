@@ -74,47 +74,6 @@ class FlowInference(InferenceComponent):
             continue_envs=continue_envs,
         )
 
-    def _subtract_match_exclusions(
-        self,
-        subject: AbstractTypeValue,
-        excluded: list[ProperType],
-    ) -> AbstractTypeValue:
-        if not excluded:
-            return subject
-        parts = self.engine._operator_rules._flatten_union_parts(subject)
-        remaining = frozenset(
-            typ
-            for typ in parts
-            if not any(
-                typ == item or self.engine.type_system.is_subtype(typ, item) for item in excluded
-            )
-        )
-        if remaining == subject.types:
-            return subject
-        return AbstractTypeValue(
-            types=remaining,
-            unknown=subject.unknown,
-            callable_targets=subject.callable_targets,
-            class_targets=subject.class_targets,
-            dict_shapes=subject.dict_shapes,
-            literal_values=subject.literal_values,
-        )
-
-    def _match_excluded_types(self, pattern: ast.pattern) -> list[ProperType]:
-        if isinstance(pattern, ast.MatchSingleton):
-            return [NONE_TYPE] if pattern.value is None else []
-        if isinstance(pattern, ast.MatchClass):
-            narrowed = self.engine._expression_rules._evaluate_type_expression(pattern.cls)
-            return list(narrowed.types)
-        if isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
-            return self._match_excluded_types(pattern.pattern)
-        if isinstance(pattern, ast.MatchOr):
-            excluded: list[ProperType] = []
-            for child in pattern.patterns:
-                excluded.extend(self._match_excluded_types(child))
-            return list(dict.fromkeys(excluded))
-        return []
-
     def _execute_statement(
         self,
         node: ast.stmt,
@@ -551,54 +510,98 @@ class FlowInference(InferenceComponent):
 
         if isinstance(node, ast.Match):
             subject = self.engine._expression_rules._evaluate_expression(
-                node.subject,
-                result,
-                scope=scope,
-                current_function=current_function,
+                node.subject, result, scope=scope, current_function=current_function
             )
             if self.engine._value_rules._is_never_value(subject):
                 return _Outcome(result, terminated=True)
-            match_outcomes: list[_Outcome] = []
-            excluded: list[ProperType] = []
+            outcomes: list[_Outcome] = []
+            remaining = subject
+            fallthrough = dict(result)
+            bind_subject = isinstance(node.subject, ast.Name)
             for case in node.cases:
-                case_subject = self._subtract_match_exclusions(subject, excluded)
-                case_environment = self.engine._narrowing_rules._narrow_pattern(
+                matched, rejected = self.engine._narrowing_rules._partition_pattern(
+                    case.pattern, remaining, fallthrough, current_function
+                )
+                if matched.is_bottom:
+                    remaining = rejected
+                    continue
+                candidate = dict(fallthrough)
+                if bind_subject:
+                    candidate[node.subject.id] = matched
+                candidate = self.engine._narrowing_rules._narrow_pattern(
                     case.pattern,
-                    node.subject,
-                    case_subject,
-                    result,
+                    node.subject if bind_subject else ast.Constant(value=None),
+                    matched,
+                    candidate,
                     current_function,
                 )
-                if isinstance(node.subject, ast.Name) and case_subject is not subject:
-                    case_environment[node.subject.id] = case_subject
-                excluded.extend(self._match_excluded_types(case.pattern))
+                guard_truth = True
+                before_guard = candidate.get(node.subject.id) if bind_subject else None
                 if case.guard is not None:
-                    self.engine._expression_rules._evaluate_expression(
-                        case.guard,
-                        case_environment,
-                        scope=scope,
-                        current_function=current_function,
+                    guard_value = self.engine._expression_rules._evaluate_expression(
+                        case.guard, candidate, scope=scope, current_function=current_function
                     )
-                    case_environment = self.engine._narrowing_rules._narrow_environment(
-                        case.guard, case_environment, truthy=True
+                    if self.engine._value_rules._is_never_value(guard_value):
+                        outcomes.append(_Outcome(candidate, terminated=True))
+                        remaining = rejected
+                        if remaining.is_bottom:
+                            break
+                        continue
+                    guard_truth = self.engine._narrowing_rules._match_guard_truth(
+                        case.guard, candidate, guard_value
                     )
-                match_outcomes.append(
-                    self._execute_block(
-                        case.body,
-                        case_environment,
-                        scope=scope,
-                        current_function=current_function,
+                if guard_truth is not False:
+                    body_environment = (
+                        self.engine._narrowing_rules._narrow_environment(
+                            case.guard, candidate, truthy=True
+                        )
+                        if case.guard is not None
+                        else candidate
                     )
-                )
-            if not match_outcomes:
+                    outcomes.append(
+                        self._execute_block(
+                            case.body,
+                            body_environment,
+                            scope=scope,
+                            current_function=current_function,
+                        )
+                    )
+                if guard_truth is True:
+                    remaining = rejected
+                else:
+                    # A failed/unknown guard does not consume the matching
+                    # values. Its captures/effects may be visible downstream.
+                    if rejected.is_bottom:
+                        fallthrough = candidate
+                    else:
+                        fallthrough = self.engine._value_rules._join_environments(
+                            fallthrough, candidate
+                        )
+                    remaining = self.engine._value_rules._join(rejected, matched)
+                    if bind_subject and candidate.get(node.subject.id) is not before_guard:
+                        # A guard may rebind the subject name. Matching still
+                        # uses the saved value, but later reads see the new name.
+                        bind_subject = False
+                if remaining.is_bottom:
+                    break
+                if bind_subject:
+                    fallthrough[node.subject.id] = remaining
+            if not remaining.is_bottom:
+                outcomes.append(_Outcome(fallthrough))
+            if not outcomes:
                 return _Outcome(result)
+            active = [outcome.environment for outcome in outcomes if not outcome.terminated]
             return _Outcome(
                 self.engine._value_rules._join_many_environments(
-                    outcome.environment for outcome in match_outcomes
+                    active if active else [outcome.environment for outcome in outcomes]
                 ),
-                [value for outcome in match_outcomes for value in outcome.returns],
-                [value for outcome in match_outcomes for value in outcome.yields],
-                all(outcome.terminated for outcome in match_outcomes),
+                [value for outcome in outcomes for value in outcome.returns],
+                [value for outcome in outcomes for value in outcome.yields],
+                all(outcome.terminated for outcome in outcomes),
+                breaks=any(outcome.breaks for outcome in outcomes),
+                continues=any(outcome.continues for outcome in outcomes),
+                break_envs=[env for outcome in outcomes for env in outcome.break_envs],
+                continue_envs=[env for outcome in outcomes for env in outcome.continue_envs],
             )
 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

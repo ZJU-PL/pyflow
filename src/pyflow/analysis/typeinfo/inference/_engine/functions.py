@@ -402,6 +402,7 @@ class FunctionInference(InferenceComponent):
                     callable_targets=actual.callable_targets,
                     class_targets=actual.class_targets,
                     literal_values=actual.literal_values if compatible else frozenset(),
+                    literal_values_complete=compatible and actual.literal_values_complete,
                     sequence_items=actual.sequence_items if compatible else None,
                     mapping_items=actual.mapping_items if compatible else None,
                     dict_shapes=actual.dict_shapes if compatible else None,
@@ -673,6 +674,7 @@ class FunctionInference(InferenceComponent):
         return (
             tuple(sorted(str(typ) for typ in value.types)),
             value.unknown,
+            value.literal_values_complete,
             (
                 value.sequence_items is not None,
                 tuple(

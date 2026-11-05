@@ -21,6 +21,7 @@ class _SpecializationKey:
     parameters: tuple[tuple[str, AbstractTypeValue], ...] = ()
     widened: bool = False
     literal_arguments: tuple[tuple[str, frozenset[object]], ...] = ()
+    match_arguments: tuple[tuple[str, tuple[object, ...]], ...] = ()
 
 
 @dataclass
