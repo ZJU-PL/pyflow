@@ -510,8 +510,9 @@ server.
 
 For a single file, the import-qualified module name is inferred.  For a project
 directory, use ``--module`` for symbol/expression queries.  ``--line`` is
-1-based and ``--column`` is a 0-based character offset.  The default mode prints
-a status summary for each analyzed module.
+1-based and ``--column`` is a 0-based character offset.  The default mode lists
+the module status and every queryable symbol/callable type; ``--summary`` prints
+analysis counts instead.
 
 Options:
 
@@ -519,6 +520,7 @@ Options:
 - ``--symbol NAME``: Type of a module symbol or ``Class.member``
 - ``--line LINE`` / ``--column COLUMN``: Expression query position
 - ``--diagnostics``: Print source, inference, and stub diagnostics
+- ``--summary``: Print analysis counts instead of symbol types
 - ``--max-modules N``: Limit directory-wide analysis
 - ``--json`` / ``--pretty``: Machine-readable output
 

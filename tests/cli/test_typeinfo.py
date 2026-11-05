@@ -132,12 +132,42 @@ def test_typeinfo_requires_line_and_column_together(tmp_path, monkeypatch, capsy
     assert "--line and --column" in err
 
 
-def test_typeinfo_default_is_summary(tmp_path, monkeypatch, capsys) -> None:
+def test_typeinfo_default_lists_symbol_types(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "app.py"
-    source.write_text("value: int = 1\n", encoding="utf-8")
+    source.write_text(
+        "value: int = 1\n\ndef add(x: int) -> str:\n    return str(x)\n",
+        encoding="utf-8",
+    )
 
     code, out, err = _run(monkeypatch, capsys, source)
 
     assert code == 0, err
     assert "app: complete" in out
+    assert "app.value: int" in out
+    assert "app.add: Callable[[int], str]" in out
+
+
+def test_typeinfo_summary_keeps_count_only_mode(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "app.py"
+    source.write_text("value: int = 1\n", encoding="utf-8")
+
+    code, out, err = _run(monkeypatch, capsys, source, "--summary")
+
+    assert code == 0, err
     assert "symbols=1" in out
+    assert "app.value: int" not in out
+
+
+def test_typeinfo_default_json_lists_type_facts(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "app.py"
+    source.write_text(
+        "value: int = 1\n\nclass Client:\n    def fetch(self, url: str) -> bytes:\n        return b''\n",
+        encoding="utf-8",
+    )
+
+    code, out, err = _run(monkeypatch, capsys, source, "--json")
+
+    assert code == 0, err
+    report = json.loads(out)[0]
+    assert report["types"]["app.value"]["type"] == "int"
+    assert report["types"]["app.Client.fetch"]["type"] == "Callable[[str], bytes]"

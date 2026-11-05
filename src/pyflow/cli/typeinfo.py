@@ -38,8 +38,8 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         help="Query PyFlow's type-information engine without LSP/MCP",
         description=(
             "Analyze a Python file or project with TypeInfoService.  The default "
-            "mode prints an analysis summary.  Use --symbol, --line/--column, or "
-            "--diagnostics for focused queries."
+            "mode lists inferred and declared symbol types.  Use --symbol, "
+            "--line/--column, or --diagnostics for focused queries."
         ),
     )
     parser.add_argument(
@@ -63,6 +63,11 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
         "--diagnostics",
         action="store_true",
         help="Print type-source, inference, and stub diagnostics",
+    )
+    query.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print only per-module analysis counts instead of symbol types",
     )
     parser.add_argument(
         "--line",
@@ -141,6 +146,65 @@ def _collect(service: TypeInfoService, module_name: str, path: Path | None) -> N
         )
     else:
         service.collect_module(module_name)
+
+
+def _render_callable(info) -> str | None:
+    """Render a ``FunctionTypeInfo`` as a user-facing callable type."""
+    if info.is_property:
+        return None if info.returns is None else str(info.returns)
+    args: list[str] = []
+    for index, (name, typ) in enumerate(info.params.items()):
+        if index == 0 and info.method_kind in {"instance", "class"} and name in {"self", "cls"}:
+            continue
+        raw = info.raw_params.get(name)
+        args.append(str(typ) if typ is not None else raw or "Any")
+    returns = info.returns
+    if returns is not None:
+        rendered_return = str(returns)
+    else:
+        rendered_return = info.raw_returns or "Any"
+    return f"Callable[[{', '.join(args)}], {rendered_return}]"
+
+
+def _module_types(service: TypeInfoService, module_name: str) -> dict[str, dict[str, object]]:
+    """Collect module symbols plus callable signatures without source positions."""
+    types: dict[str, dict[str, object]] = {}
+    for name, fact in sorted(service.members_of(module_name).items()):
+        canonical = name if name.startswith(f"{module_name}.") else f"{module_name}.{name}"
+        types[canonical] = {
+            "type": None if fact.typ is None else str(fact.typ),
+            "source": fact.source,
+            "kind": fact.kind,
+        }
+    result = service.inference_result(module_name)
+    if result is not None:
+        for qualified in sorted(result.functions):
+            relative = qualified.removeprefix(f"{module_name}.")
+            info = service.signature_of(module_name, relative)
+            if info is None or (qualified in types and types[qualified]["kind"] == "function"):
+                continue
+            rendered = _render_callable(info)
+            if rendered is None:
+                continue
+            types[qualified] = {
+                "type": rendered,
+                "source": info.source,
+                "kind": "method" if "." in relative else "function",
+            }
+    return types
+
+
+def _module_report(service: TypeInfoService, module_name: str) -> dict[str, object]:
+    result = service.inference_result(module_name)
+    diagnostics = [item for item in service.diagnostics() if item.module_name == module_name]
+    return {
+        "module": module_name,
+        "status": "unavailable" if result is None else result.status,
+        "converged": False if result is None else result.converged,
+        "iterations": 0 if result is None else result.iterations,
+        "types": _module_types(service, module_name),
+        "diagnostics": len(diagnostics),
+    }
 
 
 def _module_summary(service: TypeInfoService, module_name: str) -> dict[str, object]:
@@ -244,6 +308,20 @@ def _diagnostic_result(
 
 
 def _print_human(payload: object, *, mode: str) -> None:
+    if mode == "types":
+        if isinstance(payload, list):
+            for item in payload:
+                print(
+                    f"{item['module']}: {item['status']} "
+                    f"(converged={item['converged']}, diagnostics={item['diagnostics']})"
+                )
+                types = item.get("types", {})
+                if not types:
+                    print("  <no type facts>")
+                    continue
+                for name, info in types.items():
+                    print(f"  {name}: {info['type']}  [{info['source']}]")
+        return
     if mode == "summary":
         if isinstance(payload, list):
             for item in payload:
@@ -293,9 +371,10 @@ def run_typeinfo(args) -> int:
     if (args.line is None) != (args.column is None):
         print("Error: --line and --column must be provided together", file=sys.stderr)
         return 2
-    if args.line is not None and (args.symbol or args.diagnostics):
+    if args.line is not None and (args.symbol or args.diagnostics or args.summary):
         print(
-            "Error: expression queries cannot be combined with --symbol or --diagnostics",
+            "Error: expression queries cannot be combined with "
+            "--symbol, --diagnostics, or --summary",
             file=sys.stderr,
         )
         return 2
@@ -332,9 +411,12 @@ def run_typeinfo(args) -> int:
         elif args.diagnostics:
             payload = _diagnostic_result(service, module_names)
             mode = "diagnostics"
-        else:
+        elif args.summary:
             payload = [_module_summary(service, name) for name in module_names]
             mode = "summary"
+        else:
+            payload = [_module_report(service, name) for name in module_names]
+            mode = "types"
     except (ValueError, OSError, SyntaxError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
