@@ -699,6 +699,8 @@ class CallInference(InferenceComponent):
                 actual_type = actual.public_type()
                 if expected is None or actual_type is None:
                     continue
+                if self._is_unresolved_external_type(expected):
+                    continue
                 # An overload must accept every possible value of a union
                 # argument.  ``is_maybe_subtype`` deliberately accepts a
                 # union when any member matches, which can select one narrow
@@ -772,6 +774,10 @@ class CallInference(InferenceComponent):
 
     @staticmethod
     def _is_unresolved_external_type(typ: ProperType) -> bool:
+        if isinstance(typ, TypeVarType):
+            # Generic overload parameters are resolved by the selected
+            # overload's substitutions; do not reject the candidate upfront.
+            return True
         if isinstance(typ, Instance):
             if getattr(typ.type.raw_type, "__pyflow_unresolved_external__", False):
                 return True

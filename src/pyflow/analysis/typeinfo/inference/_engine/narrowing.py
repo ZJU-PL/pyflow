@@ -23,6 +23,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
 from pyflow.analysis.typeinfo.inference._engine.state import _ClassInfo, _FunctionInfo
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue, join_all
+from pyflow.analysis.typeinfo.resolution.literals import narrow_to_literal
 
 
 class NarrowingInference(InferenceComponent):
@@ -142,6 +143,30 @@ class NarrowingInference(InferenceComponent):
                         ),
                     )
             return result
+        if truthy and isinstance(condition, ast.Compare) and len(condition.ops) == 1:
+            if isinstance(condition.ops[0], ast.Eq):
+                left, right = condition.left, condition.comparators[0]
+                expression = left if key(left) is not None else right
+                literal_node = right if expression is left else left
+                if (
+                    key(expression) is not None
+                    and isinstance(literal_node, ast.Constant)
+                    and literal_node.value is not None
+                ):
+                    literal = self.engine._expression_rules._evaluate_expression(
+                        literal_node,
+                        result,
+                        scope=(
+                            self.engine._current_function_info.qualified_name
+                            if self.engine._current_function_info is not None
+                            else self.engine._module_name
+                        ),
+                        current_function=self.engine._current_function_info,
+                    )
+                    if literal.literal_values and not literal.unknown:
+                        result[key(expression)] = narrow_to_literal(current(expression), literal)
+                        return result
+
         if (
             isinstance(condition, ast.Compare)
             and len(condition.ops) == 1

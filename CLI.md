@@ -17,6 +17,7 @@ This document matches the current `pyflow` command surface.
 - `mcp`: Run pyflow as a Model Context Protocol server
 - `query`: Query pyflow analysis results (one-shot)
 - `stubgen`: Generate `.pyi` stubs with mypy stubgen (optional extra)
+- `stubtest`: Compare stubs with runtime objects (optional extra)
 
 ## Optimize
 

@@ -467,6 +467,17 @@ Options:
 Stub Generation
 ---------------
 
+**pyflow stubtest**
+~~~~~~~~~~~~~~~~~~~
+
+Check stubs against runtime objects using mypy's optional ``stubtest`` tool:
+
+::
+
+  pip install 'pyflow-analysis[stubs]'
+  pyflow stubtest package_name
+  pyflow stubtest --concise package_name
+
 **pyflow stubgen**
 ~~~~~~~~~~~~~~~~~~
 

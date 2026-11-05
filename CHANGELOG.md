@@ -52,6 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alternative, and `case int()` followed by a capture binds the remaining
   branch type.
 
+- `pyflow stubtest` wraps mypy's stub/runtime comparison as an optional CLI
+  tool, complementing `pyflow stubgen`.
+- Dataclass and attrs constructor semantics now include field defaults,
+  ``init=False`` fields, ``kw_only`` fields, missing/extra arguments, and
+  field type checks.
+- Literal equality guards narrow to the concrete value, and printf-style
+  format strings report conversion/arity mismatches through
+  ``format-string-mismatch`` diagnostics.
+- Overload selection accepts generic expected parameter types instead of
+  rejecting them before substitution, reducing false overload mismatches.
+
 ### Fixed
 
 - `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of

@@ -1041,6 +1041,46 @@ class MemberInference(InferenceComponent):
                     f"TypedDict {class_target} has unexpected keys: {sorted(unexpected)}",
                     node=node,
                 )
+        if initializer is None and class_info.constructor_fields:
+            fields = class_info.constructor_fields
+            positional_fields = [
+                name for name in fields if name not in class_info.keyword_only_fields
+            ]
+            if len(arguments) > len(positional_fields):
+                self.engine._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Too many positional arguments for {class_target}",
+                    node=node,
+                )
+            provided = set(positional_fields[: len(arguments)]) | set(keywords)
+            missing = set(fields) - provided - class_info.field_defaults
+            if missing:
+                self.engine._add_diagnostic(
+                    "call-arity-mismatch",
+                    f"Missing required arguments for {class_target}: {sorted(missing)}",
+                    node=node,
+                )
+            for index, argument in enumerate(arguments[: len(positional_fields)]):
+                self.engine._compatibility_rules._check_annotation_compatibility(
+                    argument,
+                    fields[positional_fields[index]],
+                    node,
+                    context=f"argument {positional_fields[index]} of {class_target}",
+                )
+            for name, argument in keywords.items():
+                if name not in fields:
+                    self.engine._add_diagnostic(
+                        "call-arity-mismatch",
+                        f"Unexpected keyword argument {name!r} for {class_target}",
+                        node=node,
+                    )
+                else:
+                    self.engine._compatibility_rules._check_annotation_compatibility(
+                        argument,
+                        fields[name],
+                        node,
+                        context=f"argument {name} of {class_target}",
+                    )
         if initializer is not None:
             self.engine._call_rules._apply_function(
                 initializer, [instance, *arguments], keywords, node=node

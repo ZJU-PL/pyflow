@@ -64,6 +64,9 @@ class _ClassInfo:
     attribute_templates: dict[str, AbstractTypeValue] = field(default_factory=dict)
     enum_values: dict[str, AbstractTypeValue] = field(default_factory=dict)
     match_args: tuple[str, ...] | None = None
+    constructor_fields: dict[str, AbstractTypeValue] = field(default_factory=dict)
+    field_defaults: set[str] = field(default_factory=set)
+    keyword_only_fields: set[str] = field(default_factory=set)
 
 
 @dataclass

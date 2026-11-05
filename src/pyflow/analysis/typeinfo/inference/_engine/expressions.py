@@ -166,6 +166,8 @@ class ExpressionInference(InferenceComponent):
                 )
                 or self.engine._operator_rules._binary_result(left, right, node.op)
             )
+            if isinstance(node.op, ast.Mod):
+                self.engine._operator_rules._check_percent_format(node, left, right)
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate_expression(
                 node.operand,

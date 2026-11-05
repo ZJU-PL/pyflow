@@ -35,6 +35,7 @@ from .capabilities import add_capabilities_parser, run_capabilities
 from .capability_run import add_capability_run_parser, run_capability_guard
 from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_mcp, run_query
 from .stubgen import add_stubgen_parser, run_stubgen
+from .stubtest import add_stubtest_parser, run_stubtest
 
 
 def main():
@@ -107,6 +108,7 @@ def _main():
     add_mcp_parser(subparsers)
     add_query_parser(subparsers)
     add_stubgen_parser(subparsers)
+    add_stubtest_parser(subparsers)
 
     # ``stubgen`` forwards its native option syntax (including options before
     # positional paths) verbatim, so capture the raw tail instead of letting
@@ -114,6 +116,8 @@ def _main():
     raw_arguments = sys.argv[1:]
     if raw_arguments and raw_arguments[0] == "stubgen":
         return run_stubgen(raw_arguments[1:])
+    if raw_arguments and raw_arguments[0] == "stubtest":
+        return run_stubtest(raw_arguments[1:])
 
     args = parser.parse_args()
 

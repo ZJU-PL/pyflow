@@ -157,6 +157,30 @@ class DeclarationInference(InferenceComponent):
                             base_info.instance.type.required_keys
                         )
                         class_info.attributes.update(base_info.attributes)
+                decorator_texts = {
+                    ast.unparse(item.func if isinstance(item, ast.Call) else item)
+                    for item in node.decorator_list
+                }
+                decorator_names = {text.rsplit(".", 1)[-1] for text in decorator_texts}
+                is_dataclass = "dataclass" in decorator_names
+                is_attrs = any(
+                    text == "attr.s" or text.startswith("attrs.") or text.startswith("attr.")
+                    for text in decorator_texts
+                )
+                all_keyword_only = any(
+                    keyword.arg == "kw_only"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                    for item in node.decorator_list
+                    if isinstance(item, ast.Call)
+                    for keyword in item.keywords
+                )
+                for base in class_info.bases:
+                    base_info = self.engine._classes.get(base)
+                    if base_info is not None:
+                        class_info.constructor_fields.update(base_info.constructor_fields)
+                        class_info.field_defaults.update(base_info.field_defaults)
+                        class_info.keyword_only_fields.update(base_info.keyword_only_fields)
                 for item in node.body:
                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                         if self._is_dataclass_pseudo_annotation(item.annotation):
@@ -174,6 +198,37 @@ class DeclarationInference(InferenceComponent):
                                 item.value, {}, scope=qualified, current_function=None
                             )
                         class_info.attributes[item.target.id] = val_annotation
+                        if (is_dataclass or is_attrs) and not self._is_class_var_annotation(
+                            item.annotation
+                        ):
+                            field_name = item.target.id
+                            has_default = item.value is not None
+                            init_field = True
+                            field_kw_only = all_keyword_only
+                            if isinstance(item.value, ast.Call):
+                                callee = ast.unparse(item.value.func).rsplit(".", 1)[-1]
+                                if callee in {"field", "ib", "attrib"}:
+                                    for keyword in item.value.keywords:
+                                        if keyword.arg == "init" and isinstance(
+                                            keyword.value, ast.Constant
+                                        ):
+                                            init_field = keyword.value.value is not False
+                                        elif keyword.arg in {
+                                            "default",
+                                            "default_factory",
+                                            "factory",
+                                        }:
+                                            has_default = True
+                                        elif keyword.arg == "kw_only" and isinstance(
+                                            keyword.value, ast.Constant
+                                        ):
+                                            field_kw_only = keyword.value.value is True
+                            if init_field:
+                                class_info.constructor_fields[field_name] = val_annotation
+                                if has_default:
+                                    class_info.field_defaults.add(field_name)
+                                if field_kw_only:
+                                    class_info.keyword_only_fields.add(field_name)
                 self._collect_declarations(
                     node.body,
                     parent=qualified,
@@ -417,6 +472,12 @@ class DeclarationInference(InferenceComponent):
                     owner=None,
                 )
                 self.engine._type_vars = previous_vars
+
+    @staticmethod
+    def _is_class_var_annotation(node: ast.expr) -> bool:
+        base = node.value if isinstance(node, ast.Subscript) else node
+        name = _expression_name(base) or ""
+        return name.rsplit(".", 1)[-1] == "ClassVar"
 
     @staticmethod
     def _is_dataclass_pseudo_annotation(node: ast.expr) -> bool:

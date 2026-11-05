@@ -147,3 +147,36 @@ def test_enum_aliases_members_and_values() -> None:
     assert str(result.type_of("name")) == "str"
     assert str(result.type_of("label")) == "str"
     assert str(result.type_of("members")) == "list[m.Color]"
+
+
+def test_dataclass_and_attrs_constructor_validation() -> None:
+    result = _infer(
+        "import dataclasses\n"
+        "import attrs\n"
+        "@dataclasses.dataclass\n"
+        "class Data:\n"
+        "    x: int\n"
+        "    y: str = 'a'\n"
+        "    z: int = dataclasses.field(init=False, default=0)\n"
+        "Data()\n"
+        "Data(1, 2)\n"
+        "Data(x=1, nope=2)\n"
+        "Data(1, 'a', 3)\n"
+        "@attrs.define\n"
+        "class Attr:\n"
+        "    value: int\n"
+        "    label: str = 'a'\n"
+        "Attr()\n"
+        "Attr('bad', 'a')\n"
+    )
+
+    messages = _codes(result, "call-arity-mismatch")
+    assert any("Missing required arguments for m.Data" in message for message in messages)
+    assert any("Unexpected keyword argument 'nope'" in message for message in messages)
+    assert any("Too many positional arguments for m.Data" in message for message in messages)
+    assert any("Missing required arguments for m.Attr" in message for message in messages)
+    assert any(
+        "argument value of m.Attr" in item.message
+        for item in result.diagnostics
+        if item.code == "annotation-mismatch"
+    )

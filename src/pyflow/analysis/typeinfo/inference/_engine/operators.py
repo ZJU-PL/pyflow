@@ -25,6 +25,27 @@ from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue, join_al
 class OperatorInference(InferenceComponent):
     """Infer arithmetic, comparisons, and overloaded operator results."""
 
+    def _check_percent_format(
+        self,
+        node: ast.BinOp,
+        left: AbstractTypeValue,
+        right: AbstractTypeValue,
+    ) -> None:
+        from pyflow.analysis.typeinfo.resolution.format_strings import (
+            check_percent_format,
+        )
+
+        if not (isinstance(node.left, ast.Constant) and isinstance(node.left.value, str)):
+            return
+        argument = right.public_type()
+        issues = check_percent_format(node.left.value, argument, self.engine.type_system)
+        for issue in issues:
+            self.engine._add_diagnostic(
+                "format-string-mismatch",
+                issue,
+                node=node,
+            )
+
     def _binary_result(
         self,
         left: AbstractTypeValue,
