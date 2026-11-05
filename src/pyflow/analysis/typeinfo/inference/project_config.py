@@ -19,6 +19,7 @@ _SETTING_KEYS = frozenset(
         "strict_annotations",
         "check_member_access",
         "check_overrides",
+        "check_assignments",
         "disabled_diagnostics",
         "diagnostic_severity",
         "max_iterations",
@@ -56,7 +57,12 @@ def _read_table(path: Path, *keys: str) -> dict | None:
 
 
 def _coerce(name: str, value: object) -> object | None:
-    if name in {"strict_annotations", "check_member_access", "check_overrides"}:
+    if name in {
+        "strict_annotations",
+        "check_member_access",
+        "check_overrides",
+        "check_assignments",
+    }:
         return bool(value) if isinstance(value, bool) else None
     if name in {
         "max_iterations",
