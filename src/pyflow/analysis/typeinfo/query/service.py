@@ -1485,6 +1485,8 @@ class TypeInfoService:
 
     def _callable_type(self, function_info: FunctionTypeInfo) -> CallableType:
         return_type = function_info.returns if function_info.returns is not None else ANY
+        if any(name.startswith("*") for name in function_info.raw_params):
+            return CallableType(None, return_type)
         return CallableType(
             tuple(typ if typ is not None else ANY for typ in function_info.params.values()),
             return_type,

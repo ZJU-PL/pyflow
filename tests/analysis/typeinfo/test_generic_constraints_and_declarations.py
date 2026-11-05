@@ -180,3 +180,19 @@ def test_dataclass_and_attrs_constructor_validation() -> None:
         for item in result.diagnostics
         if item.code == "annotation-mismatch"
     )
+
+
+def test_pydantic_style_model_fields_are_validated() -> None:
+    result = _infer(
+        "from pydantic import BaseModel\n"
+        "class User(BaseModel):\n"
+        "    name: str\n"
+        "    age: int = 0\n"
+        "User(name='a')\n"
+        "User()\n"
+        "User(name=1)\n"
+    )
+
+    messages = [item.message for item in result.diagnostics]
+    assert any("Missing required arguments for m.User" in message for message in messages)
+    assert any("argument name of m.User" in message for message in messages)

@@ -167,6 +167,8 @@ class DeclarationInference(InferenceComponent):
                     text == "attr.s" or text.startswith("attrs.") or text.startswith("attr.")
                     for text in decorator_texts
                 )
+                base_names = {base.rsplit(".", 1)[-1] for base in class_info.bases}
+                is_model_class = bool(base_names & {"BaseModel", "BaseSettings", "Struct"})
                 all_keyword_only = any(
                     keyword.arg == "kw_only"
                     and isinstance(keyword.value, ast.Constant)
@@ -198,9 +200,9 @@ class DeclarationInference(InferenceComponent):
                                 item.value, {}, scope=qualified, current_function=None
                             )
                         class_info.attributes[item.target.id] = val_annotation
-                        if (is_dataclass or is_attrs) and not self._is_class_var_annotation(
-                            item.annotation
-                        ):
+                        if (
+                            is_dataclass or is_attrs or is_model_class
+                        ) and not self._is_class_var_annotation(item.annotation):
                             field_name = item.target.id
                             has_default = item.value is not None
                             init_field = True
