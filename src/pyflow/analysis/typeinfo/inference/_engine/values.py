@@ -874,7 +874,13 @@ class ValueInference(InferenceComponent):
                     if typ.arg_types is None
                     else tuple(bound(item, depth + 1) for item in typ.arg_types)
                 )
-                return CallableType(args, bound(typ.return_type, depth + 1))
+                returned = bound(typ.return_type, depth + 1)
+                if args == typ.arg_types and returned == typ.return_type:
+                    return typ
+                # Overload declarations are part of the callable: dropping
+                # them makes every later call fall back to the union return
+                # (``urlparse`` -> ``ParseResult | ParseResultBytes``).
+                return CallableType(args, returned, overloads=typ.overloads)
             if isinstance(typ, TypeType):
                 return TypeType(bound(typ.item, depth + 1))
             return typ

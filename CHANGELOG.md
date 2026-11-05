@@ -129,6 +129,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Generic containers, `None`, and gradual values are skipped so the check does
   not report on PyFlow's joined or over-specific inferred types.
 
+- Callable overload sets survive environment joins.  Branch merges used to
+  rebuild the callable without its `overloads`, so an overloaded call such as
+  `urlparse(uri)` fell back to the union of every overload's return type
+  (`ParseResult | ParseResultBytes`) and produced false
+  `annotation-mismatch` errors.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

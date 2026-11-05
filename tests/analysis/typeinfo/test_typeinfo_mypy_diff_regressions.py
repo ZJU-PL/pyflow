@@ -663,3 +663,21 @@ def test_project_config_accepts_check_assignments(tmp_path: Path) -> None:
         "[typeinfo]\ncheck_assignments = false\n", encoding="utf-8"
     )
     assert load_inference_options(tmp_path).check_assignments is False
+
+
+def test_overload_sets_survive_environment_joins() -> None:
+    result = infer("""
+from urllib.parse import urlparse
+
+flag = True
+if flag:
+    parser = urlparse
+else:
+    parser = urlparse
+
+parsed = parser("http://example.com/path")
+""")
+
+    # Joining the two branches used to rebuild the callable without its
+    # overloads, so the call fell back to the union of all overload returns.
+    assert str(result.type_of("m.parsed")) == "urllib.parse.ParseResult"
