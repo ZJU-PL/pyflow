@@ -847,3 +847,16 @@ def use(name: str) -> None:
 
     # ``types.ModuleType`` and the runtime ``module`` class are the same type.
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_assignment_check_sees_branches_in_source_order() -> None:
+    result = infer("""
+def use(flag: bool) -> None:
+    if flag:
+        value = 1
+    else:
+        value = "text"
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "assignment"]
+    assert len(messages) == 1 and '"str"' in messages[0]

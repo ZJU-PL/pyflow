@@ -178,6 +178,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   annotations compare with objects read from `sys.modules` (no more false
   `ModuleType` mismatches when passing a module object around).
 
+- The `assignment` checker walks each function's statements in source order
+  (including branches), matching mypy's first-assignment rule for scalar
+  rebindings.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
