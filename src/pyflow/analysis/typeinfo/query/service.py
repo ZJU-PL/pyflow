@@ -48,7 +48,10 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TypeVarType,
     UnionType,
 )
-from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
+from pyflow.analysis.typeinfo.inference.engine import (
+    InferenceOptions,
+    StaticTypeInferenceEngine,
+)
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.models import InferenceDiagnostic, ModuleInferenceResult
 from pyflow.analysis.typeinfo.resolution.docstrings import (
@@ -73,6 +76,7 @@ class TypeInfoService:
         python_version: tuple[int, int] | None = None,
         enable_static_inference: bool = True,
         call_model_providers: Iterable[CallModelProvider] = (),
+        inference_options: InferenceOptions | None = None,
     ) -> None:
         self.project_context = project_context or ProjectContext(None)
         self.type_system = TypeSystem()
@@ -94,6 +98,7 @@ class TypeInfoService:
         self._max_collection_depth = 32
         self._depth_limit_warning_emitted = False
         self.enable_static_inference = enable_static_inference
+        self.inference_options = inference_options
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
         self._module_sources: dict[str, tuple[str, str | None]] = {}
@@ -727,6 +732,7 @@ class TypeInfoService:
             type_system=self.type_system,
             external_symbol_resolver=self._resolve_inference_external_symbol,
             call_model_providers=self.call_model_providers,
+            options=self.inference_options,
         )
         result = engine.infer_source(module_name, source, filename=path)
         self._inference_results[module_name] = result

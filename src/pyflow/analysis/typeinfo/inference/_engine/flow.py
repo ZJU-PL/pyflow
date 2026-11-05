@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import collections
+import collections.abc as cabc
 import contextlib
 from dataclasses import replace
 from typing import Iterable
@@ -16,6 +18,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ProperType,
     TupleType,
     TypeType,
+    TypeVarType,
     UnionType,
 )
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
@@ -1014,6 +1017,83 @@ class FlowInference(InferenceComponent):
             else:
                 self._assign_target(target, element, environment, current_function)
 
+    _MAPPING_CONTAINERS = frozenset(
+        {
+            dict,
+            cabc.Mapping,
+            cabc.MutableMapping,
+            collections.defaultdict,
+            collections.OrderedDict,
+            collections.ChainMap,
+        }
+    )
+    _SEQUENCE_CONTAINERS = frozenset(
+        {
+            list,
+            collections.deque,
+            cabc.Sequence,
+            cabc.MutableSequence,
+            cabc.MutableSet,
+        }
+    )
+
+    def _check_subscript_assignment(
+        self,
+        target: ast.Subscript,
+        value: AbstractTypeValue,
+        current_function: _FunctionInfo | None,
+    ) -> None:
+        """Report ``list-item``/``dict-item`` for declared containers.
+
+        Only annotated containers are checked: for inferred containers PyFlow
+        widens the element type on assignment, and reporting against the
+        widened type would be noise.
+        """
+        if isinstance(target.slice, ast.Slice) or not isinstance(target.value, ast.Name):
+            return
+        scope = (
+            current_function.qualified_name
+            if current_function is not None
+            else self.engine._module_name
+        )
+        declared: ProperType | None = None
+        if current_function is not None:
+            annotated_param = current_function.explicit_parameters.get(target.value.id)
+            if annotated_param is not None:
+                declared = annotated_param.public_type()
+        if declared is None:
+            entry = self.engine._declared_annotations.get(f"{scope}.{target.value.id}")
+            if entry is not None:
+                declared = entry[1]
+        if declared is None:
+            return
+        actual = value.public_type()
+        if actual is None or value.unknown:
+            return
+        if isinstance(actual, (AnyType, TypeVarType)):
+            return
+        if not isinstance(declared, Instance) or not declared.args:
+            return
+        raw = declared.type.raw_type
+        if raw in self._MAPPING_CONTAINERS and len(declared.args) > 1:
+            expected = declared.args[1]
+            code = "dict-item"
+        elif raw in self._SEQUENCE_CONTAINERS:
+            expected = declared.args[0]
+            code = "list-item"
+        else:
+            return
+        if isinstance(expected, (AnyType, TypeVarType)):
+            return
+        if self.engine.type_system.is_subtype(actual, expected):
+            return
+        self.engine._add_diagnostic(
+            code,
+            f'Incompatible types in assignment (expression has type "{actual}", '
+            f'target has type "{expected}")',
+            node=target,
+        )
+
     def _assign_target(
         self,
         target: ast.expr,
@@ -1078,6 +1158,7 @@ class FlowInference(InferenceComponent):
             self.engine._record_expression(target, value)
             if not isinstance(target.value, ast.Name):
                 return
+            self._check_subscript_assignment(target, value, current_function)
             if isinstance(target.slice, ast.Slice):
                 value = self.engine._value_rules._iterable_element(value)
             name = target.value.id

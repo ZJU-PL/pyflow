@@ -364,3 +364,57 @@ def test_dotted_base_does_not_resolve_to_same_named_local_class(tmp_path: Path) 
     # the class inherit from itself and hiding every inherited member.
     assert not [item for item in module.diagnostics if item.code == "attr-defined"]
     assert str(module.functions["pkg.b.use"].return_type) == "str"
+
+
+def test_diagnostic_policy_can_disable_and_override_severity() -> None:
+    from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+    source = "def use(values: list[int]) -> None:\n    x = values['bad']\n"
+
+    default = StaticTypeInferenceEngine().infer_source("m", source)
+    assert [item for item in default.diagnostics if item.code == "index"]
+
+    disabled = StaticTypeInferenceEngine(
+        options=InferenceOptions(disabled_diagnostics=frozenset({"index"}))
+    ).infer_source("m", source)
+    assert not [item for item in disabled.diagnostics if item.code == "index"]
+
+    promoted = StaticTypeInferenceEngine(
+        options=InferenceOptions(diagnostic_severity={"index": "error"})
+    ).infer_source("m", source)
+    promoted_index = [item for item in promoted.diagnostics if item.code == "index"]
+    assert promoted_index and promoted_index[0].severity == "error"
+    assert promoted.status == "partial"
+
+
+def test_type_info_service_forwards_inference_options() -> None:
+    from pyflow.analysis.typeinfo import TypeInfoService
+    from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+    source = "def use(values: list[int]) -> None:\n    x = values['bad']\n"
+    service = TypeInfoService(
+        inference_options=InferenceOptions(disabled_diagnostics=frozenset({"index"}))
+    )
+    service.collect_module("m", source=source, path="/tmp/m.py")
+
+    result = service.inference_result("m")
+    assert result is not None
+    assert not [item for item in result.diagnostics if item.code == "index"]
+
+
+def test_subscript_assignment_checks_declared_containers() -> None:
+    result = infer("""
+def use(values: list[int], table: dict[str, int]) -> None:
+    values[0] = 1
+    table["key"] = 2
+    values[0] = "bad"
+    table["key"] = 1.5
+    inferred = {"a": 1}
+    inferred["a"] = "widened"
+""")
+
+    codes = [item.code for item in result.diagnostics]
+    assert codes.count("list-item") == 1
+    assert codes.count("dict-item") == 1
+    # Inferred containers keep the widening behaviour.
+    assert not [item for item in result.diagnostics if "widened" in item.message]

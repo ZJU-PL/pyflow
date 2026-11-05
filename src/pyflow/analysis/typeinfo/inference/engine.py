@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ast
 import tokenize
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
 from pyflow.analysis.typeinfo.core.typesystem import ProperType, TypeSystem, TypeVarType
@@ -63,6 +63,11 @@ class InferenceOptions:
     # ``x: T``); inferred receivers are skipped because an over-specific
     # inferred type would flag code that mypy accepts.
     check_member_access: bool = True
+    # mypy-style ``--disable-error-code``: diagnostic codes that are never
+    # emitted, and per-code severity overrides ("error" marks the module
+    # partial, "warning"/"info" do not).
+    disabled_diagnostics: frozenset[str] = frozenset()
+    diagnostic_severity: dict[str, str] = field(default_factory=dict)
     max_specializations_per_function: int = 32
     max_type_depth: int = 12
 
@@ -314,12 +319,12 @@ class StaticTypeInferenceEngine:
         """Post-convergence union-attr/attr-defined pass.
 
         Only receivers whose type was *declared* are checked: parameters with
-        annotations, ``self``, and ``x: T`` declarations.  Types inferred from
+        annotations, ``self``, ``x: T`` declarations, and ``self.attr`` where
+        the attribute has a declaration in the class body.  Types inferred from
         expressions can be over-specific, and reporting them would flag code
         that mypy accepts.  Scope handling is per function so a name annotated
         in one function cannot enable the check in another.
         """
-
         module_names = {
             statement.target.id
             for statement in self._tree.body
@@ -327,7 +332,30 @@ class StaticTypeInferenceEngine:
         }
         module_names.add("self")
 
-        def walk(node: ast.AST, annotated: set[str]) -> None:
+        def class_attributes(node: ast.ClassDef) -> set[str]:
+            names: set[str] = set()
+            for statement in node.body:
+                if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+                    names.add(statement.target.id)
+            # Annotated instance attributes are usually declared inside
+            # ``__init__`` (``self.tags: Tags | None = None``); unannotated
+            # assignments stay inferred and are not checkable receivers.
+            for statement in ast.walk(node):
+                if (
+                    isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.target, ast.Attribute)
+                    and isinstance(statement.target.value, ast.Name)
+                    and statement.target.value.id == "self"
+                ):
+                    names.add(statement.target.attr)
+            return names
+
+        def walk(node: ast.AST, annotated: set[str], attributes: set[str]) -> None:
+            if isinstance(node, ast.ClassDef):
+                class_scope = attributes | class_attributes(node)
+                for child in node.body:
+                    walk(child, annotated | {"self"}, class_scope)
+                return
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 parameters = {
                     argument.arg
@@ -346,22 +374,34 @@ class StaticTypeInferenceEngine:
                 }
                 names = annotated | parameters | declared | {"self"}
                 for child in node.body:
-                    walk(child, names)
+                    walk(child, names, attributes)
                 return
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.ctx, ast.Load)
-                and isinstance(node.value, ast.Name)
-                and node.value.id in annotated
-            ):
-                base = self._expressions.get(_span(node.value))
-                if base is not None:
-                    self._member_rules.report_missing_member(base, node.attr, node)
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                receiver_is_declared = isinstance(node.value, ast.Name) and (
+                    node.value.id in annotated
+                )
+                if (
+                    not receiver_is_declared
+                    and isinstance(node.value, ast.Attribute)
+                    and isinstance(node.value.value, ast.Name)
+                ):
+                    root = node.value.value.id
+                    if root == "self" and node.value.attr in attributes:
+                        receiver_is_declared = True
+                    elif root in annotated:
+                        # ``tags.classifier_tags.multi_label``: the chain
+                        # starts at a declared variable, so the member type of
+                        # each link comes from a known class.
+                        receiver_is_declared = True
+                if receiver_is_declared:
+                    base = self._expressions.get(_span(node.value))
+                    if base is not None:
+                        self._member_rules.report_missing_member(base, node.attr, node)
             for child in ast.iter_child_nodes(node):
-                walk(child, annotated)
+                walk(child, annotated, attributes)
 
         for statement in self._tree.body:
-            walk(statement, module_names)
+            walk(statement, module_names, set())
 
     def _reset(self) -> None:
         for full_name in self._synthetic_types:
@@ -476,6 +516,9 @@ class StaticTypeInferenceEngine:
             )
         ):
             return
+        if code in self.options.disabled_diagnostics:
+            return
+        severity = self.options.diagnostic_severity.get(code, severity)
         key = (code, message, span)
         if key in self._diagnostic_keys:
             return

@@ -1223,12 +1223,13 @@ class MemberInference(InferenceComponent):
             if isinstance(item, Instance)
         ):
             return
+        receiver = " | ".join(sorted(str(item) for item in base.types))
         for typ in base.types:
             items = typ.items if isinstance(typ, UnionType) else (typ,)
             if any(isinstance(item, NoneType) for item in items):
                 self.engine._add_diagnostic(
                     "union-attr",
-                    f'Item "None" of "{typ}" has no attribute "{attribute}"',
+                    f'Item "None" of "{receiver}" has no attribute "{attribute}"',
                     node=node,
                 )
                 return
