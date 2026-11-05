@@ -65,6 +65,19 @@ _TYPING_SPECIAL_FORM_NAMES = frozenset(
 )
 
 
+def _contains_gradual(typ: ProperType) -> bool:
+    """Whether *typ* contains ``Any``/``Never`` anywhere in its arguments."""
+    if isinstance(typ, (AnyType, NeverType)):
+        return True
+    if isinstance(typ, Instance):
+        return any(_contains_gradual(argument) for argument in typ.args)
+    if isinstance(typ, UnionType):
+        return any(_contains_gradual(item) for item in typ.items)
+    if isinstance(typ, TupleType):
+        return any(_contains_gradual(item) for item in typ.args)
+    return False
+
+
 class ValueInference(InferenceComponent):
     """Project and join abstract values, containers, iterables, and awaitables."""
 
@@ -316,8 +329,9 @@ class ValueInference(InferenceComponent):
             return
         if isinstance(actual, (AnyType, TypeVarType)):
             return
-        if any(isinstance(argument, (AnyType, NeverType)) for argument in typ.args):
-            # ``list[Any]`` comes from untyped code; mypy stays gradual there.
+        if any(_contains_gradual(argument) for argument in typ.args):
+            # ``list[Any]`` / ``list[dict[Any, Any]]`` come from untyped code;
+            # mypy stays gradual there.
             return
         raw = typ.type.raw_type
         expected: ProperType | None = None

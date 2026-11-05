@@ -188,6 +188,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that an external decorator is typed, and the naive test produced false
   positives on real projects (sklearn).
 
+- `name-defined` only reports names that are not bound anywhere in the module
+  (TYPE_CHECKING imports, type variables and `P.args`/`P.kwargs` no longer
+  produce false positives).
+- `index` stays gradual when the container's element/key type contains `Any`
+  anywhere (`list[dict[Any, Any]]`).
+- New `tools/typeinfo_corpus_eval.py` runs the differential diagnostics
+  harness over a whole corpus in parallel and merges the results.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

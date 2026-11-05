@@ -1082,10 +1082,14 @@ def diagnostics_project(
     # engine reports them for, which is what mypy does per file.
     results: dict[str, object] = {}
     errors: dict[str, object] = {}
+    crashes: list[dict] = []
     for name, _ in chosen:
         one_results, one_errors = run_pyflow(project_root, [(name, _)], budget=budget)
         results.update(one_results)
         errors.update(one_errors)
+        for failed_name, error in one_errors.items():
+            if error.get("crash"):
+                crashes.append({"module": failed_name, "error": error.get("error")})
     pyflow_elapsed = time.time() - started
 
     shadow_parent = Path(tempfile.mkdtemp(prefix=f"tmdiag-{project_name}-"))
@@ -1102,6 +1106,7 @@ def diagnostics_project(
         "modules_analysed": len(results),
         "pyflow_seconds": round(pyflow_elapsed, 2),
         "mypy_errors": 0,
+        "crashes": crashes,
         "pyflow_diagnostics": 0,
         "matched": 0,
         "c3_false_positive": [],

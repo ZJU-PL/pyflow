@@ -871,8 +871,14 @@ class DeclarationInference(InferenceComponent):
             # A bare, dotted annotation name that resolves to nothing at all is
             # the mypy ``name-defined`` case (undefined class/alias).  Nested
             # forms stay silent: partial resolution is common for typing
-            # constructs PyFlow does not model yet.
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", text):
+            # constructs PyFlow does not model yet.  Names that are bound
+            # somewhere in the module (``if TYPE_CHECKING`` imports, type
+            # variables, loop targets) are resolution gaps, not undefined names.
+            if (
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", text)
+                and not text.endswith((".args", ".kwargs"))
+                and not self._name_is_bound(text)
+            ):
                 self.engine._add_diagnostic(
                     "name-defined",
                     f'Name "{text}" is not defined',
@@ -1031,6 +1037,26 @@ class DeclarationInference(InferenceComponent):
             return DeclarationInference._contains_type_var(typ.return_type) or any(
                 DeclarationInference._contains_type_var(item) for item in typ.arg_types or ()
             )
+        return False
+
+    def _name_is_bound(self, name: str) -> bool:
+        """Whether *name* is bound anywhere in the module (any statement)."""
+        for node in ast.walk(self.engine._tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == name:
+                    return True
+            elif isinstance(node, ast.Name):
+                if isinstance(node.ctx, ast.Store) and node.id == name:
+                    return True
+            elif isinstance(node, ast.alias):
+                if (node.asname or node.name.split(".")[0]) == name:
+                    return True
+            elif isinstance(node, ast.arg):
+                if node.arg == name:
+                    return True
+            elif isinstance(node, ast.ExceptHandler):
+                if node.name == name:
+                    return True
         return False
 
     def _lookup_annotation_type(self, name: str) -> ProperType | None:
