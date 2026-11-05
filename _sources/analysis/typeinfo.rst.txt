@@ -58,8 +58,10 @@ Generic calls bind constrained type variables and type variables that appear
 under structural protocols (for example
 ``_typeshed.SupportsLenAndGetItem``), so ``random.choice([1, 2])`` is ``int``
 rather than an unbound ``_T``.  TypedDict subscript/constructor operations and
-NamedTuple constructors are validated, and match statements subtract earlier
-alternatives for negative narrowing.
+NamedTuple, dataclass, attrs, pydantic-style, and msgspec ``Struct``
+constructors are validated; match statements subtract earlier alternatives for
+negative narrowing; literal equality guards narrow to concrete values; and
+printf-style format strings report type/arity mismatches.
 
 Parsed stubs can be persisted through a SQLite cache keyed by path,
 modification time, size, target Python version, and parser format.  The cache

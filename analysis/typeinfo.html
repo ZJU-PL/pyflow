@@ -196,8 +196,10 @@ to <code class="docutils literal notranslate"><span class="pre">TypeInfoService<
 under structural protocols (for example
 <code class="docutils literal notranslate"><span class="pre">_typeshed.SupportsLenAndGetItem</span></code>), so <code class="docutils literal notranslate"><span class="pre">random.choice([1,</span> <span class="pre">2])</span></code> is <code class="docutils literal notranslate"><span class="pre">int</span></code>
 rather than an unbound <code class="docutils literal notranslate"><span class="pre">_T</span></code>.  TypedDict subscript/constructor operations and
-NamedTuple constructors are validated, and match statements subtract earlier
-alternatives for negative narrowing.</p>
+NamedTuple, dataclass, attrs, pydantic-style, and msgspec <code class="docutils literal notranslate"><span class="pre">Struct</span></code>
+constructors are validated; match statements subtract earlier alternatives for
+negative narrowing; literal equality guards narrow to concrete values; and
+printf-style format strings report type/arity mismatches.</p>
 <p>Parsed stubs can be persisted through a SQLite cache keyed by path,
 modification time, size, target Python version, and parser format.  The cache
 lives under <code class="docutils literal notranslate"><span class="pre">PYFLOW_CACHE_DIR</span></code> (default <code class="docutils literal notranslate"><span class="pre">~/.cache/pyflow</span></code>) and can be

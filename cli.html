@@ -90,6 +90,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#stub-generation">Stub Generation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-stubtest"><strong>pyflow stubtest</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-stubgen"><strong>pyflow stubgen</strong></a></li>
 </ul>
 </li>
@@ -597,6 +598,15 @@ code, and unclassified events are ignored.</p>
 </section>
 <section id="stub-generation">
 <h2>Stub Generation<a class="headerlink" href="#stub-generation" title="Link to this heading"></a></h2>
+<section id="pyflow-stubtest">
+<h3><strong>pyflow stubtest</strong><a class="headerlink" href="#pyflow-stubtest" title="Link to this heading"></a></h3>
+<p>Check stubs against runtime objects using mypy’s optional <code class="docutils literal notranslate"><span class="pre">stubtest</span></code> tool:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="s1">'pyflow-analysis[stubs]'</span>
+<span class="n">pyflow</span> <span class="n">stubtest</span> <span class="n">package_name</span>
+<span class="n">pyflow</span> <span class="n">stubtest</span> <span class="o">--</span><span class="n">concise</span> <span class="n">package_name</span>
+</pre></div>
+</div>
+</section>
 <section id="pyflow-stubgen">
 <h3><strong>pyflow stubgen</strong><a class="headerlink" href="#pyflow-stubgen" title="Link to this heading"></a></h3>
 <p>Generate <code class="docutils literal notranslate"><span class="pre">.pyi</span></code> type stubs for source packages or runtime C modules using
