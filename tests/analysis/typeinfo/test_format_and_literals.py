@@ -39,3 +39,20 @@ def test_literal_equality_narrows_to_the_concrete_value() -> None:
     assert str(result.functions["m.f"].return_type) == "str"
     assert str(result.functions["m.g"].return_type) == "int"
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_str_format_checks_field_names_and_numbering() -> None:
+    result = _infer(
+        "missing = '{1}'.format('a')\n"
+        "missing_kw = '{name}'.format(age=1)\n"
+        "good = '{0} {name}'.format('a', name='b')\n"
+        "mixed = '{} {0}'.format('a')\n"
+    )
+
+    messages = [
+        item.message for item in result.diagnostics if item.code == "format-string-mismatch"
+    ]
+    assert any("missing positional argument 1" in message for message in messages)
+    assert any("missing keyword argument 'name'" in message for message in messages)
+    assert any("mix automatic and manual" in message for message in messages)
+    assert len(messages) == 3

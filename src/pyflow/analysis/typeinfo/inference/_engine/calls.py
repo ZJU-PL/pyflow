@@ -202,6 +202,24 @@ class CallInference(InferenceComponent):
             ]
             element = join_all(elements, self.engine.type_system).public_type() or ANY
             return self.engine._value_rules._instance(zip, TupleType((element,), unknown_size=True))
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"
+            and isinstance(node.func.value, ast.Constant)
+            and isinstance(node.func.value.value, str)
+        ):
+            from pyflow.analysis.typeinfo.resolution.format_strings import check_str_format
+
+            for issue in check_str_format(
+                node.func.value.value,
+                len(arguments),
+                set(keywords),
+            ):
+                self.engine._add_diagnostic(
+                    "format-string-mismatch",
+                    issue,
+                    node=node,
+                )
         if qualified_callee is not None and not root_shadowed:
             modelled = self._model_external_call(qualified_callee, arguments, keywords, node)
             if modelled is not None:

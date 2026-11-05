@@ -46,6 +46,64 @@ def _accepts(spec: str, typ: ProperType) -> bool:
     return True
 
 
+def str_format_fields(format_string: str) -> list[str]:
+    """Return ``str.format`` field names in source order (``""`` for auto)."""
+    fields: list[str] = []
+    index = 0
+    while index < len(format_string):
+        character = format_string[index]
+        if character == "{":
+            if index + 1 < len(format_string) and format_string[index + 1] == "{":
+                index += 2
+                continue
+            end = format_string.find("}", index + 1)
+            if end < 0:
+                break
+            field = format_string[index + 1 : end]
+            field = field.split("!", 1)[0].split(":", 1)[0]
+            fields.append(field)
+            index = end + 1
+        elif (
+            character == "}" and index + 1 < len(format_string) and format_string[index + 1] == "}"
+        ):
+            index += 2
+        else:
+            index += 1
+    return fields
+
+
+def check_str_format(
+    format_string: str,
+    positional_count: int,
+    keyword_names: set[str],
+) -> list[str]:
+    """Return missing/invalid ``str.format`` fields."""
+    fields = str_format_fields(format_string)
+    issues: list[str] = []
+    auto_index = 0
+    auto_used = False
+    manual_used = False
+    for field in fields:
+        if field == "":
+            auto_used = True
+            if auto_index >= positional_count:
+                issues.append(f"format is missing positional argument {auto_index}")
+            auto_index += 1
+            continue
+        head = field.split(".", 1)[0].split("[", 1)[0]
+        if head.isdigit():
+            manual_used = True
+            if int(head) >= positional_count:
+                issues.append(f"format references missing positional argument {head}")
+        else:
+            manual_used = True
+            if head and head not in keyword_names:
+                issues.append(f"format references missing keyword argument {head!r}")
+    if auto_used and manual_used:
+        issues.append("cannot mix automatic and manual field numbering")
+    return issues
+
+
 def check_percent_format(
     format_string: str,
     argument: ProperType | None,
