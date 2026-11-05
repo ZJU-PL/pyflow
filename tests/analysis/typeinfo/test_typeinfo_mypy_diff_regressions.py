@@ -750,3 +750,19 @@ def build() -> None | Info:
 """)
 
     assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_union_typeddict_return_with_none_branch() -> None:
+    result = infer("""
+from typing import TypedDict
+
+class Info(TypedDict, total=False):
+    name: str
+
+def build(flag: bool) -> None | Info:
+    if flag:
+        return None
+    return {"name": "x"}
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]

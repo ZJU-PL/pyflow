@@ -281,10 +281,44 @@ class CompatibilityInference(InferenceComponent):
                         severity="error" if self.engine.options.strict_annotations else "warning",
                     )
                 return
-            if inferred.dict_shapes and all(
+            if inferred.dict_shapes and any(
                 isinstance(candidate, Instance) and candidate.type.raw_type is dict
                 for candidate in inferred.types
             ):
+                other_types = frozenset(
+                    candidate
+                    for candidate in inferred.types
+                    if not (isinstance(candidate, Instance) and candidate.type.raw_type is dict)
+                )
+                if other_types:
+                    # A joined return (``None | dict``) still satisfies a union
+                    # annotation when the non-mapping members match the other
+                    # union members; only the mapping part is structural.
+                    remaining = tuple(
+                        part for part in expected_parts if part is not typed_dict_expected
+                    )
+
+                    def matches_remaining(candidate: ProperType) -> bool:
+                        if isinstance(candidate, NoneType):
+                            return any(isinstance(part, NoneType) for part in remaining)
+                        return any(
+                            self.engine.type_system.is_subtype(candidate, part)
+                            for part in remaining
+                        )
+
+                    if any(not matches_remaining(candidate) for candidate in other_types):
+                        other_types = frozenset()
+                    else:
+                        inferred = replace(
+                            inferred,
+                            types=frozenset(
+                                candidate
+                                for candidate in inferred.types
+                                if candidate not in other_types
+                            ),
+                        )
+                if other_types:
+                    return
                 fields = expected.type.typed_dict_fields
                 literal_nodes: dict[str, ast.expr] = {}
                 if isinstance(inspected_node, ast.Dict):

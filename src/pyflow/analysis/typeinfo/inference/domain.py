@@ -122,6 +122,12 @@ class AbstractTypeValue:
             shapes = self.dict_shapes | other.dict_shapes
             if len(shapes) > max_union_size:
                 shapes = None
+        elif self.dict_shapes is not None and not _contains_dict(other):
+            # Joining with a non-mapping alternative (``None``) keeps the
+            # shapes that describe the mapping branch.
+            shapes = self.dict_shapes
+        elif other.dict_shapes is not None and not _contains_dict(self):
+            shapes = other.dict_shapes
         else:
             shapes = None
         return AbstractTypeValue(
@@ -210,6 +216,10 @@ def join_all(
             max_union_size=max_union_size,
         )
     return result
+
+
+def _contains_dict(value: AbstractTypeValue) -> bool:
+    return any(isinstance(typ, Instance) and typ.type.raw_type is dict for typ in value.types)
 
 
 def _normalize_types(

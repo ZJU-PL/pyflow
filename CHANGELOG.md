@@ -145,6 +145,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypedDict structural checks apply when the annotation is a union such as
   `None | FileInfo`, not only to a bare TypedDict type.
 
+- Joining a shaped dict with a non-mapping alternative keeps the mapping
+  shape, and union annotations such as `None | FileInfo` accept a joined
+  `None | dict` return structurally.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
