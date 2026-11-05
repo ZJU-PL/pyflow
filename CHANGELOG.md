@@ -196,6 +196,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `tools/typeinfo_corpus_eval.py` runs the differential diagnostics
   harness over a whole corpus in parallel and merges the results.
 
+- A member missing from one member of a union is reported as `union-attr`
+  naming that member (`Item "str" of "pathlib.Path | str" has no attribute
+  "name"`), matching mypy instead of an `attr-defined` on an arbitrary
+  instance from the union.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

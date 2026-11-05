@@ -1261,16 +1261,22 @@ class MemberInference(InferenceComponent):
                     node=node,
                 )
                 return
-            if not any(self._definitely_missing(item, attribute) for item in items):
+            missing_items = [item for item in items if self._definitely_missing(item, attribute)]
+            if not missing_items:
                 continue
-            receiver = next(
-                (item for item in items if isinstance(item, Instance)),
-                None,
-            )
-            if receiver is not None:
+            if len(items) > 1:
+                # mypy reports a member missing from one union member as
+                # ``union-attr`` and names the offending member, not the whole
+                # union (nor an arbitrary instance from it).
+                self.engine._add_diagnostic(
+                    "union-attr",
+                    f'Item "{missing_items[0]}" of "{typ}" has no attribute ' f'"{attribute}"',
+                    node=node,
+                )
+            else:
                 self.engine._add_diagnostic(
                     "attr-defined",
-                    f'"{receiver}" has no attribute "{attribute}"',
+                    f'"{missing_items[0]}" has no attribute "{attribute}"',
                     node=node,
                 )
             return
