@@ -192,6 +192,16 @@ symbol resolver when no explicit resolver is supplied;</p></li>
 <code class="docutils literal notranslate"><span class="pre">__all__</span></code>, and <code class="docutils literal notranslate"><span class="pre">Self</span></code> substitution.  <code class="docutils literal notranslate"><span class="pre">StubResolver</span></code> defaults
 <code class="docutils literal notranslate"><span class="pre">python_version</span></code> to the running interpreter; pass <code class="docutils literal notranslate"><span class="pre">python_version=(3,</span> <span class="pre">12)</span></code>
 to <code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> to analyse another version.</p>
+<p>Generic calls bind constrained type variables and type variables that appear
+under structural protocols (for example
+<code class="docutils literal notranslate"><span class="pre">_typeshed.SupportsLenAndGetItem</span></code>), so <code class="docutils literal notranslate"><span class="pre">random.choice([1,</span> <span class="pre">2])</span></code> is <code class="docutils literal notranslate"><span class="pre">int</span></code>
+rather than an unbound <code class="docutils literal notranslate"><span class="pre">_T</span></code>.  TypedDict subscript/constructor operations and
+NamedTuple constructors are validated, and match statements subtract earlier
+alternatives for negative narrowing.</p>
+<p>Parsed stubs can be persisted through a SQLite cache keyed by path,
+modification time, size, target Python version, and parser format.  The cache
+lives under <code class="docutils literal notranslate"><span class="pre">PYFLOW_CACHE_DIR</span></code> (default <code class="docutils literal notranslate"><span class="pre">~/.cache/pyflow</span></code>) and can be
+disabled with <code class="docutils literal notranslate"><span class="pre">StubResolver(...,</span> <span class="pre">enable_cache=False)</span></code>.</p>
 <p>Typeshed is the declaration source for the whole stdlib surface.  A small
 receiver-aware call/member layer still overrides it where declarations cannot
 express the result (for example <code class="docutils literal notranslate"><span class="pre">collections.Counter.copy()</span></code>,

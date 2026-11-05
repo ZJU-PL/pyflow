@@ -54,6 +54,18 @@ The stub parser understands version-gated declarations
 ``python_version`` to the running interpreter; pass ``python_version=(3, 12)``
 to ``TypeInfoService`` to analyse another version.
 
+Generic calls bind constrained type variables and type variables that appear
+under structural protocols (for example
+``_typeshed.SupportsLenAndGetItem``), so ``random.choice([1, 2])`` is ``int``
+rather than an unbound ``_T``.  TypedDict subscript/constructor operations and
+NamedTuple constructors are validated, and match statements subtract earlier
+alternatives for negative narrowing.
+
+Parsed stubs can be persisted through a SQLite cache keyed by path,
+modification time, size, target Python version, and parser format.  The cache
+lives under ``PYFLOW_CACHE_DIR`` (default ``~/.cache/pyflow``) and can be
+disabled with ``StubResolver(..., enable_cache=False)``.
+
 Typeshed is the declaration source for the whole stdlib surface.  A small
 receiver-aware call/member layer still overrides it where declarations cannot
 express the result (for example ``collections.Counter.copy()``,
