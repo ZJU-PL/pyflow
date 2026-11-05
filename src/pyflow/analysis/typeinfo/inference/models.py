@@ -96,6 +96,7 @@ class FunctionSummary:
     is_async: bool = False
     is_generator: bool = False
     method_kind: str = "instance"
+    declared_return: bool = False
     specializations: tuple[FunctionSpecialization, ...] = ()
     overloads: tuple[CallableType, ...] = ()
 

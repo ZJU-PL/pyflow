@@ -90,6 +90,7 @@ class FunctionInference(InferenceComponent):
             is_async=isinstance(function.node, ast.AsyncFunctionDef),
             is_generator=function.is_generator_source or not fallback.yield_value.is_bottom,
             method_kind=function.method_kind,
+            declared_return=function.explicit_return is not None,
             specializations=ordered_specializations,
             overloads=tuple(overload_signatures),
         )

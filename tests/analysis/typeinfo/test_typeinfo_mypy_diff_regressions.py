@@ -418,3 +418,39 @@ def use(values: list[int], table: dict[str, int]) -> None:
     assert codes.count("dict-item") == 1
     # Inferred containers keep the widening behaviour.
     assert not [item for item in result.diagnostics if "widened" in item.message]
+
+
+def test_member_checks_trust_annotated_call_returns() -> None:
+    result = infer("""
+from typing import Optional
+
+class ClassifierTags:
+    multi_label: bool
+
+class Tags:
+    classifier_tags: Optional[ClassifierTags]
+
+def get_tags() -> Tags:
+    return Tags()
+
+def use() -> None:
+    tags = get_tags()
+    direct = get_tags().classifier_tags.multi_label
+    chained = tags.classifier_tags.multi_label
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "union-attr"]
+    assert len(messages) == 2
+
+
+def test_member_checks_skip_unannotated_call_returns() -> None:
+    result = infer("""
+def get_value():
+    return object()
+
+def use() -> None:
+    value = get_value()
+    missing = value.anything
+""")
+
+    assert not [item for item in result.diagnostics if item.code in {"attr-defined", "union-attr"}]

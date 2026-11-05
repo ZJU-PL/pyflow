@@ -29,12 +29,18 @@ from pyflow.analysis.typeinfo.inference._engine.functions import FunctionInferen
 from pyflow.analysis.typeinfo.inference._engine.members import MemberInference
 from pyflow.analysis.typeinfo.inference._engine.narrowing import NarrowingInference
 from pyflow.analysis.typeinfo.inference._engine.operators import OperatorInference
-from pyflow.analysis.typeinfo.inference._engine.state import _ClassInfo, _FunctionInfo, _span
+from pyflow.analysis.typeinfo.inference._engine.state import (
+    _ClassInfo,
+    _FunctionInfo,
+    _expression_name,
+    _span,
+)
 from pyflow.analysis.typeinfo.inference._engine.stdlib import StdlibInference
 from pyflow.analysis.typeinfo.inference._engine.values import ValueInference
 from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
 from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
+    resolve_typeshed_declared_return,
     resolve_typeshed_method_kind,
     resolve_typeshed_symbol,
 )
@@ -49,6 +55,7 @@ from pyflow.language.modules.project_resolution import ProjectContext
 
 ExternalSymbolResolver = Callable[[str], ProperType | None]
 MethodKindResolver = Callable[[str], str | None]
+DeclaredReturnResolver = Callable[[str], bool | None]
 
 
 @dataclass(frozen=True)
@@ -128,6 +135,7 @@ class StaticTypeInferenceEngine:
         type_system: TypeSystem | None = None,
         external_symbol_resolver: ExternalSymbolResolver | None = None,
         external_method_kind: MethodKindResolver | None = None,
+        external_declared_return: DeclaredReturnResolver | None = None,
         call_model_providers: Iterable[CallModelProvider] = (),
         options: InferenceOptions | None = None,
     ) -> None:
@@ -143,6 +151,11 @@ class StaticTypeInferenceEngine:
             external_method_kind
             if external_method_kind is not None
             else resolve_typeshed_method_kind
+        )
+        self.external_declared_return = (
+            external_declared_return
+            if external_declared_return is not None
+            else resolve_typeshed_declared_return
         )
         self.call_model_providers = tuple(call_model_providers)
         self.options = options or InferenceOptions()
@@ -319,11 +332,10 @@ class StaticTypeInferenceEngine:
         """Post-convergence union-attr/attr-defined pass.
 
         Only receivers whose type was *declared* are checked: parameters with
-        annotations, ``self``, ``x: T`` declarations, and ``self.attr`` where
-        the attribute has a declaration in the class body.  Types inferred from
-        expressions can be over-specific, and reporting them would flag code
-        that mypy accepts.  Scope handling is per function so a name annotated
-        in one function cannot enable the check in another.
+        annotations, ``self``, ``x: T`` declarations, annotated instance
+        attributes, and variables bound to a call whose callee declares its
+        return type.  Types inferred from expressions can be over-specific, and
+        reporting them would flag code that mypy accepts.
         """
         module_names = {
             statement.target.id
@@ -331,6 +343,7 @@ class StaticTypeInferenceEngine:
             if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
         }
         module_names.add("self")
+        module_names |= self._call_declared_names(self._tree.body, self._module_name)
 
         def class_attributes(node: ast.ClassDef) -> set[str]:
             names: set[str] = set()
@@ -350,13 +363,15 @@ class StaticTypeInferenceEngine:
                     names.add(statement.target.attr)
             return names
 
-        def walk(node: ast.AST, annotated: set[str], attributes: set[str]) -> None:
+        def walk(node: ast.AST, annotated: set[str], attributes: set[str], path: str) -> None:
             if isinstance(node, ast.ClassDef):
                 class_scope = attributes | class_attributes(node)
+                class_path = f"{path}.{node.name}"
                 for child in node.body:
-                    walk(child, annotated | {"self"}, class_scope)
+                    walk(child, annotated | {"self"}, class_scope, class_path)
                 return
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                function_path = f"{path}.{node.name}"
                 parameters = {
                     argument.arg
                     for argument in (
@@ -372,9 +387,15 @@ class StaticTypeInferenceEngine:
                     if isinstance(statement, ast.AnnAssign)
                     and isinstance(statement.target, ast.Name)
                 }
-                names = annotated | parameters | declared | {"self"}
+                names = (
+                    annotated
+                    | parameters
+                    | declared
+                    | {"self"}
+                    | self._call_declared_names(node.body, function_path)
+                )
                 for child in node.body:
-                    walk(child, names, attributes)
+                    walk(child, names, attributes, function_path)
                 return
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 receiver_is_declared = isinstance(node.value, ast.Name) and (
@@ -393,15 +414,57 @@ class StaticTypeInferenceEngine:
                         # starts at a declared variable, so the member type of
                         # each link comes from a known class.
                         receiver_is_declared = True
+                if (
+                    not receiver_is_declared
+                    and isinstance(node.value, ast.Attribute)
+                    and isinstance(node.value.value, ast.Call)
+                    and self._call_has_declared_return(node.value.value, path)
+                ):
+                    # ``get_tags(x).classifier_tags.multi_class``: the chain
+                    # starts at a call with a declared return type.
+                    receiver_is_declared = True
                 if receiver_is_declared:
                     base = self._expressions.get(_span(node.value))
                     if base is not None:
                         self._member_rules.report_missing_member(base, node.attr, node)
             for child in ast.iter_child_nodes(node):
-                walk(child, annotated, attributes)
+                walk(child, annotated, attributes, path)
 
         for statement in self._tree.body:
-            walk(statement, module_names, set())
+            walk(statement, module_names, set(), self._module_name)
+
+    def _call_declared_names(self, statements, scope: str) -> set[str]:
+        """Names bound to a call whose return type is declared by the callee."""
+        names: set[str] = set()
+        for statement in statements:
+            if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+                continue
+            target = statement.targets[0]
+            value = statement.value
+            if (
+                isinstance(target, ast.Name)
+                and isinstance(value, ast.Call)
+                and self._call_has_declared_return(value, scope)
+            ):
+                names.add(target.id)
+        return names
+
+    def _call_has_declared_return(self, call: ast.Call, scope: str) -> bool:
+        callee = _expression_name(call.func)
+        if callee is None:
+            return False
+        qualified = self._value_rules._resolve_lexical_function(callee, scope)
+        if qualified is not None:
+            info = self._functions.get(qualified)
+            if info is not None and info.explicit_return is not None:
+                return True
+        imported = self._value_rules._resolve_import_name(callee)
+        if imported is not None and self.external_declared_return is not None:
+            try:
+                return bool(self.external_declared_return(imported))
+            except (ImportError, LookupError, OSError, RuntimeError):
+                return False
+        return False
 
     def _reset(self) -> None:
         for full_name in self._synthetic_types:

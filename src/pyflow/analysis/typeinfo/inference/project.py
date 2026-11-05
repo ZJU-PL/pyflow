@@ -25,7 +25,10 @@ from pyflow.analysis.typeinfo.inference.models import (
     ModuleInferenceResult,
     ProjectInferenceResult,
 )
-from pyflow.analysis.typeinfo.resolution.typeshed_resolver import resolve_typeshed_symbol
+from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
+    resolve_typeshed_declared_return,
+    resolve_typeshed_symbol,
+)
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -81,6 +84,9 @@ class ProjectTypeInferenceEngine:
                     self.project_context,
                     type_system=self.type_system,
                     external_symbol_resolver=lambda name: self._external_type(name, results),
+                    external_declared_return=lambda name: self._external_declared_return(
+                        name, results
+                    ),
                     call_model_providers=self.call_model_providers,
                     options=self.options,
                 )
@@ -261,6 +267,24 @@ class ProjectTypeInferenceEngine:
             if any(resolved_path.is_relative_to(root) for root in roots):
                 discovered.append(name)
         return discovered
+
+    def _external_declared_return(
+        self,
+        qualified_name: str,
+        results: dict[str, ModuleInferenceResult],
+    ) -> bool | None:
+        """Whether an external callable's return type comes from an annotation."""
+        parts = qualified_name.split(".")
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            result = results.get(module_name)
+            if result is None:
+                continue
+            remainder = ".".join(parts[index:])
+            summary = result.functions.get(qualified_name) or result.functions.get(remainder)
+            if summary is not None:
+                return summary.declared_return
+        return resolve_typeshed_declared_return(qualified_name)
 
     def _external_type(
         self,

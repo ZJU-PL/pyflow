@@ -90,8 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type inference reports `list-item`/`dict-item` when a value is assigned into
   an annotated list/dict through a subscript (`values[0] = "x"`), matching
   mypy.  Inferred containers keep the widening behaviour.
-- `union-attr`/`attr-defined` also cover annotated `self.attr` receivers and
-  chains rooted at declared variables (`tags.classifier_tags.multi_label`).
+- `union-attr`/`attr-defined` also cover annotated `self.attr` receivers,
+  chains rooted at declared variables (`tags.classifier_tags.multi_label`), and
+  values whose type comes from a callee's declared return annotation
+  (`tags = get_tags()`, `get_tags(x).classifier_tags.multi_class`).
 - `InferenceOptions.disabled_diagnostics` and `diagnostic_severity` implement
   mypy's `--disable-error-code` and severity overrides; `TypeInfoService`
   forwards them to the inference engine.

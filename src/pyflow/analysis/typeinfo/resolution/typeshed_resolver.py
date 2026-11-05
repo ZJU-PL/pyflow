@@ -157,3 +157,27 @@ def resolve_typeshed_class_members(full_name: str) -> dict[str, ProperType]:
                 return {}
             return dict(class_info.typ.type.members)
     return {}
+
+
+def resolve_typeshed_declared_return(qualified_name: str) -> bool | None:
+    """Whether a stubbed callable declares an explicit return annotation."""
+    if "." not in qualified_name:
+        return None
+    parts = qualified_name.split(".")
+    with _resolve_lock:
+        service = _get_service()
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            if module_name in {"typing", "typing_extensions", "__future__"}:
+                return None
+            if service.stub_resolver.resolve_path(module_name) is None:
+                continue
+            name = ".".join(parts[index:])
+            try:
+                info = service.signature_of(module_name, name)
+            except Exception:
+                return None
+            if info is None:
+                return None
+            return info.raw_returns is not None
+    return None
