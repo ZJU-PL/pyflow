@@ -245,7 +245,20 @@ class CompatibilityInference(InferenceComponent):
             # Without literal evidence for the inferred value, we cannot prove
             # that it violates the literal constraint.
             return
-        if isinstance(expected, Instance) and expected.type.typed_dict_fields is not None:
+        typed_dict_expected = (
+            expected
+            if isinstance(expected, Instance) and expected.type.typed_dict_fields is not None
+            else next(
+                (
+                    part
+                    for part in expected_parts
+                    if isinstance(part, Instance) and part.type.typed_dict_fields is not None
+                ),
+                None,
+            )
+        )
+        if typed_dict_expected is not None:
+            expected = typed_dict_expected
             if (
                 inferred.types
                 and not inferred.dict_shapes

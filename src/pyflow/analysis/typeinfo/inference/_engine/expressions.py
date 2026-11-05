@@ -118,7 +118,13 @@ class ExpressionInference(InferenceComponent):
             keys = join_all(key_parts, self.engine.type_system)
             values = join_all(value_parts, self.engine.type_system)
             if not node.keys:
-                value = self.engine._value_rules._instance(dict, NEVER, NEVER)
+                value = replace(
+                    self.engine._value_rules._instance(dict, NEVER, NEVER),
+                    # An empty literal has the empty shape; keeping it lets
+                    # ``join`` with a populated literal preserve both shapes
+                    # instead of dropping the structural information.
+                    dict_shapes=frozenset((frozenset(),)),
+                )
             elif self.engine._value_rules._is_never_value(
                 keys
             ) or self.engine._value_rules._is_never_value(values):

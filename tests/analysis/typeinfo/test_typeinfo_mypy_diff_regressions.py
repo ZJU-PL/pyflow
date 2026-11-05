@@ -716,3 +716,37 @@ def test_self_return_binds_to_receiver_across_modules(tmp_path: Path) -> None:
         .splitlines()[span.lineno - 1][span.col_offset : span.end_col_offset]
     ]
     assert copied and str(copied[0]) == "pkg.base.Sub"
+
+
+def test_empty_dict_return_preserves_typeddict_shape() -> None:
+    result = infer("""
+from typing import TypedDict
+
+class Info(TypedDict, total=False):
+    name: str
+    size: float
+
+def build() -> Info:
+    try:
+        size = 1
+    except OSError:
+        return {}
+    name = "x"
+    return {"name": name, "size": size}
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_typeddict_union_annotation_accepts_dict_literal() -> None:
+    result = infer("""
+from typing import TypedDict
+
+class Info(TypedDict, total=False):
+    name: str
+
+def build() -> None | Info:
+    return {"name": "x"}
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]

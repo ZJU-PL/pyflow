@@ -140,6 +140,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns `Sub`, not the defining `Base`), removing false
   `annotation-mismatch` reports.
 
+- Empty dict literals keep the empty structural shape, so an early `return {}`
+  no longer discards the TypedDict shape of later returns.
+- TypedDict structural checks apply when the annotation is a union such as
+  `None | FileInfo`, not only to a bare TypedDict type.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
