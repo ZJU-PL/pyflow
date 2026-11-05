@@ -678,7 +678,7 @@ def _query_expression(module_result, candidate: Candidate):
     return module_result.expression_value(candidate.lineno, candidate.col_offset)
 
 
-MEMBER_CHECKS = False
+MEMBER_CHECKS = True
 
 
 def run_pyflow(
@@ -1384,9 +1384,10 @@ def main() -> None:
     parser.add_argument("--per-package", type=int, default=None)
     parser.add_argument("--module-filter", default=None)
     parser.add_argument(
-        "--member-checks",
-        action="store_true",
-        help="Enable PyFlow's opt-in union-attr/attr-defined checks",
+        "--no-member-checks",
+        dest="member_checks",
+        action="store_false",
+        help="Disable PyFlow's union-attr/attr-defined checks",
     )
     parser.add_argument(
         "--diagnostics",
@@ -1400,7 +1401,7 @@ def main() -> None:
     args = parser.parse_args()
 
     global MEMBER_CHECKS
-    MEMBER_CHECKS = bool(args.member_checks)
+    MEMBER_CHECKS = bool(getattr(args, "member_checks", True))
     corpus = Path(args.corpus).expanduser()
     if args.list_projects:
         for entry in sorted(corpus.iterdir()):

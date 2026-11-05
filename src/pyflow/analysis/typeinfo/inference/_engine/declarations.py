@@ -1034,10 +1034,23 @@ class DeclarationInference(InferenceComponent):
             finally:
                 self.engine._type_vars = previous_vars
                 self.engine._resolving_aliases.remove(name)
-        type_var = self.engine._type_vars.get(name) or self.engine._type_vars.get(normalized)
+        prefix = f"{self.engine._module_name}."
+        if name.startswith(prefix) and name in self.engine._classes:
+            # Qualified base expressions such as ``class B(pkg.A)`` name a
+            # class in the module currently being analysed.
+            return self.engine._classes[name].instance
+        type_var = self.engine._type_vars.get(name)
+        if type_var is None and "." not in name:
+            type_var = self.engine._type_vars.get(normalized)
         if type_var is not None:
             return type_var
-        local = self.engine._class_aliases.get(name) or self.engine._class_aliases.get(normalized)
+        local = self.engine._class_aliases.get(name)
+        if local is None and "." not in name:
+            # Short-name aliases only apply to bare names.  A dotted base such
+            # as ``werkzeug.wrappers.Request`` must not resolve to a local
+            # ``Request`` class: that created a self-inheritance edge and hid
+            # every inherited member.
+            local = self.engine._class_aliases.get(normalized)
         if local is not None:
             return self.engine._classes[local].instance
 

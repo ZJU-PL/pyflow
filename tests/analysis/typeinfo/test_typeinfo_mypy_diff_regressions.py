@@ -340,3 +340,27 @@ def use(values: list[int], table: dict[str, int]) -> None:
     assert any("list[int]" in message for message in messages)
     assert any("dict[str, int]" in message for message in messages)
     assert len(messages) == 2
+
+
+def test_dotted_base_does_not_resolve_to_same_named_local_class(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "a.py").write_text(
+        "class Request:\n    def method(self) -> str:\n        return 'GET'\n",
+        encoding="utf-8",
+    )
+    (package / "b.py").write_text(
+        "from pkg.a import Request as RequestBase\n"
+        "class Request(RequestBase):\n    pass\n"
+        "def use(request: Request) -> str:\n    return request.method()\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["pkg.b"])
+    module = result.modules["pkg.b"]
+
+    # The dotted base used to fall back to the local ``Request`` alias, making
+    # the class inherit from itself and hiding every inherited member.
+    assert not [item for item in module.diagnostics if item.code == "attr-defined"]
+    assert str(module.functions["pkg.b.use"].return_type) == "str"

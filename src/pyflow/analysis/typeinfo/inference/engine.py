@@ -59,10 +59,10 @@ class InferenceOptions:
     max_loop_iterations: int = 12
     max_union_size: int = 16
     strict_annotations: bool = False
-    # Opt-in until receiver *provenance* can be gated: checking types that
-    # were inferred (rather than annotated) reports valid code when inference
-    # is over-specific, which mypy never does because it starts from annotations.
-    check_member_access: bool = False
+    # Checked on receivers whose type is declared (parameters, ``self``,
+    # ``x: T``); inferred receivers are skipped because an over-specific
+    # inferred type would flag code that mypy accepts.
+    check_member_access: bool = True
     max_specializations_per_function: int = 32
     max_type_depth: int = 12
 
@@ -311,15 +311,57 @@ class StaticTypeInferenceEngine:
         return self.infer_source(module_name, source, filename=path)
 
     def _check_member_access(self) -> None:
-        for node in ast.walk(self._tree):
-            if not isinstance(node, ast.Attribute):
-                continue
-            if not isinstance(node.ctx, ast.Load):
-                continue
-            base = self._expressions.get(_span(node.value))
-            if base is None:
-                continue
-            self._member_rules.report_missing_member(base, node.attr, node)
+        """Post-convergence union-attr/attr-defined pass.
+
+        Only receivers whose type was *declared* are checked: parameters with
+        annotations, ``self``, and ``x: T`` declarations.  Types inferred from
+        expressions can be over-specific, and reporting them would flag code
+        that mypy accepts.  Scope handling is per function so a name annotated
+        in one function cannot enable the check in another.
+        """
+
+        module_names = {
+            statement.target.id
+            for statement in self._tree.body
+            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
+        }
+        module_names.add("self")
+
+        def walk(node: ast.AST, annotated: set[str]) -> None:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                parameters = {
+                    argument.arg
+                    for argument in (
+                        *node.args.posonlyargs,
+                        *node.args.args,
+                        *node.args.kwonlyargs,
+                    )
+                    if argument.annotation is not None
+                }
+                declared = {
+                    statement.target.id
+                    for statement in node.body
+                    if isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.target, ast.Name)
+                }
+                names = annotated | parameters | declared | {"self"}
+                for child in node.body:
+                    walk(child, names)
+                return
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Load)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in annotated
+            ):
+                base = self._expressions.get(_span(node.value))
+                if base is not None:
+                    self._member_rules.report_missing_member(base, node.attr, node)
+            for child in ast.iter_child_nodes(node):
+                walk(child, annotated)
+
+        for statement in self._tree.body:
+            walk(statement, module_names)
 
     def _reset(self) -> None:
         for full_name in self._synthetic_types:

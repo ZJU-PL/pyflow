@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import threading
 import types
 from dataclasses import replace
@@ -1248,11 +1249,34 @@ class MemberInference(InferenceComponent):
     def _definitely_missing(self, typ: ProperType, attribute: str) -> bool:
         if not isinstance(typ, Instance):
             return False
-        descriptor = typ.type
+        # Instances built by ``BuiltinTypeLookup``/stub resolution can hold a
+        # fresh descriptor object for a class that was already analysed.  The
+        # canonical descriptor carries the member table and the
+        # ``has_unresolved_bases`` flag, so consult that one.
+        descriptor = self.engine.type_system.class_descriptor(typ.type.full_name) or typ.type
         raw = descriptor.raw_type
         if getattr(raw, "__pyflow_unresolved_external__", False):
             return False
         if descriptor.is_protocol or descriptor.has_unresolved_bases:
+            return False
+        # ``has_unresolved_bases`` is per-descriptor bookkeeping that can be
+        # reset by a later re-analysis; walk the observed hierarchy as well.
+        # Only report when the whole MRO is known to this engine: classes from
+        # other project modules carry annotations but not the instance
+        # attributes assigned in their ``__init__``, and third-party bases are
+        # incomplete by construction.
+        stdlib = getattr(sys, "stdlib_module_names", frozenset())
+        for ancestor in self.engine.type_system.get_superclasses(descriptor):
+            if ancestor is descriptor:
+                continue
+            raw_ancestor = ancestor.raw_type
+            if getattr(raw_ancestor, "__pyflow_unresolved_external__", False):
+                return False
+            if ancestor.full_name in self.engine._classes:
+                continue
+            module_root = getattr(raw_ancestor, "__module__", "").split(".", 1)[0]
+            if module_root in stdlib or module_root == "builtins":
+                continue
             return False
         class_info = self.engine._classes.get(descriptor.full_name)
         if class_info is None and not descriptor.members and not isinstance(raw, type):

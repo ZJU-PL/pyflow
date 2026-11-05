@@ -579,7 +579,11 @@ class FunctionInference(InferenceComponent):
             )
         for (owner, attribute), value in self.engine._pending_attributes.items():
             if not value.types and not value.callable_targets and not value.class_targets:
-                continue
+                # The attribute exists at runtime even when its value is
+                # unknown (``self.data = np.asarray(data)`` with an untyped
+                # parameter).  Recording it as ``Any`` keeps the member table
+                # complete instead of reporting it as missing.
+                value = AbstractTypeValue.from_type(ANY)
             class_info = self.engine._classes[owner]
             old = class_info.attributes.get(attribute, AbstractTypeValue.bottom())
             class_info.attributes[attribute] = old.join(

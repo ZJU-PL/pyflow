@@ -78,9 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type inference reports `index` for an invalid subscript type
   (`list[int]["x"]`, `dict[str, int][1]`) and `name-defined` for an
   unresolvable bare annotation name.
-- `InferenceOptions.check_member_access` enables `union-attr`/`attr-defined`
-  checking as a post-convergence pass (opt-in; the differential harness exposes
-  it as `--member-checks`).
+- `union-attr`/`attr-defined` checks run after the inference fixed point by
+  default (`InferenceOptions.check_member_access`).  Only declared receivers
+  (`self`, annotated parameters, `x: T`) are checked, so inferred over-specific
+  types do not produce false positives; the differential harness can disable
+  them with `--no-member-checks`.
 - Stub type variables keep their constraints and bounds, generic base classes
   contribute their type parameters, and `@overload` declarations from typed
   source packages are collected.
