@@ -54,6 +54,22 @@ _BINARY_OPERATOR_NAMES = {
     python_ast.RShift: "interpreter__rshift__",
 }
 
+_INPLACE_OPERATOR_NAMES = {
+    python_ast.Add: "interpreter__iadd__",
+    python_ast.Sub: "interpreter__isub__",
+    python_ast.Mult: "interpreter__imul__",
+    python_ast.MatMult: "interpreter__imatmul__",
+    python_ast.Div: "interpreter__itruediv__",
+    python_ast.FloorDiv: "interpreter__ifloordiv__",
+    python_ast.Mod: "interpreter__imod__",
+    python_ast.Pow: "interpreter__ipow__",
+    python_ast.BitAnd: "interpreter__iand__",
+    python_ast.BitOr: "interpreter__ior__",
+    python_ast.BitXor: "interpreter__ixor__",
+    python_ast.LShift: "interpreter__ilshift__",
+    python_ast.RShift: "interpreter__irshift__",
+}
+
 _UNARY_OPERATOR_NAMES = {
     python_ast.UAdd: "interpreter__pos__",
     python_ast.USub: "interpreter__neg__",
@@ -1813,7 +1829,11 @@ class ASTConverter:
 
     def _convert_augassign(self, node: python_ast.AugAssign) -> PythonASTNode:
         rhs = self._convert_expression_safe(node.value)
-        op_name = self._binary_op_name(node.op)
+        # ``x += y`` dispatches to ``__iadd__`` first and only falls back to
+        # ``x = x + y`` when the in-place hook is absent.  Modelling it as the
+        # plain binary operator loses the aliasing/mutation of containers
+        # (``a = []; b = a; a += [1]`` mutates the object ``b`` refers to).
+        op_name = _INPLACE_OPERATOR_NAMES.get(type(node.op))
         if op_name is None:
             self._telemetry["unknown_augassign"] += 1
             self._warn_approx(node, "unknown augmented assignment operator")

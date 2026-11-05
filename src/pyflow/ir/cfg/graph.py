@@ -878,17 +878,20 @@ class Merge(MultiEntryBlock):
 class Yield(SingleEntryBlock):
     """Yield block representing generator yield points.
 
-    Yield blocks represent points where a generator yields control.
-    They have a single "normal" exit that continues after the yield.
+    Yield blocks represent points where a generator yields control.  The
+    "normal" exit continues after the yield (a normal ``send``/``next``);
+    the exceptional exits model ``throw()`` and ``close()``, which raise at
+    the suspended ``yield`` expression and therefore must reach the enclosing
+    ``except``/``finally``/``with`` cleanup.
     """
 
     __slots__ = ()
     # Python 3: single-element tuple needs a trailing comma
-    exitNames = ("normal",)
+    exitNames = ("normal", "fail", "error")
 
 
 class Await(Yield):
-    """Await suspension with a normal resume edge."""
+    """Await suspension with a normal resume edge and failing-await edges."""
 
     __slots__ = ()
     exitNames = ("normal", "fail", "error")

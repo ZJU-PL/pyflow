@@ -179,8 +179,12 @@ class CFGTransformer(TypeDispatcher):
     def _emitYieldBlock(self, block_type=cfg.Yield):
         y = block_type(self.region)
         self.attachCurrent(y)
-        if isinstance(y, cfg.Await):
-            self.attachStandardHandlers(y)
+        # A suspension point is also an exception point: ``throw()`` raises the
+        # thrown exception at the ``yield`` expression, and ``close()`` raises
+        # ``GeneratorExit`` there.  Both must be able to reach the enclosing
+        # ``except``/``finally``/``with`` cleanup, exactly like an ``await``
+        # whose awaitable fails.
+        self.attachStandardHandlers(y)
         y.setExit("normal", self.makeNewSuite())
 
     @dispatch(ast.Yield, ast.YieldFrom, ast.AsyncYield, ast.Await)

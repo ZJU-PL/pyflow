@@ -149,6 +149,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shape, and union annotations such as `None | FileInfo` accept a joined
   `None | dict` return structurally.
 
+- The `index` check stays gradual for containers whose type arguments are
+  `Any`/`Never` (`list[Any]` from untyped code), matching mypy.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

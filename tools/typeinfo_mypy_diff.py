@@ -937,6 +937,10 @@ _PYFLOW_TYPE_CODES = {
     "index": "index",
     "name-defined": "name-defined",
 }
+# Checks PyFlow performs that mypy has no equivalent for.  They are reported
+# separately instead of counting as false positives.
+_PYFLOW_ONLY_CODES = {"format-string-mismatch"}
+
 _PYFLOW_COMPLETENESS_CODES = {
     "missing-external-type",
     "unresolved-annotation",
@@ -1125,7 +1129,9 @@ def diagnostics_project(
             pyflow_diags = [
                 item
                 for item in module_result.diagnostics
-                if item.span is not None and item.code not in _PYFLOW_COMPLETENESS_CODES
+                if item.span is not None
+                and item.code not in _PYFLOW_COMPLETENESS_CODES
+                and item.code not in _PYFLOW_ONLY_CODES
             ]
             stats["pyflow_diagnostics"] = int(stats["pyflow_diagnostics"]) + len(pyflow_diags)
             mypy_by_line: dict[int, list[dict]] = {}

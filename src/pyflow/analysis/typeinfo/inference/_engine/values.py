@@ -316,6 +316,9 @@ class ValueInference(InferenceComponent):
             return
         if isinstance(actual, (AnyType, TypeVarType)):
             return
+        if any(isinstance(argument, (AnyType, NeverType)) for argument in typ.args):
+            # ``list[Any]`` comes from untyped code; mypy stays gradual there.
+            return
         raw = typ.type.raw_type
         expected: ProperType | None = None
         if raw in self._MAPPING_LIKE and typ.args:
