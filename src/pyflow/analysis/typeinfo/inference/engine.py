@@ -91,6 +91,10 @@ class InferenceOptions:
     check_member_access: bool = True
     check_overrides: bool = True
     check_assignments: bool = True
+    # Opt-in: PyFlow cannot always see that an external decorator is typed
+    # (mypy resolves wrapper signatures through stubs/plugins), and the naive
+    # "no annotations" test produced false positives on real projects.
+    check_untyped_decorators: bool = False
     # mypy-style ``--disable-error-code``: diagnostic codes that are never
     # emitted, and per-code severity overrides ("error" marks the module
     # partial, "warning"/"info" do not).
@@ -292,6 +296,8 @@ class StaticTypeInferenceEngine:
         self._declaration_rules._refresh_class_member_signatures()
         if self.options.check_assignments:
             self._check_assignments()
+        if self.options.check_untyped_decorators:
+            self._member_rules.check_untyped_decorators()
         if self.options.check_overrides:
             self._member_rules.check_overrides()
         if self.options.check_member_access:

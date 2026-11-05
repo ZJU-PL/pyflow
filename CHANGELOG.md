@@ -182,6 +182,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (including branches), matching mypy's first-assignment rule for scalar
   rebindings.
 
+- New opt-in `untyped-decorator` check
+  (`InferenceOptions.check_untyped_decorators`, also configurable in
+  `[tool.pyflow.typeinfo]`).  It is off by default: PyFlow cannot always see
+  that an external decorator is typed, and the naive test produced false
+  positives on real projects (sklearn).
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

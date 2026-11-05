@@ -58,6 +58,11 @@ _SPECS: tuple[DiagnosticSpec, ...] = (
         "str.format or printf-style field does not match its arguments.",
     ),
     DiagnosticSpec(
+        "untyped-decorator",
+        "type",
+        "A decorator without type information makes the function untyped.",
+    ),
+    DiagnosticSpec(
         "assignment",
         "type",
         "A variable is rebound to an incompatible type in the same block.",

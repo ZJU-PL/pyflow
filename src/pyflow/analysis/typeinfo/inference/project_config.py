@@ -20,6 +20,7 @@ _SETTING_KEYS = frozenset(
         "check_member_access",
         "check_overrides",
         "check_assignments",
+        "check_untyped_decorators",
         "disabled_diagnostics",
         "diagnostic_severity",
         "max_iterations",
@@ -62,6 +63,7 @@ def _coerce(name: str, value: object) -> object | None:
         "check_member_access",
         "check_overrides",
         "check_assignments",
+        "check_untyped_decorators",
     }:
         return bool(value) if isinstance(value, bool) else None
     if name in {

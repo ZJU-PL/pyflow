@@ -34,7 +34,11 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     UnionType,
 )
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
-from pyflow.analysis.typeinfo.inference._engine.state import _ClassInfo, _FunctionInfo
+from pyflow.analysis.typeinfo.inference._engine.state import (
+    _ClassInfo,
+    _FunctionInfo,
+    _expression_name,
+)
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue, join_all
 from pyflow.analysis.typeinfo.resolution.annotations import BuiltinTypeLookup
 from pyflow.analysis.typeinfo.resolution.typing_syntax import substitute_type_vars
@@ -1270,6 +1274,85 @@ class MemberInference(InferenceComponent):
                     node=node,
                 )
             return
+
+    _TYPING_DECORATORS = frozenset(
+        {
+            "property",
+            "cached_property",
+            "staticmethod",
+            "classmethod",
+            "abstractmethod",
+            "abstractproperty",
+            "overload",
+            "override",
+            "final",
+            "dataclass",
+            "runtime_checkable",
+            "contextmanager",
+            "asynccontextmanager",
+            "lru_cache",
+            "cache",
+            "wraps",
+            "singledispatch",
+            "singledispatchmethod",
+            "total_ordering",
+            "setter",
+            "getter",
+            "deleter",
+            "register",
+            "dispatch",
+        }
+    )
+
+    def check_untyped_decorators(self) -> None:
+        """Report ``untyped-decorator`` for decorators without type information.
+
+        mypy reports this when a decorator expression is ``Any`` or a callable
+        without annotations, because the decorated function then becomes
+        untyped.  Known typing decorators (``property``, ``overload``, ...)
+        are exempt, as are calls (``@app.route(...)``).
+        """
+        for function in self.engine._functions.values():
+            node = function.node
+            decorators = getattr(node, "decorator_list", ())
+            if not decorators:
+                continue
+            for decorator in decorators:
+                if isinstance(decorator, ast.Call):
+                    continue
+                name = _expression_name(decorator)
+                if name is None or name.rsplit(".", 1)[-1] in self._TYPING_DECORATORS:
+                    continue
+                if self._decorator_is_untyped(name):
+                    self.engine._add_diagnostic(
+                        "untyped-decorator",
+                        f'Untyped decorator makes function "{node.name}" untyped',
+                        node=node,
+                    )
+                    break
+
+    def _decorator_is_untyped(self, name: str) -> bool:
+        qualified = self.engine._value_rules._resolve_lexical_function(
+            name, self.engine._module_name
+        )
+        if qualified is not None:
+            info = self.engine._functions.get(qualified)
+            if info is None:
+                return False
+            return (
+                not info.explicit_parameters
+                and info.explicit_return is None
+                and info.documented_return is None
+            )
+        imported = self.engine._value_rules._resolve_import_name(name) or name
+        resolver = self.engine.external_declared_return
+        if resolver is None:
+            return False
+        try:
+            declared = resolver(imported)
+        except (ImportError, LookupError, OSError, RuntimeError):
+            return False
+        return declared is False
 
     def check_overrides(self) -> None:
         """Report ``override`` for incompatible same-module method overrides.

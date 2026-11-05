@@ -860,3 +860,23 @@ def use(flag: bool) -> None:
 
     messages = [item.message for item in result.diagnostics if item.code == "assignment"]
     assert len(messages) == 1 and '"str"' in messages[0]
+
+
+def test_untyped_decorator_check_is_opt_in() -> None:
+    from pyflow.analysis.typeinfo.inference.engine import InferenceOptions
+
+    source = (
+        "def untyped_deco(f):\n"
+        "    return f\n"
+        "@untyped_deco\n"
+        "def target(value: int) -> str:\n"
+        "    return str(value)\n"
+    )
+    default = StaticTypeInferenceEngine().infer_source("m", source)
+    assert not [item for item in default.diagnostics if item.code == "untyped-decorator"]
+
+    enabled = StaticTypeInferenceEngine(
+        options=InferenceOptions(check_untyped_decorators=True)
+    ).infer_source("m", source)
+    messages = [item.message for item in enabled.diagnostics if item.code == "untyped-decorator"]
+    assert messages == ['Untyped decorator makes function "target" untyped']
