@@ -558,3 +558,27 @@ def test_every_emitted_diagnostic_code_is_registered() -> None:
 
     assert emitted, "expected at least one diagnostic emission"
     assert emitted <= set(DIAGNOSTICS), sorted(emitted - set(DIAGNOSTICS))
+
+
+def test_member_checks_trust_declared_container_elements() -> None:
+    result = infer("""
+class Item:
+    def present(self) -> int:
+        return 1
+
+def use(items: list[Item]) -> None:
+    item = items[0]
+    missing = item.absent
+""")
+
+    assert [item.code for item in result.diagnostics] == ["attr-defined"]
+
+
+def test_member_checks_skip_inferred_container_elements() -> None:
+    result = infer("""
+def use(raw) -> None:
+    item = raw[0]
+    missing = item.absent
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "attr-defined"]

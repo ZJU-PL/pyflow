@@ -116,6 +116,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `register_call_model_provider`, so libraries and applications extend
   inference without threading providers through every engine constructor.
 
+- `union-attr`/`attr-defined` also treat elements read from a declared
+  container as declared receivers (`item = items[0]; item.missing`).
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

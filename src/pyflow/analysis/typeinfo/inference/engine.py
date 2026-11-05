@@ -18,7 +18,13 @@ import tokenize
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
-from pyflow.analysis.typeinfo.core.typesystem import ProperType, TypeSystem, TypeVarType
+from pyflow.analysis.typeinfo.core.typesystem import (
+    AnyType,
+    Instance,
+    ProperType,
+    TypeSystem,
+    TypeVarType,
+)
 from pyflow.analysis.typeinfo.inference._engine.builtins import BuiltinInference
 from pyflow.analysis.typeinfo.inference._engine.calls import CallInference
 from pyflow.analysis.typeinfo.inference._engine.compatibility import CompatibilityInference
@@ -406,6 +412,7 @@ class StaticTypeInferenceEngine:
                     | {"self"}
                     | self._call_declared_names(node.body, function_path)
                 )
+                names |= self._subscript_declared_names(node.body, names)
                 for child in node.body:
                     walk(child, names, attributes, function_path)
                 return
@@ -444,6 +451,27 @@ class StaticTypeInferenceEngine:
 
         for statement in self._tree.body:
             walk(statement, module_names, set(), self._module_name)
+
+    def _subscript_declared_names(self, statements, annotated: set[str]) -> set[str]:
+        """Names bound to an element of a declared container (``x = items[0]``)."""
+        names: set[str] = set()
+        for statement in statements:
+            if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+                continue
+            target = statement.targets[0]
+            value = statement.value
+            if not (
+                isinstance(target, ast.Name)
+                and isinstance(value, ast.Subscript)
+                and isinstance(value.value, ast.Name)
+                and value.value.id in annotated
+            ):
+                continue
+            recorded = self._expressions.get(_span(value))
+            element = None if recorded is None else recorded.runtime_type()
+            if isinstance(element, Instance) and not isinstance(element, (AnyType, TypeVarType)):
+                names.add(target.id)
+        return names
 
     def _call_declared_names(self, statements, scope: str) -> set[str]:
         """Names bound to a call whose return type is declared by the callee."""
