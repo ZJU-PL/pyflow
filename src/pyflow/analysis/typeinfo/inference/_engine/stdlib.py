@@ -11,6 +11,7 @@ import contextlib
 import dataclasses
 import datetime
 import io
+import itertools
 import logging
 import os
 import re
@@ -514,6 +515,12 @@ class StdlibInference(InferenceComponent):
                 )
             return AbstractTypeValue.from_type(reduced)
         if qualified_name.startswith("itertools."):
+            factory_name = qualified_name.split(".")[1]
+            iterator_class = (
+                itertools._tee if factory_name == "tee" else getattr(itertools, factory_name, None)
+            )
+            if not isinstance(iterator_class, type):
+                return None
             if qualified_name == "itertools.chain.from_iterable" and arguments:
                 inner = element(arguments[0])
                 joined = (
@@ -522,7 +529,7 @@ class StdlibInference(InferenceComponent):
                     ).public_type()
                     or ANY
                 )
-                return self.engine._value_rules._instance(cabc.Iterator, joined)
+                return self.engine._value_rules._instance(iterator_class, joined)
             if qualified_name == "itertools.chain":
                 values = [element(argument) for argument in arguments]
                 joined = (
@@ -533,9 +540,9 @@ class StdlibInference(InferenceComponent):
                     ).public_type()
                     or ANY
                 )
-                return self.engine._value_rules._instance(cabc.Iterator, joined)
+                return self.engine._value_rules._instance(iterator_class, joined)
             if qualified_name == "itertools.islice" and arguments:
-                return self.engine._value_rules._instance(cabc.Iterator, element(arguments[0]))
+                return self.engine._value_rules._instance(iterator_class, element(arguments[0]))
             if (
                 qualified_name
                 in {
@@ -545,7 +552,7 @@ class StdlibInference(InferenceComponent):
                 }
                 and len(arguments) >= 2
             ):
-                return self.engine._value_rules._instance(cabc.Iterator, element(arguments[1]))
+                return self.engine._value_rules._instance(iterator_class, element(arguments[1]))
             if qualified_name == "itertools.starmap" and len(arguments) >= 2:
                 tuple_element = element(arguments[1])
                 callable_targets = arguments[0].callable_targets
@@ -553,10 +560,10 @@ class StdlibInference(InferenceComponent):
                     # ``itertools.product`` yields variadic tuples whose arity
                     # is unknown; applying the callable with the single known
                     # element type would fabricate an arity error.
-                    return self.engine._value_rules._instance(cabc.Iterator, ANY)
+                    return self.engine._value_rules._instance(iterator_class, ANY)
                 if callable_targets and isinstance(tuple_element, TupleType):
                     return self.engine._value_rules._instance(
-                        cabc.Iterator,
+                        iterator_class,
                         join_all(
                             (
                                 self.engine._call_rules._apply_function(
@@ -574,7 +581,7 @@ class StdlibInference(InferenceComponent):
                         ).public_type()
                         or ANY,
                     )
-                return self.engine._value_rules._instance(cabc.Iterator, tuple_element)
+                return self.engine._value_rules._instance(iterator_class, tuple_element)
             if qualified_name == "itertools.accumulate" and arguments:
                 accumulated = element(arguments[0])
                 if len(arguments) > 1 and arguments[1].callable_targets:
@@ -589,22 +596,22 @@ class StdlibInference(InferenceComponent):
                     ).public_type()
                     if result is not None:
                         accumulated = result
-                return self.engine._value_rules._instance(cabc.Iterator, accumulated)
-            if qualified_name == "itertools.count" and arguments:
+                return self.engine._value_rules._instance(iterator_class, accumulated)
+            if qualified_name == "itertools.count":
                 count_raw = (
                     float
                     if any(
                         isinstance(part, Instance) and part.type.raw_type is float
-                        for argument in arguments
+                        for argument in [*arguments, *keywords.values()]
                         for part in argument.types
                     )
                     else int
                 )
                 return self.engine._value_rules._instance(
-                    cabc.Iterator, self.engine._value_rules._proper_instance(count_raw)
+                    iterator_class, self.engine._value_rules._proper_instance(count_raw)
                 )
-            if qualified_name == "itertools.cycle" and arguments:
-                return self.engine._value_rules._instance(cabc.Iterator, element(arguments[0]))
+            if qualified_name in {"itertools.cycle", "itertools.compress"} and arguments:
+                return self.engine._value_rules._instance(iterator_class, element(arguments[0]))
             if qualified_name == "itertools.tee" and arguments:
                 item = element(arguments[0])
                 count = 2
@@ -622,7 +629,7 @@ class StdlibInference(InferenceComponent):
                 return AbstractTypeValue.from_type(
                     TupleType(
                         tuple(
-                            self.engine._value_rules._proper_instance(cabc.Iterator, item)
+                            self.engine._value_rules._proper_instance(itertools._tee, item)
                             for _ in range(count)
                         )
                     )
@@ -636,22 +643,40 @@ class StdlibInference(InferenceComponent):
                     )
                     if isinstance(literal_repeat, int) and literal_repeat >= 0:
                         elements = elements * literal_repeat
-                return self.engine._value_rules._instance(cabc.Iterator, TupleType(tuple(elements)))
+                return self.engine._value_rules._instance(
+                    iterator_class, TupleType(tuple(elements))
+                )
             if qualified_name in {"itertools.combinations", "itertools.permutations"} and arguments:
                 return self.engine._value_rules._instance(
-                    cabc.Iterator,
+                    iterator_class,
                     TupleType((element(arguments[0]),), unknown_size=True),
                 )
             if qualified_name == "itertools.repeat" and arguments:
                 return self.engine._value_rules._instance(
-                    cabc.Iterator, arguments[0].public_type() or ANY
+                    iterator_class, arguments[0].public_type() or ANY
                 )
             if qualified_name == "itertools.groupby" and arguments:
-                item = element(arguments[0])
+                item_value = self.engine._value_rules._iterable_element(arguments[0])
+                item = item_value.public_type() or ANY
+                callback = keywords.get("key") or (arguments[1] if len(arguments) > 1 else None)
+                key = item
+                if callback is not None and not any(str(part) == "None" for part in callback.types):
+                    key_value = (
+                        join_all(
+                            (
+                                self.engine._call_rules._apply_function(target, [item_value], {})
+                                for target in sorted(callback.callable_targets)
+                            ),
+                            self.engine.type_system,
+                        )
+                        if callback.callable_targets
+                        else self.engine._value_rules._callable_return_type(callback)
+                    )
+                    key = key_value.public_type() or ANY
                 return self.engine._value_rules._instance(
-                    cabc.Iterator,
+                    iterator_class,
                     TupleType(
-                        (item, self.engine._value_rules._proper_instance(cabc.Iterator, item))
+                        (key, self.engine._value_rules._proper_instance(itertools._grouper, item))
                     ),
                 )
         if qualified_name in {"weakref.ref", "weakref.WeakMethod"} and arguments:

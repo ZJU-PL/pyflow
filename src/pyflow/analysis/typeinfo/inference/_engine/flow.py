@@ -943,9 +943,38 @@ class FlowInference(InferenceComponent):
         # shares the same object.  Do not compare with ``==``: two distinct
         # empty list/set literals compare equal and widening one must not
         # silently change the inferred element type of the other.
+        replacements = {id(old): new_value}
+
+        def update_nested(value):
+            cached = replacements.get(id(value))
+            if cached is not None:
+                return cached
+            items = value.sequence_items
+            if items is None:
+                return value
+            updated = tuple(update_nested(item) for item in items)
+            if all(left is right for left, right in zip(items, updated)):
+                return value
+            element = self.engine._value_rules._join_many_values(list(updated)).public_type() or ANY
+            types = frozenset(
+                (
+                    TupleType(tuple(item.runtime_type() or ANY for item in updated))
+                    if isinstance(typ, TupleType)
+                    else (
+                        Instance(typ.type, (element,))
+                        if isinstance(typ, Instance) and typ.type.raw_type is list
+                        else typ
+                    )
+                )
+                for typ in value.types
+            )
+            result = replace(value, types=types, sequence_items=updated)
+            replacements[id(value)] = result
+            return result
+
         for name, value in list(environment.items()):
-            if name != key and value is old:
-                environment[name] = new_value
+            if name != key:
+                environment[name] = update_nested(value)
 
     def _enclosing_function(self, function: _FunctionInfo) -> _FunctionInfo | None:
         current = function.qualified_name
@@ -982,25 +1011,25 @@ class FlowInference(InferenceComponent):
         star_index = next(
             index for index, target in enumerate(targets) if isinstance(target, ast.Starred)
         )
-        tuple_args: list[ProperType] = []
-        if len(value.types) == 1:
+        tuple_args = list(value.sequence_items or ())
+        if not tuple_args and len(value.types) == 1:
             only = next(iter(value.types))
             if isinstance(only, TupleType) and not only.unknown_size:
-                tuple_args = list(only.args)
+                tuple_args = [AbstractTypeValue.from_type(item) for item in only.args]
         if tuple_args:
             before = targets[:star_index]
             after = targets[star_index + 1 :]
             for target, element in zip(before, tuple_args[: len(before)]):
                 self._assign_target(
                     target,
-                    AbstractTypeValue.from_type(element),
+                    element,
                     environment,
                     current_function,
                 )
             middle_end = len(tuple_args) - len(after)
             middle = tuple_args[len(before) : max(middle_end, len(before))]
             element = join_all(
-                (AbstractTypeValue.from_type(item) for item in middle),
+                middle,
                 self.engine.type_system,
                 max_union_size=self.engine.options.max_union_size,
             )
@@ -1008,14 +1037,17 @@ class FlowInference(InferenceComponent):
             if isinstance(star_target, ast.Starred):
                 self._assign_target(
                     star_target.value,
-                    self.engine._value_rules._instance(list, element.public_type() or ANY),
+                    self.engine._value_rules._with_sequence_items(
+                        self.engine._value_rules._instance(list, element.public_type() or ANY),
+                        middle,
+                    ),
                     environment,
                     current_function,
                 )
             for target, element in zip(after, tuple_args[-len(after) :] if after else ()):
                 self._assign_target(
                     target,
-                    AbstractTypeValue.from_type(element),
+                    element,
                     environment,
                     current_function,
                 )
@@ -1247,11 +1279,12 @@ class FlowInference(InferenceComponent):
                         self.engine._value_rules._instance(list, joined.public_type() or ANY)
                     )
             if updated:
-                environment[name] = join_all(
+                replacement = join_all(
                     updated,
                     self.engine.type_system,
                     max_union_size=self.engine.options.max_union_size,
                 )
+                self._update_environment_receiver(environment, target.value, replacement)
 
     def _property_assignment_value(
         self,
@@ -1299,6 +1332,12 @@ class FlowInference(InferenceComponent):
                     environment.pop(key)
 
     def _unpack_value(self, value: AbstractTypeValue, count: int) -> list[AbstractTypeValue]:
+        if (
+            value.sequence_items is not None
+            and not value.unknown
+            and len(value.sequence_items) == count
+        ):
+            return list(value.sequence_items)
         value = replace(
             value,
             types=frozenset(

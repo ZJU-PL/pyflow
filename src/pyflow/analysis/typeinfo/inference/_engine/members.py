@@ -1150,64 +1150,37 @@ class MemberInference(InferenceComponent):
             )
         return instance
 
-    def _class_method(
-        self,
-        class_name: str,
-        method: str,
-        seen: set[str] | None = None,
-    ) -> str | None:
-        seen = set() if seen is None else seen
-        if class_name in seen:
-            return None
-        seen.add(class_name)
-        class_info = self.engine._classes.get(class_name)
-        if class_info is None:
-            return None
-        if method in class_info.methods:
-            return class_info.methods[method]
-        for base in class_info.bases:
-            found = self._class_method(base, method, seen)
-            if found is not None:
-                return found
+    def _class_method(self, class_name: str, method: str) -> str | None:
+        # Depth-first lookup is wrong for diamonds: D(B, C), B(A), C(A)
+        # must inspect C before A. Use the same C3 order as super().
+        for candidate in self._mro_names(class_name):
+            info = self.engine._classes.get(candidate)
+            if info is not None and method in info.methods:
+                return info.methods[method]
         return None
 
-    def _class_property(self, class_name, name, seen=frozenset()):
-        if class_name in seen:
-            return None
-        info = self.engine._classes.get(class_name)
-        if info is None:
-            return None
-        if name in info.properties:
-            return info.properties[name]
-        if name in info.methods:
-            return None
-        for base in info.bases:
-            result = self._class_property(base, name, seen | {class_name})
-            if result is not None:
-                return result
+    def _class_property(self, class_name, name):
+        for candidate in self._mro_names(class_name):
+            info = self.engine._classes.get(candidate)
+            if info is None:
+                continue
+            if name in info.properties:
+                return info.properties[name]
+            if name in info.methods or name in info.attributes:
+                return None
         return None
 
-    def _class_attribute(
-        self,
-        class_name: str,
-        attribute: str,
-        seen: set[str] | None = None,
-    ) -> AbstractTypeValue | None:
-        seen = set() if seen is None else seen
-        if class_name in seen:
-            return None
-        seen.add(class_name)
-        class_info = self.engine._classes.get(class_name)
-        if class_info is None:
-            return None
-        if attribute in class_info.attributes:
-            return class_info.attributes[attribute]
-        if attribute in class_info.attribute_templates:
-            return class_info.attribute_templates[attribute]
-        for base in class_info.bases:
-            found = self._class_attribute(base, attribute, seen)
-            if found is not None:
-                return found
+    def _class_attribute(self, class_name: str, attribute: str) -> AbstractTypeValue | None:
+        for candidate in self._mro_names(class_name):
+            info = self.engine._classes.get(candidate)
+            if info is None:
+                continue
+            if attribute in info.attributes:
+                return info.attributes[attribute]
+            if attribute in info.attribute_templates:
+                return info.attribute_templates[attribute]
+            if attribute in info.methods or attribute in info.properties:
+                return None
         return None
 
     def _external_type(self, qualified_name: str) -> ProperType | None:

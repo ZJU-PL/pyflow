@@ -81,12 +81,71 @@ def _contains_gradual(typ: ProperType) -> bool:
 class ValueInference(InferenceComponent):
     """Project and join abstract values, containers, iterables, and awaitables."""
 
+    def _with_sequence_items(self, value, items):
+        # Bound both width and depth so recursive builders cannot grow an
+        # unbounded abstract heap. Widen only the layout, keeping public types.
+        def trim(item, depth):
+            if item.sequence_items is None:
+                return item
+            if depth == 0:
+                return replace(item, sequence_items=None)
+            children = tuple(trim(child, depth - 1) for child in item.sequence_items)
+            if all(left is right for left, right in zip(item.sequence_items, children)):
+                return item
+            return replace(item, sequence_items=children)
+
+        return replace(
+            value,
+            sequence_items=(tuple(trim(item, 3) for item in items) if len(items) <= 64 else None),
+        )
+
     def _subscript_value(
         self,
         base: AbstractTypeValue,
         slice_node: ast.expr,
         index_value: AbstractTypeValue | None = None,
     ) -> AbstractTypeValue:
+        if base.sequence_items is not None and not base.unknown:
+            items = base.sequence_items
+            if isinstance(slice_node, ast.Slice):
+                try:
+                    bounds = [
+                        ast.literal_eval(part) if part is not None else None
+                        for part in (slice_node.lower, slice_node.upper, slice_node.step)
+                    ]
+                    selected = items[slice(*bounds)]
+                except (ValueError, TypeError):
+                    pass
+                else:
+                    element = self._join_many_values(list(selected)).public_type() or NEVER
+                    value = self._join_many_values(
+                        [
+                            (
+                                AbstractTypeValue.from_type(
+                                    TupleType(
+                                        tuple(item.runtime_type() or ANY for item in selected)
+                                    )
+                                )
+                                if isinstance(typ, TupleType)
+                                else self._instance(list, element)
+                            )
+                            for typ in base.types
+                        ]
+                    )
+                    return self._with_sequence_items(value, selected)
+            else:
+                try:
+                    index = ast.literal_eval(slice_node)
+                except (ValueError, TypeError):
+                    index = None
+                if isinstance(index, int) and -len(items) <= index < len(items):
+                    return items[index]
+                if index is None and index_value is not None and index_value.literal_values:
+                    indices = index_value.literal_values
+                    if all(isinstance(i, int) and -len(items) <= i < len(items) for i in indices):
+                        return self._join_many_values([items[i] for i in indices])
+                if index is None and items:
+                    return self._join_many_values(list(items))
         if self.engine._operator_rules._contains_any(base):
             return AbstractTypeValue.from_type(ANY)
         if base.class_targets:
@@ -575,6 +634,8 @@ class ValueInference(InferenceComponent):
     def _iterable_element(self, value: AbstractTypeValue, *, _depth: int = 0) -> AbstractTypeValue:
         if _depth > 4:
             return AbstractTypeValue.unresolved()
+        if value.sequence_items is not None and not value.unknown:
+            return self._join_many_values(list(value.sequence_items))
         elements: list[AbstractTypeValue] = []
         for typ in value.types:
             if isinstance(typ, UnionType):
@@ -625,14 +686,16 @@ class ValueInference(InferenceComponent):
                     in {
                         cabc.Iterable,
                         cabc.Iterator,
+                        map,
                         cabc.Generator,
                         zip,
                         cabc.AsyncIterable,
                         cabc.AsyncIterator,
                         cabc.AsyncGenerator,
                     }
-                    and typ.args
-                ):
+                    or isinstance(raw, type)
+                    and issubclass(raw, cabc.Iterator)
+                ) and typ.args:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
                 elif raw in {cabc.KeysView, cabc.ValuesView} and typ.args:
                     elements.append(AbstractTypeValue.from_type(typ.args[0]))
@@ -1042,6 +1105,12 @@ class ValueInference(InferenceComponent):
             return
         self.engine._registered_hierarchy.add(raw_type)
         descriptor = self.engine.type_system.to_class_descriptor(raw_type)
+        if raw_type is not cabc.Iterator and issubclass(raw_type, cabc.Iterator):
+            self._register_type_hierarchy(cabc.Iterator)
+            self.engine.type_system.add_subclass_edge(
+                super_class=self.engine.type_system.to_class_descriptor(cabc.Iterator),
+                sub_class=descriptor,
+            )
         for base in getattr(raw_type, "__bases__", ()):
             self._register_type_hierarchy(base)
             self.engine.type_system.add_subclass_edge(

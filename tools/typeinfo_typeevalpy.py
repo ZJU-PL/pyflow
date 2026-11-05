@@ -3,7 +3,8 @@
 The default prediction universe is GT-conditioned. ``--all-facts`` additionally
 exports source-derived definitions, bindings, parameters and literal elements;
 its precision is relative to the (potentially incomplete) benchmark annotations.
-No benchmark code is executed. See docs/typeevalpy.md for the scoring contract.
+No benchmark code is executed. Generated reports and result files are local
+experiment artifacts and should be kept outside the documentation tree.
 """
 
 from __future__ import annotations

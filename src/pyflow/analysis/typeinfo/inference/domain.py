@@ -16,6 +16,7 @@ from typing import Iterable
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
+    CallableType,
     Instance,
     NeverType,
     ProperType,
@@ -51,6 +52,10 @@ class AbstractTypeValue:
     )
     # Exact constant values carried alongside their runtime base type.
     literal_values: frozenset[object] = field(default_factory=frozenset, compare=False)
+
+    # Bounded, positional values for literal lists/tuples. Unlike the public
+    # homogeneous element type, these retain callable targets and nesting.
+    sequence_items: tuple[AbstractTypeValue, ...] | None = field(default=None, repr=False)
 
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
@@ -130,6 +135,21 @@ class AbstractTypeValue:
             shapes = other.dict_shapes
         else:
             shapes = None
+        if self.is_bottom:
+            items = other.sequence_items
+        elif other.is_bottom:
+            items = self.sequence_items
+        elif (
+            self.sequence_items is not None
+            and other.sequence_items is not None
+            and len(self.sequence_items) == len(other.sequence_items)
+        ):
+            items = tuple(
+                left.join(right, type_system, max_union_size=max_union_size)
+                for left, right in zip(self.sequence_items, other.sequence_items)
+            )
+        else:
+            items = None
         return AbstractTypeValue(
             candidates,
             unknown=unknown,
@@ -138,6 +158,7 @@ class AbstractTypeValue:
             dict_shapes=shapes,
             element_dict_shapes=self.element_dict_shapes | other.element_dict_shapes,
             literal_values=self.literal_values | other.literal_values,
+            sequence_items=items,
         )
 
     def without_type(self, rejected: type[ProperType]) -> AbstractTypeValue:
@@ -281,6 +302,19 @@ def _compute_normalized_types(
             numeric = {bool, int, float, complex}
             if left.type.raw_type in numeric and right.type.raw_type in numeric:
                 return left.type == right.type
+        # Callable return covariance describes assignment compatibility, not
+        # equality of possible runtime results. In particular Callable[[], int]
+        # must not disappear beside Callable[[], float] in a container union.
+        if isinstance(left, CallableType) and isinstance(right, CallableType):
+            returned_left, returned_right = left.return_type, right.return_type
+            if isinstance(returned_left, Instance) and isinstance(returned_right, Instance):
+                numeric = {bool, int, float, complex}
+                if (
+                    returned_left.type.raw_type in numeric
+                    and returned_right.type.raw_type in numeric
+                ):
+                    if returned_left.type != returned_right.type:
+                        return False
         try:
             return type_system.is_subtype(left, right)
         except (AssertionError, KeyError, TypeError):

@@ -78,6 +78,8 @@ class ExpressionInference(InferenceComponent):
                     NEVER if not node.elts else self._literal_member_type(element),
                 )
             )
+            if not any(isinstance(item, ast.Starred) for item in node.elts):
+                value = self.engine._value_rules._with_sequence_items(value, evaluated)
             shapes = {shape for item in evaluated for shape in (item.dict_shapes or ())}
             if shapes:
                 value = replace(value, element_dict_shapes=frozenset(shapes))
@@ -139,8 +141,11 @@ class ExpressionInference(InferenceComponent):
                     TupleType((self._literal_member_type(element),), unknown_size=True)
                 )
             else:
-                value = AbstractTypeValue.from_type(
-                    TupleType(tuple(item.runtime_type() or ANY for item in evaluated))
+                value = self.engine._value_rules._with_sequence_items(
+                    AbstractTypeValue.from_type(
+                        TupleType(tuple(item.runtime_type() or ANY for item in evaluated))
+                    ),
+                    evaluated,
                 )
         elif isinstance(node, ast.Dict):
             evaluated_keys = [
@@ -597,6 +602,8 @@ class ExpressionInference(InferenceComponent):
             scope=scope,
             current_function=current_function,
         )
+        if value.sequence_items is not None:
+            return list(value.sequence_items)
         parts = self.engine._operator_rules._flatten_union_parts(value)
         if len(parts) == 1 and isinstance(parts[0], TupleType) and not parts[0].unknown_size:
             return [AbstractTypeValue.from_type(item) for item in parts[0].args]

@@ -351,27 +351,25 @@ class BuiltinInference(InferenceComponent):
                 )
                 if builtin_target is not None:
                     mapped_element = self.engine._value_rules._instance(builtin_target)
-                elif (
-                    call_node is not None
-                    and call_node.args
-                    and isinstance(call_node.args[0], ast.Lambda)
-                    and len(arguments) > 1
-                    and arguments[0].callable_targets
-                ):
-                    element = self.engine._value_rules._iterable_element(arguments[1])
+                elif len(arguments) > 1 and arguments[0].callable_targets:
+                    # Named functions and callable aliases need the same
+                    # argument evidence as inline lambdas. map accepts one
+                    # iterable per callback parameter.
+                    elements = [
+                        self.engine._value_rules._iterable_element(argument)
+                        for argument in arguments[1:]
+                    ]
                     mapped_element = join_all(
                         (
-                            self.engine._call_rules._apply_function(target, [element], {})
-                            for target in arguments[0].callable_targets
+                            self.engine._call_rules._apply_function(target, elements, {})
+                            for target in sorted(arguments[0].callable_targets)
                         ),
                         self.engine.type_system,
                         max_union_size=self.engine.options.max_union_size,
                     )
                 else:
                     mapped_element = self.engine._value_rules._callable_return_type(arguments[0])
-            return self.engine._value_rules._instance(
-                cabc.Iterator, mapped_element.public_type() or ANY
-            )
+            return self.engine._value_rules._instance(map, mapped_element.public_type() or ANY)
         if name in {"min", "max"} and arguments:
             default = keywords.get("default")
             if len(arguments) == 1:
@@ -427,6 +425,23 @@ class BuiltinInference(InferenceComponent):
         environment: dict[str, AbstractTypeValue],
         call_node: ast.Call | None = None,
     ) -> AbstractTypeValue | None:
+        if base.sequence_items is not None and node.attr in {
+            "append",
+            "extend",
+            "insert",
+            "pop",
+            "remove",
+            "clear",
+            "sort",
+            "reverse",
+            "__setitem__",
+            "__delitem__",
+            "__iadd__",
+            "__imul__",
+        }:
+            self.engine._flow_rules._update_environment_receiver(
+                environment, node.value, replace(base, sequence_items=None)
+            )
         for target in base.callable_targets:
             if node.attr == "__call__":
                 return self.engine._call_rules._apply_function(

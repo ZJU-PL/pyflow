@@ -515,9 +515,9 @@ def test_itertools_functools_json_queue_and_contextvar_models() -> None:
         "resolved = future.result()\n"
     )
     assert str(result.type_of("partial_by_keyword")) == "Callable[[int], bool]"
-    assert str(result.type_of("accumulated")) == "collections.abc.Iterator[int]"
-    assert str(result.type_of("chained")) == "collections.abc.Iterator[int]"
-    assert str(result.type_of("tees")).count("Iterator[int]") == 3
+    assert str(result.type_of("accumulated")) == "itertools.accumulate[int]"
+    assert str(result.type_of("chained")) == "itertools.chain[int]"
+    assert str(result.type_of("tees")).count("itertools._tee[int]") == 3
     assert raw_types(result.type_of("dumped")) == {str}
     assert raw_types(result.type_of("queued")) == {int}
     assert raw_types(result.type_of("current")) == {int}

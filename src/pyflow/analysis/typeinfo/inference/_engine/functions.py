@@ -642,6 +642,13 @@ class FunctionInference(InferenceComponent):
         return (
             tuple(sorted(str(typ) for typ in value.types)),
             value.unknown,
+            (
+                value.sequence_items is not None,
+                tuple(
+                    FunctionInference._value_fingerprint(item)
+                    for item in (value.sequence_items or ())
+                ),
+            ),
             tuple(sorted(value.callable_targets)),
             tuple(sorted(value.class_targets)),
             (

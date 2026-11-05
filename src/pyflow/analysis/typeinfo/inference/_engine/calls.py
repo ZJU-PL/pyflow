@@ -1112,14 +1112,20 @@ class CallInference(InferenceComponent):
         synthesized ``CallableType`` return annotation changes as inference
         converges and must not manufacture a fresh specialization each round.
         """
+        items = (
+            tuple(CallInference._normalize_context_value(item) for item in value.sequence_items)
+            if value.sequence_items is not None
+            else None
+        )
         if not value.callable_targets:
-            return value
+            return replace(value, sequence_items=items)
         return AbstractTypeValue(
             types=frozenset(typ for typ in value.types if not isinstance(typ, CallableType)),
             unknown=value.unknown,
             callable_targets=value.callable_targets,
             class_targets=value.class_targets,
             dict_shapes=value.dict_shapes,
+            sequence_items=items,
         )
 
     def _bind_call_arguments(
