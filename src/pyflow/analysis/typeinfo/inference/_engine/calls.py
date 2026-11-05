@@ -394,8 +394,9 @@ class CallInference(InferenceComponent):
             )
         )
         if qualified_callee is not None and self._external_return_is_inferred(qualified_callee):
-            # mypy treats a function without annotations as returning ``Any``.
-            value = replace(value, unknown=True)
+            # mypy treats a function without annotations as returning ``Any``;
+            # the gradual type must survive attribute projections too.
+            return AbstractTypeValue.from_type(ANY, unknown=True)
         return value
 
     def _external_return_is_inferred(self, qualified_name: str) -> bool:

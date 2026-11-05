@@ -169,6 +169,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still have unknown alternatives.  sklearn sample: matched mypy errors 9 ->
   13, missed 9 -> 5.
 
+- Calls to unannotated external functions now yield `Any` at the call site
+  (not only an "unknown" version of the inferred type), so attribute
+  projections keep mypy's gradual behaviour.  yt-dlp sample: `bytes|None`
+  false positives removed.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade
