@@ -686,6 +686,37 @@ class OperatorInference(InferenceComponent):
     ) -> AbstractTypeValue | None:
         results: list[AbstractTypeValue] = []
         direct, reflected = methods
+        builtin_operands = {
+            bool,
+            int,
+            float,
+            complex,
+            str,
+            bytes,
+            datetime.datetime,
+            datetime.date,
+            datetime.timedelta,
+            list,
+        }
+        parts = [*self._flatten_union_parts(left)]
+        if right is not None:
+            parts.extend(self._flatten_union_parts(right))
+        if (
+            isinstance(node, ast.BinOp)
+            and right is not None
+            and parts
+            and all(
+                isinstance(part, Instance) and part.type.raw_type in builtin_operands
+                for part in parts
+            )
+        ):
+            # Concrete builtin operators take precedence over reflection.
+            # Reflected stubs can be broader (``timedelta.__radd__`` returns
+            # timedelta), while the direct builtin rule knows that
+            # ``timedelta + datetime`` is a datetime.
+            builtin = self._binary_result(left, right, node.op)
+            if builtin.public_type() is not None:
+                return builtin
         if direct is not None:
             attribute = ast.copy_location(
                 ast.Attribute(value=node, attr=direct, ctx=ast.Load()), node
@@ -698,7 +729,7 @@ class OperatorInference(InferenceComponent):
                 environment,
             )
             if result is not None:
-                results.append(result)
+                return result
         if reflected is not None and right is not None:
             attribute = ast.copy_location(
                 ast.Attribute(value=node, attr=reflected, ctx=ast.Load()), node

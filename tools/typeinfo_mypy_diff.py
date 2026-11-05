@@ -478,7 +478,11 @@ def _strip_prefix(text: str) -> str:
 
 
 def _normalize_mypy_callables(text: str) -> str:
-    """Convert mypy's ``def (a: int) -> str`` spelling into ``Callable``."""
+    """Convert mypy's ``def (a: int) -> str`` spelling into ``Callable``.
+
+    mypy omits the return type for a ``None``-returning callable (``def (x)``),
+    so use ``None`` rather than inventing ``Any``.
+    """
     out = text
     while True:
         pos = out.find("def (")
@@ -506,8 +510,40 @@ def _normalize_mypy_callables(text: str) -> str:
             ret = out[ret_start:ret_end]
             out = out[:pos] + f"Callable[[{params}], {ret}]" + out[ret_end:]
         else:
-            out = out[:pos] + f"Callable[[{params}], Any]" + out[close + 1 :]
+            out = out[:pos] + f"Callable[[{params}], None]" + out[close + 1 :]
     return out
+
+
+def _mypy_constructor_result(text: str) -> str | None:
+    """Return the constructed instance type from a revealed class object.
+
+    ``reveal_type(SomeClass)`` prints a constructor (``def (...) -> X``); for a
+    NamedTuple the return type is a tuple carrying ``fallback=X``.  PyFlow
+    represents the same value as ``type[X]``.
+    """
+    if not text.startswith("def ("):
+        return None
+    close = _matching(text, 4)
+    rest = text[close + 1 :]
+    if not rest.startswith(" -> "):
+        return None
+    return rest[len(" -> ") :].strip()
+
+
+def _unsupported_mypy_type(text: str) -> bool:
+    """Revealed forms with no meaningful cross-checker equality."""
+    stripped = text.strip()
+    if stripped in {
+        "typing._SpecialForm",
+        "typing.NewType",
+        "typing.TypeAliasType",
+    }:
+        return True
+    if stripped.startswith(("Overload(", "functools.partial[")):
+        return True
+    if "Self`" in stripped or stripped == "Self":
+        return True
+    return False
 
 
 def _normalize_fallback_tuples(text: str) -> str:
@@ -588,11 +624,27 @@ def _normalize_optional_union(text: str) -> str:
 
 
 def _sort_unions(text: str) -> str:
-    if "|" not in text:
-        return text
-    parts = _split_top_level(text, "|")
+    """Canonicalize unions at every nesting level and sort their members."""
+    comma_parts = _split_top_level(text, ",")
+    if len(comma_parts) > 1:
+        return ",".join(_sort_unions(part) for part in comma_parts)
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char in "[(":
+            close = _matching(text, i)
+            out.append(char + _sort_unions(text[i + 1 : close]) + text[close])
+            i = close + 1
+            continue
+        out.append(char)
+        i += 1
+    normalized = "".join(out)
+    if "|" not in normalized:
+        return normalized
+    parts = _split_top_level(normalized, "|")
     if len(parts) == 1:
-        return text
+        return normalized
     return "|".join(sorted({part.strip() for part in parts if part.strip()}))
 
 
@@ -629,10 +681,14 @@ def normalize_type(text: str | None) -> str | None:
     text = _strip_prefix(text)
     text = _normalize_optional_union(text)
     text = text.replace("NoneType", "None")
+    text = re.sub(r"`[-0-9]+", "", text)
     text = re.sub(r"\s+", " ", text)
     text = text.replace(" | ", "|")
-    text = _sort_unions(text)
+    # mypy marks optional arguments with a trailing ``=``; PyFlow's public
+    # callable model does not distinguish required and defaulted parameters.
+    text = re.sub(r"\s*=\s*(?=[,\]])", "", text)
     text = _strip_parameter_names(text)
+    text = _sort_unions(text)
     text = re.sub(r"\[\s+", "[", text)
     text = re.sub(r"\s+,", ",", text)
     text = re.sub(r",\s+", ",", text)
@@ -898,10 +954,21 @@ def make_shadow(project_root: Path, shadow_root: Path) -> None:
 def classify(pyflow: str | None, mypy: str | None, complete: bool | None) -> str:
     if pyflow is None:
         return "C5_missing"
-    if mypy is None:
+    if mypy is None or _unsupported_mypy_type(mypy):
         return "uncomparable"
-    if normalize_type(pyflow) == normalize_type(mypy):
+    normalized_pyflow = normalize_type(pyflow)
+    normalized_mypy = normalize_type(mypy)
+    if normalized_pyflow == normalized_mypy:
         return "match"
+    if normalized_pyflow is not None and normalized_pyflow.startswith("type["):
+        target = normalized_pyflow[len("type[") : -1]
+        constructor = _mypy_constructor_result(mypy.strip())
+        if constructor is not None and normalize_type(constructor) == target:
+            return "match"
+        # NamedTuple constructors can collapse to their fallback type after
+        # normalization; the class-object value still matches ``type[X]``.
+        if not mypy.strip().startswith("def (") and normalized_mypy == target:
+            return "match"
     if not complete:
         return "C5_incomplete"
     if pyflow in {"Any", "object", "Unknown"}:
@@ -1277,6 +1344,7 @@ def diff_project(
         "c5_missing": 0,
         "c5_unknown": 0,
         "c5_incomplete": 0,
+        "uncomparable": 0,
         "mypy_errors": 0,
     }
     try:
@@ -1328,6 +1396,9 @@ def diff_project(
                     continue
                 mypy_type = mypy_outcome.types[candidate.index]
                 if "Any" in mypy_type or mypy_type in {"None", "Any"}:
+                    continue
+                if _unsupported_mypy_type(mypy_type):
+                    stats["uncomparable"] = int(stats.get("uncomparable", 0)) + 1
                     continue
                 stats["expressions"] = int(stats["expressions"]) + 1
                 pyflow_type = None

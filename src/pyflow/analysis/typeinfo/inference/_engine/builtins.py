@@ -493,7 +493,7 @@ class BuiltinInference(InferenceComponent):
                     dict, self.engine._value_rules._proper_instance(str), ANY
                 )
 
-        method_targets: list[str] = []
+        method_targets: list[tuple[str, AbstractTypeValue]] = []
         for typ in base.types:
             if isinstance(typ, TupleType):
                 if node.attr in {"count", "index"}:
@@ -524,7 +524,22 @@ class BuiltinInference(InferenceComponent):
                     class_info.qualified_name, node.attr
                 )
                 if method is not None:
-                    method_targets.append(method)
+                    # Call each union member's implementation with that member
+                    # as the receiver.  Passing the whole union polluted the
+                    # method's ``self`` evidence with every sibling class.
+                    method_targets.append(
+                        (
+                            method,
+                            AbstractTypeValue.from_type(
+                                typ,
+                                class_target=(
+                                    typ.type.full_name
+                                    if typ.type.full_name in base.class_targets
+                                    else None
+                                ),
+                            ),
+                        )
+                    )
             else:
                 member = typ.type.members.get(node.attr)
                 if isinstance(member, CallableType):
@@ -543,11 +558,11 @@ class BuiltinInference(InferenceComponent):
                 [
                     self.engine._call_rules._apply_function(
                         target,
-                        self._method_arguments(self.engine._functions[target], base, arguments),
+                        self._method_arguments(self.engine._functions[target], receiver, arguments),
                         keywords,
                         node=call_node or node,
                     )
-                    for target in method_targets
+                    for target, receiver in method_targets
                 ],
                 self.engine.type_system,
                 max_union_size=self.engine.options.max_union_size,
@@ -938,12 +953,6 @@ class BuiltinInference(InferenceComponent):
                 if node.attr == "groups":
                     return AbstractTypeValue.from_type(
                         TupleType((match_or_none.public_type() or ANY,), unknown_size=True)
-                    )
-                if node.attr == "groupdict":
-                    return self.engine._value_rules._instance(
-                        dict,
-                        self.engine._value_rules._proper_instance(str),
-                        match_or_none.public_type() or ANY,
                     )
                 if node.attr in {"start", "end"}:
                     if arguments:

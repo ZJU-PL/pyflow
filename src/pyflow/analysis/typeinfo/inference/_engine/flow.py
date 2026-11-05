@@ -1206,7 +1206,11 @@ class FlowInference(InferenceComponent):
                         key_value = environment.get(ast.unparse(target.slice))
                     if key_value is not None and (key_value.types or not key_value.unknown):
                         new_key = key_value.public_type() or ANY
-                        if isinstance(key_type, (AnyType, NeverType)):
+                        if isinstance(key_type, AnyType):
+                            # Any absorbs new evidence; narrowing it to the
+                            # literal key would make the container definite.
+                            pass
+                        elif isinstance(key_type, NeverType):
                             key_type = new_key
                         else:
                             key_type = (
@@ -1216,7 +1220,9 @@ class FlowInference(InferenceComponent):
                                 ).public_type()
                                 or ANY
                             )
-                    if isinstance(old_value, (AnyType, NeverType)):
+                    if isinstance(old_value, AnyType):
+                        joined = AbstractTypeValue.from_type(ANY)
+                    elif isinstance(old_value, NeverType):
                         joined = value
                     else:
                         joined = self.engine._value_rules._join(
@@ -1229,9 +1235,14 @@ class FlowInference(InferenceComponent):
                     )
                 elif isinstance(typ, Instance) and typ.type.raw_type is list:
                     old_value = typ.args[0] if typ.args else ANY
-                    joined = self.engine._value_rules._join(
-                        AbstractTypeValue.from_type(old_value), value
-                    )
+                    if isinstance(old_value, AnyType):
+                        joined = AbstractTypeValue.from_type(ANY)
+                    elif isinstance(old_value, NeverType):
+                        joined = value
+                    else:
+                        joined = self.engine._value_rules._join(
+                            AbstractTypeValue.from_type(old_value), value
+                        )
                     updated.append(
                         self.engine._value_rules._instance(list, joined.public_type() or ANY)
                     )

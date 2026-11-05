@@ -41,7 +41,10 @@ from pyflow.analysis.typeinfo.inference._engine.state import (
 )
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue, join_all
 from pyflow.analysis.typeinfo.resolution.annotations import BuiltinTypeLookup
-from pyflow.analysis.typeinfo.resolution.typing_syntax import substitute_type_vars
+from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+    collect_type_vars,
+    substitute_type_vars,
+)
 
 # Imported aliases such as MappingProxyType differ from runtime class names.
 _STDLIB_CLASS_ALIASES = {
@@ -432,9 +435,9 @@ class MemberInference(InferenceComponent):
                         )
                     )
                     continue
-                if attribute == "name":
+                if attribute in {"name", "_name_"}:
                     return self.engine._value_rules._instance(str)
-                if attribute == "value":
+                if attribute in {"value", "_value_"}:
                     enum_values = list(class_info.enum_values.values())
                     return (
                         join_all(
@@ -838,8 +841,16 @@ class MemberInference(InferenceComponent):
                     }
                     if substitutions:
                         member_type = substitute_type_vars(member_type, substitutions)
-                    values.append(AbstractTypeValue.from_type(member_type))
-                    continue
+                    if not (
+                        isinstance(member_type, CallableType) and collect_type_vars(member_type)
+                    ):
+                        values.append(AbstractTypeValue.from_type(member_type))
+                        continue
+                    # A synthetic descriptor (notably the one created for
+                    # ``typing.Dict``) may carry a simplified overload union
+                    # with method-local type variables that its class type
+                    # parameters cannot bind.  Fall through to the typeshed
+                    # symbol, which is substituted and receiver-bound below.
                 external = self._external_type(f"{typ.type.full_name}.{attribute}")
                 if external is not None:
                     substitutions = {
@@ -1414,7 +1425,23 @@ class MemberInference(InferenceComponent):
             if base.method_kind == "static"
             else base_signature.arg_types[1:]
         )
-        if len(override_args) != len(base_args):
+
+        def arity(function: _FunctionInfo) -> tuple[int, int]:
+            """Return (total, required) parameters excluding the receiver."""
+            receiver = 0 if function.method_kind == "static" else 1
+            total = max(0, len(function.parameter_names) - receiver)
+            required = max(
+                0,
+                len(function.parameter_names) - len(function.default_parameters) - receiver,
+            )
+            return total, required
+
+        override_total, override_required = arity(override)
+        base_total, base_required = arity(base)
+        # An override may add optional parameters, but it must still accept
+        # every call valid for the base: enough positional slots, and no newly
+        # required parameter in a position the base call may omit.
+        if override_total < base_total or override_required > base_required:
             self._report_override(method_name, base_name, override)
             return
         for index, (base_arg, override_arg) in enumerate(zip(base_args, override_args)):

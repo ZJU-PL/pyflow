@@ -219,6 +219,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Type inference now respects gradual and container semantics in several
+  corpus-wide failure modes: `typing.Dict`/`typing.List` member lookup uses the
+  typeshed signature instead of leaking `_T`, indexing a declared `list[T]`
+  returns `T` rather than `T | list[T]`, writes to `dict[str, Any]` stay
+  gradual, and starred tuple unpacking keeps exact literals while widening
+  unknown iterables to `tuple[T, ...]`.
+- Calls through a union receiver now dispatch each member with that member as
+  `self`, and explicit calls such as `Base.method(self, ...)` no longer insert
+  a second implicit receiver.  This removes the large `attr-defined` /
+  `call-arity-mismatch` false-positive clusters in Ultralytics and Django.
+- Member checks no longer treat `self.unannotated_attr.member` as a declared
+  chain, so optional `None` sentinels that subclasses replace with mappings
+  no longer produce `union-attr`. Overrides may add optional parameters, enum
+  `_name_`/`_value_` resolve as members, and slices stored in variables are
+  valid sequence indices.
+- The mypy differential harness now canonicalizes nested unions, callable
+  default markers, TypeVar ids, class constructors, and unsupported reveal
+  forms, so reported mismatches reflect real type differences rather than
+  spelling differences.
+
 - `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of
   unlimited, so analyses of large projects no longer hang on the full import
   graph; `--import-depth -1` explicitly requests unlimited depth.

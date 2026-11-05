@@ -7,7 +7,14 @@ import collections.abc as cabc
 from dataclasses import replace
 from typing import Iterable, cast
 
-from pyflow.analysis.typeinfo.core.typesystem import ANY, NEVER, NONE_TYPE, TupleType, TypeType
+from pyflow.analysis.typeinfo.core.typesystem import (
+    ANY,
+    NEVER,
+    NONE_TYPE,
+    ProperType,
+    TupleType,
+    TypeType,
+)
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
 from pyflow.analysis.typeinfo.inference._engine.state import (
     _FunctionInfo,
@@ -24,6 +31,18 @@ from pyflow.analysis.typeinfo.resolution.annotations import (
 
 class ExpressionInference(InferenceComponent):
     """Evaluate expressions and expand positional and keyword arguments."""
+
+    def _literal_member_type(self, value: AbstractTypeValue) -> ProperType:
+        """Return a sound element type for a literal container.
+
+        A value with unknown alternatives cannot be narrowed to the one type
+        that happened to be recorded.  Using that type made
+        ``{"app": self, "g": unresolved_g}`` a definite
+        ``dict[str, Flask]`` even though the mapping value may be anything.
+        """
+        if value.unknown:
+            return ANY
+        return value.runtime_type() or ANY
 
     def _evaluate_expression(
         self,
@@ -56,7 +75,7 @@ class ExpressionInference(InferenceComponent):
                 if self.engine._value_rules._is_never_value(element)
                 else self.engine._value_rules._instance(
                     list,
-                    NEVER if not node.elts else (element.runtime_type() or ANY),
+                    NEVER if not node.elts else self._literal_member_type(element),
                 )
             )
             shapes = {shape for item in evaluated for shape in (item.dict_shapes or ())}
@@ -67,20 +86,58 @@ class ExpressionInference(InferenceComponent):
             value = (
                 element
                 if self.engine._value_rules._is_never_value(element)
-                else self.engine._value_rules._instance(set, element.runtime_type() or ANY)
+                else self.engine._value_rules._instance(set, self._literal_member_type(element))
             )
         elif isinstance(node, ast.Tuple):
-            evaluated = [
-                self._evaluate_expression(
-                    item,
-                    environment,
-                    scope=scope,
-                    current_function=current_function,
-                )
-                for item in node.elts
-            ]
+            evaluated: list[AbstractTypeValue] = []
+            variable_length = False
+            for item in node.elts:
+                if isinstance(item, ast.Starred):
+                    # Preserve exact arity for a starred tuple/list literal.
+                    # For an arbitrary iterable (``reversed(xs)``) the
+                    # resulting tuple length is unknown; treating the starred
+                    # value as one element wrongly claims ``tuple[None, str]``
+                    # for ``(None, *reversed(xs))``.
+                    source = self._evaluate_expression(
+                        item.value,
+                        environment,
+                        scope=scope,
+                        current_function=current_function,
+                    )
+                    element = self._evaluate_expression(
+                        item,
+                        environment,
+                        scope=scope,
+                        current_function=current_function,
+                    )
+                    parts = self.engine._operator_rules._flatten_union_parts(source)
+                    if (
+                        len(parts) == 1
+                        and isinstance(parts[0], TupleType)
+                        and not parts[0].unknown_size
+                    ):
+                        evaluated.extend(
+                            AbstractTypeValue.from_type(argument) for argument in parts[0].args
+                        )
+                    else:
+                        evaluated.append(element)
+                        variable_length = True
+                else:
+                    evaluated.append(
+                        self._evaluate_expression(
+                            item,
+                            environment,
+                            scope=scope,
+                            current_function=current_function,
+                        )
+                    )
             if any(self.engine._value_rules._is_never_value(item) for item in evaluated):
                 value = AbstractTypeValue.from_type(NEVER)
+            elif variable_length:
+                element = self.engine._value_rules._join_many_values(evaluated)
+                value = AbstractTypeValue.from_type(
+                    TupleType((self._literal_member_type(element),), unknown_size=True)
+                )
             else:
                 value = AbstractTypeValue.from_type(
                     TupleType(tuple(item.runtime_type() or ANY for item in evaluated))
@@ -132,15 +189,15 @@ class ExpressionInference(InferenceComponent):
             else:
                 value = self.engine._value_rules._instance(
                     dict,
-                    keys.runtime_type() or ANY,
-                    values.runtime_type() or ANY,
+                    self._literal_member_type(keys),
+                    self._literal_member_type(values),
                 )
                 if all(
                     isinstance(key, ast.Constant) and isinstance(key.value, str)
                     for key in node.keys
                 ):
                     fields = {
-                        key.value: item.runtime_type() or ANY
+                        key.value: self._literal_member_type(item)
                         for key, item in zip(node.keys, evaluated_values)
                     }
                     value = replace(
@@ -404,13 +461,13 @@ class ExpressionInference(InferenceComponent):
             if isinstance(node, ast.GeneratorExp):
                 value = self.engine._value_rules._instance(
                     cabc.Generator,
-                    element.public_type() or ANY,
+                    self._literal_member_type(element),
                     NONE_TYPE,
                     NONE_TYPE,
                 )
             else:
                 raw = set if isinstance(node, ast.SetComp) else list
-                value = self.engine._value_rules._instance(raw, element.public_type() or ANY)
+                value = self.engine._value_rules._instance(raw, self._literal_member_type(element))
                 if element.dict_shapes:
                     value = replace(value, element_dict_shapes=frozenset(element.dict_shapes))
         elif isinstance(node, ast.DictComp):
@@ -427,7 +484,7 @@ class ExpressionInference(InferenceComponent):
                 node, local_env, environment, current_function
             )
             value = self.engine._value_rules._instance(
-                dict, key.public_type() or ANY, item.public_type() or ANY
+                dict, self._literal_member_type(key), self._literal_member_type(item)
             )
         elif isinstance(node, ast.Lambda):
             qualified = f"{scope}.<lambda@{node.lineno}:{node.col_offset}>"

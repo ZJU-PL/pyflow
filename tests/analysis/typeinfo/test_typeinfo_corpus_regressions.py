@@ -1035,3 +1035,276 @@ def test_project_context_discovers_src_directory(tmp_path: Path) -> None:
     res = ctx.find_module("mypkg")
     assert res is not None
     assert res.is_package
+
+
+def test_narrowed_unannotated_attribute_is_not_reported_as_none_member() -> None:
+    """Django ``system_check_removed_details = None`` pattern.
+
+    The post-convergence member pass must not treat ``self.attr.member`` as a
+    declared chain merely because its root is ``self``.  The guard narrows the
+    access away from ``None`` and subclass assignments give the attribute a
+    concrete mapping type.
+    """
+    result = infer("""
+class Field:
+    system_check_removed_details = None
+
+    def checks(self):
+        if self.system_check_removed_details is not None:
+            return self.system_check_removed_details.get("msg")
+        return None
+""")
+    assert not [d for d in result.diagnostics if d.code in {"union-attr", "attr-defined"}]
+
+
+def test_starred_unknown_iterable_makes_tuple_variadic() -> None:
+    result = infer("""
+def f(xs: list[str]) -> None:
+    names = (None, *reversed(xs))
+""")
+    values = [value for span, value in result.expressions.items() if span.lineno == 3]
+    tuple_values = [
+        value.runtime_type() for value in values if "tuple[" in str(value.runtime_type())
+    ]
+    assert tuple_values
+    assert str(tuple_values[0]) == "tuple[None | str, ...]"
+
+
+def test_starred_fixed_tuple_preserves_every_element() -> None:
+    result = infer("""
+def f() -> None:
+    fixed = (None, *(1, 2))
+""")
+    values = [value.runtime_type() for value in result.expressions.values() if value.runtime_type()]
+    assert any(str(value) == "tuple[None, int, int]" for value in values)
+
+
+def test_dict_literal_with_unknown_value_is_not_over_specific() -> None:
+    result = infer("""
+from unavailable_dependency import g
+
+class C:
+    def make(self):
+        return {"app": self, "g": g}
+""")
+    values = [value.runtime_type() for value in result.expressions.values() if value.runtime_type()]
+    assert any(str(value) == "dict[str, Any]" for value in values)
+    assert not any(str(value) == "dict[str, m.C]" for value in values)
+
+
+def test_typing_list_indexing_returns_element_not_sequence_overload() -> None:
+    result = infer("""
+from typing import Dict, List
+
+class Style:
+    pass
+
+entries: List[Dict[str, Style]] = [{}]
+first = entries[0]
+last = entries[-1]
+window = entries[:1]
+""")
+    assert str(result.type_of("first")) == "dict[str, m.Style]"
+    assert str(result.type_of("last")) == "dict[str, m.Style]"
+    assert str(result.type_of("window")) == "list[dict[str, m.Style]]"
+
+
+def test_dict_value_keeps_any_after_subscript_assignment() -> None:
+    result = infer("""
+from typing import Any
+
+def load() -> dict[str, Any]:
+    return {}
+
+def consume(table: dict[str, str | list[str]]) -> None:
+    pass
+
+def run() -> None:
+    values = load()
+    values["key"] = ["item"]
+    consume(values)
+""")
+    assert str(result.type_of("m.run")) == "Callable[[], None]"
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    values = [value.runtime_type() for value in result.expressions.values()]
+    assert any(str(value) == "dict[str, Any]" for value in values)
+
+
+def test_typing_dict_method_uses_bound_substituted_signature() -> None:
+    result = infer("""
+from typing import Dict
+
+class Style:
+    pass
+
+styles: Dict[str, Style] = {}
+lookup = styles.get
+""")
+    assert str(result.type_of("lookup")) == "Callable[[str, None], None | m.Style]"
+
+
+def test_override_may_add_optional_parameters() -> None:
+    result = infer("""
+class Base:
+    def render(self, width: int) -> None:
+        pass
+
+class Child(Base):
+    def render(self, width: int, template: str | None = None) -> None:
+        pass
+""")
+    assert not [d for d in result.diagnostics if d.code == "override"]
+
+
+def test_override_may_not_make_optional_parameter_required() -> None:
+    result = infer("""
+class Base:
+    def render(self, width: int, template: str = "") -> None:
+        pass
+
+class Child(Base):
+    def render(self, width: int, template: str) -> None:
+        pass
+""")
+    assert [d for d in result.diagnostics if d.code == "override"]
+
+
+def test_enum_dunder_name_is_a_string_member() -> None:
+    result = infer("""
+from enum import Enum
+
+class Frame(Enum):
+    CURRENT_ROW = "CURRENT ROW"
+
+    def label(self) -> str:
+        return self._name_
+""")
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "union-attr"}]
+    labels = [value.runtime_type() for value in result.expressions.values()]
+    assert any(str(value) == "str" for value in labels)
+
+
+def test_regex_groupdict_values_include_gradual_maybe_none() -> None:
+    """``_typeshed.MaybeNone`` is ``Any``, not a definite ``None``.
+
+    mypy reveals ``dict[str, str | Any]`` for ``Match.groupdict()``.  PyFlow's
+    old special case narrowed the value to ``str | None`` and then produced a
+    false-positive annotation mismatch in yt-dlp's release script.
+    """
+    result = infer("""
+import re
+
+def owner(urls: list[str]) -> str:
+    pattern = re.compile(r"(?P<owner>[^/]+)/(?P<repo>[^/]+)")
+    info = next(
+        (match.groupdict() for url in urls if (match := pattern.match(url))),
+        {},
+    )
+    if info:
+        value: str = info["owner"]
+        return value
+    return ""
+""")
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+    values = [value.runtime_type() for value in result.expressions.values()]
+    assert any(str(value).startswith("dict[str, ") and "Any" in str(value) for value in values)
+
+
+def test_union_method_call_uses_each_member_as_receiver() -> None:
+    """Calling a method through ``A | B`` must not pass ``A | B`` as ``self``.
+
+    Ultralytics' transform pipeline stored a union of augmenters and called
+    ``self.apply_image`` from the base class.  Joining the whole union into
+    every implementation made RandomHSV/Flip/Perspective appear to have each
+    other's attributes, producing dozens of bogus ``attr-defined`` errors.
+    """
+    result = infer("""
+class Base:
+    def run(self) -> int:
+        return self.apply()
+
+    def apply(self) -> int:
+        return 0
+
+class A(Base):
+    def __init__(self) -> None:
+        self.a = 1
+
+    def apply(self) -> int:
+        return self.a
+
+class B(Base):
+    def __init__(self) -> None:
+        self.b = 2
+
+    def apply(self) -> int:
+        return self.b
+
+def run(obj: A | B) -> int:
+    return obj.run()
+""")
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "union-attr"}]
+    assert str(result.type_of("m.run")) == "Callable[[m.A | m.B], int]"
+
+
+def test_slice_held_in_variable_is_a_valid_sequence_index() -> None:
+    result = infer("""
+names: list[str] = []
+keep = slice(None, None, 2)
+selected = names[keep]
+""")
+    assert not [d for d in result.diagnostics if d.code == "index"]
+    assert str(result.type_of("selected")) == "list[str]"
+
+
+def test_explicit_base_method_call_does_not_insert_implicit_receiver() -> None:
+    result = infer("""
+class Base:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def compute(self, extra: int) -> int:
+        return self.value + extra
+
+class Child(Base):
+    def __init__(self, value: int) -> None:
+        Base.__init__(self, value)
+
+    def compute(self, extra: int) -> int:
+        return Base.compute(self, extra)
+""")
+    assert not [
+        d for d in result.diagnostics if d.code in {"call-arity-mismatch", "annotation-mismatch"}
+    ]
+
+
+def test_datetime_timedelta_arithmetic_uses_direct_operator_result() -> None:
+    """Reflected arithmetic must not override the direct builtin rule.
+
+    Home Assistant does ``start_time = start_time + table.duration -
+    timedelta.resolution``.  PyFlow previously returned ``timedelta`` for
+    ``datetime + timedelta`` (the reflected ``timedelta.__radd__`` result) and
+    then reported that ``timedelta.minute`` was missing.
+    """
+    result = infer("""
+from datetime import datetime, timedelta
+
+def add(start: datetime, duration: timedelta) -> datetime:
+    return start + duration
+
+def reverse(duration: timedelta, start: datetime) -> datetime:
+    return duration + start
+
+def subtract(start: datetime, duration: timedelta) -> datetime:
+    return start - duration
+""")
+    assert str(result.type_of("m.add")) == (
+        "Callable[[datetime.datetime, datetime.timedelta], datetime.datetime]"
+    )
+    assert str(result.type_of("m.reverse")) == (
+        "Callable[[datetime.timedelta, datetime.datetime], datetime.datetime]"
+    )
+    assert str(result.type_of("m.subtract")) == (
+        "Callable[[datetime.datetime, datetime.timedelta], datetime.datetime]"
+    )
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]

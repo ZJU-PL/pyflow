@@ -511,10 +511,13 @@ class StaticTypeInferenceEngine:
                     root = node.value.value.id
                     if root == "self" and node.value.attr in attributes:
                         receiver_is_declared = True
-                    elif root in annotated:
+                    elif root != "self" and root in annotated:
                         # ``tags.classifier_tags.multi_label``: the chain
                         # starts at a declared variable, so the member type of
-                        # each link comes from a known class.
+                        # each link comes from a known class.  ``self`` alone
+                        # is not enough: ``self.unannotated_attr.member`` has
+                        # no declared shape and may refer to a subclass value
+                        # even when the base-class assignment is ``None``.
                         receiver_is_declared = True
                 if (
                     not receiver_is_declared

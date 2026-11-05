@@ -217,13 +217,56 @@ class ValueInference(InferenceComponent):
                             )
                         values.append(AbstractTypeValue.unresolved())
                     continue
+                # Builtin container subscripts are element projections; the
+                # generic __getitem__ overloads cannot be disambiguated from
+                # their result type (an ``int`` index may well return a list).
+                if raw in {list, set, frozenset, collections.deque} and typ.args:
+                    sliced = index_value is not None and any(
+                        isinstance(part, Instance) and part.type.raw_type is slice
+                        for part in index_value.types
+                        if not isinstance(part, UnionType)
+                    )
+                    values.append(AbstractTypeValue.from_type(typ if sliced else typ.args[0]))
+                    continue
+                if (
+                    raw
+                    in {
+                        dict,
+                        collections.defaultdict,
+                        collections.OrderedDict,
+                        collections.ChainMap,
+                    }
+                    and len(typ.args) > 1
+                ):
+                    if (
+                        base.dict_shapes
+                        and isinstance(slice_node, ast.Constant)
+                        and isinstance(slice_node.value, str)
+                    ):
+                        for shape in base.dict_shapes:
+                            field = dict(shape).get(slice_node.value)
+                            values.append(
+                                AbstractTypeValue.from_type(field)
+                                if field is not None
+                                else AbstractTypeValue.unresolved()
+                            )
+                    else:
+                        values.append(AbstractTypeValue.from_type(typ.args[1]))
+                    continue
+                if raw in {bytes, bytearray, memoryview, range}:
+                    values.append(self._instance(int))
+                    continue
                 getitem = self.engine._member_rules._class_method(typ.type.full_name, "__getitem__")
                 if getitem is not None:
                     result = self.engine._call_rules._apply_function(
                         getitem,
                         [
                             AbstractTypeValue.from_type(typ),
-                            AbstractTypeValue.unresolved(),
+                            (
+                                index_value
+                                if index_value is not None
+                                else AbstractTypeValue.unresolved()
+                            ),
                         ],
                         {},
                     )
@@ -328,6 +371,10 @@ class ValueInference(InferenceComponent):
         if actual is None or index_value.unknown:
             return
         if isinstance(actual, (AnyType, TypeVarType)):
+            return
+        if isinstance(actual, Instance) and actual.type.raw_type is slice:
+            # A slice object stored in a variable is still a valid sequence
+            # index (``keep = slice(None, None, k); names[keep]``).
             return
         if any(_contains_gradual(argument) for argument in typ.args):
             # ``list[Any]`` / ``list[dict[Any, Any]]`` come from untyped code;
