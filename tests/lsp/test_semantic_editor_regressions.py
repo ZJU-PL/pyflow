@@ -303,8 +303,10 @@ def test_unknown_external_hierarchy_is_uncertain_not_an_incompatibility():
     )
     result = infer_document("/tmp/external_hierarchy.py", "probe", source)
     assert not any(d.code == "annotation-mismatch" for d in result.diagnostics)
+    # A dependency that is simply absent is gradual (``Any``), not a failed
+    # analysis: the document stays complete and only a warning is reported.
     assert any(
-        d.code == "unresolved-annotation" and d.affects_completeness for d in result.diagnostics
+        d.code == "missing-external-type" and not d.affects_completeness for d in result.diagnostics
     )
 
 

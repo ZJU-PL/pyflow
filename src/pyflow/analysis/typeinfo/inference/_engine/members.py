@@ -405,6 +405,13 @@ class MemberInference(InferenceComponent):
                 continue
             if not isinstance(typ, Instance):
                 continue
+            if attribute == "__new__" and base.class_targets:
+                # ``X.__new__(X)`` returns the class's instance (mypy models
+                # ``object.__new__`` as returning ``Self``); the runtime
+                # introspection signature says ``object``, which produced a
+                # false-positive annotation mismatch for the common idiom.
+                values.append(AbstractTypeValue.from_type(CallableType((TypeType(typ),), typ)))
+                continue
             class_info = self.engine._classes.get(typ.type.full_name)
             if self._is_enum_class_info(class_info):
                 if attribute in class_info.enum_values:

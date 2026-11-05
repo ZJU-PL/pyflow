@@ -164,6 +164,17 @@ class CallInference(InferenceComponent):
                 qualified_callee in {"typing.NewType", "typing_extensions.NewType"}
                 and len(node.args) >= 2
             ):
+                declared = node.args[0]
+                if isinstance(declared, ast.Constant) and isinstance(declared.value, str):
+                    qualified = f"{self.engine._module_name}.{declared.value}"
+                    class_info = self.engine._classes.get(qualified)
+                    if class_info is not None and class_info.newtype_base is not None:
+                        # ``Name = NewType("Name", Base)`` binds the new
+                        # nominal class, not an identity function, so later
+                        # ``Name(value)`` constructs the distinct type.
+                        return AbstractTypeValue.from_type(
+                            class_info.instance, class_target=qualified
+                        )
                 wrapped = (
                     self.engine._declaration_rules._annotation_value(node.args[1]).public_type()
                     or ANY

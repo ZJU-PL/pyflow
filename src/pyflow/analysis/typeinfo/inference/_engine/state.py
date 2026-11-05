@@ -67,6 +67,9 @@ class _ClassInfo:
     constructor_fields: dict[str, AbstractTypeValue] = field(default_factory=dict)
     field_defaults: set[str] = field(default_factory=set)
     keyword_only_fields: set[str] = field(default_factory=set)
+    # ``NewType("TaskId", int)`` creates a distinct nominal type whose values
+    # are still instances of the wrapped class.
+    newtype_base: ProperType | None = None
 
 
 @dataclass

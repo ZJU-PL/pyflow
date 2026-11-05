@@ -110,8 +110,12 @@ other = UserId(7)
 text = narrow(str, unknown)
 number = t.cast(int, unknown)
 """)
-    assert raw_types(result.type_of("uid")) == {int}
-    assert raw_types(result.type_of("other")) == {int}
+    uid_type = result.type_of("uid")
+    other_type = result.type_of("other")
+    assert isinstance(uid_type, Instance)
+    assert uid_type.type.full_name.endswith(".UserId")
+    assert isinstance(other_type, Instance)
+    assert other_type.type.full_name.endswith(".UserId")
     assert raw_types(result.type_of("text")) == {str}
     assert raw_types(result.type_of("number")) == {int}
     assert not result.diagnostics

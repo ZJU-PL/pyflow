@@ -803,17 +803,26 @@ def test_metaclass_call_returns_a_class_object() -> None:
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
 
 
-def test_cross_module_newtype_annotation_projects_to_wrapped_type(tmp_path: Path) -> None:
+def test_cross_module_newtype_keeps_nominal_identity(tmp_path: Path) -> None:
     (tmp_path / "ids.py").write_text(
         "from typing import NewType\nUserId = NewType('UserId', int)\n"
     )
     (tmp_path / "app.py").write_text(
-        "from ids import UserId\n" "def use(value: UserId) -> int:\n" "    return value\n"
+        "from ids import UserId\n"
+        "def use(value: UserId) -> int:\n"
+        "    return value\n"
+        "def make(value: int) -> UserId:\n"
+        "    return UserId(value)\n"
     )
     result = ProjectTypeInferenceEngine(ProjectContext(tmp_path)).infer_project(["app"])
-    summary = result.modules["app"].functions["app.use"]
-    assert raw_types(summary.parameters["value"].public_type()) == {int}
-    assert not [d for d in result.modules["app"].diagnostics if d.code == "annotation-mismatch"]
+    module = result.modules["app"]
+    parameter = module.functions["app.use"].parameters["value"].public_type()
+    assert isinstance(parameter, Instance)
+    assert parameter.type.full_name == "ids.UserId"
+    returned = module.functions["app.make"].return_type
+    assert isinstance(returned, Instance)
+    assert returned.type.full_name == "ids.UserId"
+    assert not [d for d in module.diagnostics if d.code == "annotation-mismatch"]
 
 
 def test_list_of_dict_literals_checks_typeddict_elements() -> None:

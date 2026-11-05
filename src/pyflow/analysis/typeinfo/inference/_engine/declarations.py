@@ -682,6 +682,8 @@ class DeclarationInference(InferenceComponent):
                 in {"typing.NewType", "typing_extensions.NewType"}
                 and len(value.args) >= 2
             ):
+                if self._register_new_type(target.id, value):
+                    continue
                 self.engine._type_aliases[target.id] = value.args[1]
                 continue
             if not (
@@ -729,6 +731,44 @@ class DeclarationInference(InferenceComponent):
                 bound=bound,
                 variance=variance,
             )
+
+    def _register_new_type(self, name: str, call: ast.Call) -> bool:
+        """Model ``Name = NewType("Name", Base)`` as a distinct nominal type.
+
+        mypy keeps ``NewType`` result types nominally distinct while allowing
+        them to flow to the wrapped type.  Treating the call as a plain alias
+        (the previous behaviour) erased that distinction everywhere.
+        """
+        base = self._lookup_annotation_type(ast.unparse(call.args[1]))
+        if not isinstance(base, Instance):
+            return False
+        base_raw = base.type.raw_type
+        if not isinstance(base_raw, type):
+            return False
+        qualified = f"{self.engine._module_name}.{name}"
+        existing = self.engine._classes.get(qualified)
+        if existing is not None:
+            return existing.newtype_base is not None
+        try:
+            raw = type(name, (base_raw,), {"__module__": self.engine._module_name})
+        except TypeError:
+            return False
+        self.engine._synthetic_types[qualified] = raw
+        descriptor = self.engine.type_system.to_class_descriptor(raw)
+        descriptor.members.clear()
+        descriptor.instance_attributes.clear()
+        descriptor.attributes.clear()
+        descriptor.has_unresolved_bases = False
+        class_info = _ClassInfo(
+            qualified,
+            Instance(descriptor),
+            bases=(base.type.full_name,),
+            newtype_base=base,
+        )
+        self.engine._classes[qualified] = class_info
+        self.engine._class_aliases[name] = qualified
+        self.engine.type_system.add_subclass_edge(super_class=base.type, sub_class=descriptor)
+        return True
 
     def _is_type_alias_expression(self, node: ast.expr) -> bool:
         """Recognize type syntax without treating ordinary indexing as an alias."""
@@ -807,14 +847,26 @@ class DeclarationInference(InferenceComponent):
                 for name, parameters in self.engine._alias_type_variables.items()
             },
         )
-        uncertain = self._has_unresolved_annotation(resolved)
-        if uncertain:
+        missing_external, unresolved_project = self._unresolved_annotation_kinds(resolved)
+        if missing_external:
+            # A dependency that is not installed is a gradual type, exactly
+            # like mypy: the fact we *do* know (``MapAdapter | None`` keeps the
+            # ``None``) survives, the unknown part becomes ``Any``, and the
+            # module is still fully analysed.
+            resolved = self._replace_missing_external(resolved)
+            self.engine._add_diagnostic(
+                "missing-external-type",
+                f"No external type facts for annotation {text}",
+                node=node,
+            )
+        if unresolved_project:
             self.engine._add_diagnostic(
                 "unresolved-annotation",
-                f"No external type facts for annotation {text}",
+                f"Could not resolve annotation {text}",
                 node=node,
                 affects_completeness=True,
             )
+        uncertain = missing_external or unresolved_project
         return AbstractTypeValue.from_type(resolved, unknown=uncertain)
 
     def _annotation_aliases(self):
@@ -837,6 +889,78 @@ class DeclarationInference(InferenceComponent):
         if resolution is None or resolution.path is None:
             return None
         return f"typing.{attribute}"
+
+    def _unresolved_annotation_kinds(self, typ) -> tuple[bool, bool]:
+        """Classify unresolved placeholders in a resolved annotation.
+
+        Returns ``(missing_external, unresolved_project)``.  A placeholder for
+        an importable-but-absent third-party module is a gradual ``Any``; a
+        placeholder for a project (or stdlib) symbol means analysis failed and
+        the result must stay ``partial``.
+        """
+        missing = False
+        project = False
+        for full_name in self._unresolved_annotation_names(typ):
+            module_name, separator, _ = full_name.rpartition(".")
+            if separator and self.engine.project_context.find_module(module_name) is None:
+                missing = True
+            else:
+                project = True
+        return missing, project
+
+    @staticmethod
+    def _unresolved_annotation_names(typ) -> list[str]:
+        names: list[str] = []
+        if isinstance(typ, Instance):
+            if getattr(typ.type.raw_type, "__pyflow_unresolved_external__", False):
+                names.append(typ.type.full_name)
+            for item in typ.args:
+                names.extend(DeclarationInference._unresolved_annotation_names(item))
+        elif isinstance(typ, (UnionType, TupleType)):
+            for item in typ.items if isinstance(typ, UnionType) else typ.args:
+                names.extend(DeclarationInference._unresolved_annotation_names(item))
+        elif isinstance(typ, TypeType):
+            names.extend(DeclarationInference._unresolved_annotation_names(typ.item))
+        elif isinstance(typ, CallableType):
+            names.extend(DeclarationInference._unresolved_annotation_names(typ.return_type))
+            for item in typ.arg_types or ():
+                names.extend(DeclarationInference._unresolved_annotation_names(item))
+        return names
+
+    @staticmethod
+    def _replace_missing_external(typ):
+        """Replace unresolved external placeholders with ``Any``."""
+        if isinstance(typ, Instance):
+            if getattr(typ.type.raw_type, "__pyflow_unresolved_external__", False):
+                return ANY
+            if not typ.args:
+                return typ
+            args = tuple(DeclarationInference._replace_missing_external(item) for item in typ.args)
+            return typ if args == typ.args else Instance(typ.type, args)
+        if isinstance(typ, UnionType):
+            items = tuple(
+                DeclarationInference._replace_missing_external(item) for item in typ.items
+            )
+            return typ if items == typ.items else UnionType(items)
+        if isinstance(typ, TupleType):
+            args = tuple(DeclarationInference._replace_missing_external(item) for item in typ.args)
+            return typ if args == typ.args else TupleType(args, unknown_size=typ.unknown_size)
+        if isinstance(typ, TypeType):
+            item = DeclarationInference._replace_missing_external(typ.item)
+            return typ if item == typ.item else TypeType(item)
+        if isinstance(typ, CallableType):
+            args = (
+                tuple(
+                    DeclarationInference._replace_missing_external(item) for item in typ.arg_types
+                )
+                if typ.arg_types is not None
+                else None
+            )
+            returned = DeclarationInference._replace_missing_external(typ.return_type)
+            if args == typ.arg_types and returned == typ.return_type:
+                return typ
+            return CallableType(args, returned, overloads=typ.overloads)
+        return typ
 
     @staticmethod
     def _has_unresolved_annotation(typ):

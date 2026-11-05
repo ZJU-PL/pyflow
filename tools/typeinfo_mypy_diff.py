@@ -12,6 +12,13 @@ For every sampled module the harness
 Only expressions where mypy reports a concrete (Any-free) type are compared,
 because mypy deliberately types unannotated parameters as ``Any``.
 
+``--diagnostics`` switches to the other half of the audit: PyFlow's diagnostics
+are compared with mypy's error list for the same module.  A PyFlow diagnostic
+without a mypy error is a C3 false positive; a mypy error without a PyFlow
+diagnostic is a C4 false negative.  Mypy codes whose category PyFlow does not
+model yet (``attr-defined``, ``union-attr``, ``misc``, ...) are tallied under
+``unmodeled_categories`` so the coverage gap stays visible.
+
 Usage::
 
     .venv/bin/python tools/typeinfo_mypy_diff.py --list-projects
@@ -903,6 +910,294 @@ def resolve_project(name: str, corpus: Path) -> Path:
     raise SystemExit(f"unknown project {name!r}")
 
 
+_MYPY_ERROR_LINE = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+)(?::(?P<col>\d+))?: error: (?P<message>.*?)"
+    r"(?:\s+\[(?P<code>[a-z-]+)\])?$"
+)
+
+# PyFlow reports a small, deliberate set of diagnostics.  Anything else mypy
+# rejects (``attr-defined``, ``name-defined``, ``misc``, ...) is outside what
+# PyFlow currently checks and therefore a coverage gap, not a disagreement.
+_PYFLOW_TYPE_CODES = {
+    "annotation-mismatch": "type",
+    "call-arity-mismatch": "arity",
+    "typed-dict-key": "typed-dict",
+    "format-string-mismatch": "format",
+}
+_PYFLOW_COMPLETENESS_CODES = {
+    "missing-external-type",
+    "unresolved-annotation",
+    "unsupported-expression",
+    "unsupported-statement",
+    "unmodeled-context-manager",
+    "specialization-budget-exceeded",
+    "loop-widened",
+    "call-model-error",
+    "module-inference-error",
+    "project-inference-did-not-converge",
+}
+
+
+def mypy_error_category(code: str | None) -> str:
+    if code in {
+        "arg-type",
+        "assignment",
+        "return-value",
+        "list-item",
+        "dict-item",
+        "typeddict-item",
+        "index",
+        "operator",
+        "has-type",
+        "valid-type",
+        "union-attr",
+        "attr-defined",
+        "override",
+        "var-annotated",
+    }:
+        return "type"
+    if code in {"call-arg", "call-overload", "misc"}:
+        return "arity"
+    if code in {"import-not-found", "import-untyped"}:
+        return "import"
+    if code in {"str-format", "format"}:
+        return "format"
+    return "unmodeled"
+
+
+def run_mypy_errors(
+    project_root: Path,
+    module_name: str,
+    path: Path,
+    *,
+    shadow_root: Path,
+    cache_dir: Path,
+    timeout: float,
+) -> list[dict]:
+    rel = path.relative_to(_shadow_base(project_root, path))
+    target = shadow_root / rel
+    env = dict(os.environ)
+    roots = [str(shadow_root)]
+    for root in import_roots(project_root):
+        roots.append(str(root))
+    for entry in _project_sys_path(project_root):
+        if "site-packages" in entry or "dist-packages" in entry:
+            continue
+        try:
+            Path(entry).resolve().relative_to(project_root.resolve())
+        except (ValueError, OSError):
+            continue
+        if entry not in roots:
+            roots.append(entry)
+    env["MYPYPATH"] = os.pathsep.join(roots)
+    env.pop("PYTHONPATH", None)
+    cmd = [
+        sys.executable,
+        "-m",
+        "mypy",
+        "--check-untyped-defs",
+        "--show-error-codes",
+        "--no-error-summary",
+        "--no-pretty",
+        "--show-column-numbers",
+        "--ignore-missing-imports",
+        "--follow-imports=normal",
+        "--cache-dir",
+        str(cache_dir),
+        str(target),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=shadow_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return [{"error": "timeout"}]
+    target_path = str(target)
+    errors: list[dict] = []
+    for line in (proc.stdout + proc.stderr).splitlines():
+        match = _MYPY_ERROR_LINE.match(line)
+        if match is None or match.group("file") != target_path:
+            continue
+        errors.append(
+            {
+                "line": int(match.group("line")),
+                "col": int(match.group("col") or 0),
+                "code": match.group("code"),
+                "message": match.group("message")[:300],
+            }
+        )
+    return errors
+
+
+def diagnostics_project(
+    project_root: Path,
+    *,
+    module_limit: int,
+    module_filter: str | None,
+    out_lines: list[dict],
+    budget: float,
+    mypy_timeout: float,
+    per_package: int | None = None,
+) -> dict[str, object]:
+    project_name = project_root.name
+    packages = discover_packages(project_root)
+    chosen: list[tuple[str, Path]] = []
+    remaining = module_limit
+    for package_name, package_path in packages:
+        if remaining <= 0:
+            break
+        if package_path.is_file():
+            chosen.append((package_name, package_path))
+            remaining -= 1
+            continue
+        take = remaining if per_package is None else min(remaining, per_package)
+        modules = sample_modules(package_path, limit=take, name_filter=module_filter)
+        chosen.extend(modules)
+        remaining -= len(modules)
+
+    started = time.time()
+    # A single-module project run keeps diagnostics anchored to the module the
+    # engine reports them for, which is what mypy does per file.
+    results: dict[str, object] = {}
+    errors: dict[str, object] = {}
+    for name, _ in chosen:
+        one_results, one_errors = run_pyflow(project_root, [(name, _)], budget=budget)
+        results.update(one_results)
+        errors.update(one_errors)
+    pyflow_elapsed = time.time() - started
+
+    shadow_parent = Path(tempfile.mkdtemp(prefix=f"tmdiag-{project_name}-"))
+    shadow_root = shadow_parent / "shadow"
+    shadow_root.mkdir()
+    cache_dir = shadow_parent / "mypy-cache"
+    cache_dir.mkdir()
+    make_shadow(project_root, shadow_root)
+
+    stats: dict[str, object] = {
+        "project": project_name,
+        "mode": "diagnostics",
+        "modules_requested": len(chosen),
+        "modules_analysed": len(results),
+        "pyflow_seconds": round(pyflow_elapsed, 2),
+        "mypy_errors": 0,
+        "pyflow_diagnostics": 0,
+        "matched": 0,
+        "c3_false_positive": [],
+        "c4_false_negative": [],
+        "unmodeled_categories": {},
+    }
+    unmodeled: dict[str, int] = {}
+    try:
+        for name, path in chosen:
+            module_result = results.get(name)
+            if module_result is None:
+                continue
+            mypy_errors = run_mypy_errors(
+                project_root,
+                name,
+                path,
+                shadow_root=shadow_root,
+                cache_dir=cache_dir,
+                timeout=mypy_timeout,
+            )
+            if mypy_errors and mypy_errors[0].get("error") == "timeout":
+                stats["mypy_errors"] = int(stats["mypy_errors"]) + 1
+                continue
+            stats["mypy_errors"] = int(stats["mypy_errors"]) + len(mypy_errors)
+            pyflow_diags = [
+                item
+                for item in module_result.diagnostics
+                if item.span is not None and item.code not in _PYFLOW_COMPLETENESS_CODES
+            ]
+            stats["pyflow_diagnostics"] = int(stats["pyflow_diagnostics"]) + len(pyflow_diags)
+            mypy_by_line: dict[int, list[dict]] = {}
+            for error in mypy_errors:
+                mypy_by_line.setdefault(error["line"], []).append(error)
+            matched_lines: set[int] = set()
+            for diag in pyflow_diags:
+                line = diag.span.lineno
+                candidates = mypy_by_line.get(line) or mypy_by_line.get(line - 1) or []
+                category = _PYFLOW_TYPE_CODES.get(diag.code, "completeness")
+                compatible = [
+                    error
+                    for error in candidates
+                    if mypy_error_category(error["code"]) in {category, "unmodeled"}
+                ]
+                if compatible:
+                    stats["matched"] = int(stats["matched"]) + 1
+                    matched_lines.add(line)
+                    out_lines.append(
+                        {
+                            "project": project_name,
+                            "module": name,
+                            "line": line,
+                            "verdict": "match",
+                            "pyflow_code": diag.code,
+                            "mypy_code": compatible[0]["code"],
+                            "pyflow": diag.message[:200],
+                            "mypy": compatible[0]["message"][:200],
+                        }
+                    )
+                    continue
+                stats["c3_false_positive"].append(
+                    {
+                        "module": name,
+                        "line": line,
+                        "code": diag.code,
+                        "message": diag.message[:200],
+                        "mypy_on_line": [error["code"] for error in candidates],
+                    }
+                )
+                out_lines.append(
+                    {
+                        "project": project_name,
+                        "module": name,
+                        "line": line,
+                        "verdict": "C3_false_positive",
+                        "pyflow_code": diag.code,
+                        "mypy_code": None,
+                        "pyflow": diag.message[:200],
+                        "mypy": None,
+                    }
+                )
+            for error in mypy_errors:
+                if error["line"] in matched_lines:
+                    continue
+                category = mypy_error_category(error["code"])
+                if category == "unmodeled":
+                    unmodeled[str(error["code"])] = unmodeled.get(str(error["code"]), 0) + 1
+                stats["c4_false_negative"].append(
+                    {
+                        "module": name,
+                        "line": error["line"],
+                        "code": error["code"],
+                        "category": category,
+                        "message": error["message"][:200],
+                    }
+                )
+                out_lines.append(
+                    {
+                        "project": project_name,
+                        "module": name,
+                        "line": error["line"],
+                        "verdict": "C4_false_negative",
+                        "pyflow_code": None,
+                        "mypy_code": error["code"],
+                        "pyflow": None,
+                        "mypy": error["message"][:200],
+                    }
+                )
+    finally:
+        shutil.rmtree(shadow_parent, ignore_errors=True)
+    stats["unmodeled_categories"] = unmodeled
+    return stats
+
+
 def diff_project(
     project_root: Path,
     *,
@@ -1074,6 +1369,11 @@ def main() -> None:
     parser.add_argument("--max-modules", type=int, default=12)
     parser.add_argument("--per-package", type=int, default=None)
     parser.add_argument("--module-filter", default=None)
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Compare PyFlow diagnostics with mypy errors instead of revealed types",
+    )
     parser.add_argument("--budget", type=float, default=120.0, help="PyFlow seconds per project")
     parser.add_argument("--mypy-timeout", type=float, default=180.0)
     parser.add_argument("--out", default=None, help="JSONL output path")
@@ -1095,10 +1395,11 @@ def main() -> None:
     ]
     out_lines: list[dict] = []
     summaries = []
+    runner = diagnostics_project if args.diagnostics else diff_project
     for project in projects:
         root = resolve_project(project, corpus)
         print(f"[diff] {root.name}", file=sys.stderr, flush=True)
-        stats = diff_project(
+        stats = runner(
             root,
             module_limit=args.max_modules,
             module_filter=args.module_filter,

@@ -831,11 +831,10 @@ class TypeStringVisitor(TypeVisitor[str]):
         return "<?>"
 
     def visit_type_var_type(self, left: TypeVarType) -> str:
-        if left.has_constraints:
-            constraints = " | ".join(c.accept(self) for c in left.constraints)
-            return f"{left.name}({constraints})"
-        if left.has_bound and left.bound is not None:
-            return f"{left.name}: {left.bound.accept(self)}"
+        # mypy and pyright display a type variable by its name only; the
+        # bound/constraints describe how it may be *solved*, not what the
+        # value is.  Printing ``T: Callable[..., Any]`` made every revealed
+        # parameter of a generic decorator disagree with mypy.
         return left.name
 
     def visit_callable_type(self, left: CallableType) -> str:
@@ -954,6 +953,23 @@ class _SubtypeVisitor(TypeVisitor[bool]):
             call = self.graph.get_members(left.type).get("__call__")
             if not isinstance(call, CallableType):
                 return False
+            if left.args and left.type.type_parameters:
+                from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+                    substitute_type_vars,
+                )
+
+                # ``functools._Wrapped[..., None]`` exposes
+                # ``__call__() -> _RWrapper``; compare the *specialized*
+                # member, otherwise the raw type variable never matches the
+                # declared return type.
+                call = substitute_type_vars(
+                    call,
+                    {
+                        parameter.name: argument
+                        for parameter, argument in zip(left.type.type_parameters, left.args)
+                    },
+                )
+                assert isinstance(call, CallableType)
             if self.right.arg_types is None or call.arg_types is None:
                 return self.sub_type_check(call.return_type, self.right.return_type)
             if len(call.arg_types) != len(self.right.arg_types):

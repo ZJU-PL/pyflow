@@ -63,6 +63,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Overload selection accepts generic expected parameter types instead of
   rejecting them before substitution, reducing false overload mismatches.
 
+- Type inference models `NewType` as a distinct nominal type instead of an
+  alias of the wrapped class, so `UserId(1)` keeps the `UserId` identity while
+  still flowing to `int`, and annotated assignments report the mismatch mypy
+  reports.
+- `tools/typeinfo_mypy_diff.py --diagnostics` compares PyFlow diagnostics with
+  mypy errors per module (C3 false positives, C4 false negatives).
+
+### Changed
+
+- Annotations that refer to an unavailable third-party dependency now degrade
+  to `Any` and emit the warning `missing-external-type` instead of marking the
+  whole module `partial`.  `unresolved-annotation` (which still affects
+  completeness) is reserved for project or stdlib symbols that exist but could
+  not be resolved.
+- Type variables render by name (`T`) rather than `T: <bound>`, matching mypy
+  and pyright output.
+
 ### Fixed
 
 - `pyflow alias --engine kcfa` now defaults `--import-depth` to 1 instead of
