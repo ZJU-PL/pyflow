@@ -1386,6 +1386,16 @@ class MemberInference(InferenceComponent):
         class_info = self.engine._classes.get(descriptor.full_name)
         if class_info is None and not descriptor.members and not isinstance(raw, type):
             return False
+        declared: set[str] = set(descriptor.members)
+        if class_info is not None:
+            declared |= set(class_info.methods) | set(class_info.attributes)
+            declared |= set(class_info.properties)
+        for ancestor in self.engine.type_system.get_superclasses(descriptor):
+            declared |= set(ancestor.members)
+        if attribute in declared:
+            # The member exists even when its inferred value is unresolved
+            # (an unannotated property whose body could not be analysed).
+            return False
         if any(isinstance(argument, AnyType) for argument in typ.args):
             # ``dict[Any, Any]`` is usually an over-approximation of an
             # untyped value; mypy would have kept it ``Any``.

@@ -120,6 +120,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `union-attr`/`attr-defined` also treat elements read from a declared
   container as declared receivers (`item = items[0]; item.missing`).
 
+- `attr-defined` treats a declared member as present even when its inferred
+  value is unresolved (unannotated properties, attributes assigned from
+  untyped calls), and functional `namedtuple` bases expose their fields.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

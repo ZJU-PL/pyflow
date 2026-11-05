@@ -598,3 +598,33 @@ class Sub(Base):
     # An inferred (unannotated) signature is not a contract the subclass has
     # to satisfy; mypy also does not report an override error here.
     assert not [item for item in result.diagnostics if item.code == "override"]
+
+
+def test_unresolved_property_value_is_not_a_missing_member() -> None:
+    result = infer("""
+class C:
+    @property
+    def value(self):
+        return unknown_factory()
+
+def use(c: C) -> None:
+    item = c.value
+""")
+
+    assert not [item for item in result.diagnostics if item.code == "attr-defined"]
+
+
+def test_functional_namedtuple_fields_are_members() -> None:
+    result = infer("""
+from collections import namedtuple
+
+class Pair(namedtuple("Pair", ("first", "second"))):
+    pass
+
+def use(pair: Pair) -> None:
+    first = pair.first
+    missing = pair.absent
+""")
+
+    messages = [item.message for item in result.diagnostics if item.code == "attr-defined"]
+    assert len(messages) == 1 and "absent" in messages[0]

@@ -557,6 +557,25 @@ class DeclarationInference(InferenceComponent):
                 descriptor.typed_dict_fields = {}
             if any(base.rsplit(".", 1)[-1] == "NamedTuple" for base in bases):
                 descriptor.tuple_fields = ()
+            for base_node in node.bases:
+                # Functional namedtuples: class H(namedtuple("H", ("a", "b"))).
+                if not isinstance(base_node, ast.Call):
+                    continue
+                callee = _expression_name(base_node.func) or ""
+                if callee.rsplit(".", 1)[-1] not in {"namedtuple", "NamedTuple"}:
+                    continue
+                if len(base_node.args) < 2:
+                    continue
+                try:
+                    fields = ast.literal_eval(base_node.args[1])
+                except (ValueError, TypeError, SyntaxError):
+                    continue
+                if isinstance(fields, (tuple, list)) and all(
+                    isinstance(field, str) for field in fields
+                ):
+                    descriptor.tuple_fields = tuple(fields)
+                    for field in fields:
+                        descriptor.members.setdefault(field, ANY)
             variables = self._pep695_type_variables(node)
             for base_node in node.bases:
                 if isinstance(base_node, ast.Subscript):
