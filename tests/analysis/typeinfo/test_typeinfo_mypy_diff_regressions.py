@@ -519,3 +519,42 @@ def test_pyflow_toml_typeinfo_section_is_read(tmp_path: Path) -> None:
     options = load_inference_options(tmp_path)
     assert options.diagnostic_severity == {"override": "error"}
     assert options.check_overrides is False
+
+
+def test_global_call_model_provider_plugin_hook() -> None:
+    from pyflow.analysis.typeinfo.inference.call_models import (
+        MappingCallModelProvider,
+        register_call_model_provider,
+        unregister_call_model_provider,
+    )
+    from pyflow.analysis.typeinfo.resolution.annotations import BuiltinTypeLookup
+
+    provider = MappingCallModelProvider()
+    provider.register_return_type("pluginlib.load", BuiltinTypeLookup()("str"))
+    register_call_model_provider(provider)
+    source = "import pluginlib\nx = pluginlib.load()\n"
+    try:
+        registered = infer(source)
+        assert str(registered.type_of("m.x")) == "str"
+    finally:
+        unregister_call_model_provider(provider)
+
+    # Without the plugin the external call stays unknown.
+    assert infer(source).type_of("m.x") is None
+
+
+def test_every_emitted_diagnostic_code_is_registered() -> None:
+    import re
+
+    import pyflow.analysis.typeinfo as typeinfo
+
+    from pyflow.analysis.typeinfo.inference.diagnostics import DIAGNOSTICS
+
+    root = Path(typeinfo.__file__).parent
+    emitted: set[str] = set()
+    for path in root.rglob("*.py"):
+        for match in re.finditer(r'_add_diagnostic\(\s*"([a-z0-9-]+)"', path.read_text()):
+            emitted.add(match.group(1))
+
+    assert emitted, "expected at least one diagnostic emission"
+    assert emitted <= set(DIAGNOSTICS), sorted(emitted - set(DIAGNOSTICS))

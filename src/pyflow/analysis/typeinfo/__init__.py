@@ -15,7 +15,14 @@ from .query.evidence import (
 from .query.models import ClassTypeInfo, FunctionTypeInfo, TypeFact
 from .query.service import TypeInfoService
 from .inference.engine import InferenceOptions, StaticTypeInferenceEngine
-from .inference.call_models import CallModelProvider, MappingCallModelProvider
+from .inference.call_models import (
+    CallModelProvider,
+    CallModelRegistry,
+    MappingCallModelProvider,
+    register_call_model_provider,
+    unregister_call_model_provider,
+)
+from .inference.diagnostics import DIAGNOSTICS, DiagnosticSpec, diagnostic_spec
 from .inference.models import (
     FunctionSpecialization,
     FunctionSummary,

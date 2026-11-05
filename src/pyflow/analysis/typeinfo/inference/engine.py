@@ -37,7 +37,11 @@ from pyflow.analysis.typeinfo.inference._engine.state import (
 )
 from pyflow.analysis.typeinfo.inference._engine.stdlib import StdlibInference
 from pyflow.analysis.typeinfo.inference._engine.values import ValueInference
-from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
+from pyflow.analysis.typeinfo.inference.call_models import (
+    CallModelProvider,
+    global_call_model_providers,
+)
+from pyflow.analysis.typeinfo.inference.diagnostics import diagnostic_spec
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
 from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
     resolve_typeshed_declared_return,
@@ -158,7 +162,12 @@ class StaticTypeInferenceEngine:
             if external_declared_return is not None
             else resolve_typeshed_declared_return
         )
-        self.call_model_providers = tuple(call_model_providers)
+        explicit = tuple(call_model_providers)
+        self.call_model_providers = explicit + tuple(
+            provider
+            for provider in global_call_model_providers()
+            if not any(provider is existing for existing in explicit)
+        )
         self.options = options or InferenceOptions()
         self._synthetic_types: dict[str, type] = {}
         self._registered_hierarchy: set[type] = set()
@@ -569,9 +578,12 @@ class StaticTypeInferenceEngine:
         message: str,
         *,
         node: ast.AST | None = None,
-        severity: str = "warning",
+        severity: str | None = None,
         affects_completeness: bool = False,
     ) -> None:
+        if severity is None:
+            spec = diagnostic_spec(code)
+            severity = spec.severity if spec is not None else "warning"
         span = None if node is None else _span(node)
         if (
             span is not None

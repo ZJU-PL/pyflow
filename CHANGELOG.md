@@ -109,6 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and override checks, `disabled_diagnostics`, `diagnostic_severity`, and the
   iteration/union limits.  Explicit `InferenceOptions` still win over the file.
 
+- Inference diagnostic codes are declared in a registry
+  (`pyflow.analysis.typeinfo.DIAGNOSTICS`) with category, description and
+  default severity; an invariant test keeps every emitted code registered.
+- Call-model providers can be registered process-wide with
+  `register_call_model_provider`, so libraries and applications extend
+  inference without threading providers through every engine constructor.
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

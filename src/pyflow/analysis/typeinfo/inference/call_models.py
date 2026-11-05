@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Callable, Protocol
 
 from pyflow.analysis.typeinfo.core.typesystem import ProperType
@@ -54,3 +55,52 @@ class MappingCallModelProvider:
         """Evaluate a registered model, returning ``None`` when absent."""
         model = self._models.get(qualified_name)
         return None if model is None else model(arguments, keywords)
+
+
+class CallModelRegistry:
+    """Process-wide registry of call-model providers (plugin hook).
+
+    Libraries and applications register providers once instead of threading
+    them through every engine constructor.  Explicitly passed providers are
+    still consulted first, and ``unregister`` makes the registry safe for
+    tests.
+    """
+
+    def __init__(self) -> None:
+        self._providers: list[CallModelProvider] = []
+        self._lock = threading.RLock()
+
+    def register(self, provider: CallModelProvider) -> None:
+        """Add *provider* unless it is already registered."""
+        with self._lock:
+            if not any(existing is provider for existing in self._providers):
+                self._providers.append(provider)
+
+    def unregister(self, provider: CallModelProvider) -> None:
+        """Remove *provider* if present."""
+        with self._lock:
+            self._providers = [existing for existing in self._providers if existing is not provider]
+
+    def providers(self) -> tuple[CallModelProvider, ...]:
+        """Return the registered providers in registration order."""
+        with self._lock:
+            return tuple(self._providers)
+
+
+_GLOBAL_CALL_MODELS = CallModelRegistry()
+
+
+def register_call_model_provider(provider: CallModelProvider) -> CallModelProvider:
+    """Register a call-model provider for every future inference engine."""
+    _GLOBAL_CALL_MODELS.register(provider)
+    return provider
+
+
+def unregister_call_model_provider(provider: CallModelProvider) -> None:
+    """Remove a previously registered call-model provider."""
+    _GLOBAL_CALL_MODELS.unregister(provider)
+
+
+def global_call_model_providers() -> tuple[CallModelProvider, ...]:
+    """Return the process-wide providers."""
+    return _GLOBAL_CALL_MODELS.providers()
