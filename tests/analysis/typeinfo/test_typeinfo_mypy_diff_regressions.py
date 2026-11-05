@@ -833,3 +833,17 @@ def test_unannotated_cross_module_callee_result_is_gradual(tmp_path: Path) -> No
 
     # mypy treats calls to unannotated functions as ``Any``.
     assert not [item for item in module.diagnostics if item.code == "annotation-mismatch"]
+
+
+def test_types_module_alias_matches_runtime_class() -> None:
+    result = infer("""
+import sys
+import types
+
+def use(name: str) -> None:
+    module = sys.modules[name]
+    annotated: types.ModuleType = module
+""")
+
+    # ``types.ModuleType`` and the runtime ``module`` class are the same type.
+    assert not [item for item in result.diagnostics if item.code == "annotation-mismatch"]

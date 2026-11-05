@@ -174,6 +174,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projections keep mypy's gradual behaviour.  yt-dlp sample: `bytes|None`
   false positives removed.
 
+- `types.ModuleType` resolves to the runtime `module` class, so stub-derived
+  annotations compare with objects read from `sys.modules` (no more false
+  `ModuleType` mismatches when passing a module object around).
+
 ### Changed
 
 - Annotations that refer to an unavailable third-party dependency now degrade

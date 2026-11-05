@@ -2211,6 +2211,10 @@ def _runtime_stdlib_class(full_name: str) -> type | None:
     # name (``types.TracebackType`` is ``traceback``).
     runtime_aliases = {
         "TracebackType": "traceback",
+        # ``types.ModuleType`` is the runtime ``module`` class.  Keeping one
+        # descriptor lets stub-derived annotations compare with objects coming
+        # from ``sys.modules``.
+        "ModuleType": "module",
     }
     expected_name = runtime_aliases.get(class_name, class_name)
     if candidate.__name__ != expected_name or candidate.__qualname__ != expected_name:
