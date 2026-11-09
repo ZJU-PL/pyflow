@@ -225,6 +225,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- IFDS taint analysis now resolves receivers returned by simple local factory
+  wrappers, including database connections, and preserves receiver types after
+  attribute assignments such as `conn.row_factory = ...`. This restores SQL
+  injection findings for aliased cursors such as `c.execute(query)`.
 - `pyflow optimize --analysis lifetime` now prepares the standard pipeline
   first, so lifetime analysis receives the CPA context facts it consumes
   instead of failing with `analysis.contexts: missing analysis.contexts`.

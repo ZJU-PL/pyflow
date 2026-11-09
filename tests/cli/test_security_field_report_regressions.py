@@ -31,6 +31,40 @@ def scan(target, capsys, engine, *options):
 
 
 @pytest.mark.parametrize(
+    "factory_body",
+    [
+        "    return sqlite3.connect(':memory:')\n",
+        "    conn = sqlite3.connect(':memory:')\n"
+        "    conn.row_factory = sqlite3.Row\n"
+        "    return conn\n",
+    ],
+)
+def test_ifds_resolves_sql_cursor_from_local_factory_wrapper(tmp_path, capsys, factory_body):
+    path = tmp_path / "app.py"
+    prefix = (
+        ("import sqlite3\n" "def get_db_connection():\n")
+        + factory_body
+        + (
+            "def handler():\n"
+            "    query = input()\n"
+            "    conn = get_db_connection()\n"
+            "    c = conn.cursor()\n"
+        )
+    )
+    path.write_text(prefix + "    c.execute(f\"SELECT '{query}'\")\n")
+    code, report = scan(path, capsys, "ifds")
+    assert code == 0
+    assert {(item["properties"]["function"], item["cwe"]) for item in report["findings"]} == {
+        ("handler", "CWE-89")
+    }
+
+    path.write_text(prefix + "    c.execute('SELECT ?', (query,))\n")
+    code, report = scan(path, capsys, "ifds")
+    assert code == 0
+    assert not any(item["cwe"] == "CWE-89" for item in report["findings"])
+
+
+@pytest.mark.parametrize(
     "definition", ["def f():\n    BODY\n", "class Worker:\n    def run(self):\n        BODY\n"]
 )
 @pytest.mark.parametrize("second", ['os.system("ls")', "eval(input())"])

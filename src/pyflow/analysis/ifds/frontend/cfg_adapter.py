@@ -448,10 +448,14 @@ class CFGSupergraphAdapter:
 
     @cached_property
     def _source_call_bindings(self):
-        from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
+        from pyflow.analysis.taint_policy.call_types import (
+            ast_factory_return_types,
+            ast_receiver_bindings,
+        )
 
         trees = {}
         bindings = {}
+        factory_returns = {}
 
         def imports(scope):
             result = {}
@@ -506,8 +510,10 @@ class CFGSupergraphAdapter:
                 tree,
             )
             aliases = imports(tree)
+            if filename not in factory_returns:
+                factory_returns[filename] = ast_factory_return_types(tree, aliases)
             aliases.update(imports(scope))
-            bindings[procedure] = ast_receiver_bindings(scope, aliases)
+            bindings[procedure] = ast_receiver_bindings(scope, aliases, factory_returns[filename])
         # ImportFrom lowering introduces a temporary module receiver. Its
         # spelling is an IR implementation detail, never a library identity.
         temporary_modules = {}

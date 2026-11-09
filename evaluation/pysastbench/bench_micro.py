@@ -68,6 +68,14 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require exact CWE numbers instead of the benchmark's semantic aliases.",
     )
+    parser.add_argument(
+        "--entry-source-kind",
+        default="user_input",
+        help=(
+            "Source kind for public function parameters in AST-dataflow and IFDS "
+            "(default: user_input; use 'none' to disable)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -125,12 +133,19 @@ def _parse_json(stdout: str) -> tuple[Any, str | None]:
 
 
 def _run_one(
-    engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: float
+    engine: str,
+    path: Path,
+    repo_root: Path,
+    pyflow: Path,
+    timeout: float,
+    entry_source_kind: str = "user_input",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     command = [str(pyflow), "security", str(path), "--engine", engine]
     if engine != "ast-scanner":
         command.append("--framework")
+    if engine in {"ast-dataflow", "ifds"} and entry_source_kind != "none":
+        command += ["--entry-source-kind", entry_source_kind]
     command += ["--format", "json", "--exit-code-policy", "report"]
     try:
         completed = subprocess.run(
@@ -468,6 +483,7 @@ def main() -> int:
         "workers": args.workers,
         "timeout": args.timeout,
         "strict_cwe": args.strict_cwe,
+        "entry_source_kind": args.entry_source_kind,
         "source_sha256": digest(
             list((repo_root / "src" / "pyflow").rglob("*.py"))
             + list((repo_root / "src" / "pyflow" / "config").rglob("*.json"))
@@ -482,7 +498,15 @@ def main() -> int:
     with raw_path.open("w", encoding="utf-8") as raw:
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
             futures = {
-                pool.submit(_run_one, engine, path, repo_root, pyflow, args.timeout): (engine, path)
+                pool.submit(
+                    _run_one,
+                    engine,
+                    path,
+                    repo_root,
+                    pyflow,
+                    args.timeout,
+                    args.entry_source_kind,
+                ): (engine, path)
                 for engine, path in jobs
             }
             for index, future in enumerate(as_completed(futures), 1):

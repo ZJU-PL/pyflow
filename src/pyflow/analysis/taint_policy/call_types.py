@@ -6,7 +6,7 @@ These models establish receiver identity; a method name alone never does.
 from __future__ import annotations
 
 import ast
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Mapping
 
 CALL_RETURN_TYPES = {
@@ -25,13 +25,68 @@ CALL_RETURN_TYPES = {
 }
 
 
-def ast_receiver_bindings(function: ast.AST, imports: Mapping[str, str]) -> dict[str, str]:
+def ast_factory_return_types(module: ast.Module, imports: Mapping[str, str]) -> dict[str, str]:
+    """Infer simple local wrappers around known library factories.
+
+    Only a single, final return is accepted. Other return paths and decorators
+    can change the result and must not be used as receiver type evidence.
+    """
+    returns: dict[str, str] = {}
+    definitions = [node for node in module.body if isinstance(node, ast.FunctionDef)]
+    name_counts = Counter(node.name for node in definitions)
+    for function in definitions:
+        if name_counts[function.name] != 1 or function.decorator_list:
+            continue
+        if not function.body or not isinstance(function.body[-1], ast.Return):
+            continue
+        if any(
+            isinstance(node, ast.Return)
+            for statement in function.body[:-1]
+            for node in ast.walk(statement)
+        ):
+            continue
+        bindings = ast_receiver_bindings(function, imports)
+        result = function.body[-1].value
+        if isinstance(result, ast.Name):
+            result_type = bindings.get(result.id)
+        elif isinstance(result, ast.Call):
+
+            def call_name(expression: ast.AST) -> str | None:
+                if isinstance(expression, ast.Name):
+                    return bindings.get(expression.id)
+                if isinstance(expression, ast.Attribute):
+                    base = call_name(expression.value)
+                    return f"{base}.{expression.attr}" if base else None
+                return None
+
+            result_type = CALL_RETURN_TYPES.get(call_name(result.func) or "")
+        else:
+            result_type = None
+        if result_type:
+            returns[function.name] = result_type
+    return returns
+
+
+def ast_receiver_bindings(
+    function: ast.AST,
+    imports: Mapping[str, str],
+    factory_returns: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """Resolve unambiguous local factories without guessing parameter types.
 
     Multiple writes and parameter shadowing deliberately invalidate a binding.
     Nested functions have independent locals and are not traversed.
     """
     writes: dict[str, list[ast.AST | None]] = defaultdict(list)
+
+    def bound_names(target: ast.AST):
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                yield from bound_names(element)
+        elif isinstance(target, ast.Starred):
+            yield from bound_names(target.value)
 
     def visit(node: ast.AST) -> None:
         if node is not function and isinstance(
@@ -45,9 +100,8 @@ def ast_receiver_bindings(function: ast.AST, imports: Mapping[str, str]) -> dict
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
-                for child in ast.walk(target):
-                    if isinstance(child, ast.Name):
-                        writes[child.id].append(node.value if child is target else None)
+                for name in bound_names(target):
+                    writes[name].append(node.value if isinstance(target, ast.Name) else None)
             if node.value is not None:
                 visit(node.value)
             return
@@ -71,7 +125,12 @@ def ast_receiver_bindings(function: ast.AST, imports: Mapping[str, str]) -> dict
             base = resolve(expr.value, active)
             return f"{base}.{expr.attr}" if base else None
         if isinstance(expr, ast.Call):
-            return CALL_RETURN_TYPES.get(resolve(expr.func, active) or "")
+            callee = resolve(expr.func, active)
+            if callee is None and isinstance(expr.func, ast.Name) and expr.func.id not in writes:
+                local_type = (factory_returns or {}).get(expr.func.id)
+                if local_type is not None:
+                    return local_type
+            return CALL_RETURN_TYPES.get(callee or "")
         return None
 
     # An unbound library method call carries receiver type evidence for its

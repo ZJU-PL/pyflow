@@ -44,6 +44,13 @@ function; a fixed pair is a negative. By default the evaluator treats CWE-77
 and CWE-78, and CWE-94 and CWE-95, as equivalent semantic labels. Add
 `--strict-cwe` to require exact labels.
 
+The synthetic cases treat public function arguments as attacker-controlled.
+The harness therefore passes `--entry-source-kind user_input` to AST-dataflow
+and IFDS. This is an evaluation threat-model choice; the regular `pyflow
+security` CLI still requires that option to be enabled explicitly for generic
+library parameters. Use `--entry-source-kind none` to compare against runs
+without parameter sources. The selected kind is recorded in `summary.json`.
+
 The harness uses subprocess isolation and a per-file timeout because an
 analysis failure or timeout should be recorded as an evaluation result rather
 than aborting the remaining engines.
