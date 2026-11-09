@@ -22,6 +22,11 @@ If you use pyflow in your research or work, please cite the following:
 }
 ~~~~
 
+## Users of PyFlow
+
+A partial list:
+
+- https://github.com/chen-map/Pypi-Malicious-Code-detect-Static
 
 ## What PyFlow includes
 
