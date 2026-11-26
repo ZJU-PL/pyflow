@@ -142,10 +142,10 @@ def _is_string_formatting(node):
     ):
         return True
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left_string = isinstance(node.left, (ast.Str, ast.JoinedStr)) or (
+        left_string = isinstance(node.left, ast.JoinedStr) or (
             isinstance(node.left, ast.Constant) and isinstance(node.left.value, str)
         )
-        right_string = isinstance(node.right, (ast.Str, ast.JoinedStr)) or (
+        right_string = isinstance(node.right, ast.JoinedStr) or (
             isinstance(node.right, ast.Constant) and isinstance(node.right.value, str)
         )
         return left_string or right_string
@@ -184,7 +184,7 @@ def _is_user_input(node):
         return False
 
     # Constants are NEVER user-controlled
-    if isinstance(node, (ast.Constant, ast.Str, ast.Num)):
+    if isinstance(node, ast.Constant):
         return False
 
     # List/Tuple/Dict literals - check contents

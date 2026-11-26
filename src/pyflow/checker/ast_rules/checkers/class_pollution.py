@@ -141,9 +141,7 @@ USER_INPUT_INDICATORS = {
 
 def _get_string_value(node):
     """Extract string value from AST node"""
-    if isinstance(node, ast.Str):
-        return node.s
-    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     elif isinstance(node, ast.Name):
         return node.id
@@ -203,7 +201,7 @@ def _is_safe_attr(node):
 
 def _has_user_input_in_string(node):
     """Check if string construction involves user input"""
-    if isinstance(node, (ast.Str, ast.Constant)):
+    if isinstance(node, ast.Constant):
         return False
     elif isinstance(node, ast.Name):
         return _is_user_input(node)

@@ -172,32 +172,31 @@ class Context:
         """
         Convert AST literal nodes to native Python types.
 
-        Handles various AST literal node types, including compatibility
-        with both Python < 3.8 (separate Num, Str, Bytes nodes) and
-        Python 3.8+ (unified Constant node).
-
         Args:
             literal: AST literal node
 
         Returns:
             Python value, or None if not a recognized literal type
         """
-        literal_map = {
-            ast.Num: lambda x: x.n,
-            ast.Str: lambda x: x.s,
-            # Python 3.8+ folds several literal nodes into `ast.Constant`.
-            # This keeps keyword/arg extraction working across versions.
-            ast.Constant: lambda x: x.value,
-            ast.List: lambda x: [self._get_literal_value(li) for li in x.elts],
-            ast.Tuple: lambda x: tuple(self._get_literal_value(ti) for ti in x.elts),
-            ast.Set: lambda x: {self._get_literal_value(si) for si in x.elts},
-            ast.Dict: lambda x: dict(zip(x.keys, x.values)),
-            ast.Ellipsis: lambda x: None,
-            ast.Name: lambda x: x.id,
-            ast.NameConstant: lambda x: str(x.value),
-            ast.Bytes: lambda x: x.s,
-        }
-        return literal_map.get(type(literal), lambda x: None)(literal)
+        if isinstance(literal, ast.Constant):
+            value = literal.value
+            if value is Ellipsis:
+                return None
+            if value is None or isinstance(value, bool):
+                return value
+            return value
+        literal_type = type(literal)
+        if literal_type is ast.Name:
+            return literal.id
+        if literal_type is ast.List:
+            return [self._get_literal_value(li) for li in literal.elts]
+        if literal_type is ast.Tuple:
+            return tuple(self._get_literal_value(ti) for ti in literal.elts)
+        if literal_type is ast.Set:
+            return {self._get_literal_value(si) for si in literal.elts}
+        if literal_type is ast.Dict:
+            return dict(zip(literal.keys, literal.values))
+        return None
 
     def get_call_arg_value(self, argument_name):
         """
@@ -277,5 +276,14 @@ class Context:
         Returns:
             True if any imported module contains this name
         """
+        cache = self._context.get("_imported_like_cache")
+        if cache is not None:
+            cached = cache.get(module)
+            if cached is not None:
+                return cached
+            imports = self._context.get("imports", ())
+            result = any(module in imp for imp in imports)
+            cache[module] = result
+            return result
         imports = self._context.get("imports", [])
         return any(module in imp for imp in imports)

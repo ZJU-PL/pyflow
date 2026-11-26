@@ -101,7 +101,19 @@ class SecurityNodeVisitor:
         self.testset = testset
         self.imports = set()
         self.import_aliases = {}
+        self._imported_like_cache = {}
         self.tester = b_tester.SecurityTester(self.testset, self.debug, nosec_lines, metrics)
+        self._visitor_methods = {
+            "ClassDef": self.visit_ClassDef,
+            "FunctionDef": self.visit_FunctionDef,
+            "Call": self.visit_Call,
+            "Import": self.visit_Import,
+            "ImportFrom": self.visit_ImportFrom,
+            "Constant": self.visit_Constant,
+            "Str": self.visit_Str,
+            "Bytes": self.visit_Bytes,
+        }
+        self._active_node_types = set(self._visitor_methods) | set(self.testset.tests.keys())
 
         # Try to determine module qualified name from file path
         try:
@@ -173,6 +185,7 @@ class SecurityNodeVisitor:
                 self.import_aliases[nodename.asname] = nodename.name
             self.imports.add(nodename.name)
             self.context["module"] = nodename.name
+        self._imported_like_cache.clear()
         self.update_scores(self.tester.run_tests(self.context, "Import"))
 
     def visit_ImportFrom(self, node):
@@ -206,6 +219,7 @@ class SecurityNodeVisitor:
                 self.import_aliases[alias] = imported_name
                 self.imports.add(imported_name)
                 self.context.update({"module": "", "name": imported_name})
+            self._imported_like_cache.clear()
             self.update_scores(self.tester.run_tests(self.context, "ImportFrom"))
             return
 
@@ -214,6 +228,7 @@ class SecurityNodeVisitor:
             self.import_aliases[nodename.asname or nodename.name] = full_name
             self.imports.add(full_name)
             self.context.update({"module": node.module, "name": nodename.name})
+        self._imported_like_cache.clear()
         self.update_scores(self.tester.run_tests(self.context, "ImportFrom"))
 
     def visit_Constant(self, node):
@@ -246,8 +261,8 @@ class SecurityNodeVisitor:
         Args:
             node: AST Str or Constant node with string value
         """
-        # `ast.Str` has `.s`; `ast.Constant` stores strings in `.value`.
-        self.context["str"] = node.s if hasattr(node, "s") else node.value
+        # `ast.Constant` stores strings in `.value`; avoid `.s` deprecation warning on 3.12+.
+        self.context["str"] = node.value if isinstance(node, ast.Constant) else node.s
         if not isinstance(node._bandit_parent, ast.Expr):  # docstring
             self.context["linerange"] = b_utils.linerange(node._bandit_parent)
             self.update_scores(self.tester.run_tests(self.context, "Str"))
@@ -262,8 +277,8 @@ class SecurityNodeVisitor:
         Args:
             node: AST Bytes or Constant node with bytes value
         """
-        # `ast.Bytes` has `.s`; `ast.Constant` stores bytes in `.value`.
-        self.context["bytes"] = node.s if hasattr(node, "s") else node.value
+        # `ast.Constant` stores bytes in `.value`; avoid `.s` deprecation warning on 3.12+.
+        self.context["bytes"] = node.value if isinstance(node, ast.Constant) else node.s
         if not isinstance(node._bandit_parent, ast.Expr):  # docstring
             self.context["linerange"] = b_utils.linerange(node._bandit_parent)
             self.update_scores(self.tester.run_tests(self.context, "Bytes"))
@@ -285,6 +300,8 @@ class SecurityNodeVisitor:
         self.context = {
             "imports": self.imports,
             "import_aliases": self.import_aliases,
+            "_imported_like_cache": self._imported_like_cache,
+            "_node_cache": {},
             "node": node,
             "linerange": b_utils.linerange(node),
             "filename": self.fname,
@@ -301,9 +318,7 @@ class SecurityNodeVisitor:
 
         if self.debug:
             LOG.debug(ast.dump(node))
-        LOG.debug("entering: %s %s [%s]", hex(id(node)), type(node), self.depth)
         self.depth += 1
-        LOG.debug(self.context)
         return True
 
     def visit(self, node):
@@ -316,15 +331,17 @@ class SecurityNodeVisitor:
         Args:
             node: AST node to visit
         """
-        method = f"visit_{node.__class__.__name__}"
-        visitor = getattr(self, method, None)
+        node_type = node.__class__.__name__
+        visitor = self._visitor_methods.get(node_type)
+        if visitor is None:
+            visitor = getattr(self, f"visit_{node_type}", None)
         if visitor:
             if self.debug:
-                LOG.debug("%s called (%s)", method, ast.dump(node))
+                LOG.debug("visit_%s called (%s)", node_type, ast.dump(node))
             visitor(node)
-        else:
+        elif node_type in self.testset.tests:
             # No specific visitor, run generic tests for this node type
-            self.update_scores(self.tester.run_tests(self.context, node.__class__.__name__))
+            self.update_scores(self.tester.run_tests(self.context, node_type))
 
     def post_visit(self, node):
         """
@@ -337,7 +354,6 @@ class SecurityNodeVisitor:
             node: AST node being exited
         """
         self.depth -= 1
-        LOG.debug("%s\texiting : %s", self.depth, hex(id(node)))
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
             # Restore parent namespace when exiting function/class
             self.namespace = b_utils.namespace_path_split(self.namespace)[0]
@@ -360,15 +376,21 @@ class SecurityNodeVisitor:
         Args:
             node: AST node to traverse
         """
-        for _, value in ast.iter_fields(node):
+        active_types = self._active_node_types
+        fast_skip = not self.debug and not LOG.isEnabledFor(logging.DEBUG)
+        for field in node._fields:
+            value = getattr(node, field, None)
             if isinstance(value, list):
                 # Handle list of child nodes
+                n = len(value)
                 for idx, item in enumerate(value):
                     if isinstance(item, ast.AST):
                         # Set parent and sibling references for context
-                        item._bandit_sibling = value[idx + 1] if idx < len(value) - 1 else None
+                        item._bandit_sibling = value[idx + 1] if idx < n - 1 else None
                         item._bandit_parent = node
-                        if self.pre_visit(item):
+                        if fast_skip and item.__class__.__name__ not in active_types:
+                            self.generic_visit(item)
+                        elif self.pre_visit(item):
                             self.visit(item)
                             self.generic_visit(item)
                             self.post_visit(item)
@@ -376,7 +398,9 @@ class SecurityNodeVisitor:
                 # Handle single child node
                 value._bandit_sibling = None
                 value._bandit_parent = node
-                if self.pre_visit(value):
+                if fast_skip and value.__class__.__name__ not in active_types:
+                    self.generic_visit(value)
+                elif self.pre_visit(value):
                     self.visit(value)
                     self.generic_visit(value)
                     self.post_visit(value)

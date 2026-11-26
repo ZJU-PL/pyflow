@@ -79,6 +79,25 @@ class SecurityTester:
         self.metrics = metrics
         self.errors = []
         self._reported_errors = set()
+        self._compiled_tests = {}
+
+    def _get_compiled_tests(self, checktype):
+        tests = self.testset.get_tests(checktype)
+        cached = self._compiled_tests.get(checktype)
+        if cached is not None and len(cached) == len(tests):
+            return cached
+        compiled = []
+        for test in tests:
+            name = test.__name__
+            test_id = getattr(test, "_test_id", "")
+            if hasattr(test, "_takes_config"):
+                compiled.append((test, name, test_id, 1, self.testset.get_config(test)))
+            elif hasattr(test, "_config"):
+                compiled.append((test, name, test_id, 2, test._config))
+            else:
+                compiled.append((test, name, test_id, 0, None))
+        self._compiled_tests[checktype] = compiled
+        return compiled
 
     def run_tests(self, raw_context, checktype):
         """
@@ -105,17 +124,24 @@ class SecurityTester:
             "CONFIDENCE": [0] * len(constants.RANKING),
         }
 
-        tests = self.testset.get_tests(checktype)
-        for test in tests:
-            name = test.__name__
+        compiled_tests = self._get_compiled_tests(checktype)
+        if not compiled_tests:
+            return scores
+
+        has_nosecs = bool(self.nosec_lines)
+        context_nosecs = utils.get_nosec(self.nosec_lines, raw_context) if has_nosecs else None
+        is_dict_context = type(raw_context) is dict
+        context_cls = b_context.Context
+
+        for test, name, test_id, cfg_mode, cfg_val in compiled_tests:
             # Execute test with an instance of the context class
-            temp_context = copy.copy(raw_context)
-            context = b_context.Context(temp_context)
+            temp_context = raw_context.copy() if is_dict_context else copy.copy(raw_context)
+            context = context_cls(temp_context)
             try:
-                if hasattr(test, "_takes_config"):
-                    result = test(context, self.testset.get_config(test))
-                elif hasattr(test, "_config"):
-                    result = test(context, test._config)
+                if cfg_mode == 1:
+                    result = test(context, cfg_val)
+                elif cfg_mode == 2:
+                    result = test(context, cfg_val)
                 else:
                     result = test(context)
 
@@ -124,14 +150,18 @@ class SecurityTester:
                     issues = result if isinstance(result, list) else [result]
 
                     for issue in issues:
-                        nosec_tests_to_skip = self._get_nosecs_from_contexts(
-                            temp_context, test_result=issue
-                        )
-
-                        if isinstance(temp_context["filename"], bytes):
-                            issue.fname = temp_context["filename"].decode("utf-8")
+                        if has_nosecs:
+                            nosec_tests_to_skip = self._get_nosecs_from_contexts(
+                                temp_context, test_result=issue
+                            )
                         else:
-                            issue.fname = temp_context["filename"]
+                            nosec_tests_to_skip = None
+
+                        filename = temp_context["filename"]
+                        if isinstance(filename, bytes):
+                            issue.fname = filename.decode("utf-8")
+                        else:
+                            issue.fname = filename
                         issue.fdata = temp_context["file_data"]
 
                         if issue.lineno is None:
@@ -143,7 +173,7 @@ class SecurityTester:
                         issue.end_col_offset = temp_context.get("end_col_offset", 0)
                         issue.test = name
                         if issue.test_id == "":
-                            issue.test_id = test._test_id
+                            issue.test_id = test_id
 
                         # Don't skip the test if there was no nosec comment
                         if nosec_tests_to_skip is not None:
@@ -170,13 +200,11 @@ class SecurityTester:
                         con = constants.RANKING.index(issue.confidence)
                         val = constants.RANKING_VALUES[issue.confidence]
                         scores["CONFIDENCE"][con] += val
-                else:
-                    nosec_tests_to_skip = self._get_nosecs_from_contexts(temp_context)
-                    if nosec_tests_to_skip and test._test_id in nosec_tests_to_skip:
-                        LOG.warning(
-                            f"nosec encountered ({test._test_id}), but no "
-                            f"failed test on line {temp_context['lineno']}"
-                        )
+                elif context_nosecs and test_id in context_nosecs:
+                    LOG.warning(
+                        f"nosec encountered ({test_id}), but no "
+                        f"failed test on line {temp_context['lineno']}"
+                    )
 
             except Exception as e:
                 self.report_error(test, context, e)

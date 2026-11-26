@@ -12,6 +12,7 @@ import os
 import re
 import tempfile
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -769,16 +770,22 @@ def _iter_directory_files(
     limits: ScanLimits,
     scan_entries: list[int],
     scan_root: Path,
+    _compiled_excludes: (
+        tuple[frozenset[str], tuple[str, ...], frozenset[Path], frozenset[str]] | None
+    ) = None,
 ) -> Iterator[Path]:
     """Yield directory files once, without following symlinked directories."""
 
+    if _compiled_excludes is None:
+        _compiled_excludes = _compile_exclude_patterns(os.getcwd(), excluded) if excluded else None
+
     try:
-        children = root.iterdir()
+        entries = list(os.scandir(root))
     except OSError as exc:
         findings.append(read_error(root, exc))
         return
 
-    for child in children:
+    for entry in entries:
         scan_entries[0] += 1
         if scan_entries[0] > limits.max_scan_entries:
             if not any(finding.kind == "scan-entry-limit" for finding in findings):
@@ -792,18 +799,25 @@ def _iter_directory_files(
                     )
                 )
             return
-        if _is_excluded(child, excluded):
+        child = Path(entry.path)
+        try:
+            is_symlink = entry.is_symlink()
+        except OSError:
+            is_symlink = False
+        if _compiled_excludes is not None and _is_excluded_compiled(
+            child, _compiled_excludes, is_symlink=is_symlink
+        ):
             continue
-        if child.is_symlink():
+        if is_symlink:
             # Let _scan_path audit the link and decide whether it is a safe
             # in-tree file symlink or a directory link that must not be
             # followed.
             yield child
             continue
         try:
-            if child.is_file():
+            if entry.is_file(follow_symlinks=False):
                 yield child
-            elif recursive and child.is_dir():
+            elif recursive and entry.is_dir(follow_symlinks=False):
                 yield from _iter_directory_files(
                     child,
                     True,
@@ -812,6 +826,7 @@ def _iter_directory_files(
                     limits,
                     scan_entries,
                     scan_root,
+                    _compiled_excludes=_compiled_excludes,
                 )
         except OSError as exc:
             findings.append(read_error(child, exc))
@@ -1039,23 +1054,89 @@ def _looks_like_installed_tree(path: Path) -> bool:
         return False
 
 
+_GLOB_CHARS = frozenset("*?[")
+
+
+@lru_cache(maxsize=64)
+def _compile_exclude_patterns(
+    cwd: str,
+    excluded: tuple[str, ...],
+) -> tuple[frozenset[str], tuple[str, ...], frozenset[Path], frozenset[str]]:
+    simple_names: set[str] = set()
+    complex_patterns: list[str] = []
+    resolved_targets: set[Path] = set()
+    resolved_target_names_cf: set[str] = set()
+    for pattern in excluded:
+        normalized = pattern.replace("\\", "/").rstrip("/")
+        if not normalized:
+            continue
+        has_glob = any(ch in _GLOB_CHARS for ch in normalized)
+        if not has_glob and "/" not in normalized:
+            simple_names.add(normalized)
+        else:
+            complex_patterns.append(normalized)
+        try:
+            resolved = Path(normalized).resolve(strict=False)
+        except OSError:
+            continue
+        resolved_targets.add(resolved)
+        resolved_target_names_cf.add(resolved.name.casefold())
+    return (
+        frozenset(simple_names),
+        tuple(complex_patterns),
+        frozenset(resolved_targets),
+        frozenset(resolved_target_names_cf),
+    )
+
+
+def _is_excluded_compiled(
+    path: Path,
+    compiled: tuple[frozenset[str], tuple[str, ...], frozenset[Path], frozenset[str]],
+    *,
+    is_symlink: bool | None = None,
+) -> bool:
+    simple_names, complex_patterns, resolved_targets, resolved_target_names_cf = compiled
+    name = path.name
+    if simple_names:
+        if name in simple_names:
+            return True
+        if any(part in simple_names for part in path.parts):
+            return True
+    if complex_patterns:
+        path_text = path.as_posix()
+        parts = path.parts
+        for normalized in complex_patterns:
+            if (
+                fnmatch.fnmatch(path_text, normalized)
+                or fnmatch.fnmatch(name, normalized)
+                or normalized in parts
+            ):
+                return True
+    if resolved_targets:
+        if (
+            name.casefold() in resolved_target_names_cf
+            or name in ("", ".", "..")
+            or (path.is_symlink() if is_symlink is None else is_symlink)
+        ):
+            try:
+                if path.resolve(strict=False) in resolved_targets:
+                    return True
+            except OSError:
+                return False
+    return False
+
+
 def _path_matches_pattern(path: Path, pattern: str) -> bool:
     normalized = pattern.replace("\\", "/").rstrip("/")
     if not normalized:
         return False
-    path_text = path.as_posix()
-    if fnmatch.fnmatch(path_text, normalized) or fnmatch.fnmatch(path.name, normalized):
-        return True
-    if normalized in path.parts:
-        return True
-    try:
-        return Path(normalized).resolve(strict=False) == path.resolve(strict=False)
-    except OSError:
-        return False
+    return _is_excluded_compiled(path, _compile_exclude_patterns(os.getcwd(), (normalized,)))
 
 
 def _is_excluded(path: Path, excluded: tuple[str, ...]) -> bool:
-    return any(_path_matches_pattern(path, pattern) for pattern in excluded)
+    if not excluded:
+        return False
+    return _is_excluded_compiled(path, _compile_exclude_patterns(os.getcwd(), excluded))
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

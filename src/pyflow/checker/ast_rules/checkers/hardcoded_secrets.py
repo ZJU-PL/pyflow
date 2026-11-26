@@ -70,20 +70,27 @@ PLACEHOLDER_RE = re.compile(
 
 def _get_string(node):
     """Extract string literal value from AST nodes."""
-    if isinstance(node, ast.Str):
-        return node.s
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
 
-def _collect_strings(node):
+def _collect_strings(node, context=None):
     """Collect all string literals from a node subtree."""
+    cache = context._context.get("_node_cache") if context is not None else None
+    key = ("_hs_strings", id(node))
+    if cache is not None and key in cache:
+        return cache[key]
     strings = []
-    for child in ast.walk(node):
-        value = _get_string(child)
-        if value is not None:
-            strings.append(value)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            strings.append(node.value)
+    else:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                strings.append(child.value)
+    if cache is not None:
+        cache[key] = strings
     return strings
 
 
@@ -100,8 +107,6 @@ def _target_names(target):
             names.extend(_target_names(elt))
     elif isinstance(target, ast.Subscript):
         key = target.slice
-        if isinstance(key, ast.Index):  # pragma: no cover - py<3.9 compat
-            key = key.value
         key_str = _get_string(key)
         if key_str:
             names.append(key_str)
@@ -139,7 +144,7 @@ def _find_match(pattern, values):
 @test.with_id("B9026")
 def hardcoded_aws_access_key(context):
     """Detect hardcoded AWS access keys (AKIA..., ASIA...)."""
-    match = _find_match(AWS_ACCESS_KEY_RE, _collect_strings(context.node.value))
+    match = _find_match(AWS_ACCESS_KEY_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue(f"Possible hardcoded AWS access key detected: '{match}'")
 
@@ -148,7 +153,7 @@ def hardcoded_aws_access_key(context):
 @test.with_id("B9027")
 def hardcoded_github_token(context):
     """Detect hardcoded GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)."""
-    match = _find_match(GITHUB_TOKEN_RE, _collect_strings(context.node.value))
+    match = _find_match(GITHUB_TOKEN_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue(f"Possible hardcoded GitHub token detected: '{match}'")
 
@@ -157,7 +162,7 @@ def hardcoded_github_token(context):
 @test.with_id("B9028")
 def hardcoded_google_api_key(context):
     """Detect hardcoded Google API keys (AIza...)."""
-    match = _find_match(GOOGLE_API_KEY_RE, _collect_strings(context.node.value))
+    match = _find_match(GOOGLE_API_KEY_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue(f"Possible hardcoded Google API key detected: '{match}'")
 
@@ -166,7 +171,7 @@ def hardcoded_google_api_key(context):
 @test.with_id("B504")
 def hardcoded_slack_token(context):
     """Detect hardcoded Slack tokens (xoxb-, xoxp-)."""
-    match = _find_match(SLACK_TOKEN_RE, _collect_strings(context.node.value))
+    match = _find_match(SLACK_TOKEN_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue(f"Possible hardcoded Slack token detected: '{match}'")
 
@@ -175,7 +180,7 @@ def hardcoded_slack_token(context):
 @test.with_id("B9029")
 def hardcoded_private_key(context):
     """Detect embedded private key blocks."""
-    match = _find_match(PRIVATE_KEY_RE, _collect_strings(context.node.value))
+    match = _find_match(PRIVATE_KEY_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue("Possible hardcoded private key material detected")
 
@@ -184,7 +189,7 @@ def hardcoded_private_key(context):
 @test.with_id("B506")
 def hardcoded_database_password(context):
     """Detect database connection strings with inline passwords."""
-    match = _find_match(DATABASE_PASSWORD_RE, _collect_strings(context.node.value))
+    match = _find_match(DATABASE_PASSWORD_RE, _collect_strings(context.node.value, context))
     if match:
         return _new_issue("Possible database connection string with hardcoded password detected")
 

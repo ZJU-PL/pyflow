@@ -82,8 +82,6 @@ def _aws_issue(text, severity="HIGH", confidence="MEDIUM", cwe=None):
 
 def _get_string_value(node):
     """Extract string value from AST node."""
-    if isinstance(node, ast.Str):
-        return node.s
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
@@ -93,13 +91,23 @@ def _get_string_value(node):
     return None
 
 
-def _collect_strings(node):
+def _collect_strings(node, context=None):
     """Collect all string literals from a node subtree."""
+    cache = context._context.get("_node_cache") if context is not None else None
+    key = ("_aws_strings", id(node))
+    if cache is not None and key in cache:
+        return cache[key]
     strings = []
-    for child in ast.walk(node):
-        value = _get_string_value(child)
-        if value is not None:
-            strings.append(value)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            strings.append(node.value)
+    else:
+        for child in ast.walk(node):
+            value = _get_string_value(child)
+            if value is not None:
+                strings.append(value)
+    if cache is not None:
+        cache[key] = strings
     return strings
 
 
@@ -107,7 +115,7 @@ def _collect_strings(node):
 @test.with_id("W101")
 def hardcoded_aws_credentials(context):
     """Detect hardcoded AWS access keys or secret keys."""
-    strings = _collect_strings(context.node.value)
+    strings = _collect_strings(context.node.value, context)
     for s in strings:
         if AWS_ACCESS_KEY_RE.search(s) or AWS_SECRET_KEY_RE.search(s):
             return _aws_issue(
@@ -174,6 +182,10 @@ def rds_publicly_accessible(context):
 @test.with_id("W107")
 def secrets_not_in_secrets_manager(context):
     """Detect secrets hardcoded instead of using AWS Secrets Manager."""
+    if not (
+        context.is_module_imported_like("boto3") or context.is_module_imported_like("botocore")
+    ):
+        return None
     imports = context._context.get("imports", ())
     if not any(name.split(".")[0] in {"boto3", "botocore"} for name in imports):
         return None

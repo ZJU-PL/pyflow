@@ -69,8 +69,6 @@ def _is_user_input(node):
 
 def _get_string_value(node):
     """Extract string value from AST node."""
-    if isinstance(node, ast.Str):
-        return node.s
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None

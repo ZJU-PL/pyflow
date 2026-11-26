@@ -17,7 +17,7 @@ def path_traversal_issue():
 
 def _is_dynamic_path(node):
     """Check if a node represents a dynamic path (contains variables)"""
-    if node is None or isinstance(node, (ast.Constant, ast.Str)):
+    if node is None or isinstance(node, ast.Constant):
         return False
     if isinstance(node, ast.JoinedStr):
         # f-string with potential path construction: only dynamic if it contains expressions

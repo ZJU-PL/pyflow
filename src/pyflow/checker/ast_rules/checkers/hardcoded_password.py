@@ -67,8 +67,6 @@ def _get_string(node):
     Returns:
         String value, or None if not a string node
     """
-    if isinstance(node, ast.Str):
-        return node.s
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
@@ -227,9 +225,7 @@ def hardcoded_password_default(context):
     for key, val in zip(context.node.args.args, defs):
         if isinstance(key, (ast.Name, ast.arg)):
             # Skip if the default value is None
-            if val is None or (
-                isinstance(val, (ast.Constant, ast.NameConstant)) and val.value is None
-            ):
+            if val is None or (isinstance(val, ast.Constant) and val.value is None):
                 continue
             val_str = _get_string(val)
             if val_str is not None and RE_CANDIDATES.search(key.arg):

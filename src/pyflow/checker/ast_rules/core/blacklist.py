@@ -148,6 +148,36 @@ class BlacklistManager:
         """Initialize the blacklist manager and load all blacklists."""
         self.blacklists = {"Call": [], "Import": [], "ImportFrom": []}
         self._load_blacklists()
+        self._index_versions = {}
+        self._exact_indexes = {}
+        self._wildcard_indexes = {}
+        self._match_caches = {}
+
+    def _ensure_index(self, node_type, items):
+        signature = (len(items), id(items))
+        if self._index_versions.get(node_type) == signature:
+            return (
+                self._exact_indexes[node_type],
+                self._wildcard_indexes[node_type],
+                self._match_caches[node_type],
+            )
+        exact = {}
+        wildcards = []
+        for idx, item in enumerate(items):
+            has_wildcard = False
+            for pattern in item.qualnames:
+                if "*" in pattern:
+                    has_wildcard = True
+                elif pattern not in exact:
+                    exact[pattern] = (idx, item)
+            if has_wildcard:
+                wildcards.append((idx, item))
+        cache = {}
+        self._index_versions[node_type] = signature
+        self._exact_indexes[node_type] = exact
+        self._wildcard_indexes[node_type] = wildcards
+        self._match_caches[node_type] = cache
+        return exact, wildcards, cache
 
     def _load_blacklists(self):
         """Load all blacklist items from internal definitions."""
@@ -553,10 +583,28 @@ class BlacklistManager:
             Issue object if blacklisted, None otherwise
         """
         items = self.get_blacklist_items(node_type)
-        for item in items:
-            if item.matches(qualname):
-                return item.create_issue(context, qualname)
-        return None
+        if not items:
+            return None
+        exact, wildcards, cache = self._ensure_index(node_type, items)
+        if qualname in cache:
+            matched = cache[qualname]
+            return matched.create_issue(context, qualname) if matched is not None else None
+        exact_hit = exact.get(qualname)
+        matched = None
+        if not wildcards:
+            matched = exact_hit[1] if exact_hit is not None else None
+        else:
+            best_idx = exact_hit[0] if exact_hit is not None else len(items)
+            matched = exact_hit[1] if exact_hit is not None else None
+            for idx, item in wildcards:
+                if idx >= best_idx:
+                    break
+                if item.matches(qualname):
+                    matched = item
+                    break
+        if len(cache) < 16384:
+            cache[qualname] = matched
+        return matched.create_issue(context, qualname) if matched is not None else None
 
 
 # Global blacklist manager instance (singleton)

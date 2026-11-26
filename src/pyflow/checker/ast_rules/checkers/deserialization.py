@@ -136,7 +136,7 @@ def _is_user_controlled(node):
         return False
 
     # Constants (strings, numbers, etc.) are NEVER user-controlled
-    if isinstance(node, (ast.Constant, ast.Str, ast.Num)):
+    if isinstance(node, ast.Constant):
         return False
 
     # List/Tuple/Dict literals - check if any element is user-controlled

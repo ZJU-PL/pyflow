@@ -148,6 +148,8 @@ def linerange(node):
 
 def check_ast_node(name):
     """Check if the given name is that of a valid AST node"""
+    if name in ("Str", "Bytes"):
+        return name
     try:
         node = getattr(ast, name)
         if issubclass(node, ast.AST):

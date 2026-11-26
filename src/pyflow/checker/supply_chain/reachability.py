@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping
 
@@ -97,8 +98,8 @@ def analyze_reachability(
         try:
             if source.stat().st_size > max_file_size:
                 continue
-            tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
-        except (OSError, UnicodeError, SyntaxError) as exc:
+            tree = ast.parse(source.read_bytes(), filename=str(source))
+        except (OSError, UnicodeError, SyntaxError, ValueError) as exc:
             findings.append(
                 SupplyChainFinding(
                     kind="reachability-source-error",
@@ -186,14 +187,15 @@ def _python_files(roots: Iterable[str | Path]) -> Iterator[Path]:
         if path.is_file() and path.suffix == ".py":
             yield path
         elif path.is_dir():
-            for child in sorted(path.rglob("*.py")):
-                try:
-                    relative_parts = child.relative_to(path).parts
-                except ValueError:
-                    continue
-                if (
-                    not ignored.intersection(relative_parts)
-                    and child.is_file()
-                    and not child.is_symlink()
-                ):
-                    yield child
+            for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+                dirnames[:] = sorted(
+                    d
+                    for d in dirnames
+                    if d not in ignored and not os.path.islink(os.path.join(dirpath, d))
+                )
+                for filename in sorted(filenames):
+                    if not filename.endswith(".py"):
+                        continue
+                    child_str = os.path.join(dirpath, filename)
+                    if not os.path.islink(child_str):
+                        yield Path(child_str)
