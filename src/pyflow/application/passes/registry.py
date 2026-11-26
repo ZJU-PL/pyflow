@@ -198,7 +198,10 @@ def register_standard_passes(pass_manager):
             opt_pass.info.dependencies.add("simplify")
 
     if "clone" in pass_manager.passes:
+        pass_manager.passes["clone"].info.dependencies.discard("cpa")
+        pass_manager.passes["clone"].info.dependencies.add("cpa_after_simplify")
         pass_manager.passes["clone"].info.dependencies.add("lifetime_after_simplify")
+        pass_manager.passes["clone"].info.requirements.add("cpa_after_simplify")
         pass_manager.passes["clone"].info.requirements.add("lifetime_after_simplify")
 
     pass_manager.passes["ipa_after_simplify"].info.dependencies.add("simplify")

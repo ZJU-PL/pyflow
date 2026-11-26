@@ -163,12 +163,15 @@ class Context(object):
 
     def dirtyCall(self, call):
         self.dirtycalls.append(call)
+        self.analysis.markContextDirty(self)
 
     def dirtyCCall(self, call):
         self.dirtyccalls.append(call)
+        self.analysis.markContextDirty(self)
 
     def dirtyFCall(self, call):
         self.dirtyfcalls.append(call)
+        self.analysis.markContextDirty(self)
 
     def constraint(self, constraint):
         self.constraints.append(constraint)

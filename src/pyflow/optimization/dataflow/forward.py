@@ -80,7 +80,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         self.maxLoopIterations = 128
 
     # TODO expose CodeParameters to the strategies?
-    @dispatch(str, type(None), ast.CodeParameters)
+    @dispatch(str, type(None), ast.CodeParameters, ast.DoNotCare, ast.TypeParam, ast.TypeParams)
     def visitLeaf(self, node):
         return node
 
@@ -129,16 +129,24 @@ class ForwardFlowTraverse(TypeDispatcher):
         ast.Assign,
         ast.AnnAssign,
         ast.Discard,
-        # ast.ConvertToBool,
+        ast.ConvertToBool,
         ast.Local,
         ast.Cell,
         ast.UnpackSequence,
         ast.SetAttr,
+        ast.GetAttr,
         ast.Store,
+        ast.Load,
+        ast.Allocate,
+        ast.Check,
         ast.Print,
         ast.SetSubscript,
+        ast.GetSubscript,
         ast.Delete,
         ast.SetSlice,
+        ast.GetSlice,
+        ast.GetIter,
+        ast.AsyncGetIter,
         ast.DeleteAttr,
         ast.SetGlobal,
         ast.DeleteGlobal,
@@ -146,11 +154,19 @@ class ForwardFlowTraverse(TypeDispatcher):
         ast.DeleteSubscript,
         ast.SetCellDeref,
         ast.GetCellDeref,
+        ast.GetCell,
         ast.GetGlobal,
         ast.GlobalDecl,
         ast.NonlocalDecl,
         ast.NamedExpr,
         ast.Assert,
+        ast.BinaryOp,
+        ast.UnaryPrefixOp,
+        ast.Not,
+        ast.Is,
+        ast.MethodCall,
+        ast.Import,
+        ast.TypeAlias,
         ast.BuildList,
         ast.BuildSet,
         ast.MakeFunction,
@@ -445,7 +461,7 @@ class ForwardFlowTraverse(TypeDispatcher):
 
         return result
 
-    @dispatch(ast.For)
+    @dispatch(ast.For, ast.AsyncFor)
     def visitFor(self, node):
         loopPreamble = self(node.loopPreamble)
         iterator = self(node.iterator)
@@ -454,7 +470,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         originalbags = self.flow.saveBags()
         current = self.flow.pop()
         if current is None:
-            return ast.For(
+            return type(node)(
                 iterator,
                 node.index,
                 loopPreamble,
@@ -534,8 +550,27 @@ class ForwardFlowTraverse(TypeDispatcher):
         out, changed = meet(self.meetF, out, b)
         self.flow.restore(out)
 
-        result = ast.For(iterator, index, loopPreamble, bodyPreamble, body, else_)
+        result = type(node)(iterator, index, loopPreamble, bodyPreamble, body, else_)
         return result
+
+    @dispatch(ast.ConditionalExpr)
+    def visitConditionalExpr(self, node):
+        test = self(node.test)
+        if existingConstant(test):
+            taken = node.body if test.object.pyobj else node.orelse
+            return self(taken)
+        tf, ff = self.flow.popSplit()
+        self.flow.restore(tf)
+        body = self(node.body)
+        tf = self.flow.pop()
+        self.flow.restore(ff)
+        orelse = self(node.orelse)
+        ff = self.flow.pop()
+        merged, _changed = meet(self.meetF, tf, ff)
+        self.flow.restore(merged)
+        result = ast.ConditionalExpr(test, body, orelse)
+        result.annotation = node.annotation
+        return self.processExpr(result, node)
 
     @dispatch(ast.ShortCircutOr)
     def visitShortCircutOr(self, node):
@@ -545,7 +580,7 @@ class ForwardFlowTraverse(TypeDispatcher):
     def visitShortCircutAnd(self, node):
         return self.processShortCircuit(node, False)
 
-    @dispatch(ast.TryExceptFinally)
+    @dispatch(ast.TryExceptFinally, ast.TryStar)
     def visitTryExceptFinally(self, node):
         oldRaise = self.flow.bags.get("raise", [])
         self.flow.bags["raise"] = []
@@ -626,7 +661,7 @@ class ForwardFlowTraverse(TypeDispatcher):
 
         self.flow.restore(normalF)
 
-        result = ast.TryExceptFinally(body, handlers, defaultHandler, else_, finally_)
+        result = type(node)(body, handlers, defaultHandler, else_, finally_)
 
         return result
 

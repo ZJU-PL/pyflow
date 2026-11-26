@@ -105,6 +105,7 @@ class CPATypeSigBuilder(object):
         """
         self.analysis = analysis
         self.call = call
+        self.info = info
 
         self.code = self.call.code
         self.selfparam = None
@@ -177,8 +178,43 @@ class CPATypeSigBuilder(object):
         return flat[0], flat[1:psplit], flat[psplit:]
 
     def signatures(self):
+        flat = self.flatten()
+        # Prevent exponential Cartesian-product blowup across many polymorphic
+        # arguments (e.g., 10 params x 3 types = 59,049 contexts from one call).
+        total = 1
+        for slot in flat:
+            total *= len(slot)
+        if total > 64:
+            # Collapse polymorphic argument splits to megamorphic anyType so
+            # downstream callbinder.bind sees the matching TypeSplitConstraint.
+            arg_nodes = [
+                node
+                for node in (
+                    self.call.selfarg,
+                    *self.call.args,
+                    *self.call.vargSlots,
+                    *self.call.defaultSlots,
+                )
+                if node is not None and getattr(node, "typeSplit", None) is not None
+            ]
+            arg_nodes.sort(key=lambda n: len(n.typeSplit.objects), reverse=True)
+            for node in arg_nodes:
+                if total <= 64:
+                    break
+                ts = node.typeSplit
+                if not ts.megamorphic and len(ts.objects) > 1:
+                    old_len = len(ts.objects)
+                    ts.makeMegamorphic()
+                    total = max(1, (total + old_len - 1) // old_len)
+            # Re-transfer parameter slots using the collapsed TypeSplitConstraints.
+            self.selfparam = None
+            self.params = [None for _ in range(self.info.numParams())]
+            self.vparams = [None for _ in range(self.info.numVParams())]
+            self.info.transfer(self, self)
+            flat = self.flatten()
+
         results = []
-        for concrete in itertools.product(*self.flatten()):
+        for concrete in itertools.product(*flat):
             selfparam, params, vparams = self.split(concrete)
 
             sig = CPAContextSignature(self.code, selfparam, params, vparams)

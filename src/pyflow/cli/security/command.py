@@ -752,7 +752,9 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
                 deadline=construction_deadline,
             )
         else:
-            source = path.read_text(encoding="utf-8", errors="replace")
+            from pyflow.frontend.source import read_python_source
+
+            source = read_python_source(path)
             cpg = build_cpg(source, filename=str(target), deadline=construction_deadline)
 
         if construction_deadline is not None and monotonic() >= construction_deadline:
@@ -773,9 +775,10 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
             message = f"No analyzable functions found in {target}"
             if path.is_file():
                 try:
+                    from pyflow.frontend.source import read_python_source
                     from pyflow.language.source_compat import normalize_legacy_python_syntax
 
-                    source = path.read_text(encoding="utf-8", errors="replace")
+                    source = read_python_source(path)
                     ast.parse(
                         normalize_legacy_python_syntax(source),
                         filename=str(target),
@@ -855,12 +858,15 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
             frameworks = None
         if frameworks is None and path.is_file():
             try:
-                source = path.read_text(encoding="utf-8", errors="replace")
+                from pyflow.frontend.source import read_python_source
+
+                source = read_python_source(path)
                 frameworks = detect_frameworks(source)
             except OSError:
                 pass
         elif frameworks is None and path.is_dir():
             from pyflow.frontend.file_selection import discover_python_files
+            from pyflow.frontend.source import read_python_source
 
             detected = set()
             excluded = _parse_exclude_tuple(getattr(args, "exclude", ()))
@@ -870,9 +876,7 @@ def _run_cpg_targets(targets: List[str], args, report) -> Dict[str, Any]:
                 path, recursive=getattr(args, "recursive", False), exclude=excluded
             ):
                 try:
-                    detected.update(
-                        detect_frameworks(source_path.read_text(encoding="utf-8", errors="replace"))
-                    )
+                    detected.update(detect_frameworks(read_python_source(source_path)))
                 except OSError:
                     continue
             frameworks = sorted(detected) or None

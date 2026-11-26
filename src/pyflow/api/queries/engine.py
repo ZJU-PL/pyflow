@@ -57,30 +57,38 @@ class GraphQueryEngine:
         self._callgraph_cache = None
         self._callgraph_aliases = {}
 
-    def get_cfg(self, function: Union[str, object], *, commit_revision: bool = True):
+    def _build_cfg(self, code, *, commit_revision: bool):
+        if commit_revision:
+            return cfg_transform.evaluate(self.context.compiler, code)
+        try:
+            return cfg_transform.evaluate(
+                self.context.compiler,
+                code,
+                commit_revision=False,
+            )
+        except TypeError:
+            return cfg_transform.evaluate(self.context.compiler, code)
+
+    def get_cfg(self, function: Union[str, object], *, commit_revision: bool = False):
         """Return a CFG for the given function."""
         self._sync_cache()
         code = self.context.resolve_function(function)
         if code not in self._cfg_cache:
-            if commit_revision:
-                cfg = cfg_transform.evaluate(self.context.compiler, code)
-            else:
-                cfg = cfg_transform.evaluate(
-                    self.context.compiler,
-                    code,
-                    commit_revision=False,
-                )
+            cfg = self._build_cfg(code, commit_revision=commit_revision)
             self._sync_cache()
             self._cfg_cache[code] = cfg
         return self._cfg_cache[code]
 
-    def get_ssa(self, function: Union[str, object]):
+    def get_ssa(self, function: Union[str, object], *, commit_revision: bool = False):
         """Return a CFG annotated with SSA form."""
         self._sync_cache()
         code = self.context.resolve_function(function)
         if code not in self._ssa_cache:
-            cfg = cfg_transform.evaluate(self.context.compiler, code)
-            cfg_ssa.evaluate(self.context.compiler, cfg)
+            cfg = self._build_cfg(code, commit_revision=commit_revision)
+            try:
+                cfg_ssa.evaluate(self.context.compiler, cfg, commit_revision=commit_revision)
+            except TypeError:
+                cfg_ssa.evaluate(self.context.compiler, cfg)
             verify_ssa(cfg)
             self._sync_cache()
             self._ssa_cache[code] = cfg

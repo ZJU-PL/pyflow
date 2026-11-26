@@ -17,6 +17,23 @@ class QueryContext:
     def __init__(self, compiler, program):
         self.compiler = compiler
         self.program = program
+        self._filename_module_cache: dict[str, Optional[str]] = {}
+
+    def _module_for_filename(self, filename: str) -> Optional[str]:
+        if not filename:
+            return None
+        if filename in self._filename_module_cache:
+            return self._filename_module_cache[filename]
+        from pathlib import Path
+        from pyflow.ir.mir.lowering import _default_root, _module_name
+
+        path = Path(filename)
+        module: Optional[str] = None
+        if path.is_file():
+            resolved = path.resolve()
+            module = _module_name(resolved, _default_root(resolved))
+        self._filename_module_cache[filename] = module
+        return module
 
     def resolve_function(self, function: Union[str, object]):
         """Resolve a function name or object to a code object."""
@@ -97,13 +114,8 @@ class QueryContext:
                 # Source indexes and call graphs retain package prefixes,
                 # including package.__main__. The extracted code may still
                 # carry the legacy filename-only module label.
-                from pathlib import Path
-                from pyflow.ir.mir.lowering import _default_root, _module_name
-
-                path = Path(identity.anchor.filename) if identity.anchor.filename else None
-                if path is not None and path.is_file():
-                    path = path.resolve()
-                    module = _module_name(path, _default_root(path))
+                module = self._module_for_filename(identity.anchor.filename)
+                if module is not None:
                     lexical = public_name.removeprefix(f"{identity.module}.")
                     canonical = f"{module}.{lexical}"
                     if canonical not in aliases:

@@ -102,6 +102,44 @@ class _ScopeEffectVisitor(ast.NodeVisitor):
         if node.name is not None:
             self.has_scope_effect = True
 
+    def visit_Yield(self, node: ast.Yield) -> None:
+        # Even an unreachable ``if False: yield`` turns the enclosing function
+        # into a generator or async generator at compile time.
+        self.has_scope_effect = True
+
+    def visit_YieldFrom(self, node: ast.YieldFrom) -> None:
+        self.has_scope_effect = True
+
+
+_MANDATORY_BODY_NODES: tuple[type[ast.AST], ...] = tuple(
+    cls
+    for cls in (
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.If,
+        ast.With,
+        ast.AsyncWith,
+        ast.Try,
+        getattr(ast, "TryStar", None),
+        ast.ExceptHandler,
+        getattr(ast, "match_case", None),
+    )
+    if cls is not None
+)
+
+
+def _ensure_non_empty_bodies(tree: ast.AST) -> None:
+    """Restore ``pass`` when a rewrite empties a mandatory Python suite."""
+    for node in ast.walk(tree):
+        if isinstance(node, _MANDATORY_BODY_NODES) and not node.body:
+            pass_stmt = ast.Pass()
+            ast.copy_location(pass_stmt, node)
+            node.body = [pass_stmt]
+
 
 def _has_scope_effect(nodes: Iterable[ast.AST]) -> bool:
     """Whether removing nodes can alter the enclosing scope's bindings."""
@@ -831,6 +869,7 @@ def optimize_source(
             if not propagator.constant_propagations:
                 break
 
+    _ensure_non_empty_bodies(optimized)
     ast.fix_missing_locations(optimized)
     rendered = ast.unparse(optimized)
     if source.endswith(("\n", "\r")):

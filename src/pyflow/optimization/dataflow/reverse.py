@@ -264,7 +264,7 @@ class ReverseFlowTraverse(TypeDispatcher):
 
         return ast.While(condition, body, else_)
 
-    @dispatch(ast.For)
+    @dispatch(ast.For, ast.AsyncFor)
     def visitFor(self, node):
         normalF, breakF = self.flow.popSplit()
         body = node.body
@@ -281,7 +281,7 @@ class ReverseFlowTraverse(TypeDispatcher):
             self.strategy.marker(node.iterator)
             iterator = self(node.iterator)
             loopPreamble = self(node.loopPreamble)
-            return ast.For(iterator, index, loopPreamble, bodyPreamble, body, else_)
+            return type(node)(iterator, index, loopPreamble, bodyPreamble, body, else_)
 
         # Save the old loop points, and set new ones.
         oldBreak = self.flow.bags.get("break", [])
@@ -327,9 +327,9 @@ class ReverseFlowTraverse(TypeDispatcher):
         iterator = self(node.iterator)
         loopPreamble = self(node.loopPreamble)
 
-        return ast.For(iterator, index, loopPreamble, bodyPreamble, body, else_)
+        return type(node)(iterator, index, loopPreamble, bodyPreamble, body, else_)
 
-    @dispatch(ast.TryExceptFinally)
+    @dispatch(ast.TryExceptFinally, ast.TryStar)
     def visitTryExceptFinally(self, node):
         # assert node.finally_ is None, node.finally_
 
@@ -422,7 +422,23 @@ class ReverseFlowTraverse(TypeDispatcher):
         self.flow.tryLevel -= 1
         self.flow.bags["raise"] = oldRaise
 
-        return ast.TryExceptFinally(body, handlers, defaultHandler, else_, finally_)
+        return type(node)(body, handlers, defaultHandler, else_, finally_)
+
+    @dispatch(ast.ConditionalExpr)
+    def visitConditionalExpr(self, node):
+        tf, ff = self.flow.popSplit()
+        self.flow.restore(tf)
+        body = self(node.body)
+        tf = self.flow.pop()
+        self.flow.restore(ff)
+        orelse = self(node.orelse)
+        ff = self.flow.pop()
+        merged, _changed = meet(self.meet, tf, ff)
+        self.flow.restore(merged)
+        test = self(node.test)
+        result = ast.ConditionalExpr(test, body, orelse)
+        result.annotation = node.annotation
+        return result
 
     @dispatch(ast.ShortCircutOr)
     def visitShortCircutOr(self, node):

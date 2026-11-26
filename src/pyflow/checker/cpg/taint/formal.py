@@ -659,36 +659,50 @@ class FormalCPGTaintAnalysis:
         on_stack: set[int] = set()
         loop_nodes: set[int] = set()
 
-        def visit(node_id: int) -> None:
-            nonlocal index
-            indices[node_id] = index
-            lowlinks[node_id] = index
+        for start in adjacency:
+            if start in indices:
+                continue
+            call_stack: list[tuple[int, tuple[int, ...], int]] = [
+                (start, adjacency.get(start, ()), 0)
+            ]
+            indices[start] = index
+            lowlinks[start] = index
             index += 1
-            stack.append(node_id)
-            on_stack.add(node_id)
-            for successor in adjacency.get(node_id, ()):
-                if successor not in indices:
-                    visit(successor)
-                    lowlinks[node_id] = min(lowlinks[node_id], lowlinks[successor])
-                elif successor in on_stack:
-                    lowlinks[node_id] = min(lowlinks[node_id], indices[successor])
-            if lowlinks[node_id] != indices[node_id]:
-                return
-            component: list[int] = []
-            while stack:
-                member = stack.pop()
-                on_stack.remove(member)
-                component.append(member)
-                if member == node_id:
-                    break
-            if len(component) > 1 or any(
-                member in adjacency.get(member, ()) for member in component
-            ):
-                loop_nodes.update(component)
-
-        for node_id in adjacency:
-            if node_id not in indices:
-                visit(node_id)
+            stack.append(start)
+            on_stack.add(start)
+            while call_stack:
+                node_id, neighbors, pos = call_stack[-1]
+                if pos < len(neighbors):
+                    call_stack[-1] = (node_id, neighbors, pos + 1)
+                    successor = neighbors[pos]
+                    if successor not in indices:
+                        indices[successor] = index
+                        lowlinks[successor] = index
+                        index += 1
+                        stack.append(successor)
+                        on_stack.add(successor)
+                        call_stack.append((successor, adjacency.get(successor, ()), 0))
+                    elif successor in on_stack:
+                        if indices[successor] < lowlinks[node_id]:
+                            lowlinks[node_id] = indices[successor]
+                else:
+                    call_stack.pop()
+                    if call_stack:
+                        parent_id = call_stack[-1][0]
+                        if lowlinks[node_id] < lowlinks[parent_id]:
+                            lowlinks[parent_id] = lowlinks[node_id]
+                    if lowlinks[node_id] == indices[node_id]:
+                        component: list[int] = []
+                        while stack:
+                            member = stack.pop()
+                            on_stack.remove(member)
+                            component.append(member)
+                            if member == node_id:
+                                break
+                        if len(component) > 1 or any(
+                            member in adjacency.get(member, ()) for member in component
+                        ):
+                            loop_nodes.update(component)
         return frozenset(loop_nodes)
 
     def _module_initializer_state(self) -> CPGAbstractState:

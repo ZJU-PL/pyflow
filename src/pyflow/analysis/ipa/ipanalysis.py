@@ -75,6 +75,8 @@ class IPAnalysis(object):
         self.criticalmanager = setmanager.CachedSetManager()
 
         self.dirtySlots = []
+        self.dirtyContexts = []
+        self._dirtyContextSet = set()
 
         self.decompileTime = 0.0
 
@@ -189,6 +191,12 @@ class IPAnalysis(object):
         """
         self.dirtySlots.append(slot)
 
+    def markContextDirty(self, context):
+        """Mark a context as having dirty call constraints to resolve."""
+        if context not in self._dirtyContextSet:
+            self._dirtyContextSet.add(context)
+            self.dirtyContexts.append(context)
+
     def dirtyConstraints(self):
         """Check if there are dirty constraints to process.
 
@@ -210,8 +218,10 @@ class IPAnalysis(object):
             LOG.debug("update")
         changed = False
 
-        # HACK dictionary size may change...
-        for context in tuple(self.contexts.values()):
+        batch = self.dirtyContexts
+        self.dirtyContexts = []
+        self._dirtyContextSet.clear()
+        for context in batch:
             changed |= context.updateCallgraph()
         if self.trace:
             LOG.debug("return %s", changed)
@@ -240,7 +250,7 @@ class IPAnalysis(object):
         while dirty:
             self.updateConstraints()
             self.updateCallGraph()
-            dirty = self.dirtyConstraints()
+            dirty = self.dirtyConstraints() or bool(self.dirtyContexts)
 
     def propagateCriticals(self, context):
         """Propagate critical values in a context.
