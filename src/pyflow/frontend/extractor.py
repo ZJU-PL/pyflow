@@ -25,7 +25,10 @@ from pyflow.application.context import CompilerContext
 from pyflow.language.python.program import Object
 from pyflow.language.python.program import ImaginaryObject, AbstractObject
 from pyflow.language.python import ast as pyflow_ast
-from pyflow.language.source_compat import normalize_legacy_python_syntax
+from pyflow.language.source_compat import (
+    normalize_legacy_python_syntax,
+    parse_python_source,
+)
 from pyflow.language.modules.imports import (
     base_name_from_expr as _base_name_from_expr,
     build_module_source_map,
@@ -120,6 +123,7 @@ class Extractor:
         self.compiler = compiler
         self.verbose = verbose
         self.defer_semantics = defer_semantics
+        self.retain_source_syntax = retain_source_syntax
         self.source_code = source_code  # Can be a single string or dict of {filename: source}
         self.analysis_root = os.path.realpath(analysis_root) if analysis_root else None
         if self.analysis_root is None and isinstance(source_code, dict):
@@ -137,6 +141,8 @@ class Extractor:
         self._normalized_filename_cache: Dict[str, str] = {}
         self._module_source_map_cache: Optional[Dict[str, str]] = None
         self._module_source_map_cache_source: object = None
+        self._star_exports_cache: Dict[str, List[str]] = {}
+        self._unresolved_base_classes: Set[str] = set()
 
         # Initialize desc attribute (program description)
         from pyflow.language.python.program import ProgramDescription
@@ -192,13 +198,7 @@ class Extractor:
             if reset_telemetry:
                 self.function_extractor.ast_converter.reset_telemetry()
             self._current_file_path = filename  # Store for relative import resolution
-            try:
-                tree = ast.parse(source, filename)
-            except SyntaxError:
-                normalized = normalize_legacy_python_syntax(source)
-                if normalized == source:
-                    raise
-                tree = ast.parse(normalized, filename)
+            tree = parse_python_source(source, filename)
             program = self._extract_from_ast(tree, filename)
         except SyntaxError as e:
             if self.verbose:
@@ -286,6 +286,8 @@ class Extractor:
         finally:
             self._batch_extraction = previous_batch
 
+        self._retry_unresolved_bases()
+
         combined_program.frontend_telemetry = self.function_extractor.ast_converter.get_telemetry()
         combined_program.frontend_diagnostics = tuple(self.diagnostics[diagnostic_start:])
         combined_program.class_hierarchy = self.class_hierarchy
@@ -302,7 +304,7 @@ class Extractor:
         module_name = self._get_module_name(filename)
         self._current_file_path = filename  # Store for relative import resolution
 
-        self._extract_imports(tree, module_name)
+        self._extract_imports(tree, module_name, filename=filename)
         _module_code, definitions = self.function_extractor.extract_module_body(
             getattr(tree, "body", []) or [],
             program,
@@ -321,12 +323,13 @@ class Extractor:
         for node in class_definitions:
             self._register_class_in_hierarchy(node, module_name)
 
-        # Register module with cross-module resolver
+        # Register module with cross-module resolver (classes are already registered above)
         if self.cross_module_resolver:
             self.cross_module_resolver.register_module(
                 module_name=module_name,
                 classes=self.class_hierarchy.get_classes_for_module(module_name),
                 imports=self._module_imports.get(module_name, {}),
+                register_in_hierarchy=False,
             )
 
         program.class_hierarchy = self.class_hierarchy
@@ -392,7 +395,12 @@ class Extractor:
             return stem or "__main__"
         return ".".join(parts)
 
-    def _extract_imports(self, tree: ast.AST, module_name: str) -> None:
+    def _extract_imports(
+        self,
+        tree: ast.AST,
+        module_name: str,
+        filename: Optional[str] = None,
+    ) -> None:
         """Extract import statements and build import mapping for the module.
 
         Handles:
@@ -408,6 +416,9 @@ class Extractor:
         # Sentinel key used to record star imports in the imports dict.
         # Value is a list of the star-imported module names.
         STAR_KEY = "<star_imports>"
+        is_package = bool(
+            filename and os.path.basename(filename) in ("__init__.py", "__init__.pyi")
+        )
 
         for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, ast.Import):
@@ -421,7 +432,10 @@ class Extractor:
 
                 # Resolve relative imports against the current module.
                 effective_module = self._resolve_import_from_module(
-                    module_name, source_module, int(level)
+                    module_name,
+                    source_module,
+                    int(level),
+                    is_package=is_package,
                 )
 
                 for alias in node.names:
@@ -447,7 +461,12 @@ class Extractor:
             self.cross_module_resolver.imports[module_name] = imports
 
     def _resolve_import_from_module(
-        self, current_module: str, source_module: str, level: int
+        self,
+        current_module: str,
+        source_module: str,
+        level: int,
+        *,
+        is_package: bool = False,
     ) -> str:
         """Resolve ``from ... import ...`` source to a dotted module name."""
         if level <= 0:
@@ -456,7 +475,7 @@ class Extractor:
         parts = [p for p in current_module.split(".") if p]
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
-        else:
+        elif not is_package:
             parts = parts[:-1]
 
         ups = max(level - 1, 0)
@@ -472,13 +491,19 @@ class Extractor:
     def _expand_star_import_names(self, module_name: str) -> List[str]:
         """Expand ``from module import *`` names when source is available."""
         source_map = self._build_module_source_map()
+        cached = self._star_exports_cache.get(module_name)
+        if cached is not None:
+            return cached
         module_source = source_map.get(module_name)
         if module_source is None:
             init_name = f"{module_name}.__init__"
             module_source = source_map.get(init_name)
         if module_source is None:
-            return []
-        return discover_module_exports(module_source)
+            exports: List[str] = []
+        else:
+            exports = discover_module_exports(module_source)
+        self._star_exports_cache[module_name] = exports
+        return exports
 
     def _build_module_source_map(self) -> Dict[str, str]:
         """Build module-name -> source mapping from in-memory source_code dict."""
@@ -492,6 +517,7 @@ class Extractor:
         mapping = build_module_source_map(self.source_code, self._get_module_name)
         self._module_source_map_cache = mapping
         self._module_source_map_cache_source = self.source_code
+        self._star_exports_cache.clear()
         return mapping
 
     def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
@@ -546,15 +572,43 @@ class Extractor:
             module=module_name,
             methods=methods,
             attributes=attributes,
-            ast_node=node,
+            ast_node=node if self.retain_source_syntax else None,
         )
 
         cls_info = self.class_hierarchy.get_class_info(qualified_name)
         if cls_info:
             cls_info.resolved_bases = resolved_bases
-            # Store unresolved bases for potential later resolution
+            # Store unresolved bases for post-batch retry once all modules are registered.
             if unresolved_bases:
-                cls_info.bases = base_names  # Keep original names for retry
+                cls_info.bases = base_names
+                self._unresolved_base_classes.add(qualified_name)
+
+    def _retry_unresolved_bases(self) -> None:
+        """Resolve bases whose target modules were extracted later in the batch."""
+        if not self._unresolved_base_classes:
+            return
+        pending = list(self._unresolved_base_classes)
+        self._unresolved_base_classes.clear()
+        for qualified_name in pending:
+            cls_info = self.class_hierarchy.get_class_info(qualified_name)
+            if cls_info is None:
+                continue
+            imported_names = self._module_imports.get(cls_info.module, {})
+            resolved_bases = []
+            still_unresolved = False
+            for base_name in cls_info.bases:
+                resolved = self.class_hierarchy.resolve_base_class(
+                    base_name, cls_info.module, imported_names
+                )
+                if resolved:
+                    resolved_bases.append(resolved)
+                else:
+                    still_unresolved = True
+            if resolved_bases != cls_info.resolved_bases:
+                cls_info.resolved_bases = resolved_bases
+                self.class_hierarchy._invalidate_cache(qualified_name)
+            if still_unresolved:
+                self._unresolved_base_classes.add(qualified_name)
 
     def getObject(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""

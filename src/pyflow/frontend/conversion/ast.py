@@ -21,11 +21,12 @@ from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
-from pyflow.language.python.annotations import CodeAnnotation
+from pyflow.language.python.annotations import CodeAnnotation, OpAnnotation
 from pyflow.language.asttools.origin import SourceOrigin
 from pyflow.language.python.ir_metadata import (
     register_call_argument_metadata,
     register_class_cell,
+    register_code_child_codes,
     register_code_definition_metadata,
     register_gir_source_node,
 )
@@ -88,6 +89,37 @@ HAS_NAMED_EXPR = sys.version_info >= (3, 8)
 HAS_EXCEPTION_GROUP = sys.version_info >= (3, 11)
 _KWONLY_PARAM_PREFIX = "kwonly:"
 
+_ORIGIN_TAGGED_SUITE_SOURCES: Tuple[type, ...] = (
+    python_ast.Import,
+    python_ast.ImportFrom,
+    python_ast.With,
+    python_ast.AsyncWith,
+    python_ast.Match,
+    python_ast.Pass,
+    python_ast.Delete,
+    python_ast.Global,
+    python_ast.Nonlocal,
+    *((python_ast.TypeAlias,) if hasattr(python_ast, "TypeAlias") else ()),
+)
+_NO_ORIGIN_CONVERTED_TYPES = (pyflow_ast.Reference, pyflow_ast.Cell)
+_CHILDLESS_STMT_TYPES = (pyflow_ast.Break, pyflow_ast.Continue)
+_NON_PROPAGATED_CHILD_TYPES = (
+    *pyflow_ast.leafTypes,
+    pyflow_ast.Reference,
+    pyflow_ast.Cell,
+    pyflow_ast.Code,
+    pyflow_ast.CodeParameters,
+)
+
+
+def _has_source_origin(origin_value: Any) -> bool:
+    if isinstance(origin_value, (tuple, list)):
+        for item in origin_value:
+            if isinstance(item, SourceOrigin) and item.lineno:
+                return True
+        return False
+    return isinstance(origin_value, SourceOrigin) and bool(origin_value.lineno)
+
 
 class ASTConverter:
     """Converts Python AST nodes to PyFlow AST nodes."""
@@ -108,6 +140,7 @@ class ASTConverter:
             "merged_kwargs": 0,
         }
         self._scope_stack: List[Dict[str, Any]] = []
+        self._child_codes_stack: List[List[pyflow_ast.Code]] = []
         self._future_annotations = False
         self.current_filename: str | None = None
         self._temp_ordinal = 0
@@ -123,41 +156,9 @@ class ASTConverter:
         # are emitted as GetGlobal.
         self.module_scope_names: Set[str] = set()
 
-    def _with_source_origin(
-        self, converted: Optional[PythonASTNode], source: python_ast.AST
-    ) -> Optional[PythonASTNode]:
-        if converted is None:
-            return converted
-        if self.retain_source_syntax:
-            register_gir_source_node(converted, source)
-        if (
-            isinstance(converted, pyflow_ast.Suite)
-            and isinstance(
-                source,
-                (
-                    python_ast.Import,
-                    python_ast.ImportFrom,
-                    python_ast.With,
-                    python_ast.AsyncWith,
-                    python_ast.Match,
-                    python_ast.Pass,
-                    python_ast.Delete,
-                    python_ast.Global,
-                    python_ast.Nonlocal,
-                ),
-            )
-            or (
-                isinstance(converted, pyflow_ast.Suite)
-                and hasattr(python_ast, "TypeAlias")
-                and isinstance(source, python_ast.TypeAlias)
-            )
-        ):
-            converted._origin_tag = converted._origin_tag or (
-                f"SourceSyntax:{type(source).__name__}"
-            )
-        annotation = getattr(converted, "annotation", None)
+    def _make_source_origin(self, source: python_ast.AST) -> SourceOrigin:
         filename = self.current_filename or getattr(source, "filename", None)
-        origin = SourceOrigin(
+        return SourceOrigin(
             None,
             filename,
             getattr(source, "lineno", None),
@@ -165,36 +166,90 @@ class ASTConverter:
             getattr(source, "end_lineno", None),
             getattr(source, "end_col_offset", None),
         )
-        if hasattr(converted, "rewriteAnnotation") and hasattr(annotation, "origin"):
+
+    def _with_source_origin(
+        self, converted: Optional[PythonASTNode], source: python_ast.AST
+    ) -> Optional[PythonASTNode]:
+        if converted is None:
+            return converted
+        if self.retain_source_syntax:
+            register_gir_source_node(converted, source)
+        if isinstance(converted, _NO_ORIGIN_CONVERTED_TYPES):
+            return converted
+        if isinstance(converted, pyflow_ast.Suite) and isinstance(
+            source, _ORIGIN_TAGGED_SUITE_SOURCES
+        ):
+            converted._origin_tag = converted._origin_tag or (
+                f"SourceSyntax:{type(source).__name__}"
+            )
+        lineno = getattr(source, "lineno", None)
+        origin = SourceOrigin(
+            None,
+            self.current_filename or getattr(source, "filename", None),
+            lineno,
+            getattr(source, "col_offset", None),
+            getattr(source, "end_lineno", None),
+            getattr(source, "end_col_offset", None),
+        )
+        annotation = getattr(converted, "annotation", None)
+        if isinstance(annotation, OpAnnotation):
+            converted.annotation = OpAnnotation((origin,))
+        elif (
+            annotation is not None
+            and hasattr(converted, "rewriteAnnotation")
+            and hasattr(annotation, "origin")
+        ):
             converted.rewriteAnnotation(origin=(origin,))
         # Lowered suites (with/import/try scaffolding) contain generated
         # statements that may become independent CFG nodes. Preserve the
         # nearest source span on those nodes as well as on their wrapper.
-        if getattr(source, "lineno", None):
-            from pyflow.ir.core.source import syntax_source_span
-
-            pending = list(converted.children()) if hasattr(converted, "children") else []
-            seen_ids = set()
-            while pending:
-                child = pending.pop()
-                if isinstance(child, (list, tuple)):
-                    pending.extend(child)
+        if not lineno or isinstance(converted, _CHILDLESS_STMT_TYPES):
+            return converted
+        children_fn = getattr(converted, "children", None)
+        if children_fn is None:
+            return converted
+        pending: list[object] = list(children_fn())
+        if not pending:
+            return converted
+        seen_ids: set[int] = set()
+        while pending:
+            child = pending.pop()
+            if child is None or isinstance(child, _NON_PROPAGATED_CHILD_TYPES):
+                continue
+            if isinstance(child, (list, tuple)):
+                pending.extend(child)
+                continue
+            child_id = id(child)
+            if child_id in seen_ids:
+                continue
+            seen_ids.add(child_id)
+            ann = getattr(child, "annotation", None)
+            if isinstance(ann, OpAnnotation):
+                existing = ann.origin
+                if existing and _has_source_origin(existing):
                     continue
-                child_id = id(child)
-                if child_id in seen_ids:
+                if isinstance(existing, tuple):
+                    child.annotation = OpAnnotation((*existing, origin))
+                elif isinstance(existing, list):
+                    child.annotation = OpAnnotation((*existing, origin))
+                elif existing is None:
+                    child.annotation = OpAnnotation((origin,))
+                else:
+                    child.annotation = OpAnnotation((existing, origin))
+            elif ann is not None and hasattr(ann, "origin"):
+                existing = ann.origin
+                if existing and _has_source_origin(existing):
                     continue
-                seen_ids.add(child_id)
-                annotation = getattr(child, "annotation", None)
-                if syntax_source_span(child) is not None:
-                    continue
-                if hasattr(child, "rewriteAnnotation") and hasattr(annotation, "origin"):
-                    existing = annotation.origin or ()
-                    existing = (
-                        tuple(existing) if isinstance(existing, (tuple, list)) else (existing,)
+                if hasattr(child, "rewriteAnnotation"):
+                    existing_tuple = (
+                        tuple(existing)
+                        if isinstance(existing, (tuple, list))
+                        else ((existing,) if existing is not None else ())
                     )
-                    child.rewriteAnnotation(origin=(*existing, origin))
-                if hasattr(child, "children"):
-                    pending.extend(child.children())
+                    child.rewriteAnnotation(origin=(*existing_tuple, origin))
+            child_children = getattr(child, "children", None)
+            if child_children is not None:
+                pending.extend(child_children())
         return converted
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
@@ -272,6 +327,12 @@ class ASTConverter:
         sl = slice_node
         if isinstance(sl, python_ast.Index):  # Python < 3.9
             sl = sl.value
+        if isinstance(sl, python_ast.Starred):
+            # PEP 646 TypeVarTuple unpacking inside a subscript, e.g. ``Generic[*Ts]``.
+            return self._call_named(
+                "interpreter_unpack_type",
+                [self._convert_expression_safe(sl.value)],
+            )
         return self._convert_expression_safe(sl)
 
     def _push_scope(
@@ -618,18 +679,9 @@ class ASTConverter:
             return self._convert_type_alias(node)
 
         elif isinstance(node, python_ast.If):
-            # Handle if statements
-            condition = self._convert_expression_safe(node.test)
-
-            then_body = self.convert_python_ast_to_pyflow(node.body)
-            else_body = self.convert_python_ast_to_pyflow(node.orelse)
-
-            # Create a Switch node for the condition
-            return pyflow_ast.Switch(
-                condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
-                t=then_body,
-                f=else_body,
-            )
+            # Handle if/elif chains iteratively so long chains cannot exhaust
+            # the Python call stack.
+            return self._convert_if_chain(node)
 
         elif isinstance(node, python_ast.Import):
             # Handle import statements
@@ -714,6 +766,53 @@ class ASTConverter:
 
         else:
             return self._unsupported_stmt(node, "unhandled statement node")
+
+    def _convert_if_chain(self, node: python_ast.If) -> pyflow_ast.Switch:
+        """Lower ``if`` / ``elif`` chains without one Python stack frame per branch."""
+        branches: List[Tuple[python_ast.If, PythonASTNode, pyflow_ast.Suite]] = []
+        current: python_ast.If = node
+        while True:
+            condition = self._convert_expression_safe(current.test)
+            then_body = self.convert_python_ast_to_pyflow(current.body)
+            branches.append((current, condition, then_body))
+            if len(current.orelse) == 1 and isinstance(current.orelse[0], python_ast.If):
+                current = current.orelse[0]
+            else:
+                else_body = self.convert_python_ast_to_pyflow(current.orelse)
+                break
+
+        result: Optional[pyflow_ast.Switch] = None
+        for idx in range(len(branches) - 1, -1, -1):
+            branch_node, condition, then_body = branches[idx]
+            branch_else = else_body if result is None else pyflow_ast.Suite([result])
+            switch = pyflow_ast.Switch(
+                condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
+                t=then_body,
+                f=branch_else,
+            )
+            if idx > 0:
+                switch = self._with_source_origin(switch, branch_node)
+            result = switch
+        assert result is not None
+        return result
+
+    def _convert_ifexp_chain(self, node: python_ast.IfExp) -> PythonASTNode:
+        """Lower right-nested ternary chains iteratively without recursion overflow."""
+        branches: List[Tuple[python_ast.IfExp, PythonASTNode, PythonASTNode]] = []
+        current: python_ast.AST = node
+        while isinstance(current, python_ast.IfExp):
+            test = self._convert_expression_safe(current.test)
+            body = self._convert_expression_safe(current.body)
+            branches.append((current, test, body))
+            current = current.orelse
+        result = self._convert_expression_safe(current)
+        for idx in range(len(branches) - 1, -1, -1):
+            branch_node, test, body = branches[idx]
+            cond_expr: PythonASTNode = pyflow_ast.ConditionalExpr(test, body, result)
+            if idx > 0:
+                cond_expr = self._with_source_origin(cond_expr, branch_node)
+            result = cond_expr
+        return result
 
     def _convert_expression(self, node: python_ast.AST) -> PythonASTNode:
         return self._with_source_origin(self._convert_expression_impl(node), node)
@@ -1068,10 +1167,7 @@ class ASTConverter:
                 return self._unsupported_expr(node, "unsupported boolean operator")
 
         elif isinstance(node, python_ast.IfExp):
-            test = self._convert_expression_safe(node.test)
-            body = self._convert_expression_safe(node.body)
-            orelse = self._convert_expression_safe(node.orelse)
-            return pyflow_ast.ConditionalExpr(test, body, orelse)
+            return self._convert_ifexp_chain(node)
 
         elif isinstance(node, python_ast.JoinedStr):
             parts = []
@@ -1137,34 +1233,39 @@ class ASTConverter:
 
         elif isinstance(node, python_ast.Lambda):
             # Handle lambda expressions
-            codeparams = self._convert_function_args(node.args, ensure_return=True)
-            body_bound, body_loaded = self._collect_scope_names([node.body])
-            parameter_names = {
-                argument.arg
-                for argument in (
-                    *getattr(node.args, "posonlyargs", ()),
-                    *getattr(node.args, "args", ()),
-                    *getattr(node.args, "kwonlyargs", ()),
-                )
-            }
-            if getattr(node.args, "vararg", None) is not None:
-                parameter_names.add(node.args.vararg.arg)
-            if getattr(node.args, "kwarg", None) is not None:
-                parameter_names.add(node.args.kwarg.arg)
-            bound_names = body_bound | parameter_names
-            free_names = self._enclosing_cell_names(body_loaded - bound_names)
-            self._push_scope(
-                "function",
-                nonlocal_names=free_names,
-                bound_names=bound_names,
-            )
+            child_codes: List[pyflow_ast.Code] = []
+            self._child_codes_stack.append(child_codes)
             try:
-                body_expr = self._convert_expression_safe(node.body)
-                closure_cells = tuple(
-                    self._resolve_nonlocal_cell(name) for name in sorted(free_names)
+                codeparams = self._convert_function_args(node.args, ensure_return=True)
+                body_bound, body_loaded = self._collect_scope_names([node.body])
+                parameter_names = {
+                    argument.arg
+                    for argument in (
+                        *getattr(node.args, "posonlyargs", ()),
+                        *getattr(node.args, "args", ()),
+                        *getattr(node.args, "kwonlyargs", ()),
+                    )
+                }
+                if getattr(node.args, "vararg", None) is not None:
+                    parameter_names.add(node.args.vararg.arg)
+                if getattr(node.args, "kwarg", None) is not None:
+                    parameter_names.add(node.args.kwarg.arg)
+                bound_names = body_bound | parameter_names
+                free_names = self._enclosing_cell_names(body_loaded - bound_names)
+                self._push_scope(
+                    "function",
+                    nonlocal_names=free_names,
+                    bound_names=bound_names,
                 )
+                try:
+                    body_expr = self._convert_expression_safe(node.body)
+                    closure_cells = tuple(
+                        self._resolve_nonlocal_cell(name) for name in sorted(free_names)
+                    )
+                finally:
+                    self._pop_scope()
             finally:
-                self._pop_scope()
+                self._child_codes_stack.pop()
             suite = pyflow_ast.Suite([pyflow_ast.Return([body_expr])])
             line = getattr(node, "lineno", 0)
             column = getattr(node, "col_offset", 0)
@@ -1174,12 +1275,15 @@ class ASTConverter:
                 primitive=False,
                 staticFold=False,
                 dynamicFold=False,
-                origin=[f"converted_lambda({line}:{column})"],
+                origin=[f"converted_lambda({line}:{column})", self._make_source_origin(node)],
                 lowered=False,
                 runtime=False,
                 interpreter=False,
             )
             register_code_definition_metadata(code, closure_cells=closure_cells)
+            register_code_child_codes(code, tuple(child_codes))
+            if self._child_codes_stack:
+                self._child_codes_stack[-1].append(code)
             return pyflow_ast.MakeFunction(
                 defaults=list(codeparams.defaults), cells=list(closure_cells), code=code
             )
@@ -1223,46 +1327,53 @@ class ASTConverter:
             definition_annotations.append(self._convert_annotation(node.args.kwarg.annotation))
         if getattr(node, "returns", None) is not None:
             definition_annotations.append(self._convert_annotation(node.returns))
-        codeparams = self._convert_function_args(
-            node.args, ensure_return=True, type_params_node=type_params_node
-        )
-        function_analysis = self._analyze_function_body(list(node.body))
-        direct_global = set(function_analysis.global_names)
-        direct_nonlocal = set(function_analysis.nonlocal_names)
-        body_bound = set(function_analysis.bound)
-        body_loaded = set(function_analysis.loaded)
-        parameter_names = {
-            argument.arg
-            for argument in (
-                *getattr(node.args, "posonlyargs", ()),
-                *getattr(node.args, "args", ()),
-                *getattr(node.args, "kwonlyargs", ()),
-            )
-        }
-        if getattr(node.args, "vararg", None) is not None:
-            parameter_names.add(node.args.vararg.arg)
-        if getattr(node.args, "kwarg", None) is not None:
-            parameter_names.add(node.args.kwarg.arg)
-        bound_names = (body_bound | parameter_names) - direct_global - direct_nonlocal
-        uses_zero_arg_super = function_analysis.has_zero_arg_super
-        if uses_zero_arg_super:
-            body_loaded.add("__class__")
-        implicit_free = self._enclosing_cell_names(body_loaded - bound_names - direct_global)
-        free_names = direct_nonlocal | implicit_free
-        descendant_nonlocal = set(function_analysis.descendant_nonlocal_names)
-        captured_by_children = function_analysis.direct_child_captures(bound_names)
-        self._push_scope(
-            "function",
-            global_names=direct_global,
-            nonlocal_names=free_names,
-            cell_names=descendant_nonlocal | captured_by_children,
-            bound_names=bound_names,
-        )
+        child_codes: List[pyflow_ast.Code] = []
+        self._child_codes_stack.append(child_codes)
         try:
-            body = self.convert_python_ast_to_pyflow(node.body)
-            closure_cells = tuple(self._resolve_nonlocal_cell(name) for name in sorted(free_names))
+            codeparams = self._convert_function_args(
+                node.args, ensure_return=True, type_params_node=type_params_node
+            )
+            function_analysis = self._analyze_function_body(list(node.body))
+            direct_global = set(function_analysis.global_names)
+            direct_nonlocal = set(function_analysis.nonlocal_names)
+            body_bound = set(function_analysis.bound)
+            body_loaded = set(function_analysis.loaded)
+            parameter_names = {
+                argument.arg
+                for argument in (
+                    *getattr(node.args, "posonlyargs", ()),
+                    *getattr(node.args, "args", ()),
+                    *getattr(node.args, "kwonlyargs", ()),
+                )
+            }
+            if getattr(node.args, "vararg", None) is not None:
+                parameter_names.add(node.args.vararg.arg)
+            if getattr(node.args, "kwarg", None) is not None:
+                parameter_names.add(node.args.kwarg.arg)
+            bound_names = (body_bound | parameter_names) - direct_global - direct_nonlocal
+            uses_zero_arg_super = function_analysis.has_zero_arg_super
+            if uses_zero_arg_super:
+                body_loaded.add("__class__")
+            implicit_free = self._enclosing_cell_names(body_loaded - bound_names - direct_global)
+            free_names = direct_nonlocal | implicit_free
+            descendant_nonlocal = set(function_analysis.descendant_nonlocal_names)
+            captured_by_children = function_analysis.direct_child_captures(bound_names)
+            self._push_scope(
+                "function",
+                global_names=direct_global,
+                nonlocal_names=free_names,
+                cell_names=descendant_nonlocal | captured_by_children,
+                bound_names=bound_names,
+            )
+            try:
+                body = self.convert_python_ast_to_pyflow(node.body)
+                closure_cells = tuple(
+                    self._resolve_nonlocal_cell(name) for name in sorted(free_names)
+                )
+            finally:
+                self._pop_scope()
         finally:
-            self._pop_scope()
+            self._child_codes_stack.pop()
 
         code = pyflow_ast.Code(node.name, codeparams, body)
         if self.retain_source_syntax:
@@ -1272,6 +1383,9 @@ class ASTConverter:
             annotations=tuple(definition_annotations),
             closure_cells=closure_cells,
         )
+        register_code_child_codes(code, tuple(child_codes))
+        if self._child_codes_stack:
+            self._child_codes_stack[-1].append(code)
 
         origin_tags: list[Any] = [f"converted_function({node.name})"]
         if isinstance(node, python_ast.AsyncFunctionDef):
@@ -1341,7 +1455,17 @@ class ASTConverter:
         - __init_subclass__ keywords
         - Type parameters for generic classes (Python 3.12+)
         """
-        bases = [self._convert_expression_safe(base) for base in node.bases]
+        bases = [
+            (
+                self._call_named(
+                    "interpreter_unpack_base",
+                    [self._convert_expression_safe(base.value)],
+                )
+                if isinstance(base, python_ast.Starred)
+                else self._convert_expression_safe(base)
+            )
+            for base in node.bases
+        ]
 
         keywords = []
         for kw in getattr(node, "keywords", []):
@@ -1494,6 +1618,12 @@ class ASTConverter:
     def _convert_annotation(self, node: python_ast.AST) -> PythonASTNode:
         if self._future_annotations:
             return pyflow_ast.Existing(Object(python_ast.unparse(node)))
+        if isinstance(node, python_ast.Starred):
+            # PEP 646 unpacked TypeVarTuple annotation, e.g. ``*args: *Ts``.
+            return self._call_named(
+                "interpreter_unpack_type",
+                [self._convert_expression_safe(node.value)],
+            )
         return self._convert_expression_safe(node)
 
     def _convert_import(self, node: python_ast.Import) -> Optional[PythonASTNode]:
@@ -2673,8 +2803,10 @@ class ASTConverter:
             bound_names=set(comprehension_locals) | set(walrus_names),
             is_comprehension=True,
         )
+        child_codes: List[pyflow_ast.Code] = []
+        self._child_codes_stack.append(child_codes)
         try:
-            return self._build_comprehension(
+            result = self._build_comprehension(
                 node,
                 kind,
                 capture_formals,
@@ -2685,7 +2817,15 @@ class ASTConverter:
                 outer_iter_name,
             )
         finally:
+            self._child_codes_stack.pop()
             self._pop_scope()
+        if isinstance(result, pyflow_ast.DirectCall) and isinstance(result.code, pyflow_ast.Code):
+            register_code_child_codes(result.code, tuple(child_codes))
+            if self._child_codes_stack:
+                self._child_codes_stack[-1].append(result.code)
+        elif child_codes and self._child_codes_stack:
+            self._child_codes_stack[-1].extend(child_codes)
+        return result
 
     def _build_comprehension(
         self,
@@ -2851,7 +2991,7 @@ class ASTConverter:
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[origin_tag],
+            origin=[origin_tag, self._make_source_origin(node)],
             lowered=False,
             runtime=False,
             interpreter=False,

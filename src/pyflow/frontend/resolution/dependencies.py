@@ -36,9 +36,12 @@ import inspect
 import os
 import sys
 import types
+import warnings
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Set, cast
 from enum import Enum
+
+from pyflow.language.source_compat import normalize_legacy_python_syntax
 
 from pyflow.language.modules.type_stubs import (
     ResolvedStub,
@@ -162,6 +165,8 @@ class DependencyResolver:
         self._module_cache: Dict[str, Dict[str, Any]] = {}
         self._module_proxy_building: Set[str] = set()
         self._class_proxy_registry: Dict[str, type] = {}
+        self._star_exports_cache: Dict[str, List[str]] = {}
+        self._star_exports_cache_size: int = 0
         # Track missing dependencies for better error reporting
         self._missing_dependencies: Dict[str, List[str]] = {}  # module -> [importing_files]
         # Import graph: module -> imported modules
@@ -565,14 +570,25 @@ class DependencyResolver:
                     self._class_proxy_registry.pop(qualified_name, None)
         return self._index_ast_module(source, file_path, resolve_proxies=True)
 
+    def _parse_ast(self, source: str) -> python_ast.AST:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            try:
+                return python_ast.parse(source)
+            except SyntaxError:
+                normalized = normalize_legacy_python_syntax(source)
+                if normalized == source:
+                    raise
+                return python_ast.parse(normalized)
+
     def _index_ast_module(
         self, source: str, file_path: str, *, resolve_proxies: bool
     ) -> Dict[str, Any]:
         try:
-            tree = python_ast.parse(source)
+            tree = self._parse_ast(source)
             module_name = self._get_module_name_from_path(file_path)
             self._record_import_edges(tree, module_name, file_path)
-            imports = self._extract_import_map(tree, module_name)
+            imports = self._extract_import_map(tree, module_name, file_path=file_path)
             classes = self._extract_top_level_classes(tree, module_name, file_path)
             functions = self._extract_top_level_functions(tree, module_name, file_path)
             self._cache_module_metadata(file_path, module_name, functions, classes, imports, source)
@@ -761,7 +777,13 @@ class DependencyResolver:
                 )
         return module
 
-    def _extract_import_map(self, tree: python_ast.AST, module_name: str) -> Dict[str, str]:
+    def _extract_import_map(
+        self,
+        tree: python_ast.AST,
+        module_name: str,
+        *,
+        file_path: Optional[str] = None,
+    ) -> Dict[str, str]:
         imports: Dict[str, str] = {}
 
         for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
@@ -777,6 +799,7 @@ class DependencyResolver:
                     module_name,
                     node.module or "",
                     int(getattr(node, "level", 0) or 0),
+                    current_path=file_path,
                 )
                 for alias in node.names:
                     if alias.name == "*":
@@ -795,6 +818,13 @@ class DependencyResolver:
         if not module_name:
             return []
 
+        if len(self.source_files) != self._star_exports_cache_size:
+            self._star_exports_cache.clear()
+            self._star_exports_cache_size = len(self.source_files)
+        cached = self._star_exports_cache.get(module_name)
+        if cached is not None:
+            return cached
+
         resolved_stub = self.stub_resolver.resolve(module_name)
         if resolved_stub is not None:
             stub_discovered: Set[str] = set()
@@ -809,17 +839,23 @@ class DependencyResolver:
                 for name, _annotation in resolved_stub.info.variables
                 if not name.startswith("_")
             )
-            return sorted(stub_discovered)
+            result = sorted(stub_discovered)
+            self._star_exports_cache[module_name] = result
+            return result
 
         source_file = self._find_module_source(module_name)
         if source_file is None:
+            self._star_exports_cache[module_name] = []
             return []
 
         try:
             module_source = self._load_source(source_file)
         except Exception:
+            self._star_exports_cache[module_name] = []
             return []
-        return discover_module_exports(module_source)
+        result = discover_module_exports(module_source)
+        self._star_exports_cache[module_name] = result
+        return result
 
     def _resolve_proxy_base_name(
         self,
@@ -835,6 +871,25 @@ class DependencyResolver:
                 return f"{imports[head]}.{tail}"
             return base_name
         return f"{module_name}.{base_name}"
+
+    _RESERVED_TYPE_ATTRS = frozenset(
+        {
+            "__qualname__",
+            "__module__",
+            "__doc__",
+            "__dict__",
+            "__weakref__",
+            "__slots__",
+            "__annotations__",
+            "__type_params__",
+            "__mro_entries__",
+            "__class__",
+            "__bases__",
+            "__base__",
+            "__mro__",
+            "__subclasses__",
+        }
+    )
 
     def _create_class_proxy(
         self,
@@ -865,6 +920,9 @@ class DependencyResolver:
             )
             public_methods[method_name] = proxy
 
+            if method_name in self._RESERVED_TYPE_ATTRS:
+                continue
+
             if method_info.get("is_classmethod"):
                 attrs[method_name] = classmethod(proxy)
             elif method_info.get("is_staticmethod"):
@@ -884,7 +942,22 @@ class DependencyResolver:
                 f"Warning: Inconsistent MRO while building proxy for "
                 f"{qualified_name}; falling back to object base: {error}"
             )
-            proxy_cls = type(cls_info["name"], (object,), attrs)
+            try:
+                proxy_cls = type(cls_info["name"], (object,), attrs)
+            except TypeError:
+                safe_attrs = {
+                    k: v
+                    for k, v in attrs.items()
+                    if k
+                    in (
+                        "__module__",
+                        "__doc__",
+                        "__pyflow_class_info__",
+                        "__pyflow_public_methods__",
+                    )
+                    or not (k.startswith("__") and k.endswith("__"))
+                }
+                proxy_cls = type(cls_info["name"], (object,), safe_attrs)
         proxy_cls.__qualname__ = cls_info.get("qualname", cls_info["name"])
         return proxy_cls
 
@@ -1017,7 +1090,12 @@ class DependencyResolver:
         return self.project_context.module_name_from_path(file_path)
 
     def _resolve_imported_module(
-        self, current_module: str, imported_module: str, level: int
+        self,
+        current_module: str,
+        imported_module: str,
+        level: int,
+        *,
+        current_path: Optional[str] = None,
     ) -> str:
         """Resolve an import module considering relative import level."""
         return (
@@ -1025,6 +1103,7 @@ class DependencyResolver:
                 current_module,
                 imported_module,
                 level,
+                current_path=current_path,
             )
             or ""
         )

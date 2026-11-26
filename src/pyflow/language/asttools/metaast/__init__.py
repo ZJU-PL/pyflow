@@ -342,7 +342,7 @@ class astnode(type):
 
 
 class ASTNode(object, metaclass=astnode):
-    __slots__ = "annotation"
+    __slots__ = ("annotation", "__weakref__")
 
     __emptyAnnotation__ = None
     __leaf__ = False  # For pretty printing

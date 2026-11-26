@@ -15,10 +15,14 @@ This module provides a lightweight AST-based lookup that prefers:
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import sys
+import warnings
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
+
+from pyflow.language.source_compat import normalize_legacy_python_syntax
 
 
 @dataclass(frozen=True)
@@ -31,23 +35,38 @@ class FunctionSpan:
 
 # Each entry point lookup re-parses and re-walks a full file AST unless the
 # spans are cached; a source map of N files x M callables is the frontend's
-# dominant cost.  Keyed by the source *content* (strings hash by value), so a
-# ``textwrap.dedent``-ed copy of a module shares the entry with the original
-# instead of missing an ``id(source)``-keyed cache on every conversion.  The
-# cap keeps long-running processes (LSP) from accumulating stale entries.
-_SPAN_CACHE: "Dict[str, List[FunctionSpan]]" = {}
-_MAX_SPAN_CACHE_ENTRIES = 8192
+# dominant cost.  Keyed by a content digest so a ``textwrap.dedent``-ed copy
+# shares the entry without pinning multi-megabyte source strings in memory.
+_SPAN_CACHE: "Dict[Tuple[int, bytes], List[FunctionSpan]]" = {}
+_MAX_SPAN_CACHE_ENTRIES = 2048
+
+
+def _span_cache_key(source: str) -> Tuple[int, bytes]:
+    digest = hashlib.blake2b(
+        source.encode("utf-8", errors="surrogatepass"),
+        digest_size=16,
+    ).digest()
+    return (len(source), digest)
 
 
 def _cached_spans(source: str) -> List[FunctionSpan]:
-    cached = _SPAN_CACHE.get(source)
+    key = _span_cache_key(source)
+    cached = _SPAN_CACHE.get(key)
     if cached is not None:
         return cached
-    tree = ast.parse(source)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            normalized = normalize_legacy_python_syntax(source)
+            if normalized == source:
+                raise
+            tree = ast.parse(normalized)
     spans = list(_iter_function_spans(tree))
     if len(_SPAN_CACHE) >= _MAX_SPAN_CACHE_ENTRIES:
         _SPAN_CACHE.clear()
-    _SPAN_CACHE[source] = spans
+    _SPAN_CACHE[key] = spans
     return spans
 
 
@@ -268,12 +287,17 @@ def _source_index(sources_by_filename: Dict[str, str]) -> _SourceIndex:
     return state.index
 
 
+_PYFLOW_STUBS_DIR: str = os.path.realpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "stubs")
+)
+
 _STDLIB_DIRS: Tuple[str, ...] = tuple(
     p
     for p in {
         os.path.realpath(os.path.dirname(os.__file__)),
         os.path.realpath(sys.base_prefix),
         os.path.realpath(sys.prefix),
+        _PYFLOW_STUBS_DIR,
     }
     if p
 )
@@ -282,7 +306,12 @@ _STDLIB_DIRS: Tuple[str, ...] = tuple(
 def _is_external_runtime_file(filename: Optional[str]) -> bool:
     if not filename:
         return False
-    if filename.startswith("<frozen ") or filename.startswith("<built-in"):
+    if (
+        filename.startswith("<frozen ")
+        or filename.startswith("<built-in")
+        or filename.startswith("<stub")
+        or filename.endswith(".pyi")
+    ):
         return True
     if not os.path.isabs(filename):
         return False

@@ -403,14 +403,26 @@ class StubResolver:
         roots = default_typeshed_roots() if typeshed_roots is None else typeshed_roots
         self.typeshed_roots = [Path(root) for root in roots]
         self.python_version = python_version or (sys.version_info.major, sys.version_info.minor)
-        # Imported lazily: stub_cache imports the StubInfo dataclasses from
-        # this module.
-        from pyflow.analysis.typeinfo.resolution.stub_cache import StubCache
-
-        self._stub_cache = StubCache(stub_cache_dir, enabled=enable_cache)
+        self._stub_cache_dir = stub_cache_dir
+        self._enable_cache = enable_cache
+        self._stub_cache_instance = None
         self._path_cache: dict[tuple[str, str | None], tuple[str, str] | None] = {}
         self._info_cache: dict[str, ResolvedStub | None] = {}
         self._diagnostics: list[StubDiagnostic] = []
+
+    @property
+    def _stub_cache(self):
+        if self._stub_cache_instance is None:
+            # Imported lazily on first stub parse so constructing StubResolver
+            # does not pay the full typeinfo package import cost upfront.
+            from pyflow.analysis.typeinfo.resolution.stub_cache import StubCache
+
+            self._stub_cache_instance = StubCache(self._stub_cache_dir, enabled=self._enable_cache)
+        return self._stub_cache_instance
+
+    @_stub_cache.setter
+    def _stub_cache(self, value) -> None:
+        self._stub_cache_instance = value
 
     def clear_cache(self) -> None:
         """Clear resolver-local path and parse caches."""

@@ -66,7 +66,7 @@ def originString(origin):
 Origin = namedtuple("Origin", "name filename lineno col", dict(originString=originString))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SourceOrigin:
     """Source origin with the complete span supplied by Python's AST."""
 

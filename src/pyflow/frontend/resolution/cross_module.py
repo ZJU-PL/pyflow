@@ -26,6 +26,8 @@ class CrossModuleResolver:
         classes: Optional[Dict[str, ClassInfo]] = None,
         functions: Optional[Dict[str, object]] = None,
         imports: Optional[Dict[str, str]] = None,
+        *,
+        register_in_hierarchy: bool = True,
     ) -> None:
         self.modules[module_name] = {
             "classes": classes or {},
@@ -33,7 +35,7 @@ class CrossModuleResolver:
         }
         if imports:
             self.imports[module_name] = imports
-        if classes:
+        if classes and register_in_hierarchy:
             for class_info in classes.values():
                 self.hierarchy.register_class(
                     name=class_info.name,
@@ -53,9 +55,10 @@ class CrossModuleResolver:
         module_imports = self.imports.get(from_module, {})
         if name in module_imports:
             qualified = module_imports[name]
-            if qualified in self.hierarchy.classes:
-                return qualified, "class"
-            return qualified, "function"
+            if isinstance(qualified, str):
+                if qualified in self.hierarchy.classes:
+                    return qualified, "class"
+                return qualified, "function"
 
         qualified = f"{from_module}.{name}"
         if qualified in self.hierarchy.classes:

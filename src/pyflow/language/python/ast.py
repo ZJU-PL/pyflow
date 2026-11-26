@@ -324,6 +324,10 @@ class Call(Expression):
     """
 
     __fields__ = "expr:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
+    __slots__ = ("_call_meta",)
+
+    def __postinit__(self):
+        self._call_meta = None
 
 
 class MethodCall(Expression):
@@ -337,6 +341,10 @@ class MethodCall(Expression):
     __fields__ = (
         "expr:Expression name:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
     )
+    __slots__ = ("_call_meta",)
+
+    def __postinit__(self):
+        self._call_meta = None
 
 
 class DirectCall(Expression):
@@ -350,6 +358,10 @@ class DirectCall(Expression):
     # TODO kwds type?
     # HACK code is optional, as cloned "dead" direct calls may have no corresponding code.
     __fields__ = "code:BaseCode? selfarg:Expression? args:Expression* kwds* vargs:Expression? kargs:Expression?"
+    __slots__ = ("_call_meta",)
+
+    def __postinit__(self):
+        self._call_meta = None
 
     def __repr__(self):
         if self.code is not None:
@@ -689,13 +701,14 @@ class Code(BaseCode):
     __fields__ = """name:str
             codeparameters:CodeParameters
             ast:Suite"""
-    __slots__ = ("ir_catalog",)
+    __slots__ = ("ir_catalog", "_code_meta")
     __shared__ = True
 
     __emptyAnnotation__ = annotations.emptyCodeAnnotation
 
     def __postinit__(self):
         self.ir_catalog = None
+        self._code_meta = None
 
     def __repr__(self):
         catalog = self.ir_catalog
@@ -785,6 +798,10 @@ class ClassDef(CompoundStatement):
     """
 
     __fields__ = "name:str bases:Expression* keywords:* body:Suite decorators:Expression* type_params:TypeParams?"
+    __slots__ = ("_class_cell",)
+
+    def __postinit__(self):
+        self._class_cell = None
 
 
 class Phi(PythonASTNode):

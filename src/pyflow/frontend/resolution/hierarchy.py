@@ -89,6 +89,11 @@ class ClassHierarchy:
         "float",
         "str",
         "bool",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "frozenset",
         "List",
         "Dict",
         "Set",
@@ -96,14 +101,101 @@ class ClassHierarchy:
         "Frozenset",
         "bytes",
         "bytearray",
+        "memoryview",
         "complex",
         "NoneType",
         "ellipsis",
         "range",
         "slice",
-        "Exception",
+        "super",
+        "property",
+        "staticmethod",
+        "classmethod",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        "reversed",
         "BaseException",
+        "Exception",
+        "ArithmeticError",
+        "AssertionError",
+        "AttributeError",
+        "BufferError",
+        "EOFError",
+        "FileNotFoundError",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "LookupError",
+        "MemoryError",
+        "ModuleNotFoundError",
+        "NameError",
+        "NotImplementedError",
+        "OSError",
+        "OverflowError",
+        "PermissionError",
+        "RecursionError",
+        "ReferenceError",
+        "RuntimeError",
+        "StopIteration",
+        "SyntaxError",
+        "IndentationError",
+        "SystemError",
+        "TimeoutError",
+        "TypeError",
+        "UnicodeError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+        "ValueError",
+        "ZeroDivisionError",
+        "Warning",
+        "UserWarning",
+        "DeprecationWarning",
+        "FutureWarning",
+        "RuntimeWarning",
+        "SystemExit",
+        "KeyboardInterrupt",
+        "GeneratorExit",
     }
+
+    _BUILTIN_BASES = {
+        "object": (),
+        "BaseException": ("object",),
+        "SystemExit": ("BaseException",),
+        "KeyboardInterrupt": ("BaseException",),
+        "GeneratorExit": ("BaseException",),
+        "Exception": ("BaseException",),
+        "ArithmeticError": ("Exception",),
+        "ZeroDivisionError": ("ArithmeticError",),
+        "OverflowError": ("ArithmeticError",),
+        "LookupError": ("Exception",),
+        "IndexError": ("LookupError",),
+        "KeyError": ("LookupError",),
+        "ImportError": ("Exception",),
+        "ModuleNotFoundError": ("ImportError",),
+        "OSError": ("Exception",),
+        "FileNotFoundError": ("OSError",),
+        "PermissionError": ("OSError",),
+        "TimeoutError": ("OSError",),
+        "RuntimeError": ("Exception",),
+        "NotImplementedError": ("RuntimeError",),
+        "RecursionError": ("RuntimeError",),
+        "SyntaxError": ("Exception",),
+        "IndentationError": ("SyntaxError",),
+        "ValueError": ("Exception",),
+        "UnicodeError": ("ValueError",),
+        "UnicodeDecodeError": ("UnicodeError",),
+        "UnicodeEncodeError": ("UnicodeError",),
+        "Warning": ("Exception",),
+        "UserWarning": ("Warning",),
+        "DeprecationWarning": ("Warning",),
+        "FutureWarning": ("Warning",),
+        "RuntimeWarning": ("Warning",),
+        "bool": ("int",),
+    }
+
+    _GENERIC_BASE_NAMES = frozenset({"typing.Generic", "typing_extensions.Generic"})
 
     def __init__(self, verbose: bool = False):
         self.classes: Dict[str, ClassInfo] = {}
@@ -118,12 +210,21 @@ class ClassHierarchy:
         """Register built-in types with their standard MRO."""
         for builtin in self.BUILTIN_TYPES:
             qualified = f"builtins.{builtin}"
+            if builtin in self._BUILTIN_BASES:
+                raw_bases = list(self._BUILTIN_BASES[builtin])
+            elif builtin.endswith(("Error", "Exception", "Warning")) and builtin not in (
+                "BaseException",
+                "Exception",
+            ):
+                raw_bases = ["Exception"]
+            else:
+                raw_bases = ["object"] if builtin != "object" else []
             self.classes[qualified] = ClassInfo(
                 name=builtin,
                 qualified_name=qualified,
                 module="builtins",
-                bases=["object"] if builtin != "object" else [],
-                resolved_bases=["builtins.object"] if builtin != "object" else [],
+                bases=raw_bases,
+                resolved_bases=[f"builtins.{b}" for b in raw_bases],
                 methods=set(),
                 attributes=set(),
             )
@@ -212,13 +313,15 @@ class ClassHierarchy:
             The qualified name of the base class, or None if not found
         """
         if imported_names and base_name in imported_names:
-            return imported_names[base_name]
+            target = imported_names[base_name]
+            if isinstance(target, str):
+                return target
 
         if "." in base_name:
             if imported_names:
                 head, tail = base_name.split(".", 1)
                 imported_target = imported_names.get(head)
-                if imported_target:
+                if isinstance(imported_target, str) and imported_target:
                     candidate = f"{imported_target}.{tail}"
                     if candidate in self.classes:
                         return candidate
@@ -335,18 +438,41 @@ class ClassHierarchy:
             visited.remove(qualified_name)
             return result
 
+        if qualified_name == "builtins.object":
+            result = ["builtins.object"]
+            self._mro_cache[qualified_name] = result
+            visited.remove(qualified_name)
+            return result
+
         if not cls_info.resolved_bases:
             result = [qualified_name, "builtins.object"]
             self._mro_cache[qualified_name] = result
             visited.remove(qualified_name)
             return result
 
-        base_mros = []
+        base_mro_pairs: List[Tuple[str, List[str]]] = []
         for base in cls_info.resolved_bases:
             base_mro = self._compute_mro(base, visited.copy())
+            base_mro_pairs.append((base, base_mro))
+
+        # PEP 560: typing.Generic is deduplicated when another base already
+        # inherits from Generic, so ``class C(Generic[T], Sub(Generic))`` is valid.
+        inherited_generics: Set[str] = set()
+        for base, base_mro in base_mro_pairs:
+            if base not in self._GENERIC_BASE_NAMES:
+                inherited_generics.update(
+                    entry for entry in base_mro if entry in self._GENERIC_BASE_NAMES
+                )
+
+        effective_bases: List[str] = []
+        base_mros: List[List[str]] = []
+        for base, base_mro in base_mro_pairs:
+            if base in inherited_generics:
+                continue
+            effective_bases.append(base)
             base_mros.append(base_mro)
 
-        base_mros.append([b for b in cls_info.resolved_bases])
+        base_mros.append(effective_bases)
 
         result = self._c3_merge(qualified_name, base_mros)
 

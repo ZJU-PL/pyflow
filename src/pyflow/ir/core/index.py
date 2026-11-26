@@ -362,6 +362,24 @@ def register_program_procedures(
         )
         code.ir_catalog = catalog
 
+        from pyflow.language.python.ir_metadata import code_child_codes
+
+        direct_children = code_child_codes(code)
+        if direct_children is not None:
+            for child in direct_children:
+                if isinstance(child, ast.Code) and child is not code:
+                    nested_name = child.codeName()
+                    nested_qualname = (
+                        nested_name if "." in nested_name else f"{qualname}.<locals>.{nested_name}"
+                    )
+                    register_tree(
+                        child,
+                        code_module=code_module,
+                        qualname=nested_qualname,
+                        fallback_filename=fallback_filename,
+                    )
+            return
+
         pending: list[object] = [code]
         while pending:
             node = pending.pop()

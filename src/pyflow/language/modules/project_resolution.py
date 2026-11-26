@@ -138,6 +138,55 @@ def remove_python_path_suffix(path: Path) -> Path:
     return path
 
 
+def _prepare_module_realpath(
+    module_path: str | os.PathLike[str],
+    realpath_fn=os.path.realpath,
+) -> tuple[Optional[str], bool]:
+    path = remove_python_path_suffix(Path(module_path).absolute())
+    if path.name.startswith("."):
+        return None, False
+
+    is_package = path.name == "__init__"
+    if is_package:
+        path = path.parent
+
+    return realpath_fn(str(path)), is_package
+
+
+def _transform_realpath_to_dotted(
+    resolved_roots: Sequence[str],
+    path_str: Optional[str],
+    is_package: bool,
+) -> tuple[Optional[tuple[str, ...]], bool]:
+    if not path_str:
+        return None, False
+
+    candidates: List[tuple[str, ...]] = []
+    sep = os.sep
+    for root_str in resolved_roots:
+        if path_str == root_str:
+            continue
+        # Fast prefix test avoids os.path.commonpath / os.path.relpath overhead
+        # on the vast majority of non-matching sys.path roots.
+        if root_str.endswith(sep):
+            prefix = root_str
+        else:
+            prefix = root_str + sep
+        if not path_str.startswith(prefix):
+            continue
+        rest = path_str[len(prefix) :]
+        if not rest or rest == ".":
+            continue
+        parts = rest.split(sep)
+        if not all(parts):
+            continue
+        candidates.append(tuple(re.sub(r"-stubs$", "", part) for part in parts))
+
+    if not candidates:
+        return None, False
+    return min(candidates, key=len), is_package
+
+
 def transform_path_to_dotted(
     sys_path: Sequence[str], module_path: str | os.PathLike[str]
 ) -> tuple[Optional[tuple[str, ...]], bool]:
@@ -147,37 +196,13 @@ def transform_path_to_dotted(
     The boolean indicates whether the path refers to a package ``__init__``.
     """
 
-    path = remove_python_path_suffix(Path(module_path).absolute())
-    if path.name.startswith("."):
+    path_str, is_package = _prepare_module_realpath(module_path)
+    if not path_str:
         return None, False
-
-    is_package = path.name == "__init__"
-    if is_package:
-        path = path.parent
-
-    path_str = os.path.realpath(str(path))
-    candidates: List[tuple[str, ...]] = []
-    for root in sys_path:
-        if not root:
-            root = os.curdir
-        root_str = os.path.realpath(str(Path(root).absolute()))
-        try:
-            common = os.path.commonpath([root_str, path_str])
-        except ValueError:
-            continue
-        if common != root_str:
-            continue
-        rest = os.path.relpath(path_str, root_str)
-        if rest in ("", "."):
-            continue
-        parts = rest.split(os.sep)
-        if not all(parts):
-            continue
-        candidates.append(tuple(re.sub(r"-stubs$", "", part) for part in parts))
-
-    if not candidates:
-        return None, False
-    return sorted(candidates, key=len)[0], is_package
+    resolved_roots = [
+        os.path.realpath(str(Path(root or os.curdir).absolute())) for root in sys_path
+    ]
+    return _transform_realpath_to_dotted(resolved_roots, path_str, is_package)
 
 
 def _abs_path(base_file: Optional[str], str_path: str) -> Optional[str]:
@@ -286,6 +311,29 @@ class ProjectContext:
         self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
         self._find_module_cache_order: List[tuple[object, ...]] = []
         self._max_find_module_cache = 4096
+        self._realpath_cache: Dict[str, str] = {}
+        self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
+
+    def _realpath(self, path_str: str) -> str:
+        cached = self._realpath_cache.get(path_str)
+        if cached is not None:
+            return cached
+        resolved = os.path.realpath(path_str)
+        if len(self._realpath_cache) >= 16384:
+            self._realpath_cache.clear()
+        self._realpath_cache[path_str] = resolved
+        return resolved
+
+    def _resolve_roots(self, roots: Sequence[str]) -> tuple[str, ...]:
+        key = tuple(roots)
+        cached = self._resolved_roots_cache.get(key)
+        if cached is not None:
+            return cached
+        resolved = tuple(self._realpath(str(Path(root or os.curdir).absolute())) for root in roots)
+        if len(self._resolved_roots_cache) >= 64:
+            self._resolved_roots_cache.clear()
+        self._resolved_roots_cache[key] = resolved
+        return resolved
 
     def with_source_files(self, source_files: Mapping[str, str]) -> "ProjectContext":
         self.source_files.update(source_files)
@@ -344,7 +392,7 @@ class ProjectContext:
             return "__pyflow_module__"
 
         if self.module_name_overrides:
-            override = self.module_name_overrides.get(os.path.realpath(file_str))
+            override = self.module_name_overrides.get(self._realpath(file_str))
             if override is not None:
                 return override
 
@@ -353,16 +401,14 @@ class ProjectContext:
             return workspace_module
 
         path = Path(file_str)
-        if not path.is_absolute():
-            path = Path(file_str)
-            abs_path = path.absolute()
-        else:
-            abs_path = path
+        abs_path = path if path.is_absolute() else path.absolute()
 
-        project_roots = [str(self.path)] + list(self.added_sys_path)
-        dotted, _ = transform_path_to_dotted(project_roots, abs_path)
+        path_real, is_package = _prepare_module_realpath(abs_path, self._realpath)
+        project_roots = self._resolve_roots([str(self.path)] + list(self.added_sys_path))
+        dotted, _ = _transform_realpath_to_dotted(project_roots, path_real, is_package)
         if dotted is None:
-            dotted, _ = transform_path_to_dotted(self.get_base_sys_path(), abs_path)
+            base_roots = self._resolve_roots(self.get_base_sys_path())
+            dotted, _ = _transform_realpath_to_dotted(base_roots, path_real, is_package)
         if dotted:
             parts = list(dotted)
             if parts and parts[-1] == "__init__":
@@ -427,13 +473,18 @@ class ProjectContext:
         mapping: Dict[str, str] = {}
         aliases: Dict[str, str] = {}
         ambiguous_aliases: Set[str] = set()
-        roots = [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
+        resolved_roots = self._resolve_roots(
+            [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
+        )
         for filename in self.source_files:
             name = self.module_name_from_path(filename)
             mapping[name] = filename
             if name.endswith(".__init__"):
                 mapping[name[: -len(".__init__")]] = filename
-            dotted, is_package = transform_path_to_dotted(roots, filename)
+            path_real, is_package = _prepare_module_realpath(filename, self._realpath)
+            dotted, is_package = _transform_realpath_to_dotted(
+                resolved_roots, path_real, is_package
+            )
             if dotted:
                 candidate = ".".join(
                     dotted[:-1] if is_package and dotted[-1] == "__init__" else dotted

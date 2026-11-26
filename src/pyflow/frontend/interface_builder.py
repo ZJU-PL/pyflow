@@ -5,6 +5,7 @@ from __future__ import annotations
 from pyflow.frontend.source import read_python_source
 
 import inspect
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,7 +102,10 @@ def _add_class_entries(
     resolver: DependencyResolver,
     file_path: str | Path,
     options: InterfaceBuildOptions,
+    *,
+    known_real_paths: Optional[frozenset[str]] = None,
 ) -> None:
+    source_files = resolver.source_files
     for class_name, class_object in classes.items():
         declaration = ClassDeclaration(class_object)
         init_args, init_keywords = _default_entry_args(class_object.__init__, skip_first=True)
@@ -119,6 +123,19 @@ def _add_class_entries(
             method = getattr(class_object, method_name)
             if method_info.get("is_classmethod", False):
                 method = getattr(method, "__func__", method)
+            method_filename = getattr(getattr(method, "__code__", None), "co_filename", None)
+            if method_filename:
+                # Skip methods inherited from external/typeshed stubs or libraries
+                # outside the analyzed source set; otherwise translation creates
+                # empty fallback entry points or mis-associates by bare name.
+                if method_filename.endswith(".pyi") or method_filename.startswith("<stub"):
+                    continue
+                if source_files and method_filename not in source_files:
+                    if (
+                        known_real_paths is None
+                        or os.path.realpath(method_filename) not in known_real_paths
+                    ):
+                        continue
             method_args, method_keywords = _default_entry_args(method, skip_first=skip_first)
             kind = (
                 "staticmethod"
@@ -212,13 +229,26 @@ def build_interface_from_paths(
             f"prebuilt class proxies: {error}"
         )
 
+    known_real_paths = frozenset(
+        os.path.realpath(path) for path in source_files if path and not path.startswith("<")
+    )
+
     for file_path in paths:
+        source = source_files.get(str(file_path))
+        if source is None:
+            continue
         try:
-            source = source_files[str(file_path)]
             functions = resolver.extract_functions(source, str(file_path))
             classes = resolver.get_module_classes(str(file_path))
             _add_function_entries(interface, functions, file_path, options)
-            _add_class_entries(interface, classes, resolver, file_path, options)
+            _add_class_entries(
+                interface,
+                classes,
+                resolver,
+                file_path,
+                options,
+                known_real_paths=known_real_paths,
+            )
             if options.verbose:
                 print(
                     f"Found {len(functions)} functions and {len(classes)} "

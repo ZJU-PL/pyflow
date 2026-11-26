@@ -13,6 +13,7 @@ from typing import Any, Iterable, Optional
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
 from pyflow.language.python.default_markers import MISSING_DEFAULT
+from pyflow.language.python.ir_metadata import code_child_codes, register_code_child_codes
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.ir.core.source import syntax_source_span
 from pyflow.application.program import Program
@@ -252,28 +253,39 @@ class FunctionExtractor:
         first_lineno: int = 1,
         origin_tag: str,
     ) -> pyflow_ast.Code:
-        body = self._convert_body(body_nodes, filename)
+        child_codes: list[pyflow_ast.Code] = []
+        self.ast_converter._child_codes_stack.append(child_codes)
+        try:
+            body = self._convert_body(body_nodes, filename)
+        finally:
+            self.ast_converter._child_codes_stack.pop()
         code = pyflow_ast.Code(name, self._empty_code_parameters(), body)
         origin = [f"{origin_tag}({name})"]
         if filename:
             origin.append(f"source({filename}:{first_lineno})")
         code.annotation = self._make_code_annotation(origin)
+        register_code_child_codes(code, tuple(child_codes))
         return code
 
     def _convert_python_function_to_pyflow(
         self, func_node: python_ast.AST, func: Any, *, filename: Optional[str] = None
     ) -> pyflow_ast.Code:
         """Convert a Python AST FunctionDef to a pyflow AST Code node."""
-        # Convert function parameters
-        codeparams = self._convert_function_args(
-            func_node.args,
-            func,
-            type_params_node=getattr(func_node, "type_params", None),
-            filename=filename,
-        )
+        child_codes: list[pyflow_ast.Code] = []
+        self.ast_converter._child_codes_stack.append(child_codes)
+        try:
+            # Convert function parameters
+            codeparams = self._convert_function_args(
+                func_node.args,
+                func,
+                type_params_node=getattr(func_node, "type_params", None),
+                filename=filename,
+            )
 
-        # Convert function body
-        body = self._convert_body(func_node.body, filename)
+            # Convert function body
+            body = self._convert_body(func_node.body, filename)
+        finally:
+            self.ast_converter._child_codes_stack.pop()
 
         # Use func_node.name if func is None
         func_name = func.__name__ if func else func_node.name
@@ -294,6 +306,7 @@ class FunctionExtractor:
             )
 
         code = pyflow_ast.Code(func_name, codeparams, body)
+        register_code_child_codes(code, tuple(child_codes))
 
         # Initialize the annotation properly
         origin = [f"converted_function({func_name})"]
@@ -367,14 +380,18 @@ class FunctionExtractor:
         if not body_nodes:
             return None, []
         bound_names, _loaded = self.ast_converter._collect_scope_names(body_nodes)
-        self.ast_converter.module_scope_names.update(bound_names)
-        code = self.create_synthetic_code(
-            f"{module_name}.<module>",
-            body_nodes,
-            filename=filename,
-            first_lineno=1,
-            origin_tag="synthetic_module",
-        )
+        previous_module_scope_names = self.ast_converter.module_scope_names
+        self.ast_converter.module_scope_names = set(bound_names)
+        try:
+            code = self.create_synthetic_code(
+                f"{module_name}.<module>",
+                body_nodes,
+                filename=filename,
+                first_lineno=1,
+                origin_tag="synthetic_module",
+            )
+        finally:
+            self.ast_converter.module_scope_names = previous_module_scope_names
         self._add_code_to_program(program, code)
         definitions: list[tuple[pyflow_ast.Code, str, Optional[int]]] = []
 
@@ -431,34 +448,36 @@ class FunctionExtractor:
             self._add_code_to_program(program, nested)
             definitions.append((nested, qualified_name(candidate), source_line(nested)))
 
-        def flatten_children(node):
+        skip_leaf_types = (*pyflow_ast.leafTypes, pyflow_ast.Reference, pyflow_ast.Cell)
+
+        def push_children(node, prefix: str, skip_code: object = None) -> None:
+            children: list[object] = []
             for field in node.children():
+                if field is None or isinstance(field, skip_leaf_types):
+                    continue
                 if isinstance(field, (list, tuple)):
                     for item in field:
-                        yield item
-                else:
-                    yield field
-
-        def push_children(node, prefix: str, skip=()) -> None:
-            children = [
-                child
-                for child in flatten_children(node)
-                if child is not None
-                and not (isinstance(child, pyflow_ast.Code) and any(child is item for item in skip))
-            ]
+                        if item is not None and not isinstance(item, skip_leaf_types):
+                            if skip_code is None or item is not skip_code:
+                                children.append(item)
+                elif skip_code is None or field is not skip_code:
+                    children.append(field)
             for child in reversed(children):
                 worklist.append((child, prefix))
 
         # Explicit worklist: nested code discovery must not recurse once per
-        # AST level (deeply nested expressions are legal Python).
+        # AST level (deeply nested expressions are legal Python).  Functions
+        # whose recorded child-code tuple is empty cannot contain nested Code
+        # nodes and are skipped without walking their body AST.
         worklist: list[tuple[object, str]] = [(code.ast, module_name)]
         while worklist:
             node, prefix = worklist.pop()
-            if node is None or isinstance(node, pyflow_ast.leafTypes):
+            if node is None or isinstance(node, skip_leaf_types):
                 continue
             if isinstance(node, (list, tuple)):
                 for item in reversed(node):
-                    worklist.append((item, prefix))
+                    if item is not None and not isinstance(item, skip_leaf_types):
+                        worklist.append((item, prefix))
                 continue
             nid = id(node)
             if nid in seen_nodes:
@@ -474,7 +493,9 @@ class FunctionExtractor:
                     span = syntax_source_span(node)
                     location = f"@{span.start_line}:{span.start_column}" if span else ""
                     add_nested_code(node, f"{prefix}.<{base}>{location}")
-                worklist.append((node.ast, f"{node.codeName()}.<locals>"))
+                nested_children = code_child_codes(node)
+                if nested_children is None or nested_children:
+                    worklist.append((node.ast, f"{node.codeName()}.<locals>"))
                 continue
 
             if isinstance(node, pyflow_ast.FunctionDef):
@@ -483,9 +504,11 @@ class FunctionExtractor:
                     add_nested_code(nested, f"{prefix}.{node.name}")
                 # Reverse-pushed so the pop order matches the recursive walk:
                 # body, parameters, then the remaining fields.
-                push_children(node, prefix, skip=(nested,))
-                worklist.append((nested.codeparameters, f"{nested.codeName()}.<locals>"))
-                worklist.append((nested.ast, f"{nested.codeName()}.<locals>"))
+                push_children(node, prefix, skip_code=nested)
+                nested_children = code_child_codes(nested)
+                if nested_children is None or nested_children:
+                    worklist.append((nested.codeparameters, f"{nested.codeName()}.<locals>"))
+                    worklist.append((nested.ast, f"{nested.codeName()}.<locals>"))
                 continue
 
             if isinstance(node, pyflow_ast.ClassDef):

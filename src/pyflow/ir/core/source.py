@@ -8,7 +8,7 @@ from functools import lru_cache
 from .ids import NodeId, SymbolId
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class SourceSpan:
     path: str
     start_line: int
@@ -17,19 +17,19 @@ class SourceSpan:
     end_column: int | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SourceOrigin:
     span: SourceSpan
     name: str | None = None
     construct_kind: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SyntheticOrigin:
     reason: str
 
 
-@lru_cache(maxsize=262144)
+@lru_cache(maxsize=16384)
 def _source_origin(
     filename: str,
     line: int,
@@ -44,7 +44,7 @@ def _source_origin(
     )
 
 
-@lru_cache(maxsize=8192)
+@lru_cache(maxsize=4096)
 def _synthetic_origin(reason: str) -> SyntheticOrigin:
     return SyntheticOrigin(reason)
 

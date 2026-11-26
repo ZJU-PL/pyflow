@@ -166,15 +166,73 @@ def _entries_from_pyproject(
     return candidates
 
 
+def _extract_console_scripts_from_expr(
+    expr: ast.AST,
+    assigned_exprs: dict[str, list[ast.AST]],
+    seen_names: set[str],
+) -> list[str]:
+    """Extract raw ``command = module:attr`` console_scripts declarations."""
+    declarations: list[str] = []
+    if isinstance(expr, ast.Name):
+        if expr.id in seen_names:
+            return declarations
+        seen_names.add(expr.id)
+        for value in assigned_exprs.get(expr.id, ()):
+            declarations.extend(
+                _extract_console_scripts_from_expr(value, assigned_exprs, seen_names)
+            )
+        return declarations
+
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        parser = configparser.ConfigParser(interpolation=None)
+        try:
+            parser.read_string(expr.value)
+        except configparser.Error:
+            return declarations
+        if parser.has_section("console_scripts"):
+            for cmd, ref in parser.items("console_scripts"):
+                declarations.append(f"{cmd} = {ref}")
+        return declarations
+
+    if isinstance(expr, ast.Dict):
+        for key, value in zip(expr.keys, expr.values):
+            if not (isinstance(key, ast.Constant) and key.value == "console_scripts"):
+                continue
+            if isinstance(value, (ast.List, ast.Tuple)):
+                for element in value.elts:
+                    if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                        declarations.append(element.value)
+            elif isinstance(value, ast.Name):
+                for assigned in assigned_exprs.get(value.id, ()):
+                    if isinstance(assigned, (ast.List, ast.Tuple)):
+                        for element in assigned.elts:
+                            if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                                declarations.append(element.value)
+    return declarations
+
+
 def _entries_from_setup_py(project_root: Path, bases: list[Path]) -> list[EntryCandidate]:
     setup_py = project_root / "setup.py"
     if not setup_py.is_file():
         return []
 
+    import warnings
+
     try:
-        tree = ast.parse(setup_py.read_text(encoding="utf-8", errors="replace"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(setup_py.read_text(encoding="utf-8", errors="replace"))
     except (OSError, SyntaxError):
         return []
+
+    assigned_exprs: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assigned_exprs.setdefault(target.id, []).append(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
+            assigned_exprs.setdefault(node.target.id, []).append(node.value)
 
     candidates: list[EntryCandidate] = []
     for node in ast.walk(tree):
@@ -186,28 +244,19 @@ def _entries_from_setup_py(project_root: Path, bases: list[Path]) -> list[EntryC
         if not is_setup_call:
             continue
         for keyword in node.keywords:
-            if keyword.arg != "entry_points" or not isinstance(keyword.value, ast.Dict):
+            if keyword.arg != "entry_points":
                 continue
-            for key, value in zip(keyword.value.keys, keyword.value.values):
-                if not (
-                    isinstance(key, ast.Constant)
-                    and key.value == "console_scripts"
-                    and isinstance(value, (ast.List, ast.Tuple))
-                ):
+            declarations = _extract_console_scripts_from_expr(keyword.value, assigned_exprs, set())
+            for declaration in declarations:
+                command, separator, reference = declaration.partition("=")
+                if not separator:
                     continue
-                for element in value.elts:
-                    if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
-                        continue
-                    declaration = element.value
-                    command, separator, reference = declaration.partition("=")
-                    if not separator:
-                        continue
-                    module = reference.split(":", 1)[0].strip()
-                    entry = _module_to_path(module, project_root, bases)
-                    if entry is not None:
-                        candidates.append(
-                            EntryCandidate(entry, "setup.py console_scripts", command.strip())
-                        )
+                module = reference.split(":", 1)[0].strip()
+                entry = _module_to_path(module, project_root, bases)
+                if entry is not None:
+                    candidates.append(
+                        EntryCandidate(entry, "setup.py console_scripts", command.strip())
+                    )
     return candidates
 
 
